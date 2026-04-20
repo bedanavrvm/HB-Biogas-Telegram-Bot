@@ -14,7 +14,7 @@ google-auth==2.28.2
 python-dateutil==2.9.0.post0
 
 # Database
-psycopg2-binary==2.9.9  # PostgreSQL adapter
+psycopg[binary]>=3.1.0  # PostgreSQL adapter (Python 3.14 compatible)
 
 # Testing
 coverage==7.4.4
