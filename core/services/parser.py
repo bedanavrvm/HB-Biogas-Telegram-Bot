@@ -127,17 +127,17 @@ COMPLAINT_CATEGORY_PATTERN = re.compile(
 )
 
 NAME_PATTERN = re.compile(
-    r'\bNAME\s*[:\-]\s*([^\n\r]+)',
+    r'\*?NAME\*?\s*[:\-]\s*([^\n\r]+)',
     re.IGNORECASE
 )
 
 PHONE_PATTERN = re.compile(
-    r'\b(?:TEL|P/no|P\.no|PHONE|P\/no|P/no)\s*[:\-]?\s*([+\d\s\/\-]+)',
+    r'\*?(?:TEL|P/no|P\.no|PHONE|P\/no|P/no)\*?\s*[:\-]?\s*([+\d\s\/\-]+)',
     re.IGNORECASE
 )
 
 ID_PATTERN = re.compile(
-    r'\b(?:ID|I\.D)\s*[:\-]?\s*([A-Za-z0-9\-]+)',
+    r'\*?(?:ID|I\.D)\*?\s*[:\-]\s*([A-Za-z0-9\-]+)',
     re.IGNORECASE
 )
 
@@ -301,7 +301,9 @@ def _extract_timestamp(content: str) -> Optional[datetime]:
             # Try common formats
             for fmt in ['%d/%m/%Y %H:%M:%S', '%d/%m/%Y %H:%M', '%d-%m-%Y %H:%M:%S', '%d-%m-%Y %H:%M']:
                 try:
-                    return datetime.strptime(f"{date_str} {time_str}", fmt)
+                    dt = datetime.strptime(f"{date_str} {time_str}", fmt)
+                    # Make timezone-aware (assume UTC for WhatsApp timestamps)
+                    return timezone.make_aware(dt, timezone=timezone.utc)
                 except ValueError:
                     continue
         except Exception as e:
@@ -346,23 +348,58 @@ def _extract_by_intent(content: str, result: ParsedResult):
 
 
 def _extract_complaint_transaction(content: str, result: ParsedResult):
-    """Extract customer complaint details from a case report."""
+    """Extract customer complaint details from a WhatsApp case report.
+    
+    Expected format:
+    *CUSTOMER COMPLAIN*
+    *NAME*: Customer Name
+    TEL: Phone Number
+    *ID*: ID Number
+    *NATURE OF THE PROBLEM*
+    *CUSTOMER COMPLAIN: Complaint Description
+    """
+    # Extract structured fields
     result.customer_name = _extract_field(NAME_PATTERN, content)
     result.customer_phone = _extract_field(PHONE_PATTERN, content)
     result.customer_id = _extract_field(ID_PATTERN, content)
-    result.complaint_category = _extract_field(COMPLAINT_CATEGORY_PATTERN, content)
-    result.problem_description = _extract_complaint_description(content)
     
-    # Fallback: if no name found, try to parse sender mentions as indirect customer name
+    # Extract complaint category from "NATURE OF THE PROBLEM" section
+    nature_match = re.search(
+        r'\*?NATURE\s+OF\s+THE\s+PROBLEM\*?\s*[:\-]?\s*([^\n\r]+?)(?:\n|$)',
+        content,
+        re.IGNORECASE | re.MULTILINE
+    )
+    if nature_match:
+        category = nature_match.group(1).strip()
+        # Only set if it has content (not just whitespace or next label)
+        if category and not category.startswith('*'):
+            result.complaint_category = category
+    
+    # Extract complaint description - the actual complaint text
+    complaint_match = re.search(
+        r'\*?CUSTOMER\s+COMPLAIN(?:T|E)?\*?\s*[:\-]\s*([\s\S]+?)(?=(?:\n\s*(?:\*|@)|$))',
+        content,
+        re.IGNORECASE | re.MULTILINE
+    )
+    if complaint_match:
+        result.problem_description = complaint_match.group(1).strip()
+    
+    # Fallback: if no description found, try generic extraction
+    if not result.problem_description:
+        result.problem_description = _extract_complaint_description(content)
+    
+    # Fallback: if still nothing, use sender
     if not result.customer_name and result.sender:
         result.customer_name = result.sender
-    
-    if not result.problem_description:
-        result.problem_description = _extract_field(r'\*CUSTOMER COMPLAIN[:\*]*\s*(.+)', content, group_index=1)
     
     # If still no description, use the raw content as a fallback
     if not result.problem_description:
         result.problem_description = content.strip()
+    
+    # Set item to the complaint category for sheets mapping
+    if result.complaint_category:
+        result.item = result.complaint_category
+
 
 
 def _extract_field(pattern, content: str, group_index: int = 1) -> str:

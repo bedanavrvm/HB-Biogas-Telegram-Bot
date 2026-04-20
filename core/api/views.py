@@ -80,10 +80,14 @@ def telegram_webhook(request):
         # Handle different update types
         if 'message' in body:
             result = _process_telegram_message(body['message'])
+            # Send Telegram reply
+            _send_telegram_reply(body['message'], result)
             return JsonResponse(result)
         
         elif 'channel_post' in body:
             result = _process_telegram_message(body['channel_post'])
+            # Send Telegram reply
+            _send_telegram_reply(body['channel_post'], result)
             return JsonResponse(result)
         
         else:
@@ -219,6 +223,54 @@ def _process_single_message(
         }
 
 
+def _send_telegram_reply(message_data: dict, result: dict) -> None:
+    """
+    Send a Telegram reply message based on processing result.
+    
+    Args:
+        message_data: Original Telegram message
+        result: Processing result dict
+    """
+    import requests
+    
+    chat_id = message_data.get('chat', {}).get('id')
+    if not chat_id:
+        return
+    
+    bot_token = settings.TELEGRAM_BOT_TOKEN
+    if not bot_token:
+        return
+    
+    # Determine reply message based on status
+    status = result.get('status', 'unknown')
+    
+    if status == 'success':
+        text = '✅ Message received and saved successfully'
+    elif status == 'duplicate':
+        text = '⚠️ Duplicate message - already processed'
+    elif status == 'skipped':
+        text = '⚠️ Message skipped - no content'
+    elif status == 'batch_processed':
+        success = result.get('success', 0)
+        total = result.get('total', 0)
+        text = f'✅ Batch processed: {success}/{total} messages saved'
+    elif status == 'error':
+        text = f'❌ Error: {result.get("error", "Unknown error")}'
+    else:
+        text = f'📝 Message processed: {status}'
+    
+    try:
+        url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
+        payload = {
+            'chat_id': chat_id,
+            'text': text,
+            'reply_to_message_id': message_data.get('message_id'),
+        }
+        requests.post(url, data=payload, timeout=5)
+    except Exception as e:
+        logger.error(f"Failed to send Telegram reply: {e}")
+
+
 def _extract_sender_name(message_data: dict) -> str:
     """Extract sender name from Telegram message."""
     from_user = message_data.get('from', {})
@@ -278,7 +330,8 @@ def _extract_timestamp(message_data: dict) -> datetime:
     """Extract message timestamp."""
     date_timestamp = message_data.get('date')
     if date_timestamp:
-        return datetime.fromtimestamp(date_timestamp)
+        # Create timezone-aware datetime from Unix timestamp
+        return datetime.fromtimestamp(date_timestamp, tz=timezone.utc)
     return timezone.now()
 
 
