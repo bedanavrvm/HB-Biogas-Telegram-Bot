@@ -8,7 +8,7 @@ Endpoints:
 - POST /api/resync/unsynced/ - Resync unsynced messages to Google Sheets
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timezone as dt_timezone
 from django.utils import timezone
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -91,10 +91,12 @@ def telegram_webhook(request):
             return JsonResponse(result)
         
         else:
-            logger.warning(f"Unsupported update type: {list(body.keys())}")
+            # Silently ignore other update types (my_chat_member, edited_message, etc.)
+            # These don't require message processing
+            logger.debug(f"Ignored update type: {list(body.keys())}")
             return JsonResponse(
-                {'error': 'Unsupported update type'},
-                status=400
+                {'status': 'ignored', 'message': 'Update type not processed'},
+                status=200
             )
             
     except Exception as e:
@@ -331,7 +333,7 @@ def _extract_timestamp(message_data: dict) -> datetime:
     date_timestamp = message_data.get('date')
     if date_timestamp:
         # Create timezone-aware datetime from Unix timestamp
-        return datetime.fromtimestamp(date_timestamp, tz=timezone.utc)
+        return datetime.fromtimestamp(date_timestamp, tz=dt_timezone.utc)
     return timezone.now()
 
 
