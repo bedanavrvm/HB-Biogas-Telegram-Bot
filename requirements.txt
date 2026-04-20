@@ -1,0 +1,23 @@
+# Core Django
+Django==5.0.4
+djangorestframework==3.15.1
+dj-database-url==2.1.0
+python-decouple==3.8
+whitenoise==6.6.0
+gunicorn==21.2.0
+
+# Google Sheets
+gspread==6.0.2
+google-auth==2.28.2
+
+# Date parsing
+python-dateutil==2.9.0.post0
+
+# Database
+psycopg2-binary==2.9.9  # PostgreSQL adapter
+
+# Testing
+coverage==7.4.4
+
+# Utilities
+requests==2.31.0
