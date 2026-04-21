@@ -152,3 +152,17 @@ GOOGLE_SHEET_TAB_NAME = config('GOOGLE_SHEET_TAB_NAME', default='Complaints Regi
 # Processing Configuration
 DEDUPLICATION_WINDOW_MINUTES = config('DEDUPLICATION_WINDOW_MINUTES', default=5, cast=int)
 BATCH_PROCESSING_DELAY = config('BATCH_PROCESSING_DELAY', default=1, cast=int)
+
+# API Configuration & Security
+API_REQUEST_SIZE_LIMIT = 1_000_000  # 1MB - Prevent DoS from large payloads
+API_REQUEST_TIMEOUT = 10  # seconds - Timeout for external API calls
+MAX_SYNC_ATTEMPTS = 5  # Max retries before giving up on Google Sheets sync
+MIN_CONFIDENCE_THRESHOLD = 0.5  # Minimum confidence score to consider parse acceptable
+PARSING_BATCH_SIZE = 50  # Process up to 50 messages per batch request
+
+# Required Telegram Message Fields (must be present in webhook)
+REQUIRED_MESSAGE_FIELDS = ['message_id', 'chat', 'date']
+
+# Rate Limiting (if enabled with django-ratelimit)
+RATELIMIT_ENABLE = config('RATELIMIT_ENABLE', default=False, cast=bool)
+RATELIMIT_PER_IP = '100/h'  # 100 requests per hour per IP

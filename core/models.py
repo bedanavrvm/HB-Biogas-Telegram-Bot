@@ -117,22 +117,20 @@ class ParsedMessage(models.Model):
         Must match the fixed schema exactly.
         """
         return [
-            self.message_id,
-            self.timestamp.strftime('%Y-%m-%d %H:%M:%S') if self.timestamp else '',
-            self.customer_name,
-            self.customer_id,
-            self.customer_phone,
-            self.sender,
-            '',  # branch_region not yet parsed
-            self.complaint_category,
-            self.complaint_description,
-            '',  # loan_status
-            '',  # loan_at_risk
-            self.complaint_status,
-            self.resolution_details,
-            self.date_resolved.strftime('%Y-%m-%d %H:%M:%S') if self.date_resolved else '',
-            str(self.days_open) if self.days_open is not None else '',
-            self.risk_level,
-            self.message_id,  # Internal Message ID (duplicate for backend)
-            self.timestamp.strftime('%Y-%m-%d %H:%M:%S') if self.timestamp else '',  # Parsed Timestamp (duplicate for backend)
+            self.message_id,                                                              # A: Complaint ID
+            self.timestamp.strftime('%Y-%m-%d %H:%M:%S') if self.timestamp else '',      # B: Date Reported
+            self.customer_name,                                                           # C: Customer Name
+            self.customer_id,                                                             # D: Customer ID / Account
+            self.customer_phone,                                                          # E: Phone Number
+            self.sender,                                                                  # F: JBL Reported By
+            '',  # branch_region not yet parsed                                           # G: Branch / Region
+            self.complaint_category,                                                      # H: Complaint Category
+            self.complaint_description,                                                   # I: Complaint Description
+            '',  # loan_status                                                            # J: LOAN STATUS
+            '',  # loan_at_risk                                                           # K: LOAN AT RISK
+            self.complaint_status,                                                        # L: Status
+            self.resolution_details,                                                      # M: Resolution Details
+            self.date_resolved.strftime('%Y-%m-%d %H:%M:%S') if self.date_resolved else '',  # N: Date Resolved
+            str(self.days_open) if self.days_open is not None else '',                   # O: Days Open
+            self.risk_level,                                                              # P: RISK LEVEL
         ]

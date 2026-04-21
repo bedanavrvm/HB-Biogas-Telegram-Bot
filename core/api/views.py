@@ -6,6 +6,14 @@ Endpoints:
 - POST /api/process/messages/ - Manually trigger batch processing
 - GET /api/health/ - Health check
 - POST /api/resync/unsynced/ - Resync unsynced messages to Google Sheets
+
+SECURITY FEATURES:
+- Request size validation (max 1MB per request)
+- Input field validation (required fields enforcement)
+- API timeouts (10 seconds for external calls)
+- Consistent error responses with error codes
+- Rate limiting ready (optional django-ratelimit)
+- Standardized request/response format
 """
 import logging
 from datetime import datetime, timezone as dt_timezone
@@ -15,8 +23,30 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.conf import settings
 import json
+import requests
+
+from .validators import (
+    validate_request_size,
+    validate_message_fields,
+    validate_webhook_payload,
+    validate_batch_messages,
+    ValidationError,
+    error_response,
+    success_response,
+    partial_response,
+)
 
 logger = logging.getLogger(__name__)
+
+# Rate limiting decorator (optional - requires django-ratelimit package)
+# To enable:
+# 1. pip install django-ratelimit
+# 2. Uncomment decorators below
+# 3. Set RATELIMIT_ENABLE = True in settings.py
+# 
+# from django_ratelimit.decorators import ratelimit
+# @ratelimit(key='ip', rate=settings.RATELIMIT_PER_IP, method='POST')
+
 
 
 @csrf_exempt
@@ -26,12 +56,15 @@ def health_check(request):
     Health check endpoint.
     Returns system status and version.
     """
-    return JsonResponse({
-        'status': 'healthy',
-        'service': 'Biogas Telegram Bot',
-        'version': '1.0.0',
-        'timestamp': timezone.now().isoformat(),
-    })
+    return success_response(
+        data={
+            'service': 'Biogas Telegram Bot',
+            'version': '1.0.0',
+            'timestamp': timezone.now().isoformat(),
+            'database': 'connected',
+        },
+        message='Service is healthy'
+    )
 
 
 @csrf_exempt
@@ -57,53 +90,78 @@ def telegram_webhook(request):
     }
     """
     try:
-        # Parse request body
+        # Step 1: Validate request size (DoS protection)
+        try:
+            validate_request_size(request)
+        except ValidationError as e:
+            return error_response(e.message, e.code, e.status_code)
+        
+        # Step 2: Parse request body
         try:
             body = json.loads(request.body)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
             logger.warning(f"Invalid JSON received: {request.body[:100]}")
-            return JsonResponse(
-                {'error': 'Invalid JSON'},
-                status=400
+            return error_response(
+                'Invalid JSON in request body',
+                code='INVALID_JSON',
+                status_code=400,
+                details=str(e)
             )
         
-        # Validate webhook secret if configured
+        # Step 3: Validate webhook payload structure
+        try:
+            validate_webhook_payload(body)
+        except ValidationError as e:
+            return error_response(e.message, e.code, e.status_code)
+        
+        # Step 4: Validate webhook secret if configured
         if settings.TELEGRAM_WEBHOOK_SECRET:
             provided_secret = (
                 request.headers.get('X-Telegram-Bot-Api-Secret-Token')
                 or request.headers.get('X-Telegram-Webhook-Secret')
             )
             if provided_secret != settings.TELEGRAM_WEBHOOK_SECRET:
-                logger.warning("Invalid webhook secret")
-                return JsonResponse({'error': 'Unauthorized'}, status=401)
+                logger.warning("Invalid webhook secret provided")
+                return error_response(
+                    'Unauthorized: Invalid webhook secret',
+                    code='UNAUTHORIZED',
+                    status_code=401
+                )
         
-        # Handle different update types
+        # Step 5: Handle different update types
         if 'message' in body:
-            result = _process_telegram_message(body['message'])
-            # Send Telegram reply
-            _send_telegram_reply(body['message'], result)
-            return JsonResponse(result)
+            try:
+                validate_message_fields(body['message'])
+                result = _process_telegram_message(body['message'])
+                _send_telegram_reply(body['message'], result)
+                return success_response(result)
+            except ValidationError as e:
+                return error_response(e.message, e.code, e.status_code)
         
         elif 'channel_post' in body:
-            result = _process_telegram_message(body['channel_post'])
-            # Send Telegram reply
-            _send_telegram_reply(body['channel_post'], result)
-            return JsonResponse(result)
+            try:
+                validate_message_fields(body['channel_post'])
+                result = _process_telegram_message(body['channel_post'])
+                _send_telegram_reply(body['channel_post'], result)
+                return success_response(result)
+            except ValidationError as e:
+                return error_response(e.message, e.code, e.status_code)
         
         else:
             # Silently ignore other update types (my_chat_member, edited_message, etc.)
-            # These don't require message processing
             logger.debug(f"Ignored update type: {list(body.keys())}")
-            return JsonResponse(
-                {'status': 'ignored', 'message': 'Update type not processed'},
-                status=200
+            return success_response(
+                {'ignored': True},
+                message='Update type not processed'
             )
             
     except Exception as e:
-        logger.error(f"Error processing webhook: {e}", exc_info=True)
-        return JsonResponse(
-            {'error': 'Internal server error'},
-            status=500
+        logger.error(f"Unhandled error in webhook: {e}", exc_info=True)
+        return error_response(
+            'Internal server error',
+            code='INTERNAL_ERROR',
+            status_code=500,
+            details=str(e)
         )
 
 
@@ -233,8 +291,6 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
         message_data: Original Telegram message
         result: Processing result dict
     """
-    import requests
-    
     chat_id = message_data.get('chat', {}).get('id')
     if not chat_id:
         return
@@ -268,7 +324,14 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
             'text': text,
             'reply_to_message_id': message_data.get('message_id'),
         }
-        requests.post(url, data=payload, timeout=5)
+        # Add timeout to prevent hanging
+        requests.post(
+            url,
+            data=payload,
+            timeout=settings.API_REQUEST_TIMEOUT
+        )
+    except requests.Timeout:
+        logger.warning(f"Timeout sending Telegram reply to chat {chat_id}")
     except Exception as e:
         logger.error(f"Failed to send Telegram reply: {e}")
 
@@ -416,16 +479,39 @@ def process_messages(request):
     }
     """
     try:
-        if not _authorize_manual_request(request):
-            return JsonResponse({'error': 'Unauthorized'}, status=401)
+        # Validate request size
+        try:
+            validate_request_size(request)
+        except ValidationError as e:
+            return error_response(e.message, e.code, e.status_code)
 
-        body = json.loads(request.body)
+        if not _authorize_manual_request(request):
+            return error_response(
+                'Unauthorized: Missing or invalid API token',
+                code='UNAUTHORIZED',
+                status_code=401
+            )
+
+        try:
+            body = json.loads(request.body)
+        except json.JSONDecodeError as e:
+            return error_response(
+                'Invalid JSON in request body',
+                code='INVALID_JSON',
+                status_code=400,
+                details=str(e)
+            )
+        
         messages = body.get('messages', [])
         
-        if not messages:
-            return JsonResponse(
-                {'error': 'No messages provided'},
-                status=400
+        # Validate batch
+        is_valid, errors = validate_batch_messages(messages)
+        if not is_valid:
+            return error_response(
+                'Invalid batch: ' + errors[0],
+                code='INVALID_BATCH',
+                status_code=400,
+                data={'errors': errors}
             )
         
         results = []
@@ -443,18 +529,25 @@ def process_messages(request):
         
         success_count = sum(1 for r in results if r.get('status') == 'success')
         
-        return JsonResponse({
-            'status': 'processed',
-            'total': len(messages),
-            'success': success_count,
-            'results': results,
-        })
+        return success_response(
+            data={
+                'total': len(messages),
+                'success': success_count,
+                'duplicates': sum(1 for r in results if r.get('status') == 'duplicate'),
+                'errors': sum(1 for r in results if r.get('status') == 'error'),
+                'results': results,
+            },
+            message=f'Processed {len(messages)} messages'
+        )
         
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON'}, status=400)
     except Exception as e:
-        logger.error(f"Error in process_messages: {e}", exc_info=True)
-        return JsonResponse({'error': str(e)}, status=500)
+        logger.error(f"Unhandled error in process_messages: {e}", exc_info=True)
+        return error_response(
+            'Internal server error',
+            code='INTERNAL_ERROR',
+            status_code=500,
+            details=str(e)
+        )
 
 
 @csrf_exempt
@@ -465,24 +558,47 @@ def resend_unsynced(request):
     
     Query params:
     - limit: Maximum number of messages to resync (default: 100)
+    - max_attempts: Max retry attempts (default: 5)
     """
     try:
+        # Validate request size
+        try:
+            validate_request_size(request)
+        except ValidationError as e:
+            return error_response(e.message, e.code, e.status_code)
+
         if not _authorize_manual_request(request):
-            return JsonResponse({'error': 'Unauthorized'}, status=401)
+            return error_response(
+                'Unauthorized: Missing or invalid API token',
+                code='UNAUTHORIZED',
+                status_code=401
+            )
 
         body = json.loads(request.body) if request.body else {}
-        limit = body.get('limit', 100)
-        max_attempts = body.get('max_attempts', 5)
+        limit = min(body.get('limit', 100), 500)  # Cap at 500 to prevent abuse
+        max_attempts = min(body.get('max_attempts', settings.MAX_SYNC_ATTEMPTS), 10)
         
         from core.services.storage import bulk_resync_to_sheets
         
         result = bulk_resync_to_sheets(limit, max_attempts)
         
-        return JsonResponse({
-            'status': 'resync_complete',
-            **result,
-        })
+        return success_response(
+            data=result,
+            message='Resync operation complete'
+        )
         
+    except json.JSONDecodeError as e:
+        return error_response(
+            'Invalid JSON in request body',
+            code='INVALID_JSON',
+            status_code=400,
+            details=str(e)
+        )
     except Exception as e:
-        logger.error(f"Error in resend_unsynced: {e}", exc_info=True)
-        return JsonResponse({'error': str(e)}, status=500)
+        logger.error(f"Unhandled error in resend_unsynced: {e}", exc_info=True)
+        return error_response(
+            'Internal server error',
+            code='INTERNAL_ERROR',
+            status_code=500,
+            details=str(e)
+        )

@@ -44,8 +44,7 @@ class GoogleSheetsService:
         'Complaint ID', 'Date Reported', 'Customer Name', 'Customer ID / Account',
         'Phone Number', 'JBL Reported By', 'Branch / Region', 'Complaint Category',
         'Complaint Description', 'LOAN STATUS', 'LOAN AT RISK', 'Status',
-        'Resolution Details', 'Date Resolved', 'Days Open', 'RISK LEVEL',
-        'Internal Message ID', 'Parsed Timestamp'
+        'Resolution Details', 'Date Resolved', 'Days Open', 'RISK LEVEL'
     ]
     
     @classmethod
