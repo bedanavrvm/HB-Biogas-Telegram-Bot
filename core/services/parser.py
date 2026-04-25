@@ -357,6 +357,9 @@ def _extract_complaint_transaction(content: str, result: ParsedResult):
     *ID*: ID Number
     *NATURE OF THE PROBLEM*
     *CUSTOMER COMPLAIN: Complaint Description
+    
+    Note: item, quantity, price are NOT extracted for complaints.
+    These are transaction fields not applicable to complaint intake.
     """
     # Extract structured fields
     result.customer_name = _extract_field(NAME_PATTERN, content)
@@ -391,9 +394,8 @@ def _extract_complaint_transaction(content: str, result: ParsedResult):
     if not result.problem_description:
         result.problem_description = content.strip()
     
-    # Set item to the complaint category for sheets mapping
-    if result.complaint_category:
-        result.item = result.complaint_category
+    # DO NOT extract item, quantity, price for complaints
+    # These are transaction fields and don't apply to complaint intake
 
 
 
@@ -588,8 +590,8 @@ def _safe_decimal(value: str) -> Optional[Decimal]:
 
 def _calculate_confidence(result: ParsedResult) -> float:
     """
-    Calculate parsing confidence (0-1).
-    Based on intent detection and field extraction success.
+    Calculate parsing confidence (0-1) based on intent type.
+    Different message types have different field requirements.
     """
     base_confidence = 0.0
     
@@ -597,23 +599,51 @@ def _calculate_confidence(result: ParsedResult) -> float:
     if result.intent != MessageIntent.UNKNOWN:
         base_confidence += 0.2
     
-    # Field extraction contributes based on intent expectations
-    fields_filled = 0
-    total_fields = 4  # sender, item, quantity, price
-    
-    if result.sender:
-        fields_filled += 1
-    if result.item:
-        fields_filled += 1
-    if result.quantity is not None:
-        fields_filled += 1
-    if result.price is not None:
-        fields_filled += 1
-    
-    field_confidence = (fields_filled / total_fields) * 0.8
+    # Field extraction confidence depends on message intent
+    if result.intent == MessageIntent.COMPLAINT:
+        # Complaint messages require: customer_name, customer_phone, problem_description
+        complaint_fields = 0
+        total_complaint_fields = 3
+        
+        if result.customer_name:
+            complaint_fields += 1
+        if result.customer_phone:
+            complaint_fields += 1
+        if result.problem_description:
+            complaint_fields += 1
+        
+        field_confidence = (complaint_fields / total_complaint_fields) * 0.8
+        
+    elif result.intent in (MessageIntent.SALE, MessageIntent.PURCHASE, MessageIntent.PAYMENT):
+        # Transaction messages require: item, quantity, price
+        transaction_fields = 0
+        total_transaction_fields = 3
+        
+        if result.item:
+            transaction_fields += 1
+        if result.quantity is not None:
+            transaction_fields += 1
+        if result.price is not None:
+            transaction_fields += 1
+        
+        field_confidence = (transaction_fields / total_transaction_fields) * 0.8
+        
+    elif result.intent == MessageIntent.LOCATION:
+        # Location messages just need GPS and optional sender
+        location_fields = 0
+        total_location_fields = 1
+        
+        if result.gps_link:
+            location_fields += 1
+        
+        field_confidence = (location_fields / total_location_fields) * 0.8
+        
+    else:
+        # For other intents, check sender minimum
+        field_confidence = 0.4 if result.sender else 0.0
     
     # GPS presence boosts confidence for location messages
-    gps_boost = 0.1 if result.gps_link else 0.0
+    gps_boost = 0.1 if (result.gps_link and result.intent == MessageIntent.LOCATION) else 0.0
     
     total_confidence = base_confidence + field_confidence + gps_boost
     return round(min(total_confidence, 1.0), 2)

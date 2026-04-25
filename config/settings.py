@@ -149,6 +149,21 @@ GOOGLE_SHEET_ID = config('GOOGLE_SHEET_ID', default='')
 GOOGLE_SERVICE_ACCOUNT_FILE = config('GOOGLE_SERVICE_ACCOUNT_FILE', default='credentials.json')
 GOOGLE_SHEET_TAB_NAME = config('GOOGLE_SHEET_TAB_NAME', default='Complaints Register')
 
+# Multi-Group/Multi-Tenant Configuration
+# Maps Telegram group chat_id to Google Sheet configurations.
+# Format:
+#   GROUP_MAPPING = {
+#       "-100123456789": {
+#           "sheet_id": "1a2b3c...",
+#           "sheet_name": "Complaints Register",
+#       },
+#   }
+# If GROUP_MAPPING is empty, falls back to legacy single-group mode (GOOGLE_SHEET_ID).
+GROUP_MAPPING = {}  # Can be loaded from JSON file or environment variable
+
+# Default group ID for single-group deployments
+DEFAULT_GROUP_ID = config('DEFAULT_GROUP_ID', default='default')
+
 # Processing Configuration
 DEDUPLICATION_WINDOW_MINUTES = config('DEDUPLICATION_WINDOW_MINUTES', default=5, cast=int)
 BATCH_PROCESSING_DELAY = config('BATCH_PROCESSING_DELAY', default=1, cast=int)

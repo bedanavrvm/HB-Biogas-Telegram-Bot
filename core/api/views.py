@@ -175,6 +175,8 @@ def _process_telegram_message(message_data: dict) -> dict:
     """
     Process a single Telegram message.
     
+    Extracts group_id from message and routes to correct sheet config.
+    
     Args:
         message_data: Telegram message object
         
@@ -182,6 +184,15 @@ def _process_telegram_message(message_data: dict) -> dict:
         Dict with processing result
     """
     try:
+        # Extract group/chat ID for multi-tenant routing
+        group_id = str(message_data.get('chat', {}).get('id', ''))
+        if not group_id:
+            logger.error("Message missing chat.id - cannot route to group")
+            return {
+                'status': 'error',
+                'error': 'Message missing chat information',
+            }
+        
         # Extract message fields
         telegram_message_id = str(message_data.get('message_id', ''))
         sender = _extract_sender_name(message_data)
@@ -210,6 +221,7 @@ def _process_telegram_message(message_data: dict) -> dict:
                     sender=msg['sender'],
                     has_image=has_image,
                     received_at=received_at,
+                    group_id=group_id,
                 )
                 results.append(result)
             
@@ -230,6 +242,7 @@ def _process_telegram_message(message_data: dict) -> dict:
                 sender=sender,
                 has_image=has_image,
                 received_at=received_at,
+                group_id=group_id,
             )
             
     except Exception as e:
@@ -245,23 +258,45 @@ def _process_single_message(
     content: str,
     sender: str,
     has_image: bool,
-    received_at: datetime
+    received_at: datetime,
+    group_id: str = None
 ) -> dict:
     """
     Process and store a single message.
+    
+    Args:
+        group_id: Telegram chat_id for group-aware routing
     
     Returns:
         Dict with processing result
     """
     from core.services.storage import process_and_store_message
+    from core.services.group_config import get_sheet_id_for_group
     
     try:
+        # Validate group is configured
+        if not group_id:
+            return {
+                'status': 'error',
+                'error': 'No group_id provided',
+            }
+        
+        sheet_id = get_sheet_id_for_group(group_id)
+        if not sheet_id:
+            logger.error(f"Unknown or unconfigured group: {group_id}")
+            return {
+                'status': 'error',
+                'error': f'Unknown group: {group_id}',
+            }
+        
         parsed_message = process_and_store_message(
             telegram_message_id=telegram_message_id,
             content=content,
             sender=sender,
             received_at=received_at,
             has_image=has_image,
+            group_id=group_id,
+            sheet_id=sheet_id,
         )
         
         if parsed_message is None:
@@ -270,15 +305,31 @@ def _process_single_message(
                 'message_id': telegram_message_id,
             }
 
+        # Collect captured fields based on message intent
+        captured_fields = {}
+        if hasattr(parsed_message, 'sender') and parsed_message.sender:
+            captured_fields['sender'] = parsed_message.sender
+        if hasattr(parsed_message, 'customer_name') and parsed_message.customer_name:
+            captured_fields['customer_name'] = parsed_message.customer_name
+        if hasattr(parsed_message, 'customer_phone') and parsed_message.customer_phone:
+            captured_fields['customer_phone'] = parsed_message.customer_phone
+        if hasattr(parsed_message, 'customer_id') and parsed_message.customer_id:
+            captured_fields['customer_id'] = parsed_message.customer_id
+        if hasattr(parsed_message, 'problem_description') and parsed_message.problem_description:
+            captured_fields['problem_description'] = parsed_message.problem_description[:100]  # First 100 chars
+        if hasattr(parsed_message, 'item') and parsed_message.item:
+            captured_fields['item'] = parsed_message.item
+        if hasattr(parsed_message, 'quantity') and parsed_message.quantity:
+            captured_fields['quantity'] = str(parsed_message.quantity)
+        if hasattr(parsed_message, 'price') and parsed_message.price:
+            captured_fields['price'] = str(parsed_message.price)
+        if hasattr(parsed_message, 'gps_link') and parsed_message.gps_link:
+            captured_fields['location'] = parsed_message.gps_link
+
         result = {
             'status': getattr(parsed_message, '_processing_status', 'success'),
             'message_id': parsed_message.message_id,
-            'parsed': {
-                'item': parsed_message.item,
-                'quantity': str(parsed_message.quantity) if parsed_message.quantity else None,
-                'price': str(parsed_message.price) if parsed_message.price else None,
-                'sender': parsed_message.sender,
-            },
+            'captured_fields': captured_fields,
         }
 
         if result['status'] == 'partial':
@@ -316,14 +367,26 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
     
     # Determine reply message based on status
     status = result.get('status', 'unknown')
+    captured_fields = result.get('captured_fields', {})
+    
+    # Build captured fields summary
+    fields_summary = ''
+    if captured_fields:
+        field_names = []
+        for key in captured_fields.keys():
+            # Format field names: customer_name → 'Customer Name'
+            display_name = key.replace('_', ' ').title()
+            field_names.append(display_name)
+        if field_names:
+            fields_summary = f"\n📋 Captured: {', '.join(field_names)}"
     
     if status == 'success':
-        text = '✅ Message received and saved successfully'
+        text = f'✅ Message received and saved successfully{fields_summary}'
     elif status == 'partial':
         if result.get('error'):
-            text = f'⚠️ Message received but sheet sync failed: {result.get("error")}'
+            text = f'⚠️ Message received but sheet sync failed: {result.get("error")}{fields_summary}'
         else:
-            text = '⚠️ Message received with partial processing confidence'
+            text = f'⚠️ Message partially processed (some fields missing){fields_summary}'
     elif status == 'duplicate':
         text = '⚠️ Duplicate message - already processed'
     elif status == 'skipped':

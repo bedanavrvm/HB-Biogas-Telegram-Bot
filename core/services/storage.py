@@ -112,7 +112,9 @@ def process_and_store_message(
     received_at: datetime = None,
     has_image: bool = False,
     parser_func=None,
-    source: str = 'whatsapp_telegram'
+    source: str = 'whatsapp_telegram',
+    group_id: str = None,
+    sheet_id: str = None
 ) -> Optional[ParsedMessage]:
     """
     Atomically process and store a message with deduplication.
