@@ -1,0 +1,33 @@
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[project]
+name = "biogas-telegram-bot"
+version = "1.0.0"
+description = "Telegram bot for biogas complaints"
+requires-python = ">=3.12,<3.13"
+
+[tool.poetry]
+name = "biogas-telegram-bot"
+version = "1.0.0"
+description = "Telegram bot for biogas complaints"
+authors = ["Your Name <you@example.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+Django = "5.1.6"
+djangorestframework = "3.15.1"
+dj-database-url = "2.1.0"
+python-decouple = "3.8"
+whitenoise = "6.6.0"
+gunicorn = "21.2.0"
+gspread = "6.0.2"
+google-auth = "2.28.2"
+google-api-python-client = "2.120.0"
+python-dateutil = "2.9.0.post0"
+psycopg = {version = ">=3.1.0", extras = ["binary"]}
+coverage = "7.4.4"
+requests = "2.31.0"
+
+[tool.poetry.dev-dependencies]
