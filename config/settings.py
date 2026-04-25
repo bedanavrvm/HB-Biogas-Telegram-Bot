@@ -159,7 +159,16 @@ GOOGLE_SHEET_TAB_NAME = config('GOOGLE_SHEET_TAB_NAME', default='Complaints Regi
 #       },
 #   }
 # If GROUP_MAPPING is empty, falls back to legacy single-group mode (GOOGLE_SHEET_ID).
-GROUP_MAPPING = {}  # Can be loaded from JSON file or environment variable
+import json
+GROUP_MAPPING = {}
+_group_mapping_json = config('GROUP_MAPPING_JSON', default='')
+if _group_mapping_json:
+    try:
+        GROUP_MAPPING = json.loads(_group_mapping_json)
+    except json.JSONDecodeError as e:
+        import logging as _logging
+        _logging.warning(f"Failed to parse GROUP_MAPPING_JSON: {e}")
+        GROUP_MAPPING = {}
 
 # Default group ID for single-group deployments
 DEFAULT_GROUP_ID = config('DEFAULT_GROUP_ID', default='default')
