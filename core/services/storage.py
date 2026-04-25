@@ -199,6 +199,10 @@ def process_and_store_message(
         if not sync_success:
             final_status = 'partial'
 
+        # Attach runtime processing metadata for caller use
+        parsed_message._processing_status = final_status
+        parsed_message._processing_error = sync_error
+
         if final_status != processed_message.status or sync_error:
             processed_message.status = final_status
             processed_message.error_message = sync_error

@@ -388,6 +388,22 @@ class StorageServiceTest(TestCase):
         )
         self.assertIsNone(result2)
 
+    @patch('core.services.storage.append_parsed_message_to_sheet')
+    def test_process_and_store_message_sheet_sync_failure(self, mock_sheet):
+        """Sheet sync failures should mark message processing as partial."""
+        mock_sheet.return_value = False
+
+        parsed = process_and_store_message(
+            telegram_message_id='test_sync_fail',
+            content='Sold 3 bread 50 each to John',
+            sender='Seller',
+            received_at=timezone.now(),
+        )
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(getattr(parsed, '_processing_status', None), 'partial')
+        self.assertEqual(getattr(parsed, '_processing_error', None), 'Google Sheets sync failed')
+
     @patch('core.services.sheets.get_sheets_service')
     def test_append_parsed_message_increments_attempts_on_failure(self, mock_service):
         """A failed sheet sync should increment sync_attempts and record the error."""
@@ -517,6 +533,7 @@ class StorageServiceTest(TestCase):
         self.assertTrue(all(msg.synced_to_sheets for msg in refreshed))
 
 
+@override_settings(TELEGRAM_WEBHOOK_SECRET=None)
 class TelegramWebhookViewTest(TestCase):
     """Test the Telegram webhook endpoint."""
     
@@ -548,6 +565,39 @@ class TelegramWebhookViewTest(TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data['status'], 'success')
+
+    @patch('core.api.views._send_telegram_reply')
+    @patch('core.api.views._process_telegram_message')
+    def test_webhook_returns_partial_response_on_sync_failure(self, mock_process, mock_reply):
+        """Webhook should return partial status when Google Sheets sync fails."""
+        mock_process.return_value = {
+            'status': 'partial',
+            'message_id': 'MSG_PARTIAL',
+            'error': 'Google Sheets sync failed',
+        }
+
+        payload = {
+            'update_id': 123456,
+            'message': {
+                'message_id': 789,
+                'from': {'id': 123, 'first_name': 'Test'},
+                'chat': {'id': -100123, 'type': 'group'},
+                'date': 1711123456,
+                'text': 'Sold 3 bread 50 each',
+            }
+        }
+
+        response = self.client.post(
+            '/api/webhook/telegram/',
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['status'], 'partial')
+        self.assertIn('warnings', data)
+        self.assertEqual(data['warnings'][0], 'Google Sheets sync failed')
     
     def test_webhook_rejects_get(self):
         """Test webhook only accepts POST."""

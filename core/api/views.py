@@ -134,6 +134,9 @@ def telegram_webhook(request):
                 validate_message_fields(body['message'])
                 result = _process_telegram_message(body['message'])
                 _send_telegram_reply(body['message'], result)
+                if result.get('status') == 'partial':
+                    warnings = [result.get('error')] if result.get('error') else None
+                    return partial_response(result, warnings=warnings)
                 return success_response(result)
             except ValidationError as e:
                 return error_response(e.message, e.code, e.status_code)
@@ -143,6 +146,9 @@ def telegram_webhook(request):
                 validate_message_fields(body['channel_post'])
                 result = _process_telegram_message(body['channel_post'])
                 _send_telegram_reply(body['channel_post'], result)
+                if result.get('status') == 'partial':
+                    warnings = [result.get('error')] if result.get('error') else None
+                    return partial_response(result, warnings=warnings)
                 return success_response(result)
             except ValidationError as e:
                 return error_response(e.message, e.code, e.status_code)
@@ -263,9 +269,9 @@ def _process_single_message(
                 'status': 'duplicate',
                 'message_id': telegram_message_id,
             }
-        
-        return {
-            'status': 'success',
+
+        result = {
+            'status': getattr(parsed_message, '_processing_status', 'success'),
             'message_id': parsed_message.message_id,
             'parsed': {
                 'item': parsed_message.item,
@@ -274,6 +280,15 @@ def _process_single_message(
                 'sender': parsed_message.sender,
             },
         }
+
+        if result['status'] == 'partial':
+            sync_error = getattr(parsed_message, '_processing_error', '')
+            if sync_error:
+                result['error'] = sync_error
+            else:
+                result['warning'] = 'Message processed with partial confidence or warnings.'
+
+        return result
         
     except Exception as e:
         logger.error(f"Error in _process_single_message: {e}", exc_info=True)
@@ -304,6 +319,11 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
     
     if status == 'success':
         text = '✅ Message received and saved successfully'
+    elif status == 'partial':
+        if result.get('error'):
+            text = f'⚠️ Message received but sheet sync failed: {result.get("error")}'
+        else:
+            text = '⚠️ Message received with partial processing confidence'
     elif status == 'duplicate':
         text = '⚠️ Duplicate message - already processed'
     elif status == 'skipped':
