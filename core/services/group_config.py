@@ -107,8 +107,10 @@ class GroupRegistry:
                     metadata=config_dict.get('metadata', {}),
                 )
                 self._groups[str(group_id)] = group_config
+                logger.debug(f"Loaded group {repr(str(group_id))} (sheet: {config_dict.get('sheet_id')})")
             
             logger.info(f"Loaded {len(self._groups)} group(s) from GROUP_MAPPING")
+            logger.debug(f"Configured group IDs: {list(self._groups.keys())}")
     
     def get_group(self, group_id: str) -> Optional[GroupConfig]:
         """
@@ -125,6 +127,8 @@ class GroupRegistry:
         
         if not config:
             logger.warning(f"Unknown group_id: {group_id}")
+            logger.debug(f"Available groups: {list(self._groups.keys())}")
+            logger.debug(f"Received group_id repr: {repr(group_id)}")
             return None
         
         if not config.enabled:

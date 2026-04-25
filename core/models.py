@@ -97,6 +97,9 @@ class ParsedMessage(models.Model):
     loan_status = models.CharField(max_length=100, blank=True, default='')
     loan_at_risk = models.CharField(max_length=100, blank=True, default='')
     
+    # Multi-tenant routing
+    group_id = models.CharField(max_length=100, default='default', db_index=True)
+    
     # Google Sheets sync tracking
     synced_to_sheets = models.BooleanField(default=False)
     synced_at = models.DateTimeField(null=True, blank=True)

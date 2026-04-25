@@ -55,7 +55,8 @@ def store_parsed_message(
     processed_message: ProcessedMessage,
     parsed_result: ParsedResult,
     raw_content: str,
-    source: str = 'telegram bot'
+    source: str = 'telegram bot',
+    group_id: str = 'default'
 ) -> ParsedMessage:
     """
     Store parsed message data.
@@ -65,6 +66,7 @@ def store_parsed_message(
         parsed_result: ParsedResult from parser
         raw_content: Original message text
         source: Message source identifier (default: 'telegram bot')
+        group_id: Telegram group ID for multi-tenant routing
         
     Returns:
         Created ParsedMessage instance
@@ -85,6 +87,7 @@ def store_parsed_message(
             gps_link=parsed_result.gps_link,
             image_flag=parsed_result.image_flag,
             source=source,
+            group_id=group_id,
             customer_name=parsed_result.customer_name,
             customer_phone=parsed_result.customer_phone,
             customer_id=parsed_result.customer_id,
@@ -181,6 +184,7 @@ def process_and_store_message(
             parsed_result=parsed_result,
             raw_content=content,
             source=source,
+            group_id=group_id or 'default',
         )
 
         # Step 6: Sync to Google Sheets and update status
