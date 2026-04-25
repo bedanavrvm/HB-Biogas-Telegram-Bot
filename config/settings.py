@@ -164,7 +164,12 @@ GROUP_MAPPING = {}
 _group_mapping_json = config('GROUP_MAPPING_JSON', default='')
 if _group_mapping_json:
     try:
-        GROUP_MAPPING = json.loads(_group_mapping_json)
+        _raw_mapping = json.loads(_group_mapping_json)
+        # Clean up any invisible whitespace from group ID keys (zero-width spaces, etc)
+        GROUP_MAPPING = {
+            str(group_id).strip(): config_dict 
+            for group_id, config_dict in _raw_mapping.items()
+        }
     except json.JSONDecodeError as e:
         import logging as _logging
         _logging.warning(f"Failed to parse GROUP_MAPPING_JSON: {e}")
