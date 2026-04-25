@@ -3,7 +3,7 @@ Simple tests for data quality improvements without database dependency.
 
 Validates:
 1. Customer Name is capitalized in to_sheet_row()
-2. Reported By uses 'Telegram Bot'
+2. JBL Reported By uses 'Telegram Bot'
 3. Source is 'telegram bot'
 """
 import unittest
@@ -45,7 +45,7 @@ class DataQualitySimpleTests(unittest.TestCase):
         self.assertEqual(len(row), 21, "Row should have 21 columns")
     
     def test_reported_by_telegram_bot(self):
-        """Test that Reported By is 'Telegram Bot' in sheet output."""
+        """Test that JBL Reported By is 'Telegram Bot' in sheet output."""
         msg = ParsedMessage()
         msg.message_id = "MSG_TEST_002"
         msg.customer_name = "jane smith"
@@ -71,7 +71,7 @@ class DataQualitySimpleTests(unittest.TestCase):
         row = msg.to_sheet_row()
         
         # Column [6] should be 'Telegram Bot', not the sender
-        self.assertEqual(row[6], "Telegram Bot", "Reported By should be 'Telegram Bot'")
+        self.assertEqual(row[6], "Telegram Bot", "JBL Reported By should be 'Telegram Bot'")
         self.assertNotEqual(row[6], msg.sender, "Should not use sender name")
     
     def test_source_telegram_bot(self):
@@ -170,7 +170,7 @@ class DataQualitySimpleTests(unittest.TestCase):
         self.assertEqual(row[3], "ALICE SMITH", "[3] Customer Name (capitalized)")
         self.assertEqual(row[4], "CUST_100", "[4] Customer ID")
         self.assertEqual(row[5], "+256704567890", "[5] Phone")
-        self.assertEqual(row[6], "Telegram Bot", "[6] Reported By")
+        self.assertEqual(row[6], "Telegram Bot", "[6] JBL Reported By")
         self.assertEqual(row[7], "MERU", "[7] Branch/Region")
         self.assertEqual(row[8], "Gas Leakage", "[8] Complaint Category")
         self.assertEqual(row[9], "Pipe disconnected", "[9] Complaint Description")

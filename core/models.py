@@ -125,7 +125,7 @@ class ParsedMessage(models.Model):
         [3]  Customer Name (bot writes - CAPITALIZED)
         [4]  Customer ID / Account (bot writes)
         [5]  Phone Number (bot writes)
-        [6]  Reported By (bot writes - uses Telegram Bot)
+        [6]  JBL Reported By (bot writes - uses Telegram Bot)
         [7]  Branch / Region (bot writes - best effort)
         [8]  Complaint Category (bot writes - must match dropdown, not description)
         [9]  Complaint Description (bot writes)

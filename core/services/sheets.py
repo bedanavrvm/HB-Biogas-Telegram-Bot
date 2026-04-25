@@ -8,7 +8,7 @@ Handles appending rows to a shared Google Sheet.
 - Append-only strategy preserves all formulas and dropdowns
 
 Schema (FIXED - 21 columns):
-| Complaint ID (formula) | message_id | Date Reported | Customer Name | Customer ID | Phone | Reported By | Branch/Region | Complaint Category | Complaint Description | raw_message | gps_link | image_flag | source | Loan Status | Loan at Risk | Risk Level | Status | Resolution Details | Date Resolved | Days Open (formula) |
+| Complaint ID (formula) | message_id | Date Reported | Customer Name | Customer ID | Phone | JBL Reported By | Branch/Region | Complaint Category | Complaint Description | raw_message | gps_link | image_flag | source | Loan Status | Loan at Risk | Risk Level | Status | Resolution Details | Date Resolved | Days Open (formula) |
 
 Column Groups:
 - [0]:       Complaint ID (formula - DO NOT WRITE)
@@ -57,7 +57,7 @@ class GoogleSheetsService:
     [3]  Customer Name         ← BOT WRITES (from parser.result.customer_name)
     [4]  Customer ID / Account ← BOT WRITES (from parser.result.customer_id)
     [5]  Phone Number          ← BOT WRITES (from parser.result.customer_phone)
-    [6]  Reported By           ← BOT WRITES (from parser.result.sender)
+    [6]  JBL Reported By        ← BOT WRITES (from parser.result.sender)
     [7]  Branch / Region       ← BOT WRITES (from parser.result.branch_region)
     [8]  Complaint Category    ← BOT WRITES (from parser.result.complaint_category)
     [9]  Complaint Description ← BOT WRITES (from parser.result.complaint_description)
@@ -99,7 +99,7 @@ class GoogleSheetsService:
         
         # [2-9] Bot intake fields (auto-populated from parser)
         'Date Reported', 'Customer Name', 'Customer ID / Account', 'Phone Number',
-        'Reported By', 'Branch / Region', 'Complaint Category', 'Complaint Description',
+        'JBL Reported By', 'Branch / Region', 'Complaint Category', 'Complaint Description',
         
         # [10-13] Raw data / Audit trail (for traceability + future AI)
         'raw_message', 'gps_link', 'image_flag', 'source',

@@ -22,7 +22,7 @@ class GoogleSheetsValidationTests(TestCase):
         # Expected schema - 21 columns
         self.expected_columns = [
             'Complaint ID', 'message_id', 'Date Reported', 'Customer Name',
-            'Customer ID / Account', 'Phone Number', 'Reported By', 'Branch / Region',
+            'Customer ID / Account', 'Phone Number', 'JBL Reported By', 'Branch / Region',
             'Complaint Category', 'Complaint Description', 'raw_message', 'gps_link',
             'image_flag', 'source', 'Loan Status', 'Loan at Risk', 'Risk Level',
             'Status', 'Resolution Details', 'Date Resolved', 'Days Open'
@@ -230,7 +230,7 @@ class ParsedMessageToSheetRowTests(TestCase):
         self.assertEqual(row[3], "John Doe", "Column [3] should be Customer Name")
         self.assertEqual(row[4], "CUST_123", "Column [4] should be Customer ID")
         self.assertEqual(row[5], "+256701234567", "Column [5] should be Phone Number")
-        self.assertEqual(row[6], "WhatsApp User", "Column [6] should be Reported By")
+        self.assertEqual(row[6], "WhatsApp User", "Column [6] should be JBL Reported By")
         self.assertEqual(row[7], "Kampala", "Column [7] should be Branch / Region")
         self.assertEqual(row[8], "Billing", "Column [8] should be Complaint Category")
         self.assertEqual(row[9], "Double charge", "Column [9] should be Complaint Description")

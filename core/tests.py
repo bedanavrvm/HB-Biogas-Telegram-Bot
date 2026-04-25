@@ -609,7 +609,7 @@ class ParsedMessageModelTest(TestCase):
         self.assertEqual(row[3], 'Jane Doe', "Customer Name")
         self.assertEqual(row[4], 'A12345', "Customer ID")
         self.assertEqual(row[5], '0712345678', "Phone Number")
-        self.assertEqual(row[6], 'John', "Reported By")
+        self.assertEqual(row[6], 'John', "JBL Reported By")
         self.assertEqual(row[7], 'Nairobi', "Branch / Region")
         self.assertEqual(row[8], 'System Underperformance', "Complaint Category")
         self.assertEqual(row[9], 'No gas supply', "Complaint Description")
