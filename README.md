@@ -313,7 +313,30 @@ When multiple messages are forwarded at once, the system:
 4. **Atomic transactions** - All-or-nothing processing
 5. **Comprehensive logging** - All pipeline steps logged
 
-## 📁 Project Structure
+## � Data Validation & Safety
+
+The system implements critical safety features to prevent data corruption:
+
+### Sheet Structure Detection
+- **Purpose**: Validate Google Sheet has correct schema before appending
+- **Check**: Exactly 21 columns with correct names in correct order
+- **Behavior**: ABORTS append if structure doesn't match
+- **Benefit**: Prevents silent data corruption if sheet is accidentally modified
+
+### Dropdown Validation  
+- **Purpose**: Validate complaint category value before writing
+- **Check**: Category value matches Google Sheet dropdown rules
+- **Behavior**: WARNS if validation fails but allows append (Google Sheets is final check)
+- **Benefit**: Prevents invalid values that would violate sheet validation
+
+### Implementation Details
+- Uses Google Sheets API v4 to extract dropdown validation rules from sheet metadata
+- Reads data validation constraints for column [8] (Complaint Category)
+- Graceful degradation if API unavailable (validation disabled, not enforced)
+
+**See [GOOGLE_SHEETS_VALIDATION.md](GOOGLE_SHEETS_VALIDATION.md) for complete documentation.**
+
+## �📁 Project Structure
 
 ```
 biogas_bot/

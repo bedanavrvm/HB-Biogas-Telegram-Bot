@@ -363,26 +363,21 @@ def _extract_complaint_transaction(content: str, result: ParsedResult):
     result.customer_phone = _extract_field(PHONE_PATTERN, content)
     result.customer_id = _extract_field(ID_PATTERN, content)
     
-    # Extract complaint category from "NATURE OF THE PROBLEM" section
-    nature_match = re.search(
-        r'\*?NATURE\s+OF\s+THE\s+PROBLEM\*?\s*[:\-]?\s*([^\n\r]+?)(?:\n|$)',
-        content,
-        re.IGNORECASE | re.MULTILINE
-    )
-    if nature_match:
-        category = nature_match.group(1).strip()
-        # Only set if it has content (not just whitespace or next label)
-        if category and not category.startswith('*'):
-            result.complaint_category = category
+    # Complaint category is a dropdown - do not extract from text to avoid filling with description
+    # Leave blank for human selection from dropdown
+    result.complaint_category = ''
     
     # Extract complaint description - the actual complaint text
     complaint_match = re.search(
-        r'\*?CUSTOMER\s+COMPLAIN(?:T|E)?\*?\s*[:\-]\s*([\s\S]+?)(?=(?:\n\s*(?:\*|@)|$))',
+        r'\*?CUSTOMER\s+COMPLAIN(?:T|E)?\*?\s*[:\-]\s*([\s\S]+?)(?=(?:\n\s*(?:\*|@|NATURE)|$))',
         content,
         re.IGNORECASE | re.MULTILINE
     )
     if complaint_match:
-        result.problem_description = complaint_match.group(1).strip()
+        description_text = complaint_match.group(1).strip()
+        # Clean up description - remove trailing bot mentions or metadata
+        description_text = re.sub(r'\s*@\S+\s*$', '', description_text)
+        result.problem_description = description_text
     
     # Fallback: if no description found, try generic extraction
     if not result.problem_description:

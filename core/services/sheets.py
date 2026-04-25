@@ -25,10 +25,16 @@ logger = logging.getLogger(__name__)
 
 # Lazy import to avoid dependency issues during development
 _google_sheets_available = False
+_google_sheets_api_available = False
 try:
     import gspread
     from google.oauth2.service_account import Credentials
     _google_sheets_available = True
+    try:
+        from googleapiclient.discovery import build
+        _google_sheets_api_available = True
+    except ImportError:
+        logger.warning("googleapiclient not installed. API v4 features will be disabled.")
 except ImportError:
     logger.warning("gspread not installed. Google Sheets features will be disabled.")
 
@@ -117,9 +123,11 @@ class GoogleSheetsService:
             return
         
         self._initialized = False
+        self._api_initialized = False
         self._sheet_id = settings.GOOGLE_SHEET_ID
         self._sheet_name = getattr(settings, 'GOOGLE_SHEET_TAB_NAME', '')
         self._credentials_file = settings.GOOGLE_SERVICE_ACCOUNT_FILE
+        self._sheets_api_service = None
     
     def _initialize(self):
         """Lazy initialization of Google Sheets client."""
@@ -148,6 +156,15 @@ class GoogleSheetsService:
             # Verify sheet is accessible
             self._sheet.get_all_values()
             
+            # Initialize Google Sheets API v4 for data validation reading
+            if _google_sheets_api_available:
+                try:
+                    self._sheets_api_service = build('sheets', 'v4', credentials=creds)
+                    self._api_initialized = True
+                    logger.debug("Google Sheets API v4 initialized for data validation reading")
+                except Exception as e:
+                    logger.warning(f"Failed to initialize Google Sheets API v4: {e}")
+            
             self._initialized = True
             logger.info("Google Sheets service initialized successfully")
             
@@ -166,13 +183,208 @@ class GoogleSheetsService:
         except Exception:
             return False
     
-    def append_row(self, row: list, message_id: str = None) -> bool:
+    def validate_sheet_structure(self) -> tuple[bool, str]:
+        """
+        CRITICAL: Validate that the Google Sheet has the correct structure.
+        
+        This prevents silent data corruption if the sheet schema has been modified.
+        Checks:
+        1. Exactly 21 columns in header
+        2. Column names match expected schema exactly
+        3. Column order is correct
+        
+        Returns:
+            (is_valid: bool, error_message: str)
+            - (True, '') if structure is correct
+            - (False, error_message) if structure is invalid
+        """
+        if not self.is_available():
+            return False, "Google Sheets not available"
+        
+        try:
+            # Fetch actual header row
+            actual_header = self._sheet.row_values(1)
+            
+            # Validate row count
+            if len(actual_header) != len(self.SHEET_COLUMNS):
+                error = (
+                    f"Sheet has {len(actual_header)} columns, "
+                    f"expected {len(self.SHEET_COLUMNS)}. "
+                    f"Schema may have been modified. "
+                    f"Actual: {actual_header[:5]}..., "
+                    f"Expected: {self.SHEET_COLUMNS[:5]}..."
+                )
+                logger.error(f"Sheet structure mismatch: {error}")
+                return False, error
+            
+            # Validate each column name
+            mismatches = []
+            for i, (actual, expected) in enumerate(zip(actual_header, self.SHEET_COLUMNS)):
+                if actual.strip() != expected.strip():
+                    mismatches.append({
+                        'column': i,
+                        'actual': actual,
+                        'expected': expected
+                    })
+            
+            if mismatches:
+                error = (
+                    f"Column name mismatch(es): "
+                    f"{', '.join([f'[{m['column']}] {m['actual']!r} != {m['expected']!r}' for m in mismatches[:3]])}. "
+                    f"Sheet schema may have been modified manually."
+                )
+                logger.error(f"Sheet structure validation failed: {error}")
+                return False, error
+            
+            logger.debug("Sheet structure validation passed")
+            return True, ""
+            
+        except Exception as e:
+            error = f"Failed to validate sheet structure: {e}"
+            logger.error(error, exc_info=True)
+            return False, error
+    
+    def get_valid_complaint_categories(self) -> list[str]:
+        """
+        Fetch valid complaint category values from the sheet's dropdown validation.
+        
+        This reads the data validation rules for the Complaint Category column [8].
+        Uses Google Sheets API v4 to extract the validation constraints.
+        
+        Returns:
+            List of valid category strings, or empty list if unable to determine
+        """
+        if not self.is_available():
+            logger.warning("Google Sheets not available, cannot fetch complaint categories")
+            return []
+        
+        # Check if API v4 is available (safe check using getattr)
+        if not getattr(self, '_api_initialized', False):
+            logger.debug("Google Sheets API v4 not available, skipping category validation")
+            return []
+        
+        try:
+            # Get sheet metadata including data validation rules
+            # Column [8] is Complaint Category (column I in sheets = column 9 in 1-indexed)
+            # We need to read rows where data validation exists
+            
+            sheet_metadata = self._sheets_api_service.spreadsheets().get(
+                spreadsheetId=self._sheet_id,
+                fields='sheets.data(rowData(values(dataValidation)))'
+            ).execute()
+            
+            sheets_data = sheet_metadata.get('sheets', [])
+            valid_categories = []
+            
+            # Find the data validation rules
+            for sheet in sheets_data:
+                # If we have a specific sheet name, filter by that
+                if self._sheet_name and sheet.get('properties', {}).get('title') != self._sheet_name:
+                    continue
+                
+                row_data = sheet.get('data', [{}])[0].get('rowData', [])
+                
+                # Scan the Complaint Category column (column 8, 0-indexed = column 9)
+                # Look for cells with data validation constraints
+                for row_idx, row in enumerate(row_data):
+                    if row_idx == 0:
+                        # Skip header row
+                        continue
+                    
+                    values = row.get('values', [])
+                    
+                    # Column 8 is at index 8
+                    if len(values) > 8:
+                        cell = values[8]
+                        data_validation = cell.get('dataValidation')
+                        
+                        if data_validation:
+                            # Extract the constraint type
+                            constraint_type = data_validation.get('type')
+                            
+                            if constraint_type == 'LIST':
+                                # List constraint - get the list values
+                                conditions = data_validation.get('condition', {})
+                                values_list = conditions.get('values', [])
+                                if values_list:
+                                    valid_categories.extend(values_list)
+                                    logger.debug(
+                                        f"Found complaint categories from data validation: "
+                                        f"{values_list}"
+                                    )
+                                    # Remove duplicates and return
+                                    return list(set(valid_categories))
+            
+            if not valid_categories:
+                logger.debug(
+                    "No data validation rules found for Complaint Category column. "
+                    "Sheet may not have dropdown validation set up."
+                )
+            
+            return valid_categories
+            
+        except Exception as e:
+            logger.warning(
+                f"Error fetching complaint categories via API v4: {e}. "
+                f"Will proceed without category validation.",
+                exc_info=True
+            )
+            return []
+    
+    def validate_complaint_category(self, category: str) -> tuple[bool, str]:
+        """
+        Validate that a complaint category value is acceptable.
+        
+        Args:
+            category: The category value to validate
+            
+        Returns:
+            (is_valid: bool, message: str)
+            - (True, '') if category is valid
+            - (False, message) if category is invalid or cannot be validated
+        """
+        if not category or not category.strip():
+            # Empty category is allowed (staff may fill it in later)
+            return True, ""
+        
+        category = category.strip()
+        
+        # Try to get valid categories from sheet
+        valid_categories = self.get_valid_complaint_categories()
+        
+        if valid_categories:
+            # We have a list of valid values - check against it
+            if category not in valid_categories:
+                error = (
+                    f"Complaint category {category!r} not in valid list: "
+                    f"{valid_categories}. "
+                    f"May cause Google Sheets validation error."
+                )
+                logger.warning(f"Category validation warning: {error}")
+                return False, error
+        else:
+            # Cannot determine valid categories
+            # For now, we'll allow any non-empty value
+            # Production: This should fail-safe to prevent data corruption
+            logger.debug(f"Cannot validate category {category!r} - validation rules not accessible")
+            # Return True to allow append (validation will happen in Google Sheets)
+            return True, ""
+        
+        return True, ""
+    
+    def append_row(self, row: list, message_id: str = None, skip_validation: bool = False) -> bool:
         """
         Append a single row to the Google Sheet.
+        
+        SAFETY CHECKS:
+        1. Validates sheet structure matches expected schema (21 columns)
+        2. Validates row length matches schema
+        3. Validates complaint category value
         
         Args:
             row: List of values matching the fixed schema
             message_id: Optional message_id for idempotency check
+            skip_validation: If True, skip structure validation (use with caution)
             
         Returns:
             True if row was appended successfully
@@ -182,6 +394,17 @@ class GoogleSheetsService:
             return False
         
         try:
+            # CRITICAL: Validate sheet structure before any append
+            if not skip_validation:
+                is_valid, error_msg = self.validate_sheet_structure()
+                if not is_valid:
+                    logger.error(
+                        f"ABORT: Sheet structure validation failed. "
+                        f"Will not append to prevent data corruption. "
+                        f"Error: {error_msg}"
+                    )
+                    return False
+            
             # Idempotency check: check if message_id already exists
             if message_id:
                 if self._message_exists(message_id):
@@ -195,6 +418,15 @@ class GoogleSheetsService:
                     f"got {len(row)}"
                 )
                 return False
+            
+            # CRITICAL: Validate complaint category (column [8])
+            complaint_category = row[8] if len(row) > 8 else ""
+            is_valid_category, category_error = self.validate_complaint_category(complaint_category)
+            if not is_valid_category:
+                logger.warning(
+                    f"Complaint category validation warning: {category_error}. "
+                    f"Proceeding with append (sheet validation will be final check)."
+                )
             
             # Append row
             self._sheet.append_row(row)

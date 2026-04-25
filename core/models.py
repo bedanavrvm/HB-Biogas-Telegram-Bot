@@ -81,7 +81,7 @@ class ParsedMessage(models.Model):
     price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     gps_link = models.URLField(max_length=500, blank=True, default='')
     image_flag = models.BooleanField(default=False)
-    source = models.CharField(max_length=50, default='whatsapp_telegram')
+    source = models.CharField(max_length=50, default='telegram bot')
     
     customer_name = models.CharField(max_length=255, blank=True, default='')
     customer_phone = models.CharField(max_length=255, blank=True, default='')
@@ -119,20 +119,20 @@ class ParsedMessage(models.Model):
         Convert to Google Sheet row format (21 columns).
         
         Column mapping (CRITICAL):
-        [0]  Complaint ID (FORMULA - bot should use message_id value for now)
+        [0]  Complaint ID (FORMULA - bot leaves blank, different from message_id)
         [1]  message_id (bot dedup key)
         [2]  Date Reported (bot writes)
-        [3]  Customer Name (bot writes)
+        [3]  Customer Name (bot writes - CAPITALIZED)
         [4]  Customer ID / Account (bot writes)
         [5]  Phone Number (bot writes)
-        [6]  Reported By (bot writes)
+        [6]  Reported By (bot writes - uses Telegram Bot)
         [7]  Branch / Region (bot writes - best effort)
-        [8]  Complaint Category (bot writes - must match dropdown)
+        [8]  Complaint Category (bot writes - must match dropdown, not description)
         [9]  Complaint Description (bot writes)
         [10] raw_message (bot writes - audit trail)
         [11] gps_link (bot writes)
         [12] image_flag (bot writes - string: "TRUE" or "")
-        [13] source (bot writes)
+        [13] source (bot writes - "telegram bot")
         [14] Loan Status (HUMAN - dropdown)
         [15] Loan at Risk (HUMAN - dropdown)
         [16] Risk Level (HUMAN)
@@ -142,20 +142,20 @@ class ParsedMessage(models.Model):
         [20] Days Open (FORMULA - bot should NOT write)
         """
         return [
-            self.message_id,                                                              # [0] Complaint ID
+            '',                                                                          # [0] Complaint ID (blank, different from message_id)
             self.message_id,                                                              # [1] message_id
             self.timestamp.strftime('%Y-%m-%d %H:%M:%S') if self.timestamp else '',      # [2] Date Reported
-            self.customer_name,                                                           # [3] Customer Name
+            self.customer_name.upper() if self.customer_name else '',                    # [3] Customer Name (CAPITALIZED)
             self.customer_id,                                                             # [4] Customer ID / Account
             self.customer_phone,                                                          # [5] Phone Number
-            self.sender,                                                                  # [6] Reported By
+            'Telegram Bot',                                                               # [6] Reported By (bot name)
             self.branch_region,                                                           # [7] Branch / Region
             self.complaint_category,                                                      # [8] Complaint Category
             self.complaint_description,                                                   # [9] Complaint Description
             self.raw_message,                                                             # [10] raw_message
             self.gps_link,                                                                # [11] gps_link
             'TRUE' if self.image_flag else '',                                            # [12] image_flag
-            self.source,                                                                  # [13] source
+            'telegram bot',                                                               # [13] source
             self.loan_status,                                                             # [14] Loan Status
             self.loan_at_risk,                                                            # [15] Loan at Risk
             self.risk_level,                                                              # [16] Risk Level

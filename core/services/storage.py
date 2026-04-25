@@ -55,7 +55,7 @@ def store_parsed_message(
     processed_message: ProcessedMessage,
     parsed_result: ParsedResult,
     raw_content: str,
-    source: str = 'whatsapp_telegram'
+    source: str = 'telegram bot'
 ) -> ParsedMessage:
     """
     Store parsed message data.
@@ -64,7 +64,7 @@ def store_parsed_message(
         processed_message: Associated ProcessedMessage
         parsed_result: ParsedResult from parser
         raw_content: Original message text
-        source: Message source identifier
+        source: Message source identifier (default: 'telegram bot')
         
     Returns:
         Created ParsedMessage instance
