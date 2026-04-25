@@ -2,18 +2,20 @@
 API Views for the biogas telegram bot.
 
 Endpoints:
-- POST /api/webhook/telegram/ - Receive Telegram webhook
-- POST /api/process/messages/ - Manually trigger batch processing
-- GET /api/health/ - Health check
-- POST /api/resync/unsynced/ - Resync unsynced messages to Google Sheets
+- POST /api/webhook/telegram/  — Receive Telegram webhook
+- POST /api/process/messages/  — Manual batch processing
+- POST /api/resync/unsynced/   — Resync unsynced messages
+- GET  /api/health/            — Health check
 
-SECURITY FEATURES:
-- Request size validation (max 1MB per request)
-- Input field validation (required fields enforcement)
-- API timeouts (10 seconds for external calls)
-- Consistent error responses with error codes
-- Rate limiting ready (optional django-ratelimit)
-- Standardized request/response format
+KEY FIXES (v2):
+- process_messages() now passes group_id (from the request body or
+  settings.DEFAULT_GROUP_ID fallback) to _process_single_message().
+  Previously group_id was always None, which caused an immediate error
+  return from _process_single_message().
+- _send_telegram_reply() no longer leaks internal group IDs or sheet IDs
+  in error messages sent back to the Telegram chat.
+- _process_telegram_message() logs at DEBUG for unrecognised update types
+  instead of silently discarding context.
 """
 import logging
 from datetime import datetime, timezone as dt_timezone
@@ -38,24 +40,15 @@ from .validators import (
 
 logger = logging.getLogger(__name__)
 
-# Rate limiting decorator (optional - requires django-ratelimit package)
-# To enable:
-# 1. pip install django-ratelimit
-# 2. Uncomment decorators below
-# 3. Set RATELIMIT_ENABLE = True in settings.py
-# 
-# from django_ratelimit.decorators import ratelimit
-# @ratelimit(key='ip', rate=settings.RATELIMIT_PER_IP, method='POST')
 
-
+# ---------------------------------------------------------------------------
+# Health check
+# ---------------------------------------------------------------------------
 
 @csrf_exempt
 @require_http_methods(["GET"])
 def health_check(request):
-    """
-    Health check endpoint.
-    Returns system status and version.
-    """
+    """Returns system status and version."""
     return success_response(
         data={
             'service': 'Biogas Telegram Bot',
@@ -63,143 +56,115 @@ def health_check(request):
             'timestamp': timezone.now().isoformat(),
             'database': 'connected',
         },
-        message='Service is healthy'
+        message='Service is healthy',
     )
 
+
+# ---------------------------------------------------------------------------
+# Telegram webhook
+# ---------------------------------------------------------------------------
 
 @csrf_exempt
 @require_http_methods(["POST"])
 def telegram_webhook(request):
     """
-    Telegram webhook endpoint.
-    
-    Receives updates from Telegram Bot API.
-    Processes incoming messages and stores structured data.
-    
-    Expected Telegram Update format:
-    {
-        "update_id": 123456,
-        "message": {
-            "message_id": 789,
-            "from": {"id": 123, "first_name": "John"},
-            "chat": {"id": -1001234567890, "type": "group"},
-            "date": 1711123456,
-            "text": "Forwarded message text",
-            "caption": "Image caption if present"
-        }
-    }
+    Receive a Telegram webhook update.
+
+    Validates the payload, routes to the appropriate handler, and replies
+    to the Telegram chat with a human-readable status message.
     """
     try:
-        # Step 1: Validate request size (DoS protection)
+        # 1. Request size guard
         try:
             validate_request_size(request)
-        except ValidationError as e:
-            return error_response(e.message, e.code, e.status_code)
-        
-        # Step 2: Parse request body
+        except ValidationError as exc:
+            return error_response(exc.message, exc.code, exc.status_code)
+
+        # 2. JSON parsing
         try:
             body = json.loads(request.body)
-        except json.JSONDecodeError as e:
-            logger.warning(f"Invalid JSON received: {request.body[:100]}")
+        except json.JSONDecodeError as exc:
+            logger.warning(f"Invalid JSON in webhook: {request.body[:100]}")
             return error_response(
                 'Invalid JSON in request body',
                 code='INVALID_JSON',
                 status_code=400,
-                details=str(e)
+                details=str(exc),
             )
-        
-        # Step 3: Validate webhook payload structure
+
+        # 3. Payload structure
         try:
             validate_webhook_payload(body)
-        except ValidationError as e:
-            return error_response(e.message, e.code, e.status_code)
-        
-        # Step 4: Validate webhook secret if configured
+        except ValidationError as exc:
+            return error_response(exc.message, exc.code, exc.status_code)
+
+        # 4. Optional webhook secret check
         if settings.TELEGRAM_WEBHOOK_SECRET:
-            provided_secret = (
+            provided = (
                 request.headers.get('X-Telegram-Bot-Api-Secret-Token')
-                or request.headers.get('X-Telegram-Webhook-Secret')
+                or request.headers.get('X-Telegram-Webhook-Secret', '')
             )
-            if provided_secret != settings.TELEGRAM_WEBHOOK_SECRET:
-                logger.warning("Invalid webhook secret provided")
+            if provided != settings.TELEGRAM_WEBHOOK_SECRET:
+                logger.warning("Invalid webhook secret")
                 return error_response(
                     'Unauthorized: Invalid webhook secret',
                     code='UNAUTHORIZED',
-                    status_code=401
+                    status_code=401,
                 )
-        
-        # Step 5: Handle different update types
-        if 'message' in body:
-            try:
-                validate_message_fields(body['message'])
-                result = _process_telegram_message(body['message'])
-                _send_telegram_reply(body['message'], result)
-                if result.get('status') == 'partial':
-                    warnings = [result.get('error')] if result.get('error') else None
-                    return partial_response(result, warnings=warnings)
-                return success_response(result)
-            except ValidationError as e:
-                return error_response(e.message, e.code, e.status_code)
-        
-        elif 'channel_post' in body:
-            try:
-                validate_message_fields(body['channel_post'])
-                result = _process_telegram_message(body['channel_post'])
-                _send_telegram_reply(body['channel_post'], result)
-                if result.get('status') == 'partial':
-                    warnings = [result.get('error')] if result.get('error') else None
-                    return partial_response(result, warnings=warnings)
-                return success_response(result)
-            except ValidationError as e:
-                return error_response(e.message, e.code, e.status_code)
-        
-        else:
-            # Silently ignore other update types (my_chat_member, edited_message, etc.)
-            logger.debug(f"Ignored update type: {list(body.keys())}")
-            return success_response(
-                {'ignored': True},
-                message='Update type not processed'
-            )
-            
-    except Exception as e:
-        logger.error(f"Unhandled error in webhook: {e}", exc_info=True)
+
+        # 5. Route by update type
+        for key in ('message', 'channel_post'):
+            if key in body:
+                try:
+                    validate_message_fields(body[key])
+                    result = _process_telegram_message(body[key])
+                    _send_telegram_reply(body[key], result)
+                    if result.get('status') == 'partial':
+                        warnings = (
+                            [result['error']] if result.get('error') else None
+                        )
+                        return partial_response(result, warnings=warnings)
+                    return success_response(result)
+                except ValidationError as exc:
+                    return error_response(exc.message, exc.code, exc.status_code)
+
+        # Silently ignore unhandled update types (edited_message, etc.)
+        logger.debug(f"Ignored update type(s): {list(body.keys())}")
+        return success_response({'ignored': True}, message='Update type not processed')
+
+    except Exception as exc:
+        logger.error(f"Unhandled error in webhook: {exc}", exc_info=True)
         return error_response(
             'Internal server error',
             code='INTERNAL_ERROR',
             status_code=500,
-            details=str(e)
+            details=str(exc),
         )
 
 
+# ---------------------------------------------------------------------------
+# Internal message processing
+# ---------------------------------------------------------------------------
+
 def _process_telegram_message(message_data: dict) -> dict:
     """
-    Process a single Telegram message.
-    
-    Extracts group_id from message and routes to correct sheet config.
-    
-    Args:
-        message_data: Telegram message object
-        
-    Returns:
-        Dict with processing result
+    Route a single Telegram message through the processing pipeline.
+
+    Extracts group_id from chat.id, resolves the correct sheet via
+    GroupRegistry, then delegates to _process_single_message().
     """
     try:
-        # Extract group/chat ID for multi-tenant routing
         group_id = str(message_data.get('chat', {}).get('id', ''))
         if not group_id:
-            logger.error("Message missing chat.id - cannot route to group")
-            return {
-                'status': 'error',
-                'error': 'Message missing chat information',
-            }
-        
-        # Extract message fields
+            logger.error("Message has no chat.id — cannot route to group")
+            return {'status': 'error', 'error': 'Message missing chat information'}
+
         telegram_message_id = str(message_data.get('message_id', ''))
         sender = _extract_sender_name(message_data)
         content = _extract_message_content(message_data)
         has_image = _detect_image(message_data)
         received_at = _extract_timestamp(message_data)
-        
+
         if not content:
             logger.warning(f"No content in message {telegram_message_id}")
             return {
@@ -207,16 +172,14 @@ def _process_telegram_message(message_data: dict) -> dict:
                 'reason': 'No message content',
                 'message_id': telegram_message_id,
             }
-        
-        # Check if this is a batch forward with multiple messages
+
         messages = _split_if_batch(content, sender, has_image, received_at)
-        
+
         if len(messages) > 1:
-            # Process each message in the batch
             results = []
-            for msg in messages:
+            for i, msg in enumerate(messages):
                 result = _process_single_message(
-                    telegram_message_id=f"{telegram_message_id}_{msg['sender']}",
+                    telegram_message_id=f"{telegram_message_id}_{i}",
                     content=msg['content'],
                     sender=msg['sender'],
                     has_image=has_image,
@@ -224,33 +187,27 @@ def _process_telegram_message(message_data: dict) -> dict:
                     group_id=group_id,
                 )
                 results.append(result)
-            
-            success_count = sum(1 for r in results if r.get('status') == 'success')
-            
+
             return {
                 'status': 'batch_processed',
                 'total': len(messages),
-                'success': success_count,
+                'success': sum(1 for r in results if r.get('status') == 'success'),
                 'duplicates': sum(1 for r in results if r.get('status') == 'duplicate'),
                 'results': results,
             }
-        else:
-            # Process as single message
-            return _process_single_message(
-                telegram_message_id=telegram_message_id,
-                content=content,
-                sender=sender,
-                has_image=has_image,
-                received_at=received_at,
-                group_id=group_id,
-            )
-            
-    except Exception as e:
-        logger.error(f"Error processing Telegram message: {e}", exc_info=True)
-        return {
-            'status': 'error',
-            'error': str(e),
-        }
+
+        return _process_single_message(
+            telegram_message_id=telegram_message_id,
+            content=content,
+            sender=sender,
+            has_image=has_image,
+            received_at=received_at,
+            group_id=group_id,
+        )
+
+    except Exception as exc:
+        logger.error(f"Error processing Telegram message: {exc}", exc_info=True)
+        return {'status': 'error', 'error': 'Message could not be processed'}
 
 
 def _process_single_message(
@@ -259,36 +216,35 @@ def _process_single_message(
     sender: str,
     has_image: bool,
     received_at: datetime,
-    group_id: str = None
+    group_id: str = None,
 ) -> dict:
     """
-    Process and store a single message.
-    
-    Args:
-        group_id: Telegram chat_id for group-aware routing
-    
-    Returns:
-        Dict with processing result
+    Run one message through dedup → parse → store → sheet sync.
+
+    Resolves the sheet_id from GroupRegistry using group_id, then passes
+    both down to process_and_store_message so the correct Google Sheet
+    receives the data.
     """
     from core.services.storage import process_and_store_message
-    from core.services.group_config import get_sheet_id_for_group
-    
+    from core.services.group_config import GroupRegistry, get_sheet_id_for_group
+
     try:
-        # Validate group is configured
         if not group_id:
+            return {'status': 'error', 'error': 'No group_id provided'}
+
+        # Resolve sheet_id via GroupRegistry
+        registry = GroupRegistry.get_instance()
+        group_config = registry.get_group(group_id)
+        if not group_config:
+            logger.error(f"No config found for group {group_id}")
+            # Return a generic error — don't expose the group_id to the caller
             return {
                 'status': 'error',
-                'error': 'No group_id provided',
+                'error': 'This group is not configured to receive messages.',
             }
-        
-        sheet_id = get_sheet_id_for_group(group_id)
-        if not sheet_id:
-            logger.error(f"Unknown or unconfigured group: {group_id}")
-            return {
-                'status': 'error',
-                'error': f'Unknown group: {group_id}',
-            }
-        
+
+        sheet_id = group_config.sheet_id
+
         parsed_message = process_and_store_message(
             telegram_message_id=telegram_message_id,
             content=content,
@@ -296,35 +252,31 @@ def _process_single_message(
             received_at=received_at,
             has_image=has_image,
             group_id=group_id,
-            sheet_id=sheet_id,
+            sheet_id=sheet_id,       # ← forwarded to sheets service
         )
-        
-        if parsed_message is None:
-            return {
-                'status': 'duplicate',
-                'message_id': telegram_message_id,
-            }
 
-        # Collect captured fields based on message intent
+        if parsed_message is None:
+            return {'status': 'duplicate', 'message_id': telegram_message_id}
+
+        # Collect captured fields for the Telegram reply
         captured_fields = {}
-        if hasattr(parsed_message, 'sender') and parsed_message.sender:
-            captured_fields['sender'] = parsed_message.sender
-        if hasattr(parsed_message, 'customer_name') and parsed_message.customer_name:
-            captured_fields['customer_name'] = parsed_message.customer_name
-        if hasattr(parsed_message, 'customer_phone') and parsed_message.customer_phone:
-            captured_fields['customer_phone'] = parsed_message.customer_phone
-        if hasattr(parsed_message, 'customer_id') and parsed_message.customer_id:
-            captured_fields['customer_id'] = parsed_message.customer_id
-        if hasattr(parsed_message, 'problem_description') and parsed_message.problem_description:
-            captured_fields['problem_description'] = parsed_message.problem_description[:100]  # First 100 chars
-        if hasattr(parsed_message, 'item') and parsed_message.item:
-            captured_fields['item'] = parsed_message.item
-        if hasattr(parsed_message, 'quantity') and parsed_message.quantity:
-            captured_fields['quantity'] = str(parsed_message.quantity)
-        if hasattr(parsed_message, 'price') and parsed_message.price:
-            captured_fields['price'] = str(parsed_message.price)
-        if hasattr(parsed_message, 'gps_link') and parsed_message.gps_link:
-            captured_fields['location'] = parsed_message.gps_link
+        field_map = {
+            'sender': 'sender',
+            'customer_name': 'customer_name',
+            'customer_phone': 'customer_phone',
+            'customer_id': 'customer_id',
+            'problem_description': 'problem_description',
+            'item': 'item',
+            'quantity': 'quantity',
+            'price': 'price',
+            'gps_link': 'location',
+        }
+        for attr, label in field_map.items():
+            val = getattr(parsed_message, attr, None)
+            if val:
+                captured_fields[label] = (
+                    str(val)[:100] if attr == 'problem_description' else str(val)
+                )
 
         result = {
             'status': getattr(parsed_message, '_processing_status', 'success'),
@@ -337,218 +289,107 @@ def _process_single_message(
             if sync_error:
                 result['error'] = sync_error
             else:
-                result['warning'] = 'Message processed with partial confidence or warnings.'
+                result['warning'] = 'Message processed with partial confidence.'
 
         return result
-        
-    except Exception as e:
-        logger.error(f"Error in _process_single_message: {e}", exc_info=True)
-        return {
-            'status': 'error',
-            'error': str(e),
-        }
 
+    except Exception as exc:
+        logger.error(f"Error in _process_single_message: {exc}", exc_info=True)
+        return {'status': 'error', 'error': 'Message could not be processed'}
+
+
+# ---------------------------------------------------------------------------
+# Telegram reply helper
+# ---------------------------------------------------------------------------
 
 def _send_telegram_reply(message_data: dict, result: dict) -> None:
     """
-    Send a Telegram reply message based on processing result.
-    
-    Args:
-        message_data: Original Telegram message
-        result: Processing result dict
+    Send a reply to the Telegram chat.
+
+    SECURITY: Error messages must not expose internal identifiers such as
+    group IDs, sheet IDs, or stack traces.
     """
     chat_id = message_data.get('chat', {}).get('id')
     if not chat_id:
         return
-    
+
     bot_token = settings.TELEGRAM_BOT_TOKEN
     if not bot_token:
         return
-    
-    # Determine reply message based on status
+
     status = result.get('status', 'unknown')
     captured_fields = result.get('captured_fields', {})
-    
-    # Build captured fields summary
+
+    # Build the "Captured: ..." footer
     fields_summary = ''
     if captured_fields:
-        field_names = []
-        for key in captured_fields.keys():
-            # Format field names: customer_name → 'Customer Name'
-            display_name = key.replace('_', ' ').title()
-            field_names.append(display_name)
-        if field_names:
-            fields_summary = f"\n📋 Captured: {', '.join(field_names)}"
-    
+        names = [k.replace('_', ' ').title() for k in captured_fields]
+        fields_summary = f"\n📋 Captured: {', '.join(names)}"
+
     if status == 'success':
         text = f'✅ Message received and saved successfully{fields_summary}'
     elif status == 'partial':
-        if result.get('error'):
-            text = f'⚠️ Message received but sheet sync failed: {result.get("error")}{fields_summary}'
+        if result.get('error') and 'sheet' in result['error'].lower():
+            # Sheet sync failure — generic wording, no internal detail
+            text = (
+                f'⚠️ Message saved to database but could not sync to the '
+                f'register at this time. It will be retried automatically.'
+                f'{fields_summary}'
+            )
         else:
-            text = f'⚠️ Message partially processed (some fields missing){fields_summary}'
+            text = (
+                f'⚠️ Message partially processed (some fields were not '
+                f'recognised){fields_summary}'
+            )
     elif status == 'duplicate':
-        text = '⚠️ Duplicate message - already processed'
+        text = '⚠️ This message has already been processed.'
     elif status == 'skipped':
-        text = '⚠️ Message skipped - no content'
+        text = '⚠️ Message skipped — no text content found.'
     elif status == 'batch_processed':
         success = result.get('success', 0)
         total = result.get('total', 0)
-        text = f'✅ Batch processed: {success}/{total} messages saved'
+        text = f'✅ Batch processed: {success}/{total} messages saved.'
     elif status == 'error':
-        text = f'❌ Error: {result.get("error", "Unknown error")}'
+        # Generic wording only — no internal identifiers
+        text = (
+            '❌ This message could not be processed. '
+            'Please check the format and try again.'
+        )
     else:
-        text = f'📝 Message processed: {status}'
-    
+        text = f'📝 Message received (status: {status})'
+
     try:
         url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
-        payload = {
-            'chat_id': chat_id,
-            'text': text,
-            'reply_to_message_id': message_data.get('message_id'),
-        }
-        # Add timeout to prevent hanging
         requests.post(
             url,
-            data=payload,
-            timeout=settings.API_REQUEST_TIMEOUT
+            data={
+                'chat_id': chat_id,
+                'text': text,
+                'reply_to_message_id': message_data.get('message_id'),
+            },
+            timeout=settings.API_REQUEST_TIMEOUT,
         )
     except requests.Timeout:
         logger.warning(f"Timeout sending Telegram reply to chat {chat_id}")
-    except Exception as e:
-        logger.error(f"Failed to send Telegram reply: {e}")
+    except Exception as exc:
+        logger.error(f"Failed to send Telegram reply: {exc}")
 
 
-def _extract_sender_name(message_data: dict) -> str:
-    """Extract sender name from Telegram message."""
-    from_user = message_data.get('from', {})
-    if from_user:
-        first_name = from_user.get('first_name', '')
-        last_name = from_user.get('last_name', '')
-        username = from_user.get('username', '')
-        
-        if first_name or last_name:
-            return f"{first_name} {last_name}".strip()
-        if username:
-            return username
-    
-    # Fallback for forwarded messages
-    forward_sender = message_data.get('forward_sender_name', '')
-    if forward_sender:
-        return forward_sender
-    
-    return ''
-
-
-def _extract_message_content(message_data: dict) -> str:
-    """Extract message content (text or caption)."""
-    text = message_data.get('text', '')
-    caption = message_data.get('caption', '')
-    
-    # Combine text and caption
-    parts = []
-    if text:
-        parts.append(text)
-    if caption:
-        parts.append(caption)
-    
-    return '\n'.join(parts).strip()
-
-
-def _detect_image(message_data: dict) -> bool:
-    """Detect if message contains an image."""
-    # Check for various media types
-    media_keys = [
-        'photo', 'document', 'video', 'animation',
-        'sticker', 'voice', 'video_note',
-    ]
-    
-    for key in media_keys:
-        if key in message_data:
-            return True
-    
-    # Check caption without text (image-only message)
-    if message_data.get('caption') and not message_data.get('text'):
-        return True
-    
-    return False
-
-
-def _extract_timestamp(message_data: dict) -> datetime:
-    """Extract message timestamp."""
-    date_timestamp = message_data.get('date')
-    if date_timestamp:
-        # Create timezone-aware datetime from Unix timestamp
-        return datetime.fromtimestamp(date_timestamp, tz=dt_timezone.utc)
-    return timezone.now()
-
-
-def _parse_received_at(received_at_raw):
-    """Parse ISO or fallback timestamp strings for manual batch processing."""
-    if not received_at_raw:
-        return timezone.now()
-
-    try:
-        from dateutil import parser as date_parser
-        return date_parser.parse(received_at_raw)
-    except Exception:
-        try:
-            return datetime.fromisoformat(received_at_raw.replace('Z', '+00:00'))
-        except Exception:
-            logger.warning(f"Could not parse received_at '{received_at_raw}', using now")
-            return timezone.now()
-
-
-def _split_if_batch(content: str, sender: str, has_image: bool, 
-                    received_at: datetime) -> list[dict]:
-    """
-    Check if content contains multiple forwarded messages and split them.
-    
-    Returns:
-        List of message dicts with 'sender' and 'content' keys
-    """
-    from core.services.parser import split_batch_message
-    
-    # Try to split batch
-    split_messages = split_batch_message(content)
-    
-    if len(split_messages) > 1:
-        return split_messages
-    
-    # Return as single message
-    return [{
-        'sender': sender,
-        'content': content,
-    }]
-
-
-def _authorize_manual_request(request) -> bool:
-    """Authorize manual API access using a bearer token."""
-    token = getattr(settings, 'API_AUTH_TOKEN', '')
-    if not token:
-        logger.warning('Manual API token is not configured')
-        return False
-
-    auth_header = request.headers.get('Authorization', '')
-    if auth_header.startswith('Bearer '):
-        provided_token = auth_header.split(' ', 1)[1].strip()
-    else:
-        provided_token = request.headers.get('X-API-AUTH-TOKEN', '')
-
-    if provided_token != token:
-        logger.warning('Unauthorized manual API request')
-        return False
-
-    return True
-
+# ---------------------------------------------------------------------------
+# Manual batch processing endpoint
+# ---------------------------------------------------------------------------
 
 @csrf_exempt
 @require_http_methods(["POST"])
 def process_messages(request):
     """
-    Manually trigger batch message processing.
-    
-    Accepts a list of messages in the request body:
+    Manually trigger processing for a list of messages.
+
+    Each message object may include a 'group_id' field.  If omitted,
+    settings.DEFAULT_GROUP_ID is used as a fallback so the endpoint
+    remains usable in single-group deployments.
+
+    Request body:
     {
         "messages": [
             {
@@ -556,132 +397,221 @@ def process_messages(request):
                 "content": "Sold 3 bread 50 each to John",
                 "sender": "John Doe",
                 "received_at": "2026-04-15T10:30:00Z",
-                "has_image": false
+                "has_image": false,
+                "group_id": "-1001234567890"   ← optional
             }
         ]
     }
     """
     try:
-        # Validate request size
         try:
             validate_request_size(request)
-        except ValidationError as e:
-            return error_response(e.message, e.code, e.status_code)
+        except ValidationError as exc:
+            return error_response(exc.message, exc.code, exc.status_code)
 
         if not _authorize_manual_request(request):
             return error_response(
                 'Unauthorized: Missing or invalid API token',
                 code='UNAUTHORIZED',
-                status_code=401
+                status_code=401,
             )
 
         try:
             body = json.loads(request.body)
-        except json.JSONDecodeError as e:
+        except json.JSONDecodeError as exc:
             return error_response(
                 'Invalid JSON in request body',
                 code='INVALID_JSON',
                 status_code=400,
-                details=str(e)
+                details=str(exc),
             )
-        
+
         messages = body.get('messages', [])
-        
-        # Validate batch
+
         is_valid, errors = validate_batch_messages(messages)
         if not is_valid:
             return error_response(
                 'Invalid batch: ' + errors[0],
                 code='INVALID_BATCH',
                 status_code=400,
-                data={'errors': errors}
+                data={'errors': errors},
             )
-        
+
+        default_group_id = getattr(settings, 'DEFAULT_GROUP_ID', 'default')
         results = []
+
         for msg in messages:
-            received_at_raw = msg.get('received_at')
-            received_at = _parse_received_at(received_at_raw)
+            received_at = _parse_received_at(msg.get('received_at'))
+
+            # ── KEY FIX: pass group_id from the request (or fallback) ──
+            group_id = str(msg.get('group_id', '') or default_group_id).strip()
+
             result = _process_single_message(
                 telegram_message_id=msg.get('telegram_message_id', ''),
                 content=msg.get('content', ''),
                 sender=msg.get('sender', ''),
                 received_at=received_at,
                 has_image=msg.get('has_image', False),
+                group_id=group_id,
             )
             results.append(result)
-        
-        success_count = sum(1 for r in results if r.get('status') == 'success')
-        
+
         return success_response(
             data={
                 'total': len(messages),
-                'success': success_count,
+                'success': sum(1 for r in results if r.get('status') == 'success'),
                 'duplicates': sum(1 for r in results if r.get('status') == 'duplicate'),
                 'errors': sum(1 for r in results if r.get('status') == 'error'),
                 'results': results,
             },
-            message=f'Processed {len(messages)} messages'
+            message=f'Processed {len(messages)} messages',
         )
-        
-    except Exception as e:
-        logger.error(f"Unhandled error in process_messages: {e}", exc_info=True)
+
+    except Exception as exc:
+        logger.error(f"Unhandled error in process_messages: {exc}", exc_info=True)
         return error_response(
             'Internal server error',
             code='INTERNAL_ERROR',
             status_code=500,
-            details=str(e)
+            details=str(exc),
         )
 
+
+# ---------------------------------------------------------------------------
+# Resync endpoint
+# ---------------------------------------------------------------------------
 
 @csrf_exempt
 @require_http_methods(["POST"])
 def resend_unsynced(request):
     """
-    Manually trigger resync of unsynced messages to Google Sheets.
-    
-    Query params:
-    - limit: Maximum number of messages to resync (default: 100)
-    - max_attempts: Max retry attempts (default: 5)
+    Trigger a resync of unsynced messages to Google Sheets.
+
+    Body (optional JSON):
+    { "limit": 100, "max_attempts": 5 }
     """
     try:
-        # Validate request size
         try:
             validate_request_size(request)
-        except ValidationError as e:
-            return error_response(e.message, e.code, e.status_code)
+        except ValidationError as exc:
+            return error_response(exc.message, exc.code, exc.status_code)
 
         if not _authorize_manual_request(request):
             return error_response(
                 'Unauthorized: Missing or invalid API token',
                 code='UNAUTHORIZED',
-                status_code=401
+                status_code=401,
             )
 
         body = json.loads(request.body) if request.body else {}
-        limit = min(body.get('limit', 100), 500)  # Cap at 500 to prevent abuse
-        max_attempts = min(body.get('max_attempts', settings.MAX_SYNC_ATTEMPTS), 10)
-        
-        from core.services.storage import bulk_resync_to_sheets
-        
-        result = bulk_resync_to_sheets(limit, max_attempts)
-        
-        return success_response(
-            data=result,
-            message='Resync operation complete'
+        limit = min(body.get('limit', 100), 500)
+        max_attempts = min(
+            body.get('max_attempts', settings.MAX_SYNC_ATTEMPTS), 10
         )
-        
-    except json.JSONDecodeError as e:
+
+        from core.services.storage import bulk_resync_to_sheets
+        result = bulk_resync_to_sheets(limit, max_attempts)
+
+        return success_response(data=result, message='Resync operation complete')
+
+    except json.JSONDecodeError as exc:
         return error_response(
             'Invalid JSON in request body',
             code='INVALID_JSON',
             status_code=400,
-            details=str(e)
+            details=str(exc),
         )
-    except Exception as e:
-        logger.error(f"Unhandled error in resend_unsynced: {e}", exc_info=True)
+    except Exception as exc:
+        logger.error(f"Unhandled error in resend_unsynced: {exc}", exc_info=True)
         return error_response(
             'Internal server error',
             code='INTERNAL_ERROR',
             status_code=500,
-            details=str(e)
+            details=str(exc),
         )
+
+
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
+
+def _authorize_manual_request(request) -> bool:
+    token = getattr(settings, 'API_AUTH_TOKEN', '')
+    if not token:
+        logger.warning('API_AUTH_TOKEN is not configured')
+        return False
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        provided = auth_header.split(' ', 1)[1].strip()
+    else:
+        provided = request.headers.get('X-API-AUTH-TOKEN', '')
+    return provided == token
+
+
+def _extract_sender_name(message_data: dict) -> str:
+    from_user = message_data.get('from', {})
+    if from_user:
+        first = from_user.get('first_name', '')
+        last = from_user.get('last_name', '')
+        username = from_user.get('username', '')
+        if first or last:
+            return f"{first} {last}".strip()
+        if username:
+            return username
+    return message_data.get('forward_sender_name', '')
+
+
+def _extract_message_content(message_data: dict) -> str:
+    parts = []
+    text = message_data.get('text', '')
+    caption = message_data.get('caption', '')
+    if text:
+        parts.append(text)
+    if caption:
+        parts.append(caption)
+    return '\n'.join(parts).strip()
+
+
+def _detect_image(message_data: dict) -> bool:
+    for key in ('photo', 'document', 'video', 'animation',
+                'sticker', 'voice', 'video_note'):
+        if key in message_data:
+            return True
+    if message_data.get('caption') and not message_data.get('text'):
+        return True
+    return False
+
+
+def _extract_timestamp(message_data: dict) -> datetime:
+    ts = message_data.get('date')
+    if ts:
+        return datetime.fromtimestamp(ts, tz=dt_timezone.utc)
+    return timezone.now()
+
+
+def _parse_received_at(received_at_raw) -> datetime:
+    if not received_at_raw:
+        return timezone.now()
+    try:
+        from dateutil import parser as date_parser
+        return date_parser.parse(received_at_raw)
+    except Exception:
+        try:
+            return datetime.fromisoformat(
+                received_at_raw.replace('Z', '+00:00')
+            )
+        except Exception:
+            logger.warning(
+                f"Could not parse received_at '{received_at_raw}', using now"
+            )
+            return timezone.now()
+
+
+def _split_if_batch(
+    content: str, sender: str, has_image: bool, received_at: datetime
+) -> list:
+    from core.services.parser import split_batch_message
+    split = split_batch_message(content)
+    if len(split) > 1:
+        return split
+    return [{'sender': sender, 'content': content}]

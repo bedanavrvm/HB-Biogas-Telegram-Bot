@@ -1,14 +1,24 @@
 """
 Group Configuration Service
 
-Manages multi-tenant routing: groups → sheets/configs.
-Config-driven, no code changes needed to add groups.
+Manages multi-tenant routing: Telegram groups → Google Sheets.
+Config-driven — no code changes needed to add a new group.
 
-DESIGN:
-- Groups are identified by Telegram chat_id
-- Each group routes to a specific Google Sheet
-- Per-group rules (optional future: permissions, parsers, etc.)
-- Single source of truth: GROUP_MAPPING in settings.py
+KEY FIXES (v2):
+- Single-group (legacy) mode now uses a wildcard default config so
+  ANY Telegram chat_id is accepted, not just the literal string 'default'.
+- get_group() falls back to _default_config when the specific chat_id
+  is not in GROUP_MAPPING, instead of hard-failing.
+- reload() now clears _default_config so it is rebuilt from settings.
+- __init__ initialises _default_config = None before _load_groups().
+
+TELEGRAM CHAT-ID FORMAT:
+  Supergroups arrive as *negative* integers, e.g. -1001234567890.
+  After str() conversion that becomes "-1001234567890".
+  Always use the full string including the leading minus in GROUP_MAPPING_JSON.
+
+  Example .env entry:
+    GROUP_MAPPING_JSON='{"-1001234567890": {"sheet_id": "abc123", "sheet_name": "Complaints Register"}}'
 """
 import logging
 from typing import Optional, Dict, Any
@@ -19,156 +29,197 @@ logger = logging.getLogger(__name__)
 
 class GroupConfig:
     """Represents configuration for a single group."""
-    
+
     def __init__(
         self,
         group_id: str,
         sheet_id: str,
         sheet_name: str = 'Complaints Register',
         enabled: bool = True,
-        metadata: Dict[str, Any] = None
+        metadata: Dict[str, Any] = None,
     ):
-        """
-        Args:
-            group_id: Telegram chat_id (string, e.g., "-100123456789")
-            sheet_id: Google Sheet ID
-            sheet_name: Worksheet name within sheet
-            enabled: Whether this group is active
-            metadata: Additional config (future: permissions, parsers, etc.)
-        """
         self.group_id = str(group_id)
         self.sheet_id = sheet_id
         self.sheet_name = sheet_name
         self.enabled = enabled
         self.metadata = metadata or {}
-        
+
         if not self.sheet_id:
             logger.warning(f"Group {group_id} has no sheet_id configured")
-    
+
     def __repr__(self):
-        return f"GroupConfig(id={self.group_id}, sheet={self.sheet_id}, enabled={self.enabled})"
+        return (
+            f"GroupConfig(id={self.group_id}, "
+            f"sheet={self.sheet_id}, "
+            f"enabled={self.enabled})"
+        )
 
 
 class GroupRegistry:
     """
     Central registry for all groups.
     Reads from settings.GROUP_MAPPING at startup.
-    
-    FORMAT in .env or settings.py:
-    
-    GROUP_MAPPING = {
-        "-100123456789": {
-            "sheet_id": "1a2b3c...",
-            "sheet_name": "Complaints Register",
-        },
-        "-100987654321": {
-            "sheet_id": "xyz789...",
-            "sheet_name": "Support Tickets",
-        },
-    }
+
+    Single-group (legacy) mode
+    --------------------------
+    Leave GROUP_MAPPING_JSON empty in .env.
+    The registry creates a wildcard default config pointing at
+    settings.GOOGLE_SHEET_ID.  Every incoming chat_id that is not
+    explicitly listed will use this default.
+
+    Multi-group mode
+    ----------------
+    Set GROUP_MAPPING_JSON in .env with the full Telegram chat_id
+    (including the leading minus sign for supergroups):
+
+      GROUP_MAPPING_JSON='{
+        "-1001234567890": {"sheet_id": "abc...", "sheet_name": "Complaints"},
+        "-1009876543210": {"sheet_id": "xyz...", "sheet_name": "Support"}
+      }'
     """
-    
+
     _instance = None
     _groups: Dict[str, GroupConfig] = {}
-    
+
     @classmethod
-    def get_instance(cls):
+    def get_instance(cls) -> "GroupRegistry":
         """Singleton access."""
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
-    
+
     def __init__(self):
-        """Initialize from settings.GROUP_MAPPING."""
+        # Initialise _default_config BEFORE _load_groups so the
+        # attribute always exists, even if loading raises.
+        self._default_config: Optional[GroupConfig] = None
+        self._groups: Dict[str, GroupConfig] = {}
         self._load_groups()
-    
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
     def _load_groups(self):
         """Load group mappings from settings."""
         group_mapping = getattr(settings, 'GROUP_MAPPING', {})
-        
+
         if not group_mapping:
-            # Fallback: single group from legacy config
-            if settings.GOOGLE_SHEET_ID:
-                group_id = getattr(settings, 'DEFAULT_GROUP_ID', 'default')
-                self._groups['default'] = GroupConfig(
-                    group_id=group_id,
+            # ── Legacy / single-group mode ──────────────────────────
+            # Store as a wildcard default so any chat_id is accepted.
+            if getattr(settings, 'GOOGLE_SHEET_ID', ''):
+                self._default_config = GroupConfig(
+                    group_id='*',
                     sheet_id=settings.GOOGLE_SHEET_ID,
-                    sheet_name=settings.GOOGLE_SHEET_TAB_NAME,
+                    sheet_name=getattr(
+                        settings, 'GOOGLE_SHEET_TAB_NAME', 'Complaints Register'
+                    ),
                 )
-                logger.info(f"Loaded legacy single-group config: {group_id}")
+                logger.info(
+                    "Single-group mode active: all Telegram groups route to "
+                    f"sheet {settings.GOOGLE_SHEET_ID}"
+                )
+            else:
+                logger.warning(
+                    "No GROUP_MAPPING and no GOOGLE_SHEET_ID configured. "
+                    "Google Sheets sync will be disabled."
+                )
         else:
-            # Load all configured groups
-            for group_id, config_dict in group_mapping.items():
+            # ── Multi-group mode ────────────────────────────────────
+            for raw_group_id, config_dict in group_mapping.items():
+                group_id = str(raw_group_id).strip()
                 group_config = GroupConfig(
                     group_id=group_id,
-                    sheet_id=config_dict.get('sheet_id'),
-                    sheet_name=config_dict.get('sheet_name', 'Complaints Register'),
+                    sheet_id=config_dict.get('sheet_id', ''),
+                    sheet_name=config_dict.get(
+                        'sheet_name', 'Complaints Register'
+                    ),
                     enabled=config_dict.get('enabled', True),
                     metadata=config_dict.get('metadata', {}),
                 )
-                self._groups[str(group_id)] = group_config
-                logger.debug(f"Loaded group {repr(str(group_id))} (sheet: {config_dict.get('sheet_id')})")
-            
-            logger.info(f"Loaded {len(self._groups)} group(s) from GROUP_MAPPING")
-            logger.debug(f"Configured group IDs: {list(self._groups.keys())}")
-    
+                self._groups[group_id] = group_config
+                logger.debug(
+                    f"Loaded group {repr(group_id)} → "
+                    f"sheet {config_dict.get('sheet_id')}"
+                )
+
+            logger.info(
+                f"Multi-group mode: {len(self._groups)} group(s) loaded. "
+                f"IDs: {list(self._groups.keys())}"
+            )
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
     def get_group(self, group_id: str) -> Optional[GroupConfig]:
         """
-        Get config for a specific group.
-        
-        Args:
-            group_id: Telegram chat_id
-            
-        Returns:
-            GroupConfig if found and enabled, None otherwise
+        Return the GroupConfig for *group_id*, or None if not routable.
+
+        Lookup order:
+        1. Explicit match in GROUP_MAPPING.
+        2. Wildcard default (single-group / legacy mode).
+        3. None — caller must handle the error.
         """
-        group_id = str(group_id)
+        group_id = str(group_id).strip()
         config = self._groups.get(group_id)
-        
+
         if not config:
-            logger.warning(f"Unknown group_id: {group_id}")
-            logger.debug(f"Available groups: {list(self._groups.keys())}")
-            logger.debug(f"Received group_id repr: {repr(group_id)}")
+            # Try the wildcard default before giving up
+            if self._default_config:
+                logger.info(
+                    f"Group {group_id} not in registry; "
+                    "falling back to single-group default config"
+                )
+                return self._default_config
+
+            logger.warning(
+                f"Unknown group_id: {repr(group_id)}. "
+                f"Available: {list(self._groups.keys())}"
+            )
             return None
-        
+
         if not config.enabled:
             logger.warning(f"Group {group_id} is disabled")
             return None
-        
+
         if not config.sheet_id:
-            logger.error(f"Group {group_id} has no sheet configured")
+            logger.error(f"Group {group_id} has no sheet_id configured")
             return None
-        
+
         return config
-    
+
     def list_groups(self) -> Dict[str, GroupConfig]:
-        """Get all registered groups."""
+        """Return a copy of all explicitly registered groups."""
         return dict(self._groups)
-    
+
     def reload(self):
-        """Reload groups from settings (for dynamic config)."""
+        """Reload groups from settings (useful after config changes)."""
         self._groups.clear()
+        self._default_config = None   # ← must reset before re-loading
         self._load_groups()
         logger.info("Group registry reloaded")
 
 
+# ---------------------------------------------------------------------------
+# Module-level convenience functions
+# ---------------------------------------------------------------------------
+
 def get_sheet_id_for_group(group_id: str) -> Optional[str]:
     """
-    Utility: Get sheet ID for a group.
-    
+    Return the Google Sheet ID for *group_id*, or None if not configured.
+
     Usage:
         sheet_id = get_sheet_id_for_group(message['chat']['id'])
         if not sheet_id:
-            logger.error(f"Unknown group: {message['chat']['id']}")
-            return error_response(...)
+            return error_response('Unknown group', ...)
     """
     registry = GroupRegistry.get_instance()
-    config = registry.get_group(group_id)
+    config = registry.get_group(str(group_id))
     return config.sheet_id if config else None
 
 
 def get_sheet_name_for_group(group_id: str) -> Optional[str]:
-    """Utility: Get worksheet name for a group."""
+    """Return the worksheet name for *group_id*, or None if not configured."""
     registry = GroupRegistry.get_instance()
-    config = registry.get_group(group_id)
+    config = registry.get_group(str(group_id))
     return config.sheet_name if config else None

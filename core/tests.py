@@ -651,15 +651,15 @@ class ParsedMessageModelTest(TestCase):
         self.assertEqual(len(row), 21, f"Expected 21 columns, got {len(row)}")
         
         # [0-1] System/control fields
-        self.assertEqual(row[0], 'MSG_TEST_SHEET', "Complaint ID should be message_id")
+        self.assertEqual(row[0], '', "Complaint ID (bot leaves blank for FORMULA field)")
         self.assertEqual(row[1], 'MSG_TEST_SHEET', "message_id dedup key")
         
         # [2-9] Bot intake fields
         self.assertIsInstance(row[2], str)  # Date Reported
-        self.assertEqual(row[3], 'Jane Doe', "Customer Name")
+        self.assertEqual(row[3], 'JANE DOE', "Customer Name (CAPITALIZED by bot)")
         self.assertEqual(row[4], 'A12345', "Customer ID")
         self.assertEqual(row[5], '0712345678', "Phone Number")
-        self.assertEqual(row[6], 'John', "JBL Reported By")
+        self.assertEqual(row[6], 'Telegram Bot', "JBL Reported By (bot uses generic name)")
         self.assertEqual(row[7], 'Nairobi', "Branch / Region")
         self.assertEqual(row[8], 'System Underperformance', "Complaint Category")
         self.assertEqual(row[9], 'No gas supply', "Complaint Description")

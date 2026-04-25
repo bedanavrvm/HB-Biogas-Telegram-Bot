@@ -2,20 +2,43 @@
 Google Sheets Integration Service
 
 Handles appending rows to a shared Google Sheet.
-- NEVER overwrites existing rows
-- Uses message_id (internal dedup key) for idempotency
+- NEVER overwrites existing rows (append-only)
+- Uses message_id for idempotency
 - Safe for concurrent staff edits
-- Append-only strategy preserves all formulas and dropdowns
 
-Schema (FIXED - 21 columns):
-| Complaint ID (formula) | message_id | Date Reported | Customer Name | Customer ID | Phone | JBL Reported By | Branch/Region | Complaint Category | Complaint Description | raw_message | gps_link | image_flag | source | Loan Status | Loan at Risk | Risk Level | Status | Resolution Details | Date Resolved | Days Open (formula) |
+KEY FIXES (v2):
+- GoogleSheetsService is now keyed per sheet_id (_instances dict)
+  instead of a single global singleton.  Each group's sheet gets its
+  own authenticated client, so multi-tenant writes go to the correct
+  sheet.
+- get_instance(sheet_id) / __init__(sheet_id) accept an explicit
+  sheet_id; fall back to settings.GOOGLE_SHEET_ID when None.
+- Module-level helpers (get_sheets_service, append_parsed_message_to_sheet,
+  batch_append_messages) all accept an optional sheet_id parameter and
+  forward it to the correct service instance.
 
-Column Groups:
-- [0]:       Complaint ID (formula - DO NOT WRITE)
-- [1]:       message_id (bot system key - deduplication)
-- [2-9]:     Bot intake fields (auto-populated from WhatsApp)
-- [10-13]:   Raw data/audit trail (for traceability)
-- [14-20]:   Human workflow fields (staff fills in)
+Schema (FIXED — 21 columns):
+  [0]  Complaint ID (formula — DO NOT WRITE)
+  [1]  message_id
+  [2]  Date Reported
+  [3]  Customer Name
+  [4]  Customer ID / Account
+  [5]  Phone Number
+  [6]  JBL Reported By
+  [7]  Branch / Region
+  [8]  Complaint Category
+  [9]  Complaint Description
+  [10] raw_message
+  [11] gps_link
+  [12] image_flag
+  [13] source
+  [14] Loan Status          ← HUMAN
+  [15] Loan at Risk         ← HUMAN
+  [16] Risk Level           ← HUMAN
+  [17] Status               ← HUMAN
+  [18] Resolution Details   ← HUMAN
+  [19] Date Resolved        ← HUMAN
+  [20] Days Open (formula — DO NOT WRITE)
 """
 import logging
 from typing import Optional
@@ -23,7 +46,6 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-# Lazy import to avoid dependency issues during development
 _google_sheets_available = False
 _google_sheets_api_available = False
 try:
@@ -34,147 +56,166 @@ try:
         from googleapiclient.discovery import build
         _google_sheets_api_available = True
     except ImportError:
-        logger.warning("googleapiclient not installed. API v4 features will be disabled.")
+        logger.warning(
+            "googleapiclient not installed. "
+            "Dropdown validation (API v4) will be disabled."
+        )
 except ImportError:
-    logger.warning("gspread not installed. Google Sheets features will be disabled.")
+    logger.warning(
+        "gspread not installed. Google Sheets features will be disabled."
+    )
 
 
 class GoogleSheetsService:
     """
-    Service for interacting with Google Sheets.
-    Thread-safe, append-only operations.
-    
-    CRITICAL: This service implements non-invasive integration with live Google Sheets.
-    It ONLY appends new rows and NEVER modifies existing data.
-    
-    Schema is pinned to exactly 21 columns. Changes require full audit + migration.
-    
-    Column Mapping Reference (for developers):
-    ─────────────────────────────────────────
-    [0]  Complaint ID          ← FORMULA (bot provides message_id as placeholder)
-    [1]  message_id            ← BOT WRITES (unique dedup key per message)
-    [2]  Date Reported         ← BOT WRITES (from parser.result.timestamp)
-    [3]  Customer Name         ← BOT WRITES (from parser.result.customer_name)
-    [4]  Customer ID / Account ← BOT WRITES (from parser.result.customer_id)
-    [5]  Phone Number          ← BOT WRITES (from parser.result.customer_phone)
-    [6]  JBL Reported By        ← BOT WRITES (from parser.result.sender)
-    [7]  Branch / Region       ← BOT WRITES (from parser.result.branch_region)
-    [8]  Complaint Category    ← BOT WRITES (from parser.result.complaint_category)
-    [9]  Complaint Description ← BOT WRITES (from parser.result.complaint_description)
-    [10] raw_message           ← BOT WRITES (from parsed.message.raw_message)
-    [11] gps_link              ← BOT WRITES (from parsed.message.gps_link)
-    [12] image_flag            ← BOT WRITES (from parsed.message.image_flag, as "TRUE"/"")
-    [13] source                ← BOT WRITES (from parsed.message.source)
-    [14] Loan Status           ← HUMAN (staff fills dropdown)
-    [15] Loan at Risk          ← HUMAN (staff fills dropdown)
-    [16] Risk Level            ← HUMAN (staff fills dropdown)
-    [17] Status                ← HUMAN (staff fills dropdown: Open/In Progress/Closed)
-    [18] Resolution Details    ← HUMAN (staff enters free text)
-    [19] Date Resolved         ← HUMAN (staff enters date)
-    [20] Days Open             ← FORMULA (auto-calculated: =TODAY()-[Date Reported])
-    ─────────────────────────────────────────
-    
-    Safety Guarantees:
-    • NEVER write to [0, 20] (formulas will break)
-    • NEVER write to [14-19] (staff workflow columns)
-    • ALWAYS write to [1-13] (bot-controlled safe zone)
-    • ALWAYS append new rows (never update existing)
+    Service for interacting with a specific Google Sheet.
+
+    Instances are cached per sheet_id so that each tenant's sheet gets
+    its own authenticated gspread client.  Use get_instance(sheet_id)
+    rather than constructing directly.
+
+    Safety guarantees
+    -----------------
+    • NEVER write to [0, 20]   — formula columns
+    • NEVER write to [14-19]   — human workflow columns
+    • ALWAYS write to [1-13]   — bot-controlled safe zone
+    • ALWAYS append new rows   — never update existing rows
     """
-    
-    _instance = None
-    _client = None
-    _sheet = None
-    
+
+    # ── Per-sheet instance cache ──────────────────────────────────────
+    _instances: dict = {}
+
     SCOPES = [
         'https://www.googleapis.com/auth/spreadsheets',
         'https://www.googleapis.com/auth/drive',
     ]
-    
+
     SHEET_COLUMNS = [
-        # [0] System/Control fields (DO NOT WRITE - formula driven)
-        'Complaint ID',
-        
-        # [1] Deduplication key (bot system)
-        'message_id',
-        
-        # [2-9] Bot intake fields (auto-populated from parser)
-        'Date Reported', 'Customer Name', 'Customer ID / Account', 'Phone Number',
-        'JBL Reported By', 'Branch / Region', 'Complaint Category', 'Complaint Description',
-        
-        # [10-13] Raw data / Audit trail (for traceability + future AI)
-        'raw_message', 'gps_link', 'image_flag', 'source',
-        
-        # [14-20] Human workflow fields (staff fills in, formulas, dropdowns)
-        'Loan Status', 'Loan at Risk', 'Risk Level', 'Status',
-        'Resolution Details', 'Date Resolved', 'Days Open'
+        'Complaint ID',                                   # [0]  formula
+        'message_id',                                     # [1]  dedup key
+        'Date Reported', 'Customer Name',                 # [2-3]
+        'Customer ID / Account', 'Phone Number',          # [4-5]
+        'JBL Reported By', 'Branch / Region',            # [6-7]
+        'Complaint Category', 'Complaint Description',    # [8-9]
+        'raw_message', 'gps_link',                        # [10-11]
+        'image_flag', 'source',                           # [12-13]
+        'Loan Status', 'Loan at Risk',                    # [14-15] human
+        'Risk Level', 'Status',                           # [16-17] human
+        'Resolution Details', 'Date Resolved',            # [18-19] human
+        'Days Open',                                      # [20]  formula
     ]
-    
+
+    # ------------------------------------------------------------------
+    # Construction / caching
+    # ------------------------------------------------------------------
+
     @classmethod
-    def get_instance(cls):
-        """Get singleton instance."""
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
-    
-    def __init__(self):
-        """Initialize the service."""
+    def get_instance(cls, sheet_id: str = None) -> "GoogleSheetsService":
+        """
+        Return the cached service instance for *sheet_id*.
+
+        If *sheet_id* is None, falls back to settings.GOOGLE_SHEET_ID.
+        Creates a new instance on first call for a given sheet_id.
+        """
+        effective_id = sheet_id or getattr(settings, 'GOOGLE_SHEET_ID', '')
+        if effective_id not in cls._instances:
+            cls._instances[effective_id] = cls(sheet_id=effective_id)
+        return cls._instances[effective_id]
+
+    @classmethod
+    def clear_instances(cls):
+        """Flush the instance cache (useful in tests)."""
+        cls._instances.clear()
+
+    def __init__(self, sheet_id: str = None):
+        """
+        Initialise the service for a specific *sheet_id*.
+
+        Prefer get_instance() over constructing directly.
+        """
         if not _google_sheets_available:
-            logger.warning("Google Sheets service unavailable")
+            logger.warning("Google Sheets service unavailable (gspread not installed)")
             return
-        
+
         self._initialized = False
         self._api_initialized = False
-        self._sheet_id = settings.GOOGLE_SHEET_ID
+        self._sheet_id = sheet_id or getattr(settings, 'GOOGLE_SHEET_ID', '')
         self._sheet_name = getattr(settings, 'GOOGLE_SHEET_TAB_NAME', '')
-        self._credentials_file = settings.GOOGLE_SERVICE_ACCOUNT_FILE
+        self._credentials_file = getattr(
+            settings, 'GOOGLE_SERVICE_ACCOUNT_FILE', 'credentials.json'
+        )
         self._sheets_api_service = None
-    
+        self._client = None
+        self._sheet = None
+
+    # ------------------------------------------------------------------
+    # Initialisation
+    # ------------------------------------------------------------------
+
     def _initialize(self):
-        """Lazy initialization of Google Sheets client."""
+        """Lazy initialisation of the gspread client for this sheet."""
         if self._initialized:
             return
-        
+
         if not _google_sheets_available:
             return
-        
+
         if not self._sheet_id:
-            logger.warning("GOOGLE_SHEET_ID not configured")
+            logger.warning(
+                "GoogleSheetsService: no sheet_id configured — skipping init"
+            )
             return
-        
+
         try:
             creds = Credentials.from_service_account_file(
                 self._credentials_file,
-                scopes=self.SCOPES
+                scopes=self.SCOPES,
             )
-            
             self._client = gspread.authorize(creds)
+
             if self._sheet_name:
-                self._sheet = self._client.open_by_key(self._sheet_id).worksheet(self._sheet_name)
+                self._sheet = (
+                    self._client.open_by_key(self._sheet_id)
+                    .worksheet(self._sheet_name)
+                )
             else:
                 self._sheet = self._client.open_by_key(self._sheet_id).sheet1
-            
-            # Verify sheet is accessible
+
+            # Smoke-test that the sheet is accessible
             self._sheet.get_all_values()
-            
-            # Initialize Google Sheets API v4 for data validation reading
+
+            # Optional: Google Sheets API v4 for dropdown metadata
             if _google_sheets_api_available:
                 try:
-                    self._sheets_api_service = build('sheets', 'v4', credentials=creds)
+                    self._sheets_api_service = build(
+                        'sheets', 'v4', credentials=creds
+                    )
                     self._api_initialized = True
-                    logger.debug("Google Sheets API v4 initialized for data validation reading")
-                except Exception as e:
-                    logger.warning(f"Failed to initialize Google Sheets API v4: {e}")
-            
+                    logger.debug(
+                        f"Sheets API v4 ready for sheet {self._sheet_id}"
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        f"Could not init Sheets API v4 for {self._sheet_id}: {exc}"
+                    )
+
             self._initialized = True
-            logger.info("Google Sheets service initialized successfully")
-            
+            logger.info(
+                f"GoogleSheetsService initialised for sheet {self._sheet_id}"
+            )
+
         except FileNotFoundError:
-            logger.error(f"Credentials file not found: {self._credentials_file}")
-        except Exception as e:
-            logger.error(f"Failed to initialize Google Sheets: {e}", exc_info=True)
-    
+            logger.error(
+                f"Credentials file not found: {self._credentials_file}"
+            )
+        except Exception as exc:
+            logger.error(
+                f"Failed to initialise Google Sheets ({self._sheet_id}): {exc}",
+                exc_info=True,
+            )
+
     def is_available(self) -> bool:
-        """Check if Google Sheets service is available."""
+        """Return True if the service is ready to write."""
         if not _google_sheets_available:
             return False
         try:
@@ -182,280 +223,219 @@ class GoogleSheetsService:
             return self._initialized
         except Exception:
             return False
-    
-    def validate_sheet_structure(self) -> tuple[bool, str]:
+
+    # ------------------------------------------------------------------
+    # Validation helpers
+    # ------------------------------------------------------------------
+
+    def validate_sheet_structure(self) -> tuple:
         """
-        CRITICAL: Validate that the Google Sheet has the correct structure.
-        
-        This prevents silent data corruption if the sheet schema has been modified.
-        Checks:
-        1. Exactly 21 columns in header
-        2. Column names match expected schema exactly
-        3. Column order is correct
-        
-        Returns:
-            (is_valid: bool, error_message: str)
-            - (True, '') if structure is correct
-            - (False, error_message) if structure is invalid
+        Validate that the Google Sheet has exactly the expected 21-column schema.
+
+        Returns (is_valid: bool, error_message: str).
+        ABORTS the append if invalid (fail-safe).
         """
         if not self.is_available():
             return False, "Google Sheets not available"
-        
+
         try:
-            # Fetch actual header row
             actual_header = self._sheet.row_values(1)
-            
-            # Validate row count
+
             if len(actual_header) != len(self.SHEET_COLUMNS):
                 error = (
-                    f"Sheet has {len(actual_header)} columns, "
+                    f"Sheet {self._sheet_id} has {len(actual_header)} columns, "
                     f"expected {len(self.SHEET_COLUMNS)}. "
-                    f"Schema may have been modified. "
-                    f"Actual: {actual_header[:5]}..., "
-                    f"Expected: {self.SHEET_COLUMNS[:5]}..."
+                    f"Actual[:5]: {actual_header[:5]}"
                 )
                 logger.error(f"Sheet structure mismatch: {error}")
                 return False, error
-            
-            # Validate each column name
-            mismatches = []
-            for i, (actual, expected) in enumerate(zip(actual_header, self.SHEET_COLUMNS)):
-                if actual.strip() != expected.strip():
-                    mismatches.append({
-                        'column': i,
-                        'actual': actual,
-                        'expected': expected
-                    })
-            
+
+            mismatches = [
+                f"[{i}] {a!r} != {e!r}"
+                for i, (a, e) in enumerate(
+                    zip(actual_header, self.SHEET_COLUMNS)
+                )
+                if a.strip() != e.strip()
+            ]
+
             if mismatches:
                 error = (
-                    f"Column name mismatch(es): "
-                    f"{', '.join([f'[{m['column']}] {m['actual']!r} != {m['expected']!r}' for m in mismatches[:3]])}. "
-                    f"Sheet schema may have been modified manually."
+                    "Column name mismatch(es): "
+                    + ", ".join(mismatches[:3])
+                    + ". Sheet schema may have been modified manually."
                 )
                 logger.error(f"Sheet structure validation failed: {error}")
                 return False, error
-            
-            logger.debug("Sheet structure validation passed")
+
+            logger.debug(
+                f"Sheet structure OK for sheet {self._sheet_id}"
+            )
             return True, ""
-            
-        except Exception as e:
-            error = f"Failed to validate sheet structure: {e}"
+
+        except Exception as exc:
+            error = f"Failed to validate sheet structure: {exc}"
             logger.error(error, exc_info=True)
             return False, error
-    
-    def get_valid_complaint_categories(self) -> list[str]:
+
+    def get_valid_complaint_categories(self) -> list:
         """
-        Fetch valid complaint category values from the sheet's dropdown validation.
-        
-        This reads the data validation rules for the Complaint Category column [8].
-        Uses Google Sheets API v4 to extract the validation constraints.
-        
-        Returns:
-            List of valid category strings, or empty list if unable to determine
+        Fetch valid Complaint Category values from the sheet's dropdown rules.
+        Uses Google Sheets API v4 metadata.  Returns [] if unavailable.
         """
         if not self.is_available():
-            logger.warning("Google Sheets not available, cannot fetch complaint categories")
             return []
-        
-        # Check if API v4 is available (safe check using getattr)
+
         if not getattr(self, '_api_initialized', False):
-            logger.debug("Google Sheets API v4 not available, skipping category validation")
-            return []
-        
-        try:
-            # Get sheet metadata including data validation rules
-            # Column [8] is Complaint Category (column I in sheets = column 9 in 1-indexed)
-            # We need to read rows where data validation exists
-            
-            sheet_metadata = self._sheets_api_service.spreadsheets().get(
-                spreadsheetId=self._sheet_id,
-                fields='sheets.data(rowData(values(dataValidation)))'
-            ).execute()
-            
-            sheets_data = sheet_metadata.get('sheets', [])
-            valid_categories = []
-            
-            # Find the data validation rules
-            for sheet in sheets_data:
-                # If we have a specific sheet name, filter by that
-                if self._sheet_name and sheet.get('properties', {}).get('title') != self._sheet_name:
-                    continue
-                
-                row_data = sheet.get('data', [{}])[0].get('rowData', [])
-                
-                # Scan the Complaint Category column (column 8, 0-indexed = column 9)
-                # Look for cells with data validation constraints
-                for row_idx, row in enumerate(row_data):
-                    if row_idx == 0:
-                        # Skip header row
-                        continue
-                    
-                    values = row.get('values', [])
-                    
-                    # Column 8 is at index 8
-                    if len(values) > 8:
-                        cell = values[8]
-                        data_validation = cell.get('dataValidation')
-                        
-                        if data_validation:
-                            # Extract the constraint type
-                            constraint_type = data_validation.get('type')
-                            
-                            if constraint_type == 'LIST':
-                                # List constraint - get the list values
-                                conditions = data_validation.get('condition', {})
-                                values_list = conditions.get('values', [])
-                                if values_list:
-                                    valid_categories.extend(values_list)
-                                    logger.debug(
-                                        f"Found complaint categories from data validation: "
-                                        f"{values_list}"
-                                    )
-                                    # Remove duplicates and return
-                                    return list(set(valid_categories))
-            
-            if not valid_categories:
-                logger.debug(
-                    "No data validation rules found for Complaint Category column. "
-                    "Sheet may not have dropdown validation set up."
-                )
-            
-            return valid_categories
-            
-        except Exception as e:
-            logger.warning(
-                f"Error fetching complaint categories via API v4: {e}. "
-                f"Will proceed without category validation.",
-                exc_info=True
+            logger.debug(
+                "Sheets API v4 not initialised — skipping category validation"
             )
             return []
-    
-    def validate_complaint_category(self, category: str) -> tuple[bool, str]:
+
+        try:
+            metadata = (
+                self._sheets_api_service.spreadsheets()
+                .get(
+                    spreadsheetId=self._sheet_id,
+                    fields='sheets.data(rowData(values(dataValidation)))',
+                )
+                .execute()
+            )
+
+            valid_categories = []
+            for sheet in metadata.get('sheets', []):
+                title = sheet.get('properties', {}).get('title', '')
+                if self._sheet_name and title != self._sheet_name:
+                    continue
+
+                for row_idx, row in enumerate(
+                    sheet.get('data', [{}])[0].get('rowData', [])
+                ):
+                    if row_idx == 0:
+                        continue  # skip header
+                    values = row.get('values', [])
+                    if len(values) > 8:
+                        dv = values[8].get('dataValidation', {})
+                        if dv.get('type') == 'LIST':
+                            cats = dv.get('condition', {}).get('values', [])
+                            if cats:
+                                valid_categories.extend(cats)
+                                return list(set(valid_categories))
+
+            return valid_categories
+
+        except Exception as exc:
+            logger.warning(
+                f"Error fetching complaint categories via API v4: {exc}",
+                exc_info=True,
+            )
+            return []
+
+    def validate_complaint_category(self, category: str) -> tuple:
         """
-        Validate that a complaint category value is acceptable.
-        
-        Args:
-            category: The category value to validate
-            
-        Returns:
-            (is_valid: bool, message: str)
-            - (True, '') if category is valid
-            - (False, message) if category is invalid or cannot be validated
+        Validate *category* against the sheet's dropdown list.
+        Empty values are always allowed (staff fills in later).
+        Returns (is_valid: bool, message: str).
         """
         if not category or not category.strip():
-            # Empty category is allowed (staff may fill it in later)
             return True, ""
-        
+
         category = category.strip()
-        
-        # Try to get valid categories from sheet
-        valid_categories = self.get_valid_complaint_categories()
-        
-        if valid_categories:
-            # We have a list of valid values - check against it
-            if category not in valid_categories:
-                error = (
-                    f"Complaint category {category!r} not in valid list: "
-                    f"{valid_categories}. "
-                    f"May cause Google Sheets validation error."
-                )
-                logger.warning(f"Category validation warning: {error}")
-                return False, error
-        else:
-            # Cannot determine valid categories
-            # For now, we'll allow any non-empty value
-            # Production: This should fail-safe to prevent data corruption
-            logger.debug(f"Cannot validate category {category!r} - validation rules not accessible")
-            # Return True to allow append (validation will happen in Google Sheets)
-            return True, ""
-        
+        valid = self.get_valid_complaint_categories()
+
+        if valid and category not in valid:
+            msg = (
+                f"Complaint category {category!r} not in valid list: {valid}. "
+                "May cause Google Sheets validation error."
+            )
+            logger.warning(msg)
+            return False, msg
+
         return True, ""
-    
-    def append_row(self, row: list, message_id: str = None, skip_validation: bool = False) -> bool:
+
+    # ------------------------------------------------------------------
+    # Write operations
+    # ------------------------------------------------------------------
+
+    def append_row(
+        self,
+        row: list,
+        message_id: str = None,
+        skip_validation: bool = False,
+    ) -> bool:
         """
-        Append a single row to the Google Sheet.
-        
-        SAFETY CHECKS:
-        1. Validates sheet structure matches expected schema (21 columns)
-        2. Validates row length matches schema
-        3. Validates complaint category value
-        
-        Args:
-            row: List of values matching the fixed schema
-            message_id: Optional message_id for idempotency check
-            skip_validation: If True, skip structure validation (use with caution)
-            
-        Returns:
-            True if row was appended successfully
+        Append a single 21-column row to the sheet.
+
+        Safety checks (in order):
+        1. Sheet structure validation   — ABORT on mismatch
+        2. Idempotency check            — skip if message_id already exists
+        3. Row length validation        — ABORT if wrong length
+        4. Category validation          — WARN and continue if invalid
         """
         if not self.is_available():
-            logger.warning("Google Sheets not available, skipping append")
+            logger.warning(
+                f"Google Sheets unavailable for sheet {self._sheet_id}, "
+                "skipping append"
+            )
             return False
-        
+
         try:
-            # CRITICAL: Validate sheet structure before any append
+            # ── 1. Structure validation ───────────────────────────────
             if not skip_validation:
                 is_valid, error_msg = self.validate_sheet_structure()
                 if not is_valid:
                     logger.error(
-                        f"ABORT: Sheet structure validation failed. "
-                        f"Will not append to prevent data corruption. "
-                        f"Error: {error_msg}"
+                        f"ABORT: structure validation failed for sheet "
+                        f"{self._sheet_id}: {error_msg}"
                     )
                     return False
-            
-            # Idempotency check: check if message_id already exists
-            if message_id:
-                if self._message_exists(message_id):
-                    logger.info(f"Message {message_id} already exists in sheet, skipping")
-                    return True
-            
-            # Validate row length matches schema
+
+            # ── 2. Idempotency ────────────────────────────────────────
+            if message_id and self._message_exists(message_id):
+                logger.info(
+                    f"Message {message_id} already in sheet {self._sheet_id}, skipping"
+                )
+                return True
+
+            # ── 3. Row length ─────────────────────────────────────────
             if len(row) != len(self.SHEET_COLUMNS):
                 logger.error(
-                    f"Row length mismatch: expected {len(self.SHEET_COLUMNS)}, "
-                    f"got {len(row)}"
+                    f"Row length mismatch for sheet {self._sheet_id}: "
+                    f"expected {len(self.SHEET_COLUMNS)}, got {len(row)}"
                 )
                 return False
-            
-            # CRITICAL: Validate complaint category (column [8])
-            complaint_category = row[8] if len(row) > 8 else ""
-            is_valid_category, category_error = self.validate_complaint_category(complaint_category)
-            if not is_valid_category:
-                logger.warning(
-                    f"Complaint category validation warning: {category_error}. "
-                    f"Proceeding with append (sheet validation will be final check)."
-                )
-            
-            # Append row
-            self._sheet.append_row(row)
-            logger.info(f"Appended row to Google Sheet: {message_id or 'unknown'}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to append row to Google Sheet: {e}", exc_info=True)
-            return False
-    
-    def _get_existing_message_ids(self) -> set:
-        """Get all message IDs currently present in the sheet."""
-        try:
-            values = self._sheet.col_values(1)
-            return set(values)
-        except Exception as e:
-            logger.error(f"Error reading existing message IDs: {e}")
-            return set()
 
-    def append_rows(self, rows: list[list], message_ids: list[str] = None) -> dict:
+            # ── 4. Category validation (defensive — warn only) ────────
+            complaint_category = row[8] if len(row) > 8 else ""
+            cat_valid, cat_msg = self.validate_complaint_category(
+                complaint_category
+            )
+            if not cat_valid:
+                logger.warning(
+                    f"Category validation warning for sheet {self._sheet_id}: "
+                    f"{cat_msg}"
+                )
+
+            # ── 5. Write ──────────────────────────────────────────────
+            self._sheet.append_row(row)
+            logger.info(
+                f"Appended row to sheet {self._sheet_id}: "
+                f"message_id={message_id or 'unknown'}"
+            )
+            return True
+
+        except Exception as exc:
+            logger.error(
+                f"Failed to append row to sheet {self._sheet_id}: {exc}",
+                exc_info=True,
+            )
+            return False
+
+    def append_rows(self, rows: list, message_ids: list = None) -> dict:
         """
-        Append multiple rows to the Google Sheet.
-        
-        Args:
-            rows: List of row lists
-            message_ids: Optional list of message_ids for tracking
-            
-        Returns:
-            Dict with 'success_count', 'failed_count', 'errors', 'synced_message_ids', 'failure_details'
+        Append multiple rows to the sheet.
+
+        Returns a dict with success_count, failed_count, errors,
+        synced_message_ids, failure_details.
         """
         result = {
             'success_count': 0,
@@ -464,30 +444,33 @@ class GoogleSheetsService:
             'synced_message_ids': [],
             'failure_details': {},
         }
-        
+
         if not self.is_available():
-            logger.warning("Google Sheets not available, skipping batch append")
+            logger.warning(
+                f"Google Sheets unavailable for sheet {self._sheet_id}"
+            )
             result['failed_count'] = len(rows)
             result['errors'].append("Google Sheets service unavailable")
             return result
 
-        existing_message_ids = set()
+        existing = set()
         if message_ids:
-            existing_message_ids = self._get_existing_message_ids()
+            existing = self._get_existing_message_ids()
 
         for i, row in enumerate(rows):
-            message_id = message_ids[i] if message_ids and i < len(message_ids) else None
+            mid = message_ids[i] if message_ids and i < len(message_ids) else None
 
-            if message_id and message_id in existing_message_ids:
-                logger.info(f"Message {message_id} already exists in sheet, skipping")
+            if mid and mid in existing:
+                logger.info(
+                    f"Message {mid} already in sheet {self._sheet_id}, skipping"
+                )
                 result['success_count'] += 1
-                result['synced_message_ids'].append(message_id)
+                result['synced_message_ids'].append(mid)
                 continue
 
             if len(row) != len(self.SHEET_COLUMNS):
                 logger.error(
-                    f"Row length mismatch: expected {len(self.SHEET_COLUMNS)}, "
-                    f"got {len(row)}"
+                    f"Row {i+1} length mismatch for sheet {self._sheet_id}"
                 )
                 result['failed_count'] += 1
                 result['errors'].append(f"Invalid row length for row {i + 1}")
@@ -495,69 +478,77 @@ class GoogleSheetsService:
 
             try:
                 self._sheet.append_row(row)
-                logger.info(f"Appended row to Google Sheet: {message_id or 'unknown'}")
                 result['success_count'] += 1
-                if message_id:
-                    existing_message_ids.add(message_id)
-                    result['synced_message_ids'].append(message_id)
-            except Exception as e:
-                error_message = str(e)
-                logger.error(f"Failed to append row to Google Sheet: {error_message}", exc_info=True)
+                if mid:
+                    existing.add(mid)
+                    result['synced_message_ids'].append(mid)
+            except Exception as exc:
+                err = str(exc)
+                logger.error(
+                    f"Failed to append row {i+1} to sheet {self._sheet_id}: {err}",
+                    exc_info=True,
+                )
                 result['failed_count'] += 1
                 result['errors'].append(f"Failed to append row {i + 1}")
-                if message_id:
-                    result['failure_details'][message_id] = error_message
+                if mid:
+                    result['failure_details'][mid] = err
 
         logger.info(
-            f"Batch append complete: {result['success_count']} success, "
-            f"{result['failed_count']} failed"
+            f"Batch append to {self._sheet_id}: "
+            f"{result['success_count']} ok, {result['failed_count']} failed"
         )
-        
         return result
-    
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
     def _message_exists(self, message_id: str) -> bool:
-        """
-        Check if a message_id already exists in the sheet.
-        
-        Args:
-            message_id: The message_id to check
-            
-        Returns:
-            True if message_id exists
-        """
         try:
-            # Get all values in column A (message_id column)
             values = self._sheet.col_values(1)
             return message_id in values
-        except Exception as e:
-            logger.error(f"Error checking message existence: {e}")
-            # On error, assume doesn't exist to avoid data loss
-            return False
-    
+        except Exception as exc:
+            logger.error(f"Error checking message existence: {exc}")
+            return False  # assume not exists to avoid data loss
+
+    def _get_existing_message_ids(self) -> set:
+        try:
+            return set(self._sheet.col_values(1))
+        except Exception as exc:
+            logger.error(f"Error reading existing message IDs: {exc}")
+            return set()
+
     def get_sheet_url(self) -> str:
-        """Get the URL to the Google Sheet."""
         if self._sheet_id:
-            return f"https://docs.google.com/spreadsheets/d/{self._sheet_id}"
+            return (
+                f"https://docs.google.com/spreadsheets/d/{self._sheet_id}"
+            )
         return ''
 
 
+# ---------------------------------------------------------------------------
 # Module-level convenience functions
-def get_sheets_service() -> GoogleSheetsService:
-    """Get the Google Sheets service instance."""
-    return GoogleSheetsService.get_instance()
+# ---------------------------------------------------------------------------
 
-
-def append_parsed_message_to_sheet(parsed_message) -> bool:
+def get_sheets_service(sheet_id: str = None) -> GoogleSheetsService:
     """
-    Append a ParsedMessage to Google Sheets.
+    Return the GoogleSheetsService instance for *sheet_id*.
 
-    Args:
-        parsed_message: ParsedMessage model instance
-
-    Returns:
-        True if successfully appended
+    Falls back to settings.GOOGLE_SHEET_ID when sheet_id is None.
     """
-    service = get_sheets_service()
+    return GoogleSheetsService.get_instance(sheet_id=sheet_id)
+
+
+def append_parsed_message_to_sheet(
+    parsed_message, sheet_id: str = None
+) -> bool:
+    """
+    Append a ParsedMessage to the correct Google Sheet.
+
+    *sheet_id* should be the sheet belonging to the message's group.
+    Falls back to settings.GOOGLE_SHEET_ID when None.
+    """
+    service = get_sheets_service(sheet_id=sheet_id)
     row = parsed_message.to_sheet_row()
     success = False
     error_message = ''
@@ -569,57 +560,61 @@ def append_parsed_message_to_sheet(parsed_message) -> bool:
     except Exception as exc:
         success = False
         error_message = str(exc)
-        logger.error(f"Exception while appending row: {error_message}", exc_info=True)
+        logger.error(
+            f"Exception while appending row to sheet {sheet_id}: {error_message}",
+            exc_info=True,
+        )
 
-    from django.utils import timezone
+    from django.utils import timezone as tz
     parsed_message.sync_attempts += 1
-    parsed_message.last_sync_error = '' if success else error_message or 'Google Sheets append failed'
+    parsed_message.last_sync_error = '' if success else (
+        error_message or 'Google Sheets append failed'
+    )
 
     if success:
         parsed_message.synced_to_sheets = True
-        parsed_message.synced_at = timezone.now()
-        logger.info(f"Message {parsed_message.message_id} synced to Google Sheets")
+        parsed_message.synced_at = tz.now()
+        logger.info(
+            f"Message {parsed_message.message_id} synced to sheet {sheet_id}"
+        )
     else:
-        logger.warning(f"Message {parsed_message.message_id} failed to sync to Google Sheets")
+        logger.warning(
+            f"Message {parsed_message.message_id} failed to sync to sheet {sheet_id}"
+        )
 
     parsed_message.save(update_fields=[
-        'synced_to_sheets', 'synced_at', 'sync_attempts', 'last_sync_error'
+        'synced_to_sheets', 'synced_at', 'sync_attempts', 'last_sync_error',
     ])
-
     return success
 
 
-def batch_append_messages(parsed_messages: list) -> dict:
+def batch_append_messages(
+    parsed_messages: list, sheet_id: str = None
+) -> dict:
     """
-    Append multiple ParsedMessages to Google Sheets.
-    
-    Args:
-        parsed_messages: List of ParsedMessage model instances
-        
-    Returns:
-        Dict with sync results
+    Append multiple ParsedMessages to the correct Google Sheet.
+
+    *sheet_id* should be the sheet belonging to the messages' group.
     """
-    service = get_sheets_service()
-    
+    service = get_sheets_service(sheet_id=sheet_id)
     rows = [msg.to_sheet_row() for msg in parsed_messages]
     message_ids = [msg.message_id for msg in parsed_messages]
-    
+
     result = service.append_rows(rows, message_ids)
-    
-    from django.utils import timezone
+
+    from django.utils import timezone as tz
     from core.models import ParsedMessage
-    synced_message_ids = result.get('synced_message_ids', [])
+
+    synced_ids = result.get('synced_message_ids', [])
     failure_details = result.get('failure_details', {})
 
-    # Update synced messages in bulk
-    if synced_message_ids:
-        ParsedMessage.objects.filter(message_id__in=synced_message_ids).update(
+    if synced_ids:
+        ParsedMessage.objects.filter(message_id__in=synced_ids).update(
             synced_to_sheets=True,
-            synced_at=timezone.now(),
-            last_sync_error=''
+            synced_at=tz.now(),
+            last_sync_error='',
         )
 
-    # Update failed messages with attempt count and error
     for msg in parsed_messages:
         if msg.message_id in failure_details:
             msg.sync_attempts += 1

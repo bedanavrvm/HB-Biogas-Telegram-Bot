@@ -3,6 +3,15 @@ Storage Service
 
 Handles persistence of raw, processed, and parsed messages.
 Provides atomic transactions for data integrity.
+
+KEY FIXES (v2):
+- process_and_store_message now forwards *sheet_id* to
+  append_parsed_message_to_sheet so each group's data lands in
+  its own Google Sheet.
+- bulk_resync_to_sheets resolves the correct sheet_id per-message
+  using the stored group_id, then calls append_parsed_message_to_sheet
+  with that sheet_id.  This means historical messages are resynced to
+  the right sheet even when different groups share the same worker.
 """
 import logging
 from datetime import datetime
@@ -16,26 +25,17 @@ from core.services.parser import ParsedResult
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Raw message storage
+# ---------------------------------------------------------------------------
+
 def store_raw_message(
     telegram_message_id: str,
     content: str,
     sender: str = '',
     received_at: datetime = None,
-    has_image: bool = False
+    has_image: bool = False,
 ) -> RawMessage:
-    """
-    Store a raw message for traceability.
-    
-    Args:
-        telegram_message_id: Telegram message ID
-        content: Raw message text
-        sender: Sender name
-        received_at: When message was received
-        has_image: Whether message has an image
-        
-    Returns:
-        Created RawMessage instance
-    """
     try:
         raw_message = RawMessage.objects.create(
             telegram_message_id=telegram_message_id,
@@ -46,35 +46,25 @@ def store_raw_message(
         )
         logger.debug(f"Stored raw message {raw_message.id} from {sender}")
         return raw_message
-    except Exception as e:
-        logger.error(f"Failed to store raw message: {e}", exc_info=True)
+    except Exception as exc:
+        logger.error(f"Failed to store raw message: {exc}", exc_info=True)
         raise
 
+
+# ---------------------------------------------------------------------------
+# Parsed message storage
+# ---------------------------------------------------------------------------
 
 def store_parsed_message(
     processed_message: ProcessedMessage,
     parsed_result: ParsedResult,
     raw_content: str,
     source: str = 'telegram bot',
-    group_id: str = 'default'
+    group_id: str = 'default',
 ) -> ParsedMessage:
-    """
-    Store parsed message data.
-    
-    Args:
-        processed_message: Associated ProcessedMessage
-        parsed_result: ParsedResult from parser
-        raw_content: Original message text
-        source: Message source identifier (default: 'telegram bot')
-        group_id: Telegram group ID for multi-tenant routing
-        
-    Returns:
-        Created ParsedMessage instance
-    """
     try:
-        # Generate unique message_id
         message_id = f"MSG_{processed_message.message_hash[:16].upper()}"
-        
+
         parsed_message = ParsedMessage.objects.create(
             processed_message=processed_message,
             message_id=message_id,
@@ -94,18 +84,22 @@ def store_parsed_message(
             complaint_category=getattr(parsed_result, 'complaint_category', ''),
             complaint_description=parsed_result.problem_description,
         )
-        
+
         logger.info(
             f"Stored parsed message {message_id}: "
             f"item={parsed_result.item}, qty={parsed_result.quantity}, "
             f"price={parsed_result.price}, confidence={parsed_result.confidence}"
         )
-        
         return parsed_message
-    except Exception as e:
-        logger.error(f"Failed to store parsed message: {e}", exc_info=True)
+
+    except Exception as exc:
+        logger.error(f"Failed to store parsed message: {exc}", exc_info=True)
         raise
 
+
+# ---------------------------------------------------------------------------
+# Main processing entry point
+# ---------------------------------------------------------------------------
 
 @transaction.atomic
 def process_and_store_message(
@@ -115,43 +109,44 @@ def process_and_store_message(
     received_at: datetime = None,
     has_image: bool = False,
     parser_func=None,
-    source: str = 'whatsapp_telegram',
+    source: str = 'telegram bot',
     group_id: str = None,
-    sheet_id: str = None
+    sheet_id: str = None,          # ← forwarded to Google Sheets service
 ) -> Optional[ParsedMessage]:
     """
     Atomically process and store a message with deduplication.
-    
-    This is the main entry point for message processing.
-    
+
     Args:
         telegram_message_id: Telegram message ID
-        content: Raw message text
-        sender: Sender name
-        received_at: When message was received
-        has_image: Whether message has an image
-        parser_func: Optional custom parser function (default: uses parser.parse_message)
-        source: Message source identifier
-        
+        content:             Raw message text
+        sender:              Sender display name
+        received_at:         When the message was received
+        has_image:           Whether an image was attached
+        parser_func:         Optional custom parser (default: parse_message)
+        source:              Message source tag (default: 'telegram bot')
+        group_id:            Telegram chat_id for multi-tenant routing
+        sheet_id:            Google Sheet ID for the group (looked up from
+                             GroupRegistry when None)
+
     Returns:
-        ParsedMessage if successfully processed, None if duplicate
+        ParsedMessage on success, None if message is a duplicate.
     """
     from core.services.parser import parse_message
-    
+    from core.services.deduplication import is_duplicate
+
     try:
-        # Step 1: Generate hash and check for duplicates
+        # ── 1. Deduplication ─────────────────────────────────────────
         msg_hash = generate_message_hash(
             sender=sender,
             content=content,
-            timestamp=str(received_at or timezone.now())
+            timestamp=str(received_at or timezone.now()),
         )
-        from core.services.deduplication import is_duplicate
 
         if is_duplicate(msg_hash):
-            logger.info(f"Duplicate message detected, skipping: {msg_hash[:12]}...")
+            logger.info(f"Duplicate message detected, skipping: {msg_hash[:12]}…")
             return None
 
-        # Step 2: Store raw message
+        # ── 2. Store raw ─────────────────────────────────────────────
         raw_message = store_raw_message(
             telegram_message_id=telegram_message_id,
             content=content,
@@ -160,14 +155,14 @@ def process_and_store_message(
             has_image=has_image,
         )
 
-        # Step 3: Mark as processed early so we can update status later
+        # ── 3. Mark as processed ─────────────────────────────────────
         processed_message = mark_as_processed(
             raw_message=raw_message,
             message_hash=msg_hash,
-            status='success'
+            status='success',
         )
 
-        # Step 4: Parse message
+        # ── 4. Parse ─────────────────────────────────────────────────
         if parser_func:
             parsed_result = parser_func(content, sender, has_image, received_at)
         else:
@@ -178,7 +173,7 @@ def process_and_store_message(
                 received_at=received_at,
             )
 
-        # Step 5: Store parsed result
+        # ── 5. Store parsed ──────────────────────────────────────────
         parsed_message = store_parsed_message(
             processed_message=processed_message,
             parsed_result=parsed_result,
@@ -187,25 +182,33 @@ def process_and_store_message(
             group_id=group_id or 'default',
         )
 
-        # Step 6: Sync to Google Sheets and update status
+        # ── 6. Sync to the correct Google Sheet ──────────────────────
+        #       sheet_id comes from the caller (resolved via GroupRegistry)
+        #       and is forwarded here so the right sheet is written.
         sync_success = False
         sync_error = ''
         try:
             from core.services.sheets import append_parsed_message_to_sheet
-            sync_success = append_parsed_message_to_sheet(parsed_message)
+            sync_success = append_parsed_message_to_sheet(
+                parsed_message,
+                sheet_id=sheet_id,          # ← KEY FIX
+            )
             if not sync_success:
                 sync_error = 'Google Sheets sync failed'
-        except Exception as e:
-            sync_error = str(e)
-            logger.warning(f"Failed to sync to Google Sheets (message stored): {e}")
+        except Exception as exc:
+            sync_error = str(exc)
+            logger.warning(
+                f"Failed to sync message to sheet (message stored in DB): {exc}"
+            )
 
+        # ── 7. Determine final status ─────────────────────────────────
         final_status = 'success'
         if parsed_result.confidence < 1.0 or parsed_result.warnings:
             final_status = 'partial'
         if not sync_success:
             final_status = 'partial'
 
-        # Attach runtime processing metadata for caller use
+        # Attach runtime metadata for the caller (not persisted)
         parsed_message._processing_status = final_status
         parsed_message._processing_error = sync_error
 
@@ -215,57 +218,51 @@ def process_and_store_message(
             processed_message.save(update_fields=['status', 'error_message'])
 
         return parsed_message
-        
-    except Exception as e:
-        logger.error(f"Failed to process and store message: {e}", exc_info=True)
-        
-        # Mark as failed if we have raw_message
+
+    except Exception as exc:
+        logger.error(
+            f"Failed to process and store message: {exc}", exc_info=True
+        )
         if 'raw_message' in locals():
             try:
                 mark_as_processed(
                     raw_message=raw_message,
                     message_hash=msg_hash if 'msg_hash' in locals() else 'error',
                     status='failed',
-                    error_message=str(e),
+                    error_message=str(exc),
                 )
             except Exception:
                 pass
-        
         raise
 
 
+# ---------------------------------------------------------------------------
+# Resync helpers
+# ---------------------------------------------------------------------------
+
 def get_unsynced_messages(limit: int = 100, max_attempts: int = 5) -> list:
-    """
-    Get messages that haven't been synced to Google Sheets and are still eligible for retry.
-    
-    Args:
-        limit: Maximum number of messages to return
-        max_attempts: Maximum number of sync attempts before skipping
-        
-    Returns:
-        List of ParsedMessage instances
-    """
-    return ParsedMessage.objects.filter(
-        synced_to_sheets=False,
-        sync_attempts__lt=max_attempts,
-    ).order_by('timestamp')[:limit]
+    """Return messages that have not yet been synced and are still retryable."""
+    return list(
+        ParsedMessage.objects.filter(
+            synced_to_sheets=False,
+            sync_attempts__lt=max_attempts,
+        ).order_by('timestamp')[:limit]
+    )
 
 
 def bulk_resync_to_sheets(limit: int = 100, max_attempts: int = 5) -> dict:
     """
-    Resync unsynced messages to Google Sheets.
-    
-    Args:
-        limit: Maximum number of messages to resync
-        max_attempts: Maximum sync attempts per message
-        
-    Returns:
-        Dict with sync results
+    Resync failed/unsynced messages to Google Sheets.
+
+    Each message's group_id is used to look up the correct sheet_id via
+    GroupRegistry, so messages from different groups are routed to their
+    own sheets instead of all going to the global GOOGLE_SHEET_ID.
     """
-    from core.services.sheets import batch_append_messages
-    
+    from core.services.sheets import append_parsed_message_to_sheet
+    from core.services.group_config import get_sheet_id_for_group
+
     unsynced = get_unsynced_messages(limit, max_attempts)
-    
+
     if not unsynced:
         return {
             'success_count': 0,
@@ -273,15 +270,49 @@ def bulk_resync_to_sheets(limit: int = 100, max_attempts: int = 5) -> dict:
             'errors': ['No eligible unsynced messages'],
             'attempted': 0,
         }
-    
-    result = batch_append_messages(list(unsynced))
-    result['attempted'] = len(unsynced)
+
+    success_count = 0
+    failed_count = 0
+    errors = []
+
+    for msg in unsynced:
+        # Resolve the sheet for this message's group
+        sheet_id = None
+        if msg.group_id:
+            sheet_id = get_sheet_id_for_group(msg.group_id)
+            if not sheet_id:
+                logger.warning(
+                    f"Resync: cannot resolve sheet for group {msg.group_id} "
+                    f"(message {msg.message_id}) — falling back to default sheet"
+                )
+
+        try:
+            success = append_parsed_message_to_sheet(msg, sheet_id=sheet_id)
+            if success:
+                success_count += 1
+            else:
+                failed_count += 1
+        except Exception as exc:
+            failed_count += 1
+            errors.append(f"Message {msg.message_id}: {exc}")
+            logger.error(
+                f"Resync error for message {msg.message_id}: {exc}",
+                exc_info=True,
+            )
+
+    result = {
+        'success_count': success_count,
+        'failed_count': failed_count,
+        'errors': errors,
+        'attempted': len(unsynced),
+    }
     logger.info(f"Resync complete: {result}")
-    
     return result
 
 
-def append_parsed_message_to_sheet(parsed_message):
-    """Backward-compatible helper for tests and external callers."""
-    from core.services.sheets import append_parsed_message_to_sheet as _append
-    return _append(parsed_message)
+def append_parsed_message_to_sheet(parsed_message, sheet_id: str = None):
+    """Backward-compatible shim used by tests and external callers."""
+    from core.services.sheets import (
+        append_parsed_message_to_sheet as _append,
+    )
+    return _append(parsed_message, sheet_id=sheet_id)
