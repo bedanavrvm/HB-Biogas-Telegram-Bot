@@ -101,19 +101,70 @@ python manage.py test
 | `GOOGLE_SHEET_TAB_NAME` | ✅ | Name of the worksheet/tab to write into |
 | `DEDUPLICATION_WINDOW_MINUTES` | ❌ | Time window for deduplication (default: 5) |
 
-### Google Sheet Schema
+### Google Sheet Schema (Production - 21 Columns)
 
-Your Google Sheet MUST have this exact header row (Row 1), using the `Complaints Register` worksheet:
+Your Google Sheet MUST have this exact header row (Row 1) in the worksheet specified by `GOOGLE_SHEET_TAB_NAME`:
+
+**Column Structure (Left → Right):**
 
 ```
-Complaint ID | Date Reported | Customer Name | Customer ID / Account | Phone Number | JBL Reported By | Branch / Region | Complaint Category | Complaint Description | LOAN STATUS | LOAN AT RISK | Status | Resolution Details | Date Resolved | Days Open | RISK LEVEL | Internal Message ID | Parsed Timestamp
+[0]  Complaint ID (formula/sequence)
+[1]  message_id (bot dedup key)
+[2]  Date Reported (bot)
+[3]  Customer Name (bot)
+[4]  Customer ID / Account (bot)
+[5]  Phone Number (bot)
+[6]  Reported By (bot)
+[7]  Branch / Region (bot)
+[8]  Complaint Category (bot - must match dropdown)
+[9]  Complaint Description (bot)
+[10] raw_message (bot - audit trail)
+[11] gps_link (bot - if present)
+[12] image_flag (bot - "TRUE" or blank)
+[13] source (bot - "whatsapp_batch" etc.)
+[14] Loan Status (human - dropdown)
+[15] Loan at Risk (human - dropdown)
+[16] Risk Level (human - dropdown)
+[17] Status (human - dropdown: Open/In Progress/Closed)
+[18] Resolution Details (human)
+[19] Date Resolved (human)
+[20] Days Open (formula: =TODAY()-[Date Reported])
 ```
 
-**Rules:**
-- NEVER modify the schema dynamically
-- ONLY append rows
-- `Complaint ID` is used for deduplication
-- Staff can safely edit any cell except `Complaint ID`, `Internal Message ID`, and `Parsed Timestamp`
+**Full Header Row (Copy-paste ready):**
+
+```
+Complaint ID,message_id,Date Reported,Customer Name,Customer ID / Account,Phone Number,Reported By,Branch / Region,Complaint Category,Complaint Description,raw_message,gps_link,image_flag,source,Loan Status,Loan at Risk,Risk Level,Status,Resolution Details,Date Resolved,Days Open
+```
+
+**Critical Rules:**
+
+- ✅ **DO WRITE**: Columns [1-13] (message_id, bot intake, audit trail)
+- ❌ **DO NOT WRITE**: Columns [0, 20] (formulas - will break if written to)
+- ❌ **DO NOT WRITE**: Columns [14-19] (human workflow - let staff fill in)
+- ✅ **MUST MATCH**: Complaint Category value must exactly match dropdown validation
+- ✅ **APPEND ONLY**: Never modify existing rows, only add new rows at bottom
+- ✅ **DEDUPLICATION**: message_id ensures duplicate messages produce single row
+
+**Hidden Columns (Recommended):**
+
+To keep the sheet clean for staff while preserving system integrity:
+- Hide columns [1, 10, 11, 12, 13] (`message_id`, `raw_message`, `gps_link`, `image_flag`, `source`)
+- These are bot-internal fields, not needed for staff workflow
+
+**Example: How bot-generated row looks:**
+
+```
+MSG_20260425_001,MSG_20260425_001,2026-04-25,Alice Kipchoge,ACC_98765,0712345678,Field Agent,Nairobi,System Underperformance,No gas supply,CUSTOMER COMPLAINT: Alice...,https://maps.google.com/xyz,TRUE,whatsapp_batch,,,,,,,
+```
+
+Staff then fills in:
+- Loan Status: "Active" (or leave blank if unknown)
+- Status: "Open" → later "In Progress" → finally "Closed"
+- Risk Level: "High", "Medium", or "Low"
+- Resolution Details: "Contacted regional office..." etc.
+
+For more details on the schema rationale, see [PRODUCTION_ARCHITECTURE.md](./PRODUCTION_ARCHITECTURE.md).
 
 ## 📡 API Endpoints
 

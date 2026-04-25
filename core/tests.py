@@ -587,20 +587,44 @@ class ParsedMessageModelTest(TestCase):
             customer_name='Jane Doe',
             customer_phone='0712345678',
             customer_id='A12345',
+            branch_region='Nairobi',
             complaint_category='System Underperformance',
             complaint_description='No gas supply',
+            gps_link='https://maps.example.com/xyz',
+            image_flag=True,
             source='whatsapp_telegram',
         )
         
         row = parsed.to_sheet_row()
         
-        self.assertEqual(len(row), 18)  # Must match schema
-        self.assertEqual(row[0], 'MSG_TEST_SHEET')
-        self.assertEqual(row[2], 'Jane Doe')
-        self.assertEqual(row[3], 'A12345')
-        self.assertEqual(row[4], '0712345678')
-        self.assertEqual(row[5], 'John')
-        self.assertEqual(row[7], 'System Underperformance')
-        self.assertEqual(row[8], 'No gas supply')
-        self.assertEqual(row[16], 'MSG_TEST_SHEET')  # Internal Message ID
-        self.assertIsInstance(row[17], str)  # Parsed Timestamp
+        # Verify 21-column production schema
+        self.assertEqual(len(row), 21, f"Expected 21 columns, got {len(row)}")
+        
+        # [0-1] System/control fields
+        self.assertEqual(row[0], 'MSG_TEST_SHEET', "Complaint ID should be message_id")
+        self.assertEqual(row[1], 'MSG_TEST_SHEET', "message_id dedup key")
+        
+        # [2-9] Bot intake fields
+        self.assertIsInstance(row[2], str)  # Date Reported
+        self.assertEqual(row[3], 'Jane Doe', "Customer Name")
+        self.assertEqual(row[4], 'A12345', "Customer ID")
+        self.assertEqual(row[5], '0712345678', "Phone Number")
+        self.assertEqual(row[6], 'John', "Reported By")
+        self.assertEqual(row[7], 'Nairobi', "Branch / Region")
+        self.assertEqual(row[8], 'System Underperformance', "Complaint Category")
+        self.assertEqual(row[9], 'No gas supply', "Complaint Description")
+        
+        # [10-13] Raw data / Audit trail
+        self.assertEqual(row[10], 'Sold 3 bread 50 each', "raw_message")
+        self.assertEqual(row[11], 'https://maps.example.com/xyz', "gps_link")
+        self.assertEqual(row[12], 'TRUE', "image_flag as TRUE")
+        self.assertEqual(row[13], 'whatsapp_telegram', "source")
+        
+        # [14-20] Human workflow fields (should be empty for bot-generated row)
+        self.assertEqual(row[14], '', "Loan Status (human)")
+        self.assertEqual(row[15], '', "Loan at Risk (human)")
+        self.assertEqual(row[16], '', "Risk Level (human)")
+        self.assertEqual(row[17], '', "Status (human)")
+        self.assertEqual(row[18], '', "Resolution Details (human)")
+        self.assertEqual(row[19], '', "Date Resolved (human)")
+        self.assertEqual(row[20], '', "Days Open (formula - should be empty)")

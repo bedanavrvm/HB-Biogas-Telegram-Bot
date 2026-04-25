@@ -3,11 +3,19 @@ Google Sheets Integration Service
 
 Handles appending rows to a shared Google Sheet.
 - NEVER overwrites existing rows
-- Uses Complaint ID (internal message_id) for idempotency
+- Uses message_id (internal dedup key) for idempotency
 - Safe for concurrent staff edits
+- Append-only strategy preserves all formulas and dropdowns
 
-Schema (FIXED):
-| Complaint ID | Date Reported | Customer Name | Customer ID / Account | Phone Number | JBL Reported By | Branch / Region | Complaint Category | Complaint Description | LOAN STATUS | LOAN AT RISK | Status | Resolution Details | Date Resolved | Days Open | RISK LEVEL | Internal Message ID | Parsed Timestamp |
+Schema (FIXED - 21 columns):
+| Complaint ID (formula) | message_id | Date Reported | Customer Name | Customer ID | Phone | Reported By | Branch/Region | Complaint Category | Complaint Description | raw_message | gps_link | image_flag | source | Loan Status | Loan at Risk | Risk Level | Status | Resolution Details | Date Resolved | Days Open (formula) |
+
+Column Groups:
+- [0]:       Complaint ID (formula - DO NOT WRITE)
+- [1]:       message_id (bot system key - deduplication)
+- [2-9]:     Bot intake fields (auto-populated from WhatsApp)
+- [10-13]:   Raw data/audit trail (for traceability)
+- [14-20]:   Human workflow fields (staff fills in)
 """
 import logging
 from typing import Optional
@@ -29,6 +37,42 @@ class GoogleSheetsService:
     """
     Service for interacting with Google Sheets.
     Thread-safe, append-only operations.
+    
+    CRITICAL: This service implements non-invasive integration with live Google Sheets.
+    It ONLY appends new rows and NEVER modifies existing data.
+    
+    Schema is pinned to exactly 21 columns. Changes require full audit + migration.
+    
+    Column Mapping Reference (for developers):
+    ─────────────────────────────────────────
+    [0]  Complaint ID          ← FORMULA (bot provides message_id as placeholder)
+    [1]  message_id            ← BOT WRITES (unique dedup key per message)
+    [2]  Date Reported         ← BOT WRITES (from parser.result.timestamp)
+    [3]  Customer Name         ← BOT WRITES (from parser.result.customer_name)
+    [4]  Customer ID / Account ← BOT WRITES (from parser.result.customer_id)
+    [5]  Phone Number          ← BOT WRITES (from parser.result.customer_phone)
+    [6]  Reported By           ← BOT WRITES (from parser.result.sender)
+    [7]  Branch / Region       ← BOT WRITES (from parser.result.branch_region)
+    [8]  Complaint Category    ← BOT WRITES (from parser.result.complaint_category)
+    [9]  Complaint Description ← BOT WRITES (from parser.result.complaint_description)
+    [10] raw_message           ← BOT WRITES (from parsed.message.raw_message)
+    [11] gps_link              ← BOT WRITES (from parsed.message.gps_link)
+    [12] image_flag            ← BOT WRITES (from parsed.message.image_flag, as "TRUE"/"")
+    [13] source                ← BOT WRITES (from parsed.message.source)
+    [14] Loan Status           ← HUMAN (staff fills dropdown)
+    [15] Loan at Risk          ← HUMAN (staff fills dropdown)
+    [16] Risk Level            ← HUMAN (staff fills dropdown)
+    [17] Status                ← HUMAN (staff fills dropdown: Open/In Progress/Closed)
+    [18] Resolution Details    ← HUMAN (staff enters free text)
+    [19] Date Resolved         ← HUMAN (staff enters date)
+    [20] Days Open             ← FORMULA (auto-calculated: =TODAY()-[Date Reported])
+    ─────────────────────────────────────────
+    
+    Safety Guarantees:
+    • NEVER write to [0, 20] (formulas will break)
+    • NEVER write to [14-19] (staff workflow columns)
+    • ALWAYS write to [1-13] (bot-controlled safe zone)
+    • ALWAYS append new rows (never update existing)
     """
     
     _instance = None
@@ -41,10 +85,22 @@ class GoogleSheetsService:
     ]
     
     SHEET_COLUMNS = [
-        'Complaint ID', 'Date Reported', 'Customer Name', 'Customer ID / Account',
-        'Phone Number', 'JBL Reported By', 'Branch / Region', 'Complaint Category',
-        'Complaint Description', 'LOAN STATUS', 'LOAN AT RISK', 'Status',
-        'Resolution Details', 'Date Resolved', 'Days Open', 'RISK LEVEL'
+        # [0] System/Control fields (DO NOT WRITE - formula driven)
+        'Complaint ID',
+        
+        # [1] Deduplication key (bot system)
+        'message_id',
+        
+        # [2-9] Bot intake fields (auto-populated from parser)
+        'Date Reported', 'Customer Name', 'Customer ID / Account', 'Phone Number',
+        'Reported By', 'Branch / Region', 'Complaint Category', 'Complaint Description',
+        
+        # [10-13] Raw data / Audit trail (for traceability + future AI)
+        'raw_message', 'gps_link', 'image_flag', 'source',
+        
+        # [14-20] Human workflow fields (staff fills in, formulas, dropdowns)
+        'Loan Status', 'Loan at Risk', 'Risk Level', 'Status',
+        'Resolution Details', 'Date Resolved', 'Days Open'
     ]
     
     @classmethod

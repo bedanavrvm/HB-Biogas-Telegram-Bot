@@ -86,6 +86,7 @@ class ParsedMessage(models.Model):
     customer_name = models.CharField(max_length=255, blank=True, default='')
     customer_phone = models.CharField(max_length=255, blank=True, default='')
     customer_id = models.CharField(max_length=255, blank=True, default='')
+    branch_region = models.CharField(max_length=255, blank=True, default='')
     complaint_category = models.CharField(max_length=255, blank=True, default='')
     complaint_description = models.TextField(blank=True, default='')
     complaint_status = models.CharField(max_length=255, blank=True, default='')
@@ -93,6 +94,8 @@ class ParsedMessage(models.Model):
     date_resolved = models.DateTimeField(null=True, blank=True)
     days_open = models.IntegerField(null=True, blank=True)
     risk_level = models.CharField(max_length=100, blank=True, default='')
+    loan_status = models.CharField(max_length=100, blank=True, default='')
+    loan_at_risk = models.CharField(max_length=100, blank=True, default='')
     
     # Google Sheets sync tracking
     synced_to_sheets = models.BooleanField(default=False)
@@ -113,24 +116,51 @@ class ParsedMessage(models.Model):
 
     def to_sheet_row(self):
         """
-        Convert to Google Sheet row format.
-        Must match the fixed schema exactly.
+        Convert to Google Sheet row format (21 columns).
+        
+        Column mapping (CRITICAL):
+        [0]  Complaint ID (FORMULA - bot should use message_id value for now)
+        [1]  message_id (bot dedup key)
+        [2]  Date Reported (bot writes)
+        [3]  Customer Name (bot writes)
+        [4]  Customer ID / Account (bot writes)
+        [5]  Phone Number (bot writes)
+        [6]  Reported By (bot writes)
+        [7]  Branch / Region (bot writes - best effort)
+        [8]  Complaint Category (bot writes - must match dropdown)
+        [9]  Complaint Description (bot writes)
+        [10] raw_message (bot writes - audit trail)
+        [11] gps_link (bot writes)
+        [12] image_flag (bot writes - string: "TRUE" or "")
+        [13] source (bot writes)
+        [14] Loan Status (HUMAN - dropdown)
+        [15] Loan at Risk (HUMAN - dropdown)
+        [16] Risk Level (HUMAN)
+        [17] Status (HUMAN - dropdown: Open/Closed)
+        [18] Resolution Details (HUMAN)
+        [19] Date Resolved (HUMAN)
+        [20] Days Open (FORMULA - bot should NOT write)
         """
         return [
-            self.message_id,                                                              # A: Complaint ID
-            self.timestamp.strftime('%Y-%m-%d %H:%M:%S') if self.timestamp else '',      # B: Date Reported
-            self.customer_name,                                                           # C: Customer Name
-            self.customer_id,                                                             # D: Customer ID / Account
-            self.customer_phone,                                                          # E: Phone Number
-            self.sender,                                                                  # F: JBL Reported By
-            '',  # branch_region not yet parsed                                           # G: Branch / Region
-            self.complaint_category,                                                      # H: Complaint Category
-            self.complaint_description,                                                   # I: Complaint Description
-            '',  # loan_status                                                            # J: LOAN STATUS
-            '',  # loan_at_risk                                                           # K: LOAN AT RISK
-            self.complaint_status,                                                        # L: Status
-            self.resolution_details,                                                      # M: Resolution Details
-            self.date_resolved.strftime('%Y-%m-%d %H:%M:%S') if self.date_resolved else '',  # N: Date Resolved
-            str(self.days_open) if self.days_open is not None else '',                   # O: Days Open
-            self.risk_level,                                                              # P: RISK LEVEL
+            self.message_id,                                                              # [0] Complaint ID
+            self.message_id,                                                              # [1] message_id
+            self.timestamp.strftime('%Y-%m-%d %H:%M:%S') if self.timestamp else '',      # [2] Date Reported
+            self.customer_name,                                                           # [3] Customer Name
+            self.customer_id,                                                             # [4] Customer ID / Account
+            self.customer_phone,                                                          # [5] Phone Number
+            self.sender,                                                                  # [6] Reported By
+            self.branch_region,                                                           # [7] Branch / Region
+            self.complaint_category,                                                      # [8] Complaint Category
+            self.complaint_description,                                                   # [9] Complaint Description
+            self.raw_message,                                                             # [10] raw_message
+            self.gps_link,                                                                # [11] gps_link
+            'TRUE' if self.image_flag else '',                                            # [12] image_flag
+            self.source,                                                                  # [13] source
+            self.loan_status,                                                             # [14] Loan Status
+            self.loan_at_risk,                                                            # [15] Loan at Risk
+            self.risk_level,                                                              # [16] Risk Level
+            self.complaint_status,                                                        # [17] Status
+            self.resolution_details,                                                      # [18] Resolution Details
+            self.date_resolved.strftime('%Y-%m-%d %H:%M:%S') if self.date_resolved else '', # [19] Date Resolved
+            str(self.days_open) if self.days_open is not None else '',                   # [20] Days Open
         ]
