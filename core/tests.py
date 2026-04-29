@@ -4,7 +4,7 @@ Tests for the biogas telegram bot system.
 Run with: python manage.py test
 """
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -15,6 +15,57 @@ from core.services.deduplication import generate_message_hash, is_duplicate
 from core.services.parser import parse_message, split_batch_message
 from core.services.sheets import GoogleSheetsService, batch_append_messages
 from core.services.storage import bulk_resync_to_sheets, process_and_store_message
+
+
+def create_parsed_case(
+    message_id: str,
+    group_id: str = '-100123',
+    customer_name: str = 'Jane Doe',
+    customer_phone: str = '0712345678',
+    customer_id: str = 'CUST-1',
+    description: str = 'No gas supply',
+    complaint_status: str = '',
+    branch_region: str = '',
+    complaint_category: str = '',
+    risk_level: str = '',
+    synced_to_sheets: bool = False,
+    last_sync_error: str = '',
+    processed_status: str = 'success',
+    created_at=None,
+) -> ParsedMessage:
+    """Create a parsed case with its raw/processed parents for tests."""
+    raw = RawMessage.objects.create(
+        telegram_message_id=message_id,
+        sender='Agent',
+        content=description,
+    )
+    processed = ProcessedMessage.objects.create(
+        message_hash=generate_message_hash('Agent', f'{message_id}:{description}'),
+        raw_message=raw,
+        status=processed_status,
+    )
+    parsed = ParsedMessage.objects.create(
+        processed_message=processed,
+        message_id=message_id,
+        timestamp=created_at or timezone.now(),
+        customer_name=customer_name,
+        customer_phone=customer_phone,
+        customer_id=customer_id,
+        branch_region=branch_region,
+        complaint_category=complaint_category,
+        complaint_status=complaint_status,
+        complaint_description=description,
+        risk_level=risk_level,
+        raw_message=description,
+        group_id=group_id,
+        source='telegram bot',
+        synced_to_sheets=synced_to_sheets,
+        last_sync_error=last_sync_error,
+    )
+    if created_at:
+        ParsedMessage.objects.filter(pk=parsed.pk).update(created_at=created_at)
+        parsed.refresh_from_db()
+    return parsed
 
 
 class DeduplicationServiceTest(TestCase):
@@ -557,6 +608,445 @@ class StorageServiceTest(TestCase):
         self.assertTrue(all(msg.synced_to_sheets for msg in refreshed))
 
 
+class BotCommandServiceTest(TestCase):
+    """Test database-backed Telegram bot commands."""
+
+    def test_last_command_returns_latest_group_cases(self):
+        """The /last command should return recent cases for the current group."""
+        now = timezone.now()
+        create_parsed_case(
+            'MSG_OLD',
+            customer_name='Old Customer',
+            description='Older issue',
+            created_at=now - timedelta(minutes=10),
+        )
+        create_parsed_case(
+            'MSG_NEW',
+            customer_name='New Customer',
+            description='Newest issue',
+            created_at=now,
+        )
+        create_parsed_case(
+            'MSG_OTHER_GROUP',
+            group_id='-999',
+            customer_name='Other Group',
+            description='Should not appear',
+            created_at=now + timedelta(minutes=1),
+        )
+
+        from core.services.commands import handle_bot_command
+
+        result = handle_bot_command('/last 2', '-100123')
+
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('Latest 2 case(s):', result['reply_text'])
+        self.assertIn('MSG_NEW', result['reply_text'])
+        self.assertIn('MSG_OLD', result['reply_text'])
+        self.assertNotIn('MSG_OTHER_GROUP', result['reply_text'])
+
+    def test_last_command_empty_group(self):
+        """The command should return a useful empty-state response."""
+        from core.services.commands import handle_bot_command
+
+        result = handle_bot_command('last 5', '-100123')
+
+        self.assertEqual(result['status'], 'command')
+        self.assertEqual(result['reply_text'], 'No cases found for this group yet.')
+
+    def test_non_command_returns_none(self):
+        """Ordinary complaint text should continue to the parser."""
+        from core.services.commands import handle_bot_command
+
+        self.assertIsNone(
+            handle_bot_command('CUSTOMER COMPLAIN: no gas supply', '-100123')
+        )
+
+    def test_case_command_returns_detail(self):
+        """The /case command should return a full case view."""
+        create_parsed_case(
+            'MSG_DETAIL',
+            customer_name='Jane Doe',
+            customer_phone='0700000000',
+            customer_id='ACC-123',
+            description='Detailed case description',
+            complaint_status='Open',
+            synced_to_sheets=True,
+        )
+
+        from core.services.commands import handle_bot_command
+
+        result = handle_bot_command('/case MSG_DETAIL', '-100123')
+
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('Case MSG_DETAIL', result['reply_text'])
+        self.assertIn('Customer: JANE DOE', result['reply_text'])
+        self.assertIn('Phone: 0700000000', result['reply_text'])
+        self.assertIn('Customer ID: ACC-123', result['reply_text'])
+        self.assertIn('Synced: yes', result['reply_text'])
+
+    def test_search_command_matches_customer_and_description(self):
+        """Search should scan customer fields and complaint text."""
+        create_parsed_case(
+            'MSG_LEAK',
+            customer_name='Leak Customer',
+            customer_phone='0711111111',
+            description='Gas leakage near the pipe',
+        )
+        create_parsed_case(
+            'MSG_OTHER',
+            customer_name='Other Customer',
+            customer_phone='0722222222',
+            description='No matching text',
+        )
+
+        from core.services.commands import handle_bot_command
+
+        result = handle_bot_command('/search leakage', '-100123')
+
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('MSG_LEAK', result['reply_text'])
+        self.assertNotIn('MSG_OTHER', result['reply_text'])
+
+    def test_today_command_returns_todays_cases(self):
+        """The /today command should show only cases created today."""
+        now = timezone.now()
+        create_parsed_case('MSG_TODAY', created_at=now)
+        create_parsed_case('MSG_YESTERDAY', created_at=now - timedelta(days=1))
+
+        from core.services.commands import handle_bot_command
+
+        result = handle_bot_command('/today', '-100123')
+
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('MSG_TODAY', result['reply_text'])
+        self.assertNotIn('MSG_YESTERDAY', result['reply_text'])
+
+    def test_unsynced_command_returns_unsynced_cases(self):
+        """The /unsynced command should show only unsynced rows."""
+        create_parsed_case(
+            'MSG_UNSYNCED',
+            synced_to_sheets=False,
+            last_sync_error='Sheet unavailable',
+        )
+        create_parsed_case('MSG_SYNCED', synced_to_sheets=True)
+
+        from core.services.commands import handle_bot_command
+
+        result = handle_bot_command('/unsynced 5', '-100123')
+
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('MSG_UNSYNCED', result['reply_text'])
+        self.assertIn('Sheet unavailable', result['reply_text'])
+        self.assertNotIn('MSG_SYNCED', result['reply_text'])
+
+    @override_settings(
+        GOOGLE_SHEET_ID='sheet_123',
+        GOOGLE_SHEET_TAB_NAME='Cases',
+        GROUP_MAPPING={},
+    )
+    def test_group_command_returns_routing(self):
+        """The /group command should show current group routing."""
+        from core.services.commands import handle_bot_command
+        from core.services.group_config import GroupRegistry
+
+        GroupRegistry._instance = None
+        result = handle_bot_command('/group', '-100123')
+
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('Group: -100123', result['reply_text'])
+        self.assertIn('Sheet ID: sheet_123', result['reply_text'])
+        self.assertIn('Sheet tab: Cases', result['reply_text'])
+        GroupRegistry._instance = None
+
+    @override_settings(
+        GOOGLE_SHEET_ID='sheet_123',
+        GOOGLE_SHEET_TAB_NAME='Cases',
+        GROUP_MAPPING={},
+    )
+    def test_health_command_returns_db_and_counts(self):
+        """The /health command should return DB status and group counts."""
+        from core.services.commands import handle_bot_command
+        from core.services.group_config import GroupRegistry
+
+        GroupRegistry._instance = None
+        create_parsed_case('MSG_HEALTH', synced_to_sheets=False)
+
+        result = handle_bot_command('/health', '-100123')
+
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('Database: ok', result['reply_text'])
+        self.assertIn('Group: configured', result['reply_text'])
+        self.assertIn('Cases in group: 1', result['reply_text'])
+        self.assertIn('Unsynced cases: 1', result['reply_text'])
+        GroupRegistry._instance = None
+
+    def test_status_filter_commands(self):
+        """Open, pending, and closed commands should filter by status."""
+        create_parsed_case('MSG_OPEN', complaint_status='Open')
+        create_parsed_case('MSG_PENDING', complaint_status='')
+        create_parsed_case('MSG_CLOSED', complaint_status='Closed')
+
+        from core.services.commands import handle_bot_command
+
+        open_result = handle_bot_command('/open 10', '-100123')
+        pending_result = handle_bot_command('/pending 10', '-100123')
+        closed_result = handle_bot_command('/closed 10', '-100123')
+
+        self.assertIn('MSG_OPEN', open_result['reply_text'])
+        self.assertIn('MSG_PENDING', open_result['reply_text'])
+        self.assertNotIn('MSG_CLOSED', open_result['reply_text'])
+        self.assertIn('MSG_PENDING', pending_result['reply_text'])
+        self.assertNotIn('MSG_OPEN', pending_result['reply_text'])
+        self.assertIn('MSG_CLOSED', closed_result['reply_text'])
+        self.assertNotIn('MSG_OPEN', closed_result['reply_text'])
+
+    def test_stale_command_returns_old_not_closed_cases(self):
+        """Stale should show old cases that are not closed."""
+        now = timezone.now()
+        create_parsed_case(
+            'MSG_STALE',
+            complaint_status='Open',
+            created_at=now - timedelta(days=10),
+        )
+        create_parsed_case(
+            'MSG_CLOSED_OLD',
+            complaint_status='Closed',
+            created_at=now - timedelta(days=10),
+        )
+        create_parsed_case(
+            'MSG_RECENT',
+            complaint_status='Open',
+            created_at=now,
+        )
+
+        from core.services.commands import handle_bot_command
+
+        result = handle_bot_command('/stale 7', '-100123')
+
+        self.assertIn('MSG_STALE', result['reply_text'])
+        self.assertIn('Age:', result['reply_text'])
+        self.assertNotIn('MSG_CLOSED_OLD', result['reply_text'])
+        self.assertNotIn('MSG_RECENT', result['reply_text'])
+
+    def test_errors_command_returns_sync_errors(self):
+        """Errors should show cases with non-empty last_sync_error."""
+        create_parsed_case(
+            'MSG_ERROR',
+            last_sync_error='Google quota exceeded',
+        )
+        create_parsed_case('MSG_NO_ERROR', last_sync_error='')
+
+        from core.services.commands import handle_bot_command
+
+        result = handle_bot_command('/errors 10', '-100123')
+
+        self.assertIn('MSG_ERROR', result['reply_text'])
+        self.assertIn('Google quota exceeded', result['reply_text'])
+        self.assertNotIn('MSG_NO_ERROR', result['reply_text'])
+
+    def test_summary_today_command_returns_counts(self):
+        """Summary today should count status and sync state for today."""
+        now = timezone.now()
+        create_parsed_case(
+            'MSG_OPEN_SUMMARY',
+            complaint_status='Open',
+            synced_to_sheets=False,
+            last_sync_error='Sheet unavailable',
+            created_at=now,
+        )
+        create_parsed_case(
+            'MSG_CLOSED_SUMMARY',
+            complaint_status='Closed',
+            synced_to_sheets=True,
+            created_at=now,
+        )
+        create_parsed_case(
+            'MSG_OLD_SUMMARY',
+            complaint_status='Open',
+            created_at=now - timedelta(days=2),
+        )
+
+        from core.services.commands import handle_bot_command
+
+        result = handle_bot_command('/summary today', '-100123')
+
+        self.assertIn('Summary for today', result['reply_text'])
+        self.assertIn('Total: 2', result['reply_text'])
+        self.assertIn('Open/not closed: 1', result['reply_text'])
+        self.assertIn('Closed: 1', result['reply_text'])
+        self.assertIn('Unsynced: 1', result['reply_text'])
+        self.assertIn('Sync errors: 1', result['reply_text'])
+
+    def test_summary_week_command_includes_week_cases(self):
+        """Summary week should include cases since the start of the local week."""
+        now = timezone.now()
+        create_parsed_case('MSG_WEEK_1', created_at=now)
+        create_parsed_case('MSG_WEEK_2', created_at=now - timedelta(days=1))
+
+        from core.services.commands import handle_bot_command
+
+        result = handle_bot_command('/summary week', '-100123')
+
+        self.assertIn('Summary for this week', result['reply_text'])
+        self.assertIn('Total:', result['reply_text'])
+
+    def test_week_command_returns_this_weeks_cases(self):
+        """The /week command should list cases created this week."""
+        now = timezone.now()
+        start_of_week = timezone.localdate() - timedelta(days=timezone.localdate().weekday())
+        last_week = timezone.make_aware(
+            datetime.combine(start_of_week - timedelta(days=1), datetime.min.time())
+        )
+        create_parsed_case('MSG_THIS_WEEK', created_at=now)
+        create_parsed_case('MSG_LAST_WEEK', created_at=last_week)
+
+        from core.services.commands import handle_bot_command
+
+        result = handle_bot_command('/week', '-100123')
+
+        self.assertIn("This week's cases", result['reply_text'])
+        self.assertIn('MSG_THIS_WEEK', result['reply_text'])
+        self.assertNotIn('MSG_LAST_WEEK', result['reply_text'])
+
+    def test_phone_and_id_commands_lookup_cases(self):
+        """Phone and customer ID lookup commands should search specific fields."""
+        create_parsed_case(
+            'MSG_PHONE',
+            customer_phone='0712345000',
+            customer_id='ACC-123',
+        )
+        create_parsed_case(
+            'MSG_OTHER_LOOKUP',
+            customer_phone='0799999999',
+            customer_id='ACC-999',
+        )
+
+        from core.services.commands import handle_bot_command
+
+        phone_result = handle_bot_command('/phone 0712345', '-100123')
+        id_result = handle_bot_command('/id ACC-123', '-100123')
+
+        self.assertIn('MSG_PHONE', phone_result['reply_text'])
+        self.assertNotIn('MSG_OTHER_LOOKUP', phone_result['reply_text'])
+        self.assertIn('MSG_PHONE', id_result['reply_text'])
+        self.assertNotIn('MSG_OTHER_LOOKUP', id_result['reply_text'])
+
+    def test_missing_command_returns_cases_missing_requested_field(self):
+        """Missing should filter by the requested blank field."""
+        create_parsed_case('MSG_MISSING_PHONE', customer_phone='')
+        create_parsed_case('MSG_HAS_PHONE', customer_phone='0712345678')
+
+        from core.services.commands import handle_bot_command
+
+        result = handle_bot_command('/missing phone 10', '-100123')
+
+        self.assertIn('missing phone number', result['reply_text'])
+        self.assertIn('MSG_MISSING_PHONE', result['reply_text'])
+        self.assertNotIn('MSG_HAS_PHONE', result['reply_text'])
+
+    def test_lowconfidence_command_returns_partial_or_incomplete_cases(self):
+        """Low-confidence should include partial processing and incomplete cases."""
+        create_parsed_case(
+            'MSG_PARTIAL_CASE',
+            processed_status='partial',
+        )
+        create_parsed_case(
+            'MSG_INCOMPLETE_CASE',
+            customer_name='',
+        )
+        create_parsed_case('MSG_COMPLETE_CASE')
+
+        from core.services.commands import handle_bot_command
+
+        result = handle_bot_command('/lowconfidence 10', '-100123')
+
+        self.assertIn('MSG_PARTIAL_CASE', result['reply_text'])
+        self.assertIn('partial processing', result['reply_text'])
+        self.assertIn('MSG_INCOMPLETE_CASE', result['reply_text'])
+        self.assertIn('missing name', result['reply_text'])
+        self.assertNotIn('MSG_COMPLETE_CASE', result['reply_text'])
+
+    def test_risk_command_filters_by_risk_level(self):
+        """Risk should return cases matching the requested level."""
+        create_parsed_case('MSG_HIGH_RISK', risk_level='High')
+        create_parsed_case('MSG_LOW_RISK', risk_level='Low')
+
+        from core.services.commands import handle_bot_command
+
+        result = handle_bot_command('/risk high 10', '-100123')
+
+        self.assertIn('MSG_HIGH_RISK', result['reply_text'])
+        self.assertNotIn('MSG_LOW_RISK', result['reply_text'])
+
+    def test_duplicates_command_reports_repeated_phone_or_customer_id(self):
+        """Duplicates should group repeated phone numbers and customer IDs."""
+        create_parsed_case(
+            'MSG_DUP_1',
+            customer_phone='0712000000',
+            customer_id='ACC-DUP',
+        )
+        create_parsed_case(
+            'MSG_DUP_2',
+            customer_phone='0712000000',
+            customer_id='ACC-DUP',
+        )
+        create_parsed_case(
+            'MSG_UNIQUE',
+            customer_phone='0799000000',
+            customer_id='ACC-UNIQUE',
+        )
+
+        from core.services.commands import handle_bot_command
+
+        result = handle_bot_command('/duplicates 30', '-100123')
+
+        self.assertIn('Duplicate hints', result['reply_text'])
+        self.assertIn('phone 0712000000: 2 case(s)', result['reply_text'])
+        self.assertIn('customer ID ACC-DUP: 2 case(s)', result['reply_text'])
+        self.assertNotIn('ACC-UNIQUE', result['reply_text'])
+
+    def test_top_commands_report_regions_and_issues(self):
+        """Top commands should aggregate non-blank region and issue fields."""
+        create_parsed_case(
+            'MSG_REGION_1',
+            branch_region='Nairobi',
+            complaint_category='Leak',
+        )
+        create_parsed_case(
+            'MSG_REGION_2',
+            branch_region='Nairobi',
+            complaint_category='Leak',
+        )
+        create_parsed_case(
+            'MSG_REGION_3',
+            branch_region='Mombasa',
+            complaint_category='No gas',
+        )
+
+        from core.services.commands import handle_bot_command
+
+        regions_result = handle_bot_command('/top regions 7', '-100123')
+        issues_result = handle_bot_command('/top issues 7', '-100123')
+
+        self.assertIn('Top regions', regions_result['reply_text'])
+        self.assertIn('Nairobi: 2', regions_result['reply_text'])
+        self.assertIn('Mombasa: 1', regions_result['reply_text'])
+        self.assertIn('Top issues', issues_result['reply_text'])
+        self.assertIn('Leak: 2', issues_result['reply_text'])
+        self.assertIn('No gas: 1', issues_result['reply_text'])
+
+    def test_help_command_lists_useful_commands(self):
+        """Help should expose the useful command set."""
+        from core.services.commands import handle_bot_command
+
+        result = handle_bot_command('/help', '-100123')
+
+        self.assertIn('/phone 0712345678', result['reply_text'])
+        self.assertIn('/missing phone 10', result['reply_text'])
+        self.assertIn('/duplicates 30', result['reply_text'])
+        self.assertIn('/top regions 7', result['reply_text'])
+
+
 @override_settings(TELEGRAM_WEBHOOK_SECRET=None)
 class TelegramWebhookViewTest(TestCase):
     """Test the Telegram webhook endpoint."""
@@ -675,6 +1165,31 @@ class TelegramWebhookViewTest(TestCase):
 
     @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
     @patch('core.api.views._process_single_message')
+    def test_telegram_last_command_does_not_process_complaint(self, mock_process):
+        """Commands should return a command response without storing/syncing."""
+        from core.api.views import _process_telegram_message
+
+        create_parsed_case(
+            'MSG_RECENT',
+            group_id='-100123',
+            customer_name='Recent Customer',
+            description='Recent issue',
+        )
+
+        result = _process_telegram_message({
+            'message_id': 123,
+            'from': {'first_name': 'Test'},
+            'chat': {'id': -100123, 'type': 'group'},
+            'date': 1711123456,
+            'text': '@biogas_bot /last 1',
+        })
+
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('MSG_RECENT', result['reply_text'])
+        mock_process.assert_not_called()
+
+    @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
+    @patch('core.api.views._process_single_message')
     def test_telegram_message_processes_multiple_tagged_complaint_cases(
         self,
         mock_process,
@@ -745,6 +1260,26 @@ NATURE OF THE PROBLEM: Gas leakage
         self.assertIn('OK. Message received and saved successfully', text)
         self.assertIn('Captured: Customer Name', text)
         self.assertTrue(text.isascii())
+
+    @override_settings(TELEGRAM_BOT_TOKEN='token')
+    @patch('core.api.views.requests.post')
+    def test_telegram_reply_sends_command_text(self, mock_post):
+        """Command responses should be sent directly to Telegram."""
+        from core.api.views import _send_telegram_reply
+
+        _send_telegram_reply(
+            {
+                'message_id': 123,
+                'chat': {'id': -100123},
+            },
+            {
+                'status': 'command',
+                'reply_text': 'Latest 1 case(s):\n1. MSG_RECENT',
+            },
+        )
+
+        text = mock_post.call_args.kwargs['data']['text']
+        self.assertEqual(text, 'Latest 1 case(s):\n1. MSG_RECENT')
 
     @patch('core.services.storage.process_and_store_message')
     @patch('core.services.group_config.GroupRegistry.get_instance')

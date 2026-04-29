@@ -40,6 +40,35 @@ confidence = (fields_extracted / fields_expected)
 
 ## 🔧 Solution: Improve Message Format
 
+### Telegram Group Requirement
+
+In Telegram groups, tag the bot and include actual complaint or command text in the same message. Untagged messages are ignored, and a message that only tags the bot is ignored.
+
+```text
+@hb_biogas_cases_bot CUSTOMER COMPLAIN
+NAME: Jane Doe
+TEL: 0712345678
+ID: ACC123
+NATURE OF THE PROBLEM: No gas supply
+```
+
+The bot can also process multiple cases in one tagged message. Start each case with a standalone `CUSTOMER COMPLAIN` heading:
+
+```text
+@hb_biogas_cases_bot
+CUSTOMER COMPLAIN
+NAME: Jane Doe
+TEL: 0712345678
+ID: ACC123
+NATURE OF THE PROBLEM: No gas supply
+
+CUSTOMER COMPLAIN
+NAME: John Smith
+TEL: 0798765432
+ID: ACC456
+NATURE OF THE PROBLEM: Gas leakage
+```
+
 ### Recommended Complaint Format
 
 **Template 1: Structured Format** (Best - Highest confidence)
@@ -86,6 +115,21 @@ PRICE: 3500
 ---
 
 ## 🔍 How to Diagnose Message Issues
+
+### Use Telegram Commands
+
+The bot has read-only commands for operators. In groups, tag the bot before the command:
+
+```text
+@hb_biogas_cases_bot /last 5
+@hb_biogas_cases_bot /case MSG_ID
+@hb_biogas_cases_bot /missing phone 10
+@hb_biogas_cases_bot /lowconfidence 10
+@hb_biogas_cases_bot /duplicates 30
+@hb_biogas_cases_bot /summary today
+```
+
+See [BOT_COMMANDS.md](BOT_COMMANDS.md) for the complete command list.
 
 ### Check Database
 ```bash

@@ -182,6 +182,11 @@ def _process_telegram_message(message_data: dict) -> dict:
                 'message_id': telegram_message_id,
             }
 
+        from core.services.commands import handle_bot_command
+        command_result = handle_bot_command(content, group_id)
+        if command_result:
+            return command_result
+
         messages = _split_if_batch(content, sender, has_image, received_at)
 
         if len(messages) > 1:
@@ -331,6 +336,12 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
     status = result.get('status', 'unknown')
     if status == 'ignored':
         return
+    if status == 'command':
+        text = result.get('reply_text', '')
+        if not text:
+            return
+        _post_telegram_reply(chat_id, message_data, text)
+        return
 
     captured_fields = result.get('captured_fields', {})
 
@@ -369,13 +380,18 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
     else:
         text = f'Message received (status: {status})'
 
+    _post_telegram_reply(chat_id, message_data, text)
+
+
+def _post_telegram_reply(chat_id, message_data: dict, text: str) -> None:
     try:
+        bot_token = settings.TELEGRAM_BOT_TOKEN
         url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
         requests.post(
             url,
             data={
                 'chat_id': chat_id,
-                'text': text,
+                'text': text[:4000],
                 'reply_to_message_id': message_data.get('message_id'),
             },
             timeout=settings.API_REQUEST_TIMEOUT,

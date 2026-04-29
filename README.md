@@ -182,6 +182,26 @@ POST /api/webhook/telegram/
 
 Receives updates from Telegram Bot API. Configure this URL as your Telegram webhook.
 
+In Telegram groups, the bot only processes a message when the configured bot username is tagged and there is actual message content after the tag. This prevents ordinary group chatter from being parsed and synced accidentally.
+
+Example group messages:
+
+```text
+@hb_biogas_cases_bot CUSTOMER COMPLAIN
+NAME: Jane Doe
+TEL: 0712345678
+ID: ACC123
+NATURE OF THE PROBLEM: No gas supply
+```
+
+```text
+@hb_biogas_cases_bot /last 5
+```
+
+The webhook can process multiple complaint cases from one tagged message when each case starts with its own `CUSTOMER COMPLAIN` heading.
+
+For the complete read-only command reference, see [BOT_COMMANDS.md](./BOT_COMMANDS.md).
+
 **Setup webhook:**
 ```bash
 curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" \

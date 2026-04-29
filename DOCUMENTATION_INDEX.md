@@ -14,6 +14,7 @@
 ### For Developer Reference
 6. **[API_VALIDATION_REFERENCE.md](API_VALIDATION_REFERENCE.md)** - Quick reference guide
 7. **[API_IMPROVEMENTS_SUMMARY.md](API_IMPROVEMENTS_SUMMARY.md)** - Full implementation details
+8. **[BOT_COMMANDS.md](BOT_COMMANDS.md)** - Telegram command reference for operators
 
 ---
 
