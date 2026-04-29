@@ -110,24 +110,33 @@ class GoogleSheetsService:
     # ------------------------------------------------------------------
 
     @classmethod
-    def get_instance(cls, sheet_id: str = None) -> "GoogleSheetsService":
+    def get_instance(
+        cls,
+        sheet_id: str = None,
+        sheet_name: str = None,
+    ) -> "GoogleSheetsService":
         """
-        Return the cached service instance for *sheet_id*.
+        Return the cached service instance for *sheet_id* and *sheet_name*.
 
         If *sheet_id* is None, falls back to settings.GOOGLE_SHEET_ID.
-        Creates a new instance on first call for a given sheet_id.
+        If *sheet_name* is None, falls back to settings.GOOGLE_SHEET_TAB_NAME.
         """
         effective_id = sheet_id or getattr(settings, 'GOOGLE_SHEET_ID', '')
-        if effective_id not in cls._instances:
-            cls._instances[effective_id] = cls(sheet_id=effective_id)
-        return cls._instances[effective_id]
+        effective_name = sheet_name or getattr(settings, 'GOOGLE_SHEET_TAB_NAME', '')
+        cache_key = (effective_id, effective_name)
+        if cache_key not in cls._instances:
+            cls._instances[cache_key] = cls(
+                sheet_id=effective_id,
+                sheet_name=effective_name,
+            )
+        return cls._instances[cache_key]
 
     @classmethod
     def clear_instances(cls):
         """Flush the instance cache (useful in tests)."""
         cls._instances.clear()
 
-    def __init__(self, sheet_id: str = None):
+    def __init__(self, sheet_id: str = None, sheet_name: str = None):
         """
         Initialise the service for a specific *sheet_id*.
 
@@ -140,7 +149,7 @@ class GoogleSheetsService:
         self._initialized = False
         self._api_initialized = False
         self._sheet_id = sheet_id or getattr(settings, 'GOOGLE_SHEET_ID', '')
-        self._sheet_name = getattr(settings, 'GOOGLE_SHEET_TAB_NAME', '')
+        self._sheet_name = sheet_name or getattr(settings, 'GOOGLE_SHEET_TAB_NAME', '')
         self._credentials_file = getattr(
             settings, 'GOOGLE_SERVICE_ACCOUNT_FILE', 'credentials.json'
         )
@@ -593,25 +602,33 @@ class GoogleSheetsService:
 # Module-level convenience functions
 # ---------------------------------------------------------------------------
 
-def get_sheets_service(sheet_id: str = None) -> GoogleSheetsService:
+def get_sheets_service(
+    sheet_id: str = None,
+    sheet_name: str = None,
+) -> GoogleSheetsService:
     """
-    Return the GoogleSheetsService instance for *sheet_id*.
+    Return the GoogleSheetsService instance for *sheet_id* and *sheet_name*.
 
-    Falls back to settings.GOOGLE_SHEET_ID when sheet_id is None.
+    Falls back to settings when values are None.
     """
-    return GoogleSheetsService.get_instance(sheet_id=sheet_id)
+    return GoogleSheetsService.get_instance(
+        sheet_id=sheet_id,
+        sheet_name=sheet_name,
+    )
 
 
 def append_parsed_message_to_sheet(
-    parsed_message, sheet_id: str = None
+    parsed_message,
+    sheet_id: str = None,
+    sheet_name: str = None,
 ) -> bool:
     """
     Append a ParsedMessage to the correct Google Sheet.
 
-    *sheet_id* should be the sheet belonging to the message's group.
+    *sheet_id* and *sheet_name* should belong to the message's group.
     Falls back to settings.GOOGLE_SHEET_ID when None.
     """
-    service = get_sheets_service(sheet_id=sheet_id)
+    service = get_sheets_service(sheet_id=sheet_id, sheet_name=sheet_name)
     row = parsed_message.to_sheet_row()
     success = False
     error_message = ''
@@ -652,14 +669,16 @@ def append_parsed_message_to_sheet(
 
 
 def batch_append_messages(
-    parsed_messages: list, sheet_id: str = None
+    parsed_messages: list,
+    sheet_id: str = None,
+    sheet_name: str = None,
 ) -> dict:
     """
     Append multiple ParsedMessages to the correct Google Sheet.
 
-    *sheet_id* should be the sheet belonging to the messages' group.
+    *sheet_id* and *sheet_name* should belong to the messages' group.
     """
-    service = get_sheets_service(sheet_id=sheet_id)
+    service = get_sheets_service(sheet_id=sheet_id, sheet_name=sheet_name)
     rows = [msg.to_sheet_row() for msg in parsed_messages]
     message_ids = [msg.message_id for msg in parsed_messages]
 

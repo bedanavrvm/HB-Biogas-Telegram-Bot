@@ -213,6 +213,28 @@ class GoogleSheetsValidationTests(TestCase):
         self.assertEqual(appended_row[0], '29/04/2026')
         self.assertEqual(appended_row[2], 'MSG_001')
 
+    def test_get_instance_is_keyed_by_sheet_id_and_sheet_name(self):
+        """Different tabs in the same spreadsheet should get distinct services."""
+        GoogleSheetsService.clear_instances()
+
+        first = GoogleSheetsService.get_instance(
+            sheet_id='sheet_1',
+            sheet_name='Complaints',
+        )
+        second = GoogleSheetsService.get_instance(
+            sheet_id='sheet_1',
+            sheet_name='Support',
+        )
+        again = GoogleSheetsService.get_instance(
+            sheet_id='sheet_1',
+            sheet_name='Complaints',
+        )
+
+        self.assertIs(first, again)
+        self.assertIsNot(first, second)
+        self.assertEqual(first._sheet_name, 'Complaints')
+        self.assertEqual(second._sheet_name, 'Support')
+
 
 class ParsedMessageToSheetRowTests(TestCase):
     """Test ParsedMessage.to_sheet_row() produces correct 21-column output."""

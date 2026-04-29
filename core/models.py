@@ -170,7 +170,7 @@ class ParsedMessage(models.Model):
             self.raw_message,                                                             # [10] raw_message
             self.gps_link,                                                                # [11] gps_link
             'TRUE' if self.image_flag else '',                                            # [12] image_flag
-            'telegram bot',                                                               # [13] source
+            self.source,                                                                  # [13] source
             self.loan_status,                                                             # [14] Loan Status
             self.loan_at_risk,                                                            # [15] Loan at Risk
             self.risk_level,                                                              # [16] Risk Level

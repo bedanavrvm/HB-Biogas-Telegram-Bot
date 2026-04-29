@@ -1,11 +1,11 @@
-"""
+﻿"""
 API Views for the biogas telegram bot.
 
 Endpoints:
-- POST /api/webhook/telegram/  — Receive Telegram webhook
-- POST /api/process/messages/  — Manual batch processing
-- POST /api/resync/unsynced/   — Resync unsynced messages
-- GET  /api/health/            — Health check
+- POST /api/webhook/telegram/  â€” Receive Telegram webhook
+- POST /api/process/messages/  â€” Manual batch processing
+- POST /api/resync/unsynced/   â€” Resync unsynced messages
+- GET  /api/health/            â€” Health check
 
 KEY FIXES (v2):
 - process_messages() now passes group_id (from the request body or
@@ -157,7 +157,7 @@ def _process_telegram_message(message_data: dict) -> dict:
     try:
         group_id = str(message_data.get('chat', {}).get('id', ''))
         if not group_id:
-            logger.error("Message has no chat.id — cannot route to group")
+            logger.error("Message has no chat.id â€” cannot route to group")
             return {'status': 'error', 'error': 'Message missing chat information'}
 
         telegram_message_id = str(message_data.get('message_id', ''))
@@ -228,7 +228,7 @@ def _process_single_message(
     group_id: str = None,
 ) -> dict:
     """
-    Run one message through dedup → parse → store → sheet sync.
+    Run one message through dedup â†’ parse â†’ store â†’ sheet sync.
 
     Resolves the sheet_id from GroupRegistry using group_id, then passes
     both down to process_and_store_message so the correct Google Sheet
@@ -246,13 +246,14 @@ def _process_single_message(
         group_config = registry.get_group(group_id)
         if not group_config:
             logger.error(f"No config found for group {group_id}")
-            # Return a generic error — don't expose the group_id to the caller
+            # Return a generic error â€” don't expose the group_id to the caller
             return {
                 'status': 'error',
                 'error': 'This group is not configured to receive messages.',
             }
 
         sheet_id = group_config.sheet_id
+        sheet_name = group_config.sheet_name
 
         parsed_message = process_and_store_message(
             telegram_message_id=telegram_message_id,
@@ -261,7 +262,8 @@ def _process_single_message(
             received_at=received_at,
             has_image=has_image,
             group_id=group_id,
-            sheet_id=sheet_id,       # ← forwarded to sheets service
+            sheet_name=sheet_name,
+            sheet_id=sheet_id,       # â† forwarded to sheets service
         )
 
         if parsed_message is None:
@@ -332,43 +334,40 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
 
     captured_fields = result.get('captured_fields', {})
 
-    # Build the "Captured: ..." footer
     fields_summary = ''
     if captured_fields:
         names = [k.replace('_', ' ').title() for k in captured_fields]
-        fields_summary = f"\n📋 Captured: {', '.join(names)}"
+        fields_summary = f"\nCaptured: {', '.join(names)}"
 
     if status == 'success':
-        text = f'✅ Message received and saved successfully{fields_summary}'
+        text = f'OK. Message received and saved successfully{fields_summary}'
     elif status == 'partial':
         if result.get('error') and 'sheet' in result['error'].lower():
-            # Sheet sync failure — generic wording, no internal detail
             text = (
-                f'⚠️ Message saved to database but could not sync to the '
+                f'Warning: Message saved to database but could not sync to the '
                 f'register at this time. It will be retried automatically.'
                 f'{fields_summary}'
             )
         else:
             text = (
-                f'⚠️ Message partially processed (some fields were not '
+                f'Warning: Message partially processed (some fields were not '
                 f'recognised){fields_summary}'
             )
     elif status == 'duplicate':
-        text = '⚠️ This message has already been processed.'
+        text = 'Warning: This message has already been processed.'
     elif status == 'skipped':
-        text = '⚠️ Message skipped — no text content found.'
+        text = 'Warning: Message skipped - no text content found.'
     elif status == 'batch_processed':
         success = result.get('success', 0)
         total = result.get('total', 0)
-        text = f'✅ Batch processed: {success}/{total} messages saved.'
+        text = f'OK. Batch processed: {success}/{total} messages saved.'
     elif status == 'error':
-        # Generic wording only — no internal identifiers
         text = (
-            '❌ This message could not be processed. '
+            'Error: This message could not be processed. '
             'Please check the format and try again.'
         )
     else:
-        text = f'📝 Message received (status: {status})'
+        text = f'Message received (status: {status})'
 
     try:
         url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
@@ -410,7 +409,7 @@ def process_messages(request):
                 "sender": "John Doe",
                 "received_at": "2026-04-15T10:30:00Z",
                 "has_image": false,
-                "group_id": "-1001234567890"   ← optional
+                "group_id": "-1001234567890"   â† optional
             }
         ]
     }
@@ -455,7 +454,7 @@ def process_messages(request):
         for msg in messages:
             received_at = _parse_received_at(msg.get('received_at'))
 
-            # ── KEY FIX: pass group_id from the request (or fallback) ──
+            # â”€â”€ KEY FIX: pass group_id from the request (or fallback) â”€â”€
             group_id = str(msg.get('group_id', '') or default_group_id).strip()
 
             result = _process_single_message(

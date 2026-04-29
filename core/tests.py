@@ -125,6 +125,30 @@ class ParserServiceTest(TestCase):
         self.assertEqual(len(messages), 2)
         self.assertEqual(messages[0]['sender'], 'John')
         self.assertEqual(messages[1]['sender'], 'Mary')
+
+    def test_split_multiple_complaint_cases(self):
+        """One message with repeated complaint headers should split into cases."""
+        batch_content = """*CUSTOMER COMPLAIN*
+NAME: Jane Doe
+TEL: 0712345678
+ID: A123
+NATURE OF THE PROBLEM: No gas supply
+*CUSTOMER COMPLAIN: The system has stopped producing gas
+
+*CUSTOMER COMPLAIN*
+NAME: John Smith
+TEL: 0798765432
+ID: B456
+NATURE OF THE PROBLEM: Gas leakage
+*CUSTOMER COMPLAIN: Gas smell around the digester"""
+
+        messages = split_batch_message(batch_content)
+
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[0]['sender'], 'Jane Doe')
+        self.assertEqual(messages[1]['sender'], 'John Smith')
+        self.assertIn('The system has stopped producing gas', messages[0]['content'])
+        self.assertIn('Gas smell around the digester', messages[1]['content'])
     
     def test_intent_detection_sale(self):
         """Test intent detection for sale messages."""
@@ -649,6 +673,116 @@ class TelegramWebhookViewTest(TestCase):
             'CUSTOMER COMPLAIN: no gas supply',
         )
 
+    @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
+    @patch('core.api.views._process_single_message')
+    def test_telegram_message_processes_multiple_tagged_complaint_cases(
+        self,
+        mock_process,
+    ):
+        """Multiple complaint cases in one tagged message should process separately."""
+        from core.api.views import _process_telegram_message
+
+        mock_process.side_effect = [
+            {'status': 'success', 'message_id': 'MSG_1'},
+            {'status': 'success', 'message_id': 'MSG_2'},
+        ]
+        payload_text = """@biogas_bot
+*CUSTOMER COMPLAIN*
+NAME: Jane Doe
+TEL: 0712345678
+ID: A123
+NATURE OF THE PROBLEM: No gas supply
+*CUSTOMER COMPLAIN: The system has stopped producing gas
+
+*CUSTOMER COMPLAIN*
+NAME: John Smith
+TEL: 0798765432
+ID: B456
+NATURE OF THE PROBLEM: Gas leakage
+*CUSTOMER COMPLAIN: Gas smell around the digester"""
+
+        result = _process_telegram_message({
+            'message_id': 123,
+            'from': {'first_name': 'Test'},
+            'chat': {'id': -100123, 'type': 'group'},
+            'date': 1711123456,
+            'text': payload_text,
+        })
+
+        self.assertEqual(result['status'], 'batch_processed')
+        self.assertEqual(result['total'], 2)
+        self.assertEqual(result['success'], 2)
+        self.assertEqual(mock_process.call_count, 2)
+        self.assertEqual(
+            mock_process.call_args_list[0].kwargs['telegram_message_id'],
+            '123_0',
+        )
+        self.assertEqual(
+            mock_process.call_args_list[1].kwargs['telegram_message_id'],
+            '123_1',
+        )
+        self.assertIn('Jane Doe', mock_process.call_args_list[0].kwargs['content'])
+        self.assertIn('John Smith', mock_process.call_args_list[1].kwargs['content'])
+
+    @override_settings(TELEGRAM_BOT_TOKEN='token')
+    @patch('core.api.views.requests.post')
+    def test_telegram_reply_uses_plain_ascii_status_text(self, mock_post):
+        """Telegram replies should not contain mojibake status prefixes."""
+        from core.api.views import _send_telegram_reply
+
+        _send_telegram_reply(
+            {
+                'message_id': 123,
+                'chat': {'id': -100123},
+            },
+            {
+                'status': 'success',
+                'captured_fields': {'customer_name': 'Jane'},
+            },
+        )
+
+        text = mock_post.call_args.kwargs['data']['text']
+        self.assertIn('OK. Message received and saved successfully', text)
+        self.assertIn('Captured: Customer Name', text)
+        self.assertTrue(text.isascii())
+
+    @patch('core.services.storage.process_and_store_message')
+    @patch('core.services.group_config.GroupRegistry.get_instance')
+    def test_process_single_message_passes_group_sheet_name(
+        self,
+        mock_registry_get_instance,
+        mock_process_store,
+    ):
+        """Group-specific worksheet tabs should be forwarded to storage."""
+        from core.api.views import _process_single_message
+
+        registry = MagicMock()
+        registry.get_group.return_value = MagicMock(
+            sheet_id='sheet_123',
+            sheet_name='Support Tickets',
+        )
+        mock_registry_get_instance.return_value = registry
+
+        parsed = MagicMock()
+        parsed.message_id = 'MSG_TEST'
+        parsed._processing_status = 'success'
+        mock_process_store.return_value = parsed
+
+        result = _process_single_message(
+            telegram_message_id='123',
+            content='CUSTOMER COMPLAIN: no gas',
+            sender='Agent',
+            has_image=False,
+            received_at=timezone.now(),
+            group_id='-100123',
+        )
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(
+            mock_process_store.call_args.kwargs['sheet_name'],
+            'Support Tickets',
+        )
+
 
 class ParsedMessageModelTest(TestCase):
     """Test the ParsedMessage model."""
@@ -706,7 +840,7 @@ class ParsedMessageModelTest(TestCase):
         self.assertEqual(row[10], 'Sold 3 bread 50 each', "raw_message")
         self.assertEqual(row[11], 'https://maps.example.com/xyz', "gps_link")
         self.assertEqual(row[12], 'TRUE', "image_flag as TRUE")
-        self.assertEqual(row[13], 'telegram bot', "source")
+        self.assertEqual(row[13], 'whatsapp_telegram', "source")
         
         # [14-20] Human workflow fields (should be empty for bot-generated row)
         self.assertEqual(row[14], '', "Loan Status (human)")

@@ -657,6 +657,7 @@ def split_batch_message(content: str) -> list[dict]:
     WhatsApp forwards may contain multiple messages separated by:
     - Timestamps like [14/03/2026, 10:30:15]
     - Sender names followed by colon
+    - Repeated standalone CUSTOMER COMPLAIN headers
     - Double newlines
     
     Args:
@@ -665,6 +666,13 @@ def split_batch_message(content: str) -> list[dict]:
     Returns:
         List of dicts with 'sender' and 'content' keys
     """
+    complaint_messages = _split_complaint_cases(content)
+    if len(complaint_messages) > 1:
+        logger.info(
+            f"Split complaint batch into {len(complaint_messages)} individual cases"
+        )
+        return complaint_messages
+
     messages = []
     
     # Pattern: [timestamp] sender: message
@@ -715,4 +723,39 @@ def split_batch_message(content: str) -> list[dict]:
             })
     
     logger.info(f"Split batch into {len(messages)} individual messages")
+    return messages
+
+
+def _split_complaint_cases(content: str) -> list[dict]:
+    """
+    Split one Telegram message containing several complaint case blocks.
+
+    Only standalone complaint headers are treated as separators. Lines such as
+    "*CUSTOMER COMPLAIN: The system is leaking" are part of the current case,
+    not the start of a new one.
+    """
+    if not content or not COMPLAINT_PREFIX_PATTERN.search(content):
+        return []
+
+    header_pattern = re.compile(
+        r'^\s*\*?\s*CUSTOMER\s+COMPLAIN(?:T|E)?\s*\*?\s*$',
+        re.IGNORECASE | re.MULTILINE,
+    )
+    matches = list(header_pattern.finditer(content))
+    if len(matches) <= 1:
+        return []
+
+    messages = []
+    for idx, match in enumerate(matches):
+        start = match.start()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(content)
+        case_content = content[start:end].strip()
+        if not case_content:
+            continue
+
+        messages.append({
+            'sender': _extract_field(NAME_PATTERN, case_content),
+            'content': case_content,
+        })
+
     return messages
