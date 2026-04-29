@@ -21,7 +21,7 @@ Extracted fields:
 """
 import re
 import logging
-from datetime import datetime
+from datetime import datetime, timezone as dt_timezone
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 from enum import Enum
@@ -304,7 +304,7 @@ def _extract_timestamp(content: str) -> Optional[datetime]:
                 try:
                     dt = datetime.strptime(f"{date_str} {time_str}", fmt)
                     # Make timezone-aware (assume UTC for WhatsApp timestamps)
-                    return timezone.make_aware(dt, timezone=timezone.utc)
+                    return timezone.make_aware(dt, timezone=dt_timezone.utc)
                 except ValueError:
                     continue
         except Exception as e:

@@ -230,7 +230,7 @@ class GoogleSheetsService:
 
     def validate_sheet_structure(self) -> tuple:
         """
-        Validate that the Google Sheet has exactly the expected 21-column schema.
+        Validate that the Google Sheet contains the expected schema headers.
 
         Returns (is_valid: bool, error_message: str).
         ABORTS the append if invalid (fail-safe).
@@ -240,29 +240,34 @@ class GoogleSheetsService:
 
         try:
             actual_header = self._sheet.row_values(1)
+            if not actual_header:
+                return False, "Sheet header row is empty"
 
-            if len(actual_header) != len(self.SHEET_COLUMNS):
+            normalized_header = [self._normalize_header(h) for h in actual_header]
+            expected_header = [self._normalize_header(h) for h in self.SHEET_COLUMNS]
+
+            duplicates = sorted({
+                h for h in normalized_header
+                if h and normalized_header.count(h) > 1
+            })
+            if duplicates:
                 error = (
-                    f"Sheet {self._sheet_id} has {len(actual_header)} columns, "
-                    f"expected {len(self.SHEET_COLUMNS)}. "
-                    f"Actual[:5]: {actual_header[:5]}"
+                    f"Duplicate sheet header(s): {duplicates}. "
+                    "Header names must be unique for safe column lookup."
                 )
-                logger.error(f"Sheet structure mismatch: {error}")
+                logger.error(f"Sheet structure validation failed: {error}")
                 return False, error
 
-            mismatches = [
-                f"[{i}] {a!r} != {e!r}"
-                for i, (a, e) in enumerate(
-                    zip(actual_header, self.SHEET_COLUMNS)
-                )
-                if a.strip() != e.strip()
+            missing = [
+                expected
+                for expected, normalized in zip(self.SHEET_COLUMNS, expected_header)
+                if normalized not in normalized_header
             ]
 
-            if mismatches:
+            if missing:
                 error = (
-                    "Column name mismatch(es): "
-                    + ", ".join(mismatches[:3])
-                    + ". Sheet schema may have been modified manually."
+                    "Missing required sheet column(s): "
+                    + ", ".join(missing[:5])
                 )
                 logger.error(f"Sheet structure validation failed: {error}")
                 return False, error
@@ -292,6 +297,11 @@ class GoogleSheetsService:
             return []
 
         try:
+            category_index = self._header_index('Complaint Category')
+            if not category_index:
+                return []
+            category_index -= 1
+
             metadata = (
                 self._sheets_api_service.spreadsheets()
                 .get(
@@ -313,8 +323,8 @@ class GoogleSheetsService:
                     if row_idx == 0:
                         continue  # skip header
                     values = row.get('values', [])
-                    if len(values) > 8:
-                        dv = values[8].get('dataValidation', {})
+                    if len(values) > category_index:
+                        dv = values[category_index].get('dataValidation', {})
                         if dv.get('type') == 'LIST':
                             cats = dv.get('condition', {}).get('values', [])
                             if cats:
@@ -416,7 +426,8 @@ class GoogleSheetsService:
                 )
 
             # ── 5. Write ──────────────────────────────────────────────
-            self._sheet.append_row(row)
+            row_to_append = self._format_row_for_current_headers(row)
+            self._sheet.append_row(row_to_append)
             logger.info(
                 f"Appended row to sheet {self._sheet_id}: "
                 f"message_id={message_id or 'unknown'}"
@@ -477,7 +488,8 @@ class GoogleSheetsService:
                 continue
 
             try:
-                self._sheet.append_row(row)
+                row_to_append = self._format_row_for_current_headers(row)
+                self._sheet.append_row(row_to_append)
                 result['success_count'] += 1
                 if mid:
                     existing.add(mid)
@@ -505,7 +517,7 @@ class GoogleSheetsService:
 
     def _message_exists(self, message_id: str) -> bool:
         try:
-            values = self._sheet.col_values(1)
+            values = self._column_values_by_header('message_id')
             return message_id in values
         except Exception as exc:
             logger.error(f"Error checking message existence: {exc}")
@@ -513,10 +525,61 @@ class GoogleSheetsService:
 
     def _get_existing_message_ids(self) -> set:
         try:
-            return set(self._sheet.col_values(1))
+            return set(self._column_values_by_header('message_id'))
         except Exception as exc:
             logger.error(f"Error reading existing message IDs: {exc}")
             return set()
+
+    @staticmethod
+    def _normalize_header(header: str) -> str:
+        return " ".join(str(header or "").strip().lower().split())
+
+    def _header_index(self, header_name: str) -> Optional[int]:
+        """Return the 1-based column index for a header name."""
+        target = self._normalize_header(header_name)
+        headers = self._sheet.row_values(1)
+        for idx, header in enumerate(headers, start=1):
+            if self._normalize_header(header) == target:
+                return idx
+        logger.error(
+            f"Required header {header_name!r} not found in sheet {self._sheet_id}"
+        )
+        return None
+
+    def _column_values_by_header(self, header_name: str) -> list:
+        column_index = self._header_index(header_name)
+        if not column_index:
+            return []
+        return self._sheet.col_values(column_index)
+
+    def _format_row_for_current_headers(self, row: list) -> list:
+        """
+        Reorder the internal row to match the sheet's current header order.
+
+        This keeps appends safe when staff move columns around. Unknown extra
+        sheet columns are left blank.
+        """
+        try:
+            headers = self._sheet.row_values(1)
+        except Exception as exc:
+            logger.error(f"Could not read sheet headers for append: {exc}")
+            return row
+
+        if not headers:
+            logger.error("Could not read sheet headers for append; using internal row order")
+            return row
+        if not isinstance(headers, list):
+            logger.error("Sheet headers were not returned as a list; using internal row order")
+            return row
+
+        values_by_header = {
+            self._normalize_header(column): row[idx]
+            for idx, column in enumerate(self.SHEET_COLUMNS)
+        }
+        return [
+            values_by_header.get(self._normalize_header(header), '')
+            for header in headers
+        ]
 
     def get_sheet_url(self) -> str:
         if self._sheet_id:

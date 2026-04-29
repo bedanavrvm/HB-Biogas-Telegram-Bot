@@ -25,6 +25,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.conf import settings
 import json
+import re
 import requests
 
 from .validators import (
@@ -161,15 +162,23 @@ def _process_telegram_message(message_data: dict) -> dict:
 
         telegram_message_id = str(message_data.get('message_id', ''))
         sender = _extract_sender_name(message_data)
-        content = _extract_message_content(message_data)
+        content = _extract_tagged_message_content(message_data)
         has_image = _detect_image(message_data)
         received_at = _extract_timestamp(message_data)
+
+        if content is None:
+            logger.debug(f"Ignoring message {telegram_message_id}: bot was not tagged")
+            return {
+                'status': 'ignored',
+                'reason': 'Bot was not tagged',
+                'message_id': telegram_message_id,
+            }
 
         if not content:
             logger.warning(f"No content in message {telegram_message_id}")
             return {
                 'status': 'skipped',
-                'reason': 'No message content',
+                'reason': 'No message content after bot mention',
                 'message_id': telegram_message_id,
             }
 
@@ -318,6 +327,9 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
         return
 
     status = result.get('status', 'unknown')
+    if status == 'ignored':
+        return
+
     captured_fields = result.get('captured_fields', {})
 
     # Build the "Captured: ..." footer
@@ -570,6 +582,30 @@ def _extract_message_content(message_data: dict) -> str:
     if caption:
         parts.append(caption)
     return '\n'.join(parts).strip()
+
+
+def _extract_tagged_message_content(message_data: dict) -> str | None:
+    """
+    Return content only when the configured bot username is explicitly tagged.
+
+    Untagged group chatter returns None so the webhook can acknowledge the
+    update without parsing, saving, syncing, or replying.
+    """
+    content = _extract_message_content(message_data)
+    bot_username = getattr(settings, 'TELEGRAM_BOT_USERNAME', '').strip().lstrip('@')
+
+    if not bot_username:
+        logger.warning('TELEGRAM_BOT_USERNAME is not configured; ignoring webhook message')
+        return None
+
+    mention_pattern = re.compile(
+        rf'@{re.escape(bot_username)}\b',
+        flags=re.IGNORECASE,
+    )
+    if not mention_pattern.search(content):
+        return None
+
+    return mention_pattern.sub('', content).strip()
 
 
 def _detect_image(message_data: dict) -> bool:

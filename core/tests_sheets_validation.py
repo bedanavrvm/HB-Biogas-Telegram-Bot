@@ -55,8 +55,8 @@ class GoogleSheetsValidationTests(TestCase):
                 is_valid, error_msg = self.service.validate_sheet_structure()
         
         self.assertFalse(is_valid, "Expected validation to fail with wrong column count")
-        self.assertIn("20 columns", error_msg)
-        self.assertIn("21", error_msg)
+        self.assertIn("Missing required sheet column", error_msg)
+        self.assertIn("Days Open", error_msg)
     
     def test_validate_sheet_structure_wrong_column_name(self):
         """Test validation fails with wrong column name."""
@@ -72,8 +72,8 @@ class GoogleSheetsValidationTests(TestCase):
                 is_valid, error_msg = self.service.validate_sheet_structure()
         
         self.assertFalse(is_valid, "Expected validation to fail with wrong column name")
-        self.assertIn("Column name mismatch", error_msg)
-        self.assertIn("Wrong Category Name", error_msg)
+        self.assertIn("Missing required sheet column", error_msg)
+        self.assertIn("Complaint Category", error_msg)
     
     def test_validate_complaint_category_empty(self):
         """Test that empty category is allowed."""
@@ -177,6 +177,42 @@ class GoogleSheetsValidationTests(TestCase):
         self.assertTrue(result, "append_row should succeed when skip_validation=True")
         mock_sheet.append_row.assert_called_once()
 
+    def test_message_exists_reads_message_id_by_header_name(self):
+        """Duplicate checks should follow the message_id header, not a fixed index."""
+        mock_sheet = Mock()
+        shifted_columns = self.expected_columns.copy()
+        shifted_columns.insert(2, shifted_columns.pop(1))
+        mock_sheet.row_values = Mock(return_value=shifted_columns)
+        mock_sheet.col_values = Mock(return_value=["MSG_001"])
+
+        with patch.object(self.service, '_sheet', mock_sheet):
+            self.assertTrue(self.service._message_exists("MSG_001"))
+
+        mock_sheet.col_values.assert_called_once_with(3)
+
+    def test_append_row_reorders_to_current_header_order(self):
+        """Appends should match the live sheet header order if columns shift."""
+        shifted_columns = self.expected_columns.copy()
+        shifted_columns.insert(0, shifted_columns.pop(2))  # Date Reported first
+
+        row = ['' for _ in self.expected_columns]
+        row[1] = 'MSG_001'
+        row[2] = '29/04/2026'
+
+        mock_sheet = Mock()
+        mock_sheet.row_values = Mock(return_value=shifted_columns)
+        mock_sheet.col_values = Mock(return_value=[])
+        mock_sheet.append_row = Mock(return_value=True)
+
+        with patch.object(self.service, 'is_available', return_value=True):
+            with patch.object(self.service, '_sheet', mock_sheet):
+                result = self.service.append_row(row, message_id='MSG_001')
+
+        self.assertTrue(result)
+        appended_row = mock_sheet.append_row.call_args.args[0]
+        self.assertEqual(appended_row[0], '29/04/2026')
+        self.assertEqual(appended_row[2], 'MSG_001')
+
 
 class ParsedMessageToSheetRowTests(TestCase):
     """Test ParsedMessage.to_sheet_row() produces correct 21-column output."""
@@ -224,13 +260,13 @@ class ParsedMessageToSheetRowTests(TestCase):
         row = msg.to_sheet_row()
         
         # Verify key columns are in correct positions
-        self.assertEqual(row[0], "msg_001", "Column [0] should be message_id (used as Complaint ID placeholder)")
+        self.assertEqual(row[0], "", "Column [0] should be blank for Complaint ID formula")
         self.assertEqual(row[1], "msg_001", "Column [1] should be message_id (dedup key)")
-        self.assertIn("2025-01-15", row[2], "Column [2] should be Date Reported")
-        self.assertEqual(row[3], "John Doe", "Column [3] should be Customer Name")
+        self.assertEqual(row[2], "15/01/2025", "Column [2] should be Date Reported")
+        self.assertEqual(row[3], "JOHN DOE", "Column [3] should be Customer Name")
         self.assertEqual(row[4], "CUST_123", "Column [4] should be Customer ID")
         self.assertEqual(row[5], "+256701234567", "Column [5] should be Phone Number")
-        self.assertEqual(row[6], "WhatsApp User", "Column [6] should be JBL Reported By")
+        self.assertEqual(row[6], "Telegram Bot", "Column [6] should be JBL Reported By")
         self.assertEqual(row[7], "Kampala", "Column [7] should be Branch / Region")
         self.assertEqual(row[8], "Billing", "Column [8] should be Complaint Category")
         self.assertEqual(row[9], "Double charge", "Column [9] should be Complaint Description")

@@ -8,6 +8,7 @@ Validates:
 """
 import unittest
 from unittest.mock import MagicMock
+from datetime import datetime
 from core.models import ParsedMessage
 
 
@@ -178,6 +179,34 @@ class DataQualitySimpleTests(unittest.TestCase):
         self.assertEqual(row[11], "https://maps.example.com", "[11] gps_link")
         self.assertEqual(row[12], "TRUE", "[12] image_flag = TRUE")
         self.assertEqual(row[13], "telegram bot", "[13] source = telegram bot")
+
+    def test_date_reported_format_is_day_month_year(self):
+        """Date Reported should be formatted as dd/mm/yyyy."""
+        msg = ParsedMessage()
+        msg.message_id = "MSG_DATE"
+        msg.timestamp = datetime(2026, 4, 29, 14, 30)
+        msg.customer_name = ""
+        msg.customer_id = ""
+        msg.customer_phone = ""
+        msg.sender = ""
+        msg.branch_region = ""
+        msg.complaint_category = ""
+        msg.complaint_description = ""
+        msg.raw_message = ""
+        msg.gps_link = ""
+        msg.image_flag = False
+        msg.source = "telegram bot"
+        msg.loan_status = ""
+        msg.loan_at_risk = ""
+        msg.risk_level = ""
+        msg.complaint_status = ""
+        msg.resolution_details = ""
+        msg.date_resolved = None
+        msg.days_open = None
+
+        row = msg.to_sheet_row()
+
+        self.assertEqual(row[2], "29/04/2026")
 
 
 if __name__ == '__main__':

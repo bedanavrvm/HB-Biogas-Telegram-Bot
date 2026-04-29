@@ -117,6 +117,18 @@ class ParsedMessage(models.Model):
     def __str__(self):
         return f"ParsedMessage: {self.item or 'unknown'} by {self.sender}"
 
+    @staticmethod
+    def _format_sheet_date(value):
+        if not value:
+            return ''
+        if isinstance(value, str):
+            try:
+                from dateutil import parser as date_parser
+                value = date_parser.parse(value)
+            except Exception:
+                return value
+        return value.strftime('%d/%m/%Y')
+
     def to_sheet_row(self):
         """
         Convert to Google Sheet row format (21 columns).
@@ -147,7 +159,7 @@ class ParsedMessage(models.Model):
         return [
             '',                                                                          # [0] Complaint ID (blank, different from message_id)
             self.message_id,                                                              # [1] message_id
-            self.timestamp.strftime('%Y-%m-%d %H:%M:%S') if self.timestamp else '',      # [2] Date Reported
+            self._format_sheet_date(self.timestamp),                                     # [2] Date Reported
             self.customer_name.upper() if self.customer_name else '',                    # [3] Customer Name (CAPITALIZED)
             self.customer_id,                                                             # [4] Customer ID / Account
             self.customer_phone,                                                          # [5] Phone Number
@@ -164,6 +176,6 @@ class ParsedMessage(models.Model):
             self.risk_level,                                                              # [16] Risk Level
             self.complaint_status,                                                        # [17] Status
             self.resolution_details,                                                      # [18] Resolution Details
-            self.date_resolved.strftime('%Y-%m-%d %H:%M:%S') if self.date_resolved else '', # [19] Date Resolved
+            self._format_sheet_date(self.date_resolved),                                # [19] Date Resolved
             str(self.days_open) if self.days_open is not None else '',                   # [20] Days Open
         ]

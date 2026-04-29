@@ -317,7 +317,7 @@ class ParserServiceTest(TestCase):
                 if match:
                     expected_time_str = f"{match.group(1)} {match.group(2)}"
                     expected = datetime.strptime(expected_time_str, fmt)
-                    self.assertEqual(result.timestamp, expected)
+                    self.assertEqual(result.timestamp.replace(tzinfo=None), expected)
     
     def test_parse_sender_extraction(self):
         """Test sender name extraction from various patterns."""
@@ -609,7 +609,45 @@ class TelegramWebhookViewTest(TestCase):
         response = self.client.get('/api/health/')
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual(data['status'], 'healthy')
+        self.assertEqual(data['status'], 'success')
+
+    @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
+    @patch('core.api.views._process_single_message')
+    def test_telegram_message_ignored_when_bot_not_tagged(self, mock_process):
+        """Webhook messages should not process or sync unless the bot is tagged."""
+        from core.api.views import _process_telegram_message
+
+        result = _process_telegram_message({
+            'message_id': 123,
+            'from': {'first_name': 'Test'},
+            'chat': {'id': -100123, 'type': 'group'},
+            'date': 1711123456,
+            'text': 'CUSTOMER COMPLAIN: no gas supply',
+        })
+
+        self.assertEqual(result['status'], 'ignored')
+        mock_process.assert_not_called()
+
+    @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
+    @patch('core.api.views._process_single_message')
+    def test_telegram_message_processes_tagged_content_only(self, mock_process):
+        """The bot mention is stripped before parsing real message content."""
+        from core.api.views import _process_telegram_message
+
+        mock_process.return_value = {'status': 'success', 'message_id': 'MSG_TEST'}
+        result = _process_telegram_message({
+            'message_id': 123,
+            'from': {'first_name': 'Test'},
+            'chat': {'id': -100123, 'type': 'group'},
+            'date': 1711123456,
+            'text': '@biogas_bot CUSTOMER COMPLAIN: no gas supply',
+        })
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(
+            mock_process.call_args.kwargs['content'],
+            'CUSTOMER COMPLAIN: no gas supply',
+        )
 
 
 class ParsedMessageModelTest(TestCase):
@@ -668,7 +706,7 @@ class ParsedMessageModelTest(TestCase):
         self.assertEqual(row[10], 'Sold 3 bread 50 each', "raw_message")
         self.assertEqual(row[11], 'https://maps.example.com/xyz', "gps_link")
         self.assertEqual(row[12], 'TRUE', "image_flag as TRUE")
-        self.assertEqual(row[13], 'whatsapp_telegram', "source")
+        self.assertEqual(row[13], 'telegram bot', "source")
         
         # [14-20] Human workflow fields (should be empty for bot-generated row)
         self.assertEqual(row[14], '', "Loan Status (human)")

@@ -116,7 +116,7 @@ class DataQualityTests(TestCase):
         row = msg.to_sheet_row()
         
         # Verify column positions
-        self.assertEqual(row[0], msg.message_id, "[0] Complaint ID should be message_id")
+        self.assertEqual(row[0], "", "[0] Complaint ID should be blank for formula")
         self.assertEqual(row[1], msg.message_id, "[1] message_id should be message_id")
         self.assertEqual(row[2], "", "[2] Date Reported should be empty (no timestamp)")
         self.assertEqual(row[3], "ALICE SMITH", "[3] Customer Name should be capitalized")
@@ -143,11 +143,9 @@ TEL: +256701234567
         
         result = parse_message(content, "test_msg_id", "John Doe")
         
-        # Bot mention should be excluded from category
-        self.assertEqual(result.complaint_category, "Gas Leakage", 
-                        "Category should be 'Gas Leakage', not include @bot mention")
-        self.assertNotIn("@", result.complaint_category,
-                        "Category should not contain @ symbol")
+        # Category is intentionally left blank for the sheet dropdown.
+        self.assertEqual(result.complaint_category, "")
+        self.assertNotIn("@", result.problem_description)
     
     def test_complaint_extraction_reasonable_category_length(self):
         """Test that complaint parsing validates category length."""
@@ -187,8 +185,10 @@ TEL: +256701234567
             
             result = parse_message(content, f"test_msg_{category}", "John Doe")
             
-            self.assertEqual(result.complaint_category, category,
-                            f"Category should be correctly extracted: {category}")
+            self.assertEqual(
+                result.complaint_category, "",
+                "Category should be left blank for staff dropdown selection",
+            )
 
 
 class ParsedMessageModelTests(TestCase):
