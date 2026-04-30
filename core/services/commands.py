@@ -44,6 +44,7 @@ def handle_bot_command(content: str, group_id: str) -> dict | None:
     - /top issues [days]
     - /summary today
     - /summary week
+    - /sync
     - /group
     - /health
     - /help
@@ -59,6 +60,15 @@ def handle_bot_command(content: str, group_id: str) -> dict | None:
             'status': 'command',
             'reply_text': _help_text(),
         }
+
+    if normalized in {'/sync', 'sync'}:
+        return {
+            'status': 'command',
+            'reply_text': _format_sheet_sync(group_id=group_id),
+        }
+
+    if _should_refresh_from_sheet(normalized):
+        _refresh_group_from_sheet(group_id)
 
     if normalized in {'/today', 'today'}:
         return {
@@ -296,9 +306,74 @@ def _help_text() -> str:
         "/top issues 7 - show top complaint categories in 7 days\n"
         "/summary today - show status/sync totals for today\n"
         "/summary week - show status/sync totals for this week\n"
+        "/sync - refresh backend cases from Google Sheets\n"
         "/group - show this chat's sheet routing\n"
         "/health - show database and group config status\n"
         "/help - show this help"
+    )
+
+
+def _should_refresh_from_sheet(normalized: str) -> bool:
+    command = normalized.lstrip('/').split()[0] if normalized else ''
+    return command in {
+        'today',
+        'week',
+        'group',
+        'health',
+        'last',
+        'recent',
+        'unsynced',
+        'phone',
+        'tel',
+        'id',
+        'customerid',
+        'account',
+        'open',
+        'pending',
+        'closed',
+        'missing',
+        'lowconfidence',
+        'risk',
+        'duplicates',
+        'top',
+        'stale',
+        'errors',
+        'summary',
+        'case',
+        'search',
+    }
+
+
+def _refresh_group_from_sheet(group_id: str) -> None:
+    try:
+        from core.services.sheet_sync import sync_group_from_sheet
+        result = sync_group_from_sheet(group_id=group_id, delete_missing=True)
+        if result.get('status') != 'success':
+            # Command reads should continue using the last local mirror if the
+            # sheet is temporarily unavailable.
+            return
+    except Exception:
+        return
+
+
+def _format_sheet_sync(group_id: str) -> str:
+    try:
+        from core.services.sheet_sync import sync_group_from_sheet
+        result = sync_group_from_sheet(group_id=group_id, delete_missing=True)
+    except Exception:
+        return "Sheet sync failed."
+
+    if result.get('status') != 'success':
+        error = _compact("; ".join(result.get('errors', [])), 200)
+        return f"Sheet sync failed: {error or 'unknown error'}"
+
+    return (
+        "Sheet sync complete:\n"
+        f"Rows in sheet: {result.get('row_count', 0)}\n"
+        f"Created: {result.get('created_count', 0)}\n"
+        f"Updated: {result.get('updated_count', 0)}\n"
+        f"Deleted locally: {result.get('deleted_count', 0)}\n"
+        f"Backend cases: {result.get('backend_count', 0)}"
     )
 
 

@@ -520,6 +520,49 @@ class GoogleSheetsService:
         )
         return result
 
+    def fetch_rows(self) -> list[dict]:
+        """
+        Read all non-empty data rows from the sheet using the live headers.
+
+        Returns a list of dicts:
+        {
+            "row_number": 2,
+            "values": {"message_id": "MSG_...", ...}
+        }
+        Header names are normalized with the same rules used for writes, so
+        column reordering in Sheets does not break the import.
+        """
+        if not self.is_available():
+            logger.warning(
+                f"Google Sheets unavailable for sheet {self._sheet_id}, "
+                "cannot fetch rows"
+            )
+            return []
+
+        values = self._sheet.get_all_values()
+        if not values:
+            return []
+
+        headers = values[0]
+        rows = []
+        for row_number, row in enumerate(values[1:], start=2):
+            if not any(str(cell or '').strip() for cell in row):
+                continue
+
+            values_by_header = {}
+            for idx, header in enumerate(headers):
+                key = self._normalize_header(header)
+                if not key or key in values_by_header:
+                    continue
+                values_by_header[key] = row[idx] if idx < len(row) else ''
+
+            rows.append({
+                'row_number': row_number,
+                'values': values_by_header,
+            })
+
+        return rows
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------

@@ -14,6 +14,7 @@ from core.models import RawMessage, ProcessedMessage, ParsedMessage
 from core.services.deduplication import generate_message_hash, is_duplicate
 from core.services.parser import parse_message, split_batch_message
 from core.services.sheets import GoogleSheetsService, batch_append_messages
+from core.services.sheet_sync import sync_sheet_to_backend
 from core.services.storage import bulk_resync_to_sheets, process_and_store_message
 
 
@@ -646,6 +647,88 @@ class StorageServiceTest(TestCase):
 
         refreshed = ParsedMessage.objects.filter(message_id__in=['MSG_BATCH_1', 'MSG_BATCH_2'])
         self.assertTrue(all(msg.synced_to_sheets for msg in refreshed))
+
+    @patch('core.services.sheet_sync.get_sheets_service')
+    def test_sync_sheet_to_backend_mirrors_sheet_rows(self, mock_service):
+        """Sheet sync should create, update, and delete local case rows."""
+        existing = create_parsed_case(
+            'MSG_KEEP',
+            customer_name='Old Name',
+            complaint_status='Open',
+        )
+        create_parsed_case('MSG_DELETE')
+
+        service = MagicMock()
+        service.is_available.return_value = True
+        service.validate_sheet_structure.return_value = (True, '')
+        service.fetch_rows.return_value = [
+            {
+                'row_number': 2,
+                'values': {
+                    'complaint id': 'COMP-1',
+                    'message_id': 'MSG_KEEP',
+                    'date reported': '29/04/2026',
+                    'customer name': 'Updated Name',
+                    'customer id / account': 'ACC-1',
+                    'phone number': '0700000001',
+                    'jbl reported by': 'Sheet User',
+                    'branch / region': 'Nairobi',
+                    'complaint category': 'No gas',
+                    'complaint description': 'Edited in sheet',
+                    'raw_message': 'Edited raw',
+                    'gps_link': '',
+                    'image_flag': 'TRUE',
+                    'source': 'telegram bot',
+                    'loan status': 'Active',
+                    'loan at risk': 'No',
+                    'risk level': 'Low',
+                    'status': 'Closed',
+                    'resolution details': 'Fixed',
+                    'date resolved': '30/04/2026',
+                    'days open': '1',
+                },
+            },
+            {
+                'row_number': 3,
+                'values': {
+                    'complaint id': 'COMP-2',
+                    'message_id': 'MSG_NEW',
+                    'date reported': '30/04/2026',
+                    'customer name': 'New Customer',
+                    'customer id / account': 'ACC-2',
+                    'phone number': '0700000002',
+                    'jbl reported by': 'Sheet User',
+                    'complaint description': 'Created from sheet',
+                    'status': 'Open',
+                },
+            },
+        ]
+        mock_service.return_value = service
+
+        result = sync_sheet_to_backend(
+            group_id='-100123',
+            sheet_id='sheet_123',
+            sheet_name='Cases',
+            delete_missing=True,
+        )
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['created_count'], 1)
+        self.assertEqual(result['updated_count'], 1)
+        self.assertEqual(result['deleted_count'], 1)
+        self.assertFalse(ParsedMessage.objects.filter(message_id='MSG_DELETE').exists())
+
+        existing.refresh_from_db()
+        self.assertEqual(existing.customer_name, 'Updated Name')
+        self.assertEqual(existing.complaint_status, 'Closed')
+        self.assertEqual(existing.resolution_details, 'Fixed')
+        self.assertTrue(existing.synced_to_sheets)
+        self.assertTrue(existing.image_flag)
+
+        created = ParsedMessage.objects.get(message_id='MSG_NEW')
+        self.assertEqual(created.customer_name, 'New Customer')
+        self.assertEqual(created.complaint_description, 'Created from sheet')
+        self.assertEqual(created.group_id, '-100123')
 
 
 class BotCommandServiceTest(TestCase):

@@ -7,6 +7,7 @@ from .views import (
     health_check,
     process_messages,
     resend_unsynced,
+    sync_from_sheets,
 )
 
 urlpatterns = [
@@ -14,4 +15,5 @@ urlpatterns = [
     path('webhook/telegram/', telegram_webhook, name='telegram_webhook'),
     path('process/messages/', process_messages, name='process_messages'),
     path('resync/unsynced/', resend_unsynced, name='resend_unsynced'),
+    path('sync/from-sheets/', sync_from_sheets, name='sync_from_sheets'),
 ]

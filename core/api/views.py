@@ -274,6 +274,15 @@ def _process_single_message(
         if parsed_message is None:
             return {'status': 'duplicate', 'message_id': telegram_message_id}
 
+        if getattr(parsed_message, 'synced_to_sheets', False) is True:
+            try:
+                from core.services.sheet_sync import sync_group_from_sheet
+                sync_group_from_sheet(group_id=group_id, delete_missing=True)
+            except Exception as exc:
+                logger.warning(
+                    f"Post-append sheet mirror failed for group {group_id}: {exc}"
+                )
+
         # Collect captured fields for the Telegram reply
         captured_fields = {}
         field_map = {
@@ -550,6 +559,70 @@ def resend_unsynced(request):
         )
     except Exception as exc:
         logger.error(f"Unhandled error in resend_unsynced: {exc}", exc_info=True)
+        return error_response(
+            'Internal server error',
+            code='INTERNAL_ERROR',
+            status_code=500,
+            details=str(exc),
+        )
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def sync_from_sheets(request):
+    """
+    Mirror Google Sheets data into the backend database.
+
+    Body (optional JSON):
+    { "group_id": "-1001234567890", "delete_missing": true }
+
+    If group_id is omitted, every configured group is synced. In legacy
+    single-sheet mode this syncs the default group.
+    """
+    try:
+        try:
+            validate_request_size(request)
+        except ValidationError as exc:
+            return error_response(exc.message, exc.code, exc.status_code)
+
+        if not _authorize_manual_request(request):
+            return error_response(
+                'Unauthorized: Missing or invalid API token',
+                code='UNAUTHORIZED',
+                status_code=401,
+            )
+
+        body = json.loads(request.body) if request.body else {}
+        delete_missing = bool(body.get('delete_missing', True))
+        group_id = str(body.get('group_id', '')).strip()
+
+        if group_id:
+            from core.services.sheet_sync import sync_group_from_sheet
+            result = sync_group_from_sheet(
+                group_id=group_id,
+                delete_missing=delete_missing,
+            )
+        else:
+            from core.services.sheet_sync import sync_all_configured_groups
+            result = sync_all_configured_groups(delete_missing=delete_missing)
+
+        if result.get('status') == 'success':
+            return success_response(data=result, message='Sheet sync complete')
+        return partial_response(
+            data=result,
+            warnings=result.get('errors') or ['One or more sheet syncs failed'],
+            message='Sheet sync partially completed',
+        )
+
+    except json.JSONDecodeError as exc:
+        return error_response(
+            'Invalid JSON in request body',
+            code='INVALID_JSON',
+            status_code=400,
+            details=str(exc),
+        )
+    except Exception as exc:
+        logger.error(f"Unhandled error in sync_from_sheets: {exc}", exc_info=True)
         return error_response(
             'Internal server error',
             code='INTERNAL_ERROR',

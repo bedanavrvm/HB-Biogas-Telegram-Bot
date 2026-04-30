@@ -138,7 +138,7 @@ class GroupRegistry:
                 )
                 self._groups[group_id] = group_config
                 logger.debug(
-                    f"Loaded group {repr(group_id)} → "
+                    f"Loaded group {repr(group_id)} -> "
                     f"sheet {config_dict.get('sheet_id')}"
                 )
 
