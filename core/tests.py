@@ -241,6 +241,26 @@ Gas smell around the digester"""
         self.assertEqual(messages[1]['sender'], 'John Smith')
         self.assertIn('The system has stopped producing gas', messages[0]['content'])
         self.assertIn('Gas smell around the digester', messages[1]['content'])
+
+    def test_split_unlabeled_complaint_cases(self):
+        """Unlabeled complaint blocks should still split when complete."""
+        batch_content = """*CUSTOMER COMPLAIN*
+Jane Doe
+0712345678
+A123
+No gas supply at home
+
+*CUSTOMER COMPLAIN*
+John Smith
+0798765432
+B456
+Gas leaking around the digester"""
+
+        messages = split_batch_message(batch_content)
+
+        self.assertEqual(len(messages), 2)
+        self.assertIn('Jane Doe', messages[0]['content'])
+        self.assertIn('John Smith', messages[1]['content'])
     
     def test_intent_detection_sale(self):
         """Test intent detection for sale messages."""
@@ -322,6 +342,45 @@ Gas smell around the digester"""
         self.assertEqual(result.customer_id, 'A12345')
         self.assertIn('No gas supply', result.problem_description)
         self.assertGreater(result.confidence, 0.0)
+
+    def test_parse_unlabeled_complaint_transaction(self):
+        """Plain complaint blocks should infer identifiers and description."""
+        from core.services.parser import MessageIntent
+
+        content = (
+            "CUSTOMER COMPLAIN\n"
+            "John Doe\n"
+            "0712345678\n"
+            "A12345\n"
+            "No gas supply at home. Please assist urgently."
+        )
+
+        result = parse_message(content, sender="Agent")
+
+        self.assertEqual(result.intent, MessageIntent.COMPLAINT)
+        self.assertEqual(result.customer_name, 'John Doe')
+        self.assertEqual(result.customer_phone, '0712345678')
+        self.assertEqual(result.customer_id, 'A12345')
+        self.assertEqual(
+            result.problem_description,
+            'No gas supply at home. Please assist urgently.',
+        )
+        self.assertEqual(result.confidence, 1.0)
+
+    def test_parse_unlabeled_complaint_without_header(self):
+        """Phone plus complaint language should detect an unlabeled complaint."""
+        from core.services.parser import MessageIntent
+
+        content = "Jane Doe 0798765432 B456 biogas is leaking near the valve"
+
+        result = parse_message(content, sender="Agent")
+
+        self.assertEqual(result.intent, MessageIntent.COMPLAINT)
+        self.assertEqual(result.customer_name, 'Jane Doe')
+        self.assertEqual(result.customer_phone, '0798765432')
+        self.assertEqual(result.customer_id, 'B456')
+        self.assertEqual(result.problem_description, 'biogas is leaking near the valve')
+        self.assertEqual(result.confidence, 1.0)
     
     def test_parse_with_intent_sale(self):
         """Test parsing with SALE intent."""

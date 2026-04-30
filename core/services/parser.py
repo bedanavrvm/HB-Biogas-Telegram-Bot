@@ -122,6 +122,13 @@ COMPLAINT_PREFIX_PATTERN = re.compile(
     re.IGNORECASE
 )
 
+COMPLAINT_KEYWORD_PATTERN = re.compile(
+    r'\b(?:complain|complaint|no\s+gas|not\s+(?:working|producing)|'
+    r'leak(?:ing)?|smell|burst|tear|broken|damage(?:d)?|low\s+pressure|'
+    r'underperform(?:ing)?|fault|issue|problem)\b',
+    re.IGNORECASE,
+)
+
 COMPLAINT_CATEGORY_PATTERN = re.compile(
     r'\bCATEGORY\s*[:\-]?\s*([^\n\r]+)',
     re.IGNORECASE
@@ -137,9 +144,17 @@ PHONE_PATTERN = re.compile(
     re.IGNORECASE
 )
 
+PHONE_HEURISTIC_PATTERN = re.compile(
+    r'(?<!\w)(?:\+?254|0)?[17]\d{8}(?!\w)'
+)
+
 ID_PATTERN = re.compile(
     r'\*?(?:ID|I\.D)\*?\s*[:\-]\s*([A-Za-z0-9\-]+)',
     re.IGNORECASE
+)
+
+ID_HEURISTIC_PATTERN = re.compile(
+    r'(?<!\w)(?=[A-Za-z0-9-]*\d)[A-Za-z][A-Za-z0-9-]{2,}(?!\w)'
 )
 
 PROBLEM_PATTERN = re.compile(
@@ -220,6 +235,8 @@ def detect_message_intent(content: str) -> MessageIntent:
     
     # Complaints are higher priority than transaction or location patterns
     if COMPLAINT_PREFIX_PATTERN.search(content):
+        return MessageIntent.COMPLAINT
+    if _looks_like_unlabeled_complaint(content):
         return MessageIntent.COMPLAINT
     
     # Check for transaction keywords first (highest priority)
@@ -382,6 +399,13 @@ def _extract_complaint_transaction(content: str, result: ParsedResult):
     result.customer_name = _extract_field(NAME_PATTERN, content)
     result.customer_phone = _extract_field(PHONE_PATTERN, content)
     result.customer_id = _extract_field(ID_PATTERN, content)
+    inferred = _infer_unlabeled_complaint_fields(content)
+    if not result.customer_name:
+        result.customer_name = inferred.get('customer_name', '')
+    if not result.customer_phone:
+        result.customer_phone = inferred.get('customer_phone', '')
+    if not result.customer_id:
+        result.customer_id = inferred.get('customer_id', '')
     
     # Complaint category is a dropdown - do not extract from text to avoid filling with description
     # Leave blank for human selection from dropdown
@@ -395,7 +419,10 @@ def _extract_complaint_transaction(content: str, result: ParsedResult):
         description_text = re.sub(r'\s*@\S+\s*$', '', description_text)
         result.problem_description = description_text
     
-    # Fallback: if no description found, try generic extraction
+    # Fallback: infer plain-text complaint before broad raw-content extraction.
+    if not result.problem_description:
+        result.problem_description = inferred.get('problem_description', '')
+
     if not result.problem_description:
         result.problem_description = _extract_complaint_description(content)
     
@@ -420,6 +447,138 @@ def _extract_field(pattern, content: str, group_index: int = 1) -> str:
     if match:
         return match.group(group_index).strip()
     return ''
+
+
+def _looks_like_unlabeled_complaint(content: str) -> bool:
+    """Detect plain complaint intake text without structured labels."""
+    if not content:
+        return False
+    return bool(
+        PHONE_HEURISTIC_PATTERN.search(content)
+        and COMPLAINT_KEYWORD_PATTERN.search(content)
+    )
+
+
+def _infer_unlabeled_complaint_fields(content: str) -> dict:
+    """
+    Infer complaint fields from plain text when labels are missing.
+
+    Structured labels remain authoritative. This only fills gaps using common
+    case-message shape: customer name, phone, account/customer ID, then the
+    complaint description.
+    """
+    cleaned = _remove_complaint_prefix(content)
+    lines = [
+        _clean_unlabeled_line(line)
+        for line in cleaned.splitlines()
+        if _clean_unlabeled_line(line)
+    ]
+    if not lines:
+        lines = [_clean_unlabeled_line(cleaned)]
+
+    phone_match = PHONE_HEURISTIC_PATTERN.search(cleaned)
+    phone = phone_match.group(0) if phone_match else ''
+
+    customer_id = _infer_unlabeled_customer_id(lines, phone)
+    name = _infer_unlabeled_customer_name(lines, phone, customer_id)
+    description = _infer_unlabeled_description(
+        lines=lines,
+        name=name,
+        phone=phone,
+        customer_id=customer_id,
+    )
+
+    return {
+        'customer_name': name,
+        'customer_phone': phone,
+        'customer_id': customer_id,
+        'problem_description': description,
+    }
+
+
+def _remove_complaint_prefix(content: str) -> str:
+    return COMPLAINT_PREFIX_PATTERN.sub('', content or '', count=1).strip(' *:-\n\r\t')
+
+
+def _clean_unlabeled_line(line: str) -> str:
+    line = re.sub(r'@\S+', '', line or '')
+    line = re.sub(r'\s+', ' ', line).strip(' *:-')
+    return line
+
+
+def _infer_unlabeled_customer_id(lines: list[str], phone: str) -> str:
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped == phone:
+            continue
+        if phone and phone in stripped:
+            stripped = stripped.replace(phone, ' ')
+        match = ID_HEURISTIC_PATTERN.search(stripped)
+        if match and not _looks_like_name(match.group(0)):
+            return match.group(0)
+    return ''
+
+
+def _infer_unlabeled_customer_name(
+    lines: list[str],
+    phone: str,
+    customer_id: str,
+) -> str:
+    for line in lines:
+        candidate = line
+        for value in [phone, customer_id]:
+            if value:
+                candidate = candidate.replace(value, ' ')
+        candidate = _clean_unlabeled_line(candidate)
+        if _looks_like_name(candidate):
+            return candidate
+
+    compact = ' '.join(lines)
+    for value in [phone, customer_id]:
+        if value:
+            compact = compact.replace(value, ' ')
+    words = re.findall(r'\b[A-Z][a-zA-Z.\']+\b', compact)
+    if len(words) >= 2:
+        candidate = ' '.join(words[:3])
+        if _looks_like_name(candidate):
+            return candidate
+    return ''
+
+
+def _looks_like_name(value: str) -> bool:
+    value = _clean_unlabeled_line(value)
+    if not value or COMPLAINT_KEYWORD_PATTERN.search(value):
+        return False
+    if re.search(r'\d', value):
+        return False
+    words = value.split()
+    if not 2 <= len(words) <= 4:
+        return False
+    return all(re.fullmatch(r"[A-Za-z][A-Za-z.'-]*", word) for word in words)
+
+
+def _infer_unlabeled_description(
+    lines: list[str],
+    name: str,
+    phone: str,
+    customer_id: str,
+) -> str:
+    description_lines = []
+    for line in lines:
+        candidate = line
+        for value in [name, phone, customer_id]:
+            if value:
+                candidate = candidate.replace(value, ' ')
+        candidate = _clean_unlabeled_line(candidate)
+        if not candidate:
+            continue
+        if _looks_like_name(candidate):
+            continue
+        description_lines.append(candidate)
+
+    description = ' '.join(description_lines)
+    description = re.sub(r'\s+', ' ', description).strip()
+    return description if COMPLAINT_KEYWORD_PATTERN.search(description) else ''
 
 
 def _extract_complaint_description(content: str) -> str:
@@ -790,10 +949,11 @@ def _is_complete_complaint_case(content: str) -> bool:
 
 def _has_personal_identifiers(content: str) -> bool:
     """A case needs enough identity fields to be attributed to a customer."""
+    inferred = _infer_unlabeled_complaint_fields(content)
     fields = [
-        _extract_field(NAME_PATTERN, content),
-        _extract_field(PHONE_PATTERN, content),
-        _extract_field(ID_PATTERN, content),
+        _extract_field(NAME_PATTERN, content) or inferred.get('customer_name', ''),
+        _extract_field(PHONE_PATTERN, content) or inferred.get('customer_phone', ''),
+        _extract_field(ID_PATTERN, content) or inferred.get('customer_id', ''),
     ]
     return sum(1 for field in fields if field) >= 2
 
@@ -804,6 +964,9 @@ def _has_complaint_details(content: str) -> bool:
         match = pattern.search(content)
         if match and _meaningful_case_text(match.group(1)):
             return True
+    inferred = _infer_unlabeled_complaint_fields(content)
+    if inferred.get('problem_description'):
+        return True
     return False
 
 
