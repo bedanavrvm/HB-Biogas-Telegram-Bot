@@ -119,7 +119,8 @@ class GoogleSheetsValidationTests(TestCase):
         
         mock_sheet = Mock()
         mock_sheet.row_values = Mock(return_value=self.expected_columns)
-        mock_sheet.append_row = Mock(return_value=True)
+        mock_sheet.get_all_values = Mock(return_value=[self.expected_columns])
+        mock_sheet.update = Mock(return_value=True)
         
         # Mock _message_exists to return False (not a duplicate)
         with patch.object(self.service, 'is_available', return_value=True):
@@ -129,7 +130,7 @@ class GoogleSheetsValidationTests(TestCase):
         
         # Should succeed because structure validation passed
         self.assertTrue(result, "append_row should succeed with valid structure")
-        mock_sheet.append_row.assert_called_once()
+        mock_sheet.update.assert_called()
     
     def test_append_row_aborts_on_structure_mismatch(self):
         """Test that append_row aborts if sheet structure doesn't match."""
@@ -161,12 +162,13 @@ class GoogleSheetsValidationTests(TestCase):
         test_message_id = "test_msg_789"
         
         mock_sheet = Mock()
-        mock_sheet.append_row = Mock(return_value=True)
+        mock_sheet.row_values = Mock(return_value=self.expected_columns)
+        mock_sheet.get_all_values = Mock(return_value=[self.expected_columns])
+        mock_sheet.update = Mock(return_value=True)
         
         with patch.object(self.service, 'is_available', return_value=True):
             with patch.object(self.service, '_sheet', mock_sheet):
                 with patch.object(self.service, '_message_exists', return_value=False):
-                    # Don't mock row_values - it shouldn't be called
                     result = self.service.append_row(
                         test_row,
                         message_id=test_message_id,
@@ -175,7 +177,7 @@ class GoogleSheetsValidationTests(TestCase):
         
         # Should succeed because we skipped validation
         self.assertTrue(result, "append_row should succeed when skip_validation=True")
-        mock_sheet.append_row.assert_called_once()
+        mock_sheet.update.assert_called()
 
     def test_message_exists_reads_message_id_by_header_name(self):
         """Duplicate checks should follow the message_id header, not a fixed index."""
@@ -202,16 +204,46 @@ class GoogleSheetsValidationTests(TestCase):
         mock_sheet = Mock()
         mock_sheet.row_values = Mock(return_value=shifted_columns)
         mock_sheet.col_values = Mock(return_value=[])
-        mock_sheet.append_row = Mock(return_value=True)
+        mock_sheet.get_all_values = Mock(return_value=[shifted_columns])
+        mock_sheet.update = Mock(return_value=True)
 
         with patch.object(self.service, 'is_available', return_value=True):
             with patch.object(self.service, '_sheet', mock_sheet):
                 result = self.service.append_row(row, message_id='MSG_001')
 
         self.assertTrue(result)
-        appended_row = mock_sheet.append_row.call_args.args[0]
-        self.assertEqual(appended_row[0], '29/04/2026')
-        self.assertEqual(appended_row[2], 'MSG_001')
+        update_calls = mock_sheet.update.call_args_list
+        self.assertEqual(update_calls[0].args[0], 'A2:A2')
+        self.assertEqual(update_calls[0].args[1], [['29/04/2026']])
+        self.assertEqual(update_calls[1].args[0], 'C2:N2')
+        self.assertEqual(update_calls[1].args[1][0][0], 'MSG_001')
+
+    def test_append_row_ignores_formula_only_rows(self):
+        """Formula-filled rows should not push new cases far below the table."""
+        row = ['' for _ in self.expected_columns]
+        row[1] = 'MSG_FORMULA_SAFE'
+        row[2] = '30/04/2026'
+
+        formula_only_row = ['COMP-000001'] + [''] * 19 + ['0']
+
+        mock_sheet = Mock()
+        mock_sheet.row_values = Mock(return_value=self.expected_columns)
+        mock_sheet.col_values = Mock(return_value=[])
+        mock_sheet.get_all_values = Mock(
+            return_value=[
+                self.expected_columns,
+                formula_only_row,
+                formula_only_row,
+            ]
+        )
+        mock_sheet.update = Mock(return_value=True)
+
+        with patch.object(self.service, 'is_available', return_value=True):
+            with patch.object(self.service, '_sheet', mock_sheet):
+                result = self.service.append_row(row, message_id='MSG_FORMULA_SAFE')
+
+        self.assertTrue(result)
+        self.assertEqual(mock_sheet.update.call_args_list[0].args[0], 'B2:N2')
 
     def test_get_instance_is_keyed_by_sheet_id_and_sheet_name(self):
         """Different tabs in the same spreadsheet should get distinct services."""

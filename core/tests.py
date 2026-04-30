@@ -633,8 +633,13 @@ class StorageServiceTest(TestCase):
         service = GoogleSheetsService()
         service._initialized = True
         service._sheet = MagicMock()
-        service._sheet.col_values.return_value = ['MSG_BATCH_1']
-        service._sheet.append_row.return_value = None
+        service._sheet.row_values.return_value = service.SHEET_COLUMNS
+        service._sheet.col_values.return_value = ['message_id', 'MSG_BATCH_1']
+        service._sheet.get_all_values.return_value = [
+            service.SHEET_COLUMNS,
+            ['', 'MSG_BATCH_1'] + [''] * 19,
+        ]
+        service._sheet.update.return_value = None
 
         with patch('core.services.sheets.get_sheets_service', return_value=service), \
              patch('core.services.sheets.GoogleSheetsService.is_available', return_value=True):

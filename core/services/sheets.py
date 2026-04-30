@@ -105,6 +105,23 @@ class GoogleSheetsService:
         'Days Open',                                      # [20]  formula
     ]
 
+    FORMULA_COLUMNS = {'Complaint ID', 'Days Open'}
+    BOT_WRITABLE_COLUMNS = {
+        'message_id',
+        'Date Reported',
+        'Customer Name',
+        'Customer ID / Account',
+        'Phone Number',
+        'JBL Reported By',
+        'Branch / Region',
+        'Complaint Category',
+        'Complaint Description',
+        'raw_message',
+        'gps_link',
+        'image_flag',
+        'source',
+    }
+
     # ------------------------------------------------------------------
     # Construction / caching
     # ------------------------------------------------------------------
@@ -435,10 +452,9 @@ class GoogleSheetsService:
                 )
 
             # ── 5. Write ──────────────────────────────────────────────
-            row_to_append = self._format_row_for_current_headers(row)
-            self._sheet.append_row(row_to_append)
+            written_row = self._write_row_to_next_case_slot(row)
             logger.info(
-                f"Appended row to sheet {self._sheet_id}: "
+                f"Wrote row {written_row} to sheet {self._sheet_id}: "
                 f"message_id={message_id or 'unknown'}"
             )
             return True
@@ -497,8 +513,7 @@ class GoogleSheetsService:
                 continue
 
             try:
-                row_to_append = self._format_row_for_current_headers(row)
-                self._sheet.append_row(row_to_append)
+                self._write_row_to_next_case_slot(row)
                 result['success_count'] += 1
                 if mid:
                     existing.add(mid)
@@ -632,6 +647,98 @@ class GoogleSheetsService:
             values_by_header.get(self._normalize_header(header), '')
             for header in headers
         ]
+
+    def _write_row_to_next_case_slot(self, row: list) -> int:
+        """
+        Write bot-controlled columns into the next real case row.
+
+        Google Sheets append semantics can place new rows below formula-filled
+        or sorted ranges. This chooses the next row by actual case data and
+        leaves formula and human workflow columns untouched.
+        """
+        headers = self._sheet.row_values(1)
+        if not isinstance(headers, list) or not headers:
+            raise ValueError("Sheet headers are not available")
+
+        target_row = self._next_case_row(headers)
+        values_by_header = {
+            self._normalize_header(column): row[idx]
+            for idx, column in enumerate(self.SHEET_COLUMNS)
+        }
+        writable = {
+            self._normalize_header(column)
+            for column in self.BOT_WRITABLE_COLUMNS
+        }
+
+        columns = []
+        for zero_idx, header in enumerate(headers):
+            normalized = self._normalize_header(header)
+            if normalized in writable:
+                columns.append((zero_idx + 1, values_by_header.get(normalized, '')))
+
+        for group in self._group_consecutive_columns(columns):
+            start_col = group[0][0]
+            end_col = group[-1][0]
+            values = [[value for _, value in group]]
+            range_name = (
+                f"{self._column_letter(start_col)}{target_row}:"
+                f"{self._column_letter(end_col)}{target_row}"
+            )
+            self._update_range(range_name, values)
+
+        return target_row
+
+    def _next_case_row(self, headers: list) -> int:
+        """Return the next row after real case data, ignoring formula columns."""
+        rows = self._sheet.get_all_values()
+        if not rows:
+            return 2
+
+        formula_columns = {
+            self._normalize_header(column)
+            for column in self.FORMULA_COLUMNS
+        }
+        data_indices = [
+            idx for idx, header in enumerate(headers)
+            if self._normalize_header(header) not in formula_columns
+        ]
+
+        last_data_row = 1
+        for row_number, row in enumerate(rows[1:], start=2):
+            if any(
+                idx < len(row) and str(row[idx] or '').strip()
+                for idx in data_indices
+            ):
+                last_data_row = row_number
+
+        return last_data_row + 1
+
+    def _update_range(self, range_name: str, values: list) -> None:
+        try:
+            self._sheet.update(range_name, values)
+        except TypeError:
+            self._sheet.update(values=values, range_name=range_name)
+
+    @staticmethod
+    def _group_consecutive_columns(columns: list) -> list:
+        if not columns:
+            return []
+
+        groups = [[columns[0]]]
+        for column in columns[1:]:
+            if column[0] == groups[-1][-1][0] + 1:
+                groups[-1].append(column)
+            else:
+                groups.append([column])
+        return groups
+
+    @staticmethod
+    def _column_letter(column_index: int) -> str:
+        letters = ''
+        while column_index:
+            column_index, remainder = divmod(column_index - 1, 26)
+            letters = chr(65 + remainder) + letters
+        return letters
 
     def get_sheet_url(self) -> str:
         if self._sheet_id:
