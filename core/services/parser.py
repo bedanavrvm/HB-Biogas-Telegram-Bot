@@ -129,13 +129,19 @@ COMPLAINT_KEYWORD_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+CASE_DESCRIPTION_PATTERN = re.compile(
+    r'\b(?:requesting|asking|ready\s+for|installation|training|assist|'
+    r'support|visit|repair)\b',
+    re.IGNORECASE,
+)
+
 COMPLAINT_CATEGORY_PATTERN = re.compile(
     r'\bCATEGORY\s*[:\-]?\s*([^\n\r]+)',
     re.IGNORECASE
 )
 
 NAME_PATTERN = re.compile(
-    r'\*?NAME\*?\s*[:\-]\s*([^\n\r]+?)'
+    r'\*?(?:CLIENT\s+)?NAME\*?\s*(?:[:\-]|\s)\s*([^\n\r]+?)'
     r'(?=(?:\s+\*?(?:TEL|P/no|P\.no|PHONE|P/no|ID|I\.D|'
     r'NATURE\s+OF|PROBLEM|DESCRIPTION|CUSTOMER\s+COMPLAIN)\*?\s*[:\-]?)|[\n\r]|$)',
     re.IGNORECASE
@@ -164,6 +170,22 @@ ID_HEURISTIC_PATTERN = re.compile(
     r'(?<!\w)(?=[A-Za-z0-9_-]*\d)[A-Za-z][A-Za-z0-9_-]{2,}(?!\w)'
 )
 
+NUMERIC_CUSTOMER_ID_PATTERN = re.compile(
+    r'(?<!\w)(?!254[17]\d{8}\b)(?!0[17]\d{8}\b)\d{5,10}(?!\w)'
+)
+
+OF_PHONE_PATTERN = re.compile(
+    r'(?:^|[\s,])([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+){1,3})\s+'
+    r'of\s+phone\s*:',
+    re.IGNORECASE,
+)
+
+SUBJECT_OF_SENTENCE_PATTERN = re.compile(
+    r'^\s*(?:@\S+\s+)?([A-Z][a-zA-Z]+(?:\s+[A-Za-z]+){1,3})\s+'
+    r'(?:is|was|has|had|reports?|says?|claims?|requesting|asking)\b',
+    re.IGNORECASE | re.MULTILINE,
+)
+
 PROBLEM_PATTERN = re.compile(
     r'\b(?:NATURE\s+OF\s+(?:THE\s+)?(?:PROBLEM|COMPLAINT|COMPLAIN)|'
     r'COMPLAINT\s+DESCRIPTION|DESCRIPTION|PROBLEM)\b'
@@ -187,7 +209,7 @@ COMPLAINT_INLINE_DESCRIPTION_PATTERN = re.compile(
 
 COMPLAINT_FIELD_LABEL_PATTERN = re.compile(
     r'(?<!\w)\*?\s*('
-    r'CUSTOMER\s+NAME|NAME|'
+    r'CUSTOMER\s+NAME|CLIENT\s+NAME|NAME|'
     r'TEL(?:EPHONE)?(?:\s+NO\.?)?|PHONE(?:\s+NO\.?)?|MOBILE|CONTACT|'
     r'P\s*[/.\-]?\s*NO\.?|NO(?=\s*[:;\-,]?\s*(?:\+?254|0)?[17]\d{8})|'
     r'CUSTOMER\s+ID|ACCOUNT(?:\s+NO\.?)?|ID|I\.D|'
@@ -417,7 +439,9 @@ def _extract_complaint_transaction(content: str, result: ParsedResult):
     # Extract structured fields. Span-based labels do not require separators.
     labeled = _extract_labeled_complaint_fields(content)
     result.customer_name = labeled.get('customer_name') or _extract_field(NAME_PATTERN, content)
-    result.customer_phone = labeled.get('customer_phone') or _extract_field(PHONE_PATTERN, content)
+    result.customer_phone = _normalise_phone(
+        labeled.get('customer_phone') or _extract_field(PHONE_PATTERN, content)
+    )
     result.customer_id = labeled.get('customer_id') or _extract_field(ID_PATTERN, content)
     inferred = _infer_unlabeled_complaint_fields(content)
     if not result.customer_name:
@@ -523,7 +547,7 @@ def _extract_labeled_complaint_fields(content: str) -> dict:
 
 def _complaint_label_kind(label: str) -> str:
     normalized = " ".join(str(label or '').replace('.', '').split()).lower()
-    if normalized in {'customer name', 'name'}:
+    if normalized in {'customer name', 'client name', 'name'}:
         return 'customer_name'
     if (
         normalized.startswith('tel')
@@ -558,7 +582,18 @@ def _strip_known_labels(value: str) -> str:
 
 def _extract_phone_value(value: str) -> str:
     match = PHONE_HEURISTIC_PATTERN.search(value or '')
-    return match.group(0) if match else ''
+    return _normalise_phone(match.group(0)) if match else ''
+
+
+def _normalise_phone(raw: str) -> str:
+    match = PHONE_HEURISTIC_PATTERN.search(raw or '')
+    phone = match.group(0) if match else (raw or '')
+    digits = re.sub(r'\D', '', phone)
+    if digits.startswith('254') and len(digits) == 12:
+        return '0' + digits[3:]
+    if len(digits) == 9 and digits[0] in {'1', '7'}:
+        return '0' + digits
+    return digits
 
 
 def _extract_customer_id_value(value: str) -> str:
@@ -575,9 +610,17 @@ def _looks_like_unlabeled_complaint(content: str) -> bool:
     """Detect plain complaint intake text without structured labels."""
     if not content:
         return False
+    has_phone = bool(PHONE_HEURISTIC_PATTERN.search(content))
+    if not has_phone:
+        return False
+    if COMPLAINT_KEYWORD_PATTERN.search(content):
+        return True
     return bool(
-        PHONE_HEURISTIC_PATTERN.search(content)
-        and COMPLAINT_KEYWORD_PATTERN.search(content)
+        CASE_DESCRIPTION_PATTERN.search(content)
+        and (
+            OF_PHONE_PATTERN.search(content)
+            or SUBJECT_OF_SENTENCE_PATTERN.search(content)
+        )
     )
 
 
@@ -599,10 +642,10 @@ def _infer_unlabeled_complaint_fields(content: str) -> dict:
         lines = [_clean_unlabeled_line(cleaned)]
 
     phone_match = PHONE_HEURISTIC_PATTERN.search(cleaned)
-    phone = phone_match.group(0) if phone_match else ''
+    phone = _normalise_phone(phone_match.group(0)) if phone_match else ''
 
     customer_id = _infer_unlabeled_customer_id(lines, phone)
-    name = _infer_unlabeled_customer_name(lines, phone, customer_id)
+    name = _infer_unlabeled_customer_name(lines, phone, customer_id, cleaned)
     description = _infer_unlabeled_description(
         lines=lines,
         name=name,
@@ -633,11 +676,19 @@ def _infer_unlabeled_customer_id(lines: list[str], phone: str) -> str:
         stripped = line.strip()
         if not stripped or stripped == phone:
             continue
-        if phone and phone in stripped:
+        if PHONE_HEURISTIC_PATTERN.fullmatch(stripped):
+            continue
+        if phone:
             stripped = stripped.replace(phone, ' ')
+            raw_phone = PHONE_HEURISTIC_PATTERN.search(stripped)
+            if raw_phone and _normalise_phone(raw_phone.group(0)) == phone:
+                stripped = stripped.replace(raw_phone.group(0), ' ')
         match = ID_HEURISTIC_PATTERN.search(stripped)
         if match and not _looks_like_name(match.group(0)):
             return match.group(0)
+        numeric_match = NUMERIC_CUSTOMER_ID_PATTERN.search(stripped)
+        if numeric_match:
+            return numeric_match.group(0)
     return ''
 
 
@@ -645,15 +696,27 @@ def _infer_unlabeled_customer_name(
     lines: list[str],
     phone: str,
     customer_id: str,
+    content: str = '',
 ) -> str:
+    for pattern in [OF_PHONE_PATTERN, SUBJECT_OF_SENTENCE_PATTERN]:
+        match = pattern.search(content or '')
+        if match:
+            candidate = _clean_name_value(match.group(1))
+            if _looks_like_name(candidate):
+                return candidate
+
     for line in lines:
         candidate = line
         for value in [phone, customer_id]:
             if value:
                 candidate = candidate.replace(value, ' ')
+        phone_match = PHONE_HEURISTIC_PATTERN.search(candidate)
+        if phone_match and _normalise_phone(phone_match.group(0)) == phone:
+            candidate = candidate.replace(phone_match.group(0), ' ')
+        candidate = _strip_known_labels(candidate)
         candidate = _clean_unlabeled_line(candidate)
         if _looks_like_name(candidate):
-            return candidate
+            return _clean_name_value(candidate)
 
     compact = ' '.join(lines)
     for value in [phone, customer_id]:
@@ -663,7 +726,7 @@ def _infer_unlabeled_customer_name(
     if len(words) >= 2:
         candidate = ' '.join(words[:3])
         if _looks_like_name(candidate):
-            return candidate
+            return _clean_name_value(candidate)
     return ''
 
 
@@ -673,10 +736,26 @@ def _looks_like_name(value: str) -> bool:
         return False
     if re.search(r'\d', value):
         return False
-    words = value.split()
+    words = [word for word in value.split() if word != ',']
     if not 2 <= len(words) <= 4:
         return False
-    return all(re.fullmatch(r"[A-Za-z][A-Za-z.'-]*", word) for word in words)
+    non_name_words = {
+        'for', 'of', 'the', 'and', 'or', 'ready', 'installation', 'training',
+        'requesting', 'asking', 'reports', 'says', 'claims', 'is', 'was',
+        'has', 'had',
+    }
+    if any(word.lower().strip(".,'-") in non_name_words for word in words):
+        return False
+    if not all(word[0].isupper() for word in words if word):
+        return False
+    return all(re.fullmatch(r"[A-Za-z][A-Za-z.'\-,]*", word) for word in words)
+
+
+def _clean_name_value(value: str) -> str:
+    value = _clean_unlabeled_line(value)
+    value = re.sub(r'\s*,\s*', ', ', value)
+    value = re.sub(r'\s+', ' ', value).strip(' ,')
+    return value
 
 
 def _infer_unlabeled_description(
@@ -691,8 +770,20 @@ def _infer_unlabeled_description(
         for value in [name, phone, customer_id]:
             if value:
                 candidate = candidate.replace(value, ' ')
+        phone_match = PHONE_HEURISTIC_PATTERN.search(candidate)
+        if phone_match and _normalise_phone(phone_match.group(0)) == phone:
+            candidate = candidate.replace(phone_match.group(0), ' ')
+        candidate = re.sub(
+            r'\b(?:of\s+)?(?:phone|tel(?:ephone)?|p\s*[/.\-]?\s*no)\s*:?',
+            ' ',
+            candidate,
+            flags=re.IGNORECASE,
+        )
+        candidate = _strip_known_labels(candidate)
         candidate = _clean_unlabeled_line(candidate)
         if not candidate:
+            continue
+        if candidate.lower() in {'name', 'tel', 'phone', 'id'}:
             continue
         if _looks_like_name(candidate):
             continue
@@ -700,7 +791,7 @@ def _infer_unlabeled_description(
 
     description = ' '.join(description_lines)
     description = re.sub(r'\s+', ' ', description).strip()
-    return description if COMPLAINT_KEYWORD_PATTERN.search(description) else ''
+    return description
 
 
 def _extract_complaint_description(content: str) -> str:

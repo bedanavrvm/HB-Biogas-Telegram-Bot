@@ -407,9 +407,76 @@ Gas leaking around the digester"""
         result = parse_message(content, sender="Agent")
 
         self.assertEqual(result.customer_name, 'Alice Smith')
-        self.assertEqual(result.customer_phone, '+254712345678')
+        self.assertEqual(result.customer_phone, '0712345678')
         self.assertEqual(result.customer_id, 'CUST_100')
         self.assertEqual(result.problem_description, 'Burner not working')
+
+    def test_parse_unlabeled_comma_name_and_numeric_id(self):
+        """Unlabeled case blocks should allow comma-form names and numeric IDs."""
+        content = (
+            "CUSTOMER COMPLAIN\n"
+            "NYAMU , ROSE RUGURU\n"
+            "0721552446\n"
+            "11598558\n"
+            "Less cooking hrs than expected"
+        )
+
+        result = parse_message(content, sender="Agent")
+
+        self.assertEqual(result.customer_name, 'NYAMU, ROSE RUGURU')
+        self.assertEqual(result.customer_phone, '0721552446')
+        self.assertEqual(result.customer_id, '11598558')
+        self.assertEqual(result.problem_description, 'Less cooking hrs than expected')
+
+    def test_parse_of_phone_sentence_name(self):
+        """A name before 'of phone:' should be captured as the customer name."""
+        from core.services.parser import MessageIntent
+
+        content = (
+            "Joseph Mbaabu of phone:0714953414 is requesting for an agronomy training"
+        )
+
+        result = parse_message(content, sender="Agent")
+
+        self.assertEqual(result.intent, MessageIntent.COMPLAINT)
+        self.assertEqual(result.customer_name, 'Joseph Mbaabu')
+        self.assertEqual(result.customer_phone, '0714953414')
+        self.assertEqual(
+            result.problem_description,
+            'is requesting for an agronomy training',
+        )
+
+    def test_parse_subject_sentence_name_and_normalises_phone(self):
+        """Sentence-subject names are used only inside complaint parsing."""
+        from core.services.parser import MessageIntent
+
+        content = (
+            "Francis Kaihura Kuria is requesting installation\n"
+            "254797963674"
+        )
+
+        result = parse_message(content, sender="Agent")
+
+        self.assertEqual(result.intent, MessageIntent.COMPLAINT)
+        self.assertEqual(result.customer_name, 'Francis Kaihura Kuria')
+        self.assertEqual(result.customer_phone, '0797963674')
+        self.assertEqual(result.problem_description, 'is requesting installation')
+
+    def test_parse_status_description_does_not_return_full_message(self):
+        """If there is no problem keyword, keep only the non-identity remainder."""
+        content = (
+            "CUSTOMER COMPLAIN NAME Doreen Gaceri\n"
+            "Phone:0718077338\n"
+            "ready for installation"
+        )
+
+        result = parse_message(content, sender="Agent")
+
+        self.assertEqual(result.customer_name, 'Doreen Gaceri')
+        self.assertEqual(result.customer_phone, '0718077338')
+        self.assertEqual(result.problem_description, 'ready for installation')
+        self.assertNotIn('CUSTOMER COMPLAIN', result.problem_description)
+        self.assertNotIn('Phone', result.problem_description)
 
     def test_parse_unlabeled_complaint_transaction(self):
         """Plain complaint blocks should infer identifiers and description."""
