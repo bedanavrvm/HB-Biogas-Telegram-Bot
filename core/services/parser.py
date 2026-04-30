@@ -143,8 +143,24 @@ ID_PATTERN = re.compile(
 )
 
 PROBLEM_PATTERN = re.compile(
-    r'\b(?:NATURE OF THE PROBLEM|PROBLEM)\b\s*[:\-]?\s*([\s\S]+?)(?=(?:\n\s*(?:\*NAME\b|\bNAME\b|\bTEL\b|\bP/no\b|\bP\.no\b|\bPHONE\b|\bID\b|\*CUSTOMER\b|@)|$))',
+    r'\b(?:NATURE\s+OF\s+(?:THE\s+)?(?:PROBLEM|COMPLAINT|COMPLAIN)|'
+    r'COMPLAINT\s+DESCRIPTION|DESCRIPTION|PROBLEM)\b'
+    r'\s*[:\-]?\s*([\s\S]+?)'
+    r'(?=(?:\n\s*(?:\*NAME\b|\bNAME\b|\bTEL\b|\bP/no\b|\bP\.no\b|'
+    r'\bPHONE\b|\bID\b|\*CUSTOMER\b|@)|$))',
     re.IGNORECASE
+)
+
+COMPLAINT_CASE_HEADER_PATTERN = re.compile(
+    r'^\s*\*?\s*CUSTOMER\s+COMPLAIN(?:T|E)?\s*\*?\s*$',
+    re.IGNORECASE | re.MULTILINE,
+)
+
+COMPLAINT_INLINE_DESCRIPTION_PATTERN = re.compile(
+    r'^\s*\*?\s*CUSTOMER\s+COMPLAIN(?:T|E)?\s*\*?\s*[:\-]\s*'
+    r'([\s\S]+?)(?=(?:\n\s*(?:\*NAME\b|\bNAME\b|\bTEL\b|\bP/no\b|'
+    r'\bP\.no\b|\bPHONE\b|\bID\b|\bNATURE\b|\*CUSTOMER\b|@)|$))',
+    re.IGNORECASE | re.MULTILINE,
 )
 
 ITEM_PATTERN = re.compile(
@@ -372,11 +388,7 @@ def _extract_complaint_transaction(content: str, result: ParsedResult):
     result.complaint_category = ''
     
     # Extract complaint description - the actual complaint text
-    complaint_match = re.search(
-        r'\*?CUSTOMER\s+COMPLAIN(?:T|E)?\*?\s*[:\-]\s*([\s\S]+?)(?=(?:\n\s*(?:\*|@|NATURE)|$))',
-        content,
-        re.IGNORECASE | re.MULTILINE
-    )
+    complaint_match = COMPLAINT_INLINE_DESCRIPTION_PATTERN.search(content)
     if complaint_match:
         description_text = complaint_match.group(1).strip()
         # Clean up description - remove trailing bot mentions or metadata
@@ -730,32 +742,73 @@ def _split_complaint_cases(content: str) -> list[dict]:
     """
     Split one Telegram message containing several complaint case blocks.
 
-    Only standalone complaint headers are treated as separators. Lines such as
-    "*CUSTOMER COMPLAIN: The system is leaking" are part of the current case,
-    not the start of a new one.
+    Standalone complaint headers are treated as potential separators, then
+    validated heuristically. A case must contain personal identifiers and a
+    complaint description/nature section; description-only fragments are folded
+    into the previous candidate instead of becoming their own case.
     """
     if not content or not COMPLAINT_PREFIX_PATTERN.search(content):
         return []
 
-    header_pattern = re.compile(
-        r'^\s*\*?\s*CUSTOMER\s+COMPLAIN(?:T|E)?\s*\*?\s*$',
-        re.IGNORECASE | re.MULTILINE,
-    )
-    matches = list(header_pattern.finditer(content))
+    matches = list(COMPLAINT_CASE_HEADER_PATTERN.finditer(content))
     if len(matches) <= 1:
         return []
 
-    messages = []
+    cases = []
+    current_case = ''
     for idx, match in enumerate(matches):
         start = match.start()
         end = matches[idx + 1].start() if idx + 1 < len(matches) else len(content)
-        case_content = content[start:end].strip()
-        if not case_content:
+        fragment = content[start:end].strip()
+        if not fragment:
             continue
 
+        if _has_personal_identifiers(fragment):
+            if _is_complete_complaint_case(current_case):
+                cases.append(current_case.strip())
+            current_case = fragment
+        elif current_case:
+            current_case = f"{current_case.rstrip()}\n{fragment.lstrip()}"
+
+    if _is_complete_complaint_case(current_case):
+        cases.append(current_case.strip())
+
+    messages = []
+    for case_content in cases:
         messages.append({
             'sender': _extract_field(NAME_PATTERN, case_content),
             'content': case_content,
         })
 
     return messages
+
+
+def _is_complete_complaint_case(content: str) -> bool:
+    """Return True when a complaint block has identifiers and complaint text."""
+    return _has_personal_identifiers(content) and _has_complaint_details(content)
+
+
+def _has_personal_identifiers(content: str) -> bool:
+    """A case needs enough identity fields to be attributed to a customer."""
+    fields = [
+        _extract_field(NAME_PATTERN, content),
+        _extract_field(PHONE_PATTERN, content),
+        _extract_field(ID_PATTERN, content),
+    ]
+    return sum(1 for field in fields if field) >= 2
+
+
+def _has_complaint_details(content: str) -> bool:
+    """Detect explicit complaint nature/description text without raw fallbacks."""
+    for pattern in [PROBLEM_PATTERN, COMPLAINT_INLINE_DESCRIPTION_PATTERN]:
+        match = pattern.search(content)
+        if match and _meaningful_case_text(match.group(1)):
+            return True
+    return False
+
+
+def _meaningful_case_text(text: str) -> bool:
+    """Reject empty labels and bot mentions when validating case fragments."""
+    text = re.sub(r'\s+', ' ', text or '').strip(' *:-')
+    text = re.sub(r'@\S+', '', text).strip()
+    return bool(text)

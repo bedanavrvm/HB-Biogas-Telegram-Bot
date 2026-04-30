@@ -200,6 +200,46 @@ NATURE OF THE PROBLEM: Gas leakage
         self.assertEqual(messages[1]['sender'], 'John Smith')
         self.assertIn('The system has stopped producing gas', messages[0]['content'])
         self.assertIn('Gas smell around the digester', messages[1]['content'])
+
+    def test_split_complaint_ignores_description_only_fragment(self):
+        """A complaint header without identifiers should not become its own case."""
+        batch_content = """*CUSTOMER COMPLAIN*
+NAME: Jane Doe
+TEL: 0712345678
+ID: A123
+ NATURE OF COMPLAIN: No gas supply
+*CUSTOMER COMPLAIN*
+The system has stopped producing gas"""
+
+        messages = split_batch_message(batch_content)
+
+        self.assertEqual(len(messages), 1)
+
+    def test_split_multiple_complaint_cases_merges_description_fragments(self):
+        """Description-only complaint fragments belong to the previous case."""
+        batch_content = """*CUSTOMER COMPLAIN*
+NAME: Jane Doe
+TEL: 0712345678
+ID: A123
+ NATURE OF COMPLAIN: No gas supply
+*CUSTOMER COMPLAIN*
+The system has stopped producing gas
+
+*CUSTOMER COMPLAIN*
+NAME: John Smith
+TEL: 0798765432
+ID: B456
+NATURE OF THE COMPLAINT: Gas leakage
+*CUSTOMER COMPLAIN*
+Gas smell around the digester"""
+
+        messages = split_batch_message(batch_content)
+
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[0]['sender'], 'Jane Doe')
+        self.assertEqual(messages[1]['sender'], 'John Smith')
+        self.assertIn('The system has stopped producing gas', messages[0]['content'])
+        self.assertIn('Gas smell around the digester', messages[1]['content'])
     
     def test_intent_detection_sale(self):
         """Test intent detection for sale messages."""
