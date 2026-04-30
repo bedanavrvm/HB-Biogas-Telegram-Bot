@@ -478,6 +478,26 @@ Gas leaking around the digester"""
         self.assertNotIn('CUSTOMER COMPLAIN', result.problem_description)
         self.assertNotIn('Phone', result.problem_description)
 
+    def test_parse_unlabeled_bot_tagged_relocation_case(self):
+        """Bot-tagged unlabeled blocks should parse identity plus request text."""
+        from core.services.parser import MessageIntent
+
+        content = (
+            "@hb_biogas_cases_bot Henry  mwenda\n"
+            "24289449\n"
+            "0720809218/0726011961\n"
+            "\n"
+            "Requesting for a jiko relocation"
+        )
+
+        result = parse_message(content, sender="Agent")
+
+        self.assertEqual(result.intent, MessageIntent.COMPLAINT)
+        self.assertEqual(result.customer_name, 'Henry mwenda')
+        self.assertEqual(result.customer_id, '24289449')
+        self.assertEqual(result.customer_phone, '0720809218')
+        self.assertEqual(result.problem_description, 'Requesting for a jiko relocation')
+
     def test_parse_unlabeled_complaint_transaction(self):
         """Plain complaint blocks should infer identifiers and description."""
         from core.services.parser import MessageIntent

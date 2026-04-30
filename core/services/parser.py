@@ -290,6 +290,9 @@ def detect_message_intent(content: str) -> MessageIntent:
         elif re.search(r'\b(paid|sent|gave|transferred|received)\b', content_lower):
             return MessageIntent.PAYMENT
     
+    # Avoid treating "relocation" as a location update.
+    content_lower = re.sub(r'\brelocation\b', '', content_lower)
+
     # Check for GPS/location messages
     if GPS_URL_PATTERN.search(content) or '📍' in content or 'location' in content_lower:
         return MessageIntent.LOCATION
@@ -615,6 +618,8 @@ def _looks_like_unlabeled_complaint(content: str) -> bool:
         return False
     if COMPLAINT_KEYWORD_PATTERN.search(content):
         return True
+    if CASE_DESCRIPTION_PATTERN.search(content):
+        return _has_unlabeled_case_identity(content)
     return bool(
         CASE_DESCRIPTION_PATTERN.search(content)
         and (
@@ -622,6 +627,26 @@ def _looks_like_unlabeled_complaint(content: str) -> bool:
             or SUBJECT_OF_SENTENCE_PATTERN.search(content)
         )
     )
+
+
+def _has_unlabeled_case_identity(content: str) -> bool:
+    cleaned = _remove_complaint_prefix(content)
+    lines = [
+        _clean_unlabeled_line(line)
+        for line in cleaned.splitlines()
+        if _clean_unlabeled_line(line)
+    ]
+    if not lines:
+        return False
+
+    phone_match = PHONE_HEURISTIC_PATTERN.search(cleaned)
+    phone = _normalise_phone(phone_match.group(0)) if phone_match else ''
+    if not phone:
+        return False
+
+    customer_id = _infer_unlabeled_customer_id(lines, phone)
+    name = _infer_unlabeled_customer_name(lines, phone, customer_id, cleaned)
+    return bool(name)
 
 
 def _infer_unlabeled_complaint_fields(content: str) -> dict:
@@ -668,7 +693,7 @@ def _remove_complaint_prefix(content: str) -> str:
 def _clean_unlabeled_line(line: str) -> str:
     line = re.sub(r'@\S+', '', line or '')
     line = re.sub(r'\s+', ' ', line).strip(' *:-')
-    return line
+    return line.strip('/')
 
 
 def _infer_unlabeled_customer_id(lines: list[str], phone: str) -> str:
@@ -680,9 +705,7 @@ def _infer_unlabeled_customer_id(lines: list[str], phone: str) -> str:
             continue
         if phone:
             stripped = stripped.replace(phone, ' ')
-            raw_phone = PHONE_HEURISTIC_PATTERN.search(stripped)
-            if raw_phone and _normalise_phone(raw_phone.group(0)) == phone:
-                stripped = stripped.replace(raw_phone.group(0), ' ')
+            stripped = PHONE_HEURISTIC_PATTERN.sub(' ', stripped)
         match = ID_HEURISTIC_PATTERN.search(stripped)
         if match and not _looks_like_name(match.group(0)):
             return match.group(0)
@@ -710,9 +733,7 @@ def _infer_unlabeled_customer_name(
         for value in [phone, customer_id]:
             if value:
                 candidate = candidate.replace(value, ' ')
-        phone_match = PHONE_HEURISTIC_PATTERN.search(candidate)
-        if phone_match and _normalise_phone(phone_match.group(0)) == phone:
-            candidate = candidate.replace(phone_match.group(0), ' ')
+        candidate = PHONE_HEURISTIC_PATTERN.sub(' ', candidate)
         candidate = _strip_known_labels(candidate)
         candidate = _clean_unlabeled_line(candidate)
         if _looks_like_name(candidate):
@@ -746,8 +767,6 @@ def _looks_like_name(value: str) -> bool:
     }
     if any(word.lower().strip(".,'-") in non_name_words for word in words):
         return False
-    if not all(word[0].isupper() for word in words if word):
-        return False
     return all(re.fullmatch(r"[A-Za-z][A-Za-z.'\-,]*", word) for word in words)
 
 
@@ -770,9 +789,7 @@ def _infer_unlabeled_description(
         for value in [name, phone, customer_id]:
             if value:
                 candidate = candidate.replace(value, ' ')
-        phone_match = PHONE_HEURISTIC_PATTERN.search(candidate)
-        if phone_match and _normalise_phone(phone_match.group(0)) == phone:
-            candidate = candidate.replace(phone_match.group(0), ' ')
+        candidate = PHONE_HEURISTIC_PATTERN.sub(' ', candidate)
         candidate = re.sub(
             r'\b(?:of\s+)?(?:phone|tel(?:ephone)?|p\s*[/.\-]?\s*no)\s*:?',
             ' ',
