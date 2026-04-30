@@ -343,6 +343,38 @@ Gas leaking around the digester"""
         self.assertIn('No gas supply', result.problem_description)
         self.assertGreater(result.confidence, 0.0)
 
+    def test_parse_complaint_fields_on_one_line_have_clear_boundaries(self):
+        """Adjacent labels should not be swallowed into earlier fields."""
+        from core.services.parser import MessageIntent
+
+        content = (
+            "CUSTOMER COMPLAIN NAME: John Doe TEL: 0712345678 "
+            "ID: A12345 NATURE OF COMPLAIN: No gas supply"
+        )
+
+        result = parse_message(content, sender="Agent")
+
+        self.assertEqual(result.intent, MessageIntent.COMPLAINT)
+        self.assertEqual(result.customer_name, 'John Doe')
+        self.assertEqual(result.customer_phone, '0712345678')
+        self.assertEqual(result.customer_id, 'A12345')
+        self.assertEqual(result.problem_description, 'No gas supply')
+        self.assertEqual(result.confidence, 1.0)
+
+    def test_parse_complaint_description_does_not_swallow_following_labels(self):
+        """Problem text should stop before later structured fields."""
+        content = (
+            "CUSTOMER COMPLAIN NATURE OF COMPLAINT: Burner not working "
+            "NAME: Alice Smith TEL: +254712345678 ID: CUST_100"
+        )
+
+        result = parse_message(content, sender="Agent")
+
+        self.assertEqual(result.customer_name, 'Alice Smith')
+        self.assertEqual(result.customer_phone, '+254712345678')
+        self.assertEqual(result.customer_id, 'CUST_100')
+        self.assertEqual(result.problem_description, 'Burner not working')
+
     def test_parse_unlabeled_complaint_transaction(self):
         """Plain complaint blocks should infer identifiers and description."""
         from core.services.parser import MessageIntent

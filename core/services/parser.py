@@ -135,12 +135,17 @@ COMPLAINT_CATEGORY_PATTERN = re.compile(
 )
 
 NAME_PATTERN = re.compile(
-    r'\*?NAME\*?\s*[:\-]\s*([^\n\r]+)',
+    r'\*?NAME\*?\s*[:\-]\s*([^\n\r]+?)'
+    r'(?=(?:\s+\*?(?:TEL|P/no|P\.no|PHONE|P/no|ID|I\.D|'
+    r'NATURE\s+OF|PROBLEM|DESCRIPTION|CUSTOMER\s+COMPLAIN)\*?\s*[:\-]?)|[\n\r]|$)',
     re.IGNORECASE
 )
 
 PHONE_PATTERN = re.compile(
-    r'\*?(?:TEL|P/no|P\.no|PHONE|P\/no|P/no)\*?\s*[:\-]?\s*([+\d\s\/\-]+)',
+    r'\*?(?:TEL|P/no|P\.no|PHONE|P\/no|P/no)\*?\s*[:\-]?\s*'
+    r'([+\d][+\d \t\/\-]*?)'
+    r'(?=(?:\s+\*?(?:NAME|ID|I\.D|NATURE\s+OF|PROBLEM|DESCRIPTION|'
+    r'CUSTOMER\s+COMPLAIN)\*?\s*[:\-]?)|[\n\r]|$)',
     re.IGNORECASE
 )
 
@@ -149,20 +154,22 @@ PHONE_HEURISTIC_PATTERN = re.compile(
 )
 
 ID_PATTERN = re.compile(
-    r'\*?(?:ID|I\.D)\*?\s*[:\-]\s*([A-Za-z0-9\-]+)',
+    r'\*?(?:ID|I\.D)\*?\s*[:\-]\s*([A-Za-z0-9_\-]+?)'
+    r'(?=(?:\s+\*?(?:NAME|TEL|P/no|P\.no|PHONE|NATURE\s+OF|PROBLEM|'
+    r'DESCRIPTION|CUSTOMER\s+COMPLAIN)\*?\s*[:\-]?)|[\n\r]|$)',
     re.IGNORECASE
 )
 
 ID_HEURISTIC_PATTERN = re.compile(
-    r'(?<!\w)(?=[A-Za-z0-9-]*\d)[A-Za-z][A-Za-z0-9-]{2,}(?!\w)'
+    r'(?<!\w)(?=[A-Za-z0-9_-]*\d)[A-Za-z][A-Za-z0-9_-]{2,}(?!\w)'
 )
 
 PROBLEM_PATTERN = re.compile(
     r'\b(?:NATURE\s+OF\s+(?:THE\s+)?(?:PROBLEM|COMPLAINT|COMPLAIN)|'
     r'COMPLAINT\s+DESCRIPTION|DESCRIPTION|PROBLEM)\b'
     r'\s*[:\-]?\s*([\s\S]+?)'
-    r'(?=(?:\n\s*(?:\*NAME\b|\bNAME\b|\bTEL\b|\bP/no\b|\bP\.no\b|'
-    r'\bPHONE\b|\bID\b|\*CUSTOMER\b|@)|$))',
+    r'(?=(?:(?:\s|\n)+\*?(?:NAME|TEL|P/no|P\.no|PHONE|ID|I\.D|'
+    r'CUSTOMER\s+COMPLAIN)\b|@|$))',
     re.IGNORECASE
 )
 
@@ -418,6 +425,13 @@ def _extract_complaint_transaction(content: str, result: ParsedResult):
         # Clean up description - remove trailing bot mentions or metadata
         description_text = re.sub(r'\s*@\S+\s*$', '', description_text)
         result.problem_description = description_text
+
+    if not result.problem_description:
+        problem_match = PROBLEM_PATTERN.search(content)
+        if problem_match:
+            result.problem_description = _clean_unlabeled_line(
+                problem_match.group(1)
+            )
     
     # Fallback: infer plain-text complaint before broad raw-content extraction.
     if not result.problem_description:
