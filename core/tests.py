@@ -361,6 +361,42 @@ Gas leaking around the digester"""
         self.assertEqual(result.problem_description, 'No gas supply')
         self.assertEqual(result.confidence, 1.0)
 
+    def test_parse_complaint_fields_without_label_separators(self):
+        """Labels without punctuation should still define clean field bounds."""
+        from core.services.parser import MessageIntent
+
+        content = (
+            "CUSTOMER COMPLAIN NAME John Doe TEL NO 0712345678 "
+            "ID A12345 NATURE OF COMPLAIN No gas supply at home"
+        )
+
+        result = parse_message(content, sender="Agent")
+
+        self.assertEqual(result.intent, MessageIntent.COMPLAINT)
+        self.assertEqual(result.customer_name, 'John Doe')
+        self.assertEqual(result.customer_phone, '0712345678')
+        self.assertEqual(result.customer_id, 'A12345')
+        self.assertEqual(result.problem_description, 'No gas supply at home')
+        self.assertNotIn('NAME', result.customer_name.upper())
+        self.assertNotIn('CUSTOMER COMPLAIN', result.problem_description.upper())
+
+    def test_parse_multiline_complaint_fields_without_separators(self):
+        """Line breaks should work as separators, but not be required."""
+        content = (
+            "CUSTOMER COMPLAIN\n"
+            "NAME Jane Doe\n"
+            "TEL NO 0712345678\n"
+            "ID A12345\n"
+            "NATURE OF COMPLAIN No gas supply at home"
+        )
+
+        result = parse_message(content, sender="Agent")
+
+        self.assertEqual(result.customer_name, 'Jane Doe')
+        self.assertEqual(result.customer_phone, '0712345678')
+        self.assertEqual(result.customer_id, 'A12345')
+        self.assertEqual(result.problem_description, 'No gas supply at home')
+
     def test_parse_complaint_description_does_not_swallow_following_labels(self):
         """Problem text should stop before later structured fields."""
         content = (

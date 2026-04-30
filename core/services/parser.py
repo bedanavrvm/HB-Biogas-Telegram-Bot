@@ -185,6 +185,18 @@ COMPLAINT_INLINE_DESCRIPTION_PATTERN = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
+COMPLAINT_FIELD_LABEL_PATTERN = re.compile(
+    r'(?<!\w)\*?\s*('
+    r'CUSTOMER\s+NAME|NAME|'
+    r'TEL(?:EPHONE)?(?:\s+NO\.?)?|PHONE(?:\s+NO\.?)?|MOBILE|CONTACT|'
+    r'P\s*[/.\-]?\s*NO\.?|NO(?=\s*[:;\-,]?\s*(?:\+?254|0)?[17]\d{8})|'
+    r'CUSTOMER\s+ID|ACCOUNT(?:\s+NO\.?)?|ID|I\.D|'
+    r'NATURE\s+OF\s+(?:THE\s+)?(?:PROBLEM|COMPLAINT|COMPLAIN)|'
+    r'COMPLAINT\s+DESCRIPTION|DESCRIPTION|PROBLEM'
+    r')\s*\*?',
+    re.IGNORECASE,
+)
+
 ITEM_PATTERN = re.compile(
     r'(?:of|for)\s+((?:' + '|'.join(ITEM_NAMES) + r')(?:s)?(?:\s+[a-zA-Z]+)?)',
     re.IGNORECASE
@@ -402,10 +414,11 @@ def _extract_complaint_transaction(content: str, result: ParsedResult):
     Note: item, quantity, price are NOT extracted for complaints.
     These are transaction fields not applicable to complaint intake.
     """
-    # Extract structured fields
-    result.customer_name = _extract_field(NAME_PATTERN, content)
-    result.customer_phone = _extract_field(PHONE_PATTERN, content)
-    result.customer_id = _extract_field(ID_PATTERN, content)
+    # Extract structured fields. Span-based labels do not require separators.
+    labeled = _extract_labeled_complaint_fields(content)
+    result.customer_name = labeled.get('customer_name') or _extract_field(NAME_PATTERN, content)
+    result.customer_phone = labeled.get('customer_phone') or _extract_field(PHONE_PATTERN, content)
+    result.customer_id = labeled.get('customer_id') or _extract_field(ID_PATTERN, content)
     inferred = _infer_unlabeled_complaint_fields(content)
     if not result.customer_name:
         result.customer_name = inferred.get('customer_name', '')
@@ -419,12 +432,14 @@ def _extract_complaint_transaction(content: str, result: ParsedResult):
     result.complaint_category = ''
     
     # Extract complaint description - the actual complaint text
-    complaint_match = COMPLAINT_INLINE_DESCRIPTION_PATTERN.search(content)
-    if complaint_match:
-        description_text = complaint_match.group(1).strip()
-        # Clean up description - remove trailing bot mentions or metadata
-        description_text = re.sub(r'\s*@\S+\s*$', '', description_text)
-        result.problem_description = description_text
+    result.problem_description = labeled.get('problem_description', '')
+    if not result.problem_description:
+        complaint_match = COMPLAINT_INLINE_DESCRIPTION_PATTERN.search(content)
+        if complaint_match:
+            description_text = complaint_match.group(1).strip()
+            # Clean up description - remove trailing bot mentions or metadata
+            description_text = re.sub(r'\s*@\S+\s*$', '', description_text)
+            result.problem_description = description_text
 
     if not result.problem_description:
         problem_match = PROBLEM_PATTERN.search(content)
@@ -461,6 +476,99 @@ def _extract_field(pattern, content: str, group_index: int = 1) -> str:
     if match:
         return match.group(group_index).strip()
     return ''
+
+
+def _extract_labeled_complaint_fields(content: str) -> dict:
+    """
+    Extract fields by finding label spans first, then slicing to the next label.
+
+    This does not rely on ':' or other separators being present. For example:
+    NAME John Doe TEL NO 0712345678 ID A123 NATURE OF COMPLAIN no gas
+    """
+    matches = list(COMPLAINT_FIELD_LABEL_PATTERN.finditer(content or ''))
+    if not matches:
+        return {}
+
+    fields = {}
+    for index, match in enumerate(matches):
+        kind = _complaint_label_kind(match.group(1))
+        if not kind:
+            continue
+
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(content)
+        value = _clean_labeled_value(content[start:end])
+        if not value:
+            continue
+
+        if kind == 'customer_name':
+            value = _strip_known_labels(value)
+            if value:
+                fields[kind] = value
+        elif kind == 'customer_phone':
+            phone = _extract_phone_value(value)
+            if phone:
+                fields[kind] = phone
+        elif kind == 'customer_id':
+            customer_id = _extract_customer_id_value(value)
+            if customer_id:
+                fields[kind] = customer_id
+        elif kind == 'problem_description':
+            value = _strip_known_labels(value)
+            if value:
+                fields[kind] = value
+
+    return fields
+
+
+def _complaint_label_kind(label: str) -> str:
+    normalized = " ".join(str(label or '').replace('.', '').split()).lower()
+    if normalized in {'customer name', 'name'}:
+        return 'customer_name'
+    if (
+        normalized.startswith('tel')
+        or normalized.startswith('phone')
+        or normalized in {'mobile', 'contact', 'p no', 'no'}
+    ):
+        return 'customer_phone'
+    if (
+        normalized in {'id', 'i d', 'customer id'}
+        or normalized.startswith('account')
+    ):
+        return 'customer_id'
+    if (
+        normalized.startswith('nature of')
+        or normalized in {'complaint description', 'description', 'problem'}
+    ):
+        return 'problem_description'
+    return ''
+
+
+def _clean_labeled_value(value: str) -> str:
+    value = re.sub(r'@\S+', '', value or '')
+    value = re.sub(r'\s+', ' ', value).strip()
+    return value.strip(' *:;,-')
+
+
+def _strip_known_labels(value: str) -> str:
+    value = COMPLAINT_FIELD_LABEL_PATTERN.sub(' ', value or '')
+    value = COMPLAINT_PREFIX_PATTERN.sub(' ', value)
+    return _clean_labeled_value(value)
+
+
+def _extract_phone_value(value: str) -> str:
+    match = PHONE_HEURISTIC_PATTERN.search(value or '')
+    return match.group(0) if match else ''
+
+
+def _extract_customer_id_value(value: str) -> str:
+    value = _clean_labeled_value(value)
+    if not value:
+        return ''
+    token = value.split()[0].strip(' *:;,-')
+    if PHONE_HEURISTIC_PATTERN.fullmatch(token):
+        return ''
+    return token if re.fullmatch(r'[A-Za-z0-9_-]{2,}', token) else ''
 
 
 def _looks_like_unlabeled_complaint(content: str) -> bool:

@@ -215,8 +215,14 @@ class GoogleSheetsValidationTests(TestCase):
         update_calls = mock_sheet.update.call_args_list
         self.assertEqual(update_calls[0].args[0], 'A2:A2')
         self.assertEqual(update_calls[0].args[1], [['29/04/2026']])
-        self.assertEqual(update_calls[1].args[0], 'C2:N2')
+        self.assertEqual(update_calls[0].kwargs['value_input_option'], 'USER_ENTERED')
+        self.assertEqual(update_calls[1].args[0], 'C2:H2')
         self.assertEqual(update_calls[1].args[1][0][0], 'MSG_001')
+        self.assertEqual(update_calls[1].kwargs['value_input_option'], 'RAW')
+        self.assertEqual(update_calls[2].args[0], 'J2:N2')
+        self.assertEqual(update_calls[2].kwargs['value_input_option'], 'RAW')
+        written_ranges = [call.args[0] for call in update_calls]
+        self.assertNotIn('I2:I2', written_ranges)
 
     def test_append_row_ignores_formula_only_rows(self):
         """Formula-filled rows should not push new cases far below the table."""
@@ -243,7 +249,19 @@ class GoogleSheetsValidationTests(TestCase):
                 result = self.service.append_row(row, message_id='MSG_FORMULA_SAFE')
 
         self.assertTrue(result)
-        self.assertEqual(mock_sheet.update.call_args_list[0].args[0], 'B2:N2')
+        update_calls = mock_sheet.update.call_args_list
+        self.assertEqual(update_calls[0].args[0], 'B2:B2')
+        self.assertEqual(update_calls[0].kwargs['value_input_option'], 'RAW')
+        self.assertEqual(update_calls[1].args[0], 'C2:C2')
+        self.assertEqual(update_calls[1].args[1], [['30/04/2026']])
+        self.assertFalse(update_calls[1].args[1][0][0].startswith("'"))
+        self.assertEqual(update_calls[1].kwargs['value_input_option'], 'USER_ENTERED')
+        self.assertEqual(update_calls[2].args[0], 'D2:H2')
+        self.assertEqual(update_calls[2].kwargs['value_input_option'], 'RAW')
+        self.assertEqual(update_calls[3].args[0], 'J2:N2')
+        self.assertEqual(update_calls[3].kwargs['value_input_option'], 'RAW')
+        written_ranges = [call.args[0] for call in update_calls]
+        self.assertNotIn('I2:I2', written_ranges)
 
     def test_get_instance_is_keyed_by_sheet_id_and_sheet_name(self):
         """Different tabs in the same spreadsheet should get distinct services."""

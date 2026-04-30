@@ -106,6 +106,7 @@ class GoogleSheetsService:
     ]
 
     FORMULA_COLUMNS = {'Complaint ID', 'Days Open'}
+    DATE_COLUMNS = {'Date Reported'}
     BOT_WRITABLE_COLUMNS = {
         'message_id',
         'Date Reported',
@@ -114,7 +115,6 @@ class GoogleSheetsService:
         'Phone Number',
         'JBL Reported By',
         'Branch / Region',
-        'Complaint Category',
         'Complaint Description',
         'raw_message',
         'gps_link',
@@ -674,17 +674,34 @@ class GoogleSheetsService:
         for zero_idx, header in enumerate(headers):
             normalized = self._normalize_header(header)
             if normalized in writable:
-                columns.append((zero_idx + 1, values_by_header.get(normalized, '')))
+                input_option = (
+                    'USER_ENTERED'
+                    if normalized in {
+                        self._normalize_header(column)
+                        for column in self.DATE_COLUMNS
+                    }
+                    else 'RAW'
+                )
+                columns.append((
+                    zero_idx + 1,
+                    values_by_header.get(normalized, ''),
+                    input_option,
+                ))
 
         for group in self._group_consecutive_columns(columns):
             start_col = group[0][0]
             end_col = group[-1][0]
-            values = [[value for _, value in group]]
+            values = [[value for _, value, _ in group]]
+            input_option = group[0][2]
             range_name = (
                 f"{self._column_letter(start_col)}{target_row}:"
                 f"{self._column_letter(end_col)}{target_row}"
             )
-            self._update_range(range_name, values)
+            self._update_range(
+                range_name,
+                values,
+                value_input_option=input_option,
+            )
 
         return target_row
 
@@ -713,11 +730,24 @@ class GoogleSheetsService:
 
         return last_data_row + 1
 
-    def _update_range(self, range_name: str, values: list) -> None:
+    def _update_range(
+        self,
+        range_name: str,
+        values: list,
+        value_input_option: str = 'RAW',
+    ) -> None:
         try:
-            self._sheet.update(range_name, values)
+            self._sheet.update(
+                range_name,
+                values,
+                value_input_option=value_input_option,
+            )
         except TypeError:
-            self._sheet.update(values=values, range_name=range_name)
+            self._sheet.update(
+                values=values,
+                range_name=range_name,
+                value_input_option=value_input_option,
+            )
 
     @staticmethod
     def _group_consecutive_columns(columns: list) -> list:
@@ -726,7 +756,10 @@ class GoogleSheetsService:
 
         groups = [[columns[0]]]
         for column in columns[1:]:
-            if column[0] == groups[-1][-1][0] + 1:
+            if (
+                column[0] == groups[-1][-1][0] + 1
+                and column[2] == groups[-1][-1][2]
+            ):
                 groups[-1].append(column)
             else:
                 groups.append([column])
