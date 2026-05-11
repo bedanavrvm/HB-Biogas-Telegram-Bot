@@ -198,6 +198,64 @@ class CaseUpdateServiceTest(TestCase):
         self.assertIn('/update MSG_ID', result['reply_text'])
         self.assertEqual(CaseUpdate.objects.count(), 0)
 
+    def test_reply_to_bot_confirmation_uses_case_id_in_quoted_text(self):
+        from core.services.case_updates import handle_case_status_reply
+
+        case = create_parsed_case('MSG_CONFIRM_1', complaint_status='Open')
+        registry_patch, sheet_patch, _sheet = self._patch_sheet_success()
+
+        with registry_patch, sheet_patch:
+            result = handle_case_status_reply(
+                group_id='-100123',
+                reply_to_telegram_message_id='999',
+                update_telegram_message_id='1000',
+                sender='Peter',
+                content='Status: resolved - jiko relocated',
+                reply_to_text=(
+                    'OK. Message received and saved successfully\n'
+                    'Case ID: MSG_CONFIRM_1\n'
+                    'Captured: Customer Name, Customer Phone'
+                ),
+            )
+
+        case.refresh_from_db()
+        self.assertEqual(result['status'], 'command')
+        self.assertEqual(case.complaint_status, 'Closed')
+        self.assertIn('jiko relocated', case.resolution_details)
+
+    def test_reply_to_original_case_can_match_from_quoted_case_text(self):
+        from core.services.case_updates import handle_case_status_reply
+
+        case = create_parsed_case(
+            'MSG_ORIGINAL_TEXT',
+            customer_name='Henry mwenda',
+            customer_phone='0720809218',
+            customer_id='24289449',
+            description='Requesting for a jiko relocation',
+            complaint_status='Open',
+        )
+        registry_patch, sheet_patch, _sheet = self._patch_sheet_success()
+
+        with registry_patch, sheet_patch:
+            result = handle_case_status_reply(
+                group_id='-100123',
+                reply_to_telegram_message_id='123',
+                update_telegram_message_id='124',
+                sender='Peter',
+                content='Status: resolved - jiko relocated',
+                reply_to_text=(
+                    '@hb_biogas_cases_bot Henry  mwenda\n'
+                    '24289449\n'
+                    '0720809218/0726011961\n\n'
+                    'Requesting for a jiko relocation'
+                ),
+            )
+
+        case.refresh_from_db()
+        self.assertEqual(result['status'], 'command')
+        self.assertEqual(case.complaint_status, 'Closed')
+        self.assertIn('jiko relocated', case.resolution_details)
+
     def test_explicit_update_command_updates_case(self):
         from core.services.commands import handle_bot_command
 
@@ -1018,6 +1076,11 @@ class StorageServiceTest(TestCase):
             customer_name='Old Name',
             complaint_status='Open',
         )
+        original_processed_id = existing.processed_message_id
+        original_raw = existing.processed_message.raw_message
+        original_raw.telegram_message_id = '777'
+        original_raw.source_telegram_message_id = '777'
+        original_raw.save(update_fields=['telegram_message_id', 'source_telegram_message_id'])
         create_parsed_case('MSG_DELETE')
 
         service = MagicMock()
@@ -1086,6 +1149,11 @@ class StorageServiceTest(TestCase):
         self.assertEqual(existing.resolution_details, 'Fixed')
         self.assertTrue(existing.synced_to_sheets)
         self.assertTrue(existing.image_flag)
+        self.assertEqual(existing.processed_message_id, original_processed_id)
+        self.assertEqual(
+            existing.processed_message.raw_message.telegram_message_id,
+            '777',
+        )
 
         created = ParsedMessage.objects.get(message_id='MSG_NEW')
         self.assertEqual(created.customer_name, 'New Customer')
@@ -1794,12 +1862,14 @@ NATURE OF THE PROBLEM: Gas leakage
             },
             {
                 'status': 'success',
+                'message_id': 'MSG_REPLY_1',
                 'captured_fields': {'customer_name': 'Jane'},
             },
         )
 
         text = mock_post.call_args.kwargs['data']['text']
         self.assertIn('OK. Message received and saved successfully', text)
+        self.assertIn('Case ID: MSG_REPLY_1', text)
         self.assertIn('Captured: Customer Name', text)
         self.assertTrue(text.isascii())
 

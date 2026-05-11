@@ -141,45 +141,53 @@ def sync_all_configured_groups(delete_missing: bool = True) -> dict:
 
 
 def _upsert_parsed_message(group_id: str, message_id: str, row_values: dict) -> bool:
+    defaults = {
+        'timestamp': _parse_sheet_datetime(_value(row_values, 'Date Reported')),
+        'sender': _value(row_values, 'JBL Reported By'),
+        'raw_message': _raw_message(row_values),
+        'item': '',
+        'quantity': None,
+        'price': None,
+        'gps_link': _value(row_values, 'gps_link'),
+        'image_flag': _parse_bool(_value(row_values, 'image_flag')),
+        'source': _value(row_values, 'source') or 'google sheets',
+        'customer_name': _value(row_values, 'Customer Name'),
+        'customer_phone': _value(row_values, 'Phone Number'),
+        'customer_id': _value(row_values, 'Customer ID / Account'),
+        'branch_region': _value(row_values, 'Branch / Region'),
+        'complaint_category': _value(row_values, 'Complaint Category'),
+        'complaint_description': _value(row_values, 'Complaint Description'),
+        'complaint_status': _value(row_values, 'Status'),
+        'resolution_details': _value(row_values, 'Resolution Details'),
+        'date_resolved': _parse_sheet_datetime(_value(row_values, 'Date Resolved')),
+        'days_open': _parse_int(_value(row_values, 'Days Open')),
+        'risk_level': _value(row_values, 'Risk Level'),
+        'loan_status': _value(row_values, 'Loan Status'),
+        'loan_at_risk': _value(row_values, 'Loan at Risk'),
+        'group_id': group_id,
+        'synced_to_sheets': True,
+        'synced_at': timezone.now(),
+        'last_sync_error': '',
+    }
+
+    parsed_message = ParsedMessage.objects.filter(message_id=message_id).first()
+    if parsed_message:
+        for field, value in defaults.items():
+            setattr(parsed_message, field, value)
+        parsed_message.save(update_fields=list(defaults.keys()))
+        return False
+
     raw_message = _get_or_create_raw_message(message_id, row_values)
     processed_message = _get_or_create_processed_message(
         raw_message=raw_message,
         message_id=message_id,
     )
-
-    _, created = ParsedMessage.objects.update_or_create(
+    ParsedMessage.objects.create(
         message_id=message_id,
-        defaults={
-            'processed_message': processed_message,
-            'timestamp': _parse_sheet_datetime(_value(row_values, 'Date Reported')),
-            'sender': _value(row_values, 'JBL Reported By'),
-            'raw_message': _raw_message(row_values),
-            'item': '',
-            'quantity': None,
-            'price': None,
-            'gps_link': _value(row_values, 'gps_link'),
-            'image_flag': _parse_bool(_value(row_values, 'image_flag')),
-            'source': _value(row_values, 'source') or 'google sheets',
-            'customer_name': _value(row_values, 'Customer Name'),
-            'customer_phone': _value(row_values, 'Phone Number'),
-            'customer_id': _value(row_values, 'Customer ID / Account'),
-            'branch_region': _value(row_values, 'Branch / Region'),
-            'complaint_category': _value(row_values, 'Complaint Category'),
-            'complaint_description': _value(row_values, 'Complaint Description'),
-            'complaint_status': _value(row_values, 'Status'),
-            'resolution_details': _value(row_values, 'Resolution Details'),
-            'date_resolved': _parse_sheet_datetime(_value(row_values, 'Date Resolved')),
-            'days_open': _parse_int(_value(row_values, 'Days Open')),
-            'risk_level': _value(row_values, 'Risk Level'),
-            'loan_status': _value(row_values, 'Loan Status'),
-            'loan_at_risk': _value(row_values, 'Loan at Risk'),
-            'group_id': group_id,
-            'synced_to_sheets': True,
-            'synced_at': timezone.now(),
-            'last_sync_error': '',
-        },
+        processed_message=processed_message,
+        **defaults,
     )
-    return created
+    return True
 
 
 def _get_or_create_raw_message(message_id: str, row_values: dict) -> RawMessage:

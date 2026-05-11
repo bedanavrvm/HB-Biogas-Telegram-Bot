@@ -179,6 +179,9 @@ def _process_telegram_message(message_data: dict) -> dict:
                 update_telegram_message_id=telegram_message_id,
                 sender=sender,
                 content=update_content,
+                reply_to_text=_extract_message_content(
+                    message_data.get('reply_to_message', {})
+                ),
             )
             if update_result:
                 return update_result
@@ -397,19 +400,26 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
         names = [k.replace('_', ' ').title() for k in captured_fields]
         fields_summary = f"\nCaptured: {', '.join(names)}"
 
+    case_id_line = ''
+    if result.get('message_id'):
+        case_id_line = f"\nCase ID: {result['message_id']}"
+
     if status == 'success':
-        text = f'OK. Message received and saved successfully{fields_summary}'
+        text = (
+            f'OK. Message received and saved successfully'
+            f'{case_id_line}{fields_summary}'
+        )
     elif status == 'partial':
         if result.get('error') and 'sheet' in result['error'].lower():
             text = (
                 f'Warning: Message saved to database but could not sync to the '
                 f'register at this time. It will be retried automatically.'
-                f'{fields_summary}'
+                f'{case_id_line}{fields_summary}'
             )
         else:
             text = (
                 f'Warning: Message partially processed (some fields were not '
-                f'recognised){fields_summary}'
+                f'recognised){case_id_line}{fields_summary}'
             )
     elif status == 'duplicate':
         text = 'Warning: This message has already been processed.'

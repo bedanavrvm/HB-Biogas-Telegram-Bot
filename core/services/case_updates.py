@@ -11,6 +11,7 @@ from core.services.sheets import get_sheets_service
 
 
 STATUS_PATTERN = re.compile(r'^\s*(?:@\S+\s+)?status\s*:\s*(.+)$', re.IGNORECASE | re.DOTALL)
+CASE_ID_PATTERN = re.compile(r'\b(MSG_[A-Z0-9_]+)\b', re.IGNORECASE)
 
 CLOSED_PATTERN = re.compile(
     r'\b(?:resolved?|closed|managed|done|fixed|repaired|sorted|completed?|'
@@ -94,8 +95,9 @@ def handle_case_status_reply(
     update_telegram_message_id: str,
     sender: str,
     content: str,
+    reply_to_text: str = '',
 ) -> dict | None:
-    """Apply a status update that replies to an original case message."""
+    """Apply a status update that replies to an original case or bot confirmation."""
     parsed_update = parse_case_update(content)
     if not parsed_update.is_update:
         return {
@@ -104,6 +106,11 @@ def handle_case_status_reply(
         }
 
     cases = list(_cases_for_reply(group_id, reply_to_telegram_message_id))
+    if not cases and reply_to_text:
+        case = _case_from_quoted_confirmation(group_id, reply_to_text)
+        cases = [case] if case else []
+    if not cases and reply_to_text:
+        cases = list(_cases_from_quoted_case_text(group_id, reply_to_text))
     if not cases:
         return {
             'status': 'command',
@@ -277,6 +284,77 @@ def _cases_for_reply(group_id: str, reply_to_telegram_message_id: str):
         .distinct()
         .order_by('processed_message__raw_message__batch_index', 'created_at')
     )
+
+
+def _case_from_quoted_confirmation(group_id: str, reply_to_text: str):
+    match = CASE_ID_PATTERN.search(reply_to_text or '')
+    if not match:
+        return None
+    return (
+        ParsedMessage.objects
+        .filter(group_id=str(group_id), message_id__iexact=match.group(1))
+        .first()
+    )
+
+
+def _cases_from_quoted_case_text(group_id: str, reply_to_text: str):
+    """
+    Recover a reply-to-original-case update when the stored Telegram link is missing.
+
+    This can happen for older rows that were synced from Sheets after submission.
+    The quoted original message usually still contains the customer identifiers, so
+    use the same complaint parser and match by the strongest available fields.
+    """
+    from core.services.parser import parse_message
+
+    parsed = parse_message(reply_to_text or '', sender='')
+    if not (parsed.customer_phone or parsed.customer_id or parsed.customer_name):
+        return ParsedMessage.objects.none()
+
+    base = ParsedMessage.objects.filter(group_id=str(group_id))
+    phone = _digits(parsed.customer_phone)
+    customer_id = (parsed.customer_id or '').strip()
+    customer_name = (parsed.customer_name or '').strip()
+
+    if phone and customer_id:
+        matches = _filter_by_phone(base.filter(customer_id__iexact=customer_id), phone)
+        if matches.exists():
+            return matches
+
+    if customer_id:
+        matches = base.filter(customer_id__iexact=customer_id)
+        if matches.exists():
+            return matches.order_by('-created_at')
+
+    if phone:
+        matches = _filter_by_phone(base, phone)
+        if matches.exists():
+            return matches
+
+    if customer_name:
+        return base.filter(customer_name__iexact=customer_name).order_by('-created_at')
+
+    return ParsedMessage.objects.none()
+
+
+def _filter_by_phone(queryset, phone: str):
+    """Match phone fields with or without punctuation and +254/0 variants."""
+    variants = {phone}
+    if phone.startswith('0') and len(phone) == 10:
+        variants.add('254' + phone[1:])
+        variants.add('+254' + phone[1:])
+    elif phone.startswith('254') and len(phone) == 12:
+        variants.add('0' + phone[3:])
+        variants.add('+' + phone)
+
+    query = Q()
+    for variant in variants:
+        query |= Q(customer_phone__icontains=variant)
+    return queryset.filter(query).order_by('-created_at')
+
+
+def _digits(value: str) -> str:
+    return re.sub(r'\D', '', value or '')
 
 
 def _clean_resolution_text(body: str, new_status: str) -> str:
