@@ -716,6 +716,23 @@ Gas leaking around the digester"""
         self.assertEqual(result.problem_description, 'Requesting for a jiko relocation')
         self.assertNotIn('@area_manager', result.problem_description)
 
+    def test_parse_complaint_description_excludes_spaced_display_mention(self):
+        """Display-name mentions such as '@~Eunny K' should be stripped fully."""
+        content = (
+            "@hb_biogas_cases_bot Henry  mwenda\n"
+            "24289449\n"
+            "0720809218/0726011961\n"
+            "\n"
+            "Requesting for a jiko relocation @~Eunny K"
+        )
+
+        result = parse_message(content, sender="Agent")
+
+        self.assertEqual(result.customer_name, 'Henry mwenda')
+        self.assertEqual(result.problem_description, 'Requesting for a jiko relocation')
+        self.assertNotIn('Eunny', result.problem_description)
+        self.assertNotIn('K', result.problem_description)
+
     def test_parse_complaint_description_excludes_final_mention_line(self):
         """A final line containing only mentions should not enter the description."""
         content = (

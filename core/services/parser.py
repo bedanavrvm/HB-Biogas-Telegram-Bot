@@ -574,7 +574,7 @@ def _complaint_label_kind(label: str) -> str:
 
 
 def _clean_labeled_value(value: str) -> str:
-    value = re.sub(r'@\S+', '', value or '')
+    value = _strip_trailing_awareness_mentions(value or '')
     value = re.sub(r'\s+', ' ', value).strip()
     return value.strip(' *:;,-')
 
@@ -585,14 +585,37 @@ def _clean_problem_description(value: str) -> str:
     if not value:
         return ''
 
+    value = _strip_trailing_awareness_mentions(value)
+    if not value:
+        return ''
+
     lines = [line.strip() for line in value.splitlines()]
-    while lines and re.fullmatch(r'(?:@\S+\s*)+', lines[-1]):
+    while lines and lines[-1].startswith('@'):
         lines.pop()
 
     value = ' '.join(line for line in lines if line)
-    value = re.sub(r'\s+(?:@\S+\s*)+$', '', value)
+    value = _strip_trailing_awareness_mentions(value)
     value = re.sub(r'\s+', ' ', value).strip()
     return value.strip(' *:;,-')
+
+
+def _strip_trailing_awareness_mentions(value: str) -> str:
+    """
+    Remove end-of-message awareness mentions, including display names with spaces.
+
+    Telegram/WhatsApp bridge mentions can arrive as "@~Eunny K", so a plain
+    at-sign token cleanup leaves the display-name tail behind. Only strip trailing
+    mention segments; leading bot tags are handled separately.
+    """
+    value = str(value or '').strip()
+    if not value:
+        return ''
+
+    lines = value.splitlines()
+    while lines and lines[-1].strip().startswith('@'):
+        lines.pop()
+    value = '\n'.join(lines).strip()
+    return re.sub(r'[ \t]+@[^\r\n]+$', '', value).strip()
 
 
 def _strip_known_labels(value: str) -> str:
@@ -709,7 +732,8 @@ def _remove_complaint_prefix(content: str) -> str:
 
 
 def _clean_unlabeled_line(line: str) -> str:
-    line = re.sub(r'@\S+', '', line or '')
+    line = re.sub(r'^\s*@\S+\s+', '', line or '')
+    line = _strip_trailing_awareness_mentions(line)
     line = re.sub(r'\s+', ' ', line).strip(' *:-')
     return line.strip('/')
 
