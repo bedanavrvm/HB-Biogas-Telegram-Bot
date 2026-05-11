@@ -43,6 +43,7 @@ Schema (FIXED — 21 columns):
 import logging
 from typing import Optional
 from django.conf import settings
+from core.services.sheet_schema import SheetSchema
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +139,7 @@ class GoogleSheetsService:
         cls,
         sheet_id: str = None,
         sheet_name: str = None,
+        sheet_schema: dict = None,
     ) -> "GoogleSheetsService":
         """
         Return the cached service instance for *sheet_id* and *sheet_name*.
@@ -147,11 +149,16 @@ class GoogleSheetsService:
         """
         effective_id = sheet_id or getattr(settings, 'GOOGLE_SHEET_ID', '')
         effective_name = sheet_name or getattr(settings, 'GOOGLE_SHEET_TAB_NAME', '')
-        cache_key = (effective_id, effective_name)
+        cache_key = (
+            effective_id,
+            effective_name,
+            SheetSchema.fingerprint(sheet_schema),
+        )
         if cache_key not in cls._instances:
             cls._instances[cache_key] = cls(
                 sheet_id=effective_id,
                 sheet_name=effective_name,
+                sheet_schema=sheet_schema,
             )
         return cls._instances[cache_key]
 
@@ -160,24 +167,35 @@ class GoogleSheetsService:
         """Flush the instance cache (useful in tests)."""
         cls._instances.clear()
 
-    def __init__(self, sheet_id: str = None, sheet_name: str = None):
+    def __init__(
+        self,
+        sheet_id: str = None,
+        sheet_name: str = None,
+        sheet_schema: dict = None,
+    ):
         """
         Initialise the service for a specific *sheet_id*.
 
         Prefer get_instance() over constructing directly.
         """
-        if not _google_sheets_available:
-            logger.warning("Google Sheets service unavailable (gspread not installed)")
-            return
-
         self._initialized = False
         self._api_initialized = False
         self._sheet_id = sheet_id or getattr(settings, 'GOOGLE_SHEET_ID', '')
         self._sheet_name = sheet_name or getattr(settings, 'GOOGLE_SHEET_TAB_NAME', '')
+        self.schema = SheetSchema.from_config(sheet_schema)
+        self.sheet_columns = self.schema.columns
+        self.formula_columns = self.schema.formula_headers
+        self.bot_writable_columns = self.schema.bot_writable_headers
+        self.case_update_writable_columns = self.schema.case_update_headers
+        self.date_columns = self.schema.date_headers
         self._credentials_file = getattr(
             settings, 'GOOGLE_SERVICE_ACCOUNT_FILE', 'credentials.json'
         )
         self._sheets_api_service = None
+
+        if not _google_sheets_available:
+            logger.warning("Google Sheets service unavailable (gspread not installed)")
+            return
         self._client = None
         self._sheet = None
 
@@ -277,7 +295,7 @@ class GoogleSheetsService:
                 return False, "Sheet header row is empty"
 
             normalized_header = [self._normalize_header(h) for h in actual_header]
-            expected_header = [self._normalize_header(h) for h in self.SHEET_COLUMNS]
+            expected_header = [self._normalize_header(h) for h in self.sheet_columns]
 
             duplicates = sorted({
                 h for h in normalized_header
@@ -293,7 +311,7 @@ class GoogleSheetsService:
 
             missing = [
                 expected
-                for expected, normalized in zip(self.SHEET_COLUMNS, expected_header)
+                for expected, normalized in zip(self.sheet_columns, expected_header)
                 if normalized not in normalized_header
             ]
 
@@ -330,7 +348,9 @@ class GoogleSheetsService:
             return []
 
         try:
-            category_index = self._header_index('Complaint Category')
+            category_index = self._header_index(
+                self.schema.header('complaint_category')
+            )
             if not category_index:
                 return []
             category_index -= 1
@@ -440,15 +460,28 @@ class GoogleSheetsService:
                 return True
 
             # ── 3. Row length ─────────────────────────────────────────
-            if len(row) != len(self.SHEET_COLUMNS):
+            if len(row) != len(self.sheet_columns):
                 logger.error(
                     f"Row length mismatch for sheet {self._sheet_id}: "
-                    f"expected {len(self.SHEET_COLUMNS)}, got {len(row)}"
+                    f"expected {len(self.sheet_columns)}, got {len(row)}"
                 )
                 return False
 
             # ── 4. Category validation (defensive — warn only) ────────
-            complaint_category = row[8] if len(row) > 8 else ""
+            category_header = self.schema.header('complaint_category')
+            category_index = next(
+                (
+                    idx for idx, column in enumerate(self.sheet_columns)
+                    if self._normalize_header(column)
+                    == self._normalize_header(category_header)
+                ),
+                None,
+            )
+            complaint_category = (
+                row[category_index]
+                if category_index is not None and len(row) > category_index
+                else ""
+            )
             cat_valid, cat_msg = self.validate_complaint_category(
                 complaint_category
             )
@@ -511,7 +544,7 @@ class GoogleSheetsService:
                 result['synced_message_ids'].append(mid)
                 continue
 
-            if len(row) != len(self.SHEET_COLUMNS):
+            if len(row) != len(self.sheet_columns):
                 logger.error(
                     f"Row {i+1} length mismatch for sheet {self._sheet_id}"
                 )
@@ -580,12 +613,9 @@ class GoogleSheetsService:
 
             writable = {
                 self._normalize_header(column)
-                for column in self.CASE_UPDATE_WRITABLE_COLUMNS
+                for column in self.case_update_writable_columns
             }
-            values_by_header = {
-                self._normalize_header(key): value
-                for key, value in (updates or {}).items()
-            }
+            values_by_header = self.schema.update_values_by_header(updates or {})
 
             columns = []
             for zero_idx, header in enumerate(headers):
@@ -594,7 +624,9 @@ class GoogleSheetsService:
                     continue
                 input_option = (
                     'USER_ENTERED'
-                    if normalized == self._normalize_header('Date Resolved')
+                    if normalized == self._normalize_header(
+                        self.schema.header('date_resolved')
+                    )
                     else 'RAW'
                 )
                 columns.append((
@@ -683,7 +715,7 @@ class GoogleSheetsService:
 
     def _message_exists(self, message_id: str) -> bool:
         try:
-            values = self._column_values_by_header('message_id')
+            values = self._column_values_by_header(self.schema.header('message_id'))
             return message_id in values
         except Exception as exc:
             logger.error(f"Error checking message existence: {exc}")
@@ -691,13 +723,13 @@ class GoogleSheetsService:
 
     def _get_existing_message_ids(self) -> set:
         try:
-            return set(self._column_values_by_header('message_id'))
+            return set(self._column_values_by_header(self.schema.header('message_id')))
         except Exception as exc:
             logger.error(f"Error reading existing message IDs: {exc}")
             return set()
 
     def _row_number_for_message_id(self, message_id: str) -> Optional[int]:
-        values = self._column_values_by_header('message_id')
+        values = self._column_values_by_header(self.schema.header('message_id'))
         for idx, value in enumerate(values, start=1):
             if value == message_id:
                 return idx
@@ -747,7 +779,7 @@ class GoogleSheetsService:
 
         values_by_header = {
             self._normalize_header(column): row[idx]
-            for idx, column in enumerate(self.SHEET_COLUMNS)
+            for idx, column in enumerate(self.sheet_columns)
         }
         return [
             values_by_header.get(self._normalize_header(header), '')
@@ -769,11 +801,11 @@ class GoogleSheetsService:
         target_row = self._next_case_row(headers)
         values_by_header = {
             self._normalize_header(column): row[idx]
-            for idx, column in enumerate(self.SHEET_COLUMNS)
+            for idx, column in enumerate(self.sheet_columns)
         }
         writable = {
             self._normalize_header(column)
-            for column in self.BOT_WRITABLE_COLUMNS
+            for column in self.bot_writable_columns
         }
 
         columns = []
@@ -784,7 +816,7 @@ class GoogleSheetsService:
                     'USER_ENTERED'
                     if normalized in {
                         self._normalize_header(column)
-                        for column in self.DATE_COLUMNS
+                        for column in self.date_columns
                     }
                     else 'RAW'
                 )
@@ -819,7 +851,7 @@ class GoogleSheetsService:
 
         formula_columns = {
             self._normalize_header(column)
-            for column in self.FORMULA_COLUMNS
+            for column in self.formula_columns
         }
         data_indices = [
             idx for idx, header in enumerate(headers)
@@ -894,6 +926,7 @@ class GoogleSheetsService:
 def get_sheets_service(
     sheet_id: str = None,
     sheet_name: str = None,
+    sheet_schema: dict = None,
 ) -> GoogleSheetsService:
     """
     Return the GoogleSheetsService instance for *sheet_id* and *sheet_name*.
@@ -903,6 +936,7 @@ def get_sheets_service(
     return GoogleSheetsService.get_instance(
         sheet_id=sheet_id,
         sheet_name=sheet_name,
+        sheet_schema=sheet_schema,
     )
 
 
@@ -910,6 +944,7 @@ def append_parsed_message_to_sheet(
     parsed_message,
     sheet_id: str = None,
     sheet_name: str = None,
+    sheet_schema: dict = None,
 ) -> bool:
     """
     Append a ParsedMessage to the correct Google Sheet.
@@ -917,8 +952,12 @@ def append_parsed_message_to_sheet(
     *sheet_id* and *sheet_name* should belong to the message's group.
     Falls back to settings.GOOGLE_SHEET_ID when None.
     """
-    service = get_sheets_service(sheet_id=sheet_id, sheet_name=sheet_name)
-    row = parsed_message.to_sheet_row()
+    service = get_sheets_service(
+        sheet_id=sheet_id,
+        sheet_name=sheet_name,
+        sheet_schema=sheet_schema,
+    )
+    row = service.schema.row_for_message(parsed_message)
     success = False
     error_message = ''
 
@@ -943,6 +982,8 @@ def append_parsed_message_to_sheet(
     if success:
         parsed_message.synced_to_sheets = True
         parsed_message.synced_at = tz.now()
+        parsed_message.sheet_id = sheet_id or service._sheet_id or ''
+        parsed_message.sheet_name = sheet_name or service._sheet_name or ''
         logger.info(
             f"Message {parsed_message.message_id} synced to sheet {sheet_id}"
         )
@@ -953,6 +994,7 @@ def append_parsed_message_to_sheet(
 
     parsed_message.save(update_fields=[
         'synced_to_sheets', 'synced_at', 'sync_attempts', 'last_sync_error',
+        'sheet_id', 'sheet_name',
     ])
     return success
 
@@ -961,14 +1003,19 @@ def batch_append_messages(
     parsed_messages: list,
     sheet_id: str = None,
     sheet_name: str = None,
+    sheet_schema: dict = None,
 ) -> dict:
     """
     Append multiple ParsedMessages to the correct Google Sheet.
 
     *sheet_id* and *sheet_name* should belong to the messages' group.
     """
-    service = get_sheets_service(sheet_id=sheet_id, sheet_name=sheet_name)
-    rows = [msg.to_sheet_row() for msg in parsed_messages]
+    service = get_sheets_service(
+        sheet_id=sheet_id,
+        sheet_name=sheet_name,
+        sheet_schema=sheet_schema,
+    )
+    rows = [service.schema.row_for_message(msg) for msg in parsed_messages]
     message_ids = [msg.message_id for msg in parsed_messages]
 
     result = service.append_rows(rows, message_ids)
@@ -984,6 +1031,8 @@ def batch_append_messages(
             synced_to_sheets=True,
             synced_at=tz.now(),
             last_sync_error='',
+            sheet_id=sheet_id or service._sheet_id or '',
+            sheet_name=sheet_name or service._sheet_name or '',
         )
 
     for msg in parsed_messages:

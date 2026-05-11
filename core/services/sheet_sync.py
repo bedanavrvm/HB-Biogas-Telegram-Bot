@@ -36,6 +36,7 @@ def sync_group_from_sheet(group_id: str, delete_missing: bool = True) -> dict:
         group_id=str(group_id),
         sheet_id=config.sheet_id,
         sheet_name=config.sheet_name,
+        sheet_schema=config.sheet_schema_config,
         delete_missing=delete_missing,
     )
 
@@ -44,6 +45,7 @@ def sync_sheet_to_backend(
     group_id: str,
     sheet_id: str,
     sheet_name: str = None,
+    sheet_schema: dict = None,
     delete_missing: bool = True,
 ) -> dict:
     """
@@ -54,7 +56,14 @@ def sync_sheet_to_backend(
     or row number as a last resort.
     """
     result = _result(status='success')
-    service = get_sheets_service(sheet_id=sheet_id, sheet_name=sheet_name)
+    from core.services.sheet_schema import SheetSchema
+
+    schema = SheetSchema.from_config(sheet_schema)
+    service = get_sheets_service(
+        sheet_id=sheet_id,
+        sheet_name=sheet_name,
+        sheet_schema=sheet_schema,
+    )
 
     if not service.is_available():
         return _result(
@@ -77,6 +86,7 @@ def sync_sheet_to_backend(
                 row_number=row.get('row_number'),
                 sheet_id=sheet_id,
                 sheet_name=sheet_name,
+                schema=schema,
             )
 
             if message_id in seen_message_ids:
@@ -89,8 +99,11 @@ def sync_sheet_to_backend(
             seen_message_ids.add(message_id)
             created = _upsert_parsed_message(
                 group_id=str(group_id),
+                sheet_id=sheet_id,
+                sheet_name=sheet_name or '',
                 message_id=message_id,
                 row_values=values,
+                schema=schema,
             )
             if created:
                 result['created_count'] += 1
@@ -128,6 +141,7 @@ def sync_all_configured_groups(delete_missing: bool = True) -> dict:
             group_id=str(group_id),
             sheet_id=config.sheet_id,
             sheet_name=config.sheet_name,
+            sheet_schema=config.sheet_schema_config,
             delete_missing=delete_missing,
         )
 
@@ -140,44 +154,56 @@ def sync_all_configured_groups(delete_missing: bool = True) -> dict:
     }
 
 
-def _upsert_parsed_message(group_id: str, message_id: str, row_values: dict) -> bool:
+def _upsert_parsed_message(
+    group_id: str,
+    sheet_id: str,
+    sheet_name: str,
+    message_id: str,
+    row_values: dict,
+    schema,
+) -> bool:
     defaults = {
-        'timestamp': _parse_sheet_datetime(_value(row_values, 'Date Reported')),
-        'sender': _value(row_values, 'JBL Reported By'),
-        'raw_message': _raw_message(row_values),
+        'timestamp': _parse_sheet_datetime(schema.value(row_values, 'date_reported')),
+        'sender': schema.value(row_values, 'reported_by'),
+        'raw_message': _raw_message(row_values, schema),
         'item': '',
         'quantity': None,
         'price': None,
-        'gps_link': _value(row_values, 'gps_link'),
-        'image_flag': _parse_bool(_value(row_values, 'image_flag')),
-        'source': _value(row_values, 'source') or 'google sheets',
-        'customer_name': _value(row_values, 'Customer Name'),
-        'customer_phone': _value(row_values, 'Phone Number'),
-        'customer_id': _value(row_values, 'Customer ID / Account'),
-        'branch_region': _value(row_values, 'Branch / Region'),
-        'complaint_category': _value(row_values, 'Complaint Category'),
-        'complaint_description': _value(row_values, 'Complaint Description'),
-        'complaint_status': _value(row_values, 'Status'),
-        'resolution_details': _value(row_values, 'Resolution Details'),
-        'date_resolved': _parse_sheet_datetime(_value(row_values, 'Date Resolved')),
-        'days_open': _parse_int(_value(row_values, 'Days Open')),
-        'risk_level': _value(row_values, 'Risk Level'),
-        'loan_status': _value(row_values, 'Loan Status'),
-        'loan_at_risk': _value(row_values, 'Loan at Risk'),
+        'gps_link': schema.value(row_values, 'gps_link'),
+        'image_flag': _parse_bool(schema.value(row_values, 'image_flag')),
+        'source': schema.value(row_values, 'source') or 'google sheets',
+        'customer_name': schema.value(row_values, 'customer_name'),
+        'customer_phone': schema.value(row_values, 'customer_phone'),
+        'customer_id': schema.value(row_values, 'customer_id'),
+        'branch_region': schema.value(row_values, 'branch_region'),
+        'complaint_category': schema.value(row_values, 'complaint_category'),
+        'complaint_description': schema.value(row_values, 'complaint_description'),
+        'complaint_status': schema.value(row_values, 'status'),
+        'resolution_details': schema.value(row_values, 'resolution_details'),
+        'date_resolved': _parse_sheet_datetime(schema.value(row_values, 'date_resolved')),
+        'days_open': _parse_int(schema.value(row_values, 'days_open')),
+        'risk_level': schema.value(row_values, 'risk_level'),
+        'loan_status': schema.value(row_values, 'loan_status'),
+        'loan_at_risk': schema.value(row_values, 'loan_at_risk'),
         'group_id': group_id,
+        'sheet_id': sheet_id or '',
+        'sheet_name': sheet_name or '',
         'synced_to_sheets': True,
         'synced_at': timezone.now(),
         'last_sync_error': '',
     }
 
-    parsed_message = ParsedMessage.objects.filter(message_id=message_id).first()
+    parsed_message = ParsedMessage.objects.filter(
+        group_id=group_id,
+        message_id=message_id,
+    ).first()
     if parsed_message:
         for field, value in defaults.items():
             setattr(parsed_message, field, value)
         parsed_message.save(update_fields=list(defaults.keys()))
         return False
 
-    raw_message = _get_or_create_raw_message(message_id, row_values)
+    raw_message = _get_or_create_raw_message(message_id, row_values, schema)
     processed_message = _get_or_create_processed_message(
         raw_message=raw_message,
         message_id=message_id,
@@ -190,7 +216,11 @@ def _upsert_parsed_message(group_id: str, message_id: str, row_values: dict) -> 
     return True
 
 
-def _get_or_create_raw_message(message_id: str, row_values: dict) -> RawMessage:
+def _get_or_create_raw_message(
+    message_id: str,
+    row_values: dict,
+    schema,
+) -> RawMessage:
     raw_message = RawMessage.objects.filter(
         telegram_message_id=message_id
     ).order_by('created_at').first()
@@ -199,11 +229,11 @@ def _get_or_create_raw_message(message_id: str, row_values: dict) -> RawMessage:
 
     return RawMessage.objects.create(
         telegram_message_id=message_id,
-        sender=_value(row_values, 'JBL Reported By') or 'Google Sheets',
-        content=_raw_message(row_values),
-        received_at=_parse_sheet_datetime(_value(row_values, 'Date Reported'))
+        sender=schema.value(row_values, 'reported_by') or 'Google Sheets',
+        content=_raw_message(row_values, schema),
+        received_at=_parse_sheet_datetime(schema.value(row_values, 'date_reported'))
         or timezone.now(),
-        has_image=_parse_bool(_value(row_values, 'image_flag')),
+        has_image=_parse_bool(schema.value(row_values, 'image_flag')),
     )
 
 
@@ -230,12 +260,16 @@ def _sheet_message_id(
     row_number: int,
     sheet_id: str,
     sheet_name: str = None,
+    schema=None,
 ) -> str:
-    message_id = _value(values, 'message_id')
+    message_id = schema.value(values, 'message_id') if schema else _value(values, 'message_id')
     if message_id:
         return message_id[:128]
 
-    complaint_id = _value(values, 'Complaint ID')
+    complaint_id = (
+        schema.value(values, 'complaint_id')
+        if schema else _value(values, 'Complaint ID')
+    )
     stable_source = complaint_id or f'row:{row_number}'
     digest = hashlib.sha256(
         f'{sheet_id}:{sheet_name or ""}:{stable_source}'.encode('utf-8')
@@ -243,7 +277,14 @@ def _sheet_message_id(
     return f'SHEET_{digest}'
 
 
-def _raw_message(values: dict) -> str:
+def _raw_message(values: dict, schema=None) -> str:
+    if schema:
+        return (
+            schema.value(values, 'raw_message')
+            or schema.value(values, 'complaint_description')
+            or schema.value(values, 'complaint_id')
+            or 'Imported from Google Sheets'
+        )
     return (
         _value(values, 'raw_message')
         or _value(values, 'Complaint Description')

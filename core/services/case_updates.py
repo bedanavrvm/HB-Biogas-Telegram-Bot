@@ -256,23 +256,24 @@ def _update_sheet(
 ) -> bool:
     registry = GroupRegistry.get_instance()
     group_config = registry.get_group(str(parsed_message.group_id))
-    if not group_config:
+    if not group_config and not parsed_message.sheet_id:
         return False
 
     updates = {
-        'Status': parsed_update.new_status,
-        'Resolution Details': resolution_details,
+        'status': parsed_update.new_status,
+        'resolution_details': resolution_details,
     }
     if date_resolved:
-        updates['Date Resolved'] = timezone.localtime(date_resolved).strftime('%d/%m/%Y')
+        updates['date_resolved'] = timezone.localtime(date_resolved).strftime('%d/%m/%Y')
     if parsed_update.risk_level:
-        updates['Risk Level'] = parsed_update.risk_level
+        updates['risk_level'] = parsed_update.risk_level
     if parsed_update.loan_at_risk:
-        updates['Loan at Risk'] = parsed_update.loan_at_risk
+        updates['loan_at_risk'] = parsed_update.loan_at_risk
 
     service = get_sheets_service(
-        sheet_id=group_config.sheet_id,
-        sheet_name=group_config.sheet_name,
+        sheet_id=(group_config.sheet_id if group_config else parsed_message.sheet_id),
+        sheet_name=(group_config.sheet_name if group_config else parsed_message.sheet_name),
+        sheet_schema=(group_config.sheet_schema_config if group_config else None),
     )
     return service.update_case_row(parsed_message.message_id, updates)
 

@@ -176,6 +176,36 @@ if _group_mapping_json:
         _logging.warning(f"Failed to parse GROUP_MAPPING_JSON: {e}")
         GROUP_MAPPING = {}
 
+SHEET_SCHEMA = {}
+_sheet_schema_json = config('SHEET_SCHEMA_JSON', default='')
+if _sheet_schema_json:
+    try:
+        SHEET_SCHEMA = json.loads(_sheet_schema_json)
+    except json.JSONDecodeError as e:
+        import logging as _logging
+        _logging.warning(f"Failed to parse SHEET_SCHEMA_JSON: {e}")
+        SHEET_SCHEMA = {}
+
+WORKFLOW_CONFIG = {}
+_workflow_config_json = config('WORKFLOW_CONFIG_JSON', default='')
+if _workflow_config_json:
+    try:
+        WORKFLOW_CONFIG = json.loads(_workflow_config_json)
+    except json.JSONDecodeError as e:
+        import logging as _logging
+        _logging.warning(f"Failed to parse WORKFLOW_CONFIG_JSON: {e}")
+        WORKFLOW_CONFIG = {}
+
+PARSER_RULES = {}
+_parser_rules_json = config('PARSER_RULES_JSON', default='')
+if _parser_rules_json:
+    try:
+        PARSER_RULES = json.loads(_parser_rules_json)
+    except json.JSONDecodeError as e:
+        import logging as _logging
+        _logging.warning(f"Failed to parse PARSER_RULES_JSON: {e}")
+        PARSER_RULES = {}
+
 # Default group ID for single-group deployments
 DEFAULT_GROUP_ID = config('DEFAULT_GROUP_ID', default='default')
 

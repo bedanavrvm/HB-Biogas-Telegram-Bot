@@ -298,6 +298,7 @@ def _process_single_message(
 
         sheet_id = group_config.sheet_id
         sheet_name = group_config.sheet_name
+        sheet_schema = group_config.sheet_schema_config
 
         parsed_message = process_and_store_message(
             telegram_message_id=telegram_message_id,
@@ -310,6 +311,7 @@ def _process_single_message(
             source_telegram_message_id=source_telegram_message_id,
             batch_index=batch_index,
             sheet_id=sheet_id,       # â† forwarded to sheets service
+            sheet_schema=sheet_schema,
         )
 
         if parsed_message is None:

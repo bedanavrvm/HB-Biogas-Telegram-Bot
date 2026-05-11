@@ -322,6 +322,96 @@ class GoogleSheetsValidationTests(TestCase):
         self.assertEqual(first._sheet_name, 'Complaints')
         self.assertEqual(second._sheet_name, 'Support')
 
+    def test_custom_schema_builds_rows_with_group_specific_headers(self):
+        """A group can use different spreadsheet headers without code changes."""
+        schema_config = {
+            'columns': [
+                'Ticket No', 'Backend ID', 'Reported On', 'Client',
+                'Account', 'Mobile', 'Reported By', 'Issue',
+                'Case State', 'Fix Notes',
+            ],
+            'field_headers': {
+                'complaint_id': 'Ticket No',
+                'message_id': 'Backend ID',
+                'date_reported': 'Reported On',
+                'customer_name': 'Client',
+                'customer_id': 'Account',
+                'customer_phone': 'Mobile',
+                'reported_by': 'Reported By',
+                'complaint_description': 'Issue',
+                'status': 'Case State',
+                'resolution_details': 'Fix Notes',
+            },
+            'formula_fields': ['complaint_id'],
+            'bot_writable_fields': [
+                'message_id', 'date_reported', 'customer_name',
+                'customer_id', 'customer_phone', 'reported_by',
+                'complaint_description',
+            ],
+            'case_update_fields': ['status', 'resolution_details'],
+        }
+        service = GoogleSheetsService.get_instance(
+            sheet_id='custom_sheet',
+            sheet_name='Cases',
+            sheet_schema=schema_config,
+        )
+        msg = ParsedMessage(
+            message_id='MSG_CUSTOM',
+            customer_name='Jane Doe',
+            customer_id='ACC-7',
+            customer_phone='0712345678',
+            sender='Field Agent',
+            complaint_description='No gas supply',
+        )
+
+        row = service.schema.row_for_message(msg)
+
+        self.assertEqual(row[1], 'MSG_CUSTOM')
+        self.assertEqual(row[3], 'JANE DOE')
+        self.assertEqual(row[5], '0712345678')
+        self.assertEqual(row[6], 'Field Agent')
+        self.assertEqual(row[7], 'No gas supply')
+
+    def test_custom_schema_updates_configured_workflow_columns(self):
+        """Status updates should follow the group's configured workflow headers."""
+        schema_config = {
+            'columns': ['Backend ID', 'Client', 'Case State', 'Fix Notes'],
+            'field_headers': {
+                'message_id': 'Backend ID',
+                'customer_name': 'Client',
+                'status': 'Case State',
+                'resolution_details': 'Fix Notes',
+            },
+            'bot_writable_fields': ['message_id', 'customer_name'],
+            'case_update_fields': ['status', 'resolution_details'],
+        }
+        service = GoogleSheetsService.get_instance(
+            sheet_id='custom_update_sheet',
+            sheet_name='Cases',
+            sheet_schema=schema_config,
+        )
+        mock_sheet = Mock()
+        mock_sheet.row_values = Mock(return_value=schema_config['columns'])
+        mock_sheet.col_values = Mock(return_value=['Backend ID', 'MSG_001'])
+        mock_sheet.update = Mock(return_value=True)
+
+        with patch.object(service, 'is_available', return_value=True):
+            with patch.object(service, '_sheet', mock_sheet):
+                result = service.update_case_row(
+                    'MSG_001',
+                    {
+                        'status': 'Closed',
+                        'resolution_details': 'Pipe replaced',
+                        'Client': 'SHOULD NOT WRITE',
+                    },
+                )
+
+        self.assertTrue(result)
+        update_calls = mock_sheet.update.call_args_list
+        self.assertEqual(update_calls[0].args[0], 'C2:D2')
+        self.assertEqual(update_calls[0].args[1], [['Closed', 'Pipe replaced']])
+        self.assertEqual(len(update_calls), 1)
+
 
 class ParsedMessageToSheetRowTests(TestCase):
     """Test ParsedMessage.to_sheet_row() produces correct 21-column output."""

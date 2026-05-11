@@ -1,0 +1,204 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+  &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+  &rsaquo; <a href="{% url 'admin:core_groupsheetconfiguration_changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+  &rsaquo; <a href="{% url 'admin:core_groupsheetconfiguration_change' config.pk %}">{{ config }}</a>
+  &rsaquo; Analyze sheet
+</div>
+{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<style>
+  .sheet-analysis-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin: 16px 0;
+  }
+
+  .sheet-analysis-metric {
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 12px;
+    background: var(--body-bg);
+  }
+
+  .sheet-analysis-metric strong {
+    display: block;
+    font-size: 18px;
+    margin-top: 4px;
+  }
+
+  .sheet-analysis-panel {
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 16px;
+    margin: 16px 0;
+    background: var(--body-bg);
+  }
+
+  .sheet-analysis-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .sheet-analysis-table th,
+  .sheet-analysis-table td {
+    border-bottom: 1px solid var(--hairline-color);
+    padding: 8px;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .sheet-analysis-table th {
+    background: var(--darkened-bg);
+    font-weight: 600;
+  }
+
+  .sheet-analysis-tag {
+    display: inline-block;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 2px 6px;
+    margin: 0 4px 4px 0;
+    background: var(--darkened-bg);
+    white-space: nowrap;
+  }
+
+  .sheet-analysis-warnings {
+    border-left: 4px solid var(--message-warning-bg, #ffc);
+    padding: 8px 12px;
+    background: var(--darkened-bg);
+  }
+
+  .sheet-analysis-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin: 16px 0;
+  }
+
+  .sheet-analysis-pre {
+    max-height: 320px;
+    overflow: auto;
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--darkened-bg);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  <p>
+    Review the detected columns before applying the generated schema to
+    <strong>{{ config.display_name|default:config.group_id }}</strong>.
+  </p>
+
+  <div class="sheet-analysis-summary">
+    <div class="sheet-analysis-metric">
+      Sheet tab
+      <strong>{{ config.sheet_name }}</strong>
+    </div>
+    <div class="sheet-analysis-metric">
+      Rows found
+      <strong>{{ analysis.row_count|default:"0" }}</strong>
+    </div>
+    <div class="sheet-analysis-metric">
+      Columns found
+      <strong>{{ analysis.headers|length }}</strong>
+    </div>
+    <div class="sheet-analysis-metric">
+      Sample rows
+      <strong>{{ analysis.sample_size|default:"0" }}</strong>
+    </div>
+  </div>
+
+  {% if analysis.status != "success" %}
+    <div class="sheet-analysis-panel">
+      <h2>Analysis Failed</h2>
+      <p>{{ analysis.error }}</p>
+      <p>Check the Sheet ID, tab name, service account access, and Google credentials.</p>
+    </div>
+  {% else %}
+    {% if analysis.warnings %}
+      <div class="sheet-analysis-warnings" role="status">
+        <h2>Review Needed</h2>
+        <ul>
+          {% for warning in analysis.warnings %}
+            <li>{{ warning }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+
+    <div class="sheet-analysis-actions">
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="apply">
+        <button type="submit" class="default">Apply detected schema</button>
+      </form>
+      <a class="button" href="{% url 'admin:core_groupsheetconfiguration_change' config.pk %}">Back to configuration</a>
+    </div>
+
+    <div class="sheet-analysis-panel">
+      <h2>Detected Columns</h2>
+      <table class="sheet-analysis-table">
+        <thead>
+          <tr>
+            <th scope="col">Column</th>
+            <th scope="col">Header</th>
+            <th scope="col">Mapped field</th>
+            <th scope="col">Type</th>
+            <th scope="col">Role</th>
+            <th scope="col">Dropdown values</th>
+            <th scope="col">Sample values</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for column in analysis.columns %}
+            <tr>
+              <td>{{ column.letter }}</td>
+              <td><strong>{{ column.header|default:"-" }}</strong></td>
+              <td>
+                {{ column.canonical_field|default:"Unmapped" }}
+                {% if column.mapping_confidence and column.mapping_confidence != "none" %}
+                  <br><small>{{ column.mapping_confidence }} confidence</small>
+                {% endif %}
+              </td>
+              <td>{{ column.data_type }}</td>
+              <td>{{ column.role }}</td>
+              <td>
+                {% for value in column.dropdown_values %}
+                  <span class="sheet-analysis-tag">{{ value }}</span>
+                {% empty %}
+                  -
+                {% endfor %}
+              </td>
+              <td>
+                {% for value in column.sample_values %}
+                  <div>{{ value }}</div>
+                {% empty %}
+                  -
+                {% endfor %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="sheet-analysis-panel">
+      <h2>Generated Schema JSON</h2>
+      <pre class="sheet-analysis-pre">{{ analysis.suggested_schema }}</pre>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

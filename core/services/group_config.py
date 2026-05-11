@@ -23,6 +23,8 @@ TELEGRAM CHAT-ID FORMAT:
 import logging
 from typing import Optional, Dict, Any
 from django.conf import settings
+from django.db.utils import OperationalError, ProgrammingError
+from core.services.sheet_schema import SheetSchema
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +39,23 @@ class GroupConfig:
         sheet_name: str = 'Complaints Register',
         enabled: bool = True,
         metadata: Dict[str, Any] = None,
+        sheet_schema: Dict[str, Any] = None,
+        workflow: Dict[str, Any] = None,
+        parser_rules: Dict[str, Any] = None,
     ):
         self.group_id = str(group_id)
         self.sheet_id = sheet_id
         self.sheet_name = sheet_name
         self.enabled = enabled
         self.metadata = metadata or {}
+        self.sheet_schema_config = (
+            sheet_schema
+            or self.metadata.get('sheet_schema')
+            or {}
+        )
+        self.sheet_schema = SheetSchema.from_config(self.sheet_schema_config)
+        self.workflow = workflow or self.metadata.get('workflow') or {}
+        self.parser_rules = parser_rules or self.metadata.get('parser_rules') or {}
 
         if not self.sheet_id:
             logger.warning(f"Group {group_id} has no sheet_id configured")
@@ -100,10 +113,11 @@ class GroupRegistry:
     # ------------------------------------------------------------------
 
     def _load_groups(self):
-        """Load group mappings from settings."""
+        """Load group mappings from admin configuration and settings."""
         group_mapping = getattr(settings, 'GROUP_MAPPING', {})
+        admin_configs = self._load_admin_group_configs()
 
-        if not group_mapping:
+        if not group_mapping and not admin_configs:
             # ── Legacy / single-group mode ──────────────────────────
             # Store as a wildcard default so any chat_id is accepted.
             if getattr(settings, 'GOOGLE_SHEET_ID', ''):
@@ -113,6 +127,9 @@ class GroupRegistry:
                     sheet_name=getattr(
                         settings, 'GOOGLE_SHEET_TAB_NAME', 'Complaints Register'
                     ),
+                    sheet_schema=getattr(settings, 'SHEET_SCHEMA', {}),
+                    workflow=getattr(settings, 'WORKFLOW_CONFIG', {}),
+                    parser_rules=getattr(settings, 'PARSER_RULES', {}),
                 )
                 logger.info(
                     "Single-group mode active: all Telegram groups route to "
@@ -135,6 +152,9 @@ class GroupRegistry:
                     ),
                     enabled=config_dict.get('enabled', True),
                     metadata=config_dict.get('metadata', {}),
+                    sheet_schema=config_dict.get('sheet_schema', {}),
+                    workflow=config_dict.get('workflow', {}),
+                    parser_rules=config_dict.get('parser_rules', {}),
                 )
                 self._groups[group_id] = group_config
                 logger.debug(
@@ -142,10 +162,36 @@ class GroupRegistry:
                     f"sheet {config_dict.get('sheet_id')}"
                 )
 
+            for config_dict in admin_configs:
+                group_id = str(config_dict.get('group_id', '')).strip()
+                if not group_id:
+                    continue
+                group_config = GroupConfig(**config_dict)
+                self._groups[group_id] = group_config
+                logger.debug(
+                    f"Loaded admin group {repr(group_id)} -> "
+                    f"sheet {config_dict.get('sheet_id')}"
+                )
+
             logger.info(
                 f"Multi-group mode: {len(self._groups)} group(s) loaded. "
                 f"IDs: {list(self._groups.keys())}"
             )
+
+    def _load_admin_group_configs(self) -> list[dict]:
+        """Return admin-managed configs when the database table is available."""
+        try:
+            from core.models import GroupSheetConfiguration
+
+            return [
+                config.as_group_config_kwargs()
+                for config in GroupSheetConfiguration.objects.all()
+            ]
+        except (OperationalError, ProgrammingError) as exc:
+            logger.debug(
+                f"Admin group configuration table unavailable; using settings: {exc}"
+            )
+            return []
 
     # ------------------------------------------------------------------
     # Public API

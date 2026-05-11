@@ -67,6 +67,8 @@ def store_parsed_message(
     raw_content: str,
     source: str = 'telegram bot',
     group_id: str = 'default',
+    sheet_id: str = '',
+    sheet_name: str = '',
 ) -> ParsedMessage:
     try:
         message_id = f"MSG_{processed_message.message_hash[:16].upper()}"
@@ -84,6 +86,8 @@ def store_parsed_message(
             image_flag=parsed_result.image_flag,
             source=source,
             group_id=group_id,
+            sheet_id=sheet_id or '',
+            sheet_name=sheet_name or '',
             customer_name=parsed_result.customer_name,
             customer_phone=parsed_result.customer_phone,
             customer_id=parsed_result.customer_id,
@@ -121,6 +125,7 @@ def process_and_store_message(
     source_telegram_message_id: str = '',
     batch_index: int = None,
     sheet_id: str = None,          # ← forwarded to Google Sheets service
+    sheet_schema: dict = None,
 ) -> Optional[ParsedMessage]:
     """
     Atomically process and store a message with deduplication.
@@ -192,6 +197,8 @@ def process_and_store_message(
             raw_content=content,
             source=source,
             group_id=group_id or 'default',
+            sheet_id=sheet_id or '',
+            sheet_name=sheet_name or '',
         )
 
         # ── 6. Sync to the correct Google Sheet ──────────────────────
@@ -205,6 +212,7 @@ def process_and_store_message(
                 parsed_message,
                 sheet_name=sheet_name,
                 sheet_id=sheet_id,          # ← KEY FIX
+                sheet_schema=sheet_schema,
             )
             if not sync_success:
                 sync_error = 'Google Sheets sync failed'
@@ -272,10 +280,7 @@ def bulk_resync_to_sheets(limit: int = 100, max_attempts: int = 5) -> dict:
     own sheets instead of all going to the global GOOGLE_SHEET_ID.
     """
     from core.services.sheets import append_parsed_message_to_sheet
-    from core.services.group_config import (
-        get_sheet_id_for_group,
-        get_sheet_name_for_group,
-    )
+    from core.services.group_config import GroupRegistry
 
     unsynced = get_unsynced_messages(limit, max_attempts)
 
@@ -295,9 +300,14 @@ def bulk_resync_to_sheets(limit: int = 100, max_attempts: int = 5) -> dict:
         # Resolve the sheet for this message's group
         sheet_id = None
         sheet_name = None
+        sheet_schema = None
         if msg.group_id:
-            sheet_id = get_sheet_id_for_group(msg.group_id)
-            sheet_name = get_sheet_name_for_group(msg.group_id)
+            group_config = GroupRegistry.get_instance().get_group(msg.group_id)
+            sheet_id = group_config.sheet_id if group_config else msg.sheet_id
+            sheet_name = group_config.sheet_name if group_config else msg.sheet_name
+            sheet_schema = (
+                group_config.sheet_schema_config if group_config else None
+            )
             if not sheet_id:
                 logger.warning(
                     f"Resync: cannot resolve sheet for group {msg.group_id} "
@@ -309,6 +319,7 @@ def bulk_resync_to_sheets(limit: int = 100, max_attempts: int = 5) -> dict:
                 msg,
                 sheet_id=sheet_id,
                 sheet_name=sheet_name,
+                sheet_schema=sheet_schema,
             )
             if success:
                 success_count += 1
@@ -336,9 +347,15 @@ def append_parsed_message_to_sheet(
     parsed_message,
     sheet_id: str = None,
     sheet_name: str = None,
+    sheet_schema: dict = None,
 ):
     """Backward-compatible shim used by tests and external callers."""
     from core.services.sheets import (
         append_parsed_message_to_sheet as _append,
     )
-    return _append(parsed_message, sheet_id=sheet_id, sheet_name=sheet_name)
+    return _append(
+        parsed_message,
+        sheet_id=sheet_id,
+        sheet_name=sheet_name,
+        sheet_schema=sheet_schema,
+    )
