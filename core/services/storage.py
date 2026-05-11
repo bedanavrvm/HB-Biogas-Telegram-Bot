@@ -35,10 +35,16 @@ def store_raw_message(
     sender: str = '',
     received_at: datetime = None,
     has_image: bool = False,
+    source_telegram_message_id: str = '',
+    batch_index: int = None,
 ) -> RawMessage:
     try:
         raw_message = RawMessage.objects.create(
             telegram_message_id=telegram_message_id,
+            source_telegram_message_id=(
+                source_telegram_message_id or telegram_message_id
+            ),
+            batch_index=batch_index,
             sender=sender,
             content=content,
             received_at=received_at or timezone.now(),
@@ -112,6 +118,8 @@ def process_and_store_message(
     source: str = 'telegram bot',
     group_id: str = None,
     sheet_name: str = None,
+    source_telegram_message_id: str = '',
+    batch_index: int = None,
     sheet_id: str = None,          # ← forwarded to Google Sheets service
 ) -> Optional[ParsedMessage]:
     """
@@ -155,6 +163,8 @@ def process_and_store_message(
             sender=sender,
             received_at=received_at,
             has_image=has_image,
+            source_telegram_message_id=source_telegram_message_id,
+            batch_index=batch_index,
         )
 
         # ── 3. Mark as processed ─────────────────────────────────────

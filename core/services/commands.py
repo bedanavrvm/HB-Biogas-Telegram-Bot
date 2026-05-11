@@ -15,7 +15,12 @@ DEFAULT_LAST_LIMIT = 5
 MAX_SEARCH_LENGTH = 80
 
 
-def handle_bot_command(content: str, group_id: str) -> dict | None:
+def handle_bot_command(
+    content: str,
+    group_id: str,
+    sender: str = '',
+    telegram_message_id: str = '',
+) -> dict | None:
     """
     Return a command result dict when *content* is a supported command.
 
@@ -69,6 +74,17 @@ def handle_bot_command(content: str, group_id: str) -> dict | None:
 
     if _should_refresh_from_sheet(normalized):
         _refresh_group_from_sheet(group_id)
+
+    match = re.fullmatch(r'/?update\s+(\S+)\s+(.+)', text, flags=re.IGNORECASE | re.DOTALL)
+    if match:
+        from core.services.case_updates import handle_case_update_command
+        return handle_case_update_command(
+            group_id=group_id,
+            message_id=match.group(1),
+            content=match.group(2),
+            sender=sender,
+            update_telegram_message_id=telegram_message_id,
+        )
 
     if normalized in {'/today', 'today'}:
         return {
@@ -287,6 +303,7 @@ def _help_text() -> str:
         "/last 5 - show the latest 5 cases from this group\n"
         "/recent 10 - show the latest 10 cases from this group\n"
         "/case MSG_ID - show one case in detail\n"
+        "/update MSG_ID Status: resolved - update a case status\n"
         "/search text - search names, phone, ID, or complaint text\n"
         "/today - show today's cases from this group\n"
         "/week - show this week's cases from this group\n"

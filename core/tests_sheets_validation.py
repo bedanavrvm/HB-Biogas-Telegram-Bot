@@ -263,6 +263,43 @@ class GoogleSheetsValidationTests(TestCase):
         written_ranges = [call.args[0] for call in update_calls]
         self.assertNotIn('I2:I2', written_ranges)
 
+    def test_update_case_row_writes_only_workflow_columns(self):
+        """Status updates should not overwrite bot intake or formula columns."""
+        mock_sheet = Mock()
+        mock_sheet.row_values = Mock(return_value=self.expected_columns)
+        mock_sheet.col_values = Mock(return_value=['message_id', 'MSG_001'])
+        mock_sheet.update = Mock(return_value=True)
+
+        updates = {
+            'Status': 'Closed',
+            'Resolution Details': 'Pipe replaced',
+            'Date Resolved': '11/05/2026',
+            'Customer Name': 'SHOULD NOT WRITE',
+            'Days Open': '0',
+        }
+
+        with patch.object(self.service, 'is_available', return_value=True):
+            with patch.object(self.service, '_sheet', mock_sheet):
+                result = self.service.update_case_row('MSG_001', updates)
+
+        self.assertTrue(result)
+        update_calls = mock_sheet.update.call_args_list
+        self.assertEqual(update_calls[0].args[0], 'R2:S2')
+        self.assertEqual(
+            update_calls[0].args[1],
+            [['Closed', 'Pipe replaced']],
+        )
+        self.assertEqual(update_calls[0].kwargs['value_input_option'], 'RAW')
+        self.assertEqual(update_calls[1].args[0], 'T2:T2')
+        self.assertEqual(update_calls[1].args[1], [['11/05/2026']])
+        self.assertEqual(
+            update_calls[1].kwargs['value_input_option'],
+            'USER_ENTERED',
+        )
+        written_ranges = [call.args[0] for call in update_calls]
+        self.assertNotIn('D2:D2', written_ranges)
+        self.assertNotIn('U2:U2', written_ranges)
+
     def test_get_instance_is_keyed_by_sheet_id_and_sheet_name(self):
         """Different tabs in the same spreadsheet should get distinct services."""
         GoogleSheetsService.clear_instances()

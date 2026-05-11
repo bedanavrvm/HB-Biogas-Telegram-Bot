@@ -10,7 +10,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 from unittest.mock import patch, MagicMock
 
-from core.models import RawMessage, ProcessedMessage, ParsedMessage
+from core.models import CaseUpdate, RawMessage, ProcessedMessage, ParsedMessage
 from core.services.deduplication import generate_message_hash, is_duplicate
 from core.services.parser import parse_message, split_batch_message
 from core.services.sheets import GoogleSheetsService, batch_append_messages
@@ -37,6 +37,7 @@ def create_parsed_case(
     """Create a parsed case with its raw/processed parents for tests."""
     raw = RawMessage.objects.create(
         telegram_message_id=message_id,
+        source_telegram_message_id=message_id,
         sender='Agent',
         content=description,
     )
@@ -77,7 +78,149 @@ class DeduplicationServiceTest(TestCase):
         hash1 = generate_message_hash("John", "Sold 3 bread 50 each")
         hash2 = generate_message_hash("John", "Sold 3 bread 50 each")
         self.assertEqual(hash1, hash2)
-    
+
+
+class CaseUpdateServiceTest(TestCase):
+    """Test chat-driven case status updates."""
+
+    def _patch_sheet_success(self):
+        group_config = MagicMock(sheet_id='sheet_123', sheet_name='Complaints')
+        registry = MagicMock()
+        registry.get_group.return_value = group_config
+        sheet = MagicMock()
+        sheet.update_case_row.return_value = True
+        return (
+            patch('core.services.case_updates.GroupRegistry.get_instance', return_value=registry),
+            patch('core.services.case_updates.get_sheets_service', return_value=sheet),
+            sheet,
+        )
+
+    def test_parse_case_update_resolved(self):
+        from core.services.case_updates import parse_case_update
+
+        result = parse_case_update('Status: resolved - jiko relocated')
+
+        self.assertTrue(result.is_update)
+        self.assertEqual(result.new_status, 'Closed')
+        self.assertEqual(result.resolution_text, 'jiko relocated')
+
+    def test_reply_status_update_updates_case_and_sheet(self):
+        from core.services.case_updates import handle_case_status_reply
+
+        case = create_parsed_case(
+            'MSG_UPDATE_1',
+            complaint_status='Open',
+            synced_to_sheets=True,
+        )
+        case.processed_message.raw_message.telegram_message_id = '777'
+        case.processed_message.raw_message.source_telegram_message_id = '777'
+        case.processed_message.raw_message.save()
+
+        registry_patch, sheet_patch, sheet = self._patch_sheet_success()
+        with registry_patch, sheet_patch:
+            result = handle_case_status_reply(
+                group_id='-100123',
+                reply_to_telegram_message_id='777',
+                update_telegram_message_id='888',
+                sender='Peter',
+                content='Status: resolved - jiko relocated successfully',
+            )
+
+        case.refresh_from_db()
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('Case updated', result['reply_text'])
+        self.assertEqual(case.complaint_status, 'Closed')
+        self.assertIsNotNone(case.date_resolved)
+        self.assertIn('jiko relocated successfully', case.resolution_details)
+        update = CaseUpdate.objects.get(parsed_message=case)
+        self.assertEqual(update.sync_status, 'success')
+        sheet.update_case_row.assert_called_once()
+        args, _ = sheet.update_case_row.call_args
+        self.assertEqual(args[0], 'MSG_UPDATE_1')
+        self.assertEqual(args[1]['Status'], 'Closed')
+        self.assertIn('jiko relocated successfully', args[1]['Resolution Details'])
+        self.assertIn('Date Resolved', args[1])
+
+    def test_reply_status_update_does_not_update_db_when_sheet_fails(self):
+        from core.services.case_updates import handle_case_status_reply
+
+        case = create_parsed_case('MSG_UPDATE_FAIL', complaint_status='Open')
+        case.processed_message.raw_message.telegram_message_id = '700'
+        case.processed_message.raw_message.source_telegram_message_id = '700'
+        case.processed_message.raw_message.save()
+
+        group_config = MagicMock(sheet_id='sheet_123', sheet_name='Complaints')
+        registry = MagicMock()
+        registry.get_group.return_value = group_config
+        sheet = MagicMock()
+        sheet.update_case_row.return_value = False
+
+        with patch('core.services.case_updates.GroupRegistry.get_instance', return_value=registry):
+            with patch('core.services.case_updates.get_sheets_service', return_value=sheet):
+                result = handle_case_status_reply(
+                    group_id='-100123',
+                    reply_to_telegram_message_id='700',
+                    update_telegram_message_id='701',
+                    sender='Peter',
+                    content='Status: resolved - fixed',
+                )
+
+        case.refresh_from_db()
+        self.assertEqual(case.complaint_status, 'Open')
+        self.assertIsNone(case.date_resolved)
+        self.assertIn('not update the register', result['reply_text'])
+        update = CaseUpdate.objects.get(parsed_message=case)
+        self.assertEqual(update.sync_status, 'failed')
+
+    def test_reply_status_update_requires_case_id_for_batch_ambiguity(self):
+        from core.services.case_updates import handle_case_status_reply
+
+        first = create_parsed_case('MSG_BATCH_A', customer_name='Alice')
+        second = create_parsed_case('MSG_BATCH_B', customer_name='Bob')
+        first.processed_message.raw_message.telegram_message_id = '900_0'
+        first.processed_message.raw_message.source_telegram_message_id = '900'
+        first.processed_message.raw_message.batch_index = 0
+        first.processed_message.raw_message.save()
+        second.processed_message.raw_message.telegram_message_id = '900_1'
+        second.processed_message.raw_message.source_telegram_message_id = '900'
+        second.processed_message.raw_message.batch_index = 1
+        second.processed_message.raw_message.save()
+
+        result = handle_case_status_reply(
+            group_id='-100123',
+            reply_to_telegram_message_id='900',
+            update_telegram_message_id='901',
+            sender='Peter',
+            content='Status: resolved',
+        )
+
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('/update MSG_ID', result['reply_text'])
+        self.assertEqual(CaseUpdate.objects.count(), 0)
+
+    def test_explicit_update_command_updates_case(self):
+        from core.services.commands import handle_bot_command
+
+        case = create_parsed_case('MSG_CMD_1', complaint_status='Open')
+        registry_patch, sheet_patch, _sheet = self._patch_sheet_success()
+
+        with registry_patch, sheet_patch:
+            result = handle_bot_command(
+                '/update MSG_CMD_1 Status: scheduled for Thursday',
+                '-100123',
+                sender='Peter',
+                telegram_message_id='901',
+            )
+
+        case.refresh_from_db()
+        self.assertEqual(result['status'], 'command')
+        self.assertEqual(case.complaint_status, 'In Progress')
+        self.assertIn('scheduled for Thursday', case.resolution_details)
+
+
+class DeduplicationHashTest(TestCase):
+    """Additional deduplication hash tests."""
+
     def test_generate_message_hash_different_content(self):
         """Different content should produce different hash."""
         hash1 = generate_message_hash("John", "Sold 3 bread 50 each")
@@ -1485,6 +1628,57 @@ class TelegramWebhookViewTest(TestCase):
         mock_process.assert_not_called()
 
     @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
+    @patch('core.services.case_updates.handle_case_status_reply')
+    @patch('core.api.views._process_single_message')
+    def test_telegram_status_reply_can_be_untagged(
+        self,
+        mock_process,
+        mock_update,
+    ):
+        """Untagged Status replies to case messages should route as updates."""
+        from core.api.views import _process_telegram_message
+
+        mock_update.return_value = {
+            'status': 'command',
+            'reply_text': 'OK. Case updated.',
+        }
+
+        result = _process_telegram_message({
+            'message_id': 456,
+            'from': {'first_name': 'Test'},
+            'chat': {'id': -100123, 'type': 'group'},
+            'date': 1711123456,
+            'text': 'Status: resolved - repaired',
+            'reply_to_message': {'message_id': 123},
+        })
+
+        self.assertEqual(result['status'], 'command')
+        mock_update.assert_called_once()
+        self.assertEqual(
+            mock_update.call_args.kwargs['reply_to_telegram_message_id'],
+            '123',
+        )
+        mock_process.assert_not_called()
+
+    @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
+    @patch('core.api.views._process_single_message')
+    def test_telegram_status_without_reply_returns_help(self, mock_process):
+        """Tagged Status text without reply context should not create a case."""
+        from core.api.views import _process_telegram_message
+
+        result = _process_telegram_message({
+            'message_id': 456,
+            'from': {'first_name': 'Test'},
+            'chat': {'id': -100123, 'type': 'group'},
+            'date': 1711123456,
+            'text': '@biogas_bot Status: resolved - repaired',
+        })
+
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('/update MSG_ID', result['reply_text'])
+        mock_process.assert_not_called()
+
+    @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
     @patch('core.api.views._process_single_message')
     def test_telegram_message_processes_tagged_content_only(self, mock_process):
         """The bot mention is stripped before parsing real message content."""
@@ -1578,6 +1772,12 @@ NATURE OF THE PROBLEM: Gas leakage
             mock_process.call_args_list[1].kwargs['telegram_message_id'],
             '123_1',
         )
+        self.assertEqual(
+            mock_process.call_args_list[0].kwargs['source_telegram_message_id'],
+            '123',
+        )
+        self.assertEqual(mock_process.call_args_list[0].kwargs['batch_index'], 0)
+        self.assertEqual(mock_process.call_args_list[1].kwargs['batch_index'], 1)
         self.assertIn('Jane Doe', mock_process.call_args_list[0].kwargs['content'])
         self.assertIn('John Smith', mock_process.call_args_list[1].kwargs['content'])
 

@@ -14,6 +14,14 @@ class RawMessage(models.Model):
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     telegram_message_id = models.CharField(max_length=255, db_index=True)
+    source_telegram_message_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        db_index=True,
+        help_text='Original Telegram message_id before batch splitting.',
+    )
+    batch_index = models.PositiveIntegerField(null=True, blank=True)
     sender = models.CharField(max_length=255, blank=True, default='')
     content = models.TextField()
     received_at = models.DateTimeField(default=timezone.now)
@@ -24,6 +32,7 @@ class RawMessage(models.Model):
         ordering = ['-received_at']
         indexes = [
             models.Index(fields=['telegram_message_id', 'received_at']),
+            models.Index(fields=['source_telegram_message_id', 'received_at']),
         ]
 
     def __str__(self):
@@ -179,3 +188,50 @@ class ParsedMessage(models.Model):
             self._format_sheet_date(self.date_resolved),                                # [19] Date Resolved
             str(self.days_open) if self.days_open is not None else '',                   # [20] Days Open
         ]
+
+
+class CaseUpdate(models.Model):
+    """Audit trail for chat-driven case status/resolution updates."""
+
+    SYNC_STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('success', 'Synced'),
+        ('failed', 'Failed'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    parsed_message = models.ForeignKey(
+        ParsedMessage,
+        on_delete=models.CASCADE,
+        related_name='case_updates',
+    )
+    group_id = models.CharField(max_length=100, db_index=True)
+    updated_by = models.CharField(max_length=255, blank=True, default='')
+    telegram_message_id = models.CharField(max_length=255, blank=True, default='')
+    reply_to_telegram_message_id = models.CharField(max_length=255, blank=True, default='')
+
+    old_status = models.CharField(max_length=255, blank=True, default='')
+    new_status = models.CharField(max_length=255, blank=True, default='')
+    resolution_text = models.TextField(blank=True, default='')
+    risk_level = models.CharField(max_length=100, blank=True, default='')
+    loan_at_risk = models.CharField(max_length=100, blank=True, default='')
+
+    sync_status = models.CharField(
+        max_length=20,
+        choices=SYNC_STATUS_CHOICES,
+        default='pending',
+    )
+    sync_error = models.TextField(blank=True, default='')
+    raw_update_text = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['group_id', 'created_at']),
+            models.Index(fields=['telegram_message_id']),
+            models.Index(fields=['reply_to_telegram_message_id']),
+        ]
+
+    def __str__(self):
+        return f"CaseUpdate {self.parsed_message.message_id}: {self.new_status}"

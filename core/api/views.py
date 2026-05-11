@@ -162,9 +162,26 @@ def _process_telegram_message(message_data: dict) -> dict:
 
         telegram_message_id = str(message_data.get('message_id', ''))
         sender = _extract_sender_name(message_data)
+        raw_content = _extract_message_content(message_data)
         content = _extract_tagged_message_content(message_data)
         has_image = _detect_image(message_data)
         received_at = _extract_timestamp(message_data)
+        reply_to_id = str(
+            message_data.get('reply_to_message', {}).get('message_id', '')
+        )
+
+        update_content = content if content is not None else raw_content
+        if reply_to_id and _looks_like_status_update(update_content):
+            from core.services.case_updates import handle_case_status_reply
+            update_result = handle_case_status_reply(
+                group_id=group_id,
+                reply_to_telegram_message_id=reply_to_id,
+                update_telegram_message_id=telegram_message_id,
+                sender=sender,
+                content=update_content,
+            )
+            if update_result:
+                return update_result
 
         if content is None:
             logger.debug(f"Ignoring message {telegram_message_id}: bot was not tagged")
@@ -182,8 +199,22 @@ def _process_telegram_message(message_data: dict) -> dict:
                 'message_id': telegram_message_id,
             }
 
+        if _looks_like_status_update(content):
+            return {
+                'status': 'command',
+                'reply_text': (
+                    "To update a case, reply to the original case message with "
+                    "Status: ... or use /update MSG_ID Status: ..."
+                ),
+            }
+
         from core.services.commands import handle_bot_command
-        command_result = handle_bot_command(content, group_id)
+        command_result = handle_bot_command(
+            content,
+            group_id,
+            sender=sender,
+            telegram_message_id=telegram_message_id,
+        )
         if command_result:
             return command_result
 
@@ -199,6 +230,8 @@ def _process_telegram_message(message_data: dict) -> dict:
                     has_image=has_image,
                     received_at=received_at,
                     group_id=group_id,
+                    source_telegram_message_id=telegram_message_id,
+                    batch_index=i,
                 )
                 results.append(result)
 
@@ -217,6 +250,7 @@ def _process_telegram_message(message_data: dict) -> dict:
             has_image=has_image,
             received_at=received_at,
             group_id=group_id,
+            source_telegram_message_id=telegram_message_id,
         )
 
     except Exception as exc:
@@ -231,6 +265,8 @@ def _process_single_message(
     has_image: bool,
     received_at: datetime,
     group_id: str = None,
+    source_telegram_message_id: str = '',
+    batch_index: int = None,
 ) -> dict:
     """
     Run one message through dedup â†’ parse â†’ store â†’ sheet sync.
@@ -268,6 +304,8 @@ def _process_single_message(
             has_image=has_image,
             group_id=group_id,
             sheet_name=sheet_name,
+            source_telegram_message_id=source_telegram_message_id,
+            batch_index=batch_index,
             sheet_id=sheet_id,       # â† forwarded to sheets service
         )
 
@@ -694,6 +732,11 @@ def _extract_tagged_message_content(message_data: dict) -> str | None:
         return None
 
     return mention_pattern.sub('', content).strip()
+
+
+def _looks_like_status_update(content: str) -> bool:
+    from core.services.case_updates import looks_like_status_update
+    return looks_like_status_update(content)
 
 
 def _detect_image(message_data: dict) -> bool:

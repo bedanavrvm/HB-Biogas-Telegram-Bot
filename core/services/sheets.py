@@ -121,6 +121,13 @@ class GoogleSheetsService:
         'image_flag',
         'source',
     }
+    CASE_UPDATE_WRITABLE_COLUMNS = {
+        'Status',
+        'Resolution Details',
+        'Date Resolved',
+        'Risk Level',
+        'Loan at Risk',
+    }
 
     # ------------------------------------------------------------------
     # Construction / caching
@@ -535,6 +542,98 @@ class GoogleSheetsService:
         )
         return result
 
+    def update_case_row(self, message_id: str, updates: dict) -> bool:
+        """
+        Update workflow columns for an existing case row.
+
+        The row is located by the live message_id header. Only
+        CASE_UPDATE_WRITABLE_COLUMNS can be written; formula and intake columns
+        are ignored even if present in updates.
+        """
+        if not message_id:
+            logger.error("Cannot update case row without message_id")
+            return False
+        if not self.is_available():
+            logger.warning(
+                f"Google Sheets unavailable for sheet {self._sheet_id}, "
+                f"cannot update case {message_id}"
+            )
+            return False
+
+        try:
+            is_valid, error_msg = self.validate_sheet_structure()
+            if not is_valid:
+                logger.error(
+                    f"ABORT: structure validation failed for case update "
+                    f"{self._sheet_id}: {error_msg}"
+                )
+                return False
+
+            headers = self._sheet.row_values(1)
+            row_number = self._row_number_for_message_id(message_id)
+            if not row_number:
+                logger.warning(
+                    f"Could not find message_id={message_id} in sheet "
+                    f"{self._sheet_id}"
+                )
+                return False
+
+            writable = {
+                self._normalize_header(column)
+                for column in self.CASE_UPDATE_WRITABLE_COLUMNS
+            }
+            values_by_header = {
+                self._normalize_header(key): value
+                for key, value in (updates or {}).items()
+            }
+
+            columns = []
+            for zero_idx, header in enumerate(headers):
+                normalized = self._normalize_header(header)
+                if normalized not in writable or normalized not in values_by_header:
+                    continue
+                input_option = (
+                    'USER_ENTERED'
+                    if normalized == self._normalize_header('Date Resolved')
+                    else 'RAW'
+                )
+                columns.append((
+                    zero_idx + 1,
+                    values_by_header.get(normalized, ''),
+                    input_option,
+                ))
+
+            if not columns:
+                logger.info(f"No allowed case update fields for {message_id}")
+                return True
+
+            for group in self._group_consecutive_columns(columns):
+                start_col = group[0][0]
+                end_col = group[-1][0]
+                values = [[value for _, value, _ in group]]
+                range_name = (
+                    f"{self._column_letter(start_col)}{row_number}:"
+                    f"{self._column_letter(end_col)}{row_number}"
+                )
+                self._update_range(
+                    range_name,
+                    values,
+                    value_input_option=group[0][2],
+                )
+
+            logger.info(
+                f"Updated case row {row_number} in sheet {self._sheet_id}: "
+                f"message_id={message_id}"
+            )
+            return True
+        except Exception as exc:
+            logger.error(
+                f"Failed to update case {message_id} in sheet "
+                f"{self._sheet_id}: {exc}",
+                exc_info=True,
+            )
+            return False
+
     def fetch_rows(self) -> list[dict]:
         """
         Read all non-empty data rows from the sheet using the live headers.
@@ -596,6 +695,13 @@ class GoogleSheetsService:
         except Exception as exc:
             logger.error(f"Error reading existing message IDs: {exc}")
             return set()
+
+    def _row_number_for_message_id(self, message_id: str) -> Optional[int]:
+        values = self._column_values_by_header('message_id')
+        for idx, value in enumerate(values, start=1):
+            if value == message_id:
+                return idx
+        return None
 
     @staticmethod
     def _normalize_header(header: str) -> str:
