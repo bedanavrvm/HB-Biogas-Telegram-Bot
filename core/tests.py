@@ -10,7 +10,13 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 from unittest.mock import patch, MagicMock
 
-from core.models import CaseUpdate, RawMessage, ProcessedMessage, ParsedMessage
+from core.models import (
+    CaseUpdate,
+    GroupSheetConfiguration,
+    RawMessage,
+    ProcessedMessage,
+    ParsedMessage,
+)
 from core.services.deduplication import generate_message_hash, is_duplicate
 from core.services.parser import parse_message, split_batch_message
 from core.services.sheets import GoogleSheetsService, batch_append_messages
@@ -30,6 +36,8 @@ def create_parsed_case(
     complaint_category: str = '',
     risk_level: str = '',
     synced_to_sheets: bool = False,
+    sheet_id: str = '',
+    sheet_name: str = '',
     last_sync_error: str = '',
     processed_status: str = 'success',
     created_at=None,
@@ -60,6 +68,8 @@ def create_parsed_case(
         risk_level=risk_level,
         raw_message=description,
         group_id=group_id,
+        sheet_id=sheet_id,
+        sheet_name=sheet_name,
         source='telegram bot',
         synced_to_sheets=synced_to_sheets,
         last_sync_error=last_sync_error,
@@ -151,9 +161,9 @@ class CaseUpdateServiceTest(TestCase):
         sheet.update_case_row.assert_called_once()
         args, _ = sheet.update_case_row.call_args
         self.assertEqual(args[0], 'MSG_UPDATE_1')
-        self.assertEqual(args[1]['Status'], 'Closed')
-        self.assertIn('jiko relocated successfully', args[1]['Resolution Details'])
-        self.assertIn('Date Resolved', args[1])
+        self.assertEqual(args[1]['status'], 'Closed')
+        self.assertIn('jiko relocated successfully', args[1]['resolution_details'])
+        self.assertIn('date_resolved', args[1])
 
     def test_reply_status_update_writes_note_to_resolution_details(self):
         from core.services.case_updates import handle_case_status_reply
@@ -182,8 +192,8 @@ class CaseUpdateServiceTest(TestCase):
         self.assertIn('Jiko relocated and customer confirmed', case.resolution_details)
         self.assertNotIn('NOTE:', case.resolution_details)
         args, _ = sheet.update_case_row.call_args
-        self.assertIn('Jiko relocated and customer confirmed', args[1]['Resolution Details'])
-        self.assertNotIn('NOTE:', args[1]['Resolution Details'])
+        self.assertIn('Jiko relocated and customer confirmed', args[1]['resolution_details'])
+        self.assertNotIn('NOTE:', args[1]['resolution_details'])
 
     def test_reply_status_update_does_not_update_db_when_sheet_fails(self):
         from core.services.case_updates import handle_case_status_reply
@@ -986,6 +996,28 @@ class StorageServiceTest(TestCase):
                 raw_message__telegram_message_id='test_001'
             ).exists()
         )
+
+    @patch('core.services.sheets.append_parsed_message_to_sheet')
+    def test_process_and_store_persists_sheet_identity(self, mock_sheet):
+        """Stored cases should retain the sheet they were routed to."""
+        mock_sheet.return_value = True
+
+        parsed = process_and_store_message(
+            telegram_message_id='test_sheet_identity',
+            content='Sold 3 bread 50 each to John',
+            sender='Seller',
+            received_at=timezone.now(),
+            group_id='-100123',
+            sheet_id='sheet_123',
+            sheet_name='Cases',
+        )
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.group_id, '-100123')
+        self.assertEqual(parsed.sheet_id, 'sheet_123')
+        self.assertEqual(parsed.sheet_name, 'Cases')
+        self.assertEqual(mock_sheet.call_args.kwargs['sheet_id'], 'sheet_123')
+        self.assertEqual(mock_sheet.call_args.kwargs['sheet_name'], 'Cases')
     
     @patch('core.services.storage.append_parsed_message_to_sheet')
     def test_process_duplicate_message(self, mock_sheet):
@@ -1238,6 +1270,8 @@ class StorageServiceTest(TestCase):
         self.assertEqual(existing.customer_name, 'Updated Name')
         self.assertEqual(existing.complaint_status, 'Closed')
         self.assertEqual(existing.resolution_details, 'Fixed')
+        self.assertEqual(existing.sheet_id, 'sheet_123')
+        self.assertEqual(existing.sheet_name, 'Cases')
         self.assertTrue(existing.synced_to_sheets)
         self.assertTrue(existing.image_flag)
         self.assertEqual(existing.processed_message_id, original_processed_id)
@@ -1250,6 +1284,199 @@ class StorageServiceTest(TestCase):
         self.assertEqual(created.customer_name, 'New Customer')
         self.assertEqual(created.complaint_description, 'Created from sheet')
         self.assertEqual(created.group_id, '-100123')
+        self.assertEqual(created.sheet_id, 'sheet_123')
+        self.assertEqual(created.sheet_name, 'Cases')
+
+
+class GroupConfigurationServiceTest(TestCase):
+    """Test admin-managed group routing configuration."""
+
+    def tearDown(self):
+        from core.services.group_config import GroupRegistry
+        GroupRegistry._instance = None
+        super().tearDown()
+
+    @override_settings(GROUP_MAPPING={}, GOOGLE_SHEET_ID='')
+    def test_admin_group_configuration_routes_group_to_sheet(self):
+        """A group can be configured from the admin UI instead of env JSON."""
+        from core.services.group_config import GroupRegistry
+
+        GroupSheetConfiguration.objects.create(
+            group_id='-100999',
+            display_name='Support Team',
+            sheet_id='admin_sheet_123',
+            sheet_name='Support Cases',
+            sheet_schema={
+                'field_headers': {
+                    'message_id': 'Backend ID',
+                    'customer_name': 'Client',
+                },
+            },
+            workflow={'status_values': ['Open', 'In Progress', 'Closed']},
+            parser_rules={'bot_username': 'hb_biogas_cases_bot'},
+        )
+
+        GroupRegistry._instance = None
+        config = GroupRegistry.get_instance().get_group('-100999')
+
+        self.assertIsNotNone(config)
+        self.assertEqual(config.sheet_id, 'admin_sheet_123')
+        self.assertEqual(config.sheet_name, 'Support Cases')
+        self.assertEqual(config.sheet_schema.header('message_id'), 'Backend ID')
+        self.assertEqual(config.workflow['status_values'][0], 'Open')
+        self.assertEqual(config.parser_rules['bot_username'], 'hb_biogas_cases_bot')
+
+    @override_settings(
+        GROUP_MAPPING={
+            '-100999': {
+                'sheet_id': 'env_sheet',
+                'sheet_name': 'Env Cases',
+            },
+        },
+        GOOGLE_SHEET_ID='',
+    )
+    def test_admin_group_configuration_overrides_settings_mapping(self):
+        """Admin UI config should win over env config for the same group."""
+        from core.services.group_config import GroupRegistry
+
+        GroupSheetConfiguration.objects.create(
+            group_id='-100999',
+            display_name='Admin Team',
+            sheet_id='admin_sheet',
+            sheet_name='Admin Cases',
+        )
+
+        GroupRegistry._instance = None
+        config = GroupRegistry.get_instance().get_group('-100999')
+
+        self.assertEqual(config.sheet_id, 'admin_sheet')
+        self.assertEqual(config.sheet_name, 'Admin Cases')
+
+
+class SheetAnalyzerServiceTest(TestCase):
+    """Test Google Sheet analysis and schema suggestion."""
+
+    def _mock_sheet_service(self):
+        service = MagicMock()
+        service.is_available.return_value = True
+        service._sheet_id = 'sheet_123'
+        service._sheet_name = 'Cases'
+        service._api_initialized = True
+        service._sheet.get_all_values.return_value = [
+            [
+                'Complaint ID', 'Backend ID', 'Reported On', 'Client',
+                'Mobile', 'Case State', 'Fix Notes', 'Days Open',
+            ],
+            [
+                '=ROW()-1', 'MSG_001', '11/05/2026', 'Jane Doe',
+                '0712345678', 'Open', '', '=TODAY()-C2',
+            ],
+            [
+                '=ROW()-1', 'MSG_002', '12/05/2026', 'John Doe',
+                '254712345678', 'Closed', 'Fixed pipe', '=TODAY()-C3',
+            ],
+        ]
+        service._sheet.get.return_value = [
+            [
+                'Complaint ID', 'Backend ID', 'Reported On', 'Client',
+                'Mobile', 'Case State', 'Fix Notes', 'Days Open',
+            ],
+            [
+                '=ROW()-1', 'MSG_001', '11/05/2026', 'Jane Doe',
+                '0712345678', 'Open', '', '=TODAY()-C2',
+            ],
+        ]
+
+        metadata_get = MagicMock()
+        metadata_get.execute.return_value = {
+            'sheets': [
+                {
+                    'properties': {'title': 'Cases'},
+                    'data': [
+                        {
+                            'rowData': [
+                                {'values': [{} for _ in range(8)]},
+                                {
+                                    'values': [
+                                        {}, {}, {}, {}, {},
+                                        {
+                                            'dataValidation': {
+                                                'condition': {
+                                                    'type': 'ONE_OF_LIST',
+                                                    'values': [
+                                                        {'userEnteredValue': 'Open'},
+                                                        {'userEnteredValue': 'In Progress'},
+                                                        {'userEnteredValue': 'Closed'},
+                                                    ],
+                                                },
+                                            },
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        }
+        service._sheets_api_service.spreadsheets.return_value.get.return_value = metadata_get
+        return service
+
+    @patch('core.services.sheet_analyzer.get_sheets_service')
+    def test_analyze_google_sheet_suggests_schema_and_dropdowns(self, mock_service):
+        from core.services.sheet_analyzer import analyze_google_sheet
+
+        mock_service.return_value = self._mock_sheet_service()
+
+        result = analyze_google_sheet('sheet_123', 'Cases')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['row_count'], 2)
+        schema = result['suggested_schema']
+        self.assertEqual(schema['field_headers']['message_id'], 'Backend ID')
+        self.assertEqual(schema['field_headers']['customer_name'], 'Client')
+        self.assertEqual(schema['field_headers']['customer_phone'], 'Mobile')
+        self.assertEqual(schema['field_headers']['status'], 'Case State')
+        self.assertIn('complaint_id', schema['formula_fields'])
+        self.assertIn('days_open', schema['formula_fields'])
+        self.assertEqual(
+            result['workflow']['dropdown_values']['status'],
+            ['Open', 'In Progress', 'Closed'],
+        )
+
+    def test_apply_analysis_to_config_saves_schema_workflow_and_metadata(self):
+        from core.services.sheet_analyzer import apply_analysis_to_config
+
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100555',
+            sheet_id='sheet_123',
+            sheet_name='Cases',
+        )
+        analysis = {
+            'suggested_schema': {
+                'columns': ['Backend ID', 'Client'],
+                'field_headers': {
+                    'message_id': 'Backend ID',
+                    'customer_name': 'Client',
+                },
+            },
+            'workflow': {
+                'dropdown_values': {
+                    'status': ['Open', 'Closed'],
+                },
+            },
+            'row_count': 10,
+            'sample_size': 5,
+            'columns': [{'header': 'Backend ID'}],
+            'warnings': [],
+        }
+
+        apply_analysis_to_config(config, analysis)
+
+        config.refresh_from_db()
+        self.assertEqual(config.sheet_schema['field_headers']['message_id'], 'Backend ID')
+        self.assertEqual(config.workflow['dropdown_values']['status'], ['Open', 'Closed'])
+        self.assertEqual(config.metadata['sheet_analysis']['row_count'], 10)
 
 
 class BotCommandServiceTest(TestCase):
@@ -2052,6 +2279,7 @@ NATURE OF THE PROBLEM: Gas leakage
         registry.get_group.return_value = MagicMock(
             sheet_id='sheet_123',
             sheet_name='Support Tickets',
+            sheet_schema_config={'field_headers': {'message_id': 'Backend ID'}},
         )
         mock_registry_get_instance.return_value = registry
 
@@ -2073,6 +2301,11 @@ NATURE OF THE PROBLEM: Gas leakage
         self.assertEqual(
             mock_process_store.call_args.kwargs['sheet_name'],
             'Support Tickets',
+        )
+        self.assertEqual(mock_process_store.call_args.kwargs['sheet_id'], 'sheet_123')
+        self.assertEqual(
+            mock_process_store.call_args.kwargs['sheet_schema'],
+            {'field_headers': {'message_id': 'Backend ID'}},
         )
 
 

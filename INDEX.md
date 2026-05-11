@@ -48,6 +48,12 @@
    - Error recovery flow
    - For: Developers, QA team
 
+7. **[MULTI_GROUP_WORKFLOW_CONFIGURATION.md](MULTI_GROUP_WORKFLOW_CONFIGURATION.md)**
+   - Django admin group-to-sheet configuration
+   - Google Sheet analyzer workflow
+   - Per-group spreadsheet schemas and workflow rules
+   - For: Developers, admins, operations leads
+
 ---
 
 ## File Structure Overview
@@ -114,12 +120,14 @@ biogas_bot/
 2. ARCHITECTURE.md - Technical design
 3. DEPLOYMENT.md - Deployment steps
 4. SYSTEM_FLOW.md - Visual diagrams
+5. MULTI_GROUP_WORKFLOW_CONFIGURATION.md - Multi-sheet configuration and analyzer
 
 ### 👨‍🔧 DevOps Engineer
 **Read:**
 1. DEPLOYMENT.md - Step-by-step deploy guide
 2. ARCHITECTURE.md - System architecture
 3. README.md - Configuration details
+4. MULTI_GROUP_WORKFLOW_CONFIGURATION.md - Group-specific sheet configuration
 
 ### 👥 Staff Members (End Users)
 **Read:**
@@ -154,6 +162,14 @@ biogas_bot/
 | `GOOGLE_SHEET_ID` | ✅ | Google Sheet identifier |
 | `DEBUG` | ✅ | `False` in production |
 | `DATABASE_URL` | ✅ | Database connection string |
+
+### Admin Configuration
+
+| Admin Page | Purpose |
+|------------|---------|
+| `Core -> Group sheet configurations` | Map each Telegram group to its Google Sheet/tab |
+| `Analyze columns and dropdowns` | Read a live Google Sheet and generate schema/workflow settings |
+| `Core -> Parsed messages` | Inspect synced backend cases by group, sheet ID, and sheet tab |
 
 ### Google Sheet Schema
 

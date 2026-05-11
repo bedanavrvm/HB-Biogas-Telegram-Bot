@@ -81,7 +81,7 @@ class ParsedMessage(models.Model):
     )
     
     # Google Sheet fields
-    message_id = models.CharField(max_length=128, unique=True, db_index=True)
+    message_id = models.CharField(max_length=128, db_index=True)
     timestamp = models.DateTimeField(null=True, blank=True)
     sender = models.CharField(max_length=255, blank=True, default='')
     raw_message = models.TextField()
@@ -108,6 +108,19 @@ class ParsedMessage(models.Model):
     
     # Multi-tenant routing
     group_id = models.CharField(max_length=100, default='default', db_index=True)
+    sheet_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        db_index=True,
+        help_text='Google spreadsheet ID this case was last mirrored from/to.',
+    )
+    sheet_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='Worksheet/tab name this case was last mirrored from/to.',
+    )
     
     # Google Sheets sync tracking
     synced_to_sheets = models.BooleanField(default=False)
@@ -118,8 +131,15 @@ class ParsedMessage(models.Model):
 
     class Meta:
         ordering = ['-timestamp']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['group_id', 'message_id'],
+                name='unique_case_message_per_group',
+            ),
+        ]
         indexes = [
             models.Index(fields=['message_id']),
+            models.Index(fields=['group_id', 'sheet_id']),
             models.Index(fields=['synced_to_sheets']),
         ]
 
@@ -235,3 +255,93 @@ class CaseUpdate(models.Model):
 
     def __str__(self):
         return f"CaseUpdate {self.parsed_message.message_id}: {self.new_status}"
+
+
+class GroupSheetConfiguration(models.Model):
+    """
+    Admin-managed routing and workflow configuration for a Telegram group.
+
+    Environment settings remain supported as bootstrap/fallback config, but rows
+    in this model are the editable UI source for group-specific sheets, schemas,
+    workflows, and parser rules.
+    """
+
+    group_id = models.CharField(
+        max_length=100,
+        unique=True,
+        db_index=True,
+        help_text='Telegram group chat ID, for example -1001234567890.',
+    )
+    display_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='Human-friendly name shown in the admin list.',
+    )
+    enabled = models.BooleanField(default=True)
+    sheet_id = models.CharField(
+        max_length=255,
+        help_text='Google spreadsheet ID for this group.',
+    )
+    sheet_name = models.CharField(
+        max_length=255,
+        default='Complaints Register',
+        help_text='Worksheet/tab name inside the spreadsheet.',
+    )
+    sheet_schema = models.JSONField(
+        blank=True,
+        default=dict,
+        help_text='Optional canonical-field to sheet-header mapping.',
+    )
+    workflow = models.JSONField(
+        blank=True,
+        default=dict,
+        help_text='Optional status/update workflow settings for this group.',
+    )
+    parser_rules = models.JSONField(
+        blank=True,
+        default=dict,
+        help_text='Optional parsing rules for this group.',
+    )
+    metadata = models.JSONField(
+        blank=True,
+        default=dict,
+        help_text='Optional labels, owner notes, or deployment metadata.',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['group_id']
+        verbose_name = 'Group sheet configuration'
+        verbose_name_plural = 'Group sheet configurations'
+
+    def clean(self):
+        super().clean()
+        self.group_id = str(self.group_id or '').strip()
+        self.sheet_id = str(self.sheet_id or '').strip()
+        self.sheet_name = str(self.sheet_name or '').strip()
+        if self.enabled and not self.sheet_id:
+            from django.core.exceptions import ValidationError
+            raise ValidationError({'sheet_id': 'Enabled groups need a sheet ID.'})
+
+    def as_group_config_kwargs(self) -> dict:
+        return {
+            'group_id': self.group_id,
+            'sheet_id': self.sheet_id,
+            'sheet_name': self.sheet_name or 'Complaints Register',
+            'enabled': self.enabled,
+            'metadata': self.metadata or {},
+            'sheet_schema': self.sheet_schema or {},
+            'workflow': self.workflow or {},
+            'parser_rules': self.parser_rules or {},
+        }
+
+    def sheet_url(self) -> str:
+        if not self.sheet_id:
+            return ''
+        return f'https://docs.google.com/spreadsheets/d/{self.sheet_id}'
+
+    def __str__(self):
+        label = self.display_name or self.group_id
+        return f"{label} -> {self.sheet_name}"
