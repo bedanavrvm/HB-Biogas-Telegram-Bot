@@ -780,14 +780,27 @@ def _format_case_line(index: int, msg: ParsedMessage) -> str:
     reported_at = _format_date(msg.timestamp or msg.created_at)
     name = (msg.customer_name or msg.sender or "Unknown").upper()
     phone = msg.customer_phone or "no phone"
+    customer_id = msg.customer_id or "no customer ID"
     status = msg.complaint_status or "status not set"
-    description = _compact(msg.complaint_description or msg.raw_message, 80)
+    description = _case_description(msg, 120)
 
     return (
-        f"{index}. {reported_at} | {name} | {phone} | {status}\n"
-        f"   {description}\n"
-        f"   ID: {msg.message_id}"
+        f"{index}. {reported_at} | {name}\n"
+        f"   Tel: {phone} | Customer ID: {customer_id} | Status: {status}\n"
+        f"   Problem: {description}"
     )
+
+
+def _case_description(msg: ParsedMessage, max_length: int) -> str:
+    description = str(msg.complaint_description or '').strip()
+    raw_message = str(msg.raw_message or '').strip()
+
+    if not description and raw_message:
+        normalized_raw = " ".join(raw_message.lower().split())
+        if normalized_raw and normalized_raw != 'imported from google sheets':
+            description = raw_message
+
+    return _compact(description or 'no problem description recorded', max_length)
 
 
 def _format_date(value) -> str:

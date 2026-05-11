@@ -1284,9 +1284,39 @@ class BotCommandServiceTest(TestCase):
 
         self.assertEqual(result['status'], 'command')
         self.assertIn('Latest 2 case(s):', result['reply_text'])
-        self.assertIn('MSG_NEW', result['reply_text'])
-        self.assertIn('MSG_OLD', result['reply_text'])
+        self.assertIn('NEW CUSTOMER', result['reply_text'])
+        self.assertIn('Newest issue', result['reply_text'])
+        self.assertIn('OLD CUSTOMER', result['reply_text'])
+        self.assertIn('Older issue', result['reply_text'])
+        self.assertNotIn('MSG_NEW', result['reply_text'])
+        self.assertNotIn('MSG_OLD', result['reply_text'])
         self.assertNotIn('MSG_OTHER_GROUP', result['reply_text'])
+
+    def test_last_command_hides_imported_from_sheets_placeholder(self):
+        """List output should not show internal placeholders as problem text."""
+        create_parsed_case(
+            'MSG_IMPORTED',
+            customer_name='Sheet Customer',
+            customer_phone='0711111111',
+            customer_id='ACC-1',
+            description='',
+        )
+        ParsedMessage.objects.filter(message_id='MSG_IMPORTED').update(
+            complaint_description='',
+            raw_message='Imported from Google Sheets',
+        )
+
+        from core.services.commands import handle_bot_command
+
+        result = handle_bot_command('/last 1', '-100123')
+
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('SHEET CUSTOMER', result['reply_text'])
+        self.assertIn('Tel: 0711111111', result['reply_text'])
+        self.assertIn('Customer ID: ACC-1', result['reply_text'])
+        self.assertIn('Problem: no problem description recorded', result['reply_text'])
+        self.assertNotIn('Imported from Google Sheets', result['reply_text'])
+        self.assertNotIn('MSG_IMPORTED', result['reply_text'])
 
     def test_last_command_empty_group(self):
         """The command should return a useful empty-state response."""
@@ -1348,40 +1378,45 @@ class BotCommandServiceTest(TestCase):
         result = handle_bot_command('/search leakage', '-100123')
 
         self.assertEqual(result['status'], 'command')
-        self.assertIn('MSG_LEAK', result['reply_text'])
-        self.assertNotIn('MSG_OTHER', result['reply_text'])
+        self.assertIn('LEAK CUSTOMER', result['reply_text'])
+        self.assertIn('Gas leakage near the pipe', result['reply_text'])
+        self.assertNotIn('MSG_LEAK', result['reply_text'])
+        self.assertNotIn('OTHER CUSTOMER', result['reply_text'])
 
     def test_today_command_returns_todays_cases(self):
         """The /today command should show only cases created today."""
         now = timezone.now()
-        create_parsed_case('MSG_TODAY', created_at=now)
-        create_parsed_case('MSG_YESTERDAY', created_at=now - timedelta(days=1))
+        create_parsed_case('MSG_TODAY', customer_name='Today Customer', created_at=now)
+        create_parsed_case('MSG_YESTERDAY', customer_name='Yesterday Customer', created_at=now - timedelta(days=1))
 
         from core.services.commands import handle_bot_command
 
         result = handle_bot_command('/today', '-100123')
 
         self.assertEqual(result['status'], 'command')
-        self.assertIn('MSG_TODAY', result['reply_text'])
-        self.assertNotIn('MSG_YESTERDAY', result['reply_text'])
+        self.assertIn('TODAY CUSTOMER', result['reply_text'])
+        self.assertNotIn('YESTERDAY CUSTOMER', result['reply_text'])
+        self.assertNotIn('MSG_TODAY', result['reply_text'])
 
     def test_unsynced_command_returns_unsynced_cases(self):
         """The /unsynced command should show only unsynced rows."""
         create_parsed_case(
             'MSG_UNSYNCED',
+            customer_name='Unsynced Customer',
             synced_to_sheets=False,
             last_sync_error='Sheet unavailable',
         )
-        create_parsed_case('MSG_SYNCED', synced_to_sheets=True)
+        create_parsed_case('MSG_SYNCED', customer_name='Saved Customer', synced_to_sheets=True)
 
         from core.services.commands import handle_bot_command
 
         result = handle_bot_command('/unsynced 5', '-100123')
 
         self.assertEqual(result['status'], 'command')
-        self.assertIn('MSG_UNSYNCED', result['reply_text'])
+        self.assertIn('UNSYNCED CUSTOMER', result['reply_text'])
         self.assertIn('Sheet unavailable', result['reply_text'])
-        self.assertNotIn('MSG_SYNCED', result['reply_text'])
+        self.assertNotIn('SAVED CUSTOMER', result['reply_text'])
+        self.assertNotIn('MSG_UNSYNCED', result['reply_text'])
 
     @override_settings(
         GOOGLE_SHEET_ID='sheet_123',
@@ -1426,9 +1461,9 @@ class BotCommandServiceTest(TestCase):
 
     def test_status_filter_commands(self):
         """Open, pending, and closed commands should filter by status."""
-        create_parsed_case('MSG_OPEN', complaint_status='Open')
-        create_parsed_case('MSG_PENDING', complaint_status='')
-        create_parsed_case('MSG_CLOSED', complaint_status='Closed')
+        create_parsed_case('MSG_OPEN', customer_name='Open Customer', complaint_status='Open')
+        create_parsed_case('MSG_PENDING', customer_name='Pending Customer', complaint_status='')
+        create_parsed_case('MSG_CLOSED', customer_name='Closed Customer', complaint_status='Closed')
 
         from core.services.commands import handle_bot_command
 
@@ -1436,29 +1471,32 @@ class BotCommandServiceTest(TestCase):
         pending_result = handle_bot_command('/pending 10', '-100123')
         closed_result = handle_bot_command('/closed 10', '-100123')
 
-        self.assertIn('MSG_OPEN', open_result['reply_text'])
-        self.assertIn('MSG_PENDING', open_result['reply_text'])
-        self.assertNotIn('MSG_CLOSED', open_result['reply_text'])
-        self.assertIn('MSG_PENDING', pending_result['reply_text'])
-        self.assertNotIn('MSG_OPEN', pending_result['reply_text'])
-        self.assertIn('MSG_CLOSED', closed_result['reply_text'])
-        self.assertNotIn('MSG_OPEN', closed_result['reply_text'])
+        self.assertIn('OPEN CUSTOMER', open_result['reply_text'])
+        self.assertIn('PENDING CUSTOMER', open_result['reply_text'])
+        self.assertNotIn('CLOSED CUSTOMER', open_result['reply_text'])
+        self.assertIn('PENDING CUSTOMER', pending_result['reply_text'])
+        self.assertNotIn('OPEN CUSTOMER', pending_result['reply_text'])
+        self.assertIn('CLOSED CUSTOMER', closed_result['reply_text'])
+        self.assertNotIn('OPEN CUSTOMER', closed_result['reply_text'])
 
     def test_stale_command_returns_old_not_closed_cases(self):
         """Stale should show old cases that are not closed."""
         now = timezone.now()
         create_parsed_case(
             'MSG_STALE',
+            customer_name='Stale Customer',
             complaint_status='Open',
             created_at=now - timedelta(days=10),
         )
         create_parsed_case(
             'MSG_CLOSED_OLD',
+            customer_name='Closed Old Customer',
             complaint_status='Closed',
             created_at=now - timedelta(days=10),
         )
         create_parsed_case(
             'MSG_RECENT',
+            customer_name='Recent Customer',
             complaint_status='Open',
             created_at=now,
         )
@@ -1467,26 +1505,27 @@ class BotCommandServiceTest(TestCase):
 
         result = handle_bot_command('/stale 7', '-100123')
 
-        self.assertIn('MSG_STALE', result['reply_text'])
+        self.assertIn('STALE CUSTOMER', result['reply_text'])
         self.assertIn('Age:', result['reply_text'])
-        self.assertNotIn('MSG_CLOSED_OLD', result['reply_text'])
-        self.assertNotIn('MSG_RECENT', result['reply_text'])
+        self.assertNotIn('CLOSED OLD CUSTOMER', result['reply_text'])
+        self.assertNotIn('RECENT CUSTOMER', result['reply_text'])
 
     def test_errors_command_returns_sync_errors(self):
         """Errors should show cases with non-empty last_sync_error."""
         create_parsed_case(
             'MSG_ERROR',
+            customer_name='Error Customer',
             last_sync_error='Google quota exceeded',
         )
-        create_parsed_case('MSG_NO_ERROR', last_sync_error='')
+        create_parsed_case('MSG_NO_ERROR', customer_name='No Error Customer', last_sync_error='')
 
         from core.services.commands import handle_bot_command
 
         result = handle_bot_command('/errors 10', '-100123')
 
-        self.assertIn('MSG_ERROR', result['reply_text'])
+        self.assertIn('ERROR CUSTOMER', result['reply_text'])
         self.assertIn('Google quota exceeded', result['reply_text'])
-        self.assertNotIn('MSG_NO_ERROR', result['reply_text'])
+        self.assertNotIn('NO ERROR CUSTOMER', result['reply_text'])
 
     def test_summary_today_command_returns_counts(self):
         """Summary today should count status and sync state for today."""
@@ -1541,26 +1580,28 @@ class BotCommandServiceTest(TestCase):
         last_week = timezone.make_aware(
             datetime.combine(start_of_week - timedelta(days=1), datetime.min.time())
         )
-        create_parsed_case('MSG_THIS_WEEK', created_at=now)
-        create_parsed_case('MSG_LAST_WEEK', created_at=last_week)
+        create_parsed_case('MSG_THIS_WEEK', customer_name='This Week Customer', created_at=now)
+        create_parsed_case('MSG_LAST_WEEK', customer_name='Last Week Customer', created_at=last_week)
 
         from core.services.commands import handle_bot_command
 
         result = handle_bot_command('/week', '-100123')
 
         self.assertIn("This week's cases", result['reply_text'])
-        self.assertIn('MSG_THIS_WEEK', result['reply_text'])
-        self.assertNotIn('MSG_LAST_WEEK', result['reply_text'])
+        self.assertIn('THIS WEEK CUSTOMER', result['reply_text'])
+        self.assertNotIn('LAST WEEK CUSTOMER', result['reply_text'])
 
     def test_phone_and_id_commands_lookup_cases(self):
         """Phone and customer ID lookup commands should search specific fields."""
         create_parsed_case(
             'MSG_PHONE',
+            customer_name='Lookup Customer',
             customer_phone='0712345000',
             customer_id='ACC-123',
         )
         create_parsed_case(
             'MSG_OTHER_LOOKUP',
+            customer_name='Other Lookup Customer',
             customer_phone='0799999999',
             customer_id='ACC-999',
         )
@@ -1570,57 +1611,58 @@ class BotCommandServiceTest(TestCase):
         phone_result = handle_bot_command('/phone 0712345', '-100123')
         id_result = handle_bot_command('/id ACC-123', '-100123')
 
-        self.assertIn('MSG_PHONE', phone_result['reply_text'])
-        self.assertNotIn('MSG_OTHER_LOOKUP', phone_result['reply_text'])
-        self.assertIn('MSG_PHONE', id_result['reply_text'])
-        self.assertNotIn('MSG_OTHER_LOOKUP', id_result['reply_text'])
+        self.assertIn('LOOKUP CUSTOMER', phone_result['reply_text'])
+        self.assertNotIn('OTHER LOOKUP CUSTOMER', phone_result['reply_text'])
+        self.assertIn('LOOKUP CUSTOMER', id_result['reply_text'])
+        self.assertNotIn('OTHER LOOKUP CUSTOMER', id_result['reply_text'])
 
     def test_missing_command_returns_cases_missing_requested_field(self):
         """Missing should filter by the requested blank field."""
-        create_parsed_case('MSG_MISSING_PHONE', customer_phone='')
-        create_parsed_case('MSG_HAS_PHONE', customer_phone='0712345678')
+        create_parsed_case('MSG_MISSING_PHONE', customer_name='Missing Phone Customer', customer_phone='')
+        create_parsed_case('MSG_HAS_PHONE', customer_name='Has Phone Customer', customer_phone='0712345678')
 
         from core.services.commands import handle_bot_command
 
         result = handle_bot_command('/missing phone 10', '-100123')
 
         self.assertIn('missing phone number', result['reply_text'])
-        self.assertIn('MSG_MISSING_PHONE', result['reply_text'])
-        self.assertNotIn('MSG_HAS_PHONE', result['reply_text'])
+        self.assertIn('MISSING PHONE CUSTOMER', result['reply_text'])
+        self.assertNotIn('HAS PHONE CUSTOMER', result['reply_text'])
 
     def test_lowconfidence_command_returns_partial_or_incomplete_cases(self):
         """Low-confidence should include partial processing and incomplete cases."""
         create_parsed_case(
             'MSG_PARTIAL_CASE',
+            customer_name='Partial Customer',
             processed_status='partial',
         )
         create_parsed_case(
             'MSG_INCOMPLETE_CASE',
             customer_name='',
         )
-        create_parsed_case('MSG_COMPLETE_CASE')
+        create_parsed_case('MSG_COMPLETE_CASE', customer_name='Complete Customer')
 
         from core.services.commands import handle_bot_command
 
         result = handle_bot_command('/lowconfidence 10', '-100123')
 
-        self.assertIn('MSG_PARTIAL_CASE', result['reply_text'])
+        self.assertIn('PARTIAL CUSTOMER', result['reply_text'])
         self.assertIn('partial processing', result['reply_text'])
-        self.assertIn('MSG_INCOMPLETE_CASE', result['reply_text'])
+        self.assertIn('UNKNOWN', result['reply_text'])
         self.assertIn('missing name', result['reply_text'])
-        self.assertNotIn('MSG_COMPLETE_CASE', result['reply_text'])
+        self.assertNotIn('COMPLETE CUSTOMER', result['reply_text'])
 
     def test_risk_command_filters_by_risk_level(self):
         """Risk should return cases matching the requested level."""
-        create_parsed_case('MSG_HIGH_RISK', risk_level='High')
-        create_parsed_case('MSG_LOW_RISK', risk_level='Low')
+        create_parsed_case('MSG_HIGH_RISK', customer_name='High Risk Customer', risk_level='High')
+        create_parsed_case('MSG_LOW_RISK', customer_name='Low Risk Customer', risk_level='Low')
 
         from core.services.commands import handle_bot_command
 
         result = handle_bot_command('/risk high 10', '-100123')
 
-        self.assertIn('MSG_HIGH_RISK', result['reply_text'])
-        self.assertNotIn('MSG_LOW_RISK', result['reply_text'])
+        self.assertIn('HIGH RISK CUSTOMER', result['reply_text'])
+        self.assertNotIn('LOW RISK CUSTOMER', result['reply_text'])
 
     def test_duplicates_command_reports_repeated_phone_or_customer_id(self):
         """Duplicates should group repeated phone numbers and customer IDs."""
@@ -1880,7 +1922,9 @@ class TelegramWebhookViewTest(TestCase):
         })
 
         self.assertEqual(result['status'], 'command')
-        self.assertIn('MSG_RECENT', result['reply_text'])
+        self.assertIn('RECENT CUSTOMER', result['reply_text'])
+        self.assertIn('Recent issue', result['reply_text'])
+        self.assertNotIn('MSG_RECENT', result['reply_text'])
         mock_process.assert_not_called()
 
     @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
