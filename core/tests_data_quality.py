@@ -54,12 +54,12 @@ class DataQualityTests(TestCase):
         # Column [3] should be capitalized customer name
         self.assertEqual(row[3], "JOHN DOE", "Customer name should be capitalized")
     
-    def test_reported_by_telegram_bot(self):
-        """Test that JBL Reported By is 'Telegram Bot' in sheet output."""
+    def test_reported_by_uses_message_sender(self):
+        """Test that JBL Reported By is the Telegram sender in sheet output."""
         msg = ParsedMessage.objects.create(
             processed_message=self.processed_message,
             message_id="MSG_TEST_002",
-            sender="John Doe",  # This should not appear in column [6]
+            sender="John Doe",
             customer_name="jane smith",
             customer_id="CUST_456",
             customer_phone="+256702345678",
@@ -71,9 +71,8 @@ class DataQualityTests(TestCase):
         
         row = msg.to_sheet_row()
         
-        # Column [6] should be 'Telegram Bot', not the sender
-        self.assertEqual(row[6], "Telegram Bot", "JBL Reported By should be 'Telegram Bot'")
-        self.assertNotEqual(row[6], msg.sender, "JBL Reported By should not be the sender")
+        # Column [6] should be the sender/tag of the message.
+        self.assertEqual(row[6], "John Doe", "JBL Reported By should use the sender")
     
     def test_source_telegram_bot(self):
         """Test that source is 'telegram bot' in sheet output."""
@@ -103,7 +102,7 @@ class DataQualityTests(TestCase):
             customer_name="ALICE SMITH",
             customer_id="CUST_100",
             customer_phone="+256704567890",
-            sender="Original Sender",  # Should NOT appear in JBL Reported By
+            sender="Original Sender",
             branch_region="MERU",
             complaint_category="Gas Leakage",
             complaint_description="Pipe disconnected",
@@ -122,7 +121,7 @@ class DataQualityTests(TestCase):
         self.assertEqual(row[3], "ALICE SMITH", "[3] Customer Name should be capitalized")
         self.assertEqual(row[4], "CUST_100", "[4] Customer ID/Account correct")
         self.assertEqual(row[5], "+256704567890", "[5] Phone Number correct")
-        self.assertEqual(row[6], "Telegram Bot", "[6] JBL Reported By should be 'Telegram Bot'")
+        self.assertEqual(row[6], "Original Sender", "[6] JBL Reported By should use sender")
         self.assertEqual(row[7], "MERU", "[7] Branch/Region correct")
         self.assertEqual(row[8], "Gas Leakage", "[8] Complaint Category correct")
         self.assertEqual(row[9], "Pipe disconnected", "[9] Complaint Description correct")

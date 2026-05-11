@@ -104,6 +104,20 @@ class CaseUpdateServiceTest(TestCase):
         self.assertEqual(result.new_status, 'Closed')
         self.assertEqual(result.resolution_text, 'jiko relocated')
 
+    def test_parse_case_update_uses_note_as_resolution_text(self):
+        from core.services.case_updates import parse_case_update
+
+        result = parse_case_update(
+            'Status: resolved\nNOTE: Jiko relocated and customer confirmed'
+        )
+
+        self.assertTrue(result.is_update)
+        self.assertEqual(result.new_status, 'Closed')
+        self.assertEqual(
+            result.resolution_text,
+            'Jiko relocated and customer confirmed',
+        )
+
     def test_reply_status_update_updates_case_and_sheet(self):
         from core.services.case_updates import handle_case_status_reply
 
@@ -140,6 +154,36 @@ class CaseUpdateServiceTest(TestCase):
         self.assertEqual(args[1]['Status'], 'Closed')
         self.assertIn('jiko relocated successfully', args[1]['Resolution Details'])
         self.assertIn('Date Resolved', args[1])
+
+    def test_reply_status_update_writes_note_to_resolution_details(self):
+        from core.services.case_updates import handle_case_status_reply
+
+        case = create_parsed_case('MSG_UPDATE_NOTE', complaint_status='Open')
+        case.processed_message.raw_message.telegram_message_id = '771'
+        case.processed_message.raw_message.source_telegram_message_id = '771'
+        case.processed_message.raw_message.save()
+
+        registry_patch, sheet_patch, sheet = self._patch_sheet_success()
+        with registry_patch, sheet_patch:
+            result = handle_case_status_reply(
+                group_id='-100123',
+                reply_to_telegram_message_id='771',
+                update_telegram_message_id='772',
+                sender='Peter',
+                content=(
+                    'Status: resolved\n'
+                    'NOTE: Jiko relocated and customer confirmed'
+                ),
+            )
+
+        case.refresh_from_db()
+        self.assertEqual(result['status'], 'command')
+        self.assertEqual(case.complaint_status, 'Closed')
+        self.assertIn('Jiko relocated and customer confirmed', case.resolution_details)
+        self.assertNotIn('NOTE:', case.resolution_details)
+        args, _ = sheet.update_case_row.call_args
+        self.assertIn('Jiko relocated and customer confirmed', args[1]['Resolution Details'])
+        self.assertNotIn('NOTE:', args[1]['Resolution Details'])
 
     def test_reply_status_update_does_not_update_db_when_sheet_fails(self):
         from core.services.case_updates import handle_case_status_reply
@@ -2035,7 +2079,7 @@ class ParsedMessageModelTest(TestCase):
         self.assertEqual(row[3], 'JANE DOE', "Customer Name (CAPITALIZED by bot)")
         self.assertEqual(row[4], 'A12345', "Customer ID")
         self.assertEqual(row[5], '0712345678', "Phone Number")
-        self.assertEqual(row[6], 'Telegram Bot', "JBL Reported By (bot uses generic name)")
+        self.assertEqual(row[6], 'John', "JBL Reported By uses the message sender")
         self.assertEqual(row[7], 'Nairobi', "Branch / Region")
         self.assertEqual(row[8], 'System Underperformance', "Complaint Category")
         self.assertEqual(row[9], 'No gas supply', "Complaint Description")

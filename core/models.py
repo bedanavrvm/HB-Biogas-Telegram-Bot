@@ -149,7 +149,7 @@ class ParsedMessage(models.Model):
         [3]  Customer Name (bot writes - CAPITALIZED)
         [4]  Customer ID / Account (bot writes)
         [5]  Phone Number (bot writes)
-        [6]  JBL Reported By (bot writes - uses Telegram Bot)
+        [6]  JBL Reported By (bot writes - Telegram sender/tag)
         [7]  Branch / Region (bot writes - best effort)
         [8]  Complaint Category (bot writes - must match dropdown, not description)
         [9]  Complaint Description (bot writes)
@@ -172,7 +172,7 @@ class ParsedMessage(models.Model):
             self.customer_name.upper() if self.customer_name else '',                    # [3] Customer Name (CAPITALIZED)
             self.customer_id,                                                             # [4] Customer ID / Account
             self.customer_phone,                                                          # [5] Phone Number
-            'Telegram Bot',                                                               # [6] Reported By (bot name)
+            self.sender or 'Telegram Bot',                                                # [6] Reported By (message sender)
             self.branch_region,                                                           # [7] Branch / Region
             self.complaint_category,                                                      # [8] Complaint Category
             self.complaint_description,                                                   # [9] Complaint Description

@@ -12,6 +12,7 @@ from core.services.sheets import get_sheets_service
 
 STATUS_PATTERN = re.compile(r'^\s*(?:@\S+\s+)?status\s*:\s*(.+)$', re.IGNORECASE | re.DOTALL)
 CASE_ID_PATTERN = re.compile(r'\b(MSG_[A-Z0-9_]+)\b', re.IGNORECASE)
+NOTE_LABEL_PATTERN = re.compile(r'(?:^|[\s\r\n])note\s*:', re.IGNORECASE)
 
 CLOSED_PATTERN = re.compile(
     r'\b(?:resolved?|closed|managed|done|fixed|repaired|sorted|completed?|'
@@ -58,12 +59,15 @@ def parse_case_update(content: str) -> ParsedCaseUpdate:
             error='Status updates must start with "Status:".',
         )
 
-    body = " ".join(match.group(1).split()).strip()
+    status_text, note_text = _split_status_and_note(match.group(1))
+    body = " ".join(status_text.split()).strip()
     if not body:
         return ParsedCaseUpdate(
             is_update=False,
             error='Status update text cannot be empty.',
         )
+
+    combined_text = " ".join(f"{body} {note_text}".split()).strip()
 
     if CLOSED_PATTERN.search(body):
         new_status = 'Closed'
@@ -77,13 +81,13 @@ def parse_case_update(content: str) -> ParsedCaseUpdate:
             error='Could not recognise the status. Try resolved, scheduled, pending, or not reachable.',
         )
 
-    risk_level = 'High' if HIGH_RISK_PATTERN.search(body) else ''
-    loan_at_risk = 'Yes' if re.search(r'\bloan\s+at\s+risk\b', body, re.IGNORECASE) else ''
+    risk_level = 'High' if HIGH_RISK_PATTERN.search(combined_text) else ''
+    loan_at_risk = 'Yes' if re.search(r'\bloan\s+at\s+risk\b', combined_text, re.IGNORECASE) else ''
 
     return ParsedCaseUpdate(
         is_update=True,
         new_status=new_status,
-        resolution_text=_clean_resolution_text(body, new_status),
+        resolution_text=note_text or _clean_resolution_text(body, new_status),
         risk_level=risk_level,
         loan_at_risk=loan_at_risk,
     )
@@ -355,6 +359,19 @@ def _filter_by_phone(queryset, phone: str):
 
 def _digits(value: str) -> str:
     return re.sub(r'\D', '', value or '')
+
+
+def _split_status_and_note(value: str) -> tuple[str, str]:
+    """Split `Status: resolved` from an optional following `NOTE: details`."""
+    value = str(value or '').strip()
+    match = NOTE_LABEL_PATTERN.search(value)
+    if not match:
+        return value, ''
+
+    status_text = value[:match.start()].strip(' \t\r\n-:;')
+    note_text = value[match.end():].strip(' \t\r\n-:;')
+    note_text = " ".join(note_text.split())
+    return status_text, note_text
 
 
 def _clean_resolution_text(body: str, new_status: str) -> str:
