@@ -489,6 +489,8 @@ def _extract_complaint_transaction(content: str, result: ParsedResult):
     # If still no description, use the raw content as a fallback
     if not result.problem_description:
         result.problem_description = content.strip()
+
+    result.problem_description = _clean_problem_description(result.problem_description)
     
     # DO NOT extract item, quantity, price for complaints
     # These are transaction fields and don't apply to complaint intake
@@ -573,6 +575,22 @@ def _complaint_label_kind(label: str) -> str:
 
 def _clean_labeled_value(value: str) -> str:
     value = re.sub(r'@\S+', '', value or '')
+    value = re.sub(r'\s+', ' ', value).strip()
+    return value.strip(' *:;,-')
+
+
+def _clean_problem_description(value: str) -> str:
+    """Remove trailing awareness mentions from complaint descriptions."""
+    value = str(value or '').strip()
+    if not value:
+        return ''
+
+    lines = [line.strip() for line in value.splitlines()]
+    while lines and re.fullmatch(r'(?:@\S+\s*)+', lines[-1]):
+        lines.pop()
+
+    value = ' '.join(line for line in lines if line)
+    value = re.sub(r'\s+(?:@\S+\s*)+$', '', value)
     value = re.sub(r'\s+', ' ', value).strip()
     return value.strip(' *:;,-')
 

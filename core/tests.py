@@ -699,6 +699,36 @@ Gas leaking around the digester"""
         self.assertEqual(result.customer_phone, '0720809218')
         self.assertEqual(result.problem_description, 'Requesting for a jiko relocation')
 
+    def test_parse_complaint_description_excludes_trailing_awareness_mentions(self):
+        """Trailing @mentions are notification tags, not complaint text."""
+        content = (
+            "CUSTOMER COMPLAIN\n"
+            "Henry mwenda\n"
+            "24289449\n"
+            "0720809218/0726011961\n"
+            "\n"
+            "Requesting for a jiko relocation @area_manager"
+        )
+
+        result = parse_message(content, sender="Agent")
+
+        self.assertEqual(result.customer_name, 'Henry mwenda')
+        self.assertEqual(result.problem_description, 'Requesting for a jiko relocation')
+        self.assertNotIn('@area_manager', result.problem_description)
+
+    def test_parse_complaint_description_excludes_final_mention_line(self):
+        """A final line containing only mentions should not enter the description."""
+        content = (
+            "CUSTOMER COMPLAIN NAME Jane Doe TEL 0712345678 "
+            "NATURE OF COMPLAIN No gas supply at home\n"
+            "@technician @supervisor"
+        )
+
+        result = parse_message(content, sender="Agent")
+
+        self.assertEqual(result.problem_description, 'No gas supply at home')
+        self.assertNotIn('@technician', result.problem_description)
+
     def test_parse_unlabeled_complaint_transaction(self):
         """Plain complaint blocks should infer identifiers and description."""
         from core.services.parser import MessageIntent
