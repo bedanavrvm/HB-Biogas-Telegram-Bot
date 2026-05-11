@@ -327,21 +327,21 @@ def _process_single_message(
         # Collect captured fields for the Telegram reply
         captured_fields = {}
         field_map = {
-            'sender': 'sender',
-            'customer_name': 'customer_name',
-            'customer_phone': 'customer_phone',
-            'customer_id': 'customer_id',
-            'problem_description': 'problem_description',
-            'item': 'item',
-            'quantity': 'quantity',
-            'price': 'price',
-            'gps_link': 'location',
+            'sender': 'Sender',
+            'customer_name': 'Customer Name',
+            'customer_phone': 'Phone Number',
+            'customer_id': 'Customer ID',
+            'complaint_description': 'Complaint Description',
+            'item': 'Item',
+            'quantity': 'Quantity',
+            'price': 'Price',
+            'gps_link': 'Location',
         }
         for attr, label in field_map.items():
             val = getattr(parsed_message, attr, None)
             if val:
                 captured_fields[label] = (
-                    str(val)[:100] if attr == 'problem_description' else str(val)
+                    str(val)[:140] if attr == 'complaint_description' else str(val)
                 )
 
         result = {
@@ -397,8 +397,13 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
 
     fields_summary = ''
     if captured_fields:
-        names = [k.replace('_', ' ').title() for k in captured_fields]
-        fields_summary = f"\nCaptured: {', '.join(names)}"
+        captured_lines = [
+            f"{label}: {value}"
+            for label, value in captured_fields.items()
+            if str(value).strip()
+        ]
+        if captured_lines:
+            fields_summary = "\nCaptured:\n" + "\n".join(captured_lines)
 
     case_id_line = ''
     if result.get('message_id'):

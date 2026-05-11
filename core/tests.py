@@ -1863,14 +1863,24 @@ NATURE OF THE PROBLEM: Gas leakage
             {
                 'status': 'success',
                 'message_id': 'MSG_REPLY_1',
-                'captured_fields': {'customer_name': 'Jane'},
+                'captured_fields': {
+                    'Sender': 'Agent',
+                    'Customer Name': 'Jane',
+                    'Phone Number': '0712345678',
+                    'Complaint Description': 'No gas supply',
+                },
             },
         )
 
         text = mock_post.call_args.kwargs['data']['text']
         self.assertIn('OK. Message received and saved successfully', text)
         self.assertIn('Case ID: MSG_REPLY_1', text)
-        self.assertIn('Captured: Customer Name', text)
+        self.assertIn('Captured:\n', text)
+        self.assertIn('Sender: Agent', text)
+        self.assertIn('Customer Name: Jane', text)
+        self.assertIn('Phone Number: 0712345678', text)
+        self.assertIn('Complaint Description: No gas supply', text)
+        self.assertNotIn('Captured: Customer Name', text)
         self.assertTrue(text.isascii())
 
     @override_settings(TELEGRAM_BOT_TOKEN='token')
