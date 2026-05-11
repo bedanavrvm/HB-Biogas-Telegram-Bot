@@ -7,6 +7,7 @@ import json
 from datetime import datetime, timedelta
 from decimal import Decimal
 from django.test import TestCase, override_settings
+from django.contrib.auth import get_user_model
 from django.utils import timezone
 from unittest.mock import patch, MagicMock
 
@@ -1351,6 +1352,36 @@ class GroupConfigurationServiceTest(TestCase):
 
         self.assertEqual(config.sheet_id, 'admin_sheet')
         self.assertEqual(config.sheet_name, 'Admin Cases')
+
+    @override_settings(
+        STORAGES={
+            'default': {
+                'BACKEND': 'django.core.files.storage.FileSystemStorage',
+            },
+            'staticfiles': {
+                'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+            },
+        },
+    )
+    def test_group_configuration_admin_changelist_renders(self):
+        """Admin changelist should render without template context copy errors."""
+        user = get_user_model().objects.create_superuser(
+            username='admin',
+            email='admin@example.com',
+            password='password',
+        )
+        GroupSheetConfiguration.objects.create(
+            group_id='-100777',
+            display_name='Admin Render Test',
+            sheet_id='sheet_777',
+            sheet_name='Cases',
+        )
+        self.client.force_login(user)
+
+        response = self.client.get('/admin/core/groupsheetconfiguration/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Admin Render Test')
 
 
 class SheetAnalyzerServiceTest(TestCase):
