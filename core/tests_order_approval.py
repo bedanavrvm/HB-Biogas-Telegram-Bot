@@ -8,9 +8,11 @@ from core.services.order_approval import (
     SheetMatch,
     TelegramMediaItem,
     find_order_approval_matches,
+    handle_order_webapp_command,
     parse_order_approval_message,
     store_media_for_order,
     update_order_approval_row,
+    validate_telegram_webapp_init_data,
 )
 
 
@@ -224,3 +226,83 @@ class OrderApprovalMediaTest(TestCase):
         self.assertEqual(attachment.upload_status, 'skipped')
         self.assertEqual(attachment.business_key_type, 'id_number')
         self.assertEqual(attachment.business_key_value, '113650221')
+
+
+class OrderApprovalWebAppTest(TestCase):
+    def _group_config(self):
+        return MagicMock(
+            group_id='-100222',
+            sheet_id='sheet_123',
+            workflow={
+                'type': 'order_approval',
+                'match_field': 'id_number',
+                'search_sheet_names': ['Pending'],
+                'media_field': 'media_urls',
+            },
+        )
+
+    @override_settings(APP_BASE_URL='https://example.onrender.com')
+    def test_order_command_returns_telegram_webapp_button(self):
+        result = handle_order_webapp_command(self._group_config(), '/order')
+
+        self.assertEqual(result['status'], 'command')
+        button = result['reply_markup']['inline_keyboard'][0][0]
+        self.assertEqual(button['text'], 'Open Order Approval Form')
+        self.assertEqual(
+            button['web_app']['url'],
+            'https://example.onrender.com/order-approval/?group_id=-100222',
+        )
+
+    @override_settings(ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
+    def test_webapp_auth_can_be_disabled_for_server_testing(self):
+        is_valid, error, payload = validate_telegram_webapp_init_data('')
+
+        self.assertTrue(is_valid)
+        self.assertEqual(error, '')
+        self.assertEqual(payload, {})
+
+    def test_order_approval_form_renders(self):
+        response = self.client.get('/api/order-approval/?group_id=-100222')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Order Approval')
+        self.assertContains(response, 'name="id_number"')
+        self.assertContains(response, 'name="attachments"')
+
+    @override_settings(ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
+    @patch('core.services.order_approval.process_order_approval_form_submission')
+    @patch('core.services.group_config.GroupRegistry.get_instance')
+    def test_webapp_submit_uses_order_approval_processor(
+        self,
+        mock_registry_get_instance,
+        mock_process,
+    ):
+        registry = MagicMock()
+        registry.get_group.return_value = self._group_config()
+        mock_registry_get_instance.return_value = registry
+        mock_process.return_value = {
+            'success': True,
+            'status': 'success',
+            'message': 'Order approval updated.',
+            'sheet': 'Pending',
+            'row': 2,
+            'files_stored': 0,
+        }
+
+        response = self.client.post(
+            '/api/order-approval/webapp/submit/',
+            data={
+                'group_id': '-100222',
+                'id_number': '113650221',
+                'customer_name': 'PATRICK',
+                'init_data': '',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['success'])
+        mock_process.assert_called_once()
+        self.assertEqual(
+            mock_process.call_args.kwargs['fields']['id_number'],
+            '113650221',
+        )

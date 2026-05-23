@@ -21,6 +21,7 @@ import logging
 from datetime import datetime, timezone as dt_timezone
 from django.utils import timezone
 from django.http import JsonResponse
+from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.conf import settings
@@ -64,6 +65,96 @@ def health_check(request):
 # ---------------------------------------------------------------------------
 # Telegram webhook
 # ---------------------------------------------------------------------------
+
+@require_http_methods(["GET"])
+def order_approval_form(request):
+    """Render the Telegram Web App form for order approval updates."""
+    if not getattr(settings, 'ORDER_APPROVAL_WEBAPP_ENABLED', True):
+        return render(
+            request,
+            'order_approval/unavailable.html',
+            status=404,
+        )
+
+    return render(
+        request,
+        'order_approval/form.html',
+        {
+            'group_id': str(request.GET.get('group_id', '')).strip(),
+            'max_file_size_mb': getattr(settings, 'MEDIA_MAX_FILE_SIZE_MB', 20),
+        },
+    )
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def order_approval_webapp_submit(request):
+    """Accept a Telegram Web App order approval form submission."""
+    try:
+        from core.services.group_config import GroupRegistry
+        from core.services.order_approval import (
+            is_order_approval_workflow,
+            process_order_approval_form_submission,
+            validate_telegram_webapp_init_data,
+        )
+
+        is_valid, auth_error, auth_payload = validate_telegram_webapp_init_data(
+            request.POST.get('init_data', '')
+        )
+        if not is_valid:
+            return JsonResponse(
+                {'success': False, 'message': auth_error},
+                status=403,
+            )
+
+        group_id = str(request.POST.get('group_id', '')).strip()
+        group_config = GroupRegistry.get_instance().get_group(group_id)
+        if not group_config or not is_order_approval_workflow(group_config):
+            return JsonResponse(
+                {
+                    'success': False,
+                    'message': 'This Telegram group is not configured for order approvals.',
+                },
+                status=400,
+            )
+
+        field_names = [
+            'id_number',
+            'date_visited',
+            'customer_name',
+            'primary_phone',
+            'secondary_phone',
+            'county',
+            'landmark',
+            'visited_by',
+            'hb_staff',
+            'deposit_hb',
+            'deposit_jbl',
+            'comment',
+            'imab_created',
+            'customer_no',
+            'credit_analysis',
+        ]
+        result = process_order_approval_form_submission(
+            group_config=group_config,
+            fields={key: request.POST.get(key, '') for key in field_names},
+            uploaded_files=request.FILES.getlist('attachments'),
+            sender=_sender_from_webapp_auth(auth_payload),
+            received_at=timezone.now(),
+        )
+        return JsonResponse(result, status=200 if result.get('success') else 400)
+    except Exception as exc:
+        logger.error(
+            f"Unhandled order approval webapp submit error: {exc}",
+            exc_info=True,
+        )
+        return JsonResponse(
+            {
+                'success': False,
+                'message': 'Submission failed. Please try again or use the chat format.',
+            },
+            status=500,
+        )
 
 @csrf_exempt
 @require_http_methods(["POST"])
@@ -418,7 +509,12 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
         text = result.get('reply_text', '')
         if not text:
             return
-        _post_telegram_reply(chat_id, message_data, text)
+        _post_telegram_reply(
+            chat_id,
+            message_data,
+            text,
+            reply_markup=result.get('reply_markup'),
+        )
         return
 
     captured_fields = result.get('captured_fields', {})
@@ -473,17 +569,25 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
     _post_telegram_reply(chat_id, message_data, text)
 
 
-def _post_telegram_reply(chat_id, message_data: dict, text: str) -> None:
+def _post_telegram_reply(
+    chat_id,
+    message_data: dict,
+    text: str,
+    reply_markup: dict = None,
+) -> None:
     try:
         bot_token = settings.TELEGRAM_BOT_TOKEN
         url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
+        data = {
+            'chat_id': chat_id,
+            'text': text[:4000],
+            'reply_to_message_id': message_data.get('message_id'),
+        }
+        if reply_markup:
+            data['reply_markup'] = json.dumps(reply_markup)
         requests.post(
             url,
-            data={
-                'chat_id': chat_id,
-                'text': text[:4000],
-                'reply_to_message_id': message_data.get('message_id'),
-            },
+            data=data,
             timeout=settings.API_REQUEST_TIMEOUT,
         )
     except requests.Timeout:
@@ -815,6 +919,27 @@ def _parse_received_at(received_at_raw) -> datetime:
                 f"Could not parse received_at '{received_at_raw}', using now"
             )
             return timezone.now()
+
+
+def _sender_from_webapp_auth(auth_payload: dict) -> str:
+    raw_user = (auth_payload or {}).get('user', '')
+    if not raw_user:
+        return 'Telegram Web App'
+    try:
+        user = json.loads(raw_user)
+    except json.JSONDecodeError:
+        return 'Telegram Web App'
+
+    first = user.get('first_name', '')
+    last = user.get('last_name', '')
+    username = user.get('username', '')
+    if first or last:
+        return f"{first} {last}".strip()
+    if username:
+        return username
+    if user.get('id'):
+        return f"telegram:{user['id']}"
+    return 'Telegram Web App'
 
 
 def _split_if_batch(

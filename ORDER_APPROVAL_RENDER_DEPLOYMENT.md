@@ -47,9 +47,13 @@ In Render, open the web service:
 Add or update these new variables:
 
 ```text
+APP_BASE_URL=https://<your-render-service>.onrender.com
 MEDIA_STORAGE_PROVIDER=google_drive
 MEDIA_MAX_FILE_SIZE_MB=20
 GOOGLE_DRIVE_MEDIA_FOLDER_ID=<drive-folder-id>
+ORDER_APPROVAL_WEBAPP_ENABLED=True
+ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True
+ORDER_APPROVAL_WEBAPP_AUTH_MAX_AGE_SECONDS=86400
 ```
 
 `GOOGLE_DRIVE_MEDIA_FOLDER_ID` is the folder ID from the Drive folder URL:
@@ -80,6 +84,8 @@ GROUP_MAPPING_JSON=<optional-existing-config>
 ```
 
 Preferred setup for the new group is Django admin, not `GROUP_MAPPING_JSON`, because it avoids replacing or breaking existing group JSON.
+
+`APP_BASE_URL` is required for the Telegram Web App button. It must be the public HTTPS Render URL with no trailing slash.
 
 ## 3. Deploy The Code
 
@@ -115,8 +121,23 @@ Recommended Telegram setup:
 
 - Add `@hb_biogas_cases_bot` to the group.
 - Make the bot an admin, or disable BotFather group privacy for this bot.
-- Ask staff to tag the bot in update messages.
-- Ask staff to send follow-up photos/documents as replies to the original update message.
+- In BotFather, set the bot Web App domain to the Render domain if Telegram blocks the button:
+
+```text
+/setdomain
+hb_biogas_cases_bot
+<your-render-service>.onrender.com
+```
+
+- Ask staff to use:
+
+```text
+@hb_biogas_cases_bot /order
+```
+
+- The bot replies with an `Open Order Approval Form` button.
+- Staff fill the form inside Telegram and submit photos/documents there.
+- Staff may still send follow-up photos/documents as replies to the original chat update message if they use the structured chat workflow.
 
 To find the Telegram group ID:
 
@@ -212,7 +233,26 @@ Do not use this method if admin-managed configurations already exist and are eas
 
 Pick an ID that exists once in exactly one searched tab.
 
-Send this in the order approval group:
+First test the Telegram Web App form:
+
+1. Send this in the order approval group:
+
+```text
+@hb_biogas_cases_bot /order
+```
+
+2. Tap `Open Order Approval Form`.
+3. Fill `ID number` and a few BRO fields.
+4. Submit.
+
+Expected:
+
+- The Web App shows a success message.
+- The Telegram Web App closes after success.
+- The matching Google Sheet row is updated.
+- `Core -> Order approval updates` has a `success` record.
+
+Then test the fallback structured chat workflow by sending:
 
 ```text
 @hb_biogas_cases_bot
@@ -250,6 +290,24 @@ Then verify:
 - Only the supplied BRO fields changed.
 - Complaint group behavior is unchanged.
 - `Core -> Order approval updates` has a `success` record.
+
+## 7.1 Web App Authentication Notes
+
+The Web App submit endpoint validates Telegram `initData` using `TELEGRAM_BOT_TOKEN`.
+
+Keep this enabled in production:
+
+```text
+ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True
+```
+
+For a temporary server-side smoke test outside Telegram, you can set:
+
+```text
+ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False
+```
+
+Only use that briefly, then turn it back to `True`.
 
 ## 8. Attachment Test
 

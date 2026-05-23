@@ -5,12 +5,16 @@ structured BRO update format, finds an existing approval row by ID NUMBER, and
 updates only the configured BRO headers plus Media URLs.
 """
 import io
+import hashlib
+import hmac
 import logging
 import mimetypes
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import PurePosixPath
+from urllib.parse import parse_qsl
 from typing import Any
 
 import requests
@@ -140,6 +144,10 @@ def handle_order_approval_message(
             received_at=received_at,
             media_items=media_items,
         )
+
+    command_result = handle_order_webapp_command(group_config, content or '')
+    if command_result:
+        return command_result
 
     parsed = parse_order_approval_message(content or '')
     if not parsed.id_number:
@@ -346,6 +354,162 @@ def handle_order_approval_media_reply(
     )
 
 
+def handle_order_webapp_command(group_config, content: str) -> dict | None:
+    normalized = str(content or '').strip().lower()
+    if normalized not in {'/order', 'order', '/form', 'form'}:
+        return None
+
+    if not getattr(settings, 'ORDER_APPROVAL_WEBAPP_ENABLED', True):
+        return _order_reply('Order approval form is not enabled.', status='failed')
+
+    base_url = getattr(settings, 'APP_BASE_URL', '')
+    if not base_url:
+        return _order_reply(
+            'Order approval form is not configured. Set APP_BASE_URL on Render.',
+            status='failed',
+        )
+
+    form_url = f"{base_url}/order-approval/?group_id={group_config.group_id}"
+    return {
+        'status': 'command',
+        'workflow': 'order_approval',
+        'reply_text': 'Open the order approval form.',
+        'reply_markup': {
+            'inline_keyboard': [[
+                {
+                    'text': 'Open Order Approval Form',
+                    'web_app': {'url': form_url},
+                }
+            ]]
+        },
+    }
+
+
+def process_order_approval_form_submission(
+    group_config,
+    fields: dict[str, str],
+    uploaded_files: list,
+    sender: str,
+    received_at: datetime | None = None,
+) -> dict:
+    received_at = received_at or timezone.now()
+    parsed_fields = clean_form_fields(fields)
+    id_number = normalize_business_key(parsed_fields.get('id_number', ''))
+    if not id_number:
+        return {
+            'success': False,
+            'status': 'failed',
+            'message': 'ID number is required.',
+        }
+
+    update_record = OrderApprovalUpdate.objects.create(
+        group_id=group_config.group_id,
+        sheet_id=group_config.sheet_id,
+        id_number=id_number,
+        sender=sender or '',
+        raw_text='Telegram Web App submission',
+        parsed_fields=parsed_fields,
+        update_status='pending',
+    )
+
+    matches = find_order_approval_matches(group_config, id_number)
+    if not matches:
+        uploaded = store_uploaded_files_for_order(
+            group_config=group_config,
+            uploaded_files=uploaded_files,
+            sender=sender,
+            received_at=received_at,
+            business_key_value=id_number,
+            order_update=update_record,
+        )
+        update_record.update_status = 'no_match'
+        update_record.sync_error = f"No row found for ID {id_number}"
+        update_record.save(update_fields=['update_status', 'sync_error'])
+        return {
+            'success': False,
+            'status': 'no_match',
+            'message': f'No order approval row found for ID {id_number}.',
+            'files_stored': uploaded.stored_count,
+            'warnings': uploaded.warnings,
+        }
+
+    if len(matches) > 1:
+        uploaded = store_uploaded_files_for_order(
+            group_config=group_config,
+            uploaded_files=uploaded_files,
+            sender=sender,
+            received_at=received_at,
+            business_key_value=id_number,
+            order_update=update_record,
+        )
+        locations = [
+            {'sheet': match.sheet_name, 'row': match.row_number}
+            for match in matches[:10]
+        ]
+        update_record.update_status = 'duplicate'
+        update_record.sync_error = ", ".join(
+            f"{item['sheet']}!{item['row']}" for item in locations
+        )
+        update_record.save(update_fields=['update_status', 'sync_error'])
+        return {
+            'success': False,
+            'status': 'duplicate',
+            'message': 'Duplicate rows found for this ID. Resolve them in the sheet first.',
+            'matches': locations,
+            'files_stored': uploaded.stored_count,
+            'warnings': uploaded.warnings,
+        }
+
+    match = matches[0]
+    update_record.sheet_tab = match.sheet_name
+    update_record.row_number = match.row_number
+    update_record.save(update_fields=['sheet_tab', 'row_number'])
+
+    uploaded = store_uploaded_files_for_order(
+        group_config=group_config,
+        uploaded_files=uploaded_files,
+        sender=sender,
+        received_at=received_at,
+        business_key_value=id_number,
+        order_update=update_record,
+    )
+    sheet_result = update_order_approval_row(
+        match=match,
+        workflow=group_config.workflow or {},
+        parsed_fields=parsed_fields,
+        media_links=uploaded.links,
+    )
+    if not sheet_result['success']:
+        update_record.update_status = 'failed'
+        update_record.sync_error = sheet_result['error']
+        update_record.save(update_fields=['update_status', 'sync_error'])
+        return {
+            'success': False,
+            'status': 'failed',
+            'message': sheet_result['error'],
+            'files_stored': uploaded.stored_count,
+            'warnings': uploaded.warnings,
+        }
+
+    update_record.update_status = 'success'
+    update_record.save(update_fields=['update_status'])
+    customer_name = parsed_fields.get('customer_name') or value_for_header(
+        match, header_for_field(group_config.workflow or {}, 'customer_name')
+    )
+    return {
+        'success': True,
+        'status': 'success',
+        'message': 'Order approval updated.',
+        'id_number': id_number,
+        'customer_name': customer_name,
+        'sheet': match.sheet_name,
+        'row': match.row_number,
+        'fields_updated': sheet_result['fields_updated'],
+        'files_stored': uploaded.stored_count,
+        'warnings': uploaded.warnings,
+    }
+
+
 def parse_order_approval_message(content: str) -> ParsedOrderApproval:
     """Parse strict label/value lines into canonical BRO fields."""
     fields: dict[str, str] = {}
@@ -377,6 +541,20 @@ def parse_order_approval_message(content: str) -> ParsedOrderApproval:
         fields['id_number'] = normalize_business_key(fields['id_number'])
 
     return ParsedOrderApproval(fields=fields, warnings=warnings)
+
+
+def clean_form_fields(fields: dict[str, str]) -> dict[str, str]:
+    cleaned = {}
+    allowed = set(ORDER_APPROVAL_FIELD_HEADERS)
+    for field, value in (fields or {}).items():
+        if field not in allowed or field == DEFAULT_MEDIA_FIELD:
+            continue
+        value = str(value or '').strip()
+        if value or field == 'id_number':
+            cleaned[field] = value
+    if cleaned.get('id_number'):
+        cleaned['id_number'] = normalize_business_key(cleaned['id_number'])
+    return cleaned
 
 
 def find_order_approval_matches(group_config, id_number: str) -> list[SheetMatch]:
@@ -585,6 +763,108 @@ def store_media_for_order(
             attachment.save(update_fields=['upload_status', 'upload_error'])
             warnings.append(f"Could not store {display_filename(item, index)}.")
             logger.error("Media upload failed: %s", exc, exc_info=True)
+
+    return UploadedMedia(
+        links=links,
+        stored_count=stored_count,
+        skipped_count=skipped_count,
+        warnings=warnings,
+    )
+
+
+def store_uploaded_files_for_order(
+    group_config,
+    uploaded_files: list,
+    sender: str,
+    received_at: datetime,
+    business_key_value: str,
+    order_update: OrderApprovalUpdate | None = None,
+) -> UploadedMedia:
+    links: list[str] = []
+    warnings: list[str] = []
+    stored_count = 0
+    skipped_count = 0
+
+    for index, uploaded_file in enumerate(uploaded_files or [], start=1):
+        original_filename = getattr(uploaded_file, 'name', '') or ''
+        mime_type = getattr(uploaded_file, 'content_type', '') or ''
+        size = getattr(uploaded_file, 'size', None)
+        attachment = MediaAttachment.objects.create(
+            order_update=order_update,
+            group_id=group_config.group_id,
+            sender=sender or '',
+            file_type='document' if not str(mime_type).startswith('image/') else 'photo',
+            original_filename=original_filename,
+            mime_type=mime_type,
+            size=size,
+            storage_provider=getattr(settings, 'MEDIA_STORAGE_PROVIDER', 'google_drive'),
+            business_key_type='id_number',
+            business_key_value=business_key_value,
+        )
+
+        max_bytes = int(getattr(settings, 'MEDIA_MAX_FILE_SIZE_MB', 20)) * 1024 * 1024
+        if size and size > max_bytes:
+            attachment.upload_status = 'skipped'
+            attachment.upload_error = (
+                f"File is larger than {settings.MEDIA_MAX_FILE_SIZE_MB} MB"
+            )
+            attachment.save(update_fields=['upload_status', 'upload_error'])
+            skipped_count += 1
+            warnings.append(
+                f"Skipped {original_filename or f'file {index}'}: over {settings.MEDIA_MAX_FILE_SIZE_MB} MB."
+            )
+            continue
+
+        try:
+            data = uploaded_file.read()
+            if len(data) > max_bytes:
+                attachment.upload_status = 'skipped'
+                attachment.upload_error = (
+                    f"File is larger than {settings.MEDIA_MAX_FILE_SIZE_MB} MB"
+                )
+                attachment.size = len(data)
+                attachment.save(update_fields=['upload_status', 'upload_error', 'size'])
+                skipped_count += 1
+                warnings.append(
+                    f"Skipped {original_filename or f'file {index}'}: over {settings.MEDIA_MAX_FILE_SIZE_MB} MB."
+                )
+                continue
+
+            if getattr(settings, 'MEDIA_STORAGE_PROVIDER', 'google_drive') != 'google_drive':
+                raise ValueError(
+                    f"Unsupported media storage provider: {settings.MEDIA_STORAGE_PROVIDER}"
+                )
+
+            item = TelegramMediaItem(
+                telegram_file_id='',
+                file_type=attachment.file_type,
+                original_filename=original_filename,
+                mime_type=mime_type,
+                size=len(data),
+            )
+            storage = GoogleDriveMediaStorage()
+            drive_file_id, drive_url = storage.upload(
+                data=data,
+                filename=build_storage_filename(item, business_key_value, index),
+                mime_type=mime_type or 'application/octet-stream',
+                id_number=business_key_value,
+                received_at=received_at,
+            )
+            attachment.upload_status = 'success'
+            attachment.drive_file_id = drive_file_id
+            attachment.drive_url = drive_url
+            attachment.size = len(data)
+            attachment.save(update_fields=[
+                'upload_status', 'drive_file_id', 'drive_url', 'size',
+            ])
+            links.append(drive_url)
+            stored_count += 1
+        except Exception as exc:
+            attachment.upload_status = 'failed'
+            attachment.upload_error = str(exc)
+            attachment.save(update_fields=['upload_status', 'upload_error'])
+            warnings.append(f"Could not store {original_filename or f'file {index}'}.")
+            logger.error("Uploaded media storage failed: %s", exc, exc_info=True)
 
     return UploadedMedia(
         links=links,
@@ -853,6 +1133,50 @@ def normalize_header(header: str) -> str:
 
 def normalize_business_key(value: str) -> str:
     return " ".join(str(value or '').strip().split())
+
+
+def validate_telegram_webapp_init_data(init_data: str) -> tuple[bool, str, dict]:
+    """Validate Telegram Web App initData using the bot token."""
+    if not getattr(settings, 'ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH', True):
+        return True, '', {}
+
+    bot_token = getattr(settings, 'TELEGRAM_BOT_TOKEN', '')
+    if not bot_token:
+        return False, 'TELEGRAM_BOT_TOKEN is not configured.', {}
+    if not init_data:
+        return False, 'Telegram Web App authentication data is missing.', {}
+
+    pairs = dict(parse_qsl(init_data, keep_blank_values=True))
+    received_hash = pairs.pop('hash', '')
+    if not received_hash:
+        return False, 'Telegram Web App hash is missing.', {}
+
+    data_check_string = "\n".join(
+        f"{key}={value}" for key, value in sorted(pairs.items())
+    )
+    secret_key = hmac.new(
+        b'WebAppData',
+        bot_token.encode('utf-8'),
+        hashlib.sha256,
+    ).digest()
+    calculated_hash = hmac.new(
+        secret_key,
+        data_check_string.encode('utf-8'),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(calculated_hash, received_hash):
+        return False, 'Telegram Web App authentication failed.', {}
+
+    auth_date = pairs.get('auth_date')
+    max_age = int(getattr(settings, 'ORDER_APPROVAL_WEBAPP_AUTH_MAX_AGE_SECONDS', 86400))
+    if auth_date and max_age > 0:
+        try:
+            if time.time() - int(auth_date) > max_age:
+                return False, 'Telegram Web App authentication expired.', {}
+        except ValueError:
+            return False, 'Telegram Web App auth_date is invalid.', {}
+
+    return True, '', pairs
 
 
 def group_consecutive_columns(columns: list[tuple]) -> list[list[tuple]]:

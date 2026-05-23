@@ -141,6 +141,7 @@ if not (BASE_DIR / 'logs').exists():
 TELEGRAM_BOT_TOKEN = config('TELEGRAM_BOT_TOKEN', default='')
 TELEGRAM_WEBHOOK_SECRET = config('TELEGRAM_WEBHOOK_SECRET', default='')
 TELEGRAM_BOT_USERNAME = config('TELEGRAM_BOT_USERNAME', default='hb_biogas_cases_bot').lstrip('@')
+APP_BASE_URL = config('APP_BASE_URL', default='').rstrip('/')
 
 # API protection for manual endpoints
 API_AUTH_TOKEN = config('API_AUTH_TOKEN', default='')
@@ -154,6 +155,17 @@ GOOGLE_SHEET_TAB_NAME = config('GOOGLE_SHEET_TAB_NAME', default='Complaints Regi
 MEDIA_STORAGE_PROVIDER = config('MEDIA_STORAGE_PROVIDER', default='google_drive')
 MEDIA_MAX_FILE_SIZE_MB = config('MEDIA_MAX_FILE_SIZE_MB', default=20, cast=int)
 GOOGLE_DRIVE_MEDIA_FOLDER_ID = config('GOOGLE_DRIVE_MEDIA_FOLDER_ID', default='')
+ORDER_APPROVAL_WEBAPP_ENABLED = config('ORDER_APPROVAL_WEBAPP_ENABLED', default=True, cast=bool)
+ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH = config(
+    'ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH',
+    default=True,
+    cast=bool,
+)
+ORDER_APPROVAL_WEBAPP_AUTH_MAX_AGE_SECONDS = config(
+    'ORDER_APPROVAL_WEBAPP_AUTH_MAX_AGE_SECONDS',
+    default=86400,
+    cast=int,
+)
 
 # Multi-Group/Multi-Tenant Configuration
 # Maps Telegram group chat_id to Google Sheet configurations.

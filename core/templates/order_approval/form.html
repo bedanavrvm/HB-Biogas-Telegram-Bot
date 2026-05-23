@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Order Approval</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --surface: #ffffff;
+      --text: #17202a;
+      --muted: #667085;
+      --line: #d0d5dd;
+      --focus: #2563eb;
+      --action: #0f766e;
+      --action-pressed: #115e59;
+      --danger: #b42318;
+      --ok-bg: #ecfdf3;
+      --ok-text: #067647;
+      --warn-bg: #fffaeb;
+      --warn-text: #b54708;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 16px;
+      line-height: 1.45;
+    }
+
+    main {
+      width: min(100%, 880px);
+      margin: 0 auto;
+      padding: 16px;
+    }
+
+    header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 4px 0 16px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.2;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .hint {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    form {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    fieldset {
+      margin: 0;
+      padding: 0;
+      border: 0;
+    }
+
+    legend {
+      width: 100%;
+      padding: 18px 0 10px;
+      font-size: 15px;
+      font-weight: 700;
+      color: #344054;
+      border-top: 1px solid var(--line);
+    }
+
+    fieldset:first-of-type legend {
+      padding-top: 0;
+      border-top: 0;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    label {
+      display: grid;
+      gap: 5px;
+      color: #344054;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      min-height: 44px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #ffffff;
+      color: var(--text);
+      padding: 9px 10px;
+      font: inherit;
+      letter-spacing: 0;
+    }
+
+    textarea {
+      min-height: 88px;
+      resize: vertical;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      border-color: var(--focus);
+      outline: 3px solid rgba(37, 99, 235, 0.18);
+    }
+
+    input[type="file"] {
+      padding: 8px;
+      background: #fcfcfd;
+    }
+
+    .required {
+      color: var(--danger);
+    }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 18px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+
+    button {
+      min-height: 44px;
+      border: 0;
+      border-radius: 6px;
+      background: var(--action);
+      color: #ffffff;
+      padding: 10px 16px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button:focus {
+      outline: 3px solid rgba(15, 118, 110, 0.22);
+      outline-offset: 2px;
+    }
+
+    button:active {
+      background: var(--action-pressed);
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.62;
+    }
+
+    .status {
+      display: none;
+      margin: 0 0 12px;
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .status[data-state="success"] {
+      display: block;
+      background: var(--ok-bg);
+      color: var(--ok-text);
+    }
+
+    .status[data-state="error"] {
+      display: block;
+      background: #fef3f2;
+      color: var(--danger);
+    }
+
+    .status[data-state="working"] {
+      display: block;
+      background: var(--warn-bg);
+      color: var(--warn-text);
+    }
+
+    .fine-print {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 400;
+    }
+
+    @media (min-width: 720px) {
+      main {
+        padding: 24px;
+      }
+
+      .grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .span-2 {
+        grid-column: span 2;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Order Approval</h1>
+        <p class="hint">Submit BRO visit details and supporting files.</p>
+      </div>
+    </header>
+
+    <form id="approval-form" enctype="multipart/form-data" novalidate>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+
+      <input type="hidden" name="group_id" value="{{ group_id }}">
+      <input type="hidden" name="init_data" id="init-data">
+
+      <fieldset>
+        <legend>Customer</legend>
+        <div class="grid">
+          <label>
+            ID number <span class="required">*</span>
+            <input name="id_number" inputmode="numeric" autocomplete="off" required>
+          </label>
+          <label>
+            Date visited
+            <input name="date_visited" type="date">
+          </label>
+          <label class="span-2">
+            Customer name
+            <input name="customer_name" autocomplete="name">
+          </label>
+          <label>
+            Primary phone
+            <input name="primary_phone" inputmode="tel" autocomplete="tel">
+          </label>
+          <label>
+            Secondary phone
+            <input name="secondary_phone" inputmode="tel">
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Visit</legend>
+        <div class="grid">
+          <label>
+            County
+            <input name="county">
+          </label>
+          <label>
+            Visited by
+            <input name="visited_by">
+          </label>
+          <label>
+            HB staff
+            <input name="hb_staff">
+          </label>
+          <label>
+            IMAB created
+            <select name="imab_created">
+              <option value=""></option>
+              <option value="CREATED">CREATED</option>
+              <option value="NOT CREATED">NOT CREATED</option>
+              <option value="PENDING">PENDING</option>
+            </select>
+          </label>
+          <label class="span-2">
+            Landmark
+            <textarea name="landmark"></textarea>
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Approval</legend>
+        <div class="grid">
+          <label>
+            HB deposit
+            <input name="deposit_hb" inputmode="decimal">
+          </label>
+          <label>
+            JBL deposit
+            <input name="deposit_jbl" inputmode="decimal">
+          </label>
+          <label>
+            Customer no
+            <input name="customer_no" inputmode="numeric">
+          </label>
+          <label>
+            Credit analysis
+            <select name="credit_analysis">
+              <option value=""></option>
+              <option value="Pending">Pending</option>
+              <option value="Approved">Approved</option>
+              <option value="Rejected">Rejected</option>
+              <option value="Review">Review</option>
+            </select>
+          </label>
+          <label class="span-2">
+            Comment
+            <textarea name="comment"></textarea>
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Files</legend>
+        <label>
+          Photos or documents
+          <input name="attachments" type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx">
+          <span class="fine-print">Maximum {{ max_file_size_mb }} MB per file.</span>
+        </label>
+      </fieldset>
+
+      <div class="actions">
+        <button id="submit-button" type="submit">Submit update</button>
+      </div>
+    </form>
+  </main>
+
+  <script>
+    const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+    const form = document.getElementById('approval-form');
+    const statusEl = document.getElementById('status');
+    const submitButton = document.getElementById('submit-button');
+    const initDataInput = document.getElementById('init-data');
+
+    if (tg) {
+      tg.ready();
+      tg.expand();
+      initDataInput.value = tg.initData || '';
+    }
+
+    function setStatus(state, text) {
+      statusEl.dataset.state = state;
+      statusEl.textContent = text;
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!form.reportValidity()) {
+        return;
+      }
+
+      submitButton.disabled = true;
+      setStatus('working', 'Submitting update...');
+
+      try {
+        const response = await fetch('/api/order-approval/webapp/submit/', {
+          method: 'POST',
+          body: new FormData(form)
+        });
+        const payload = await response.json();
+
+        if (!response.ok || !payload.success) {
+          const message = payload.message || 'Submission failed.';
+          setStatus('error', message);
+          submitButton.disabled = false;
+          return;
+        }
+
+        const detail = `Sheet: ${payload.sheet}, row ${payload.row}. Files stored: ${payload.files_stored || 0}.`;
+        setStatus('success', `${payload.message} ${detail}`);
+        if (tg) {
+          tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('success');
+          setTimeout(() => tg.close(), 1200);
+        } else {
+          submitButton.disabled = false;
+          form.reset();
+        }
+      } catch (error) {
+        setStatus('error', 'Network error. Check your connection and try again.');
+        submitButton.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
