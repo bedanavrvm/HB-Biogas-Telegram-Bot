@@ -1,9 +1,19 @@
+from django import forms
 from django.contrib import admin
 from django.contrib import messages
 from django.http import HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils.html import format_html
+
+from core.services.workflow_presets import (
+    MANUAL_PRESET,
+    build_workflow_from_preset,
+    defaults_for_preset,
+    get_preset,
+    preset_choices,
+    preset_for_workflow,
+)
 
 from .models import (
     CaseUpdate,
@@ -14,6 +24,107 @@ from .models import (
     ProcessedMessage,
     ParsedMessage,
 )
+
+
+class GroupSheetConfigurationAdminForm(forms.ModelForm):
+    """Admin helper that can generate workflow JSON from a simple preset."""
+
+    workflow_preset = forms.ChoiceField(
+        choices=preset_choices,
+        required=False,
+        initial=MANUAL_PRESET,
+        help_text=(
+            'Select a preset to generate workflow JSON automatically. '
+            'Choose Manual JSON for complaint groups or custom workflows.'
+        ),
+    )
+    order_approval_search_tabs = forms.CharField(
+        required=False,
+        initial=get_preset('order_approval')['admin_fields']['search_tabs']['initial'],
+        label=get_preset('order_approval')['admin_fields']['search_tabs']['label'],
+        help_text=get_preset('order_approval')['admin_fields']['search_tabs']['help_text'],
+    )
+    order_approval_match_field = forms.ChoiceField(
+        choices=get_preset('order_approval')['admin_fields']['match_field']['choices'],
+        required=False,
+        initial=get_preset('order_approval')['admin_fields']['match_field']['initial'],
+        label=get_preset('order_approval')['admin_fields']['match_field']['label'],
+        help_text=get_preset('order_approval')['admin_fields']['match_field']['help_text'],
+    )
+    order_approval_media_field = forms.ChoiceField(
+        choices=get_preset('order_approval')['admin_fields']['media_field']['choices'],
+        required=False,
+        initial=get_preset('order_approval')['admin_fields']['media_field']['initial'],
+        label=get_preset('order_approval')['admin_fields']['media_field']['label'],
+        help_text=get_preset('order_approval')['admin_fields']['media_field']['help_text'],
+    )
+
+    class Meta:
+        model = GroupSheetConfiguration
+        fields = '__all__'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        workflow = getattr(self.instance, 'workflow', None) or {}
+        preset_key = preset_for_workflow(workflow)
+        self.fields['workflow_preset'].initial = preset_key
+        if preset_key == 'order_approval':
+            self.fields['workflow_preset'].initial = 'order_approval'
+            self.fields['order_approval_search_tabs'].initial = ', '.join(
+                workflow.get('search_sheet_names')
+                or defaults_for_preset('order_approval')['workflow']['search_sheet_names']
+            )
+            self.fields['order_approval_match_field'].initial = (
+                workflow.get('match_field')
+                or defaults_for_preset('order_approval')['workflow']['match_field']
+            )
+            self.fields['order_approval_media_field'].initial = (
+                workflow.get('media_field')
+                or defaults_for_preset('order_approval')['workflow']['media_field']
+            )
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get('workflow_preset') == MANUAL_PRESET:
+            return cleaned
+
+        if cleaned.get('workflow_preset') == 'order_approval':
+            tabs = self.order_approval_tabs()
+            if not tabs:
+                self.add_error(
+                    'order_approval_search_tabs',
+                    'Enter at least one worksheet tab.',
+                )
+        return cleaned
+
+    def order_approval_tabs(self) -> list[str]:
+        raw = self.cleaned_data.get('order_approval_search_tabs', '')
+        return [
+            tab.strip()
+            for tab in str(raw or '').split(',')
+            if tab.strip()
+        ]
+
+    def generated_workflow(self) -> dict | None:
+        preset_key = self.cleaned_data.get('workflow_preset') or MANUAL_PRESET
+        return build_workflow_from_preset(
+            preset_key,
+            overrides={
+                'search_sheet_names': self.order_approval_tabs(),
+                'match_field': self.cleaned_data.get('order_approval_match_field'),
+                'media_field': self.cleaned_data.get('order_approval_media_field'),
+            },
+        )
+
+    def apply_preset_defaults(self, obj):
+        preset_key = self.cleaned_data.get('workflow_preset') or MANUAL_PRESET
+        defaults = defaults_for_preset(preset_key)
+        if defaults.get('sheet_name') and not obj.sheet_name:
+            obj.sheet_name = defaults['sheet_name']
+        if defaults.get('sheet_schema') is not None and not obj.sheet_schema:
+            obj.sheet_schema = defaults['sheet_schema']
+        if defaults.get('parser_rules') is not None and not obj.parser_rules:
+            obj.parser_rules = defaults['parser_rules']
 
 
 @admin.register(RawMessage)
@@ -95,6 +206,7 @@ class MediaAttachmentAdmin(admin.ModelAdmin):
 
 @admin.register(GroupSheetConfiguration)
 class GroupSheetConfigurationAdmin(admin.ModelAdmin):
+    form = GroupSheetConfigurationAdminForm
     list_display = [
         'display_label', 'group_id', 'enabled', 'sheet_name',
         'sheet_link', 'updated_at',
@@ -123,12 +235,25 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
                 'sheet\'s column headers.'
             ),
         }),
-        ('Workflow And Parser Rules', {
+        ('Workflow Preset', {
+            'fields': (
+                'workflow_preset',
+                'order_approval_search_tabs',
+                'order_approval_match_field',
+                'order_approval_media_field',
+            ),
+            'description': (
+                'For the order approval group, select the preset and save. '
+                'The workflow JSON below will be generated automatically.'
+            ),
+        }),
+        ('Advanced Workflow And Parser Rules', {
             'fields': ('workflow', 'parser_rules'),
             'description': (
                 'Optional per-group workflow and parser settings. Keep empty '
                 'to use the default complaint/status rules.'
             ),
+            'classes': ('collapse',),
         }),
         ('Metadata', {
             'fields': ('metadata', 'created_at', 'updated_at'),
@@ -219,6 +344,12 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
         )
 
     def save_model(self, request, obj, form, change):
+        apply_defaults = getattr(form, 'apply_preset_defaults', None)
+        if apply_defaults:
+            apply_defaults(obj)
+        generated_workflow = getattr(form, 'generated_workflow', lambda: None)()
+        if generated_workflow:
+            obj.workflow = generated_workflow
         super().save_model(request, obj, form, change)
         self._clear_runtime_config_cache()
         self.message_user(

@@ -185,7 +185,21 @@ Use `Pending` for `sheet_name` even though the workflow searches multiple tabs. 
 
 Leave `sheet_schema` empty unless you are deliberately changing the complaint schema for this group. This workflow does not use the complaint parser schema.
 
-Set `workflow` exactly like this:
+In `Workflow Preset`, select:
+
+```text
+Order Approval
+```
+
+Leave these defaults unless the workbook tabs change:
+
+```text
+order_approval_search_tabs: Pending, 178, 179, 180, 181
+order_approval_match_field: ID NUMBER
+order_approval_media_field: Media URLs
+```
+
+When you save, Django admin generates this `workflow` JSON automatically:
 
 ```json
 {
@@ -199,6 +213,10 @@ Set `workflow` exactly like this:
 Leave `parser_rules` empty.
 
 Save the configuration. Saving clears the runtime group routing cache.
+
+Future workflow presets are defined in `core/services/workflow_presets.py`. For new group types, add one preset there so admin setup stays the same: group ID, sheet ID, workflow preset, save.
+
+Preset behavior and current group types are documented in `WORKFLOW_PRESETS.md`.
 
 ## 6. Optional Environment-Only Group Setup
 

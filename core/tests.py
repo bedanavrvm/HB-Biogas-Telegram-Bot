@@ -1383,6 +1383,76 @@ class GroupConfigurationServiceTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Admin Render Test')
 
+    def test_group_configuration_admin_form_generates_order_approval_workflow(self):
+        """Order approval preset should avoid hand-written workflow JSON."""
+        from core.admin import GroupSheetConfigurationAdminForm
+
+        form = GroupSheetConfigurationAdminForm(data={
+            'enabled': 'on',
+            'group_id': '-100222',
+            'display_name': 'Order Approval',
+            'sheet_id': 'sheet_order_123',
+            'sheet_name': 'Pending',
+            'sheet_schema': '{}',
+            'workflow': '{}',
+            'parser_rules': '{}',
+            'metadata': '{}',
+            'workflow_preset': 'order_approval',
+            'order_approval_search_tabs': 'Pending, 178, 179, 180, 181',
+            'order_approval_match_field': 'id_number',
+            'order_approval_media_field': 'media_urls',
+        })
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(
+            form.generated_workflow(),
+            {
+                'type': 'order_approval',
+                'match_field': 'id_number',
+                'search_sheet_names': ['Pending', '178', '179', '180', '181'],
+                'media_field': 'media_urls',
+            },
+        )
+
+    def test_workflow_presets_define_order_approval_defaults(self):
+        """Future workflow additions should follow the shared preset contract."""
+        from core.services.workflow_presets import (
+            build_workflow_from_preset,
+            defaults_for_preset,
+            preset_choices,
+        )
+
+        choices = dict(preset_choices())
+        self.assertIn('order_approval', choices)
+        self.assertEqual(choices['order_approval'], 'Order Approval')
+
+        defaults = defaults_for_preset('order_approval')
+        self.assertEqual(defaults['sheet_name'], 'Pending')
+        self.assertEqual(defaults['sheet_schema'], {})
+        self.assertEqual(defaults['parser_rules'], {})
+
+        workflow = build_workflow_from_preset('order_approval')
+        self.assertEqual(workflow['type'], 'order_approval')
+        self.assertEqual(
+            workflow['search_sheet_names'],
+            ['Pending', '178', '179', '180', '181'],
+        )
+
+    def test_workflow_preset_overrides_order_approval_tabs(self):
+        """Admin can override preset tabs without editing raw JSON."""
+        from core.services.workflow_presets import build_workflow_from_preset
+
+        workflow = build_workflow_from_preset(
+            'order_approval',
+            overrides={
+                'search_sheet_names': ['Pending', '190'],
+                'match_field': 'id_number',
+                'media_field': 'media_urls',
+            },
+        )
+
+        self.assertEqual(workflow['search_sheet_names'], ['Pending', '190'])
+
 
 class SheetAnalyzerServiceTest(TestCase):
     """Test Google Sheet analysis and schema suggestion."""

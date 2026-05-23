@@ -4,6 +4,8 @@ The bot supports different Telegram groups writing to different spreadsheets, wo
 
 The Django database remains canonical internally, but each group can map those canonical case fields to its own spreadsheet headers.
 
+For simple setup, use workflow presets in Django admin. See `WORKFLOW_PRESETS.md`.
+
 ## Default Behavior
 
 If no per-group schema is configured, the bot uses the current biogas complaint-register layout:
