@@ -36,6 +36,33 @@ The preferred way to configure groups is through Django admin:
 
 Admin-managed configuration overrides `GROUP_MAPPING_JSON` for the same group ID. Environment variables remain useful for bootstrap and deployments where admin-managed config is not wanted.
 
+## Order Approval Workflow
+
+Use a separate Telegram group for the live order approval Google Sheet. In that group's admin configuration, set `workflow` to:
+
+```json
+{
+  "type": "order_approval",
+  "match_field": "id_number",
+  "search_sheet_names": ["Pending", "178", "179", "180", "181"],
+  "media_field": "media_urls"
+}
+```
+
+The workflow expects structured labels such as `ID:`, `DATE VISITED:`, `CUSTOMER NAME:`, `PRIMARY PHONE:`, `HB DEPOSIT:`, and `CREDIT ANALYSIS:`. It searches the configured tabs by the `ID NUMBER` column, updates only the BRO fields that were supplied, and appends uploaded Google Drive links to the existing `Media URLs` cell.
+
+Each searched worksheet must already contain a `Media URLs` header. The bot does not add columns to the approval workbook.
+
+Media storage uses these environment settings:
+
+```text
+MEDIA_STORAGE_PROVIDER=google_drive
+MEDIA_MAX_FILE_SIZE_MB=20
+GOOGLE_DRIVE_MEDIA_FOLDER_ID=<drive-folder-id>
+```
+
+Photos and documents are stored under `year/month/ID_<id-number>/` in the configured Drive folder. Follow-up photos or documents can be sent as replies to the original order update message, and the bot will append their Drive links to the same approval row.
+
 ## Sheet Analyzer
 
 For a new group or a new spreadsheet layout, use the built-in Google Sheet analyzer instead of writing `sheet_schema` manually.

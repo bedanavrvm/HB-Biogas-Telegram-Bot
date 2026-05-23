@@ -170,6 +170,32 @@ def _process_telegram_message(message_data: dict) -> dict:
             message_data.get('reply_to_message', {}).get('message_id', '')
         )
 
+        from core.services.group_config import GroupRegistry
+        group_config = GroupRegistry.get_instance().get_group(group_id)
+        if group_config:
+            from core.services.order_approval import (
+                handle_order_approval_message,
+                is_order_approval_workflow,
+            )
+            if is_order_approval_workflow(group_config):
+                if content is None and not (reply_to_id and has_image):
+                    logger.debug(
+                        f"Ignoring order approval message {telegram_message_id}: "
+                        "bot was not tagged"
+                    )
+                    return {
+                        'status': 'ignored',
+                        'reason': 'Bot was not tagged',
+                        'message_id': telegram_message_id,
+                    }
+                return handle_order_approval_message(
+                    group_config=group_config,
+                    message_data=message_data,
+                    content=content or '',
+                    sender=sender,
+                    received_at=received_at,
+                )
+
         update_content = content if content is not None else raw_content
         if reply_to_id and _looks_like_status_update(update_content):
             from core.services.case_updates import handle_case_status_reply

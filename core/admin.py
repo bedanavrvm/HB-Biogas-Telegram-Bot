@@ -8,6 +8,8 @@ from django.utils.html import format_html
 from .models import (
     CaseUpdate,
     GroupSheetConfiguration,
+    MediaAttachment,
+    OrderApprovalUpdate,
     RawMessage,
     ProcessedMessage,
     ParsedMessage,
@@ -57,6 +59,36 @@ class CaseUpdateAdmin(admin.ModelAdmin):
     search_fields = [
         'parsed_message__message_id', 'parsed_message__customer_name',
         'updated_by', 'resolution_text', 'raw_update_text',
+    ]
+    readonly_fields = ['id', 'created_at']
+
+
+@admin.register(OrderApprovalUpdate)
+class OrderApprovalUpdateAdmin(admin.ModelAdmin):
+    list_display = [
+        'id_number', 'group_id', 'sheet_tab', 'row_number', 'sender',
+        'update_status', 'created_at',
+    ]
+    list_filter = ['group_id', 'sheet_id', 'sheet_tab', 'update_status', 'created_at']
+    search_fields = [
+        'id_number', 'sender', 'telegram_message_id', 'raw_text',
+        'sheet_id', 'sheet_tab',
+    ]
+    readonly_fields = ['id', 'created_at']
+
+
+@admin.register(MediaAttachment)
+class MediaAttachmentAdmin(admin.ModelAdmin):
+    list_display = [
+        'business_key_value', 'group_id', 'file_type', 'original_filename',
+        'storage_provider', 'upload_status', 'created_at',
+    ]
+    list_filter = [
+        'group_id', 'file_type', 'storage_provider', 'upload_status', 'created_at',
+    ]
+    search_fields = [
+        'business_key_value', 'telegram_file_id', 'original_filename',
+        'drive_file_id', 'drive_url',
     ]
     readonly_fields = ['id', 'created_at']
 

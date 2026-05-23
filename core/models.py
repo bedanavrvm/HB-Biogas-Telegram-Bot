@@ -257,6 +257,101 @@ class CaseUpdate(models.Model):
         return f"CaseUpdate {self.parsed_message.message_id}: {self.new_status}"
 
 
+class OrderApprovalUpdate(models.Model):
+    """Audit trail for Telegram-driven order approval BRO updates."""
+
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('success', 'Synced'),
+        ('failed', 'Failed'),
+        ('no_match', 'No Matching Row'),
+        ('duplicate', 'Duplicate Sheet Rows'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    group_id = models.CharField(max_length=100, db_index=True)
+    sheet_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    sheet_tab = models.CharField(max_length=255, blank=True, default='')
+    row_number = models.PositiveIntegerField(null=True, blank=True)
+    id_number = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    sender = models.CharField(max_length=255, blank=True, default='')
+    telegram_message_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    reply_to_telegram_message_id = models.CharField(max_length=255, blank=True, default='')
+    raw_text = models.TextField(blank=True, default='')
+    parsed_fields = models.JSONField(blank=True, default=dict)
+    update_status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='pending',
+    )
+    sync_error = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['group_id', 'created_at']),
+            models.Index(fields=['group_id', 'id_number']),
+            models.Index(fields=['telegram_message_id']),
+        ]
+
+    def __str__(self):
+        location = f"{self.sheet_tab}!{self.row_number}" if self.row_number else self.sheet_tab
+        return f"OrderApprovalUpdate {self.id_number or 'unknown'} {location}".strip()
+
+
+class MediaAttachment(models.Model):
+    """Audit record for media uploaded from Telegram to external storage."""
+
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('success', 'Uploaded'),
+        ('failed', 'Failed'),
+        ('skipped', 'Skipped'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    order_update = models.ForeignKey(
+        OrderApprovalUpdate,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='media_attachments',
+    )
+    group_id = models.CharField(max_length=100, db_index=True)
+    telegram_message_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    reply_to_telegram_message_id = models.CharField(max_length=255, blank=True, default='')
+    telegram_file_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    sender = models.CharField(max_length=255, blank=True, default='')
+    file_type = models.CharField(max_length=50, blank=True, default='')
+    original_filename = models.CharField(max_length=255, blank=True, default='')
+    mime_type = models.CharField(max_length=255, blank=True, default='')
+    size = models.PositiveIntegerField(null=True, blank=True)
+    storage_provider = models.CharField(max_length=50, blank=True, default='')
+    drive_file_id = models.CharField(max_length=255, blank=True, default='')
+    drive_url = models.URLField(max_length=1000, blank=True, default='')
+    upload_status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='pending',
+    )
+    upload_error = models.TextField(blank=True, default='')
+    business_key_type = models.CharField(max_length=100, blank=True, default='')
+    business_key_value = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['group_id', 'created_at']),
+            models.Index(fields=['business_key_type', 'business_key_value']),
+            models.Index(fields=['telegram_file_id']),
+        ]
+
+    def __str__(self):
+        return f"MediaAttachment {self.file_type or 'file'} {self.upload_status}"
+
+
 class GroupSheetConfiguration(models.Model):
     """
     Admin-managed routing and workflow configuration for a Telegram group.

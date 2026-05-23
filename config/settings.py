@@ -150,6 +150,11 @@ GOOGLE_SHEET_ID = config('GOOGLE_SHEET_ID', default='')
 GOOGLE_SERVICE_ACCOUNT_FILE = config('GOOGLE_SERVICE_ACCOUNT_FILE', default='credentials.json')
 GOOGLE_SHEET_TAB_NAME = config('GOOGLE_SHEET_TAB_NAME', default='Complaints Register')
 
+# Media storage for workflows that receive Telegram photos/documents.
+MEDIA_STORAGE_PROVIDER = config('MEDIA_STORAGE_PROVIDER', default='google_drive')
+MEDIA_MAX_FILE_SIZE_MB = config('MEDIA_MAX_FILE_SIZE_MB', default=20, cast=int)
+GOOGLE_DRIVE_MEDIA_FOLDER_ID = config('GOOGLE_DRIVE_MEDIA_FOLDER_ID', default='')
+
 # Multi-Group/Multi-Tenant Configuration
 # Maps Telegram group chat_id to Google Sheet configurations.
 # Format:
