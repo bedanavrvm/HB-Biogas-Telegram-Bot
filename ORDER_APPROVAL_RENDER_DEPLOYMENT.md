@@ -10,7 +10,7 @@ Before changing Render:
 
 - Ensure the order approval workbook is a live Google Sheet, not only an `.xlsx` file.
 - Share the Google Sheet with the same Google service account used by Render.
-- Share the target Google Drive media folder with the same service account as Editor.
+- Create the target media folder inside a Google Shared Drive, then add the same service account to that Shared Drive or folder with upload permission.
 - Add a `Media URLs` header to row 1 in each tab that the bot will search:
   - `Pending`
   - `178`
@@ -50,17 +50,19 @@ Add or update these new variables:
 APP_BASE_URL=https://<your-render-service>.onrender.com
 MEDIA_STORAGE_PROVIDER=google_drive
 MEDIA_MAX_FILE_SIZE_MB=20
-GOOGLE_DRIVE_MEDIA_FOLDER_ID=<drive-folder-id>
+GOOGLE_DRIVE_MEDIA_FOLDER_ID=<shared-drive-folder-id>
 ORDER_APPROVAL_WEBAPP_ENABLED=True
 ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True
 ORDER_APPROVAL_WEBAPP_AUTH_MAX_AGE_SECONDS=86400
 ```
 
-`GOOGLE_DRIVE_MEDIA_FOLDER_ID` is the folder ID from the Drive folder URL:
+`GOOGLE_DRIVE_MEDIA_FOLDER_ID` is the folder ID from the Shared Drive folder URL:
 
 ```text
 https://drive.google.com/drive/folders/<drive-folder-id>
 ```
+
+Use a Google Shared Drive for media storage. Google service accounts do not have normal My Drive storage quota, so uploads to a regular My Drive folder can fail with `storageQuotaExceeded` even when the folder is shared correctly.
 
 Confirm these existing variables are already set correctly:
 

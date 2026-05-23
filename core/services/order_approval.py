@@ -1101,7 +1101,12 @@ class GoogleDriveMediaStorage:
         metadata = {'name': filename, 'parents': [folder_id]}
         created = (
             self.service.files()
-            .create(body=metadata, media_body=media, fields='id, webViewLink')
+            .create(
+                body=metadata,
+                media_body=media,
+                fields='id, webViewLink',
+                supportsAllDrives=True,
+            )
             .execute()
         )
         file_id = created['id']
@@ -1129,7 +1134,14 @@ class GoogleDriveMediaStorage:
         )
         existing = (
             self.service.files()
-            .list(q=query, spaces='drive', fields='files(id, name)', pageSize=1)
+            .list(
+                q=query,
+                spaces='drive',
+                fields='files(id, name)',
+                pageSize=1,
+                includeItemsFromAllDrives=True,
+                supportsAllDrives=True,
+            )
             .execute()
             .get('files', [])
         )
@@ -1145,6 +1157,7 @@ class GoogleDriveMediaStorage:
                     'parents': [parent_id],
                 },
                 fields='id',
+                supportsAllDrives=True,
             )
             .execute()
         )
