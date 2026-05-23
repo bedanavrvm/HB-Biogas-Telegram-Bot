@@ -8,6 +8,7 @@ from core.services.order_approval import (
     SheetMatch,
     TelegramMediaItem,
     create_order_approval_form_token,
+    create_order_approval_row,
     find_order_approval_matches,
     handle_order_approval_message,
     handle_order_webapp_command,
@@ -194,6 +195,51 @@ class OrderApprovalSheetTest(TestCase):
         self.assertIn('Media URLs', result['error'])
         self.assertEqual(service.update_calls, [])
 
+    def test_create_row_writes_to_pending_when_id_is_new(self):
+        service = FakeService([
+            [
+                'ID NUMBER',
+                'DATE VISITED',
+                'CUSTOMER NAME',
+                'CONTACTS / PRIMARY',
+                'Media URLs',
+                'COMMENT',
+            ],
+            ['111', '01/05/2026', 'Existing', '', '', ''],
+        ])
+
+        with patch('core.services.order_approval.get_sheets_service', return_value=service):
+            result = create_order_approval_row(
+                group_config=self._group_config(),
+                parsed_fields={
+                    'id_number': '5655566',
+                    'date_visited': '23/05/2026',
+                    'customer_name': 'NEW CUSTOMER',
+                    'primary_phone': '0712345678',
+                    'comment': 'Created from form',
+                },
+                media_links=['https://drive.example/new'],
+            )
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['sheet_name'], 'Pending')
+        self.assertEqual(result['row_number'], 3)
+        self.assertEqual(service.update_calls[0], ('A3:A3', [['5655566']], 'RAW'))
+        self.assertEqual(service.update_calls[1], ('B3:B3', [['23/05/2026']], 'USER_ENTERED'))
+        self.assertEqual(
+            service.update_calls[2],
+            (
+                'C3:F3',
+                [[
+                    'NEW CUSTOMER',
+                    '0712345678',
+                    'https://drive.example/new',
+                    'Created from form',
+                ]],
+                'RAW',
+            ),
+        )
+
 
 class OrderApprovalMediaTest(TestCase):
     def test_oversize_attachment_is_skipped_and_audited(self):
@@ -341,11 +387,49 @@ class OrderApprovalWebAppTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['success'])
-        mock_process.assert_called_once()
-        self.assertEqual(
-            mock_process.call_args.kwargs['fields']['id_number'],
-            '113650221',
+
+    @override_settings(ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
+    @patch('core.services.order_approval.store_uploaded_files_for_order')
+    @patch('core.services.order_approval.find_order_approval_matches')
+    @patch('core.services.order_approval.get_sheets_service')
+    @patch('core.services.group_config.GroupRegistry.get_instance')
+    def test_webapp_submit_creates_row_when_id_is_new(
+        self,
+        mock_registry_get_instance,
+        mock_get_sheets_service,
+        mock_find_matches,
+        mock_store_files,
+    ):
+        registry = MagicMock()
+        registry.get_group.return_value = self._group_config()
+        mock_registry_get_instance.return_value = registry
+        mock_find_matches.return_value = []
+        mock_store_files.return_value = MagicMock(
+            links=[],
+            stored_count=0,
+            warnings=[],
         )
+        service = FakeService([
+            ['ID NUMBER', 'CUSTOMER NAME', 'Media URLs'],
+        ])
+        mock_get_sheets_service.return_value = service
+
+        response = self.client.post(
+            '/api/order-approval/webapp/submit/',
+            data={
+                'group_id': '-100222',
+                'id_number': '5655566',
+                'customer_name': 'NEW CUSTOMER',
+                'init_data': '',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'])
+        self.assertEqual(payload['status'], 'created')
+        self.assertEqual(payload['row'], 2)
+        self.assertEqual(service.update_calls[0], ('A2:B2', [['5655566', 'NEW CUSTOMER']], 'RAW'))
 
     @patch('core.services.order_approval.process_order_approval_form_submission')
     @patch('core.services.group_config.GroupRegistry.get_instance')

@@ -190,16 +190,40 @@ def handle_order_approval_message(
             business_key_value=parsed.id_number,
             order_update=update_record,
         )
-        update_record.update_status = 'no_match'
-        update_record.sync_error = f"No row found for ID {parsed.id_number}"
-        update_record.save(update_fields=['update_status', 'sync_error'])
+        create_result = create_order_approval_row(
+            group_config=group_config,
+            parsed_fields=parsed.fields,
+            media_links=uploaded.links,
+        )
+        if not create_result['success']:
+            update_record.update_status = 'failed'
+            update_record.sync_error = create_result['error']
+            update_record.save(update_fields=['update_status', 'sync_error'])
+            return _order_reply(
+                (
+                    f"Order approval row for ID {parsed.id_number} could not "
+                    f"be created: {create_result['error']}"
+                ),
+                warnings=uploaded.warnings,
+                status='failed',
+            )
+
+        update_record.sheet_tab = create_result['sheet_name']
+        update_record.row_number = create_result['row_number']
+        update_record.update_status = 'success'
+        update_record.save(update_fields=[
+            'sheet_tab', 'row_number', 'update_status',
+        ])
         return _order_reply(
             (
-                f"No order approval row found for ID {parsed.id_number}. "
+                f"OK. Order approval row created.\n"
+                f"ID: {parsed.id_number}\n"
+                f"Sheet: {create_result['sheet_name']}, row {create_result['row_number']}\n"
+                f"Fields updated: {len(create_result['fields_updated'])}\n"
                 f"Files stored: {uploaded.stored_count}."
             ),
             warnings=uploaded.warnings,
-            status='no_match',
+            status='success',
         )
 
     if len(matches) > 1:
@@ -447,13 +471,38 @@ def process_order_approval_form_submission(
             business_key_value=id_number,
             order_update=update_record,
         )
-        update_record.update_status = 'no_match'
-        update_record.sync_error = f"No row found for ID {id_number}"
-        update_record.save(update_fields=['update_status', 'sync_error'])
+        create_result = create_order_approval_row(
+            group_config=group_config,
+            parsed_fields=parsed_fields,
+            media_links=uploaded.links,
+        )
+        if not create_result['success']:
+            update_record.update_status = 'failed'
+            update_record.sync_error = create_result['error']
+            update_record.save(update_fields=['update_status', 'sync_error'])
+            return {
+                'success': False,
+                'status': 'failed',
+                'message': create_result['error'],
+                'files_stored': uploaded.stored_count,
+                'warnings': uploaded.warnings,
+            }
+
+        update_record.sheet_tab = create_result['sheet_name']
+        update_record.row_number = create_result['row_number']
+        update_record.update_status = 'success'
+        update_record.save(update_fields=[
+            'sheet_tab', 'row_number', 'update_status',
+        ])
         return {
-            'success': False,
-            'status': 'no_match',
-            'message': f'No order approval row found for ID {id_number}.',
+            'success': True,
+            'status': 'created',
+            'message': 'Order approval row created.',
+            'id_number': id_number,
+            'customer_name': parsed_fields.get('customer_name', ''),
+            'sheet': create_result['sheet_name'],
+            'row': create_result['row_number'],
+            'fields_updated': create_result['fields_updated'],
             'files_stored': uploaded.stored_count,
             'warnings': uploaded.warnings,
         }
@@ -698,6 +747,115 @@ def update_order_approval_row(
         'error': '',
         'fields_updated': [field for _, _, _, field in columns],
     }
+
+
+def create_order_approval_row(
+    group_config,
+    parsed_fields: dict[str, str],
+    media_links: list[str],
+) -> dict[str, Any]:
+    """Append a new order approval row to the configured creation tab."""
+    workflow = group_config.workflow or {}
+    sheet_name = workflow.get('create_sheet_name') or (
+        workflow.get('search_sheet_names') or DEFAULT_SEARCH_SHEETS
+    )[0]
+    service = get_sheets_service(
+        sheet_id=group_config.sheet_id,
+        sheet_name=sheet_name,
+        sheet_schema=None,
+    )
+    if not service.is_available():
+        return {
+            'success': False,
+            'error': f"Google Sheets unavailable for {sheet_name}.",
+            'fields_updated': [],
+        }
+
+    values = service._sheet.get_all_values()
+    if not values:
+        return {
+            'success': False,
+            'error': f"Sheet {sheet_name} has no header row.",
+            'fields_updated': [],
+        }
+
+    headers = values[0]
+    media_field = workflow.get('media_field') or DEFAULT_MEDIA_FIELD
+    media_header = header_for_field(workflow, media_field)
+    if header_index(headers, media_header) is None:
+        return {
+            'success': False,
+            'error': f"Required column {media_header!r} was not found.",
+            'fields_updated': [],
+        }
+
+    fields_to_write = {
+        field: value
+        for field, value in (parsed_fields or {}).items()
+        if field in field_headers(workflow) and value is not None
+    }
+    if media_links:
+        fields_to_write[media_field] = "\n".join(
+            link for link in media_links if str(link or '').strip()
+        )
+
+    missing_headers = []
+    for field in fields_to_write:
+        header = header_for_field(workflow, field)
+        if header_index(headers, header) is None:
+            missing_headers.append(header)
+    if missing_headers:
+        return {
+            'success': False,
+            'error': "Missing required column(s): " + ", ".join(missing_headers),
+            'fields_updated': [],
+        }
+
+    row_number = next_order_approval_row_number(headers, values, workflow)
+    match = SheetMatch(
+        sheet_name=sheet_name,
+        row_number=row_number,
+        headers=headers,
+        row=[],
+        service=service,
+    )
+    result = update_order_approval_row(
+        match=match,
+        workflow=workflow,
+        parsed_fields=fields_to_write,
+        media_links=[],
+    )
+    result['sheet_name'] = sheet_name
+    result['row_number'] = row_number
+    return result
+
+
+def next_order_approval_row_number(
+    headers: list[str],
+    values: list[list[str]],
+    workflow: dict,
+) -> int:
+    """Return next row after real order data, ignoring blank/formula-only rows."""
+    field_header_values = set(field_headers(workflow).values())
+    data_indices = [
+        index
+        for index, header in enumerate(headers)
+        if any(
+            normalize_header(header) == normalize_header(field_header)
+            for field_header in field_header_values
+        )
+    ]
+    if not data_indices:
+        data_indices = list(range(len(headers)))
+
+    last_data_row = 1
+    for row_number, row in enumerate(values[1:], start=2):
+        if any(
+            index < len(row) and str(row[index] or '').strip()
+            for index in data_indices
+        ):
+            last_data_row = row_number
+    return last_data_row + 1
 
 
 def store_media_for_order(

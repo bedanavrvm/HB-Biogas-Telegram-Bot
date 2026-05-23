@@ -268,7 +268,7 @@ Expected:
 
 - The Web App shows a success message.
 - The Telegram Web App closes after success.
-- The matching Google Sheet row is updated.
+- The matching Google Sheet row is updated, or a new row is created in `Pending` if the ID is new.
 - `Core -> Order approval updates` has a `success` record.
 
 Then test the fallback structured chat workflow by sending:
@@ -356,12 +356,11 @@ Expected:
 
 ## 9. Negative Tests
 
-No matching row:
+New ID / no matching row:
 
 - Send an ID that is not in `Pending`, `178`, `179`, `180`, or `181`.
-- Expected reply says no row was found.
-- The sheet is not updated.
-- Media is stored as traceable unlinked media if an ID was present.
+- Expected result creates a new row in `Pending`.
+- Media links are written into `Media URLs` on the new row.
 
 Duplicate ID:
 

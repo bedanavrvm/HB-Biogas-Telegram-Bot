@@ -1410,6 +1410,7 @@ class GroupConfigurationServiceTest(TestCase):
                 'type': 'order_approval',
                 'match_field': 'id_number',
                 'search_sheet_names': ['Pending', '178', '179', '180', '181'],
+                'create_sheet_name': 'Pending',
                 'media_field': 'media_urls',
             },
         )

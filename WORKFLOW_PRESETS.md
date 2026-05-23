@@ -68,6 +68,7 @@ Behavior:
 - `/order` opens the Telegram Web App form.
 - Structured chat updates still work as a fallback.
 - Rows are matched by `ID NUMBER`.
+- If no row exists for the ID, a new row is created in `Pending`.
 - Only BRO fields and `Media URLs` are updated.
 - Photos/documents are uploaded to Google Drive.
 - `OrderApprovalUpdate` and `MediaAttachment` audit records are written.
