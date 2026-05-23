@@ -3,12 +3,15 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
 
-from core.models import MediaAttachment, OrderApprovalUpdate
+from core.models import GroupSheetConfiguration, MediaAttachment, OrderApprovalUpdate
 from core.services.order_approval import (
     SheetMatch,
     TelegramMediaItem,
+    create_order_approval_form_token,
     find_order_approval_matches,
+    handle_order_approval_message,
     handle_order_webapp_command,
+    looks_like_non_order_command,
     parse_order_approval_message,
     store_media_for_order,
     update_order_approval_row,
@@ -248,10 +251,47 @@ class OrderApprovalWebAppTest(TestCase):
         self.assertEqual(result['status'], 'command')
         button = result['reply_markup']['inline_keyboard'][0][0]
         self.assertEqual(button['text'], 'Open Order Approval Form')
-        self.assertEqual(
-            button['web_app']['url'],
-            'https://example.onrender.com/order-approval/?group_id=-100222',
+        self.assertIn(
+            'https://example.onrender.com/order-approval/?',
+            button['url'],
         )
+        self.assertIn('group_id=-100222', button['url'])
+        self.assertIn('token=', button['url'])
+
+    def test_order_approval_group_keeps_standard_group_command(self):
+        from core.services.group_config import GroupRegistry
+
+        GroupSheetConfiguration.objects.create(
+            group_id='-100222',
+            display_name='Order Approval',
+            sheet_id='sheet_123',
+            sheet_name='Pending',
+            workflow={
+                'type': 'order_approval',
+                'match_field': 'id_number',
+                'search_sheet_names': ['Pending'],
+                'media_field': 'media_urls',
+            },
+        )
+        GroupRegistry._instance = None
+
+        result = handle_order_approval_message(
+            group_config=self._group_config(),
+            message_data={'message_id': 99},
+            content='/group',
+            sender='Agent',
+            received_at=datetime(2026, 5, 23, tzinfo=dt_timezone.utc),
+        )
+
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('Group: -100222', result['reply_text'])
+        self.assertIn('Sheet ID: sheet_123', result['reply_text'])
+
+    def test_non_order_slash_command_is_not_parsed_as_missing_id(self):
+        self.assertTrue(looks_like_non_order_command('/group'))
+        self.assertTrue(looks_like_non_order_command('/health'))
+        self.assertFalse(looks_like_non_order_command('/order'))
+        self.assertFalse(looks_like_non_order_command('ID: 113650221'))
 
     @override_settings(ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
     def test_webapp_auth_can_be_disabled_for_server_testing(self):
@@ -306,3 +346,31 @@ class OrderApprovalWebAppTest(TestCase):
             mock_process.call_args.kwargs['fields']['id_number'],
             '113650221',
         )
+
+    @patch('core.services.order_approval.process_order_approval_form_submission')
+    @patch('core.services.group_config.GroupRegistry.get_instance')
+    def test_webapp_submit_accepts_signed_group_form_token(
+        self,
+        mock_registry_get_instance,
+        mock_process,
+    ):
+        registry = MagicMock()
+        registry.get_group.return_value = self._group_config()
+        mock_registry_get_instance.return_value = registry
+        mock_process.return_value = {
+            'success': True,
+            'status': 'success',
+            'message': 'Order approval updated.',
+        }
+
+        response = self.client.post(
+            '/api/order-approval/webapp/submit/',
+            data={
+                'group_id': '-100222',
+                'form_token': create_order_approval_form_token('-100222'),
+                'id_number': '113650221',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['success'])

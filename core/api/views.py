@@ -78,9 +78,10 @@ def order_approval_form(request):
 
     return render(
         request,
-        'order_approval/form.html',
+            'order_approval/form.html',
         {
             'group_id': str(request.GET.get('group_id', '')).strip(),
+            'form_token': str(request.GET.get('token', '')).strip(),
             'max_file_size_mb': getattr(settings, 'MEDIA_MAX_FILE_SIZE_MB', 20),
         },
     )
@@ -95,19 +96,26 @@ def order_approval_webapp_submit(request):
         from core.services.order_approval import (
             is_order_approval_workflow,
             process_order_approval_form_submission,
+            validate_order_approval_form_token,
             validate_telegram_webapp_init_data,
         )
 
+        group_id = str(request.POST.get('group_id', '')).strip()
         is_valid, auth_error, auth_payload = validate_telegram_webapp_init_data(
             request.POST.get('init_data', '')
         )
         if not is_valid:
-            return JsonResponse(
-                {'success': False, 'message': auth_error},
-                status=403,
+            token_valid, token_error = validate_order_approval_form_token(
+                token=request.POST.get('form_token', ''),
+                group_id=group_id,
             )
+            if not token_valid:
+                return JsonResponse(
+                    {'success': False, 'message': auth_error or token_error},
+                    status=403,
+                )
+            auth_payload = {}
 
-        group_id = str(request.POST.get('group_id', '')).strip()
         group_config = GroupRegistry.get_instance().get_group(group_id)
         if not group_config or not is_order_approval_workflow(group_config):
             return JsonResponse(

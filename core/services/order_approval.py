@@ -14,11 +14,12 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import PurePosixPath
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, urlencode
 from typing import Any
 
 import requests
 from django.conf import settings
+from django.core import signing
 from django.utils import timezone
 
 from core.models import MediaAttachment, OrderApprovalUpdate
@@ -79,6 +80,7 @@ LABEL_ALIASES = {
 
 DATE_FIELDS = {'date_visited'}
 FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder'
+FORM_TOKEN_SALT = 'order-approval-form'
 
 
 @dataclass
@@ -148,6 +150,15 @@ def handle_order_approval_message(
     command_result = handle_order_webapp_command(group_config, content or '')
     if command_result:
         return command_result
+    if looks_like_non_order_command(content or ''):
+        from core.services.commands import handle_bot_command
+
+        return handle_bot_command(
+            content=content,
+            group_id=group_config.group_id,
+            sender=sender,
+            telegram_message_id=telegram_message_id,
+        )
 
     parsed = parse_order_approval_message(content or '')
     if not parsed.id_number:
@@ -369,7 +380,13 @@ def handle_order_webapp_command(group_config, content: str) -> dict | None:
             status='failed',
         )
 
-    form_url = f"{base_url}/order-approval/?group_id={group_config.group_id}"
+    form_url = (
+        f"{base_url}/order-approval/?"
+        + urlencode({
+            'group_id': group_config.group_id,
+            'token': create_order_approval_form_token(group_config.group_id),
+        })
+    )
     return {
         'status': 'command',
         'workflow': 'order_approval',
@@ -378,11 +395,19 @@ def handle_order_webapp_command(group_config, content: str) -> dict | None:
             'inline_keyboard': [[
                 {
                     'text': 'Open Order Approval Form',
-                    'web_app': {'url': form_url},
+                    'url': form_url,
                 }
             ]]
         },
     }
+
+
+def looks_like_non_order_command(content: str) -> bool:
+    text = str(content or '').strip().lower()
+    if not text.startswith('/'):
+        return False
+    command = text.split(None, 1)[0]
+    return command not in {'/order', '/form'}
 
 
 def process_order_approval_form_submission(
@@ -1177,6 +1202,37 @@ def validate_telegram_webapp_init_data(init_data: str) -> tuple[bool, str, dict]
             return False, 'Telegram Web App auth_date is invalid.', {}
 
     return True, '', pairs
+
+
+def create_order_approval_form_token(group_id: str) -> str:
+    return signing.dumps(
+        {'group_id': str(group_id)},
+        salt=FORM_TOKEN_SALT,
+    )
+
+
+def validate_order_approval_form_token(
+    token: str,
+    group_id: str,
+) -> tuple[bool, str]:
+    if not token:
+        return False, 'Form token is missing.'
+
+    max_age = int(getattr(settings, 'ORDER_APPROVAL_WEBAPP_AUTH_MAX_AGE_SECONDS', 86400))
+    try:
+        payload = signing.loads(
+            token,
+            salt=FORM_TOKEN_SALT,
+            max_age=max_age if max_age > 0 else None,
+        )
+    except signing.SignatureExpired:
+        return False, 'Form token has expired. Open the form again from Telegram.'
+    except signing.BadSignature:
+        return False, 'Form token is invalid. Open the form again from Telegram.'
+
+    if str(payload.get('group_id', '')) != str(group_id):
+        return False, 'Form token does not match this group.'
+    return True, ''
 
 
 def group_consecutive_columns(columns: list[tuple]) -> list[list[tuple]]:
