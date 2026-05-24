@@ -10,6 +10,16 @@ Example:
 
 In a direct chat, the command can be sent without the mention.
 
+Telegram autocomplete is handled by Telegram's native bot command menu, not by
+chat replies. After syncing the command menu, staff can type `/` plus a letter,
+for example `/g` or `/o`, and Telegram will show matching command options to
+select. In groups, Telegram may insert commands as `/group@hb_biogas_cases_bot`;
+the bot accepts that form.
+
+```text
+python manage.py sync_telegram_commands
+```
+
 ## Case Lookup
 
 | Command | Purpose |

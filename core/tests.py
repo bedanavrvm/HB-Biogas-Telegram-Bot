@@ -4,8 +4,10 @@ Tests for the biogas telegram bot system.
 Run with: python manage.py test
 """
 import json
+from io import StringIO
 from datetime import datetime, timedelta
 from decimal import Decimal
+from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.contrib.auth import get_user_model
 from django.utils import timezone
@@ -2079,6 +2081,70 @@ class BotCommandServiceTest(TestCase):
         self.assertIn('/missing phone 10', result['reply_text'])
         self.assertIn('/duplicates 30', result['reply_text'])
         self.assertIn('/top regions 7', result['reply_text'])
+
+
+class TelegramCommandMenuTest(TestCase):
+    """Test native Telegram command autocomplete sync."""
+
+    @override_settings(TELEGRAM_BOT_TOKEN='token', API_REQUEST_TIMEOUT=5)
+    @patch('core.management.commands.sync_telegram_commands.requests.post')
+    def test_sync_telegram_commands_sets_global_and_order_group_scopes(self, mock_post):
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {'ok': True, 'result': True}
+        mock_post.return_value = response
+        GroupSheetConfiguration.objects.create(
+            group_id='-100order',
+            display_name='Order group',
+            enabled=True,
+            sheet_id='sheet_order',
+            sheet_name='Orders',
+            workflow={'type': 'order_approval'},
+        )
+        GroupSheetConfiguration.objects.create(
+            group_id='-100cases',
+            display_name='Case group',
+            enabled=True,
+            sheet_id='sheet_cases',
+            sheet_name='Cases',
+            workflow={},
+        )
+
+        output = StringIO()
+        call_command('sync_telegram_commands', stdout=output)
+
+        payloads = [call.kwargs['json'] for call in mock_post.call_args_list]
+        scopes = [payload['scope'] for payload in payloads]
+        self.assertIn({'type': 'all_private_chats'}, scopes)
+        self.assertIn({'type': 'all_group_chats'}, scopes)
+        self.assertIn({'type': 'chat', 'chat_id': '-100order'}, scopes)
+        self.assertNotIn({'type': 'chat', 'chat_id': '-100cases'}, scopes)
+        order_payload = next(
+            payload for payload in payloads
+            if payload['scope'] == {'type': 'chat', 'chat_id': '-100order'}
+        )
+        order_commands = [item['command'] for item in order_payload['commands']]
+        self.assertIn('order', order_commands)
+        self.assertIn('form', order_commands)
+        self.assertIn('group', order_commands)
+
+    def test_sync_telegram_commands_dry_run_lists_group_scope_without_token(self):
+        GroupSheetConfiguration.objects.create(
+            group_id='-100order',
+            display_name='Order group',
+            enabled=True,
+            sheet_id='sheet_order',
+            sheet_name='Orders',
+            workflow={'type': 'order_approval'},
+        )
+
+        output = StringIO()
+        call_command('sync_telegram_commands', '--dry-run', '--group-id=-100order', stdout=output)
+
+        text = output.getvalue()
+        self.assertIn('Would sync chat -100order', text)
+        self.assertIn('/order', text)
+        self.assertIn('/group', text)
 
 
 @override_settings(TELEGRAM_WEBHOOK_SECRET=None)

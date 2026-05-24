@@ -117,6 +117,7 @@ The existing `start.sh` runs:
 ```bash
 python manage.py migrate --noinput
 python manage.py createsuperuser_env
+python manage.py sync_telegram_commands
 gunicorn config.wsgi:application --log-file -
 ```
 
@@ -133,6 +134,17 @@ Starting Django application...
 ```
 
 Also confirm there are no errors mentioning `0009_orderapprovalupdate_mediaattachment`.
+
+The `sync_telegram_commands` step publishes Telegram's native command
+autocomplete menu. It is non-fatal in `start.sh`; if Render logs show a warning,
+open a Render shell after the service is live and run:
+
+```bash
+python manage.py sync_telegram_commands
+```
+
+After this sync, Telegram clients can show matching command options as staff
+type `/g`, `/o`, and similar command prefixes.
 
 ## 4. Prepare Telegram Group
 
