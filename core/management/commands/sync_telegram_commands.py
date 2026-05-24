@@ -6,8 +6,8 @@ from django.core.management.base import BaseCommand, CommandError
 
 from core.models import GroupSheetConfiguration
 from core.services.telegram_command_menu import (
-    COMMON_BOT_COMMANDS,
     bot_commands_for_workflow,
+    private_chat_bot_commands,
 )
 
 
@@ -47,8 +47,7 @@ class Command(BaseCommand):
         scopes = []
         if not group_id:
             scopes.extend([
-                ('all_private_chats', {'type': 'all_private_chats'}, COMMON_BOT_COMMANDS),
-                ('all_group_chats', {'type': 'all_group_chats'}, COMMON_BOT_COMMANDS),
+                ('all_private_chats', {'type': 'all_private_chats'}, private_chat_bot_commands()),
             ])
 
         queryset = GroupSheetConfiguration.objects.all()
@@ -60,15 +59,27 @@ class Command(BaseCommand):
         for config in queryset:
             workflow = config.workflow or {}
             workflow_type = str(workflow.get('type') or '')
-            if group_id or workflow_type == 'order_approval':
-                scopes.append((
-                    f"chat {config.group_id}",
-                    {'type': 'chat', 'chat_id': config.group_id},
-                    bot_commands_for_workflow(workflow_type),
-                ))
+            scopes.append((
+                f"chat {config.group_id}",
+                {'type': 'chat', 'chat_id': config.group_id},
+                bot_commands_for_workflow(workflow_type),
+            ))
 
         if group_id and not scopes:
             raise CommandError(f'No configured group found for {group_id}.')
+
+        if not group_id:
+            group_scope = {'type': 'all_group_chats'}
+            if dry_run:
+                self.stdout.write("Would clear all_group_chats command fallback")
+            else:
+                self._delete_commands(
+                    token=token,
+                    scope=group_scope,
+                    timeout=options['timeout'],
+                    label='all_group_chats',
+                )
+                self.stdout.write(self.style.SUCCESS("Cleared all_group_chats fallback"))
 
         for label, scope, commands in scopes:
             if dry_run:
@@ -84,6 +95,14 @@ class Command(BaseCommand):
             )
             self.stdout.write(self.style.SUCCESS(f"Synced {label}"))
 
+    def _delete_commands(self, token: str, scope: dict, timeout: int, label: str) -> None:
+        response = requests.post(
+            f'https://api.telegram.org/bot{token}/deleteMyCommands',
+            json={'scope': scope},
+            timeout=timeout,
+        )
+        self._validate_response(response, label, 'deleteMyCommands')
+
     def _set_commands(self, token: str, scope: dict, commands: list[dict], timeout: int, label: str) -> None:
         response = requests.post(
             f'https://api.telegram.org/bot{token}/setMyCommands',
@@ -93,18 +112,21 @@ class Command(BaseCommand):
             },
             timeout=timeout,
         )
+        self._validate_response(response, label, 'setMyCommands')
+
+    def _validate_response(self, response, label: str, method: str) -> None:
         if response.status_code >= 400:
             raise CommandError(
-                f'Telegram setMyCommands failed for {label}: '
+                f'Telegram {method} failed for {label}: '
                 f'{response.status_code} {response.text[:300]}'
             )
         try:
             payload = response.json()
         except ValueError as exc:
             raise CommandError(
-                f'Telegram setMyCommands returned invalid JSON for {label}.'
+                f'Telegram {method} returned invalid JSON for {label}.'
             ) from exc
         if not payload.get('ok'):
             raise CommandError(
-                f'Telegram setMyCommands failed for {label}: {payload}'
+                f'Telegram {method} failed for {label}: {payload}'
             )

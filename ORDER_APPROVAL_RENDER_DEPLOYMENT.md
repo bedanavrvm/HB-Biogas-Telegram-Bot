@@ -136,8 +136,11 @@ Starting Django application...
 Also confirm there are no errors mentioning `0009_orderapprovalupdate_mediaattachment`.
 
 The `sync_telegram_commands` step publishes Telegram's native command
-autocomplete menu. It is non-fatal in `start.sh`; if Render logs show a warning,
-open a Render shell after the service is live and run:
+autocomplete menu per configured group. Complaint/case groups get case commands;
+order approval groups get `/order`, `/form`, `/group`, `/health`, and `/help`.
+It also clears the generic all-group fallback so staff do not see commands from
+the wrong workflow. The step is non-fatal in `start.sh`; if Render logs show a
+warning, open a Render shell after the service is live and run:
 
 ```bash
 python manage.py sync_telegram_commands

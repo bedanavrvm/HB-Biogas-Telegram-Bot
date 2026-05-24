@@ -1,6 +1,6 @@
 """Telegram native command menu definitions."""
 
-COMMON_BOT_COMMANDS = [
+CASE_BOT_COMMANDS = [
     {'command': 'last', 'description': 'Show latest cases'},
     {'command': 'recent', 'description': 'Show recent cases'},
     {'command': 'case', 'description': 'Show one case by case ID'},
@@ -23,6 +23,9 @@ COMMON_BOT_COMMANDS = [
     {'command': 'top', 'description': 'Show top regions or issue categories'},
     {'command': 'summary', 'description': 'Show status and sync totals'},
     {'command': 'sync', 'description': 'Refresh cases from Google Sheets'},
+]
+
+SHARED_GROUP_BOT_COMMANDS = [
     {'command': 'group', 'description': "Show this chat's sheet routing"},
     {'command': 'health', 'description': 'Show database and group status'},
     {'command': 'help', 'description': 'Show command help'},
@@ -33,9 +36,18 @@ ORDER_APPROVAL_BOT_COMMANDS = [
     {'command': 'form', 'description': 'Open the order approval form'},
 ]
 
+PRIVATE_BOT_COMMANDS = (
+    ORDER_APPROVAL_BOT_COMMANDS
+    + CASE_BOT_COMMANDS
+    + SHARED_GROUP_BOT_COMMANDS
+)
+
 
 def bot_commands_for_workflow(workflow_type: str = '') -> list[dict]:
-    commands = list(COMMON_BOT_COMMANDS)
     if workflow_type == 'order_approval':
-        commands = ORDER_APPROVAL_BOT_COMMANDS + commands
-    return commands
+        return ORDER_APPROVAL_BOT_COMMANDS + SHARED_GROUP_BOT_COMMANDS
+    return CASE_BOT_COMMANDS + SHARED_GROUP_BOT_COMMANDS
+
+
+def private_chat_bot_commands() -> list[dict]:
+    return list(PRIVATE_BOT_COMMANDS)
