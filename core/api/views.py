@@ -113,6 +113,16 @@ def order_approval_webapp_submit(request):
             sender=_sender_from_webapp_auth(auth_payload),
             received_at=timezone.now(),
             include_blank_fields=request.POST.get('write_blank_fields') == '1',
+            edit_context={
+                'id_number': request.POST.get('edit_id_number', ''),
+                'sheet': request.POST.get('edit_sheet', ''),
+                'row': request.POST.get('edit_row', ''),
+                'fingerprint': request.POST.get('edit_fingerprint', ''),
+            },
+        )
+        _send_order_approval_webapp_chat_reply(
+            group_id=group_id,
+            result=result,
         )
         return JsonResponse(result, status=200 if result.get('success') else 400)
     except Exception as exc:
@@ -207,6 +217,42 @@ def _order_approval_webapp_context(post_data):
         )
 
     return group_id, group_config, auth_payload, None
+
+
+def _send_order_approval_webapp_chat_reply(group_id: str, result: dict) -> None:
+    if not group_id:
+        return
+
+    status = result.get('status', 'failed')
+    id_number = result.get('id_number', '')
+    if result.get('success'):
+        verb = 'created' if status == 'created' else 'updated'
+        lines = [
+            f"OK. Order approval {verb} from form.",
+            f"ID: {id_number}",
+        ]
+        customer_name = result.get('customer_name', '')
+        if customer_name:
+            lines.append(f"Customer: {customer_name}")
+        if result.get('sheet') and result.get('row'):
+            lines.append(f"Sheet: {result['sheet']}, row {result['row']}")
+        lines.append(f"Files stored: {result.get('files_stored', 0)}")
+    else:
+        lines = [
+            "Order approval form update failed.",
+            f"ID: {id_number or 'not provided'}",
+            result.get('message') or 'Please check the form and try again.',
+        ]
+
+    warnings = result.get('warnings') or []
+    if warnings:
+        lines.append("Warnings: " + "; ".join(warnings[:3]))
+
+    _post_telegram_reply(
+        chat_id=group_id,
+        message_data={},
+        text="\n".join(lines),
+    )
 
 @csrf_exempt
 @require_http_methods(["POST"])
@@ -633,8 +679,10 @@ def _post_telegram_reply(
         data = {
             'chat_id': chat_id,
             'text': text[:4000],
-            'reply_to_message_id': message_data.get('message_id'),
         }
+        reply_to_message_id = message_data.get('message_id')
+        if reply_to_message_id:
+            data['reply_to_message_id'] = reply_to_message_id
         if reply_markup:
             data['reply_markup'] = json.dumps(reply_markup)
         requests.post(

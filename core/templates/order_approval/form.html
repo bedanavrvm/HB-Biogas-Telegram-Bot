@@ -40,6 +40,7 @@
       width: min(100%, 880px);
       margin: 0 auto;
       padding: 16px;
+      padding-top: 68px;
     }
 
     header {
@@ -210,9 +211,16 @@
 
     .status {
       display: none;
-      margin: 0 0 12px;
+      position: fixed;
+      top: 8px;
+      left: 12px;
+      right: 12px;
+      z-index: 20;
+      width: min(856px, calc(100% - 24px));
+      margin: 0 auto;
       border-radius: 6px;
       padding: 10px 12px;
+      box-shadow: 0 8px 20px rgba(16, 24, 40, 0.14);
       font-size: 14px;
       font-weight: 600;
     }
@@ -245,6 +253,7 @@
     @media (min-width: 720px) {
       main {
         padding: 24px;
+        padding-top: 72px;
       }
 
       .grid {
@@ -278,6 +287,10 @@
       <input type="hidden" name="init_data" id="init-data">
       <input type="hidden" name="form_token" value="{{ form_token }}">
       <input type="hidden" name="write_blank_fields" id="write-blank-fields" value="0">
+      <input type="hidden" name="edit_id_number" id="edit-id-number" value="">
+      <input type="hidden" name="edit_sheet" id="edit-sheet" value="">
+      <input type="hidden" name="edit_row" id="edit-row" value="">
+      <input type="hidden" name="edit_fingerprint" id="edit-fingerprint" value="">
       <p id="record-meta" class="record-meta"></p>
 
       <fieldset>
@@ -411,6 +424,10 @@
     const initDataInput = document.getElementById('init-data');
     const idNumberInput = document.getElementById('id-number');
     const writeBlankFieldsInput = document.getElementById('write-blank-fields');
+    const editIdNumberInput = document.getElementById('edit-id-number');
+    const editSheetInput = document.getElementById('edit-sheet');
+    const editRowInput = document.getElementById('edit-row');
+    const editFingerprintInput = document.getElementById('edit-fingerprint');
     const editableFields = [
       'id_number',
       'date_visited',
@@ -452,14 +469,34 @@
       lookupButton.disabled = isBusy;
     }
 
+    function clearEditContext() {
+      writeBlankFieldsInput.value = '0';
+      editIdNumberInput.value = '';
+      editSheetInput.value = '';
+      editRowInput.value = '';
+      editFingerprintInput.value = '';
+      setRecordMeta('');
+    }
+
     function fillFields(fields) {
       for (const name of editableFields) {
         const input = form.elements[name];
         if (!input || fields[name] === undefined || fields[name] === null) {
           continue;
         }
-        input.value = fields[name];
+        setInputValue(input, fields[name]);
       }
+    }
+
+    function setInputValue(input, value) {
+      if (input.tagName === 'SELECT' && value) {
+        const hasOption = Array.from(input.options).some((option) => option.value === value);
+        if (!hasOption) {
+          const option = new Option(value, value);
+          input.add(option);
+        }
+      }
+      input.value = value;
     }
 
     async function loadExistingRecord() {
@@ -495,10 +532,14 @@
         fillFields(payload.fields || {});
         if (payload.status === 'found') {
           writeBlankFieldsInput.value = '1';
+          editIdNumberInput.value = payload.id_number || idNumberInput.value.trim();
+          editSheetInput.value = payload.sheet || '';
+          editRowInput.value = payload.row || '';
+          editFingerprintInput.value = payload.fingerprint || '';
           setRecordMeta(`Editing ${payload.sheet}, row ${payload.row}. Blank fields will clear existing values.`);
           setStatus('success', payload.message || 'Existing order row loaded.');
         } else {
-          writeBlankFieldsInput.value = '0';
+          clearEditContext();
           setRecordMeta('No existing row found. Submitting will create a new order row.');
           setStatus('working', payload.message || 'No existing row found.');
         }
@@ -513,8 +554,7 @@
 
     lookupButton.addEventListener('click', loadExistingRecord);
     idNumberInput.addEventListener('input', () => {
-      writeBlankFieldsInput.value = '0';
-      setRecordMeta('');
+      clearEditContext();
     });
 
     form.addEventListener('submit', async (event) => {

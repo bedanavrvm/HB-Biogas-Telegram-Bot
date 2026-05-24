@@ -41,7 +41,7 @@ HEADERS = [
 ]
 
 SAMPLE_ROW = [
-    "09/05/2026",
+    "09-May-2026",
     "PATRICK MWANGI MAINA",
     "MURANGA",
     "113650221",

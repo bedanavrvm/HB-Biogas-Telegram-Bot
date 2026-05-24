@@ -304,7 +304,7 @@ Then test the fallback structured chat workflow by sending:
 ```text
 @hb_biogas_cases_bot
 ID: 113650221
-DATE VISITED: 09/05/2026
+DATE VISITED: 09-May-2026
 CUSTOMER NAME: PATRICK MWANGI MAINA
 BRANCH: MURANGA
 PRIMARY PHONE: 0740614990

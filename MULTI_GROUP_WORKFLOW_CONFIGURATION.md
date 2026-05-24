@@ -53,7 +53,7 @@ Use a separate Telegram group for the live order approval Google Sheet. In that 
 }
 ```
 
-The workflow expects structured labels such as `ID:`, `DATE VISITED:`, `CUSTOMER NAME:`, `BRANCH:`, `PRIMARY PHONE:`, `HB DEPOSIT:`, `CREDIT ANALYSIS:`, and `FINAL DECISION:`. It searches the configured `Orders` tab by the `ID NUMBER` column, updates only the fields that were supplied, and appends uploaded Google Drive links to the existing `Media URLs` cell.
+The workflow expects structured labels such as `ID:`, `DATE VISITED:`, `CUSTOMER NAME:`, `BRANCH:`, `PRIMARY PHONE:`, `HB DEPOSIT:`, `CREDIT ANALYSIS:`, and `FINAL DECISION:`. It searches the configured `Orders` tab by the `ID NUMBER` column, updates only the fields that were supplied, and appends uploaded Google Drive links to the existing `Media URLs` cell. `DATE VISITED` is written back as `DD-Mon-YYYY`, for example `25-May-2026`.
 
 The `Orders` worksheet must already contain `ID NUMBER` and `Media URLs` headers on row 2. Row 1 can be a visual title. The bot does not add columns to the approval workbook.
 

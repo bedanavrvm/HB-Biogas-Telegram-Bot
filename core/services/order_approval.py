@@ -7,12 +7,13 @@ updates only the configured BRO headers plus Media URLs.
 import io
 import hashlib
 import hmac
+import json
 import logging
 import mimetypes
 import re
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import PurePosixPath
 from urllib.parse import parse_qsl, urlencode
 from typing import Any
@@ -465,6 +466,7 @@ def process_order_approval_form_submission(
     sender: str,
     received_at: datetime | None = None,
     include_blank_fields: bool = False,
+    edit_context: dict | None = None,
 ) -> dict:
     received_at = received_at or timezone.now()
     parsed_fields = clean_form_fields(
@@ -563,6 +565,23 @@ def process_order_approval_form_submission(
         }
 
     match = matches[0]
+    if include_blank_fields and not edit_context_matches(
+        edit_context=edit_context,
+        match=match,
+        workflow=group_config.workflow or {},
+        id_number=id_number,
+    ):
+        update_record.update_status = 'failed'
+        update_record.sync_error = 'Edit context did not match the loaded sheet row.'
+        update_record.save(update_fields=['update_status', 'sync_error'])
+        return {
+            'success': False,
+            'status': 'failed',
+            'message': 'Reload this ID before saving. The row changed or the edit context no longer matches.',
+            'files_stored': 0,
+            'warnings': [],
+        }
+
     update_record.sheet_tab = match.sheet_name
     update_record.row_number = match.row_number
     update_record.save(update_fields=['sheet_tab', 'row_number'])
@@ -644,6 +663,10 @@ def lookup_order_approval_form_record(group_config, id_number: str) -> dict:
         }
 
     match = matches[0]
+    fields = fields_for_order_approval_match(
+        match=match,
+        workflow=group_config.workflow or {},
+    )
     return {
         'success': True,
         'status': 'found',
@@ -651,10 +674,8 @@ def lookup_order_approval_form_record(group_config, id_number: str) -> dict:
         'id_number': id_number,
         'sheet': match.sheet_name,
         'row': match.row_number,
-        'fields': fields_for_order_approval_match(
-            match=match,
-            workflow=group_config.workflow or {},
-        ),
+        'fields': fields,
+        'fingerprint': order_approval_fields_fingerprint(fields),
     }
 
 
@@ -718,16 +739,85 @@ def fields_for_order_approval_match(match: SheetMatch, workflow: dict) -> dict[s
     return fields
 
 
+def edit_context_matches(
+    edit_context: dict | None,
+    match: SheetMatch,
+    workflow: dict,
+    id_number: str,
+) -> bool:
+    context = edit_context or {}
+    try:
+        context_row = int(context.get('row') or 0)
+    except (TypeError, ValueError):
+        context_row = 0
+    if not (
+        normalize_business_key(context.get('id_number', '')) == id_number
+        and str(context.get('sheet', '')) == str(match.sheet_name)
+        and context_row == match.row_number
+    ):
+        return False
+
+    expected_fingerprint = str(context.get('fingerprint') or '')
+    if not expected_fingerprint:
+        return False
+
+    current_fields = fields_for_order_approval_match(match, workflow)
+    return hmac.compare_digest(
+        expected_fingerprint,
+        order_approval_fields_fingerprint(current_fields),
+    )
+
+
+def order_approval_fields_fingerprint(fields: dict[str, str]) -> str:
+    payload = json.dumps(
+        {field: str(fields.get(field, '')) for field in ORDER_APPROVAL_WEBAPP_FIELDS},
+        sort_keys=True,
+        separators=(',', ':'),
+    )
+    return hashlib.sha256(payload.encode('utf-8')).hexdigest()
+
+
 def html_date_value(value: str) -> str:
     value = str(value or '').strip()
     if not value:
         return ''
-    for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y'):
+    try:
+        serial = float(value)
+        if 30000 <= serial <= 70000:
+            return (
+                datetime(1899, 12, 30) + timedelta(days=serial)
+            ).strftime('%Y-%m-%d')
+    except ValueError:
+        pass
+    for fmt in (
+        '%Y-%m-%d',
+        '%d/%m/%Y',
+        '%d-%m-%Y',
+        '%d-%b-%Y',
+        '%d-%B-%Y',
+    ):
         try:
             return datetime.strptime(value, fmt).strftime('%Y-%m-%d')
         except ValueError:
             continue
     return value
+
+
+def sheet_value_for_field(field: str, value: str) -> str:
+    if field not in DATE_FIELDS:
+        return value
+    return preferred_sheet_date_value(value)
+
+
+def preferred_sheet_date_value(value: str) -> str:
+    value = str(value or '').strip()
+    if not value:
+        return ''
+    html_value = html_date_value(value)
+    try:
+        return datetime.strptime(html_value, '%Y-%m-%d').strftime('%d-%b-%Y')
+    except ValueError:
+        return value
 
 
 def find_order_approval_matches(group_config, id_number: str) -> list[SheetMatch]:
@@ -821,26 +911,28 @@ def update_order_approval_row(
     for field, value in fields_to_write.items():
         header = header_for_field(workflow, field)
         column_index = header_index(match.headers, header)
-        input_option = 'USER_ENTERED' if field in DATE_FIELDS else 'RAW'
-        columns.append((column_index + 1, value, input_option, field))
+        columns.append((
+            column_index + 1,
+            sheet_value_for_field(field, value),
+            field,
+        ))
 
     if not columns:
         return {'success': True, 'error': '', 'fields_updated': []}
 
     try:
+        ranges = []
         for group in group_consecutive_columns(columns):
             start_col = group[0][0]
             end_col = group[-1][0]
-            range_name = (
-                f"{column_letter(start_col)}{match.row_number}:"
-                f"{column_letter(end_col)}{match.row_number}"
-            )
-            values = [[value for _, value, _, _ in group]]
-            match.service._update_range(
-                range_name,
-                values,
-                value_input_option=group[0][2],
-            )
+            ranges.append({
+                'range': (
+                    f"{column_letter(start_col)}{match.row_number}:"
+                    f"{column_letter(end_col)}{match.row_number}"
+                ),
+                'values': [[value for _, value, _ in group]],
+            })
+        batch_update_order_ranges(match.service, ranges)
     except Exception as exc:
         logger.error("Failed to update order approval row: %s", exc, exc_info=True)
         return {'success': False, 'error': str(exc), 'fields_updated': []}
@@ -848,8 +940,18 @@ def update_order_approval_row(
     return {
         'success': True,
         'error': '',
-        'fields_updated': [field for _, _, _, field in columns],
+        'fields_updated': [field for _, _, field in columns],
     }
+
+
+def batch_update_order_ranges(service, ranges: list[dict]) -> None:
+    """Write all order row ranges through one Sheets API batch request."""
+    if not ranges:
+        return
+    sheet = getattr(service, '_sheet', None)
+    if not sheet or not hasattr(sheet, 'batch_update'):
+        raise RuntimeError('Google Sheets batch update is unavailable.')
+    sheet.batch_update(ranges, raw=True)
 
 
 def create_order_approval_row(
@@ -1538,7 +1640,7 @@ def group_consecutive_columns(columns: list[tuple]) -> list[list[tuple]]:
     ordered = sorted(columns, key=lambda column: column[0])
     groups = [[ordered[0]]]
     for column in ordered[1:]:
-        if column[0] == groups[-1][-1][0] + 1 and column[2] == groups[-1][-1][2]:
+        if column[0] == groups[-1][-1][0] + 1:
             groups[-1].append(column)
         else:
             groups.append([column])

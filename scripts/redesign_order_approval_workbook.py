@@ -328,8 +328,11 @@ def normalize_value(value: str, is_date: bool = False) -> str:
 def normalize_date(value: str) -> str:
     if not value:
         return ""
-    if looks_like_date(value):
-        return value
+    for date_format in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%d-%b-%Y", "%d-%B-%Y"):
+        try:
+            return datetime.strptime(value, date_format).strftime("%d-%b-%Y")
+        except ValueError:
+            continue
     try:
         serial = float(value)
     except ValueError:
@@ -339,7 +342,7 @@ def normalize_date(value: str) -> str:
 
     # Excel's 1900 date system is represented by the 1899-12-30 epoch.
     converted = datetime(1899, 12, 30) + timedelta(days=serial)
-    return converted.strftime("%d/%m/%Y")
+    return converted.strftime("%d-%b-%Y")
 
 
 def looks_like_date(value: str) -> bool:
