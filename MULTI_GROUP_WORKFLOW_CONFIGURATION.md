@@ -46,14 +46,16 @@ Use a separate Telegram group for the live order approval Google Sheet. In that 
 {
   "type": "order_approval",
   "match_field": "id_number",
-  "search_sheet_names": ["Pending", "178", "179", "180", "181"],
-  "media_field": "media_urls"
+  "search_sheet_names": ["Orders"],
+  "create_sheet_name": "Orders",
+  "media_field": "media_urls",
+  "header_row": 2
 }
 ```
 
-The workflow expects structured labels such as `ID:`, `DATE VISITED:`, `CUSTOMER NAME:`, `PRIMARY PHONE:`, `HB DEPOSIT:`, and `CREDIT ANALYSIS:`. It searches the configured tabs by the `ID NUMBER` column, updates only the BRO fields that were supplied, and appends uploaded Google Drive links to the existing `Media URLs` cell.
+The workflow expects structured labels such as `ID:`, `DATE VISITED:`, `CUSTOMER NAME:`, `BRANCH:`, `PRIMARY PHONE:`, `HB DEPOSIT:`, `CREDIT ANALYSIS:`, and `FINAL DECISION:`. It searches the configured `Orders` tab by the `ID NUMBER` column, updates only the fields that were supplied, and appends uploaded Google Drive links to the existing `Media URLs` cell.
 
-Each searched worksheet must already contain a `Media URLs` header. The bot does not add columns to the approval workbook.
+The `Orders` worksheet must already contain `ID NUMBER` and `Media URLs` headers on row 2. Row 1 can be a visual title. The bot does not add columns to the approval workbook.
 
 Media storage uses these environment settings:
 

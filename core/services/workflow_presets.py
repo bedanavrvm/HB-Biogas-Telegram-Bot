@@ -22,20 +22,21 @@ WORKFLOW_PRESETS = {
     'order_approval': {
         'label': 'Order Approval',
         'description': 'BRO order approval updates with Google Drive media.',
-        'sheet_name': 'Pending',
+        'sheet_name': 'Orders',
         'workflow': {
             'type': 'order_approval',
             'match_field': 'id_number',
-            'search_sheet_names': ['Pending', '178', '179', '180', '181'],
-            'create_sheet_name': 'Pending',
+            'search_sheet_names': ['Orders'],
+            'create_sheet_name': 'Orders',
             'media_field': 'media_urls',
+            'header_row': 2,
         },
         'sheet_schema': {},
         'parser_rules': {},
         'admin_fields': {
             'search_tabs': {
                 'label': 'Search tabs',
-                'initial': 'Pending, 178, 179, 180, 181',
+                'initial': 'Orders',
                 'help_text': 'Comma-separated worksheet tabs searched by ID NUMBER.',
             },
             'match_field': {
@@ -87,7 +88,9 @@ def build_workflow_from_preset(
 
     if preset_key == 'order_approval':
         if overrides.get('search_sheet_names'):
-            workflow['search_sheet_names'] = list(overrides['search_sheet_names'])
+            search_sheet_names = list(overrides['search_sheet_names'])
+            workflow['search_sheet_names'] = search_sheet_names
+            workflow['create_sheet_name'] = search_sheet_names[0]
         if overrides.get('match_field'):
             workflow['match_field'] = overrides['match_field']
         if overrides.get('media_field'):

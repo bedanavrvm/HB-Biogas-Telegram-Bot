@@ -1392,13 +1392,13 @@ class GroupConfigurationServiceTest(TestCase):
             'group_id': '-100222',
             'display_name': 'Order Approval',
             'sheet_id': 'sheet_order_123',
-            'sheet_name': 'Pending',
+            'sheet_name': 'Orders',
             'sheet_schema': '{}',
             'workflow': '{}',
             'parser_rules': '{}',
             'metadata': '{}',
             'workflow_preset': 'order_approval',
-            'order_approval_search_tabs': 'Pending, 178, 179, 180, 181',
+            'order_approval_search_tabs': 'Orders',
             'order_approval_match_field': 'id_number',
             'order_approval_media_field': 'media_urls',
         })
@@ -1409,9 +1409,10 @@ class GroupConfigurationServiceTest(TestCase):
             {
                 'type': 'order_approval',
                 'match_field': 'id_number',
-                'search_sheet_names': ['Pending', '178', '179', '180', '181'],
-                'create_sheet_name': 'Pending',
+                'search_sheet_names': ['Orders'],
+                'create_sheet_name': 'Orders',
                 'media_field': 'media_urls',
+                'header_row': 2,
             },
         )
 
@@ -1428,7 +1429,7 @@ class GroupConfigurationServiceTest(TestCase):
         self.assertEqual(choices['order_approval'], 'Order Approval')
 
         defaults = defaults_for_preset('order_approval')
-        self.assertEqual(defaults['sheet_name'], 'Pending')
+        self.assertEqual(defaults['sheet_name'], 'Orders')
         self.assertEqual(defaults['sheet_schema'], {})
         self.assertEqual(defaults['parser_rules'], {})
 
@@ -1436,8 +1437,9 @@ class GroupConfigurationServiceTest(TestCase):
         self.assertEqual(workflow['type'], 'order_approval')
         self.assertEqual(
             workflow['search_sheet_names'],
-            ['Pending', '178', '179', '180', '181'],
+            ['Orders'],
         )
+        self.assertEqual(workflow['header_row'], 2)
 
     def test_workflow_preset_overrides_order_approval_tabs(self):
         """Admin can override preset tabs without editing raw JSON."""
@@ -1453,6 +1455,23 @@ class GroupConfigurationServiceTest(TestCase):
         )
 
         self.assertEqual(workflow['search_sheet_names'], ['Pending', '190'])
+        self.assertEqual(workflow['create_sheet_name'], 'Pending')
+
+    def test_workflow_preset_uses_first_overridden_tab_for_order_creation(self):
+        """New order approval rows are created in the first configured tab."""
+        from core.services.workflow_presets import build_workflow_from_preset
+
+        workflow = build_workflow_from_preset(
+            'order_approval',
+            overrides={
+                'search_sheet_names': ['Sheet', 'Archive'],
+                'match_field': 'id_number',
+                'media_field': 'media_urls',
+            },
+        )
+
+        self.assertEqual(workflow['search_sheet_names'], ['Sheet', 'Archive'])
+        self.assertEqual(workflow['create_sheet_name'], 'Sheet')
 
 
 class SheetAnalyzerServiceTest(TestCase):

@@ -58,8 +58,10 @@ This preset generates:
 {
   "type": "order_approval",
   "match_field": "id_number",
-  "search_sheet_names": ["Pending", "178", "179", "180", "181"],
-  "media_field": "media_urls"
+  "search_sheet_names": ["Orders"],
+  "create_sheet_name": "Orders",
+  "media_field": "media_urls",
+  "header_row": 2
 }
 ```
 
@@ -68,7 +70,7 @@ Behavior:
 - `/order` opens the Telegram Web App form.
 - Structured chat updates still work as a fallback.
 - Rows are matched by `ID NUMBER`.
-- If no row exists for the ID, a new row is created in `Pending`.
+- If no row exists for the ID, a new row is created in `Orders`.
 - Only BRO fields and `Media URLs` are updated.
 - Photos/documents are uploaded to Google Drive.
 - `OrderApprovalUpdate` and `MediaAttachment` audit records are written.
@@ -80,19 +82,21 @@ enabled: checked
 group_id: -100...
 display_name: Order Approval
 sheet_id: <order-approval-sheet-id>
-sheet_name: Pending
+sheet_name: Orders
 workflow_preset: Order Approval
-order_approval_search_tabs: Pending, 178, 179, 180, 181
+order_approval_search_tabs: Orders
 order_approval_match_field: ID NUMBER
 order_approval_media_field: Media URLs
 ```
 
-Each searched worksheet must already contain:
+The `Orders` worksheet must already contain:
 
 ```text
 ID NUMBER
 Media URLs
 ```
+
+Those headers must be on row 2. Row 1 may be a visual title/banner.
 
 The bot does not insert columns into the approval workbook.
 

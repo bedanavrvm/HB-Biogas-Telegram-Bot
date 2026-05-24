@@ -11,20 +11,18 @@ Before changing Render:
 - Ensure the order approval workbook is a live Google Sheet, not only an `.xlsx` file.
 - Share the Google Sheet with the same Google service account used by Render.
 - Create the target media folder inside a Google Shared Drive, then add the same service account to that Shared Drive or folder with upload permission.
-- Add a `Media URLs` header to row 1 in each tab that the bot will search:
-  - `Pending`
-  - `178`
-  - `179`
-  - `180`
-  - `181`
-- Confirm each searched tab has an `ID NUMBER` header.
+- Keep row 1 as the visual title banner.
+- Put the bot-compatible headers in row 2 of the `Orders` tab.
+- Add a `Media URLs` header to row 2 in the `Orders` tab.
+- Confirm the `Orders` tab has an `ID NUMBER` header in row 2.
 - Confirm the BRO writable headers exist where needed:
   - `DATE VISITED`
   - `CUSTOMER NAME`
+  - `BRANCH`
+  - `ID NUMBER`
   - `CONTACTS / PRIMARY`
   - `CONTACTS / SECONDARY`
-  - `ID NUMBER`
-  - `LOCATION / COUNTY`
+  - `COUNTY`
   - `LOCATION AND NEAREST LANDMARK`
   - `VISITED BY`
   - `HB STAFF`
@@ -34,9 +32,30 @@ Before changing Render:
   - `IS CUSTOMER CREATED ON IMAB?`
   - `CUSTOMER NO`
   - `CREDIT ANALYSIS`
+  - `FINAL DECISION`
   - `Media URLs`
 
-Do not let the bot create or insert columns in this workbook. Add `Media URLs` manually before enabling the workflow.
+Do not let the bot create or insert columns in this workbook. Add row-2 headers manually before enabling the workflow if you are not using the generated template.
+
+To redesign the existing April workbook into one manageable `Orders` sheet, run:
+
+```bash
+python scripts/redesign_order_approval_workbook.py -i "ORDER APPROVAL APRIL 2026.xlsx" -o "ORDER APPROVAL REDESIGNED.xlsx"
+```
+
+To create a fresh blank workbook template in the expected one-sheet format, run:
+
+```bash
+python scripts/create_order_approval_workbook.py -o order_approval_template.xlsx
+```
+
+For a template that includes one example row in `Orders`, run:
+
+```bash
+python scripts/create_order_approval_workbook.py --sample-row -o order_approval_template.xlsx
+```
+
+Upload the generated `.xlsx` to Google Drive, open it with Google Sheets, then use that live Google Sheet ID in the group configuration.
 
 ## 2. Render Environment Variables To Update
 
@@ -181,10 +200,10 @@ enabled: checked
 group_id: -1001234567890
 display_name: Order Approval
 sheet_id: <live-order-approval-google-sheet-id>
-sheet_name: Pending
+sheet_name: Orders
 ```
 
-Use `Pending` for `sheet_name` even though the workflow searches multiple tabs. The order approval service reads the tab list from `workflow.search_sheet_names`.
+Use `Orders` for `sheet_name`. The one-sheet design is easier to audit, filter, and configure than the old batch-tab layout.
 
 Leave `sheet_schema` empty unless you are deliberately changing the complaint schema for this group. This workflow does not use the complaint parser schema.
 
@@ -197,7 +216,7 @@ Order Approval
 Leave these defaults unless the workbook tabs change:
 
 ```text
-order_approval_search_tabs: Pending, 178, 179, 180, 181
+order_approval_search_tabs: Orders
 order_approval_match_field: ID NUMBER
 order_approval_media_field: Media URLs
 ```
@@ -208,8 +227,10 @@ When you save, Django admin generates this `workflow` JSON automatically:
 {
   "type": "order_approval",
   "match_field": "id_number",
-  "search_sheet_names": ["Pending", "178", "179", "180", "181"],
-  "media_field": "media_urls"
+  "search_sheet_names": ["Orders"],
+  "create_sheet_name": "Orders",
+  "media_field": "media_urls",
+  "header_row": 2
 }
 ```
 
@@ -235,12 +256,14 @@ Add the new group to `GROUP_MAPPING_JSON` without removing existing groups:
   },
   "-1001234567890": {
     "sheet_id": "live-order-approval-sheet-id",
-    "sheet_name": "Pending",
+    "sheet_name": "Orders",
     "workflow": {
       "type": "order_approval",
       "match_field": "id_number",
-      "search_sheet_names": ["Pending", "178", "179", "180", "181"],
-      "media_field": "media_urls"
+      "search_sheet_names": ["Orders"],
+      "create_sheet_name": "Orders",
+      "media_field": "media_urls",
+      "header_row": 2
     }
   }
 }
@@ -263,14 +286,17 @@ First test the Telegram Web App form:
 ```
 
 2. Tap `Open Order Approval Form`.
-3. Fill `ID number` and a few BRO fields.
-4. Submit.
+3. Enter `ID number`.
+4. Tap `Load existing`.
+5. If a row exists, confirm the form pre-fills the current sheet values.
+6. Edit one field and submit.
 
 Expected:
 
 - The Web App shows a success message.
 - The Telegram Web App closes after success.
-- The matching Google Sheet row is updated, or a new row is created in `Pending` if the ID is new.
+- The matching Google Sheet row is updated, or a new row is created in `Orders` if the ID is new.
+- In loaded edit mode, blanked fields clear the corresponding sheet cells.
 - `Core -> Order approval updates` has a `success` record.
 
 Then test the fallback structured chat workflow by sending:
@@ -280,6 +306,7 @@ Then test the fallback structured chat workflow by sending:
 ID: 113650221
 DATE VISITED: 09/05/2026
 CUSTOMER NAME: PATRICK MWANGI MAINA
+BRANCH: MURANGA
 PRIMARY PHONE: 0740614990
 SECONDARY PHONE:
 COUNTY: MURANGA
@@ -289,9 +316,10 @@ HB STAFF: THOMAS
 HB DEPOSIT: 5000
 JBL DEPOSIT: 0
 COMMENT: Approved
-IMAB CREATED: CREATED
+IMAB CREATED: Yes
 CUSTOMER NO: 15118
 CREDIT ANALYSIS: Pending
+FINAL DECISION: Under Review
 ```
 
 Expected bot reply:
@@ -360,8 +388,8 @@ Expected:
 
 New ID / no matching row:
 
-- Send an ID that is not in `Pending`, `178`, `179`, `180`, or `181`.
-- Expected result creates a new row in `Pending`.
+- Send an ID that is not in `Orders`.
+- Expected result creates a new row in `Orders`.
 - Media links are written into `Media URLs` on the new row.
 
 Duplicate ID:

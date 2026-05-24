@@ -7,11 +7,13 @@ from core.models import GroupSheetConfiguration, MediaAttachment, OrderApprovalU
 from core.services.order_approval import (
     SheetMatch,
     TelegramMediaItem,
+    clean_form_fields,
     create_order_approval_form_token,
     create_order_approval_row,
     find_order_approval_matches,
     handle_order_approval_message,
     handle_order_webapp_command,
+    lookup_order_approval_form_record,
     looks_like_non_order_command,
     parse_order_approval_message,
     store_media_for_order,
@@ -47,6 +49,7 @@ class OrderApprovalParserTest(TestCase):
 ID: 113650221
 DATE VISITED: 09/05/2026
 CUSTOMER NAME: PATRICK MWANGI MAINA
+BRANCH: MURANGA
 PRIMARY PHONE: 0740614990
 SECONDARY PHONE:
 COUNTY: MURANGA
@@ -59,16 +62,19 @@ COMMENT: Approved
 IMAB CREATED: CREATED
 CUSTOMER NO: 15118
 CREDIT ANALYSIS: Pending
+FINAL DECISION: Under Review
 """.strip()
         )
 
         self.assertEqual(parsed.id_number, '113650221')
         self.assertEqual(parsed.fields['date_visited'], '09/05/2026')
         self.assertEqual(parsed.fields['customer_name'], 'PATRICK MWANGI MAINA')
+        self.assertEqual(parsed.fields['branch'], 'MURANGA')
         self.assertEqual(parsed.fields['primary_phone'], '0740614990')
         self.assertEqual(parsed.fields['deposit_hb'], '5000')
         self.assertEqual(parsed.fields['deposit_jbl'], '0')
         self.assertEqual(parsed.fields['credit_analysis'], 'Pending')
+        self.assertEqual(parsed.fields['final_decision'], 'Under Review')
 
 
 class OrderApprovalSheetTest(TestCase):
@@ -103,6 +109,30 @@ class OrderApprovalSheetTest(TestCase):
         self.assertEqual(len(matches), 1)
         self.assertEqual(matches[0].sheet_name, '178')
         self.assertEqual(matches[0].row_number, 2)
+
+    def test_matching_uses_configured_header_row(self):
+        group_config = self._group_config()
+        group_config.workflow = {
+            'type': 'order_approval',
+            'match_field': 'id_number',
+            'search_sheet_names': ['Orders'],
+            'media_field': 'media_urls',
+            'header_row': 2,
+        }
+        orders = FakeService([
+            ['ORDER APPROVAL FORM - BUSINESS RELATIONSHIP OFFICER', '', ''],
+            ['DATE VISITED', 'CUSTOMER NAME', 'BRANCH', 'ID NUMBER', 'Media URLs'],
+            ['', '', '', '', ''],
+            ['23/05/2026', 'Patrick', 'Muranga', '113650221', ''],
+        ])
+
+        with patch('core.services.order_approval.get_sheets_service', return_value=orders):
+            matches = find_order_approval_matches(group_config, '113650221')
+
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0].sheet_name, 'Orders')
+        self.assertEqual(matches[0].row_number, 4)
+        self.assertEqual(matches[0].headers[3], 'ID NUMBER')
 
     def test_duplicate_matches_are_detected_across_tabs(self):
         pending = FakeService([
@@ -240,6 +270,102 @@ class OrderApprovalSheetTest(TestCase):
             ),
         )
 
+    def test_create_row_uses_configured_header_row(self):
+        group_config = self._group_config()
+        group_config.workflow = {
+            'type': 'order_approval',
+            'match_field': 'id_number',
+            'search_sheet_names': ['Orders'],
+            'create_sheet_name': 'Orders',
+            'media_field': 'media_urls',
+            'header_row': 2,
+        }
+        service = FakeService([
+            ['ORDER APPROVAL FORM - BUSINESS RELATIONSHIP OFFICER', '', ''],
+            ['DATE VISITED', 'CUSTOMER NAME', 'BRANCH', 'ID NUMBER', 'Media URLs'],
+            ['', '', '', '', ''],
+            ['', '', '', '', ''],
+        ])
+
+        with patch('core.services.order_approval.get_sheets_service', return_value=service):
+            result = create_order_approval_row(
+                group_config=group_config,
+                parsed_fields={
+                    'date_visited': '24/05/2026',
+                    'customer_name': 'NEW CUSTOMER',
+                    'branch': 'MURANGA',
+                    'id_number': '5655566',
+                },
+                media_links=['https://drive.example/file'],
+            )
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['sheet_name'], 'Orders')
+        self.assertEqual(result['row_number'], 3)
+        self.assertEqual(
+            service.update_calls[0],
+            ('A3:A3', [['24/05/2026']], 'USER_ENTERED'),
+        )
+        self.assertEqual(
+            service.update_calls[1],
+            (
+                'B3:E3',
+                [['NEW CUSTOMER', 'MURANGA', '5655566', 'https://drive.example/file']],
+                'RAW',
+            ),
+        )
+
+    def test_lookup_existing_row_returns_form_fields(self):
+        group_config = self._group_config()
+        group_config.workflow = {
+            'type': 'order_approval',
+            'match_field': 'id_number',
+            'search_sheet_names': ['Orders'],
+            'media_field': 'media_urls',
+            'header_row': 2,
+        }
+        service = FakeService([
+            ['ORDER APPROVAL FORM - BUSINESS RELATIONSHIP OFFICER', '', ''],
+            [
+                'DATE VISITED',
+                'CUSTOMER NAME',
+                'BRANCH',
+                'ID NUMBER',
+                'COUNTY',
+                'FINAL DECISION',
+                'Media URLs',
+            ],
+            ['24/05/2026', 'PATRICK', 'MURANGA', '113650221', 'MURANGA', 'Under Review', ''],
+        ])
+
+        with patch('core.services.order_approval.get_sheets_service', return_value=service):
+            result = lookup_order_approval_form_record(group_config, '113650221')
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['status'], 'found')
+        self.assertEqual(result['sheet'], 'Orders')
+        self.assertEqual(result['row'], 3)
+        self.assertEqual(result['fields']['date_visited'], '2026-05-24')
+        self.assertEqual(result['fields']['branch'], 'MURANGA')
+        self.assertEqual(result['fields']['county'], 'MURANGA')
+        self.assertEqual(result['fields']['final_decision'], 'Under Review')
+
+    def test_form_cleaning_can_include_blank_fields_for_true_edit(self):
+        fields = clean_form_fields(
+            {
+                'id_number': '113650221',
+                'customer_name': '',
+                'branch': '',
+                'comment': 'Keep this',
+            },
+            include_blank_fields=True,
+        )
+
+        self.assertEqual(fields['id_number'], '113650221')
+        self.assertEqual(fields['customer_name'], '')
+        self.assertEqual(fields['branch'], '')
+        self.assertEqual(fields['comment'], 'Keep this')
+
 
 class OrderApprovalMediaTest(TestCase):
     def test_oversize_attachment_is_skipped_and_audited(self):
@@ -353,6 +479,10 @@ class OrderApprovalWebAppTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Order Approval')
         self.assertContains(response, 'name="id_number"')
+        self.assertContains(response, 'name="branch"')
+        self.assertContains(response, 'name="final_decision"')
+        self.assertContains(response, 'id="lookup-button"')
+        self.assertContains(response, 'name="write_blank_fields"')
         self.assertContains(response, 'name="attachments"')
 
     @override_settings(ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
@@ -381,12 +511,58 @@ class OrderApprovalWebAppTest(TestCase):
                 'group_id': '-100222',
                 'id_number': '113650221',
                 'customer_name': 'PATRICK',
+                'branch': 'MURANGA',
+                'final_decision': 'Under Review',
+                'write_blank_fields': '1',
                 'init_data': '',
             },
         )
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['success'])
+        _, kwargs = mock_process.call_args
+        self.assertEqual(kwargs['fields']['branch'], 'MURANGA')
+        self.assertEqual(kwargs['fields']['final_decision'], 'Under Review')
+        self.assertTrue(kwargs['include_blank_fields'])
+
+    @override_settings(ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
+    @patch('core.services.order_approval.lookup_order_approval_form_record')
+    @patch('core.services.group_config.GroupRegistry.get_instance')
+    def test_webapp_lookup_loads_existing_row(
+        self,
+        mock_registry_get_instance,
+        mock_lookup,
+    ):
+        registry = MagicMock()
+        registry.get_group.return_value = self._group_config()
+        mock_registry_get_instance.return_value = registry
+        mock_lookup.return_value = {
+            'success': True,
+            'status': 'found',
+            'message': 'Existing order row loaded.',
+            'sheet': 'Orders',
+            'row': 4,
+            'fields': {
+                'id_number': '113650221',
+                'customer_name': 'PATRICK',
+                'branch': 'MURANGA',
+            },
+        }
+
+        response = self.client.post(
+            '/api/order-approval/webapp/lookup/',
+            data={
+                'group_id': '-100222',
+                'id_number': '113650221',
+                'init_data': '',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'])
+        self.assertEqual(payload['status'], 'found')
+        self.assertEqual(payload['fields']['branch'], 'MURANGA')
 
     @override_settings(ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
     @patch('core.services.order_approval.store_uploaded_files_for_order')

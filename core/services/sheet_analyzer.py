@@ -6,6 +6,8 @@ from collections import Counter
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
+from django.conf import settings
+
 from core.services.sheet_schema import (
     DEFAULT_BOT_WRITABLE_FIELDS,
     DEFAULT_CASE_UPDATE_FIELDS,
@@ -95,11 +97,14 @@ def analyze_google_sheet(
     sample_size: int = 25,
 ) -> dict:
     """Read a live Google Sheet and return detected schema/workflow metadata."""
+    worksheet_titles, worksheet_error = list_google_sheet_worksheets(sheet_id)
     service = get_sheets_service(sheet_id=sheet_id, sheet_name=sheet_name)
     if not service.is_available():
         return {
             'status': 'error',
             'error': 'Google Sheets service unavailable or sheet not accessible.',
+            'worksheet_titles': worksheet_titles,
+            'worksheet_error': worksheet_error,
         }
 
     values = service._sheet.get_all_values()
@@ -107,6 +112,8 @@ def analyze_google_sheet(
         return {
             'status': 'error',
             'error': 'The selected worksheet is empty.',
+            'worksheet_titles': worksheet_titles,
+            'worksheet_error': worksheet_error,
         }
 
     headers = [str(header or '').strip() for header in values[0]]
@@ -141,6 +148,8 @@ def analyze_google_sheet(
         'status': 'success',
         'sheet_id': sheet_id,
         'sheet_name': sheet_name or getattr(service, '_sheet_name', ''),
+        'worksheet_titles': worksheet_titles,
+        'worksheet_error': worksheet_error,
         'row_count': max(len(values) - 1, 0),
         'sample_size': len(rows),
         'headers': headers,
@@ -149,6 +158,25 @@ def analyze_google_sheet(
         'workflow': workflow,
         'warnings': warnings,
     }
+
+
+def list_google_sheet_worksheets(sheet_id: str) -> tuple[list[str], str]:
+    """Return worksheet titles even when the configured tab is invalid."""
+    if not sheet_id:
+        return [], ''
+
+    try:
+        import gspread
+        from google.oauth2.service_account import Credentials
+
+        creds = Credentials.from_service_account_file(
+            getattr(settings, 'GOOGLE_SERVICE_ACCOUNT_FILE', 'credentials.json'),
+            scopes=['https://www.googleapis.com/auth/spreadsheets.readonly'],
+        )
+        spreadsheet = gspread.authorize(creds).open_by_key(sheet_id)
+        return [worksheet.title for worksheet in spreadsheet.worksheets()], ''
+    except Exception as exc:
+        return [], str(exc)
 
 
 def apply_analysis_to_config(config, analysis: dict) -> None:

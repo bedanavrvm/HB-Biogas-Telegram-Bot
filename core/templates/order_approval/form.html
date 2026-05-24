@@ -150,6 +150,28 @@
       border-top: 1px solid var(--line);
     }
 
+    .lookup-row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+
+    .record-meta {
+      display: none;
+      margin: 0 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px 12px;
+      background: #fcfcfd;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .record-meta[data-visible="true"] {
+      display: block;
+    }
+
     button {
       min-height: 44px;
       border: 0;
@@ -160,6 +182,16 @@
       font: inherit;
       font-weight: 700;
       cursor: pointer;
+    }
+
+    button.secondary {
+      border: 1px solid var(--line);
+      background: #ffffff;
+      color: #344054;
+    }
+
+    button.secondary:active {
+      background: #f2f4f7;
     }
 
     button:focus {
@@ -219,6 +251,11 @@
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
+      .lookup-row {
+        grid-template-columns: 1fr auto;
+        align-items: end;
+      }
+
       .span-2 {
         grid-column: span 2;
       }
@@ -240,14 +277,19 @@
       <input type="hidden" name="group_id" value="{{ group_id }}">
       <input type="hidden" name="init_data" id="init-data">
       <input type="hidden" name="form_token" value="{{ form_token }}">
+      <input type="hidden" name="write_blank_fields" id="write-blank-fields" value="0">
+      <p id="record-meta" class="record-meta"></p>
 
       <fieldset>
         <legend>Customer</legend>
         <div class="grid">
-          <label>
-            ID number <span class="required">*</span>
-            <input name="id_number" inputmode="numeric" autocomplete="off" required>
-          </label>
+          <div class="lookup-row span-2">
+            <label>
+              ID number <span class="required">*</span>
+              <input id="id-number" name="id_number" inputmode="numeric" autocomplete="off" required>
+            </label>
+            <button id="lookup-button" class="secondary" type="button">Load existing</button>
+          </div>
           <label>
             Date visited
             <input name="date_visited" type="date">
@@ -255,6 +297,10 @@
           <label class="span-2">
             Customer name
             <input name="customer_name" autocomplete="name">
+          </label>
+          <label>
+            Branch
+            <input name="branch" autocomplete="organization">
           </label>
           <label>
             Primary phone
@@ -286,9 +332,9 @@
             IMAB created
             <select name="imab_created">
               <option value=""></option>
-              <option value="CREATED">CREATED</option>
-              <option value="NOT CREATED">NOT CREATED</option>
-              <option value="PENDING">PENDING</option>
+              <option value="Yes">Yes</option>
+              <option value="No">No</option>
+              <option value="Pending">Pending</option>
             </select>
           </label>
           <label class="span-2">
@@ -317,10 +363,20 @@
             Credit analysis
             <select name="credit_analysis">
               <option value=""></option>
+              <option value="Pass">Pass</option>
+              <option value="Fail">Fail</option>
               <option value="Pending">Pending</option>
+              <option value="N/A">N/A</option>
+            </select>
+          </label>
+          <label>
+            Final decision
+            <select name="final_decision">
+              <option value=""></option>
               <option value="Approved">Approved</option>
               <option value="Rejected">Rejected</option>
-              <option value="Review">Review</option>
+              <option value="Hold">Hold</option>
+              <option value="Under Review">Under Review</option>
             </select>
           </label>
           <label class="span-2">
@@ -349,8 +405,31 @@
     const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
     const form = document.getElementById('approval-form');
     const statusEl = document.getElementById('status');
+    const recordMetaEl = document.getElementById('record-meta');
     const submitButton = document.getElementById('submit-button');
+    const lookupButton = document.getElementById('lookup-button');
     const initDataInput = document.getElementById('init-data');
+    const idNumberInput = document.getElementById('id-number');
+    const writeBlankFieldsInput = document.getElementById('write-blank-fields');
+    const editableFields = [
+      'id_number',
+      'date_visited',
+      'customer_name',
+      'branch',
+      'primary_phone',
+      'secondary_phone',
+      'county',
+      'landmark',
+      'visited_by',
+      'hb_staff',
+      'deposit_hb',
+      'deposit_jbl',
+      'comment',
+      'imab_created',
+      'customer_no',
+      'credit_analysis',
+      'final_decision'
+    ];
 
     if (tg) {
       tg.ready();
@@ -363,13 +442,88 @@
       statusEl.textContent = text;
     }
 
+    function setRecordMeta(text) {
+      recordMetaEl.textContent = text || '';
+      recordMetaEl.dataset.visible = text ? 'true' : 'false';
+    }
+
+    function setBusy(isBusy) {
+      submitButton.disabled = isBusy;
+      lookupButton.disabled = isBusy;
+    }
+
+    function fillFields(fields) {
+      for (const name of editableFields) {
+        const input = form.elements[name];
+        if (!input || fields[name] === undefined || fields[name] === null) {
+          continue;
+        }
+        input.value = fields[name];
+      }
+    }
+
+    async function loadExistingRecord() {
+      if (!idNumberInput.value.trim()) {
+        idNumberInput.reportValidity();
+        return;
+      }
+
+      setBusy(true);
+      setStatus('working', 'Loading existing order...');
+
+      try {
+        const data = new FormData();
+        data.set('group_id', form.elements.group_id.value);
+        data.set('init_data', initDataInput.value);
+        data.set('form_token', form.elements.form_token.value);
+        data.set('id_number', idNumberInput.value.trim());
+
+        const response = await fetch('/api/order-approval/webapp/lookup/', {
+          method: 'POST',
+          body: data
+        });
+        const payload = await response.json();
+
+        if (!response.ok || !payload.success) {
+          writeBlankFieldsInput.value = '0';
+          setRecordMeta('');
+          setStatus('error', payload.message || 'Lookup failed.');
+          setBusy(false);
+          return;
+        }
+
+        fillFields(payload.fields || {});
+        if (payload.status === 'found') {
+          writeBlankFieldsInput.value = '1';
+          setRecordMeta(`Editing ${payload.sheet}, row ${payload.row}. Blank fields will clear existing values.`);
+          setStatus('success', payload.message || 'Existing order row loaded.');
+        } else {
+          writeBlankFieldsInput.value = '0';
+          setRecordMeta('No existing row found. Submitting will create a new order row.');
+          setStatus('working', payload.message || 'No existing row found.');
+        }
+      } catch (error) {
+        writeBlankFieldsInput.value = '0';
+        setRecordMeta('');
+        setStatus('error', 'Network error while loading the order.');
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    lookupButton.addEventListener('click', loadExistingRecord);
+    idNumberInput.addEventListener('input', () => {
+      writeBlankFieldsInput.value = '0';
+      setRecordMeta('');
+    });
+
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       if (!form.reportValidity()) {
         return;
       }
 
-      submitButton.disabled = true;
+      setBusy(true);
       setStatus('working', 'Submitting update...');
 
       try {
@@ -382,22 +536,23 @@
         if (!response.ok || !payload.success) {
           const message = payload.message || 'Submission failed.';
           setStatus('error', message);
-          submitButton.disabled = false;
+          setBusy(false);
           return;
         }
 
         const detail = `Sheet: ${payload.sheet}, row ${payload.row}. Files stored: ${payload.files_stored || 0}.`;
         setStatus('success', `${payload.message} ${detail}`);
+        writeBlankFieldsInput.value = payload.status === 'created' ? '0' : writeBlankFieldsInput.value;
+        setRecordMeta(`${payload.status === 'created' ? 'Created' : 'Saved'} ${payload.sheet}, row ${payload.row}.`);
         if (tg) {
           tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('success');
           setTimeout(() => tg.close(), 1200);
         } else {
-          submitButton.disabled = false;
-          form.reset();
+          setBusy(false);
         }
       } catch (error) {
         setStatus('error', 'Network error. Check your connection and try again.');
-        submitButton.disabled = false;
+        setBusy(false);
       }
     });
   </script>

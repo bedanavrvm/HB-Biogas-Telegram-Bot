@@ -31,14 +31,34 @@ logger = logging.getLogger(__name__)
 DEFAULT_SEARCH_SHEETS = ['Pending', '178', '179', '180', '181']
 DEFAULT_MATCH_FIELD = 'id_number'
 DEFAULT_MEDIA_FIELD = 'media_urls'
+ORDER_APPROVAL_WEBAPP_FIELDS = [
+    'id_number',
+    'date_visited',
+    'customer_name',
+    'branch',
+    'primary_phone',
+    'secondary_phone',
+    'county',
+    'landmark',
+    'visited_by',
+    'hb_staff',
+    'deposit_hb',
+    'deposit_jbl',
+    'comment',
+    'imab_created',
+    'customer_no',
+    'credit_analysis',
+    'final_decision',
+]
 
 ORDER_APPROVAL_FIELD_HEADERS = {
     'date_visited': 'DATE VISITED',
     'customer_name': 'CUSTOMER NAME',
+    'branch': 'BRANCH',
     'primary_phone': 'CONTACTS / PRIMARY',
     'secondary_phone': 'CONTACTS / SECONDARY',
     'id_number': 'ID NUMBER',
-    'county': 'LOCATION / COUNTY',
+    'county': 'COUNTY',
     'landmark': 'LOCATION AND NEAREST LANDMARK',
     'visited_by': 'VISITED BY',
     'hb_staff': 'HB STAFF',
@@ -48,6 +68,7 @@ ORDER_APPROVAL_FIELD_HEADERS = {
     'imab_created': 'IS CUSTOMER CREATED ON IMAB?',
     'customer_no': 'CUSTOMER NO',
     'credit_analysis': 'CREDIT ANALYSIS',
+    'final_decision': 'FINAL DECISION',
     'media_urls': 'Media URLs',
 }
 
@@ -56,6 +77,7 @@ LABEL_ALIASES = {
     'id number': 'id_number',
     'date visited': 'date_visited',
     'customer name': 'customer_name',
+    'branch': 'branch',
     'primary phone': 'primary_phone',
     'contacts primary': 'primary_phone',
     'secondary phone': 'secondary_phone',
@@ -76,6 +98,8 @@ LABEL_ALIASES = {
     'customer no': 'customer_no',
     'customer number': 'customer_no',
     'credit analysis': 'credit_analysis',
+    'final decision': 'final_decision',
+    'decision': 'final_decision',
 }
 
 DATE_FIELDS = {'date_visited'}
@@ -440,9 +464,13 @@ def process_order_approval_form_submission(
     uploaded_files: list,
     sender: str,
     received_at: datetime | None = None,
+    include_blank_fields: bool = False,
 ) -> dict:
     received_at = received_at or timezone.now()
-    parsed_fields = clean_form_fields(fields)
+    parsed_fields = clean_form_fields(
+        fields,
+        include_blank_fields=include_blank_fields,
+    )
     id_number = normalize_business_key(parsed_fields.get('id_number', ''))
     if not id_number:
         return {
@@ -584,6 +612,52 @@ def process_order_approval_form_submission(
     }
 
 
+def lookup_order_approval_form_record(group_config, id_number: str) -> dict:
+    id_number = normalize_business_key(id_number)
+    if not id_number:
+        return {
+            'success': False,
+            'status': 'failed',
+            'message': 'ID number is required.',
+        }
+
+    matches = find_order_approval_matches(group_config, id_number)
+    if not matches:
+        return {
+            'success': True,
+            'status': 'not_found',
+            'message': 'No existing order row found. Submitting will create a new row.',
+            'id_number': id_number,
+            'fields': {'id_number': id_number},
+        }
+
+    if len(matches) > 1:
+        return {
+            'success': False,
+            'status': 'duplicate',
+            'message': 'Duplicate rows found for this ID. Resolve them in the sheet first.',
+            'id_number': id_number,
+            'matches': [
+                {'sheet': match.sheet_name, 'row': match.row_number}
+                for match in matches[:10]
+            ],
+        }
+
+    match = matches[0]
+    return {
+        'success': True,
+        'status': 'found',
+        'message': 'Existing order row loaded.',
+        'id_number': id_number,
+        'sheet': match.sheet_name,
+        'row': match.row_number,
+        'fields': fields_for_order_approval_match(
+            match=match,
+            workflow=group_config.workflow or {},
+        ),
+    }
+
+
 def parse_order_approval_message(content: str) -> ParsedOrderApproval:
     """Parse strict label/value lines into canonical BRO fields."""
     fields: dict[str, str] = {}
@@ -617,18 +691,43 @@ def parse_order_approval_message(content: str) -> ParsedOrderApproval:
     return ParsedOrderApproval(fields=fields, warnings=warnings)
 
 
-def clean_form_fields(fields: dict[str, str]) -> dict[str, str]:
+def clean_form_fields(
+    fields: dict[str, str],
+    include_blank_fields: bool = False,
+) -> dict[str, str]:
     cleaned = {}
     allowed = set(ORDER_APPROVAL_FIELD_HEADERS)
     for field, value in (fields or {}).items():
         if field not in allowed or field == DEFAULT_MEDIA_FIELD:
             continue
         value = str(value or '').strip()
-        if value or field == 'id_number':
+        if value or field == 'id_number' or include_blank_fields:
             cleaned[field] = value
     if cleaned.get('id_number'):
         cleaned['id_number'] = normalize_business_key(cleaned['id_number'])
     return cleaned
+
+
+def fields_for_order_approval_match(match: SheetMatch, workflow: dict) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for field in ORDER_APPROVAL_WEBAPP_FIELDS:
+        value = value_for_header(match, header_for_field(workflow, field))
+        if field in DATE_FIELDS:
+            value = html_date_value(value)
+        fields[field] = value
+    return fields
+
+
+def html_date_value(value: str) -> str:
+    value = str(value or '').strip()
+    if not value:
+        return ''
+    for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y'):
+        try:
+            return datetime.strptime(value, fmt).strftime('%Y-%m-%d')
+        except ValueError:
+            continue
+    return value
 
 
 def find_order_approval_matches(group_config, id_number: str) -> list[SheetMatch]:
@@ -650,16 +749,20 @@ def find_order_approval_matches(group_config, id_number: str) -> list[SheetMatch
             continue
 
         values = service._sheet.get_all_values()
-        if not values:
+        headers = header_row_values(values, workflow)
+        if not headers:
             continue
 
-        headers = values[0]
         id_index = header_index(headers, match_header)
         if id_index is None:
             logger.warning("Header %r not found in %s", match_header, sheet_name)
             continue
 
-        for row_number, row in enumerate(values[1:], start=2):
+        header_row = configured_header_row(workflow)
+        for row_number, row in enumerate(
+            values[header_row:],
+            start=header_row + 1,
+        ):
             cell = row[id_index] if id_index < len(row) else ''
             if normalize_business_key(cell) == target:
                 matches.append(
@@ -772,14 +875,17 @@ def create_order_approval_row(
         }
 
     values = service._sheet.get_all_values()
-    if not values:
+    headers = header_row_values(values, workflow)
+    if not headers:
         return {
             'success': False,
-            'error': f"Sheet {sheet_name} has no header row.",
+            'error': (
+                f"Sheet {sheet_name} has no header row at row "
+                f"{configured_header_row(workflow)}."
+            ),
             'fields_updated': [],
         }
 
-    headers = values[0]
     media_field = workflow.get('media_field') or DEFAULT_MEDIA_FIELD
     media_header = header_for_field(workflow, media_field)
     if header_index(headers, media_header) is None:
@@ -848,14 +954,33 @@ def next_order_approval_row_number(
     if not data_indices:
         data_indices = list(range(len(headers)))
 
-    last_data_row = 1
-    for row_number, row in enumerate(values[1:], start=2):
+    header_row = configured_header_row(workflow)
+    last_data_row = header_row
+    for row_number, row in enumerate(
+        values[header_row:],
+        start=header_row + 1,
+    ):
         if any(
             index < len(row) and str(row[index] or '').strip()
             for index in data_indices
         ):
             last_data_row = row_number
     return last_data_row + 1
+
+
+def configured_header_row(workflow: dict) -> int:
+    try:
+        header_row = int((workflow or {}).get('header_row') or 1)
+    except (TypeError, ValueError):
+        header_row = 1
+    return max(header_row, 1)
+
+
+def header_row_values(values: list[list[str]], workflow: dict) -> list[str]:
+    header_index_zero_based = configured_header_row(workflow) - 1
+    if header_index_zero_based < 0 or header_index_zero_based >= len(values):
+        return []
+    return values[header_index_zero_based]
 
 
 def store_media_for_order(

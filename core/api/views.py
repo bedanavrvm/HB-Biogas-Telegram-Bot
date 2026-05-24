@@ -92,63 +92,27 @@ def order_approval_form(request):
 def order_approval_webapp_submit(request):
     """Accept a Telegram Web App order approval form submission."""
     try:
-        from core.services.group_config import GroupRegistry
         from core.services.order_approval import (
-            is_order_approval_workflow,
+            ORDER_APPROVAL_WEBAPP_FIELDS,
             process_order_approval_form_submission,
-            validate_order_approval_form_token,
-            validate_telegram_webapp_init_data,
         )
 
-        group_id = str(request.POST.get('group_id', '')).strip()
-        is_valid, auth_error, auth_payload = validate_telegram_webapp_init_data(
-            request.POST.get('init_data', '')
+        group_id, group_config, auth_payload, error_response_obj = (
+            _order_approval_webapp_context(request.POST)
         )
-        if not is_valid:
-            token_valid, token_error = validate_order_approval_form_token(
-                token=request.POST.get('form_token', ''),
-                group_id=group_id,
-            )
-            if not token_valid:
-                return JsonResponse(
-                    {'success': False, 'message': auth_error or token_error},
-                    status=403,
-                )
-            auth_payload = {}
+        if error_response_obj:
+            return error_response_obj
 
-        group_config = GroupRegistry.get_instance().get_group(group_id)
-        if not group_config or not is_order_approval_workflow(group_config):
-            return JsonResponse(
-                {
-                    'success': False,
-                    'message': 'This Telegram group is not configured for order approvals.',
-                },
-                status=400,
-            )
-
-        field_names = [
-            'id_number',
-            'date_visited',
-            'customer_name',
-            'primary_phone',
-            'secondary_phone',
-            'county',
-            'landmark',
-            'visited_by',
-            'hb_staff',
-            'deposit_hb',
-            'deposit_jbl',
-            'comment',
-            'imab_created',
-            'customer_no',
-            'credit_analysis',
-        ]
         result = process_order_approval_form_submission(
             group_config=group_config,
-            fields={key: request.POST.get(key, '') for key in field_names},
+            fields={
+                key: request.POST.get(key, '')
+                for key in ORDER_APPROVAL_WEBAPP_FIELDS
+            },
             uploaded_files=request.FILES.getlist('attachments'),
             sender=_sender_from_webapp_auth(auth_payload),
             received_at=timezone.now(),
+            include_blank_fields=request.POST.get('write_blank_fields') == '1',
         )
         return JsonResponse(result, status=200 if result.get('success') else 400)
     except Exception as exc:
@@ -163,6 +127,86 @@ def order_approval_webapp_submit(request):
             },
             status=500,
         )
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def order_approval_webapp_lookup(request):
+    """Load an existing order approval row into the Web App edit form."""
+    try:
+        from core.services.order_approval import lookup_order_approval_form_record
+
+        group_id, group_config, auth_payload, error_response_obj = (
+            _order_approval_webapp_context(request.POST)
+        )
+        del group_id, auth_payload
+        if error_response_obj:
+            return error_response_obj
+
+        result = lookup_order_approval_form_record(
+            group_config=group_config,
+            id_number=request.POST.get('id_number', ''),
+        )
+        return JsonResponse(result, status=200 if result.get('success') else 400)
+    except Exception as exc:
+        logger.error(
+            f"Unhandled order approval webapp lookup error: {exc}",
+            exc_info=True,
+        )
+        return JsonResponse(
+            {
+                'success': False,
+                'message': 'Lookup failed. Please check the ID and try again.',
+            },
+            status=500,
+        )
+
+
+def _order_approval_webapp_context(post_data):
+    from core.services.group_config import GroupRegistry
+    from core.services.order_approval import (
+        is_order_approval_workflow,
+        validate_order_approval_form_token,
+        validate_telegram_webapp_init_data,
+    )
+
+    group_id = str(post_data.get('group_id', '')).strip()
+    is_valid, auth_error, auth_payload = validate_telegram_webapp_init_data(
+        post_data.get('init_data', '')
+    )
+    if not is_valid:
+        token_valid, token_error = validate_order_approval_form_token(
+            token=post_data.get('form_token', ''),
+            group_id=group_id,
+        )
+        if not token_valid:
+            return (
+                group_id,
+                None,
+                {},
+                JsonResponse(
+                    {'success': False, 'message': auth_error or token_error},
+                    status=403,
+                ),
+            )
+        auth_payload = {}
+
+    group_config = GroupRegistry.get_instance().get_group(group_id)
+    if not group_config or not is_order_approval_workflow(group_config):
+        return (
+            group_id,
+            None,
+            auth_payload,
+            JsonResponse(
+                {
+                    'success': False,
+                    'message': 'This Telegram group is not configured for order approvals.',
+                },
+                status=400,
+            ),
+        )
+
+    return group_id, group_config, auth_payload, None
 
 @csrf_exempt
 @require_http_methods(["POST"])

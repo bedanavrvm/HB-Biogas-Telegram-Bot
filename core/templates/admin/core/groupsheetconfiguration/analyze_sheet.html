@@ -125,6 +125,16 @@
     <div class="sheet-analysis-panel">
       <h2>Analysis Failed</h2>
       <p>{{ analysis.error }}</p>
+      {% if analysis.worksheet_titles %}
+        <p>Available tabs in this spreadsheet:</p>
+        <p>
+          {% for title in analysis.worksheet_titles %}
+            <span class="sheet-analysis-tag">{{ title }}</span>
+          {% endfor %}
+        </p>
+      {% elif analysis.worksheet_error %}
+        <p>Could not list spreadsheet tabs: {{ analysis.worksheet_error }}</p>
+      {% endif %}
       <p>Check the Sheet ID, tab name, service account access, and Google credentials.</p>
     </div>
   {% else %}
