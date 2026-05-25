@@ -77,7 +77,7 @@ FINAL DECISION: Under Review
         self.assertEqual(parsed.fields['date_visited'], '09/05/2026')
         self.assertEqual(parsed.fields['customer_name'], 'PATRICK MWANGI MAINA')
         self.assertEqual(parsed.fields['branch'], 'MURANGA')
-        self.assertEqual(parsed.fields['primary_phone'], '0740614990')
+        self.assertEqual(parsed.fields['primary_phone'], '254740614990')
         self.assertEqual(parsed.fields['deposit_hb'], '5000')
         self.assertEqual(parsed.fields['deposit_jbl'], '0')
         self.assertEqual(parsed.fields['credit_analysis'], 'Pending')
@@ -210,7 +210,7 @@ class OrderApprovalSheetTest(TestCase):
                             '113650221',
                             '09-May-2026',
                             'PATRICK',
-                            '0740614990',
+                            '254740614990',
                             'https://old.example/file\nhttps://drive.example/new',
                             'Approved',
                         ]],
@@ -283,7 +283,7 @@ class OrderApprovalSheetTest(TestCase):
                             '5655566',
                             '23-May-2026',
                             'NEW CUSTOMER',
-                            '0712345678',
+                            '254712345678',
                             'https://drive.example/new',
                             'Created from form',
                         ]],
@@ -400,6 +400,39 @@ class OrderApprovalSheetTest(TestCase):
         self.assertEqual(fields['customer_name'], '')
         self.assertEqual(fields['branch'], '')
         self.assertEqual(fields['comment'], 'Keep this')
+
+    def test_form_cleaning_normalizes_contacts_to_254_format(self):
+        fields = clean_form_fields({
+            'id_number': '113650221',
+            'primary_phone': '0740 614 990',
+            'secondary_phone': '+254 712 345 678',
+            'imab_created': 'CREATED',
+        })
+
+        self.assertEqual(fields['primary_phone'], '254740614990')
+        self.assertEqual(fields['secondary_phone'], '254712345678')
+        self.assertEqual(fields['imab_created'], 'Yes')
+
+    def test_update_rejects_invalid_contact_number(self):
+        service = FakeService([])
+        match = SheetMatch(
+            sheet_name='Orders',
+            row_number=2,
+            headers=['ID NUMBER', 'CONTACTS / PRIMARY', 'Media URLs'],
+            row=['113650221', '', ''],
+            service=service,
+        )
+
+        result = update_order_approval_row(
+            match=match,
+            workflow={'media_field': 'media_urls'},
+            parsed_fields={'primary_phone': '12345'},
+            media_links=[],
+        )
+
+        self.assertFalse(result['success'])
+        self.assertIn('254XXXXXXXXX', result['error'])
+        self.assertEqual(service.batch_update_calls, [])
 
     def test_lookup_converts_excel_serial_date_for_html_date_input(self):
         group_config = self._group_config()
@@ -629,6 +662,8 @@ class OrderApprovalWebAppTest(TestCase):
         self.assertContains(response, 'name="edit_id_number"')
         self.assertContains(response, 'name="edit_fingerprint"')
         self.assertContains(response, 'name="attachments"')
+        self.assertContains(response, 'pattern="254[0-9]{9}"')
+        self.assertContains(response, 'placeholder="254740614990"')
 
     @override_settings(ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
     @patch('core.api.views._post_telegram_reply')
@@ -821,3 +856,29 @@ class OrderApprovalWebAppTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['success'])
+
+    @override_settings(ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
+    @patch('core.services.order_approval.find_order_approval_matches')
+    @patch('core.services.group_config.GroupRegistry.get_instance')
+    def test_webapp_submit_rejects_invalid_phone_before_sheet_write(
+        self,
+        mock_registry_get_instance,
+        mock_find_matches,
+    ):
+        registry = MagicMock()
+        registry.get_group.return_value = self._group_config()
+        mock_registry_get_instance.return_value = registry
+
+        response = self.client.post(
+            '/api/order-approval/webapp/submit/',
+            data={
+                'group_id': '-100222',
+                'id_number': '5655566',
+                'primary_phone': '12345',
+                'init_data': '',
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('254XXXXXXXXX', response.json()['message'])
+        mock_find_matches.assert_not_called()

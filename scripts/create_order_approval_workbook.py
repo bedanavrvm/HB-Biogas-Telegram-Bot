@@ -284,8 +284,92 @@ def worksheet_xml(sheet_name: str, sample_row: list[str] | None = None) -> str:
   <sheetData>
     {"".join(rows)}
   </sheetData>
+  {data_validations_xml(HEADERS, first_data_row=3)}
 </worksheet>
 """
+
+
+def data_validations_xml(headers: list[str], first_data_row: int, last_data_row: int = 1000) -> str:
+    validations = []
+    validations.extend(dropdown_validation(headers, "IS CUSTOMER CREATED ON IMAB?", ["Yes", "No", "Pending"], first_data_row, last_data_row))
+    validations.extend(dropdown_validation(headers, "CREDIT ANALYSIS", ["Pass", "Fail", "Pending", "N/A"], first_data_row, last_data_row))
+    validations.extend(dropdown_validation(headers, "FINAL DECISION", ["Approved", "Rejected", "Hold", "Under Review"], first_data_row, last_data_row))
+    validations.extend(custom_phone_validation(headers, "CONTACTS / PRIMARY", first_data_row, last_data_row))
+    validations.extend(custom_phone_validation(headers, "CONTACTS / SECONDARY", first_data_row, last_data_row))
+    validations.extend(decimal_validation(headers, "DEPOSIT / HB", first_data_row, last_data_row))
+    validations.extend(decimal_validation(headers, "DEPOSIT / JBL", first_data_row, last_data_row))
+    validations.extend(integer_validation(headers, "CUSTOMER NO", first_data_row, last_data_row))
+    validations.extend(date_validation(headers, "DATE VISITED", first_data_row, last_data_row))
+    if not validations:
+        return ""
+    return f'<dataValidations count="{len(validations)}">{"".join(validations)}</dataValidations>'
+
+
+def dropdown_validation(headers: list[str], header: str, values: list[str], first_row: int, last_row: int) -> list[str]:
+    reference = validation_range(headers, header, first_row, last_row)
+    if not reference:
+        return []
+    formula = '"' + ",".join(values) + '"'
+    return [
+        '<dataValidation type="list" allowBlank="1" showErrorMessage="1" '
+        f'errorTitle="Invalid value" error="Choose one of: {xml_escape(", ".join(values))}." sqref="{reference}">'
+        f'<formula1>{xml_escape(formula)}</formula1></dataValidation>'
+    ]
+
+
+def custom_phone_validation(headers: list[str], header: str, first_row: int, last_row: int) -> list[str]:
+    reference = validation_range(headers, header, first_row, last_row)
+    if not reference:
+        return []
+    cell = reference.split(":", 1)[0]
+    formula = f'OR({cell}="",AND(ISNUMBER(--{cell}),LEN({cell})=12,LEFT({cell},3)="254"))'
+    return [
+        '<dataValidation type="custom" allowBlank="1" showErrorMessage="1" '
+        'errorTitle="Invalid phone" error="Use 254XXXXXXXXX format, for example 254740614990." '
+        f'sqref="{reference}"><formula1>{xml_escape(formula)}</formula1></dataValidation>'
+    ]
+
+
+def decimal_validation(headers: list[str], header: str, first_row: int, last_row: int) -> list[str]:
+    reference = validation_range(headers, header, first_row, last_row)
+    if not reference:
+        return []
+    return [
+        '<dataValidation type="decimal" operator="greaterThanOrEqual" allowBlank="1" showErrorMessage="1" '
+        f'errorTitle="Invalid amount" error="{xml_escape(header)} must be zero or greater." sqref="{reference}">'
+        '<formula1>0</formula1></dataValidation>'
+    ]
+
+
+def integer_validation(headers: list[str], header: str, first_row: int, last_row: int) -> list[str]:
+    reference = validation_range(headers, header, first_row, last_row)
+    if not reference:
+        return []
+    return [
+        '<dataValidation type="whole" operator="greaterThanOrEqual" allowBlank="1" showErrorMessage="1" '
+        f'errorTitle="Invalid number" error="{xml_escape(header)} must contain digits only." sqref="{reference}">'
+        '<formula1>0</formula1></dataValidation>'
+    ]
+
+
+def date_validation(headers: list[str], header: str, first_row: int, last_row: int) -> list[str]:
+    reference = validation_range(headers, header, first_row, last_row)
+    if not reference:
+        return []
+    return [
+        '<dataValidation type="date" operator="between" allowBlank="1" showErrorMessage="1" '
+        f'errorTitle="Invalid date" error="{xml_escape(header)} must be a valid date." sqref="{reference}">'
+        '<formula1>1/1/2020</formula1><formula2>12/31/2099</formula2></dataValidation>'
+    ]
+
+
+def validation_range(headers: list[str], header: str, first_row: int, last_row: int) -> str:
+    try:
+        column = headers.index(header) + 1
+    except ValueError:
+        return ""
+    letter = column_letter(column)
+    return f"{letter}{first_row}:{letter}{last_row}"
 
 
 def row_xml(row_index: int, values: list[str], style_index: int = 0) -> str:

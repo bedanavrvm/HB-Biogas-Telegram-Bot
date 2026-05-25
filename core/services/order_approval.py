@@ -14,6 +14,7 @@ import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from pathlib import PurePosixPath
 from urllib.parse import parse_qsl, urlencode
 from typing import Any
@@ -104,6 +105,31 @@ LABEL_ALIASES = {
 }
 
 DATE_FIELDS = {'date_visited'}
+PHONE_FIELDS = {'primary_phone', 'secondary_phone'}
+MONEY_FIELDS = {'deposit_hb', 'deposit_jbl'}
+INTEGER_FIELDS = {'customer_no'}
+KENYAN_PHONE_PATTERN = re.compile(r'^254\d{9}$')
+FIELD_CHOICE_VALUES = {
+    'imab_created': {
+        'yes': 'Yes',
+        'created': 'Yes',
+        'no': 'No',
+        'pending': 'Pending',
+    },
+    'credit_analysis': {
+        'pass': 'Pass',
+        'fail': 'Fail',
+        'pending': 'Pending',
+        'n/a': 'N/A',
+        'na': 'N/A',
+    },
+    'final_decision': {
+        'approved': 'Approved',
+        'rejected': 'Rejected',
+        'hold': 'Hold',
+        'under review': 'Under Review',
+    },
+}
 FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder'
 FORM_TOKEN_SALT = 'order-approval-form'
 
@@ -189,6 +215,13 @@ def handle_order_approval_message(
     if not parsed.id_number:
         return _order_reply(
             "Order approval update skipped. Add an ID: line and try again.",
+            status='failed',
+        )
+    validation_errors = validate_order_approval_fields(parsed.fields)
+    if validation_errors:
+        return _order_reply(
+            "Order approval update skipped. " + " ".join(validation_errors),
+            warnings=parsed.warnings,
             status='failed',
         )
 
@@ -480,6 +513,15 @@ def process_order_approval_form_submission(
             'status': 'failed',
             'message': 'ID number is required.',
         }
+    validation_errors = validate_order_approval_fields(parsed_fields)
+    if validation_errors:
+        return {
+            'success': False,
+            'status': 'failed',
+            'message': " ".join(validation_errors),
+            'files_stored': 0,
+            'warnings': [],
+        }
 
     update_record = OrderApprovalUpdate.objects.create(
         group_id=group_config.group_id,
@@ -708,6 +750,7 @@ def parse_order_approval_message(content: str) -> ParsedOrderApproval:
 
     if fields.get('id_number'):
         fields['id_number'] = normalize_business_key(fields['id_number'])
+    normalize_order_approval_fields(fields)
 
     return ParsedOrderApproval(fields=fields, warnings=warnings)
 
@@ -726,7 +769,81 @@ def clean_form_fields(
             cleaned[field] = value
     if cleaned.get('id_number'):
         cleaned['id_number'] = normalize_business_key(cleaned['id_number'])
+    normalize_order_approval_fields(cleaned)
     return cleaned
+
+
+def normalize_order_approval_fields(fields: dict[str, str]) -> dict[str, str]:
+    for field in PHONE_FIELDS:
+        if field in fields and str(fields.get(field) or '').strip():
+            fields[field] = normalize_kenyan_phone(fields[field])
+    for field, choices in FIELD_CHOICE_VALUES.items():
+        if field in fields and str(fields.get(field) or '').strip():
+            key = normalize_choice_value(fields[field])
+            if key in choices:
+                fields[field] = choices[key]
+    return fields
+
+
+def normalize_kenyan_phone(value: str) -> str:
+    digits = re.sub(r'\D+', '', str(value or ''))
+    if not digits:
+        return ''
+    if digits.startswith('0') and len(digits) == 10:
+        return f"254{digits[1:]}"
+    if len(digits) == 9 and digits[0] in {'1', '7'}:
+        return f"254{digits}"
+    if digits.startswith('254') and len(digits) == 12:
+        return digits
+    return digits
+
+
+def normalize_choice_value(value: str) -> str:
+    return " ".join(str(value or '').strip().lower().split())
+
+
+def validate_order_approval_fields(fields: dict[str, str]) -> list[str]:
+    errors: list[str] = []
+    for field in PHONE_FIELDS:
+        value = str(fields.get(field) or '').strip()
+        if value and not KENYAN_PHONE_PATTERN.fullmatch(value):
+            label = 'Primary phone' if field == 'primary_phone' else 'Secondary phone'
+            errors.append(f"{label} must use 254XXXXXXXXX format, for example 254740614990.")
+
+    for field in MONEY_FIELDS:
+        value = str(fields.get(field) or '').strip()
+        if not value:
+            continue
+        try:
+            amount = Decimal(value.replace(',', ''))
+        except (InvalidOperation, ValueError):
+            errors.append(f"{header_for_field({}, field)} must be a number.")
+            continue
+        if amount < 0:
+            errors.append(f"{header_for_field({}, field)} cannot be negative.")
+
+    for field in INTEGER_FIELDS:
+        value = str(fields.get(field) or '').strip()
+        if value and not value.isdigit():
+            errors.append(f"{header_for_field({}, field)} must contain digits only.")
+
+    for field, choices in FIELD_CHOICE_VALUES.items():
+        value = str(fields.get(field) or '').strip()
+        if value and normalize_choice_value(value) not in choices:
+            allowed = sorted(set(choices.values()))
+            errors.append(
+                f"{header_for_field({}, field)} must be one of: {', '.join(allowed)}."
+            )
+
+    date_value = str(fields.get('date_visited') or '').strip()
+    if date_value:
+        normalized_date = html_date_value(date_value)
+        try:
+            datetime.strptime(normalized_date, '%Y-%m-%d')
+        except ValueError:
+            errors.append('DATE VISITED must be a valid date.')
+
+    return errors
 
 
 def fields_for_order_approval_match(match: SheetMatch, workflow: dict) -> dict[str, str]:
@@ -880,6 +997,14 @@ def update_order_approval_row(
         for field, value in (parsed_fields or {}).items()
         if field in field_headers(workflow) and value is not None
     }
+    normalize_order_approval_fields(fields_to_write)
+    validation_errors = validate_order_approval_fields(fields_to_write)
+    if validation_errors:
+        return {
+            'success': False,
+            'error': " ".join(validation_errors),
+            'fields_updated': [],
+        }
 
     media_field = workflow.get('media_field') or DEFAULT_MEDIA_FIELD
     media_header = header_for_field(workflow, media_field)
@@ -1002,6 +1127,14 @@ def create_order_approval_row(
         for field, value in (parsed_fields or {}).items()
         if field in field_headers(workflow) and value is not None
     }
+    normalize_order_approval_fields(fields_to_write)
+    validation_errors = validate_order_approval_fields(fields_to_write)
+    if validation_errors:
+        return {
+            'success': False,
+            'error': " ".join(validation_errors),
+            'fields_updated': [],
+        }
     if media_links:
         fields_to_write[media_field] = "\n".join(
             link for link in media_links if str(link or '').strip()

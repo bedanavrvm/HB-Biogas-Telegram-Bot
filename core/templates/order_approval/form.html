@@ -317,11 +317,11 @@
           </label>
           <label>
             Primary phone
-            <input name="primary_phone" inputmode="tel" autocomplete="tel">
+            <input name="primary_phone" inputmode="tel" autocomplete="tel" placeholder="254740614990" pattern="254[0-9]{9}" title="Use 254XXXXXXXXX format, for example 254740614990">
           </label>
           <label>
             Secondary phone
-            <input name="secondary_phone" inputmode="tel">
+            <input name="secondary_phone" inputmode="tel" placeholder="254712345678" pattern="254[0-9]{9}" title="Use 254XXXXXXXXX format, for example 254712345678">
           </label>
         </div>
       </fieldset>
@@ -362,15 +362,15 @@
         <div class="grid">
           <label>
             HB deposit
-            <input name="deposit_hb" inputmode="decimal">
+            <input name="deposit_hb" inputmode="decimal" pattern="[0-9]+(\\.[0-9]{1,2})?" title="Use a non-negative amount, for example 5000 or 5000.50">
           </label>
           <label>
             JBL deposit
-            <input name="deposit_jbl" inputmode="decimal">
+            <input name="deposit_jbl" inputmode="decimal" pattern="[0-9]+(\\.[0-9]{1,2})?" title="Use a non-negative amount, for example 0 or 5000.50">
           </label>
           <label>
             Customer no
-            <input name="customer_no" inputmode="numeric">
+            <input name="customer_no" inputmode="numeric" pattern="[0-9]*" title="Use digits only">
           </label>
           <label>
             Credit analysis
@@ -447,6 +447,7 @@
       'credit_analysis',
       'final_decision'
     ];
+    const phoneFieldNames = ['primary_phone', 'secondary_phone'];
 
     if (tg) {
       tg.ready();
@@ -497,6 +498,34 @@
         }
       }
       input.value = value;
+    }
+
+    function normalizeKenyanPhone(value) {
+      const digits = String(value || '').replace(/\D/g, '');
+      if (!digits) {
+        return '';
+      }
+      if (digits.length === 10 && digits.startsWith('0')) {
+        return `254${digits.slice(1)}`;
+      }
+      if (digits.length === 9 && (digits.startsWith('7') || digits.startsWith('1'))) {
+        return `254${digits}`;
+      }
+      return digits;
+    }
+
+    function normalizePhoneFields() {
+      for (const name of phoneFieldNames) {
+        const input = form.elements[name];
+        if (!input) {
+          continue;
+        }
+        input.value = normalizeKenyanPhone(input.value);
+        input.setCustomValidity('');
+        if (input.value && !/^254[0-9]{9}$/.test(input.value)) {
+          input.setCustomValidity('Use 254XXXXXXXXX format, for example 254740614990.');
+        }
+      }
     }
 
     async function loadExistingRecord() {
@@ -556,9 +585,17 @@
     idNumberInput.addEventListener('input', () => {
       clearEditContext();
     });
+    for (const name of phoneFieldNames) {
+      const input = form.elements[name];
+      if (input) {
+        input.addEventListener('blur', normalizePhoneFields);
+        input.addEventListener('input', () => input.setCustomValidity(''));
+      }
+    }
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
+      normalizePhoneFields();
       if (!form.reportValidity()) {
         return;
       }
