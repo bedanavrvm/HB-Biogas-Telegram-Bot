@@ -1,13 +1,16 @@
 from datetime import datetime, timezone as dt_timezone
 from unittest.mock import MagicMock, patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 
 from core.models import GroupSheetConfiguration, MediaAttachment, OrderApprovalUpdate
 from core.services.order_approval import (
     SheetMatch,
     TelegramMediaItem,
+    UploadedFileItem,
     clean_form_fields,
+    collect_order_approval_uploaded_files,
     create_order_approval_form_token,
     create_order_approval_row,
     find_order_approval_matches,
@@ -19,6 +22,7 @@ from core.services.order_approval import (
     parse_order_approval_message,
     process_order_approval_form_submission,
     store_media_for_order,
+    store_uploaded_files_for_order,
     update_order_approval_row,
     validate_telegram_webapp_init_data,
 )
@@ -544,6 +548,35 @@ class OrderApprovalSheetTest(TestCase):
 
 
 class OrderApprovalMediaTest(TestCase):
+    def test_webapp_upload_slots_are_collected_with_categories(self):
+        from django.utils.datastructures import MultiValueDict
+
+        files = MultiValueDict({
+            'id_photos': [
+                SimpleUploadedFile('front.jpg', b'id-front', content_type='image/jpeg'),
+                SimpleUploadedFile('back.jpg', b'id-back', content_type='image/jpeg'),
+            ],
+            'laf_documents': [
+                SimpleUploadedFile('laf.pdf', b'laf', content_type='application/pdf'),
+            ],
+            'other_files': [
+                SimpleUploadedFile('receipt.pdf', b'receipt', content_type='application/pdf'),
+            ],
+        })
+
+        uploads = collect_order_approval_uploaded_files(files)
+
+        self.assertEqual(
+            [upload.file_type for upload in uploads],
+            ['id_photo', 'id_photo', 'laf_doc', 'other_file'],
+        )
+        self.assertEqual([upload.file.name for upload in uploads], [
+            'front.jpg',
+            'back.jpg',
+            'laf.pdf',
+            'receipt.pdf',
+        ])
+
     def test_oversize_attachment_is_skipped_and_audited(self):
         group_config = MagicMock(group_id='-100222')
         order_update = OrderApprovalUpdate.objects.create(
@@ -577,6 +610,157 @@ class OrderApprovalMediaTest(TestCase):
         self.assertEqual(attachment.upload_status, 'skipped')
         self.assertEqual(attachment.business_key_type, 'id_number')
         self.assertEqual(attachment.business_key_value, '113650221')
+
+    @override_settings(MEDIA_MAX_FILE_SIZE_MB=20, MEDIA_STORAGE_PROVIDER='google_drive')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_web_uploads_use_jbl_id_based_file_names(self, mock_storage_cls):
+        group_config = MagicMock(group_id='-100222')
+        storage = MagicMock()
+        storage.upload.side_effect = [
+            ('drive_1', 'https://drive.example/id-front'),
+            ('drive_2', 'https://drive.example/laf'),
+            ('drive_3', 'https://drive.example/other'),
+        ]
+        mock_storage_cls.return_value = storage
+
+        result = store_uploaded_files_for_order(
+            group_config=group_config,
+            uploaded_files=[
+                UploadedFileItem(
+                    SimpleUploadedFile(
+                        'front image.JPG',
+                        b'id-front',
+                        content_type='image/jpeg',
+                    ),
+                    'id_photo',
+                ),
+                UploadedFileItem(
+                    SimpleUploadedFile(
+                        'signed-laf.pdf',
+                        b'laf',
+                        content_type='application/pdf',
+                    ),
+                    'laf_doc',
+                ),
+                UploadedFileItem(
+                    SimpleUploadedFile(
+                        'receipt #1.PDF',
+                        b'other',
+                        content_type='application/pdf',
+                    ),
+                    'other_file',
+                ),
+            ],
+            sender='Agent',
+            received_at=datetime(2026, 5, 9, tzinfo=dt_timezone.utc),
+            business_key_value='113650221',
+        )
+
+        self.assertEqual(result.stored_count, 3)
+        filenames = [
+            call.kwargs['filename']
+            for call in storage.upload.call_args_list
+        ]
+        self.assertEqual(filenames, [
+            'KYC ID-113650221 2026-05-09 01.jpg',
+            'LAF Biogas ID-113650221 2026-05-09 01.pdf',
+            'FILE Biogas ID-113650221 2026-05-09 01.pdf',
+        ])
+
+    @override_settings(MEDIA_MAX_FILE_SIZE_MB=20, MEDIA_STORAGE_PROVIDER='google_drive')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_later_distinct_upload_continues_file_sequence(self, mock_storage_cls):
+        group_config = MagicMock(group_id='-100222')
+        storage = MagicMock()
+        storage.upload.side_effect = [
+            ('drive_1', 'https://drive.example/front'),
+            ('drive_2', 'https://drive.example/back'),
+        ]
+        mock_storage_cls.return_value = storage
+
+        store_uploaded_files_for_order(
+            group_config=group_config,
+            uploaded_files=[
+                UploadedFileItem(
+                    SimpleUploadedFile(
+                        'front.jpg',
+                        b'id-front',
+                        content_type='image/jpeg',
+                    ),
+                    'id_photo',
+                )
+            ],
+            sender='Agent',
+            received_at=datetime(2026, 5, 9, tzinfo=dt_timezone.utc),
+            business_key_value='113650221',
+        )
+        store_uploaded_files_for_order(
+            group_config=group_config,
+            uploaded_files=[
+                UploadedFileItem(
+                    SimpleUploadedFile(
+                        'back.jpg',
+                        b'id-back',
+                        content_type='image/jpeg',
+                    ),
+                    'id_photo',
+                )
+            ],
+            sender='Agent',
+            received_at=datetime(2026, 5, 9, tzinfo=dt_timezone.utc),
+            business_key_value='113650221',
+        )
+
+        filenames = [
+            call.kwargs['filename']
+            for call in storage.upload.call_args_list
+        ]
+        self.assertEqual(filenames, [
+            'KYC ID-113650221 2026-05-09 01.jpg',
+            'KYC ID-113650221 2026-05-09 02.jpg',
+        ])
+
+    @override_settings(MEDIA_MAX_FILE_SIZE_MB=20, MEDIA_STORAGE_PROVIDER='google_drive')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_reuploading_same_web_file_reuses_existing_drive_upload(self, mock_storage_cls):
+        group_config = MagicMock(group_id='-100222')
+        storage = MagicMock()
+        storage.upload.return_value = ('drive_1', 'https://drive.example/file1')
+        mock_storage_cls.return_value = storage
+        uploaded = SimpleUploadedFile(
+            'front.jpg',
+            b'same-content',
+            content_type='image/jpeg',
+        )
+
+        first = store_uploaded_files_for_order(
+            group_config=group_config,
+            uploaded_files=[uploaded],
+            sender='Agent',
+            received_at=datetime(2026, 5, 9, tzinfo=dt_timezone.utc),
+            business_key_value='113650221',
+        )
+        second = store_uploaded_files_for_order(
+            group_config=group_config,
+            uploaded_files=[
+                SimpleUploadedFile(
+                    'front.jpg',
+                    b'same-content',
+                    content_type='image/jpeg',
+                )
+            ],
+            sender='Agent',
+            received_at=datetime(2026, 5, 9, tzinfo=dt_timezone.utc),
+            business_key_value='113650221',
+        )
+
+        self.assertEqual(first.links, ['https://drive.example/file1'])
+        self.assertEqual(second.links, ['https://drive.example/file1'])
+        storage.upload.assert_called_once()
+        attachments = list(MediaAttachment.objects.order_by('created_at'))
+        self.assertEqual(len(attachments), 2)
+        self.assertEqual(attachments[0].content_hash, attachments[1].content_hash)
+        self.assertEqual(attachments[1].upload_error, 'Reused existing Drive upload.')
 
 
 class OrderApprovalWebAppTest(TestCase):
@@ -661,7 +845,9 @@ class OrderApprovalWebAppTest(TestCase):
         self.assertContains(response, 'name="write_blank_fields"')
         self.assertContains(response, 'name="edit_id_number"')
         self.assertContains(response, 'name="edit_fingerprint"')
-        self.assertContains(response, 'name="attachments"')
+        self.assertContains(response, 'name="id_photos"')
+        self.assertContains(response, 'name="laf_documents"')
+        self.assertContains(response, 'name="other_files"')
         self.assertContains(response, 'pattern="254[0-9]{9}"')
         self.assertContains(response, 'placeholder="254740614990"')
 

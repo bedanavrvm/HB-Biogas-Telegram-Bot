@@ -402,9 +402,19 @@
       <fieldset>
         <legend>Files</legend>
         <label>
-          Photos or documents
-          <input name="attachments" type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx">
-          <span class="fine-print">Maximum {{ max_file_size_mb }} MB per file.</span>
+          ID photos
+          <input name="id_photos" type="file" multiple accept="image/*">
+          <span class="fine-print">Upload one or more ID images. Maximum {{ max_file_size_mb }} MB per file.</span>
+        </label>
+        <label>
+          LAF document
+          <input name="laf_documents" type="file" multiple accept="image/*,.pdf,.doc,.docx">
+          <span class="fine-print">Upload one or more LAF pages or documents. Maximum {{ max_file_size_mb }} MB per file.</span>
+        </label>
+        <label>
+          Other files
+          <input name="other_files" type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx">
+          <span class="fine-print">Upload any supporting files. Maximum {{ max_file_size_mb }} MB per file.</span>
         </label>
       </fieldset>
 

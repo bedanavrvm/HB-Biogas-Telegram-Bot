@@ -94,6 +94,7 @@ def order_approval_webapp_submit(request):
     try:
         from core.services.order_approval import (
             ORDER_APPROVAL_WEBAPP_FIELDS,
+            collect_order_approval_uploaded_files,
             process_order_approval_form_submission,
         )
 
@@ -109,7 +110,7 @@ def order_approval_webapp_submit(request):
                 key: request.POST.get(key, '')
                 for key in ORDER_APPROVAL_WEBAPP_FIELDS
             },
-            uploaded_files=request.FILES.getlist('attachments'),
+            uploaded_files=collect_order_approval_uploaded_files(request.FILES),
             sender=_sender_from_webapp_auth(auth_payload),
             received_at=timezone.now(),
             include_blank_fields=request.POST.get('write_blank_fields') == '1',

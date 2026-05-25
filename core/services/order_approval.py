@@ -109,6 +109,19 @@ PHONE_FIELDS = {'primary_phone', 'secondary_phone'}
 MONEY_FIELDS = {'deposit_hb', 'deposit_jbl'}
 INTEGER_FIELDS = {'customer_no'}
 KENYAN_PHONE_PATTERN = re.compile(r'^254\d{9}$')
+ORDER_APPROVAL_UPLOAD_FIELDS = [
+    ('id_photos', 'id_photo'),
+    ('laf_documents', 'laf_doc'),
+    ('other_files', 'other_file'),
+    ('attachments', ''),
+]
+STORAGE_NAMING_PROFILES = {
+    'id_photo': {'type': 'KYC', 'context': '', 'status': ''},
+    'laf_doc': {'type': 'LAF', 'context': 'Biogas', 'status': ''},
+    'other_file': {'type': 'FILE', 'context': 'Biogas', 'status': ''},
+    'photo': {'type': 'KYC', 'context': '', 'status': ''},
+    'document': {'type': 'FILE', 'context': 'Biogas', 'status': ''},
+}
 FIELD_CHOICE_VALUES = {
     'imab_created': {
         'yes': 'Yes',
@@ -160,6 +173,12 @@ class TelegramMediaItem:
     original_filename: str
     mime_type: str
     size: int | None
+
+
+@dataclass
+class UploadedFileItem:
+    file: Any
+    file_type: str
 
 
 @dataclass
@@ -1231,8 +1250,17 @@ def store_media_for_order(
     warnings: list[str] = []
     stored_count = 0
     skipped_count = 0
+    sequence_by_type: dict[str, int] = {}
 
-    for index, item in enumerate(media_items, start=1):
+    for index, raw_item in enumerate(media_items, start=1):
+        file_type = raw_item.file_type or infer_upload_file_type(raw_item.mime_type)
+        item = TelegramMediaItem(
+            telegram_file_id=raw_item.telegram_file_id,
+            file_type=file_type,
+            original_filename=raw_item.original_filename,
+            mime_type=raw_item.mime_type,
+            size=raw_item.size,
+        )
         attachment = MediaAttachment.objects.create(
             order_update=order_update,
             group_id=group_config.group_id,
@@ -1284,9 +1312,20 @@ def store_media_for_order(
                 raise ValueError(f"Unsupported media storage provider: {provider}")
 
             storage = GoogleDriveMediaStorage()
+            storage_sequence = next_storage_sequence(
+                group_config=group_config,
+                business_key_value=business_key_value,
+                file_type=file_type,
+                sequence_by_type=sequence_by_type,
+            )
             drive_file_id, drive_url = storage.upload(
                 data=downloaded,
-                filename=build_storage_filename(item, business_key_value, index),
+                filename=build_storage_filename(
+                    item,
+                    business_key_value,
+                    storage_sequence,
+                    received_at,
+                ),
                 mime_type=item.mime_type or 'application/octet-stream',
                 id_number=business_key_value,
                 received_at=received_at,
@@ -1327,16 +1366,20 @@ def store_uploaded_files_for_order(
     warnings: list[str] = []
     stored_count = 0
     skipped_count = 0
+    sequence_by_type: dict[str, int] = {}
 
     for index, uploaded_file in enumerate(uploaded_files or [], start=1):
-        original_filename = getattr(uploaded_file, 'name', '') or ''
-        mime_type = getattr(uploaded_file, 'content_type', '') or ''
-        size = getattr(uploaded_file, 'size', None)
+        upload_item = normalize_uploaded_file_item(uploaded_file)
+        file_obj = upload_item.file
+        original_filename = getattr(file_obj, 'name', '') or ''
+        mime_type = getattr(file_obj, 'content_type', '') or ''
+        size = getattr(file_obj, 'size', None)
+        file_type = upload_item.file_type or infer_upload_file_type(mime_type)
         attachment = MediaAttachment.objects.create(
             order_update=order_update,
             group_id=group_config.group_id,
             sender=sender or '',
-            file_type='document' if not str(mime_type).startswith('image/') else 'photo',
+            file_type=file_type,
             original_filename=original_filename,
             mime_type=mime_type,
             size=size,
@@ -1359,7 +1402,7 @@ def store_uploaded_files_for_order(
             continue
 
         try:
-            data = uploaded_file.read()
+            data = file_obj.read()
             if len(data) > max_bytes:
                 attachment.upload_status = 'skipped'
                 attachment.upload_error = (
@@ -1371,6 +1414,29 @@ def store_uploaded_files_for_order(
                 warnings.append(
                     f"Skipped {original_filename or f'file {index}'}: over {settings.MEDIA_MAX_FILE_SIZE_MB} MB."
                 )
+                continue
+            content_hash = hashlib.sha256(data).hexdigest()
+            duplicate = find_existing_uploaded_media(
+                group_config=group_config,
+                business_key_value=business_key_value,
+                file_type=file_type,
+                original_filename=original_filename,
+                size=len(data),
+                content_hash=content_hash,
+            )
+            if duplicate:
+                attachment.upload_status = 'success'
+                attachment.drive_file_id = duplicate.drive_file_id
+                attachment.drive_url = duplicate.drive_url
+                attachment.size = len(data)
+                attachment.content_hash = content_hash
+                attachment.upload_error = 'Reused existing Drive upload.'
+                attachment.save(update_fields=[
+                    'upload_status', 'drive_file_id', 'drive_url', 'size',
+                    'content_hash', 'upload_error',
+                ])
+                links.append(duplicate.drive_url)
+                stored_count += 1
                 continue
 
             if getattr(settings, 'MEDIA_STORAGE_PROVIDER', 'google_drive') != 'google_drive':
@@ -1385,10 +1451,21 @@ def store_uploaded_files_for_order(
                 mime_type=mime_type,
                 size=len(data),
             )
+            storage_sequence = next_storage_sequence(
+                group_config=group_config,
+                business_key_value=business_key_value,
+                file_type=file_type,
+                sequence_by_type=sequence_by_type,
+            )
             storage = GoogleDriveMediaStorage()
             drive_file_id, drive_url = storage.upload(
                 data=data,
-                filename=build_storage_filename(item, business_key_value, index),
+                filename=build_storage_filename(
+                    item,
+                    business_key_value,
+                    storage_sequence,
+                    received_at,
+                ),
                 mime_type=mime_type or 'application/octet-stream',
                 id_number=business_key_value,
                 received_at=received_at,
@@ -1397,8 +1474,10 @@ def store_uploaded_files_for_order(
             attachment.drive_file_id = drive_file_id
             attachment.drive_url = drive_url
             attachment.size = len(data)
+            attachment.content_hash = content_hash
             attachment.save(update_fields=[
                 'upload_status', 'drive_file_id', 'drive_url', 'size',
+                'content_hash',
             ])
             links.append(drive_url)
             stored_count += 1
@@ -1414,6 +1493,54 @@ def store_uploaded_files_for_order(
         stored_count=stored_count,
         skipped_count=skipped_count,
         warnings=warnings,
+    )
+
+
+def collect_order_approval_uploaded_files(files_map) -> list[UploadedFileItem]:
+    uploads: list[UploadedFileItem] = []
+    for field_name, file_type in ORDER_APPROVAL_UPLOAD_FIELDS:
+        getlist = getattr(files_map, 'getlist', None)
+        files = getlist(field_name) if getlist else []
+        for file_obj in files:
+            uploads.append(UploadedFileItem(file=file_obj, file_type=file_type))
+    return uploads
+
+
+def normalize_uploaded_file_item(uploaded_file) -> UploadedFileItem:
+    if isinstance(uploaded_file, UploadedFileItem):
+        return uploaded_file
+    return UploadedFileItem(file=uploaded_file, file_type='')
+
+
+def infer_upload_file_type(mime_type: str) -> str:
+    return 'photo' if str(mime_type or '').startswith('image/') else 'document'
+
+
+def find_existing_uploaded_media(
+    group_config,
+    business_key_value: str,
+    file_type: str,
+    original_filename: str,
+    size: int,
+    content_hash: str,
+) -> MediaAttachment | None:
+    if not content_hash:
+        return None
+    return (
+        MediaAttachment.objects
+        .filter(
+            group_id=group_config.group_id,
+            business_key_type='id_number',
+            business_key_value=business_key_value,
+            file_type=file_type,
+            original_filename=original_filename,
+            size=size,
+            content_hash=content_hash,
+            upload_status='success',
+        )
+        .exclude(drive_url='')
+        .order_by('-created_at')
+        .first()
     )
 
 
@@ -1655,18 +1782,90 @@ def build_storage_filename(
     item: TelegramMediaItem,
     business_key_value: str,
     sequence: int,
+    received_at: datetime | None = None,
 ) -> str:
     suffix = PurePosixPath(item.original_filename or '').suffix
     if not suffix:
         suffix = mimetypes.guess_extension(item.mime_type or '') or ''
     if item.file_type == 'photo' and not suffix:
         suffix = '.jpg'
-    stem = 'photo' if item.file_type == 'photo' else 'document'
-    return f"{stem}_{sequence:02d}{suffix.lower()}"
+    if not suffix:
+        suffix = '.bin'
+
+    profile = STORAGE_NAMING_PROFILES.get(item.file_type, {})
+    type_prefix = sanitize_filename_element(
+        profile.get('type') or item.file_type or 'FILE'
+    ).upper()
+    if type_prefix in {'', 'UNKNOWN'}:
+        type_prefix = 'FILE'
+
+    parts = [
+        type_prefix,
+        sanitize_filename_element(profile.get('context', '')),
+        id_filename_reference(business_key_value),
+        storage_filename_date(received_at),
+        file_sequence_suffix(sequence),
+        sanitize_filename_element(profile.get('status', '')).upper(),
+    ]
+    stem = " ".join(part for part in parts if part)
+    return f"{stem}{suffix.lower()}"
 
 
 def display_filename(item: TelegramMediaItem, sequence: int) -> str:
     return item.original_filename or build_storage_filename(item, '', sequence)
+
+
+def next_storage_sequence(
+    group_config,
+    business_key_value: str,
+    file_type: str,
+    sequence_by_type: dict[str, int],
+) -> int:
+    if file_type not in sequence_by_type:
+        existing_count = (
+            MediaAttachment.objects
+            .filter(
+                group_id=group_config.group_id,
+                business_key_type='id_number',
+                business_key_value=business_key_value,
+                file_type=file_type,
+                upload_status='success',
+            )
+            .exclude(drive_file_id='')
+            .values('drive_file_id')
+            .distinct()
+            .count()
+        )
+        sequence_by_type[file_type] = existing_count
+    sequence_by_type[file_type] += 1
+    return sequence_by_type[file_type]
+
+
+def id_filename_reference(value: str) -> str:
+    cleaned = re.sub(r'[^A-Za-z0-9-]+', '-', str(value or '').strip())
+    cleaned = cleaned.strip('-') or 'unknown'
+    return f"ID-{cleaned}"
+
+
+def storage_filename_date(received_at: datetime | None) -> str:
+    value = received_at or timezone.now()
+    if timezone.is_aware(value):
+        value = timezone.localtime(value)
+    return value.strftime('%Y-%m-%d')
+
+
+def file_sequence_suffix(sequence: int) -> str:
+    try:
+        sequence = int(sequence)
+    except (TypeError, ValueError):
+        sequence = 1
+    return f"{max(sequence, 1):02d}"
+
+
+def sanitize_filename_element(value: str) -> str:
+    ascii_value = str(value or '').encode('ascii', 'ignore').decode('ascii')
+    safe = re.sub(r'[^A-Za-z0-9 _-]+', ' ', ascii_value)
+    return " ".join(safe.split()).strip()
 
 
 def sanitize_folder_name(value: str) -> str:

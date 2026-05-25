@@ -199,7 +199,7 @@ class MediaAttachmentAdmin(admin.ModelAdmin):
     ]
     search_fields = [
         'business_key_value', 'telegram_file_id', 'original_filename',
-        'drive_file_id', 'drive_url',
+        'drive_file_id', 'drive_url', 'content_hash',
     ]
     readonly_fields = ['id', 'created_at']
 

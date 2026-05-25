@@ -327,6 +327,7 @@ class MediaAttachment(models.Model):
     original_filename = models.CharField(max_length=255, blank=True, default='')
     mime_type = models.CharField(max_length=255, blank=True, default='')
     size = models.PositiveIntegerField(null=True, blank=True)
+    content_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
     storage_provider = models.CharField(max_length=50, blank=True, default='')
     drive_file_id = models.CharField(max_length=255, blank=True, default='')
     drive_url = models.URLField(max_length=1000, blank=True, default='')
