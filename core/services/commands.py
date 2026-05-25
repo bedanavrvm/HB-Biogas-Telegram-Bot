@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from core.models import ParsedMessage
 from core.services.group_config import GroupRegistry
+from core.services.telegram_command_menu import bot_commands_for_workflow
 
 
 MAX_LAST_LIMIT = 20
@@ -63,7 +64,7 @@ def handle_bot_command(
     if normalized in {'/help', 'help', '/commands', 'commands'}:
         return {
             'status': 'command',
-            'reply_text': _help_text(),
+            'reply_text': _help_text(group_id),
         }
 
     if normalized in {'/sync', 'sync'}:
@@ -297,7 +298,14 @@ def handle_bot_command(
     return None
 
 
-def _help_text() -> str:
+def _help_text(group_id: str) -> str:
+    workflow_type = _workflow_type_for_group(group_id)
+    if workflow_type and workflow_type != 'case':
+        lines = ["Available commands for this group:"]
+        for item in bot_commands_for_workflow(workflow_type):
+            lines.append(f"/{item['command']} - {item['description']}")
+        return "\n".join(lines)
+
     return (
         "Available commands:\n"
         "/last 5 - show the latest 5 cases from this group\n"
@@ -328,6 +336,14 @@ def _help_text() -> str:
         "/health - show database and group config status\n"
         "/help - show this help"
     )
+
+
+def _workflow_type_for_group(group_id: str) -> str:
+    config = GroupRegistry.get_instance().get_group(str(group_id))
+    if not config:
+        return ''
+    workflow = config.workflow or {}
+    return str(workflow.get('type') or 'case')
 
 
 def _should_refresh_from_sheet(normalized: str) -> bool:

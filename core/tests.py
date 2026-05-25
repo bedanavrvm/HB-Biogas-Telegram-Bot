@@ -2082,6 +2082,29 @@ class BotCommandServiceTest(TestCase):
         self.assertIn('/duplicates 30', result['reply_text'])
         self.assertIn('/top regions 7', result['reply_text'])
 
+    def test_help_command_uses_order_approval_group_commands(self):
+        """Order approval groups should not see complaint/case commands."""
+        from core.services.commands import handle_bot_command
+        from core.services.group_config import GroupRegistry
+
+        GroupSheetConfiguration.objects.create(
+            group_id='-100order',
+            display_name='Order group',
+            enabled=True,
+            sheet_id='sheet_order',
+            sheet_name='Orders',
+            workflow={'type': 'order_approval'},
+        )
+        GroupRegistry._instance = None
+
+        result = handle_bot_command('/help', '-100order')
+
+        self.assertIn('/order - Open the order approval form', result['reply_text'])
+        self.assertIn('/form - Open the order approval form', result['reply_text'])
+        self.assertIn('/group - Show this chat', result['reply_text'])
+        self.assertNotIn('/last 5', result['reply_text'])
+        self.assertNotIn('/case MSG_ID', result['reply_text'])
+
 
 class TelegramCommandMenuTest(TestCase):
     """Test native Telegram command autocomplete sync."""
