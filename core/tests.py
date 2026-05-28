@@ -2193,7 +2193,7 @@ class TelegramCommandMenuTest(TestCase):
         self.assertIn('/group', text)
 
 
-@override_settings(TELEGRAM_WEBHOOK_SECRET=None)
+@override_settings(TELEGRAM_WEBHOOK_SECRET=None, DEBUG=True)
 class TelegramWebhookViewTest(TestCase):
     """Test the Telegram webhook endpoint."""
     
@@ -2270,6 +2270,50 @@ class TelegramWebhookViewTest(TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data['status'], 'success')
+
+    @override_settings(TELEGRAM_WEBHOOK_SECRET='', DEBUG=False)
+    def test_webhook_requires_secret_in_production(self):
+        payload = {
+            'update_id': 123456,
+            'message': {
+                'message_id': 789,
+                'from': {'id': 123, 'first_name': 'Test'},
+                'chat': {'id': -100123, 'type': 'group'},
+                'date': 1711123456,
+                'text': 'Sold 3 bread 50 each',
+            }
+        }
+
+        response = self.client.post(
+            '/api/webhook/telegram/',
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()['code'], 'WEBHOOK_SECRET_REQUIRED')
+
+    @override_settings(TELEGRAM_WEBHOOK_SECRET='expected-secret', DEBUG=False)
+    def test_webhook_rejects_invalid_secret(self):
+        payload = {
+            'update_id': 123456,
+            'message': {
+                'message_id': 789,
+                'from': {'id': 123, 'first_name': 'Test'},
+                'chat': {'id': -100123, 'type': 'group'},
+                'date': 1711123456,
+                'text': 'Sold 3 bread 50 each',
+            }
+        }
+
+        response = self.client.post(
+            '/api/webhook/telegram/',
+            data=json.dumps(payload),
+            content_type='application/json',
+            HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN='wrong-secret',
+        )
+
+        self.assertEqual(response.status_code, 401)
 
     @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
     @patch('core.api.views._process_single_message')

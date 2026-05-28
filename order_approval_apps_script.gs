@@ -154,7 +154,7 @@ function autoDate(sh, row, editedCol) {
   if (CFG.BOT_COLS.includes(editedCol)) return;   /* ignore bot writes */
   const cell = sh.getRange(row, CFG.C.DATE_VISITED);
   if (cell.getValue() !== '') return;
-  cell.setValue(new Date()).setNumberFormat('DD/MM/YYYY');
+  cell.setValue(new Date()).setNumberFormat('dd-mmm-yyyy');
 }
 
 /**
@@ -189,16 +189,16 @@ function checkDuplicate(sh, row, newId) {
 }
 
 /**
- * Normalise Kenyan phone numbers to 07XXXXXXXX format.
- * Handles +254..., 254..., and 07... inputs.
+ * Normalise Kenyan phone numbers to 254XXXXXXXXX format.
+ * Handles +254..., 254..., 07..., and 7... inputs.
  */
 function normalisePhone(sh, row, col) {
   const cell = sh.getRange(row, col);
-  const raw  = String(cell.getValue()).replace(/[\s\-]/g, '');
+  const raw  = String(cell.getValue()).replace(/\D/g, '');
   if (!raw || raw.length < 9) return;
   let n = raw;
-  if (n.startsWith('+254') && n.length === 13) n = '0' + n.slice(4);
-  else if (n.startsWith('254') && n.length === 12) n = '0' + n.slice(3);
+  if (n.startsWith('0') && n.length === 10) n = '254' + n.slice(1);
+  else if ((n.startsWith('7') || n.startsWith('1')) && n.length === 9) n = '254' + n;
   if (n !== raw) cell.setValue(n);
 }
 
@@ -315,6 +315,32 @@ function highlightStale() {
 }
 
 /** Time-based trigger: daily stale scan → email digest. */
+function protectBotCols() {
+  const sh = SpreadsheetApp.getActive().getSheetByName(CFG.TAB);
+  if (!sh) {
+    SpreadsheetApp.getUi().alert('Orders sheet not found: ' + CFG.TAB);
+    return;
+  }
+
+  const existing = sh.getProtections(SpreadsheetApp.ProtectionType.RANGE)
+    .filter(p => String(p.getDescription() || '').startsWith('Bot-managed column:'));
+  existing.forEach(p => p.remove());
+
+  const rowCount = Math.max(sh.getMaxRows() - CFG.DATA_ROW + 1, 1);
+  CFG.BOT_COLS.forEach(col => {
+    const header = sh.getRange(CFG.HEADER_ROW, col).getValue() || ('Column ' + col);
+    const range = sh.getRange(CFG.DATA_ROW, col, rowCount, 1);
+    range.protect()
+      .setDescription('Bot-managed column: ' + header)
+      .setWarningOnly(true);
+  });
+
+  SpreadsheetApp.getUi().alert(
+    'Bot columns are protected with edit warnings:\n\n' +
+    CFG.BOT_COLS.map(col => sh.getRange(CFG.HEADER_ROW, col).getValue()).join(', ')
+  );
+}
+
 function dailyStaleScan() {
   const sh   = SpreadsheetApp.getActive().getSheetByName(CFG.TAB);
   const last = sh.getLastRow();

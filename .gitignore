@@ -38,6 +38,13 @@ Thumbs.db
 credentials.json
 *.json
 
+# Local/customer data artifacts
+*.xlsx
+*.xlsm
+*.xls
+*.docx
+~$*
+
 # Deployment
 .env.production
 

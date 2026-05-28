@@ -46,13 +46,13 @@ Access: http://localhost:8000/admin/
 
 ### Telegram Bot
 ```env
-TELEGRAM_BOT_TOKEN=8601656696:AAHSIBOsRyd2_iX7H5_sEB5XcRlFSQrHufE
-TELEGRAM_WEBHOOK_SECRET=Ij3YHhi7nLdJYiyvlrnyax1VaXtmcaji7mvpkMog-6E
+TELEGRAM_BOT_TOKEN=<redacted>
+TELEGRAM_WEBHOOK_SECRET=<redacted>
 ```
 
 ### Google Sheets
 ```env
-GOOGLE_SHEET_ID=1VFRZgbux8crsjAvH7Cn-F5NZdG-dz3E2aB2vhJV_0hg
+GOOGLE_SHEET_ID=<sheet-id>
 GOOGLE_SHEET_TAB_NAME=Complaints Register
 GOOGLE_SERVICE_ACCOUNT_FILE=/etc/secrets/biogas-telegram-bot-93d39218af9a.json
 ```

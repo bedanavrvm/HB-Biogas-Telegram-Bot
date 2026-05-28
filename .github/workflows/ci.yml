@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check migrations
+        env:
+          DJANGO_SECRET_KEY: ci-secret-key-for-checks-only-change-in-production
+          DEBUG: "True"
+          TELEGRAM_WEBHOOK_SECRET: ci-webhook-secret
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Run Django tests
+        env:
+          DJANGO_SECRET_KEY: ci-secret-key-for-tests-only-change-in-production
+          DEBUG: "True"
+          TELEGRAM_WEBHOOK_SECRET: ci-webhook-secret
+        run: python manage.py test
+
+      - name: Check Apps Script syntax
+        run: |
+          cp order_approval_apps_script.gs /tmp/order_approval_apps_script.js
+          node --check /tmp/order_approval_apps_script.js
+
+      - name: Scan for known leaked production tokens
+        run: |
+          ! grep -R "TELEGRAM_BOT_TOKEN=8601656696:" .
+          ! grep -R "TELEGRAM_WEBHOOK_SECRET=Ij3YHhi7nLdJYiyvlrnyax1VaXtmcaji7mvpkMog-6E" .

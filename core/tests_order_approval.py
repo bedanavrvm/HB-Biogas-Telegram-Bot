@@ -24,6 +24,7 @@ from core.services.order_approval import (
     store_media_for_order,
     store_uploaded_files_for_order,
     update_order_approval_row,
+    validate_order_approval_uploaded_files,
     validate_telegram_webapp_init_data,
 )
 
@@ -576,6 +577,33 @@ class OrderApprovalMediaTest(TestCase):
             'laf.pdf',
             'receipt.pdf',
         ])
+
+    @override_settings(
+        ORDER_APPROVAL_MAX_FILES_PER_SLOT=2,
+        ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB=1,
+    )
+    def test_webapp_upload_batch_limits_are_validated(self):
+        from django.utils.datastructures import MultiValueDict
+
+        files = MultiValueDict({
+            'id_photos': [
+                SimpleUploadedFile('front.jpg', b'a', content_type='image/jpeg'),
+                SimpleUploadedFile('back.jpg', b'b', content_type='image/jpeg'),
+                SimpleUploadedFile('extra.jpg', b'c', content_type='image/jpeg'),
+            ],
+            'laf_documents': [
+                SimpleUploadedFile(
+                    'large.pdf',
+                    b'x' * (1024 * 1024 + 1),
+                    content_type='application/pdf',
+                ),
+            ],
+        })
+
+        errors = validate_order_approval_uploaded_files(files)
+
+        self.assertIn('ID photos supports at most 2 file(s).', errors)
+        self.assertIn('Total upload size is too large.', " ".join(errors))
 
     def test_oversize_attachment_is_skipped_and_audited(self):
         group_config = MagicMock(group_id='-100222')

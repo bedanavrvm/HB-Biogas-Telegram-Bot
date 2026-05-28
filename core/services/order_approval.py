@@ -1506,6 +1506,51 @@ def collect_order_approval_uploaded_files(files_map) -> list[UploadedFileItem]:
     return uploads
 
 
+def validate_order_approval_uploaded_files(files_map) -> list[str]:
+    errors: list[str] = []
+    getlist = getattr(files_map, 'getlist', None)
+    if not getlist:
+        return errors
+
+    max_files_per_slot = int(
+        getattr(settings, 'ORDER_APPROVAL_MAX_FILES_PER_SLOT', 10)
+    )
+    max_total_bytes = (
+        int(getattr(settings, 'ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB', 60))
+        * 1024
+        * 1024
+    )
+    total_size = 0
+    labels = {
+        'id_photos': 'ID photos',
+        'laf_documents': 'LAF documents',
+        'other_files': 'Other files',
+        'attachments': 'Attachments',
+    }
+
+    for field_name, _ in ORDER_APPROVAL_UPLOAD_FIELDS:
+        files = list(getlist(field_name) or [])
+        if len(files) > max_files_per_slot:
+            errors.append(
+                f"{labels.get(field_name, field_name)} supports at most "
+                f"{max_files_per_slot} file(s)."
+            )
+        for file_obj in files:
+            try:
+                total_size += int(getattr(file_obj, 'size', 0) or 0)
+            except (TypeError, ValueError):
+                continue
+
+    if total_size > max_total_bytes:
+        errors.append(
+            "Total upload size is too large. Upload at most "
+            f"{getattr(settings, 'ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB', 60)} MB "
+            "per submission."
+        )
+
+    return errors
+
+
 def normalize_uploaded_file_item(uploaded_file) -> UploadedFileItem:
     if isinstance(uploaded_file, UploadedFileItem):
         return uploaded_file

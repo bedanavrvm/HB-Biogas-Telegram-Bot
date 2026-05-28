@@ -154,6 +154,16 @@ GOOGLE_SHEET_TAB_NAME = config('GOOGLE_SHEET_TAB_NAME', default='Complaints Regi
 # Media storage for workflows that receive Telegram photos/documents.
 MEDIA_STORAGE_PROVIDER = config('MEDIA_STORAGE_PROVIDER', default='google_drive')
 MEDIA_MAX_FILE_SIZE_MB = config('MEDIA_MAX_FILE_SIZE_MB', default=20, cast=int)
+ORDER_APPROVAL_MAX_FILES_PER_SLOT = config(
+    'ORDER_APPROVAL_MAX_FILES_PER_SLOT',
+    default=10,
+    cast=int,
+)
+ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB = config(
+    'ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB',
+    default=60,
+    cast=int,
+)
 GOOGLE_DRIVE_MEDIA_FOLDER_ID = config('GOOGLE_DRIVE_MEDIA_FOLDER_ID', default='')
 ORDER_APPROVAL_WEBAPP_ENABLED = config('ORDER_APPROVAL_WEBAPP_ENABLED', default=True, cast=bool)
 ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH = config(

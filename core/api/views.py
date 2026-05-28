@@ -25,6 +25,7 @@ from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.conf import settings
+import hmac
 import json
 import re
 import requests
@@ -96,6 +97,7 @@ def order_approval_webapp_submit(request):
             ORDER_APPROVAL_WEBAPP_FIELDS,
             collect_order_approval_uploaded_files,
             process_order_approval_form_submission,
+            validate_order_approval_uploaded_files,
         )
 
         group_id, group_config, auth_payload, error_response_obj = (
@@ -103,6 +105,21 @@ def order_approval_webapp_submit(request):
         )
         if error_response_obj:
             return error_response_obj
+
+        upload_errors = validate_order_approval_uploaded_files(request.FILES)
+        if upload_errors:
+            result = {
+                'success': False,
+                'status': 'failed',
+                'message': " ".join(upload_errors),
+                'files_stored': 0,
+                'warnings': [],
+            }
+            _send_order_approval_webapp_chat_reply(
+                group_id=group_id,
+                result=result,
+            )
+            return JsonResponse(result, status=400)
 
         result = process_order_approval_form_submission(
             group_config=group_config,
@@ -289,13 +306,21 @@ def telegram_webhook(request):
         except ValidationError as exc:
             return error_response(exc.message, exc.code, exc.status_code)
 
-        # 4. Optional webhook secret check
-        if settings.TELEGRAM_WEBHOOK_SECRET:
+        # 4. Webhook secret check. It is optional only for local/test usage.
+        webhook_secret = getattr(settings, 'TELEGRAM_WEBHOOK_SECRET', '')
+        if not webhook_secret and not getattr(settings, 'DEBUG', False):
+            logger.error("TELEGRAM_WEBHOOK_SECRET is required when DEBUG=False")
+            return error_response(
+                'Telegram webhook is not configured.',
+                code='WEBHOOK_SECRET_REQUIRED',
+                status_code=503,
+            )
+        if webhook_secret:
             provided = (
                 request.headers.get('X-Telegram-Bot-Api-Secret-Token')
                 or request.headers.get('X-Telegram-Webhook-Secret', '')
             )
-            if provided != settings.TELEGRAM_WEBHOOK_SECRET:
+            if not hmac.compare_digest(str(provided), str(webhook_secret)):
                 logger.warning("Invalid webhook secret")
                 return error_response(
                     'Unauthorized: Invalid webhook secret',
