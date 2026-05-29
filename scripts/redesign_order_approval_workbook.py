@@ -26,6 +26,7 @@ NS = {
 }
 
 HEADERS = [
+    "ORDER RECORD ID",
     "SOURCE TAB",
     "SOURCE ROW",
     "SOURCE NOTE",
@@ -145,6 +146,7 @@ def extract_records(path: Path) -> list[dict[str, str]]:
                     continue
 
                 record = {
+                    "ORDER RECORD ID": "",
                     "SOURCE TAB": sheet_name,
                     "SOURCE ROW": str(row_number),
                     "SOURCE NOTE": "",

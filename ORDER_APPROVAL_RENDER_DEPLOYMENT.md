@@ -16,6 +16,7 @@ Before changing Render:
 - Add a `Media URLs` header to row 2 in the `Orders` tab.
 - Confirm the `Orders` tab has an `ID NUMBER` header in row 2.
 - Confirm the BRO writable headers exist where needed:
+  - `ORDER RECORD ID` (recommended, bot-managed stable row identifier)
   - `DATE VISITED`
   - `CUSTOMER NAME`
   - `BRANCH`
@@ -37,11 +38,17 @@ Before changing Render:
 
 Do not let the bot create or insert columns in this workbook. Add row-2 headers manually before enabling the workflow if you are not using the generated template.
 
+`ORDER RECORD ID` is optional for older sheets but recommended. When the column exists, the bot fills it with a stable ID such as `OA-20260529-113650221-A1B2C3D4`. This remains attached to the order even if staff sort/filter the sheet, so staff should not use row numbers as permanent references.
+
 To redesign the existing April workbook into one manageable `Orders` sheet, run:
 
 ```bash
 python scripts/redesign_order_approval_workbook.py -i "ORDER APPROVAL APRIL 2026.xlsx" -o "ORDER APPROVAL REDESIGNED.xlsx"
 ```
+
+The redesign script keeps `SOURCE TAB` and `SOURCE ROW` only as migration/audit
+metadata. They show where a row came from in the old multi-tab workbook. The
+bot does not need them, and fresh templates do not include them.
 
 To create a fresh blank workbook template in the expected one-sheet format, run:
 
@@ -102,15 +109,7 @@ ALLOWED_HOSTS=<your-render-host>
 API_AUTH_TOKEN=<manual-api-token>
 ```
 
-Usually you do not need to change these existing complaint workflow variables:
-
-```text
-GOOGLE_SHEET_ID=<default-complaint-sheet-id>
-GOOGLE_SHEET_TAB_NAME=Complaints Register
-GROUP_MAPPING_JSON=<optional-existing-config>
-```
-
-Preferred setup for the new group is Django admin, not `GROUP_MAPPING_JSON`, because it avoids replacing or breaking existing group JSON.
+Do not configure group-specific routing in Render env for new groups. Sheet IDs, tab names, group IDs, and workflow presets should be managed in Django admin under `Core -> Group sheet configurations`.
 
 `APP_BASE_URL` is required for the Telegram Web App button. It must be the public HTTPS Render URL with no trailing slash.
 
@@ -271,39 +270,7 @@ Future workflow presets are defined in `core/services/workflow_presets.py`. For 
 
 Preset behavior and current group types are documented in `WORKFLOW_PRESETS.md`.
 
-## 6. Optional Environment-Only Group Setup
-
-Use this only if Django admin is not available.
-
-Add the new group to `GROUP_MAPPING_JSON` without removing existing groups:
-
-```json
-{
-  "-100EXISTING_COMPLAINT_GROUP": {
-    "sheet_id": "existing-complaint-sheet-id",
-    "sheet_name": "Complaints Register"
-  },
-  "-1001234567890": {
-    "sheet_id": "live-order-approval-sheet-id",
-    "sheet_name": "Orders",
-    "workflow": {
-      "type": "order_approval",
-      "match_field": "id_number",
-      "search_sheet_names": ["Orders"],
-      "create_sheet_name": "Orders",
-      "media_field": "media_urls",
-      "header_row": 2,
-      "media_root_folder": "Order Approval Group"
-    }
-  }
-}
-```
-
-Redeploy after changing `GROUP_MAPPING_JSON`.
-
-Do not use this method if admin-managed configurations already exist and are easier to maintain.
-
-## 7. Production Smoke Test
+## 6. Production Smoke Test
 
 Pick an ID that exists once in exactly one searched tab.
 
@@ -355,11 +322,10 @@ FINAL DECISION: Under Review
 Expected bot reply:
 
 ```text
-OK. Order approval updated.
+OK. Order Approval updated.
 ID: 113650221
 Customer: PATRICK MWANGI MAINA
-Sheet: <tab>, row <number>
-Fields updated: <count>
+Changed: D ID NUMBER confirmed; E CONTACTS / PRIMARY updated; R Media URLs appended
 Files stored: 0
 ```
 
@@ -370,7 +336,7 @@ Then verify:
 - Complaint group behavior is unchanged.
 - `Core -> Order approval updates` has a `success` record.
 
-## 7.1 Web App Authentication Notes
+## 6.1 Web App Authentication Notes
 
 The form submit endpoint accepts either:
 
@@ -397,7 +363,7 @@ ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False
 
 Only use that briefly, then turn it back to `True`.
 
-## 8. Attachment Test
+## 7. Attachment Test
 
 Send the same structured message with one photo or PDF attached.
 
@@ -414,7 +380,7 @@ Expected:
 - The bot links the file to the same ID and same sheet row.
 - `Media URLs` keeps the old link and appends the new link on a new line.
 
-## 9. Negative Tests
+## 8. Negative Tests
 
 New ID / no matching row:
 
@@ -439,7 +405,7 @@ Missing `Media URLs`:
 - If a searched tab lacks `Media URLs`, update should fail safely.
 - Add the header manually and retest.
 
-## 10. Rollback / Disable
+## 9. Rollback / Disable
 
 Fastest disable:
 
@@ -451,6 +417,5 @@ Fastest disable:
 Alternative:
 
 - Remove or change `workflow.type` from `order_approval`.
-- Redeploy only if using `GROUP_MAPPING_JSON`.
 
 Existing complaint/case groups are separate and should not be affected.

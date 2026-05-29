@@ -299,6 +299,65 @@ class OrderApprovalSheetTest(TestCase):
             ),
         )
 
+    def test_create_row_writes_stable_order_record_id_when_column_exists(self):
+        service = FakeService([
+            ['ORDER RECORD ID', 'ID NUMBER', 'CUSTOMER NAME', 'Media URLs'],
+        ])
+
+        with patch('core.services.order_approval.get_sheets_service', return_value=service):
+            result = create_order_approval_row(
+                group_config=self._group_config(),
+                parsed_fields={
+                    'id_number': '5655566',
+                    'customer_name': 'NEW CUSTOMER',
+                },
+                media_links=[],
+            )
+
+        self.assertTrue(result['success'])
+        row_values = service.batch_update_calls[0][0][0]['values'][0]
+        self.assertRegex(row_values[0], r'^OA-\d{8}-5655566-[A-F0-9]{8}$')
+        self.assertEqual(row_values[1:], ['5655566', 'NEW CUSTOMER'])
+        self.assertEqual(
+            result['field_changes'][0],
+            {
+                'field': 'id_number',
+                'header': 'ID NUMBER',
+                'column': 'B',
+                'action': 'added',
+            },
+        )
+        self.assertEqual(result['field_changes'][-1]['header'], 'ORDER RECORD ID')
+        self.assertEqual(result['field_changes'][-1]['action'], 'added')
+
+    def test_update_adds_missing_order_record_id_without_overwriting_existing(self):
+        service = FakeService([])
+        match = SheetMatch(
+            sheet_name='Orders',
+            row_number=8,
+            headers=['ORDER RECORD ID', 'ID NUMBER', 'COMMENT', 'Media URLs'],
+            row=['', '113650221', '', ''],
+            service=service,
+        )
+
+        result = update_order_approval_row(
+            match=match,
+            workflow={'media_field': 'media_urls'},
+            parsed_fields={'comment': 'Approved'},
+            media_links=[],
+        )
+
+        self.assertTrue(result['success'])
+        batch = service.batch_update_calls[0][0]
+        self.assertEqual(batch[0]['range'], 'A8:A8')
+        self.assertEqual(batch[1]['range'], 'C8:C8')
+        self.assertRegex(batch[0]['values'][0][0], r'^OA-\d{8}-113650221-[A-F0-9]{8}$')
+        self.assertEqual(batch[1]['values'][0], ['Approved'])
+        self.assertEqual(
+            [change['header'] for change in result['field_changes']],
+            ['COMMENT', 'ORDER RECORD ID'],
+        )
+
     def test_create_row_uses_configured_header_row(self):
         group_config = self._group_config()
         group_config.workflow = {

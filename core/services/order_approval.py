@@ -12,6 +12,7 @@ import logging
 import mimetypes
 import re
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -33,6 +34,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_SEARCH_SHEETS = ['Pending', '178', '179', '180', '181']
 DEFAULT_MATCH_FIELD = 'id_number'
 DEFAULT_MEDIA_FIELD = 'media_urls'
+DEFAULT_RECORD_ID_FIELD = 'order_record_id'
 ORDER_APPROVAL_WEBAPP_FIELDS = [
     'id_number',
     'date_visited',
@@ -54,6 +56,7 @@ ORDER_APPROVAL_WEBAPP_FIELDS = [
 ]
 
 ORDER_APPROVAL_FIELD_HEADERS = {
+    'order_record_id': 'ORDER RECORD ID',
     'date_visited': 'DATE VISITED',
     'customer_name': 'CUSTOMER NAME',
     'branch': 'BRANCH',
@@ -278,7 +281,7 @@ def handle_order_approval_message(
             update_record.save(update_fields=['update_status', 'sync_error'])
             return _order_reply(
                 (
-                    f"Order approval row for ID {parsed.id_number} could not "
+                    f"{workflow_label(group_config)} for ID {parsed.id_number} could not "
                     f"be created: {create_result['error']}"
                 ),
                 warnings=uploaded.warnings,
@@ -292,14 +295,15 @@ def handle_order_approval_message(
             'sheet_tab', 'row_number', 'update_status',
         ])
         return _order_reply(
-            (
-                f"OK. Order approval row created.\n"
-                f"ID: {parsed.id_number}\n"
-                f"Sheet: {create_result['sheet_name']}, row {create_result['row_number']}\n"
-                f"Fields updated: {len(create_result['fields_updated'])}\n"
-                f"Files stored: {uploaded.stored_count}."
+            format_order_success_reply(
+                group_config=group_config,
+                id_number=parsed.id_number,
+                customer_name=parsed.fields.get('customer_name', ''),
+                status='created',
+                field_changes=create_result.get('field_changes', []),
+                files_stored=uploaded.stored_count,
+                warnings=uploaded.warnings,
             ),
-            warnings=uploaded.warnings,
             status='success',
         )
 
@@ -355,7 +359,7 @@ def handle_order_approval_message(
         update_record.sync_error = sheet_result['error']
         update_record.save(update_fields=['update_status', 'sync_error'])
         return _order_reply(
-            f"Order approval update for ID {parsed.id_number} was not synced: {sheet_result['error']}",
+            f"{workflow_label(group_config)} update for ID {parsed.id_number} was not saved: {sheet_result['error']}",
             warnings=uploaded.warnings,
             status='failed',
         )
@@ -367,11 +371,11 @@ def handle_order_approval_message(
     )
     return _order_reply(
         format_order_success_reply(
+            group_config=group_config,
             id_number=parsed.id_number,
             customer_name=customer_name,
-            sheet_name=match.sheet_name,
-            row_number=match.row_number,
-            fields_updated=sheet_result['fields_updated'],
+            status='updated',
+            field_changes=sheet_result.get('field_changes', []),
             files_stored=uploaded.stored_count,
             warnings=parsed.warnings + uploaded.warnings,
         ),
@@ -458,7 +462,7 @@ def handle_order_approval_media_reply(
     return _order_reply(
         (
             f"OK. Files linked for ID {original_update.id_number}.\n"
-            f"Sheet: {matches[0].sheet_name}, row {matches[0].row_number}\n"
+            f"Updated: {field_change_summary(sheet_result.get('field_changes', []))}\n"
             f"Files stored: {uploaded.stored_count}"
         ),
         warnings=uploaded.warnings,
@@ -588,12 +592,13 @@ def process_order_approval_form_submission(
         return {
             'success': True,
             'status': 'created',
-            'message': 'Order approval row created.',
+            'message': f'{workflow_label(group_config)} created.',
             'id_number': id_number,
             'customer_name': parsed_fields.get('customer_name', ''),
             'sheet': create_result['sheet_name'],
             'row': create_result['row_number'],
             'fields_updated': create_result['fields_updated'],
+            'field_changes': create_result.get('field_changes', []),
             'files_stored': uploaded.stored_count,
             'warnings': uploaded.warnings,
         }
@@ -681,12 +686,13 @@ def process_order_approval_form_submission(
     return {
         'success': True,
         'status': 'success',
-        'message': 'Order approval updated.',
+        'message': f'{workflow_label(group_config)} updated.',
         'id_number': id_number,
         'customer_name': customer_name,
         'sheet': match.sheet_name,
         'row': match.row_number,
         'fields_updated': sheet_result['fields_updated'],
+        'field_changes': sheet_result.get('field_changes', []),
         'files_stored': uploaded.stored_count,
         'warnings': uploaded.warnings,
     }
@@ -1039,6 +1045,8 @@ def update_order_approval_row(
         existing_media = match.row[media_index] if media_index < len(match.row) else ''
         fields_to_write[media_field] = append_cell_lines(existing_media, media_links)
 
+    ensure_order_record_id(fields_to_write, match, workflow)
+
     missing_headers = []
     for field in fields_to_write:
         header = header_for_field(workflow, field)
@@ -1085,6 +1093,10 @@ def update_order_approval_row(
         'success': True,
         'error': '',
         'fields_updated': [field for _, _, field in columns],
+        'field_changes': [
+            field_change_detail(match, workflow, field, column_index, value)
+            for column_index, value, field in columns
+        ],
     }
 
 
@@ -1157,6 +1169,13 @@ def create_order_approval_row(
     if media_links:
         fields_to_write[media_field] = "\n".join(
             link for link in media_links if str(link or '').strip()
+        )
+
+    record_header = header_for_field(workflow, DEFAULT_RECORD_ID_FIELD)
+    if header_index(headers, record_header) is not None:
+        fields_to_write.setdefault(
+            DEFAULT_RECORD_ID_FIELD,
+            build_order_record_id(parsed_fields.get('id_number', '')),
         )
 
     missing_headers = []
@@ -1773,33 +1792,52 @@ def download_telegram_file(file_id: str) -> bytes:
 
 
 def format_order_success_reply(
+    group_config,
     id_number: str,
     customer_name: str,
-    sheet_name: str,
-    row_number: int,
-    fields_updated: list[str],
+    status: str,
+    field_changes: list[dict],
     files_stored: int,
     warnings: list[str],
 ) -> str:
-    labels = [
-        header_for_field({}, field)
-        for field in fields_updated
-        if field != DEFAULT_MEDIA_FIELD
-    ]
+    label = workflow_label(group_config)
+    verb = 'created' if status == 'created' else 'updated'
     lines = [
-        "OK. Order approval updated.",
+        f"OK. {label} {verb}.",
         f"ID: {id_number}",
     ]
     if customer_name:
         lines.append(f"Customer: {customer_name}")
     lines.extend([
-        f"Sheet: {sheet_name}, row {row_number}",
-        f"Fields updated: {len(labels)}",
+        f"Changed: {field_change_summary(field_changes)}",
         f"Files stored: {files_stored}",
     ])
     if warnings:
         lines.append("Warnings: " + "; ".join(warnings[:3]))
     return "\n".join(lines)
+
+
+def workflow_label(group_config) -> str:
+    workflow = getattr(group_config, 'workflow', None) or {}
+    return (
+        str(workflow.get('label') or '').strip()
+        or str(getattr(group_config, 'display_name', '') or '').strip()
+        or 'Order approval'
+    )
+
+
+def field_change_summary(field_changes: list[dict]) -> str:
+    if not field_changes:
+        return 'No sheet fields changed'
+    parts = []
+    for change in field_changes[:8]:
+        column = change.get('column') or '?'
+        header = change.get('header') or change.get('field') or 'field'
+        action = change.get('action') or 'updated'
+        parts.append(f"{column} {header} {action}")
+    if len(field_changes) > 8:
+        parts.append(f"+{len(field_changes) - 8} more")
+    return "; ".join(parts)
 
 
 def header_for_field(workflow: dict, field: str) -> str:
@@ -1811,6 +1849,61 @@ def field_headers(workflow: dict) -> dict[str, str]:
     headers = dict(ORDER_APPROVAL_FIELD_HEADERS)
     headers.update(configured)
     return headers
+
+
+def ensure_order_record_id(
+    fields_to_write: dict[str, str],
+    match: SheetMatch,
+    workflow: dict,
+) -> None:
+    header = header_for_field(workflow, DEFAULT_RECORD_ID_FIELD)
+    index = header_index(match.headers, header)
+    if index is None:
+        return
+    existing = match.row[index] if index < len(match.row) else ''
+    if str(existing or '').strip():
+        return
+    id_value = fields_to_write.get('id_number') or value_for_header(
+        match,
+        header_for_field(workflow, 'id_number'),
+    )
+    fields_to_write.setdefault(DEFAULT_RECORD_ID_FIELD, build_order_record_id(id_value))
+
+
+def build_order_record_id(id_number: str) -> str:
+    today = timezone.localtime(timezone.now()).strftime('%Y%m%d')
+    cleaned_id = re.sub(r'[^A-Za-z0-9]+', '', str(id_number or ''))[:12]
+    suffix = uuid.uuid4().hex[:8].upper()
+    if cleaned_id:
+        return f"OA-{today}-{cleaned_id}-{suffix}"
+    return f"OA-{today}-{suffix}"
+
+
+def field_change_detail(
+    match: SheetMatch,
+    workflow: dict,
+    field: str,
+    column_index: int,
+    value: str,
+) -> dict:
+    header = header_for_field(workflow, field)
+    existing = ''
+    zero_index = column_index - 1
+    if zero_index < len(match.row):
+        existing = str(match.row[zero_index] or '').strip()
+    new_value = str(value or '').strip()
+    if field == DEFAULT_MEDIA_FIELD and existing and new_value != existing:
+        action = 'appended'
+    elif existing:
+        action = 'updated' if new_value != existing else 'confirmed'
+    else:
+        action = 'added'
+    return {
+        'field': field,
+        'header': header,
+        'column': column_letter(column_index),
+        'action': action,
+    }
 
 
 def value_for_header(match: SheetMatch, header: str) -> str:

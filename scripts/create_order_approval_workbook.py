@@ -18,6 +18,7 @@ DEFAULT_TABS = ["Orders"]
 TITLE = "ORDER APPROVAL FORM - BUSINESS RELATIONSHIP OFFICER"
 
 HEADERS = [
+    "ORDER RECORD ID",
     "DATE VISITED",
     "CUSTOMER NAME",
     "BRANCH",
@@ -36,11 +37,10 @@ HEADERS = [
     "CREDIT ANALYSIS",
     "FINAL DECISION",
     "Media URLs",
-    "SOURCE TAB",
-    "SOURCE ROW",
 ]
 
 SAMPLE_ROW = [
+    "",
     "09-May-2026",
     "PATRICK MWANGI MAINA",
     "MURANGA",
@@ -58,8 +58,6 @@ SAMPLE_ROW = [
     "15118",
     "Pending",
     "Under Review",
-    "",
-    "",
     "",
 ]
 

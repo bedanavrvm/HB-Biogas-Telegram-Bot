@@ -244,20 +244,22 @@ def _send_order_approval_webapp_chat_reply(group_id: str, result: dict) -> None:
     status = result.get('status', 'failed')
     id_number = result.get('id_number', '')
     if result.get('success'):
-        verb = 'created' if status == 'created' else 'updated'
         lines = [
-            f"OK. Order approval {verb} from form.",
+            f"OK. {result.get('message') or 'Order approval saved.'}",
             f"ID: {id_number}",
         ]
         customer_name = result.get('customer_name', '')
         if customer_name:
             lines.append(f"Customer: {customer_name}")
-        if result.get('sheet') and result.get('row'):
-            lines.append(f"Sheet: {result['sheet']}, row {result['row']}")
+        changes = result.get('field_changes') or []
+        if changes:
+            from core.services.order_approval import field_change_summary
+
+            lines.append(f"Changed: {field_change_summary(changes)}")
         lines.append(f"Files stored: {result.get('files_stored', 0)}")
     else:
         lines = [
-            "Order approval form update failed.",
+            result.get('title') or "Form update failed.",
             f"ID: {id_number or 'not provided'}",
             result.get('message') or 'Please check the form and try again.',
         ]

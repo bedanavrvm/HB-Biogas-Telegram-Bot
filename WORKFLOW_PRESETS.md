@@ -11,7 +11,7 @@ Admin setup should normally be:
 4. Save
 ```
 
-Avoid editing `GROUP_MAPPING_JSON` or hand-writing workflow JSON unless there is a specific deployment reason.
+Avoid hand-writing workflow JSON unless there is a specific deployment reason.
 
 ## Current Presets
 
@@ -103,6 +103,16 @@ ID NUMBER
 Media URLs
 ```
 
+Recommended:
+
+```text
+ORDER RECORD ID
+```
+
+When present, the bot fills `ORDER RECORD ID` once and keeps it stable when
+staff sort/filter the sheet. Use this ID for audit discussions instead of
+spreadsheet row numbers.
+
 Those headers must be on the configured header row. The default is row 2
 because row 1 may be a visual title/banner.
 
@@ -172,7 +182,7 @@ Keep this rule: admins select presets; developers define presets.
 ## Operational Rules
 
 - Use Django admin as the source of truth for group setup.
-- Keep `GROUP_MAPPING_JSON` only for bootstrap or emergency deployments.
+- Keep group IDs, sheet IDs, tab names, and workflow presets in Django admin.
 - Do not put secrets in preset JSON.
 - Do not make presets auto-create sheet columns.
 - Prefer header-based sheet writes over fixed column positions.
