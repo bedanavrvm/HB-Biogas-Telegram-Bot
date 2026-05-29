@@ -95,8 +95,11 @@ def analyze_google_sheet(
     sheet_id: str,
     sheet_name: str = '',
     sample_size: int = 25,
+    workflow: dict = None,
 ) -> dict:
     """Read a live Google Sheet and return detected schema/workflow metadata."""
+    input_workflow = workflow or {}
+    header_row = _configured_header_row(input_workflow)
     worksheet_titles, worksheet_error = list_google_sheet_worksheets(sheet_id)
     service = get_sheets_service(sheet_id=sheet_id, sheet_name=sheet_name)
     if not service.is_available():
@@ -116,9 +119,17 @@ def analyze_google_sheet(
             'worksheet_error': worksheet_error,
         }
 
-    headers = [str(header or '').strip() for header in values[0]]
-    rows = values[1:sample_size + 1]
-    formula_columns = _detect_formula_columns(service, headers, sample_size)
+    if len(values) < header_row:
+        return {
+            'status': 'error',
+            'error': f'The selected worksheet has no header row at row {header_row}.',
+            'worksheet_titles': worksheet_titles,
+            'worksheet_error': worksheet_error,
+        }
+
+    headers = [str(header or '').strip() for header in values[header_row - 1]]
+    rows = values[header_row:header_row + sample_size]
+    formula_columns = _detect_formula_columns(service, headers, sample_size, header_row)
     dropdowns = _extract_dropdown_values(service, headers)
     columns = []
 
@@ -141,8 +152,8 @@ def analyze_google_sheet(
         })
 
     suggested_schema = _build_suggested_schema(headers, columns)
-    workflow = _build_workflow(columns)
-    warnings = _warnings(headers, columns)
+    suggested_workflow = _build_workflow(columns)
+    warnings = _warnings(headers, columns, input_workflow)
 
     return {
         'status': 'success',
@@ -151,11 +162,13 @@ def analyze_google_sheet(
         'worksheet_titles': worksheet_titles,
         'worksheet_error': worksheet_error,
         'row_count': max(len(values) - 1, 0),
+        'header_row': header_row,
+        'data_row_count': max(len(values) - header_row, 0),
         'sample_size': len(rows),
         'headers': headers,
         'columns': columns,
         'suggested_schema': suggested_schema,
-        'workflow': workflow,
+        'workflow': suggested_workflow,
         'warnings': warnings,
     }
 
@@ -189,6 +202,8 @@ def apply_analysis_to_config(config, analysis: dict) -> None:
     metadata = dict(config.metadata or {})
     metadata['sheet_analysis'] = {
         'row_count': analysis.get('row_count', 0),
+        'header_row': analysis.get('header_row', 1),
+        'data_row_count': analysis.get('data_row_count', 0),
         'sample_size': analysis.get('sample_size', 0),
         'columns': analysis.get('columns', []),
         'warnings': analysis.get('warnings', []),
@@ -344,10 +359,22 @@ def _column_samples(rows: list[list[str]], idx: int) -> list[str]:
     return samples
 
 
-def _detect_formula_columns(service, headers: list[str], sample_size: int) -> set[int]:
+def _configured_header_row(workflow: dict) -> int:
+    try:
+        return max(int((workflow or {}).get('header_row') or 1), 1)
+    except (TypeError, ValueError):
+        return 1
+
+
+def _detect_formula_columns(
+    service,
+    headers: list[str],
+    sample_size: int,
+    header_row: int = 1,
+) -> set[int]:
     try:
         rows = service._sheet.get(
-            f'1:{sample_size + 1}',
+            f'{header_row}:{header_row + sample_size}',
             value_render_option='FORMULA',
         )
     except Exception:
@@ -406,7 +433,7 @@ def _dropdown_values_from_cell(cell: dict) -> list[str]:
     return values
 
 
-def _warnings(headers: list[str], columns: list[dict]) -> list[str]:
+def _warnings(headers: list[str], columns: list[dict], workflow: dict = None) -> list[str]:
     warnings = []
     normalized = [SheetSchema.normalize(header) for header in headers if header]
     duplicates = sorted({header for header in normalized if normalized.count(header) > 1})
@@ -415,10 +442,23 @@ def _warnings(headers: list[str], columns: list[dict]) -> list[str]:
             'Duplicate headers detected: ' + ', '.join(duplicates)
         )
 
+    workflow = workflow or {}
+    workflow_type = workflow.get('type', '')
     mapped = {column['canonical_field'] for column in columns if column['canonical_field']}
-    for required in ('message_id', 'customer_name', 'customer_phone', 'complaint_description'):
-        if required not in mapped:
-            warnings.append(f'No confident mapping found for {required}.')
+    if workflow_type == 'complaint':
+        for required in (
+            'message_id',
+            'customer_name',
+            'customer_phone',
+            'complaint_description',
+        ):
+            if required not in mapped:
+                warnings.append(f'No confident mapping found for {required}.')
+    elif workflow_type == 'order_approval':
+        required_headers = ['ID NUMBER', 'Media URLs']
+        for header in required_headers:
+            if SheetSchema.normalize(header) not in normalized:
+                warnings.append(f'Required order approval header missing: {header}.')
     return warnings
 
 

@@ -6,6 +6,8 @@ module maps canonical case fields to each group's sheet headers.
 """
 import json
 
+from django.conf import settings
+
 
 DEFAULT_FIELD_HEADERS = {
     'complaint_id': 'Complaint ID',
@@ -152,7 +154,10 @@ class SheetSchema:
             ),
             'customer_id': parsed_message.customer_id,
             'customer_phone': parsed_message.customer_phone,
-            'reported_by': parsed_message.sender or 'Telegram Bot',
+            'reported_by': (
+                parsed_message.sender
+                or getattr(settings, 'TELEGRAM_BOT_DISPLAY_NAME', 'Telegram Bot')
+            ),
             'branch_region': parsed_message.branch_region,
             'complaint_category': parsed_message.complaint_category,
             'complaint_description': parsed_message.complaint_description,

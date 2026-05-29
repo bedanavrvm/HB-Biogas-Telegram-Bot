@@ -15,7 +15,7 @@ Avoid editing `GROUP_MAPPING_JSON` or hand-writing workflow JSON unless there is
 
 ## Current Presets
 
-### Manual JSON / Complaint Workflow
+### Manual JSON / Custom Workflow
 
 Use this for the existing complaint/case groups.
 
@@ -43,7 +43,7 @@ group_id: -100...
 display_name: Complaints
 sheet_id: <complaint-sheet-id>
 sheet_name: Complaints Register
-workflow_preset: Manual JSON / complaint workflow
+workflow_preset: Manual JSON / custom workflow
 ```
 
 Leave advanced JSON fields empty unless that group needs a custom sheet schema or custom workflow metadata.
@@ -61,7 +61,8 @@ This preset generates:
   "search_sheet_names": ["Orders"],
   "create_sheet_name": "Orders",
   "media_field": "media_urls",
-  "header_row": 2
+  "header_row": 2,
+  "media_root_folder": ""
 }
 ```
 
@@ -73,6 +74,10 @@ Behavior:
 - If no row exists for the ID, a new row is created in `Orders`.
 - Only BRO fields and `Media URLs` are updated.
 - Photos/documents are uploaded to Google Drive.
+- Drive folders use `display_name` by default:
+  `<display_name>/<year>/<month name>/ID_<id number>/...`.
+  Set `order_approval_media_root_folder` when the Drive folder name should
+  stay different from the Telegram group display name.
 - `OrderApprovalUpdate` and `MediaAttachment` audit records are written.
 
 Recommended admin fields:
@@ -87,6 +92,8 @@ workflow_preset: Order Approval
 order_approval_search_tabs: Orders
 order_approval_match_field: ID NUMBER
 order_approval_media_field: Media URLs
+order_approval_header_row: 2
+order_approval_media_root_folder: <blank uses display_name>
 ```
 
 The `Orders` worksheet must already contain:
@@ -96,7 +103,8 @@ ID NUMBER
 Media URLs
 ```
 
-Those headers must be on row 2. Row 1 may be a visual title/banner.
+Those headers must be on the configured header row. The default is row 2
+because row 1 may be a visual title/banner.
 
 The bot does not insert columns into the approval workbook.
 
@@ -107,7 +115,7 @@ Yes.
 Existing complaint groups are OK if they either:
 
 - Have no workflow type, or
-- Use the `Manual JSON / complaint workflow` preset, or
+- Use the `Manual JSON / custom workflow` preset, or
 - Have older custom workflow JSON without `type: "order_approval"`.
 
 The webhook only switches to the order approval workflow when:

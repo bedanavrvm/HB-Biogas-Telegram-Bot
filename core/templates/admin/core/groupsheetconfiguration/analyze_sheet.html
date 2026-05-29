@@ -109,7 +109,11 @@
     </div>
     <div class="sheet-analysis-metric">
       Rows found
-      <strong>{{ analysis.row_count|default:"0" }}</strong>
+      <strong>{{ analysis.data_row_count|default:analysis.row_count|default:"0" }}</strong>
+    </div>
+    <div class="sheet-analysis-metric">
+      Header row
+      <strong>{{ analysis.header_row|default:"1" }}</strong>
     </div>
     <div class="sheet-analysis-metric">
       Columns found

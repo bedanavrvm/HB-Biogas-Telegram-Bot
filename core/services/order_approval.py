@@ -1329,6 +1329,7 @@ def store_media_for_order(
                 mime_type=item.mime_type or 'application/octet-stream',
                 id_number=business_key_value,
                 received_at=received_at,
+                group_config=group_config,
             )
             attachment.upload_status = 'success'
             attachment.drive_file_id = drive_file_id
@@ -1469,6 +1470,7 @@ def store_uploaded_files_for_order(
                 mime_type=mime_type or 'application/octet-stream',
                 id_number=business_key_value,
                 received_at=received_at,
+                group_config=group_config,
             )
             attachment.upload_status = 'success'
             attachment.drive_file_id = drive_file_id
@@ -1621,10 +1623,11 @@ class GoogleDriveMediaStorage:
         mime_type: str,
         id_number: str,
         received_at: datetime,
+        group_config=None,
     ) -> tuple[str, str]:
         from googleapiclient.http import MediaIoBaseUpload
 
-        folder_id = self.ensure_folder_path(id_number, received_at)
+        folder_id = self.ensure_folder_path(id_number, received_at, group_config)
         media = MediaIoBaseUpload(
             io.BytesIO(data),
             mimetype=mime_type,
@@ -1644,9 +1647,23 @@ class GoogleDriveMediaStorage:
         file_id = created['id']
         return file_id, created.get('webViewLink') or drive_file_url(file_id)
 
-    def ensure_folder_path(self, id_number: str, received_at: datetime) -> str:
+    def ensure_folder_path(
+        self,
+        id_number: str,
+        received_at: datetime,
+        group_config=None,
+    ) -> str:
         local_time = timezone.localtime(received_at) if timezone.is_aware(received_at) else received_at
+        workflow = getattr(group_config, 'workflow', None) or {}
+        group_folder = (
+            workflow.get('media_root_folder')
+            or getattr(group_config, 'display_name', '')
+            or (getattr(group_config, 'metadata', None) or {}).get('display_name', '')
+            or getattr(group_config, 'group_id', '')
+            or 'Order Approval'
+        )
         parts = [
+            sanitize_folder_name(group_folder),
             str(local_time.year),
             local_time.strftime('%B'),
             f"ID_{sanitize_folder_name(id_number)}",
@@ -1845,10 +1862,10 @@ def build_storage_filename(
         type_prefix = 'FILE'
 
     parts = [
+        storage_filename_date(received_at),
         type_prefix,
         sanitize_filename_element(profile.get('context', '')),
         id_filename_reference(business_key_value),
-        storage_filename_date(received_at),
         file_sequence_suffix(sequence),
         sanitize_filename_element(profile.get('status', '')).upper(),
     ]
@@ -1914,8 +1931,9 @@ def sanitize_filename_element(value: str) -> str:
 
 
 def sanitize_folder_name(value: str) -> str:
-    safe = re.sub(r'[^A-Za-z0-9_.-]+', '_', str(value or '').strip())
-    return safe.strip('_') or 'unknown'
+    ascii_value = str(value or '').encode('ascii', 'ignore').decode('ascii')
+    safe = re.sub(r'[^A-Za-z0-9_. -]+', ' ', ascii_value)
+    return " ".join(safe.split()).strip(' ._-') or 'unknown'
 
 
 def drive_file_url(file_id: str) -> str:

@@ -36,7 +36,8 @@ class GroupConfig:
         self,
         group_id: str,
         sheet_id: str,
-        sheet_name: str = 'Complaints Register',
+        sheet_name: str = '',
+        display_name: str = '',
         enabled: bool = True,
         metadata: Dict[str, Any] = None,
         sheet_schema: Dict[str, Any] = None,
@@ -45,7 +46,8 @@ class GroupConfig:
     ):
         self.group_id = str(group_id)
         self.sheet_id = sheet_id
-        self.sheet_name = sheet_name
+        self.sheet_name = sheet_name or getattr(settings, 'GOOGLE_SHEET_TAB_NAME', '')
+        self.display_name = display_name
         self.enabled = enabled
         self.metadata = metadata or {}
         self.sheet_schema_config = (
@@ -148,8 +150,9 @@ class GroupRegistry:
                     group_id=group_id,
                     sheet_id=config_dict.get('sheet_id', ''),
                     sheet_name=config_dict.get(
-                        'sheet_name', 'Complaints Register'
+                        'sheet_name', ''
                     ),
+                    display_name=config_dict.get('display_name', ''),
                     enabled=config_dict.get('enabled', True),
                     metadata=config_dict.get('metadata', {}),
                     sheet_schema=config_dict.get('sheet_schema', {}),

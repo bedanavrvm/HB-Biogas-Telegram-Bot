@@ -1403,6 +1403,8 @@ class GroupConfigurationServiceTest(TestCase):
             'order_approval_search_tabs': 'Orders',
             'order_approval_match_field': 'id_number',
             'order_approval_media_field': 'media_urls',
+            'order_approval_header_row': '3',
+            'order_approval_media_root_folder': 'BRO Order Approvals',
         })
 
         self.assertTrue(form.is_valid(), form.errors)
@@ -1414,7 +1416,8 @@ class GroupConfigurationServiceTest(TestCase):
                 'search_sheet_names': ['Orders'],
                 'create_sheet_name': 'Orders',
                 'media_field': 'media_urls',
-                'header_row': 2,
+                'header_row': 3,
+                'media_root_folder': 'BRO Order Approvals',
             },
         )
 
@@ -1442,6 +1445,7 @@ class GroupConfigurationServiceTest(TestCase):
             ['Orders'],
         )
         self.assertEqual(workflow['header_row'], 2)
+        self.assertEqual(workflow['media_root_folder'], '')
 
     def test_workflow_preset_overrides_order_approval_tabs(self):
         """Admin can override preset tabs without editing raw JSON."""
@@ -1453,11 +1457,15 @@ class GroupConfigurationServiceTest(TestCase):
                 'search_sheet_names': ['Pending', '190'],
                 'match_field': 'id_number',
                 'media_field': 'media_urls',
+                'header_row': 3,
+                'media_root_folder': 'BRO Order Approvals',
             },
         )
 
         self.assertEqual(workflow['search_sheet_names'], ['Pending', '190'])
         self.assertEqual(workflow['create_sheet_name'], 'Pending')
+        self.assertEqual(workflow['header_row'], 3)
+        self.assertEqual(workflow['media_root_folder'], 'BRO Order Approvals')
 
     def test_workflow_preset_uses_first_overridden_tab_for_order_creation(self):
         """New order approval rows are created in the first configured tab."""
@@ -1566,6 +1574,61 @@ class SheetAnalyzerServiceTest(TestCase):
             result['workflow']['dropdown_values']['status'],
             ['Open', 'In Progress', 'Closed'],
         )
+
+    @patch('core.services.sheet_analyzer.get_sheets_service')
+    def test_analyze_google_sheet_uses_configured_order_header_row(self, mock_service):
+        from core.services.sheet_analyzer import analyze_google_sheet
+
+        service = MagicMock()
+        service.is_available.return_value = True
+        service._sheet_id = 'sheet_123'
+        service._sheet_name = 'Orders'
+        service._api_initialized = False
+        service._sheet.get_all_values.return_value = [
+            ['ORDER APPROVAL FORM'],
+            ['DATE VISITED', 'CUSTOMER NAME', 'ID NUMBER', 'Media URLs'],
+            ['25-May-2026', 'Jane Doe', '113650221', ''],
+        ]
+        service._sheet.get.return_value = [
+            ['DATE VISITED', 'CUSTOMER NAME', 'ID NUMBER', 'Media URLs'],
+            ['25-May-2026', 'Jane Doe', '113650221', ''],
+        ]
+        mock_service.return_value = service
+
+        result = analyze_google_sheet(
+            'sheet_123',
+            'Orders',
+            workflow={'type': 'order_approval', 'header_row': 2},
+        )
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['header_row'], 2)
+        self.assertEqual(result['headers'][2], 'ID NUMBER')
+        self.assertEqual(result['warnings'], [])
+
+    @patch('core.services.sheet_analyzer.get_sheets_service')
+    def test_analyze_google_sheet_custom_workflow_has_no_complaint_warnings(self, mock_service):
+        from core.services.sheet_analyzer import analyze_google_sheet
+
+        service = MagicMock()
+        service.is_available.return_value = True
+        service._sheet_id = 'sheet_123'
+        service._sheet_name = 'Any'
+        service._api_initialized = False
+        service._sheet.get_all_values.return_value = [
+            ['External ID', 'Name', 'Status'],
+            ['A1', 'Jane Doe', 'Open'],
+        ]
+        service._sheet.get.return_value = [
+            ['External ID', 'Name', 'Status'],
+            ['A1', 'Jane Doe', 'Open'],
+        ]
+        mock_service.return_value = service
+
+        result = analyze_google_sheet('sheet_123', 'Any', workflow={})
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['warnings'], [])
 
     def test_apply_analysis_to_config_saves_schema_workflow_and_metadata(self):
         from core.services.sheet_analyzer import apply_analysis_to_config

@@ -9,6 +9,7 @@ from core.services.order_approval import (
     SheetMatch,
     TelegramMediaItem,
     UploadedFileItem,
+    GoogleDriveMediaStorage,
     clean_form_fields,
     collect_order_approval_uploaded_files,
     create_order_approval_form_token,
@@ -690,9 +691,9 @@ class OrderApprovalMediaTest(TestCase):
             for call in storage.upload.call_args_list
         ]
         self.assertEqual(filenames, [
-            'KYC ID-113650221 2026-05-09 01.jpg',
-            'LAF Biogas ID-113650221 2026-05-09 01.pdf',
-            'FILE Biogas ID-113650221 2026-05-09 01.pdf',
+            '2026-05-09 KYC ID-113650221 01.jpg',
+            '2026-05-09 LAF Biogas ID-113650221 01.pdf',
+            '2026-05-09 FILE Biogas ID-113650221 01.pdf',
         ])
 
     @override_settings(MEDIA_MAX_FILE_SIZE_MB=20, MEDIA_STORAGE_PROVIDER='google_drive')
@@ -744,9 +745,63 @@ class OrderApprovalMediaTest(TestCase):
             for call in storage.upload.call_args_list
         ]
         self.assertEqual(filenames, [
-            'KYC ID-113650221 2026-05-09 01.jpg',
-            'KYC ID-113650221 2026-05-09 02.jpg',
+            '2026-05-09 KYC ID-113650221 01.jpg',
+            '2026-05-09 KYC ID-113650221 02.jpg',
         ])
+
+    @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='root_folder')
+    def test_drive_folder_path_uses_group_year_month_and_id_folder(self):
+        storage = GoogleDriveMediaStorage()
+        storage.ensure_child_folder = MagicMock(
+            side_effect=['group_folder', 'year_folder', 'month_folder', 'id_folder']
+        )
+        group_config = MagicMock(
+            display_name='Order Approval Group',
+            group_id='-100222',
+            metadata={},
+            workflow={},
+        )
+
+        folder_id = storage.ensure_folder_path(
+            '113650221',
+            datetime(2026, 5, 9, tzinfo=dt_timezone.utc),
+            group_config,
+        )
+
+        self.assertEqual(folder_id, 'id_folder')
+        self.assertEqual(
+            [call.args for call in storage.ensure_child_folder.call_args_list],
+            [
+                ('root_folder', 'Order Approval Group'),
+                ('group_folder', '2026'),
+                ('year_folder', 'May'),
+                ('month_folder', 'ID_113650221'),
+            ],
+        )
+
+    @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='root_folder')
+    def test_drive_folder_path_can_override_group_folder_from_workflow(self):
+        storage = GoogleDriveMediaStorage()
+        storage.ensure_child_folder = MagicMock(
+            side_effect=['group_folder', 'year_folder', 'month_folder', 'id_folder']
+        )
+        group_config = MagicMock(
+            display_name='Old Group Name',
+            group_id='-100222',
+            metadata={},
+            workflow={'media_root_folder': 'BRO Order Approvals'},
+        )
+
+        storage.ensure_folder_path(
+            '113650221',
+            datetime(2026, 5, 9, tzinfo=dt_timezone.utc),
+            group_config,
+        )
+
+        self.assertEqual(
+            storage.ensure_child_folder.call_args_list[0].args,
+            ('root_folder', 'BRO Order Approvals'),
+        )
 
     @override_settings(MEDIA_MAX_FILE_SIZE_MB=20, MEDIA_STORAGE_PROVIDER='google_drive')
     @patch('core.services.order_approval.GoogleDriveMediaStorage')

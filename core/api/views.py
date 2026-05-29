@@ -54,7 +54,7 @@ def health_check(request):
     """Returns system status and version."""
     return success_response(
         data={
-            'service': 'Biogas Telegram Bot',
+            'service': getattr(settings, 'APP_DISPLAY_NAME', 'Telegram Workflow Bot'),
             'version': '1.0.0',
             'timestamp': timezone.now().isoformat(),
             'database': 'connected',

@@ -11,9 +11,9 @@ MANUAL_PRESET = 'manual'
 
 WORKFLOW_PRESETS = {
     MANUAL_PRESET: {
-        'label': 'Manual JSON / complaint workflow',
-        'description': 'Use advanced JSON fields directly.',
-        'sheet_name': 'Complaints Register',
+        'label': 'Manual JSON / custom workflow',
+        'description': 'Use advanced JSON fields directly for any workflow.',
+        'sheet_name': '',
         'workflow': None,
         'sheet_schema': None,
         'parser_rules': None,
@@ -30,6 +30,7 @@ WORKFLOW_PRESETS = {
             'create_sheet_name': 'Orders',
             'media_field': 'media_urls',
             'header_row': 2,
+            'media_root_folder': '',
         },
         'sheet_schema': {},
         'parser_rules': {},
@@ -50,6 +51,19 @@ WORKFLOW_PRESETS = {
                 'choices': [('media_urls', 'Media URLs')],
                 'initial': 'media_urls',
                 'help_text': 'Column where Google Drive links are appended.',
+            },
+            'header_row': {
+                'label': 'Header row',
+                'initial': 2,
+                'help_text': '1-based row number containing the bot-readable column headers.',
+            },
+            'media_root_folder': {
+                'label': 'Drive group folder',
+                'initial': '',
+                'help_text': (
+                    'Optional folder name under GOOGLE_DRIVE_MEDIA_FOLDER_ID. '
+                    'Leave blank to use the group display name.'
+                ),
             },
         },
     },
@@ -95,6 +109,14 @@ def build_workflow_from_preset(
             workflow['match_field'] = overrides['match_field']
         if overrides.get('media_field'):
             workflow['media_field'] = overrides['media_field']
+        if overrides.get('header_row'):
+            try:
+                workflow['header_row'] = max(int(overrides['header_row']), 1)
+            except (TypeError, ValueError):
+                pass
+        media_root_folder = str(overrides.get('media_root_folder') or '').strip()
+        if media_root_folder:
+            workflow['media_root_folder'] = media_root_folder
 
     return workflow
 

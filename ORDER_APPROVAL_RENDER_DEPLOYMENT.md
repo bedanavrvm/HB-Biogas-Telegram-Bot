@@ -57,6 +57,8 @@ python scripts/create_order_approval_workbook.py --sample-row -o order_approval_
 
 Upload the generated `.xlsx` to Google Drive, open it with Google Sheets, then use that live Google Sheet ID in the group configuration.
 
+Media file naming and Drive folder rules are documented in `ORDER_APPROVAL_MEDIA_NAMING.md`.
+
 ## 2. Render Environment Variables To Update
 
 In Render, open the web service:
@@ -89,7 +91,9 @@ Confirm these existing variables are already set correctly:
 
 ```text
 TELEGRAM_BOT_TOKEN=<bot-token>
-TELEGRAM_BOT_USERNAME=hb_biogas_cases_bot
+TELEGRAM_BOT_USERNAME=<bot-username-without-at>
+TELEGRAM_BOT_DISPLAY_NAME=<bot-display-name>
+APP_DISPLAY_NAME=<app-display-name>
 GOOGLE_SERVICE_ACCOUNT_FILE=<path-to-service-account-json-on-render>
 DATABASE_URL=<render-postgres-url>
 DJANGO_SECRET_KEY=<secret>
@@ -157,20 +161,20 @@ Create a separate Telegram group for order approval updates.
 
 Recommended Telegram setup:
 
-- Add `@hb_biogas_cases_bot` to the group.
+- Add `@<bot_username>` to the group.
 - Make the bot an admin, or disable BotFather group privacy for this bot.
 - In BotFather, set the bot Web App domain to the Render domain if Telegram blocks the button:
 
 ```text
 /setdomain
-hb_biogas_cases_bot
+<bot_username>
 <your-render-service>.onrender.com
 ```
 
 - Ask staff to use:
 
 ```text
-@hb_biogas_cases_bot /order
+@<bot_username> /order
 ```
 
 - The bot replies with an `Open Order Approval Form` button.
@@ -184,7 +188,7 @@ To find the Telegram group ID:
 2. Send a test message tagging the bot:
 
 ```text
-@hb_biogas_cases_bot test group id
+@<bot_username> test group id
 ```
 
 3. Check Render logs for the incoming `chat.id` or an `Unknown group_id` warning.
@@ -236,7 +240,14 @@ Leave these defaults unless the workbook tabs change:
 order_approval_search_tabs: Orders
 order_approval_match_field: ID NUMBER
 order_approval_media_field: Media URLs
+order_approval_header_row: 2
+order_approval_media_root_folder: <optional Drive folder name; blank uses group display name>
 ```
+
+`display_name` is also used as the default Drive group folder under
+`GOOGLE_DRIVE_MEDIA_FOLDER_ID`. If the Telegram group name changes later,
+update `display_name` in admin. If you want Drive to keep a stable folder name
+even when the Telegram group is renamed, set `order_approval_media_root_folder`.
 
 When you save, Django admin generates this `workflow` JSON automatically:
 
@@ -247,7 +258,8 @@ When you save, Django admin generates this `workflow` JSON automatically:
   "search_sheet_names": ["Orders"],
   "create_sheet_name": "Orders",
   "media_field": "media_urls",
-  "header_row": 2
+  "header_row": 2,
+  "media_root_folder": ""
 }
 ```
 
@@ -280,7 +292,8 @@ Add the new group to `GROUP_MAPPING_JSON` without removing existing groups:
       "search_sheet_names": ["Orders"],
       "create_sheet_name": "Orders",
       "media_field": "media_urls",
-      "header_row": 2
+      "header_row": 2,
+      "media_root_folder": "Order Approval Group"
     }
   }
 }
@@ -299,7 +312,7 @@ First test the Telegram Web App form:
 1. Send this in the order approval group:
 
 ```text
-@hb_biogas_cases_bot /order
+@<bot_username> /order
 ```
 
 2. Tap `Open Order Approval Form`.
@@ -319,7 +332,7 @@ Expected:
 Then test the fallback structured chat workflow by sending:
 
 ```text
-@hb_biogas_cases_bot
+@<bot_username>
 ID: 113650221
 DATE VISITED: 09-May-2026
 CUSTOMER NAME: PATRICK MWANGI MAINA

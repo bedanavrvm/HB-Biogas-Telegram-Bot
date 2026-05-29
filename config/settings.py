@@ -140,7 +140,9 @@ if not (BASE_DIR / 'logs').exists():
 # Telegram Bot Configuration
 TELEGRAM_BOT_TOKEN = config('TELEGRAM_BOT_TOKEN', default='')
 TELEGRAM_WEBHOOK_SECRET = config('TELEGRAM_WEBHOOK_SECRET', default='')
-TELEGRAM_BOT_USERNAME = config('TELEGRAM_BOT_USERNAME', default='hb_biogas_cases_bot').lstrip('@')
+TELEGRAM_BOT_USERNAME = config('TELEGRAM_BOT_USERNAME', default='').lstrip('@')
+TELEGRAM_BOT_DISPLAY_NAME = config('TELEGRAM_BOT_DISPLAY_NAME', default='Telegram Bot')
+APP_DISPLAY_NAME = config('APP_DISPLAY_NAME', default='Telegram Workflow Bot')
 APP_BASE_URL = config('APP_BASE_URL', default='').rstrip('/')
 
 # API protection for manual endpoints

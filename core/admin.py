@@ -35,7 +35,7 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
         initial=MANUAL_PRESET,
         help_text=(
             'Select a preset to generate workflow JSON automatically. '
-            'Choose Manual JSON for complaint groups or custom workflows.'
+            'Choose Manual JSON for custom workflows.'
         ),
     )
     order_approval_search_tabs = forms.CharField(
@@ -57,6 +57,19 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
         initial=get_preset('order_approval')['admin_fields']['media_field']['initial'],
         label=get_preset('order_approval')['admin_fields']['media_field']['label'],
         help_text=get_preset('order_approval')['admin_fields']['media_field']['help_text'],
+    )
+    order_approval_header_row = forms.IntegerField(
+        required=False,
+        min_value=1,
+        initial=get_preset('order_approval')['admin_fields']['header_row']['initial'],
+        label=get_preset('order_approval')['admin_fields']['header_row']['label'],
+        help_text=get_preset('order_approval')['admin_fields']['header_row']['help_text'],
+    )
+    order_approval_media_root_folder = forms.CharField(
+        required=False,
+        initial=get_preset('order_approval')['admin_fields']['media_root_folder']['initial'],
+        label=get_preset('order_approval')['admin_fields']['media_root_folder']['label'],
+        help_text=get_preset('order_approval')['admin_fields']['media_root_folder']['help_text'],
     )
 
     class Meta:
@@ -81,6 +94,14 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
             self.fields['order_approval_media_field'].initial = (
                 workflow.get('media_field')
                 or defaults_for_preset('order_approval')['workflow']['media_field']
+            )
+            self.fields['order_approval_header_row'].initial = (
+                workflow.get('header_row')
+                or defaults_for_preset('order_approval')['workflow']['header_row']
+            )
+            self.fields['order_approval_media_root_folder'].initial = (
+                workflow.get('media_root_folder')
+                or defaults_for_preset('order_approval')['workflow'].get('media_root_folder', '')
             )
 
     def clean(self):
@@ -113,6 +134,10 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 'search_sheet_names': self.order_approval_tabs(),
                 'match_field': self.cleaned_data.get('order_approval_match_field'),
                 'media_field': self.cleaned_data.get('order_approval_media_field'),
+                'header_row': self.cleaned_data.get('order_approval_header_row'),
+                'media_root_folder': self.cleaned_data.get(
+                    'order_approval_media_root_folder'
+                ),
             },
         )
 
@@ -231,7 +256,7 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
         ('Spreadsheet Schema', {
             'fields': ('sheet_schema',),
             'description': (
-                'Optional JSON mapping from canonical case fields to this '
+                'Optional JSON mapping from canonical workflow fields to this '
                 'sheet\'s column headers.'
             ),
         }),
@@ -241,6 +266,8 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
                 'order_approval_search_tabs',
                 'order_approval_match_field',
                 'order_approval_media_field',
+                'order_approval_header_row',
+                'order_approval_media_root_folder',
             ),
             'description': (
                 'For the order approval group, select the preset and save. '
@@ -250,8 +277,9 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
         ('Advanced Workflow And Parser Rules', {
             'fields': ('workflow', 'parser_rules'),
             'description': (
-                'Optional per-group workflow and parser settings. Keep empty '
-                'to use the default complaint/status rules.'
+                'Optional per-group workflow and parser settings. Use a '
+                'preset where possible; custom workflows can define their own '
+                'JSON here.'
             ),
             'classes': ('collapse',),
         }),
@@ -309,6 +337,7 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
         analysis = analyze_google_sheet(
             sheet_id=config.sheet_id,
             sheet_name=config.sheet_name,
+            workflow=config.workflow or {},
         )
         if request.method == 'POST' and request.POST.get('action') == 'apply':
             if analysis.get('status') == 'success':

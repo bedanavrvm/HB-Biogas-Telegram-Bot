@@ -7,6 +7,12 @@ from django.db import models
 from django.utils import timezone
 
 
+def bot_display_name() -> str:
+    from django.conf import settings
+
+    return getattr(settings, 'TELEGRAM_BOT_DISPLAY_NAME', 'Telegram Bot')
+
+
 class RawMessage(models.Model):
     """
     Stores original message data for traceability.
@@ -192,7 +198,7 @@ class ParsedMessage(models.Model):
             self.customer_name.upper() if self.customer_name else '',                    # [3] Customer Name (CAPITALIZED)
             self.customer_id,                                                             # [4] Customer ID / Account
             self.customer_phone,                                                          # [5] Phone Number
-            self.sender or 'Telegram Bot',                                                # [6] Reported By (message sender)
+            self.sender or bot_display_name(),                                            # [6] Reported By (message sender)
             self.branch_region,                                                           # [7] Branch / Region
             self.complaint_category,                                                      # [8] Complaint Category
             self.complaint_description,                                                   # [9] Complaint Description
@@ -424,8 +430,9 @@ class GroupSheetConfiguration(models.Model):
     def as_group_config_kwargs(self) -> dict:
         return {
             'group_id': self.group_id,
+            'display_name': self.display_name,
             'sheet_id': self.sheet_id,
-            'sheet_name': self.sheet_name or 'Complaints Register',
+            'sheet_name': self.sheet_name,
             'enabled': self.enabled,
             'metadata': self.metadata or {},
             'sheet_schema': self.sheet_schema or {},
