@@ -458,6 +458,7 @@
       'final_decision'
     ];
     const phoneFieldNames = ['primary_phone', 'secondary_phone'];
+    const uppercaseFieldNames = ['customer_name', 'branch', 'county', 'visited_by', 'hb_staff'];
 
     if (tg) {
       tg.ready();
@@ -538,6 +539,16 @@
       }
     }
 
+    function normalizeUppercaseFields() {
+      for (const name of uppercaseFieldNames) {
+        const input = form.elements[name];
+        if (!input) {
+          continue;
+        }
+        input.value = String(input.value || '').trim().replace(/\s+/g, ' ').toUpperCase();
+      }
+    }
+
     async function loadExistingRecord() {
       if (!idNumberInput.value.trim()) {
         idNumberInput.reportValidity();
@@ -602,10 +613,17 @@
         input.addEventListener('input', () => input.setCustomValidity(''));
       }
     }
+    for (const name of uppercaseFieldNames) {
+      const input = form.elements[name];
+      if (input) {
+        input.addEventListener('blur', normalizeUppercaseFields);
+      }
+    }
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       normalizePhoneFields();
+      normalizeUppercaseFields();
       if (!form.reportValidity()) {
         return;
       }

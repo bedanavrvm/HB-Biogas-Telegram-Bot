@@ -16,6 +16,7 @@ from xml.sax.saxutils import escape
 DEFAULT_OUTPUT = "order_approval_template.xlsx"
 DEFAULT_TABS = ["Orders"]
 TITLE = "ORDER APPROVAL FORM - BUSINESS RELATIONSHIP OFFICER"
+PRE_FORMATTED_ROWS = 200
 
 HEADERS = [
     "ORDER RECORD ID",
@@ -60,6 +61,82 @@ SAMPLE_ROW = [
     "Under Review",
     "",
 ]
+
+STYLE_DEFAULT = 0
+STYLE_TITLE = 1
+STYLE_TITLE_FILL = 2
+STYLE_HEADER_SYSTEM = 3
+STYLE_HEADER_VISIT = 4
+STYLE_HEADER_IDENTITY = 5
+STYLE_HEADER_LOCATION = 6
+STYLE_HEADER_STAFF = 7
+STYLE_HEADER_FINANCIAL = 8
+STYLE_HEADER_ASSESSMENT = 9
+STYLE_HEADER_DECISION = 10
+STYLE_DATA_SYSTEM = 11
+STYLE_DATA_VISIT = 12
+STYLE_DATA_VISIT_DATE = 13
+STYLE_DATA_IDENTITY = 14
+STYLE_DATA_LOCATION = 15
+STYLE_DATA_STAFF = 16
+STYLE_DATA_FINANCIAL = 17
+STYLE_DATA_ASSESSMENT = 18
+STYLE_DATA_DECISION = 19
+
+GROUP_STYLES = {
+    "system": (STYLE_HEADER_SYSTEM, STYLE_DATA_SYSTEM),
+    "visit": (STYLE_HEADER_VISIT, STYLE_DATA_VISIT),
+    "identity": (STYLE_HEADER_IDENTITY, STYLE_DATA_IDENTITY),
+    "location": (STYLE_HEADER_LOCATION, STYLE_DATA_LOCATION),
+    "staff": (STYLE_HEADER_STAFF, STYLE_DATA_STAFF),
+    "financial": (STYLE_HEADER_FINANCIAL, STYLE_DATA_FINANCIAL),
+    "assessment": (STYLE_HEADER_ASSESSMENT, STYLE_DATA_ASSESSMENT),
+    "decision": (STYLE_HEADER_DECISION, STYLE_DATA_DECISION),
+}
+
+HEADER_GROUPS = {
+    "ORDER RECORD ID": "system",
+    "DATE VISITED": "visit",
+    "CUSTOMER NAME": "visit",
+    "BRANCH": "visit",
+    "ID NUMBER": "identity",
+    "CONTACTS / PRIMARY": "identity",
+    "CONTACTS / SECONDARY": "identity",
+    "COUNTY": "location",
+    "LOCATION AND NEAREST LANDMARK": "location",
+    "VISITED BY": "staff",
+    "HB STAFF": "staff",
+    "DEPOSIT / HB": "financial",
+    "DEPOSIT / JBL": "financial",
+    "COMMENT": "assessment",
+    "IS CUSTOMER CREATED ON IMAB?": "assessment",
+    "CUSTOMER NO": "assessment",
+    "CREDIT ANALYSIS": "assessment",
+    "FINAL DECISION": "decision",
+    "Media URLs": "system",
+}
+
+COLUMN_WIDTHS = {
+    "ORDER RECORD ID": 24,
+    "DATE VISITED": 15,
+    "CUSTOMER NAME": 28,
+    "BRANCH": 16,
+    "ID NUMBER": 18,
+    "CONTACTS / PRIMARY": 18,
+    "CONTACTS / SECONDARY": 18,
+    "COUNTY": 18,
+    "LOCATION AND NEAREST LANDMARK": 36,
+    "VISITED BY": 20,
+    "HB STAFF": 20,
+    "DEPOSIT / HB": 14,
+    "DEPOSIT / JBL": 14,
+    "COMMENT": 36,
+    "IS CUSTOMER CREATED ON IMAB?": 24,
+    "CUSTOMER NO": 16,
+    "CREDIT ANALYSIS": 18,
+    "FINAL DECISION": 18,
+    "Media URLs": 42,
+}
 
 
 def main() -> None:
@@ -238,19 +315,73 @@ def workbook_relationships_xml(sheet_names: list[str]) -> str:
 def styles_xml() -> str:
     return """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <fonts count="2">
-    <font><sz val="11"/><name val="Calibri"/></font>
-    <font><b/><sz val="11"/><name val="Calibri"/></font>
+  <numFmts count="1">
+    <numFmt numFmtId="164" formatCode="dd-mmm-yyyy"/>
+  </numFmts>
+  <fonts count="4">
+    <font><sz val="10"/><color theme="1"/><name val="Arial"/></font>
+    <font><b/><sz val="13"/><color rgb="FFFFFFFF"/><name val="Arial"/></font>
+    <font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font>
+    <font><sz val="10"/><color theme="1"/><name val="Arial"/></font>
   </fonts>
-  <fills count="2">
+  <fills count="20">
     <fill><patternFill patternType="none"/></fill>
     <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF0D47A1"/><bgColor rgb="FF0D47A1"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF37474F"/><bgColor rgb="FF37474F"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF1A7744"/><bgColor rgb="FF1A7744"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF1565C0"/><bgColor rgb="FF1565C0"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF6A1B9A"/><bgColor rgb="FF6A1B9A"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF00695C"/><bgColor rgb="FF00695C"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFE65100"/><bgColor rgb="FFE65100"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFB71C1C"/><bgColor rgb="FFB71C1C"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF4A148C"/><bgColor rgb="FF4A148C"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFECEFF1"/><bgColor rgb="FFECEFF1"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFE8F5E9"/><bgColor rgb="FFE8F5E9"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFE3F2FD"/><bgColor rgb="FFE3F2FD"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFF3E5F5"/><bgColor rgb="FFF3E5F5"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFE0F2F1"/><bgColor rgb="FFE0F2F1"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFBE9E7"/><bgColor rgb="FFFBE9E7"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFFEBEE"/><bgColor rgb="FFFFEBEE"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFEDE7F6"/><bgColor rgb="FFEDE7F6"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFFFFFF"/><bgColor rgb="FFFFFFFF"/></patternFill></fill>
   </fills>
-  <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+  <borders count="3">
+    <border><left/><right/><top/><bottom/><diagonal/></border>
+    <border>
+      <left style="thin"><color rgb="FFDDDDDD"/></left>
+      <right style="thin"><color rgb="FFDDDDDD"/></right>
+      <top style="thin"><color rgb="FFDDDDDD"/></top>
+      <bottom style="thin"><color rgb="FFDDDDDD"/></bottom>
+      <diagonal/>
+    </border>
+    <border>
+      <bottom style="medium"><color rgb="FFFFFFFF"/></bottom>
+      <diagonal/>
+    </border>
+  </borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-  <cellXfs count="2">
+  <cellXfs count="20">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
-    <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="2" xfId="0" applyAlignment="1" applyBorder="1" applyFill="1" applyFont="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="2" xfId="0" applyBorder="1" applyFill="1" applyFont="1"/>
+    <xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyAlignment="1" applyBorder="1" applyFill="1" applyFont="1"><alignment horizontal="center" shrinkToFit="1" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="4" borderId="1" xfId="0" applyAlignment="1" applyBorder="1" applyFill="1" applyFont="1"><alignment horizontal="center" shrinkToFit="1" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="5" borderId="1" xfId="0" applyAlignment="1" applyBorder="1" applyFill="1" applyFont="1"><alignment horizontal="center" shrinkToFit="1" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="6" borderId="1" xfId="0" applyAlignment="1" applyBorder="1" applyFill="1" applyFont="1"><alignment horizontal="center" shrinkToFit="1" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="7" borderId="1" xfId="0" applyAlignment="1" applyBorder="1" applyFill="1" applyFont="1"><alignment horizontal="center" shrinkToFit="1" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="8" borderId="1" xfId="0" applyAlignment="1" applyBorder="1" applyFill="1" applyFont="1"><alignment horizontal="center" shrinkToFit="1" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="9" borderId="1" xfId="0" applyAlignment="1" applyBorder="1" applyFill="1" applyFont="1"><alignment horizontal="center" shrinkToFit="1" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="10" borderId="1" xfId="0" applyAlignment="1" applyBorder="1" applyFill="1" applyFont="1"><alignment horizontal="center" shrinkToFit="1" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="3" fillId="11" borderId="1" xfId="0" applyAlignment="1" applyBorder="1" applyFill="1" applyFont="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="3" fillId="12" borderId="1" xfId="0" applyAlignment="1" applyBorder="1" applyFill="1" applyFont="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="164" fontId="3" fillId="12" borderId="1" xfId="0" applyAlignment="1" applyBorder="1" applyFill="1" applyFont="1" applyNumberFormat="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="3" fillId="13" borderId="1" xfId="0" applyAlignment="1" applyBorder="1" applyFill="1" applyFont="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="3" fillId="14" borderId="1" xfId="0" applyAlignment="1" applyBorder="1" applyFill="1" applyFont="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="3" fillId="15" borderId="1" xfId="0" applyAlignment="1" applyBorder="1" applyFill="1" applyFont="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="3" fillId="16" borderId="1" xfId="0" applyAlignment="1" applyBorder="1" applyFill="1" applyFont="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="3" fillId="17" borderId="1" xfId="0" applyAlignment="1" applyBorder="1" applyFill="1" applyFont="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="3" fillId="18" borderId="1" xfId="0" applyAlignment="1" applyBorder="1" applyFill="1" applyFont="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
   </cellXfs>
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>
@@ -259,30 +390,38 @@ def styles_xml() -> str:
 
 def worksheet_xml(sheet_name: str, sample_row: list[str] | None = None) -> str:
     del sheet_name
-    rows = [row_xml(1, [TITLE] + [""] * (len(HEADERS) - 1), style_index=1)]
-    rows.append(row_xml(2, HEADERS, style_index=1))
-    if sample_row:
-        rows.append(row_xml(3, sample_row, style_index=0))
+    rows = [title_row_xml()]
+    rows.append(row_xml(2, HEADERS, style_indexes=header_style_indexes(), height=34))
+
+    first_data_row = 3
+    last_data_row = first_data_row + PRE_FORMATTED_ROWS - 1
+    for row_index in range(first_data_row, last_data_row + 1):
+        values = sample_row if sample_row and row_index == first_data_row else [""] * len(HEADERS)
+        rows.append(row_xml(row_index, values, style_indexes=data_style_indexes(), height=20))
+
+    last_column = column_letter(len(HEADERS))
 
     return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetPr>
+    <tabColor rgb="FF0D47A1"/>
+  </sheetPr>
   <sheetViews>
     <sheetView workbookViewId="0">
-      <pane ySplit="2" topLeftCell="A3" activePane="bottomLeft" state="frozen"/>
+      <pane xSplit="3" ySplit="2" topLeftCell="D3" activePane="bottomRight" state="frozen"/>
+      <selection activeCell="D3" sqref="D3" pane="bottomRight"/>
     </sheetView>
   </sheetViews>
-  <sheetFormatPr defaultRowHeight="15"/>
-  <cols>
-    <col min="1" max="1" width="14" customWidth="1"/>
-    <col min="2" max="2" width="28" customWidth="1"/>
-    <col min="3" max="7" width="18" customWidth="1"/>
-    <col min="8" max="8" width="34" customWidth="1"/>
-    <col min="9" max="20" width="18" customWidth="1"/>
-  </cols>
+  <sheetFormatPr defaultRowHeight="18"/>
+  <cols>{columns_xml()}</cols>
   <sheetData>
     {"".join(rows)}
   </sheetData>
+  <autoFilter ref="A2:{last_column}2"/>
+  <mergeCells count="1"><mergeCell ref="A1:{last_column}1"/></mergeCells>
   {data_validations_xml(HEADERS, first_data_row=3)}
+  <pageMargins left="0.75" right="0.75" top="1" bottom="1" header="0" footer="0"/>
+  <pageSetup orientation="landscape"/>
 </worksheet>
 """
 
@@ -298,6 +437,8 @@ def data_validations_xml(headers: list[str], first_data_row: int, last_data_row:
     validations.extend(decimal_validation(headers, "DEPOSIT / JBL", first_data_row, last_data_row))
     validations.extend(integer_validation(headers, "CUSTOMER NO", first_data_row, last_data_row))
     validations.extend(date_validation(headers, "DATE VISITED", first_data_row, last_data_row))
+    for header in ["CUSTOMER NAME", "BRANCH", "COUNTY", "VISITED BY", "HB STAFF"]:
+        validations.extend(uppercase_validation(headers, header, first_data_row, last_data_row))
     if not validations:
         return ""
     return f'<dataValidations count="{len(validations)}">{"".join(validations)}</dataValidations>'
@@ -361,6 +502,19 @@ def date_validation(headers: list[str], header: str, first_row: int, last_row: i
     ]
 
 
+def uppercase_validation(headers: list[str], header: str, first_row: int, last_row: int) -> list[str]:
+    reference = validation_range(headers, header, first_row, last_row)
+    if not reference:
+        return []
+    cell = reference.split(":", 1)[0]
+    formula = f'OR({cell}="",EXACT({cell},UPPER({cell})))'
+    return [
+        '<dataValidation type="custom" allowBlank="1" showErrorMessage="1" '
+        f'errorTitle="Use uppercase" error="{xml_escape(header)} should be uppercase." sqref="{reference}">'
+        f'<formula1>{xml_escape(formula)}</formula1></dataValidation>'
+    ]
+
+
 def validation_range(headers: list[str], header: str, first_row: int, last_row: int) -> str:
     try:
         column = headers.index(header) + 1
@@ -370,17 +524,65 @@ def validation_range(headers: list[str], header: str, first_row: int, last_row: 
     return f"{letter}{first_row}:{letter}{last_row}"
 
 
-def row_xml(row_index: int, values: list[str], style_index: int = 0) -> str:
+def title_row_xml() -> str:
+    values = [TITLE] + [""] * (len(HEADERS) - 1)
+    styles = [STYLE_TITLE] + [STYLE_TITLE_FILL] * (len(HEADERS) - 1)
+    return row_xml(1, values, style_indexes=styles, height=30)
+
+
+def header_style_indexes() -> list[int]:
+    return [
+        GROUP_STYLES[HEADER_GROUPS.get(header, "system")][0]
+        for header in HEADERS
+    ]
+
+
+def data_style_indexes() -> list[int]:
+    styles = []
+    for header in HEADERS:
+        if header == "DATE VISITED":
+            styles.append(STYLE_DATA_VISIT_DATE)
+            continue
+        styles.append(GROUP_STYLES[HEADER_GROUPS.get(header, "system")][1])
+    return styles
+
+
+def columns_xml() -> str:
+    return "".join(
+        (
+            f'<col min="{index}" max="{index}" '
+            f'width="{COLUMN_WIDTHS.get(header, 18)}" customWidth="1"/>'
+        )
+        for index, header in enumerate(HEADERS, start=1)
+    )
+
+
+def row_xml(
+    row_index: int,
+    values: list[str],
+    style_index: int = STYLE_DEFAULT,
+    style_indexes: list[int] | None = None,
+    height: int | None = None,
+) -> str:
+    if style_indexes is None:
+        style_indexes = [style_index] * len(values)
     cells = "".join(
-        cell_xml(row_index, column_index, value, style_index)
+        cell_xml(row_index, column_index, value, style_indexes[column_index - 1])
         for column_index, value in enumerate(values, start=1)
     )
-    return f'<row r="{row_index}">{cells}</row>'
+    height_attributes = (
+        f' ht="{height}" customHeight="1"'
+        if height is not None
+        else ""
+    )
+    return f'<row r="{row_index}"{height_attributes}>{cells}</row>'
 
 
 def cell_xml(row_index: int, column_index: int, value: str, style_index: int) -> str:
     reference = f"{column_letter(column_index)}{row_index}"
     style = f' s="{style_index}"' if style_index else ""
+    if value == "":
+        return f'<c r="{reference}"{style}/>'
     return (
         f'<c r="{reference}" t="inlineStr"{style}>'
         f"<is><t>{xml_escape(value)}</t></is>"

@@ -111,7 +111,15 @@ DATE_FIELDS = {'date_visited'}
 PHONE_FIELDS = {'primary_phone', 'secondary_phone'}
 MONEY_FIELDS = {'deposit_hb', 'deposit_jbl'}
 INTEGER_FIELDS = {'customer_no'}
+UPPERCASE_FIELDS = {
+    'customer_name',
+    'branch',
+    'county',
+    'visited_by',
+    'hb_staff',
+}
 KENYAN_PHONE_PATTERN = re.compile(r'^254\d{9}$')
+MEDIA_URL_PATTERN = re.compile(r'https?://[^\s]+')
 ORDER_APPROVAL_UPLOAD_FIELDS = [
     ('id_photos', 'id_photo'),
     ('laf_documents', 'laf_doc'),
@@ -799,6 +807,9 @@ def clean_form_fields(
 
 
 def normalize_order_approval_fields(fields: dict[str, str]) -> dict[str, str]:
+    for field in UPPERCASE_FIELDS:
+        if field in fields and str(fields.get(field) or '').strip():
+            fields[field] = collapse_spaces(fields[field]).upper()
     for field in PHONE_FIELDS:
         if field in fields and str(fields.get(field) or '').strip():
             fields[field] = normalize_kenyan_phone(fields[field])
@@ -825,6 +836,10 @@ def normalize_kenyan_phone(value: str) -> str:
 
 def normalize_choice_value(value: str) -> str:
     return " ".join(str(value or '').strip().lower().split())
+
+
+def collapse_spaces(value: str) -> str:
+    return " ".join(str(value or '').strip().split())
 
 
 def validate_order_approval_fields(fields: dict[str, str]) -> list[str]:
@@ -1085,6 +1100,14 @@ def update_order_approval_row(
                 'values': [[value for _, value, _ in group]],
             })
         batch_update_order_ranges(match.service, ranges)
+        media_text = fields_to_write.get(media_field)
+        if media_text:
+            apply_media_links_rich_text(
+                match.service,
+                row_number=match.row_number,
+                column_number=media_index + 1,
+                text=str(media_text),
+            )
     except Exception as exc:
         logger.error("Failed to update order approval row: %s", exc, exc_info=True)
         return {'success': False, 'error': str(exc), 'fields_updated': []}
@@ -1108,6 +1131,65 @@ def batch_update_order_ranges(service, ranges: list[dict]) -> None:
     if not sheet or not hasattr(sheet, 'batch_update'):
         raise RuntimeError('Google Sheets batch update is unavailable.')
     sheet.batch_update(ranges, raw=True)
+
+
+def apply_media_links_rich_text(
+    service,
+    row_number: int,
+    column_number: int,
+    text: str,
+) -> None:
+    """Make multiple URLs in one Google Sheets cell independently clickable."""
+    urls = list(MEDIA_URL_PATTERN.finditer(str(text or '')))
+    if not urls:
+        return
+
+    api = getattr(service, '_sheets_api_service', None)
+    sheet = getattr(service, '_sheet', None)
+    sheet_id = getattr(service, '_sheet_id', None)
+    sheet_tab_id = getattr(sheet, 'id', None)
+    if not api or sheet_tab_id is None or not sheet_id:
+        return
+
+    runs = []
+    for match in urls:
+        url = match.group(0).rstrip('.,;')
+        runs.append({
+            'startIndex': match.start(),
+            'format': {'link': {'uri': url}},
+        })
+        if match.end() < len(text):
+            runs.append({
+                'startIndex': match.end(),
+                'format': {},
+            })
+
+    try:
+        api.spreadsheets().batchUpdate(
+            spreadsheetId=sheet_id,
+            body={
+                'requests': [{
+                    'updateCells': {
+                        'range': {
+                            'sheetId': sheet_tab_id,
+                            'startRowIndex': row_number - 1,
+                            'endRowIndex': row_number,
+                            'startColumnIndex': column_number - 1,
+                            'endColumnIndex': column_number,
+                        },
+                        'rows': [{
+                            'values': [{
+                                'userEnteredValue': {'stringValue': text},
+                                'textFormatRuns': runs,
+                            }],
+                        }],
+                        'fields': 'userEnteredValue,textFormatRuns',
+                    },
+                }],
+            },
+        ).execute()
+    except Exception as exc:
+        logger.warning("Could not apply rich media links: %s", exc, exc_info=True)
 
 
 def create_order_approval_row(
