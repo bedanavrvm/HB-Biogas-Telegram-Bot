@@ -2285,6 +2285,53 @@ class TelegramCommandMenuTest(TestCase):
         self.assertIn('/order', text)
         self.assertIn('/group', text)
 
+    @override_settings(TELEGRAM_BOT_TOKEN='token', API_REQUEST_TIMEOUT=5)
+    @patch('core.management.commands.sync_telegram_commands.requests.post')
+    def test_sync_telegram_commands_updates_migrated_group_id(self, mock_post):
+        failed_response = MagicMock()
+        failed_response.status_code = 400
+        failed_response.text = (
+            '{"ok":false,"error_code":400,'
+            '"description":"Bad Request: group chat was upgraded to a supergroup chat",'
+            '"parameters":{"migrate_to_chat_id":-1003817885962}}'
+        )
+        failed_response.json.return_value = {
+            'ok': False,
+            'error_code': 400,
+            'description': 'Bad Request: group chat was upgraded to a supergroup chat',
+            'parameters': {'migrate_to_chat_id': -1003817885962},
+        }
+        success_response = MagicMock()
+        success_response.status_code = 200
+        success_response.json.return_value = {'ok': True, 'result': True}
+        mock_post.side_effect = [failed_response, success_response]
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-5259879581',
+            display_name='Order group',
+            enabled=True,
+            sheet_id='sheet_order',
+            sheet_name='Orders',
+            workflow={'type': 'order_approval'},
+        )
+
+        output = StringIO()
+        call_command(
+            'sync_telegram_commands',
+            '--group-id=-5259879581',
+            stdout=output,
+        )
+
+        config.refresh_from_db()
+        self.assertEqual(config.group_id, '-1003817885962')
+        self.assertEqual(config.metadata['migrated_from_chat_id'], '-5259879581')
+        payloads = [call.kwargs['json'] for call in mock_post.call_args_list]
+        self.assertEqual(payloads[0]['scope'], {'type': 'chat', 'chat_id': '-5259879581'})
+        self.assertEqual(payloads[1]['scope'], {'type': 'chat', 'chat_id': '-1003817885962'})
+        self.assertIn(
+            'Updated migrated Telegram group -5259879581 -> -1003817885962',
+            output.getvalue(),
+        )
+
 
 @override_settings(TELEGRAM_WEBHOOK_SECRET=None, DEBUG=True)
 class TelegramWebhookViewTest(TestCase):

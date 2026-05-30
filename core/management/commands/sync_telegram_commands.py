@@ -47,7 +47,12 @@ class Command(BaseCommand):
         scopes = []
         if not group_id:
             scopes.extend([
-                ('all_private_chats', {'type': 'all_private_chats'}, private_chat_bot_commands()),
+                (
+                    'all_private_chats',
+                    {'type': 'all_private_chats'},
+                    private_chat_bot_commands(),
+                    None,
+                ),
             ])
 
         queryset = GroupSheetConfiguration.objects.all()
@@ -63,6 +68,7 @@ class Command(BaseCommand):
                 f"chat {config.group_id}",
                 {'type': 'chat', 'chat_id': config.group_id},
                 bot_commands_for_workflow(workflow_type),
+                config,
             ))
 
         if group_id and not scopes:
@@ -81,7 +87,7 @@ class Command(BaseCommand):
                 )
                 self.stdout.write(self.style.SUCCESS("Cleared all_group_chats fallback"))
 
-        for label, scope, commands in scopes:
+        for label, scope, commands, config in scopes:
             if dry_run:
                 command_names = ', '.join(f"/{item['command']}" for item in commands)
                 self.stdout.write(f"Would sync {label}: {command_names}")
@@ -92,6 +98,7 @@ class Command(BaseCommand):
                 commands=commands,
                 timeout=options['timeout'],
                 label=label,
+                config=config,
             )
             self.stdout.write(self.style.SUCCESS(f"Synced {label}"))
 
@@ -103,7 +110,15 @@ class Command(BaseCommand):
         )
         self._validate_response(response, label, 'deleteMyCommands')
 
-    def _set_commands(self, token: str, scope: dict, commands: list[dict], timeout: int, label: str) -> None:
+    def _set_commands(
+        self,
+        token: str,
+        scope: dict,
+        commands: list[dict],
+        timeout: int,
+        label: str,
+        config: GroupSheetConfiguration | None = None,
+    ) -> None:
         response = requests.post(
             f'https://api.telegram.org/bot{token}/setMyCommands',
             json={
@@ -112,7 +127,69 @@ class Command(BaseCommand):
             },
             timeout=timeout,
         )
+        migrated_chat_id = self._migrated_chat_id(response)
+        if migrated_chat_id and config and scope.get('type') == 'chat':
+            old_group_id = str(config.group_id)
+            new_group_id = str(migrated_chat_id)
+            if not self._apply_migrated_chat_id(config, new_group_id):
+                return
+            self.stdout.write(
+                self.style.WARNING(
+                    f"Updated migrated Telegram group {old_group_id} -> {new_group_id}"
+                )
+            )
+            scope = {**scope, 'chat_id': new_group_id}
+            response = requests.post(
+                f'https://api.telegram.org/bot{token}/setMyCommands',
+                json={
+                    'scope': scope,
+                    'commands': commands,
+                },
+                timeout=timeout,
+            )
         self._validate_response(response, label, 'setMyCommands')
+
+    def _migrated_chat_id(self, response) -> str:
+        if response.status_code != 400:
+            return ''
+        try:
+            payload = response.json()
+        except ValueError:
+            return ''
+        value = (payload.get('parameters') or {}).get('migrate_to_chat_id')
+        return str(value) if value else ''
+
+    def _apply_migrated_chat_id(self, config: GroupSheetConfiguration, new_group_id: str) -> bool:
+        if str(config.group_id) == new_group_id:
+            return False
+
+        existing = (
+            GroupSheetConfiguration.objects
+            .filter(group_id=new_group_id)
+            .exclude(pk=config.pk)
+            .first()
+        )
+        metadata = dict(config.metadata or {})
+        metadata['migrated_from_chat_id'] = str(config.group_id)
+        metadata['migrated_to_chat_id'] = new_group_id
+        if existing:
+            metadata['migration_conflict_config_id'] = existing.pk
+            config.enabled = False
+            config.metadata = metadata
+            config.save(update_fields=['enabled', 'metadata', 'updated_at'])
+            self.stdout.write(
+                self.style.WARNING(
+                    f"Telegram group {config.group_id} migrated to {new_group_id}, "
+                    f"but that group is already configured as row {existing.pk}. "
+                    "Disabled the stale row."
+                )
+            )
+            return False
+
+        config.group_id = new_group_id
+        config.metadata = metadata
+        config.save(update_fields=['group_id', 'metadata', 'updated_at'])
+        return True
 
     def _validate_response(self, response, label: str, method: str) -> None:
         if response.status_code >= 400:
