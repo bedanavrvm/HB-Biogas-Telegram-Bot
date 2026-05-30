@@ -103,29 +103,36 @@ def analyze_google_sheet(
     worksheet_titles, worksheet_error = list_google_sheet_worksheets(sheet_id)
     service = get_sheets_service(sheet_id=sheet_id, sheet_name=sheet_name)
     if not service.is_available():
-        return {
-            'status': 'error',
-            'error': 'Google Sheets service unavailable or sheet not accessible.',
-            'worksheet_titles': worksheet_titles,
-            'worksheet_error': worksheet_error,
-        }
+        return _error_analysis(
+            'Google Sheets service unavailable or sheet not accessible.',
+            sheet_id=sheet_id,
+            sheet_name=sheet_name,
+            header_row=header_row,
+            worksheet_titles=worksheet_titles,
+            worksheet_error=worksheet_error,
+        )
 
     values = service._sheet.get_all_values()
     if not values:
-        return {
-            'status': 'error',
-            'error': 'The selected worksheet is empty.',
-            'worksheet_titles': worksheet_titles,
-            'worksheet_error': worksheet_error,
-        }
+        return _error_analysis(
+            'The selected worksheet is empty.',
+            sheet_id=sheet_id,
+            sheet_name=sheet_name or getattr(service, '_sheet_name', ''),
+            header_row=header_row,
+            worksheet_titles=worksheet_titles,
+            worksheet_error=worksheet_error,
+        )
 
     if len(values) < header_row:
-        return {
-            'status': 'error',
-            'error': f'The selected worksheet has no header row at row {header_row}.',
-            'worksheet_titles': worksheet_titles,
-            'worksheet_error': worksheet_error,
-        }
+        return _error_analysis(
+            f'The selected worksheet has no header row at row {header_row}.',
+            sheet_id=sheet_id,
+            sheet_name=sheet_name or getattr(service, '_sheet_name', ''),
+            header_row=header_row,
+            worksheet_titles=worksheet_titles,
+            worksheet_error=worksheet_error,
+            physical_row_count=len(values),
+        )
 
     headers = [str(header or '').strip() for header in values[header_row - 1]]
     rows = values[header_row:header_row + sample_size]
@@ -170,6 +177,36 @@ def analyze_google_sheet(
         'suggested_schema': suggested_schema,
         'workflow': suggested_workflow,
         'warnings': warnings,
+    }
+
+
+def _error_analysis(
+    error: str,
+    *,
+    sheet_id: str,
+    sheet_name: str,
+    header_row: int,
+    worksheet_titles: list[str] | None = None,
+    worksheet_error: str = '',
+    physical_row_count: int = 0,
+) -> dict:
+    """Return a complete analysis-shaped error so admin templates stay safe."""
+    return {
+        'status': 'error',
+        'error': error,
+        'sheet_id': sheet_id,
+        'sheet_name': sheet_name,
+        'worksheet_titles': worksheet_titles or [],
+        'worksheet_error': worksheet_error,
+        'row_count': max(physical_row_count - 1, 0),
+        'header_row': header_row,
+        'data_row_count': max(physical_row_count - header_row, 0),
+        'sample_size': 0,
+        'headers': [],
+        'columns': [],
+        'suggested_schema': {},
+        'workflow': {},
+        'warnings': [],
     }
 
 

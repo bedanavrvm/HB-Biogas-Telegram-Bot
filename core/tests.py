@@ -1575,6 +1575,36 @@ class SheetAnalyzerServiceTest(TestCase):
             ['Open', 'In Progress', 'Closed'],
         )
 
+    @patch('core.services.sheet_analyzer.list_google_sheet_worksheets')
+    @patch('core.services.sheet_analyzer.get_sheets_service')
+    def test_analyze_google_sheet_unavailable_result_has_template_defaults(
+        self,
+        mock_service,
+        mock_worksheets,
+    ):
+        from core.services.sheet_analyzer import analyze_google_sheet
+
+        service = MagicMock()
+        service.is_available.return_value = False
+        mock_service.return_value = service
+        mock_worksheets.return_value = (['Orders'], '')
+
+        result = analyze_google_sheet(
+            'sheet_123',
+            'Orders',
+            workflow={'header_row': 2},
+        )
+
+        self.assertEqual(result['status'], 'error')
+        self.assertEqual(result['worksheet_titles'], ['Orders'])
+        self.assertEqual(result['row_count'], 0)
+        self.assertEqual(result['data_row_count'], 0)
+        self.assertEqual(result['header_row'], 2)
+        self.assertEqual(result['sample_size'], 0)
+        self.assertEqual(result['headers'], [])
+        self.assertEqual(result['columns'], [])
+        self.assertEqual(result['warnings'], [])
+
     @patch('core.services.sheet_analyzer.get_sheets_service')
     def test_analyze_google_sheet_uses_configured_order_header_row(self, mock_service):
         from core.services.sheet_analyzer import analyze_google_sheet
