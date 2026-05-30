@@ -56,6 +56,11 @@ To create a fresh blank workbook template in the expected one-sheet format, run:
 python scripts/create_order_approval_workbook.py -o order_approval_template.xlsx
 ```
 
+The generated template includes an `Orders` tab and a visible
+`Dropdown Options` tab. Staff can manually add dropdown choices for `BRANCH`,
+`COUNTY`, `VISITED BY`, and `HB STAFF` in that options tab. The template also
+includes data type validation and final-decision row highlighting.
+
 For a template that includes one example row in `Orders`, run:
 
 ```bash
@@ -325,7 +330,7 @@ Expected bot reply:
 OK. Order Approval updated.
 ID: 113650221
 Customer: PATRICK MWANGI MAINA
-Changed: D ID NUMBER confirmed; E CONTACTS / PRIMARY updated; R Media URLs appended
+Changed: E ID NUMBER confirmed; F CONTACTS / PRIMARY updated; S Media URLs appended
 Files stored: 0
 ```
 

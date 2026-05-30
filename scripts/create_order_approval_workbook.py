@@ -15,6 +15,7 @@ from xml.sax.saxutils import escape
 
 DEFAULT_OUTPUT = "order_approval_template.xlsx"
 DEFAULT_TABS = ["Orders"]
+OPTIONS_SHEET_NAME = "Dropdown Options"
 TITLE = "ORDER APPROVAL FORM - BUSINESS RELATIONSHIP OFFICER"
 PRE_FORMATTED_ROWS = 200
 
@@ -46,7 +47,7 @@ SAMPLE_ROW = [
     "PATRICK MWANGI MAINA",
     "MURANGA",
     "113650221",
-    "0740614990",
+    "254740614990",
     "",
     "MURANGA",
     "GITURI NEAR KAGANDA CENTRE",
@@ -60,6 +61,12 @@ SAMPLE_ROW = [
     "Pending",
     "Under Review",
     "",
+]
+
+OPTIONS_HEADERS = ["Branch", "County", "Visited By", "HB Staff"]
+OPTIONS_SAMPLE_ROWS = [
+    ["MURANGA", "MURANGA", "JOHN", "THOMAS"],
+    ["EMBU", "EMBU", "KIBINGE", ""],
 ]
 
 STYLE_DEFAULT = 0
@@ -193,21 +200,42 @@ def create_workbook(
     include_sample_row: bool = False,
 ) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
+    order_sheet_names = [
+        name for name in sheet_names
+        if name.lower() != OPTIONS_SHEET_NAME.lower()
+    ]
+    if not order_sheet_names:
+        raise SystemExit(f"At least one worksheet tab other than {OPTIONS_SHEET_NAME!r} is required.")
+    workbook_sheets = workbook_sheet_names(sheet_names)
+    options_sheet_index = len(workbook_sheets)
 
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr("[Content_Types].xml", content_types_xml(len(sheet_names)))
+        archive.writestr("[Content_Types].xml", content_types_xml(len(workbook_sheets)))
         archive.writestr("_rels/.rels", root_relationships_xml())
-        archive.writestr("docProps/app.xml", app_properties_xml(sheet_names))
+        archive.writestr("docProps/app.xml", app_properties_xml(workbook_sheets))
         archive.writestr("docProps/core.xml", core_properties_xml())
-        archive.writestr("xl/workbook.xml", workbook_xml(sheet_names))
-        archive.writestr("xl/_rels/workbook.xml.rels", workbook_relationships_xml(sheet_names))
+        archive.writestr("xl/workbook.xml", workbook_xml(workbook_sheets))
+        archive.writestr("xl/_rels/workbook.xml.rels", workbook_relationships_xml(workbook_sheets))
         archive.writestr("xl/styles.xml", styles_xml())
-        for index, sheet_name in enumerate(sheet_names, start=1):
+        for index, sheet_name in enumerate(order_sheet_names, start=1):
             sample = SAMPLE_ROW if include_sample_row and index == 1 else None
             archive.writestr(
                 f"xl/worksheets/sheet{index}.xml",
                 worksheet_xml(sheet_name, sample),
             )
+        archive.writestr(
+            f"xl/worksheets/sheet{options_sheet_index}.xml",
+            options_worksheet_xml(),
+        )
+
+
+def workbook_sheet_names(sheet_names: list[str]) -> list[str]:
+    names = [
+        name for name in sheet_names
+        if name.lower() != OPTIONS_SHEET_NAME.lower()
+    ]
+    names.append(OPTIONS_SHEET_NAME)
+    return names
 
 
 def content_types_xml(sheet_count: int) -> str:
@@ -384,6 +412,12 @@ def styles_xml() -> str:
     <xf numFmtId="0" fontId="3" fillId="18" borderId="1" xfId="0" applyAlignment="1" applyBorder="1" applyFill="1" applyFont="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
   </cellXfs>
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+  <dxfs count="4">
+    <dxf><font><color rgb="FF1B5E20"/></font><fill><patternFill patternType="solid"><fgColor rgb="FFE8F5E9"/><bgColor rgb="FFE8F5E9"/></patternFill></fill></dxf>
+    <dxf><font><color rgb="FFB71C1C"/></font><fill><patternFill patternType="solid"><fgColor rgb="FFFFEBEE"/><bgColor rgb="FFFFEBEE"/></patternFill></fill></dxf>
+    <dxf><font><color rgb="FFE65100"/></font><fill><patternFill patternType="solid"><fgColor rgb="FFFFF8E1"/><bgColor rgb="FFFFF8E1"/></patternFill></fill></dxf>
+    <dxf><font><color rgb="FF0D47A1"/></font><fill><patternFill patternType="solid"><fgColor rgb="FFE3F2FD"/><bgColor rgb="FFE3F2FD"/></patternFill></fill></dxf>
+  </dxfs>
 </styleSheet>
 """
 
@@ -419,6 +453,7 @@ def worksheet_xml(sheet_name: str, sample_row: list[str] | None = None) -> str:
   </sheetData>
   <autoFilter ref="A2:{last_column}2"/>
   <mergeCells count="1"><mergeCell ref="A1:{last_column}1"/></mergeCells>
+  {conditional_formatting_xml(first_data_row, last_data_row, last_column)}
   {data_validations_xml(HEADERS, first_data_row=3)}
   <pageMargins left="0.75" right="0.75" top="1" bottom="1" header="0" footer="0"/>
   <pageSetup orientation="landscape"/>
@@ -426,8 +461,57 @@ def worksheet_xml(sheet_name: str, sample_row: list[str] | None = None) -> str:
 """
 
 
+def options_worksheet_xml() -> str:
+    rows = [
+        row_xml(1, OPTIONS_HEADERS, style_indexes=[STYLE_HEADER_SYSTEM] * len(OPTIONS_HEADERS), height=24)
+    ]
+    for row_index, values in enumerate(OPTIONS_SAMPLE_ROWS, start=2):
+        rows.append(row_xml(row_index, values, style_indexes=[STYLE_DATA_SYSTEM] * len(OPTIONS_HEADERS), height=20))
+
+    return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetPr><tabColor rgb="FF37474F"/></sheetPr>
+  <sheetViews>
+    <sheetView workbookViewId="0">
+      <pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>
+    </sheetView>
+  </sheetViews>
+  <sheetFormatPr defaultRowHeight="18"/>
+  <cols>
+    <col min="1" max="4" width="22" customWidth="1"/>
+  </cols>
+  <sheetData>{"".join(rows)}</sheetData>
+  <autoFilter ref="A1:D1"/>
+</worksheet>
+"""
+
+
+def conditional_formatting_xml(first_row: int, last_row: int, last_column: str) -> str:
+    decision_col = column_letter(HEADERS.index("FINAL DECISION") + 1)
+    sqref = f"A{first_row}:{last_column}{last_row}"
+    decisions = [
+        ("Approved", 0, 1),
+        ("Rejected", 1, 2),
+        ("Hold", 2, 3),
+        ("Under Review", 3, 4),
+    ]
+    rules = "".join(
+        (
+            f'<cfRule type="expression" dxfId="{dxf_id}" priority="{priority}">'
+            f'<formula>${decision_col}{first_row}="{xml_escape(decision)}"</formula>'
+            '</cfRule>'
+        )
+        for decision, dxf_id, priority in decisions
+    )
+    return f'<conditionalFormatting sqref="{sqref}">{rules}</conditionalFormatting>'
+
+
 def data_validations_xml(headers: list[str], first_data_row: int, last_data_row: int = 1000) -> str:
     validations = []
+    validations.extend(options_range_validation(headers, "BRANCH", 1, first_data_row, last_data_row))
+    validations.extend(options_range_validation(headers, "COUNTY", 2, first_data_row, last_data_row))
+    validations.extend(options_range_validation(headers, "VISITED BY", 3, first_data_row, last_data_row))
+    validations.extend(options_range_validation(headers, "HB STAFF", 4, first_data_row, last_data_row))
     validations.extend(dropdown_validation(headers, "IS CUSTOMER CREATED ON IMAB?", ["Yes", "No", "Pending"], first_data_row, last_data_row))
     validations.extend(dropdown_validation(headers, "CREDIT ANALYSIS", ["Pass", "Fail", "Pending", "N/A"], first_data_row, last_data_row))
     validations.extend(dropdown_validation(headers, "FINAL DECISION", ["Approved", "Rejected", "Hold", "Under Review"], first_data_row, last_data_row))
@@ -453,6 +537,24 @@ def dropdown_validation(headers: list[str], header: str, values: list[str], firs
         '<dataValidation type="list" allowBlank="1" showErrorMessage="1" '
         f'errorTitle="Invalid value" error="Choose one of: {xml_escape(", ".join(values))}." sqref="{reference}">'
         f'<formula1>{xml_escape(formula)}</formula1></dataValidation>'
+    ]
+
+
+def options_range_validation(
+    headers: list[str],
+    header: str,
+    options_column: int,
+    first_row: int,
+    last_row: int,
+) -> list[str]:
+    reference = validation_range(headers, header, first_row, last_row)
+    if not reference:
+        return []
+    options_col = column_letter(options_column)
+    formula = f"'{OPTIONS_SHEET_NAME}'!${options_col}$2:${options_col}$500"
+    return [
+        '<dataValidation type="list" allowBlank="1" showErrorMessage="0" '
+        f'sqref="{reference}"><formula1>{xml_escape(formula)}</formula1></dataValidation>'
     ]
 
 
