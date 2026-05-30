@@ -27,18 +27,22 @@ UX, validation, notifications, and reporting inside Google Sheets.
 2. Go to `Extensions > Apps Script`.
 3. Create or replace the script file with the contents of:
    `order_approval_apps_script.gs`
-4. Save the project.
-5. Reload the Google Sheet.
-6. Use the new `Orders` menu.
-7. Run `Orders > Create/update Staff tab`.
-8. Replace the sample staff rows with real staff names and emails.
-9. Run `Orders > Apply validation + formatting`.
+4. In `CFG.OWNER_EMAILS`, optionally add the sheet owner/IT email(s), for
+   example `OWNER_EMAILS: ['it@example.com']`. This is useful on first setup
+   because Apps Script may not know the Drive owner until authorization is
+   granted.
+5. Save the project.
+6. Reload the Google Sheet.
+7. Use the new `Orders` menu.
+8. Run `Orders > Setup order sheet support`.
+9. Replace the sample staff rows with real staff names and emails.
 10. Add your Branch, County, Visited By, and HB Staff options in the
    `Dropdown Options` tab.
-11. Optional: fill `Editable Columns`, add the Render Google service account as
+11. Run `Orders > Validate Staff tab`.
+12. Optional: fill `Editable Columns`, add the Render Google service account as
    an active `IT` row with `Editable Columns=All`, then run
    `Orders > Apply Staff permissions`.
-12. Run `Orders > Install daily triggers`.
+13. Run `Orders > Install daily triggers`.
 
 Google will ask for permissions the first time menu actions send emails,
 create triggers, or modify protections.
@@ -70,6 +74,21 @@ CREDIT ANALYSIS | FINAL DECISION | Media URLs
 The main columns are defined in `CFG.C` inside the script. If the sheet layout
 changes, update those column numbers before using the script.
 
+## Menu Access
+
+The `Orders` menu is restricted to:
+
+- the Google Drive owner of the spreadsheet
+- emails listed in `CFG.OWNER_EMAILS`
+- active Staff rows where `Role` is `IT` or `All`
+
+Non-admin users should not see the menu. If they manually run a menu function
+from Apps Script, the function also checks access and exits.
+
+For first setup, add the owner or IT email to `CFG.OWNER_EMAILS` if the menu
+does not appear after reloading the sheet. After the Staff tab is configured,
+active `IT` rows can access the menu without editing the script allowlist.
+
 ## Staff Tab
 
 The script reads notification recipients from a tab named:
@@ -86,7 +105,7 @@ Columns:
 |---|---|
 | `Name` | Staff name. Used to match `VISITED BY` for BRO notifications. |
 | `Email` | Email address to notify. |
-| `Role` | `BRO`, `Manager`, `Back-office`, or `All`. |
+| `Role` | `BRO`, `Manager`, `Back-office`, `IT`, or `All`. |
 | `Branch` | Branch name, or `All`. |
 | `Notify On` | Comma-separated events. |
 | `Editable Columns` | Optional comma-separated edit permission tokens. |
@@ -165,9 +184,13 @@ The `Orders` menu contains:
 | Apply validation + formatting | `applyOrderValidationAndFormatting` | Applies dropdowns, type validation, and final-decision row colours. |
 | Repair media links | `repairMediaLinks` | Makes multiple URLs in `Media URLs` independently clickable. |
 | Refresh dashboard | `buildDashboard` | Rebuilds the dashboard sheet. |
+| Setup order sheet support | `setupOrderSheetSupport` | Creates support tabs and applies validation/formatting. |
 | Create/update Staff tab | `ensureStaffSheet` | Creates or repairs the Staff tab headers. |
+| Validate Staff tab | `validateStaffSheetSetup` | Checks Staff rows for setup issues. |
+| Show Staff tab | `showStaffSheet` | Opens the Staff tab. |
 | Protect bot columns | `protectBotCols` | Protects bot-managed columns. |
 | Apply Staff permissions | `applyStaffPermissions` | Applies column edit protections from `Staff.Editable Columns`. |
+| Remove order protections | `removeOrderProtections` | Removes order approval range protections. |
 | Install daily triggers | `installTriggers` | Installs stale scan and dashboard refresh triggers. |
 
 ## Function Reference
@@ -202,7 +225,7 @@ Main edit hook for the `Orders` tab. It:
 - fills missing `DATE VISITED`
 - checks duplicate ID numbers
 - normalises phone numbers
-- title-cases customer names
+- uppercases customer name, branch, county, visited by, and HB staff
 - colours rows by final decision
 - sends decision notifications
 
@@ -218,9 +241,9 @@ Warns when the same `ID NUMBER` exists in another row.
 
 Normalises manually typed Kenyan phone numbers.
 
-`titleCase(sh, row, col)`
+`upperCaseText(sh, row, col)`
 
-Converts customer names to Title Case.
+Converts operational name fields to uppercase.
 
 `colourRow(sh, row)`
 
@@ -281,9 +304,33 @@ clickable even when several links are stored in one cell.
 
 ### Staff Directory
 
+`setupOrderSheetSupport()`
+
+Runs the practical first-time setup path: creates/repairs `Staff`, creates/
+repairs `Dropdown Options`, applies order validation/formatting, and shows a
+Staff setup summary.
+
 `ensureStaffSheet()`
 
 Creates or repairs the `Staff` tab and inserts inactive sample rows if empty.
+If it finds the older six-column Staff layout, it migrates the old `Active`
+column into the new location and fills `Editable Columns` from each row's role.
+
+`validateStaffSheetSetup()`
+
+Checks the Staff tab for missing tabs, invalid active emails, unknown roles,
+blank active `Editable Columns`, invalid editable-column tokens, and missing
+full-access rows.
+
+`showStaffSheet()`
+
+Opens the Staff tab from the menu.
+
+`removeOrderProtections()`
+
+Removes range protections created by `Protect bot columns` and
+`Apply Staff permissions`. This is the recovery action if permissions are
+misconfigured.
 
 `applyStaffPermissions()`
 

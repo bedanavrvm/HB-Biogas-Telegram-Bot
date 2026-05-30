@@ -65,6 +65,8 @@ const CFG = {
   OPTIONS_TAB: 'Dropdown Options',
   STAFF_HEADERS: ['Name', 'Email', 'Role', 'Branch', 'Notify On', 'Editable Columns', 'Active'],
   OPTION_HEADERS: ['Branch', 'County', 'Visited By', 'HB Staff'],
+  /* Optional bootstrap/admin allowlist. Fill this if the menu does not appear before authorization. */
+  OWNER_EMAILS: [],
   STAFF: {
     NAME:             1,
     EMAIL:            2,
@@ -94,6 +96,8 @@ const CFG = {
 
 /** onOpen: build the custom menu. */
 function onOpen() {
+  if (!isOrderAdminUser_()) return;
+
   SpreadsheetApp.getUi()
     .createMenu('Orders')
     .addItem('Search by ID / Name / Phone', 'showSearch')
@@ -107,12 +111,72 @@ function onOpen() {
     .addSeparator()
     .addItem('Refresh dashboard', 'buildDashboard')
     .addSeparator()
+    .addItem('Setup order sheet support', 'setupOrderSheetSupport')
     .addItem('Create/update Staff tab', 'ensureStaffSheet')
+    .addItem('Validate Staff tab', 'validateStaffSheetSetup')
+    .addItem('Show Staff tab', 'showStaffSheet')
     .addSeparator()
     .addItem('Protect bot columns', 'protectBotCols')
     .addItem('Apply Staff permissions', 'applyStaffPermissions')
+    .addItem('Remove order protections', 'removeOrderProtections')
     .addItem('Install daily triggers', 'installTriggers')
     .addToUi();
+}
+
+function requireOrderAdmin_(showAlert) {
+  if (isOrderAdminUser_()) return true;
+  if (showAlert !== false) {
+    try {
+      SpreadsheetApp.getUi().alert(
+        'Access denied.\n\n' +
+        'Only the sheet owner or active IT staff can use the Orders menu.'
+      );
+    } catch (err) {
+      Logger.log('Access denied: only sheet owner or active IT staff can use this action.');
+    }
+  }
+  return false;
+}
+
+function isOrderAdminUser_() {
+  const email = currentUserEmail_();
+  if (!email) return false;
+  if (CFG.OWNER_EMAILS.map(normalizeStaffToken).includes(normalizeStaffToken(email))) {
+    return true;
+  }
+  if (normalizeStaffToken(email) === normalizeStaffToken(spreadsheetOwnerEmail_())) {
+    return true;
+  }
+  return activeStaffUserHasRole_(email, ['it', 'all']);
+}
+
+function currentUserEmail_() {
+  const candidates = [];
+  try { candidates.push(Session.getActiveUser().getEmail()); } catch (err) {}
+  try { candidates.push(Session.getEffectiveUser().getEmail()); } catch (err) {}
+  return String(candidates.find(email => String(email || '').trim()) || '').trim();
+}
+
+function spreadsheetOwnerEmail_() {
+  try {
+    return DriveApp.getFileById(SpreadsheetApp.getActive().getId()).getOwner().getEmail();
+  } catch (err) {
+    return '';
+  }
+}
+
+function activeStaffUserHasRole_(email, allowedRoles) {
+  const sh = SpreadsheetApp.getActive().getSheetByName(CFG.STAFF_TAB);
+  if (!sh || sh.getLastRow() < 2) return false;
+  const targetEmail = normalizeStaffToken(email);
+  const roles = (allowedRoles || []).map(normalizeStaffToken);
+  const rows = sh.getRange(2, 1, sh.getLastRow() - 1, CFG.STAFF_HEADERS.length).getValues();
+  return rows.some(row => {
+    const active = normalizeStaffToken(row[CFG.STAFF.ACTIVE - 1]) === 'yes';
+    const staffEmail = normalizeStaffToken(row[CFG.STAFF.EMAIL - 1]);
+    const role = normalizeStaffToken(row[CFG.STAFF.ROLE - 1]);
+    return active && staffEmail === targetEmail && roles.includes(role);
+  });
 }
 
 /**
@@ -155,6 +219,7 @@ function onEdit(e) {
 
 /** Install time-based triggers (run once from the menu). */
 function installTriggers() {
+  if (!requireOrderAdmin_()) return;
   ScriptApp.getProjectTriggers().forEach(t => ScriptApp.deleteTrigger(t));
   const ss = SpreadsheetApp.getActive();
 
@@ -240,6 +305,7 @@ function upperCaseText(sh, row, col) {
  * Required: DATE VISITED, CUSTOMER NAME, ID NUMBER, PRIMARY CONTACT, COUNTY.
  */
 function validateRequired() {
+  if (!requireOrderAdmin_()) return;
   const sh   = SpreadsheetApp.getActive().getSheetByName(CFG.TAB);
   const last = sh.getLastRow();
   if (last < CFG.DATA_ROW) { SpreadsheetApp.getUi().alert('No data yet.'); return; }
@@ -270,7 +336,9 @@ function validateRequired() {
  * Apply dropdowns, data type validation and final-decision conditional colours.
  * Staff maintain Branch/County/Visited By/HB Staff choices in Dropdown Options.
  */
-function applyOrderValidationAndFormatting() {
+function applyOrderValidationAndFormatting(showAlert) {
+  if (!requireOrderAdmin_()) return;
+  showAlert = showAlert !== false;
   const ss = SpreadsheetApp.getActive();
   const sh = ss.getSheetByName(CFG.TAB);
   if (!sh) {
@@ -281,10 +349,12 @@ function applyOrderValidationAndFormatting() {
   const optionsSheet = ensureDropdownOptionsSheet();
   applyOrderDataValidation(sh, optionsSheet);
   applyDecisionConditionalFormatting(sh);
-  SpreadsheetApp.getUi().alert(
-    'Validation and conditional formatting applied.\n\n' +
-    'Add or edit dropdown values in the "' + CFG.OPTIONS_TAB + '" tab.'
-  );
+  if (showAlert) {
+    SpreadsheetApp.getUi().alert(
+      'Validation and conditional formatting applied.\n\n' +
+      'Add or edit dropdown values in the "' + CFG.OPTIONS_TAB + '" tab.'
+    );
+  }
 }
 
 function ensureDropdownOptionsSheet() {
@@ -392,6 +462,7 @@ function applyDecisionConditionalFormatting(sh) {
 }
 
 function repairMediaLinks() {
+  if (!requireOrderAdmin_()) return;
   const sh = SpreadsheetApp.getActive().getSheetByName(CFG.TAB);
   if (!sh) {
     SpreadsheetApp.getUi().alert('Orders sheet not found: ' + CFG.TAB);
@@ -416,6 +487,19 @@ function repairMediaLinks() {
   });
 
   SpreadsheetApp.getUi().alert('Repaired media links in ' + repaired + ' cell(s).');
+}
+
+function setupOrderSheetSupport() {
+  if (!requireOrderAdmin_()) return;
+  ensureStaffSheet(false);
+  ensureDropdownOptionsSheet();
+  applyOrderValidationAndFormatting(false);
+  const result = validateStaffSheetSetup_(false);
+  SpreadsheetApp.getUi().alert(
+    'Order sheet support setup complete.\n\n' +
+    staffValidationSummaryText(result) + '\n\n' +
+    'Next: review Staff and Dropdown Options, then run Apply Staff permissions if you want strict edit controls.'
+  );
 }
 
 function richTextWithLinks(text) {
@@ -455,6 +539,7 @@ function colourRow(sh, row) {
 
 /** Recolour every data row - useful after a bulk import. */
 function refreshAllColours() {
+  if (!requireOrderAdmin_()) return;
   const sh   = SpreadsheetApp.getActive().getSheetByName(CFG.TAB);
   const last = sh.getLastRow();
   for (let r = CFG.DATA_ROW; r <= last; r++) colourRow(sh, r);
@@ -462,6 +547,7 @@ function refreshAllColours() {
 
 /** Menu action: yellow-highlight rows with no FINAL DECISION. */
 function highlightPending() {
+  if (!requireOrderAdmin_()) return;
   const sh   = SpreadsheetApp.getActive().getSheetByName(CFG.TAB);
   const last = sh.getLastRow();
   let n = 0;
@@ -480,6 +566,7 @@ function highlightPending() {
 
 /** Menu action: orange-highlight rows pending >= STALE_DAYS days. */
 function highlightStale() {
+  if (!requireOrderAdmin_()) return;
   const sh   = SpreadsheetApp.getActive().getSheetByName(CFG.TAB);
   const last = sh.getLastRow();
   const now  = new Date();
@@ -506,6 +593,7 @@ function highlightStale() {
 
 /** Time-based trigger: daily stale scan -> email digest. */
 function protectBotCols() {
+  if (!requireOrderAdmin_()) return;
   const sh = SpreadsheetApp.getActive().getSheetByName(CFG.TAB);
   if (!sh) {
     SpreadsheetApp.getUi().alert('Orders sheet not found: ' + CFG.TAB);
@@ -556,10 +644,19 @@ function dailyStaleScan() {
  * Staff can edit rows 2+ directly in the spreadsheet.
  */
 function ensureStaffSheet(showAlert) {
+  if (!requireOrderAdmin_()) return;
   showAlert = showAlert !== false;
   const ss = SpreadsheetApp.getActive();
   let sh = ss.getSheetByName(CFG.STAFF_TAB);
   if (!sh) sh = ss.insertSheet(CFG.STAFF_TAB, ss.getNumSheets());
+
+  const previousHeaders = sh.getLastColumn() > 0
+    ? sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), CFG.STAFF_HEADERS.length)).getValues()[0]
+    : [];
+  const legacyActiveInEditableColumn = (
+    normalizeStaffToken(previousHeaders[CFG.STAFF.EDITABLE_COLUMNS - 1]) === 'active'
+    && normalizeStaffToken(previousHeaders[CFG.STAFF.ACTIVE - 1]) !== 'active'
+  );
 
   sh.getRange(1, 1, 1, CFG.STAFF_HEADERS.length)
     .setValues([CFG.STAFF_HEADERS])
@@ -577,6 +674,8 @@ function ensureStaffSheet(showAlert) {
       ['BRO Name', 'bro@example.com', 'BRO', 'Embu', 'decision_approved,decision_rejected,stale_digest', 'BRO', 'No'],
       ['Render Bot Service Account', 'service-account@example.iam.gserviceaccount.com', 'IT', 'All', 'all', 'All', 'No'],
     ]);
+  } else if (legacyActiveInEditableColumn) {
+    migrateLegacyStaffPermissionsSheet(sh);
   }
 
   applyStaffSheetValidation(sh);
@@ -587,6 +686,27 @@ function ensureStaffSheet(showAlert) {
       'Edit rows 2+ with real staff names, emails, roles, branches, notification events, editable columns, and Active=Yes.'
     );
   }
+}
+
+function migrateLegacyStaffPermissionsSheet(sh) {
+  const rowCount = sh.getLastRow() - 1;
+  if (rowCount <= 0) return;
+  const rows = sh.getRange(2, 1, rowCount, CFG.STAFF_HEADERS.length).getValues();
+  const migrated = rows.map(row => {
+    const legacyActive = row[CFG.STAFF.EDITABLE_COLUMNS - 1];
+    row[CFG.STAFF.EDITABLE_COLUMNS - 1] = defaultEditableColumnsForRole(row[CFG.STAFF.ROLE - 1]);
+    row[CFG.STAFF.ACTIVE - 1] = legacyActive || 'No';
+    return row;
+  });
+  sh.getRange(2, 1, rowCount, CFG.STAFF_HEADERS.length).setValues(migrated);
+}
+
+function defaultEditableColumnsForRole(role) {
+  const normalized = normalizeEditableToken(role).replace(/\s+/g, '-');
+  if (normalized === 'BRO') return 'BRO';
+  if (normalized === 'BACK-OFFICE') return 'Back-office';
+  if (['MANAGER', 'IT', 'ALL'].includes(normalized)) return 'All';
+  return '';
 }
 
 function applyStaffSheetValidation(sh) {
@@ -611,6 +731,123 @@ function applyStaffSheetValidation(sh) {
   );
 }
 
+function validateStaffSheetSetup() {
+  if (!requireOrderAdmin_()) return;
+  const result = validateStaffSheetSetup_(true);
+  SpreadsheetApp.getUi().alert(staffValidationSummaryText(result));
+}
+
+function validateStaffSheetSetup_(showToast) {
+  const ss = SpreadsheetApp.getActive();
+  const staffSheet = ss.getSheetByName(CFG.STAFF_TAB);
+  const orderSheet = ss.getSheetByName(CFG.TAB);
+  const result = {
+    exists: Boolean(staffSheet),
+    orderSheetExists: Boolean(orderSheet),
+    rows: 0,
+    activeRows: 0,
+    invalidEmails: [],
+    unknownRoles: [],
+    blankEditable: [],
+    invalidEditable: [],
+    activeFullAccessRows: 0,
+  };
+
+  if (!staffSheet) return result;
+  if (staffSheet.getLastRow() < 2) return result;
+
+  const headers = orderSheet ? orderHeaders(orderSheet) : [];
+  const rows = staffSheet.getRange(2, 1, staffSheet.getLastRow() - 1, CFG.STAFF_HEADERS.length).getValues();
+  result.rows = rows.length;
+
+  rows.forEach((row, index) => {
+    const sheetRow = index + 2;
+    const active = normalizeStaffToken(row[CFG.STAFF.ACTIVE - 1]) === 'yes';
+    if (!active) return;
+    result.activeRows++;
+
+    const email = String(row[CFG.STAFF.EMAIL - 1] || '').trim();
+    if (!isValidEmail(email)) result.invalidEmails.push('Row ' + sheetRow + ': ' + (email || 'blank email'));
+
+    const role = normalizeEditableToken(row[CFG.STAFF.ROLE - 1]).replace(/\s+/g, '-');
+    if (!CFG.ROLE_EDIT_GROUPS[role]) result.unknownRoles.push('Row ' + sheetRow + ': ' + (row[CFG.STAFF.ROLE - 1] || 'blank role'));
+
+    const editable = String(row[CFG.STAFF.EDITABLE_COLUMNS - 1] || '').trim();
+    if (!editable) {
+      result.blankEditable.push('Row ' + sheetRow + ': ' + (email || 'blank email'));
+    } else {
+      const tokens = editable.split(',').map(token => token.trim()).filter(Boolean);
+      tokens.forEach(token => {
+        if (headers.length && expandEditableToken(token, headers).length === 0) {
+          result.invalidEditable.push('Row ' + sheetRow + ': ' + token);
+        }
+      });
+      if (tokens.some(token => normalizeEditableToken(token) === 'ALL')) {
+        result.activeFullAccessRows++;
+      }
+    }
+  });
+
+  if (showToast) {
+    ss.toast('Staff validation complete.', 'Orders', 4);
+  }
+  return result;
+}
+
+function staffValidationSummaryText(result) {
+  const lines = [
+    'Staff tab: ' + (result.exists ? 'Found' : 'Missing'),
+    'Orders tab: ' + (result.orderSheetExists ? 'Found' : 'Missing'),
+    'Staff rows: ' + result.rows,
+    'Active staff rows: ' + result.activeRows,
+    'Active full-access rows: ' + result.activeFullAccessRows,
+  ];
+
+  if (result.invalidEmails.length) {
+    lines.push('', 'Invalid emails:', result.invalidEmails.slice(0, 10).join('\n'));
+  }
+  if (result.unknownRoles.length) {
+    lines.push('', 'Unknown roles:', result.unknownRoles.slice(0, 10).join('\n'));
+  }
+  if (result.blankEditable.length) {
+    lines.push('', 'Active rows missing Editable Columns:', result.blankEditable.slice(0, 10).join('\n'));
+  }
+  if (result.invalidEditable.length) {
+    lines.push('', 'Invalid Editable Columns tokens:', result.invalidEditable.slice(0, 10).join('\n'));
+  }
+  if (result.activeFullAccessRows === 0) {
+    lines.push('', 'Warning: no active full-access row found. Add the Render service account as IT / All / All before strict protections.');
+  }
+  if (!result.exists) {
+    lines.push('', 'Run Orders > Create/update Staff tab.');
+  }
+  return lines.join('\n');
+}
+
+function showStaffSheet() {
+  if (!requireOrderAdmin_()) return;
+  const sh = SpreadsheetApp.getActive().getSheetByName(CFG.STAFF_TAB);
+  if (!sh) {
+    SpreadsheetApp.getUi().alert('Staff tab not found. Run Orders > Create/update Staff tab.');
+    return;
+  }
+  SpreadsheetApp.getActive().setActiveSheet(sh);
+}
+
+function removeOrderProtections() {
+  if (!requireOrderAdmin_()) return;
+  const sh = SpreadsheetApp.getActive().getSheetByName(CFG.TAB);
+  if (!sh) {
+    SpreadsheetApp.getUi().alert('Orders sheet not found: ' + CFG.TAB);
+    return;
+  }
+  const prefixes = ['Order approval permission:', 'Bot-managed column:'];
+  const protections = sh.getProtections(SpreadsheetApp.ProtectionType.RANGE)
+    .filter(p => prefixes.some(prefix => String(p.getDescription() || '').startsWith(prefix)));
+  protections.forEach(p => p.remove());
+  SpreadsheetApp.getUi().alert('Removed ' + protections.length + ' order approval protection(s).');
+}
+
 /**
  * Apply strict column permissions from the Staff tab.
  *
@@ -619,6 +856,7 @@ function applyStaffSheetValidation(sh) {
  * put allowed headers/groups in Editable Columns.
  */
 function applyStaffPermissions() {
+  if (!requireOrderAdmin_()) return;
   const ss = SpreadsheetApp.getActive();
   const sh = ss.getSheetByName(CFG.TAB);
   if (!sh) {
@@ -948,6 +1186,7 @@ function sendStaleDigest(rows) {
 
 /** Build (or refresh) the Dashboard sheet. Called by menu and hourly trigger. */
 function buildDashboard() {
+  if (!requireOrderAdmin_()) return;
   const ss = SpreadsheetApp.getActive();
   const src = ss.getSheetByName(CFG.TAB);
   const last = src.getLastRow();
@@ -1054,6 +1293,7 @@ function _hdrRow(sh, row, labels, bg) {
 
 /** Open the search dialog. */
 function showSearch() {
+  if (!requireOrderAdmin_()) return;
   const html = HtmlService.createHtmlOutput(`
 <style>
   *{box-sizing:border-box;margin:0;padding:0;font-family:Arial,sans-serif}
@@ -1093,6 +1333,7 @@ function showSearch() {
 
 /** Server-side search - called by the dialog. Returns HTML string. */
 function runSearch(query) {
+  if (!isOrderAdminUser_()) return '<i>Access denied.</i>';
   const sh   = SpreadsheetApp.getActive().getSheetByName(CFG.TAB);
   const last = sh.getLastRow();
   if (last < CFG.DATA_ROW) return '<i>No data yet.</i>';
