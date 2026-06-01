@@ -38,7 +38,7 @@ Before changing Render:
 
 Do not let the bot create or insert columns in this workbook. Add row-2 headers manually before enabling the workflow if you are not using the generated template.
 
-`ORDER RECORD ID` is optional for older sheets but recommended. When the column exists, the bot fills it with a stable ID such as `OA-20260529-113650221-A1B2C3D4`. This remains attached to the order even if staff sort/filter the sheet, so staff should not use row numbers as permanent references.
+`ORDER RECORD ID` is optional for older sheets but recommended. When the column exists, the bot fills it with a short sequential ID such as `JBL-1`, `JBL-2`, and so on. This remains attached to the order even if staff sort/filter the sheet, so staff should not use row numbers as permanent references.
 
 To redesign the existing April workbook into one manageable `Orders` sheet, run:
 
@@ -89,6 +89,7 @@ GOOGLE_DRIVE_MEDIA_FOLDER_ID=<shared-drive-folder-id>
 ORDER_APPROVAL_WEBAPP_ENABLED=True
 ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True
 ORDER_APPROVAL_WEBAPP_AUTH_MAX_AGE_SECONDS=86400
+ORDER_APPROVAL_BRANCH_CHOICES=MURANGA,EMBU
 ```
 
 `GOOGLE_DRIVE_MEDIA_FOLDER_ID` is the folder ID from the Shared Drive folder URL:
@@ -96,6 +97,24 @@ ORDER_APPROVAL_WEBAPP_AUTH_MAX_AGE_SECONDS=86400
 ```text
 https://drive.google.com/drive/folders/<drive-folder-id>
 ```
+
+`ORDER_APPROVAL_BRANCH_CHOICES` controls the standardized Web App branch
+dropdown. Keep the same uppercase names in the sheet's `Dropdown Options` tab.
+
+Upload limits:
+
+- `MEDIA_MAX_FILE_SIZE_MB` is the maximum size for one selected file.
+- `ORDER_APPROVAL_MAX_FILES_PER_SLOT` is the maximum file count per upload slot
+  (`ID photos`, `LAF document`, `Other files`).
+- `ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB` is the maximum total selected upload size
+  for one form submission.
+
+The Web App previews images with browser object URLs, not base64 strings, so it
+does not duplicate full image contents in JavaScript memory. Very large photos
+still consume phone browser memory for thumbnail decoding and consume Render
+request memory while Django receives the multipart upload, so keep total mobile
+uploads conservative. A practical production starting point is 20 MB per file,
+10 files per slot, and 60 MB total per submission.
 
 Use a Google Shared Drive for media storage. Google service accounts do not have normal My Drive storage quota, so uploads to a regular My Drive folder can fail with `storageQuotaExceeded` even when the folder is shared correctly.
 

@@ -316,7 +316,7 @@ class OrderApprovalSheetTest(TestCase):
 
         self.assertTrue(result['success'])
         row_values = service.batch_update_calls[0][0][0]['values'][0]
-        self.assertRegex(row_values[0], r'^OA-\d{8}-5655566-[A-F0-9]{8}$')
+        self.assertEqual(row_values[0], 'JBL-1')
         self.assertEqual(row_values[1:], ['5655566', 'NEW CUSTOMER'])
         self.assertEqual(
             result['field_changes'][0],
@@ -329,6 +329,27 @@ class OrderApprovalSheetTest(TestCase):
         )
         self.assertEqual(result['field_changes'][-1]['header'], 'ORDER RECORD ID')
         self.assertEqual(result['field_changes'][-1]['action'], 'added')
+
+    def test_create_row_uses_next_sequential_order_record_id(self):
+        service = FakeService([
+            ['ORDER RECORD ID', 'ID NUMBER', 'CUSTOMER NAME', 'Media URLs'],
+            ['JBL-1', '111', 'EXISTING', ''],
+            ['', '222', 'OLDER WITHOUT RECORD ID', ''],
+        ])
+
+        with patch('core.services.order_approval.get_sheets_service', return_value=service):
+            result = create_order_approval_row(
+                group_config=self._group_config(),
+                parsed_fields={
+                    'id_number': '5655566',
+                    'customer_name': 'NEW CUSTOMER',
+                },
+                media_links=[],
+            )
+
+        self.assertTrue(result['success'])
+        row_values = service.batch_update_calls[0][0][0]['values'][0]
+        self.assertEqual(row_values[0], 'JBL-3')
 
     def test_update_adds_missing_order_record_id_without_overwriting_existing(self):
         service = FakeService([])
@@ -351,7 +372,7 @@ class OrderApprovalSheetTest(TestCase):
         batch = service.batch_update_calls[0][0]
         self.assertEqual(batch[0]['range'], 'A8:A8')
         self.assertEqual(batch[1]['range'], 'C8:C8')
-        self.assertRegex(batch[0]['values'][0][0], r'^OA-\d{8}-113650221-[A-F0-9]{8}$')
+        self.assertEqual(batch[0]['values'][0][0], 'JBL-1')
         self.assertEqual(batch[1]['values'][0], ['Approved'])
         self.assertEqual(
             [change['header'] for change in result['field_changes']],
@@ -990,6 +1011,9 @@ class OrderApprovalWebAppTest(TestCase):
         self.assertContains(response, 'name="id_photos"')
         self.assertContains(response, 'name="laf_documents"')
         self.assertContains(response, 'name="other_files"')
+        self.assertContains(response, 'data-file-preview="id_photos"')
+        self.assertContains(response, 'data-file-preview="laf_documents"')
+        self.assertContains(response, 'maxTotalUploadMb')
         self.assertContains(response, 'pattern="254[0-9]{9}"')
         self.assertContains(response, 'placeholder="254740614990"')
 

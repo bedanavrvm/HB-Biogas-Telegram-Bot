@@ -2,11 +2,13 @@
 Telegram bot command handlers backed by the local database.
 """
 import re
+from datetime import timedelta
 from django.db import connection
 from django.db.models import Count, Q
+from django.conf import settings
 from django.utils import timezone
 
-from core.models import ParsedMessage
+from core.models import MediaAttachment, OrderApprovalUpdate, ParsedMessage
 from core.services.group_config import GroupRegistry
 from core.services.telegram_command_menu import bot_commands_for_workflow
 
@@ -757,11 +759,24 @@ def _format_group_info(group_id: str) -> str:
     if not config:
         return f"Group {group_id} is not configured."
 
+    workflow = config.workflow or {}
+    workflow_type = workflow.get('type') or 'case'
+    extra_lines = []
+    if workflow_type == 'order_approval':
+        search_tabs = workflow.get('search_sheet_names') or []
+        if search_tabs:
+            extra_lines.append(f"Order tabs: {', '.join(search_tabs)}")
+        if workflow.get('header_row'):
+            extra_lines.append(f"Header row: {workflow.get('header_row')}")
+
+    suffix = "\n" + "\n".join(extra_lines) if extra_lines else ""
     return (
         f"Group: {group_id}\n"
         f"Enabled: {'yes' if config.enabled else 'no'}\n"
+        f"Workflow: {workflow_type}\n"
         f"Sheet ID: {config.sheet_id or 'not set'}\n"
         f"Sheet tab: {config.sheet_name or 'not set'}"
+        f"{suffix}"
     )
 
 
@@ -775,17 +790,83 @@ def _format_health(group_id: str) -> str:
         db_status = "error"
 
     registry = GroupRegistry.get_instance()
-    group_status = "configured" if registry.get_group(str(group_id)) else "not configured"
+    config = registry.get_group(str(group_id))
+    group_status = "configured" if config else "not configured"
+    workflow = (config.workflow or {}) if config else {}
+    workflow_type = workflow.get('type') or 'case'
     case_count = _group_cases(group_id).count()
     unsynced_count = _group_cases(group_id).filter(synced_to_sheets=False).count()
-
-    return (
-        "Health:\n"
-        f"Database: {db_status}\n"
-        f"Group: {group_status}\n"
-        f"Cases in group: {case_count}\n"
-        f"Unsynced cases: {unsynced_count}"
+    sync_error_count = (
+        _group_cases(group_id)
+        .exclude(last_sync_error='')
+        .count()
     )
+    since = timezone.now() - timedelta(hours=24)
+    recent_cases = _group_cases(group_id).filter(created_at__gte=since).count()
+
+    lines = [
+        "Health",
+        f"Database: {db_status}",
+        f"Group: {group_status}",
+    ]
+    if config:
+        lines.extend([
+            f"Enabled: {'yes' if config.enabled else 'no'}",
+            f"Workflow: {workflow_type}",
+            f"Sheet tab: {config.sheet_name or 'not set'}",
+            f"Sheet configured: {'yes' if config.sheet_id else 'no'}",
+        ])
+
+    lines.extend([
+        "",
+        "Case workflow",
+        f"Cases: {case_count}",
+        f"New cases last 24h: {recent_cases}",
+        f"Unsynced: {unsynced_count}",
+        f"Sync errors: {sync_error_count}",
+    ])
+
+    if workflow_type == 'order_approval':
+        updates = OrderApprovalUpdate.objects.filter(group_id=str(group_id))
+        media = MediaAttachment.objects.filter(group_id=str(group_id))
+        failed_updates = updates.filter(update_status='failed').count()
+        pending_updates = updates.filter(update_status='pending').count()
+        recent_updates = updates.filter(created_at__gte=since).count()
+        failed_media = media.filter(upload_status='failed').count()
+        pending_media = media.filter(upload_status='pending').count()
+        latest_update = updates.order_by('-created_at').first()
+        latest_text = (
+            timezone.localtime(latest_update.created_at).strftime('%d-%b %H:%M')
+            if latest_update else 'none'
+        )
+        lines.extend([
+            "",
+            "Order workflow",
+            f"Order updates: {updates.count()}",
+            f"Order updates last 24h: {recent_updates}",
+            f"Pending updates: {pending_updates}",
+            f"Failed updates: {failed_updates}",
+            f"Media files: {media.count()}",
+            f"Pending media: {pending_media}",
+            f"Failed media: {failed_media}",
+            f"Latest order update: {latest_text}",
+            f"Order tabs: {', '.join(workflow.get('search_sheet_names') or []) or 'not set'}",
+            f"Header row: {workflow.get('header_row') or 1}",
+            f"Media storage: {getattr(settings, 'MEDIA_STORAGE_PROVIDER', 'not set')}",
+            f"Max file: {getattr(settings, 'MEDIA_MAX_FILE_SIZE_MB', 20)} MB",
+            f"Max upload total: {getattr(settings, 'ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB', 60)} MB",
+        ])
+
+    lines.extend([
+        "",
+        "Runtime",
+        f"Base URL: {'set' if getattr(settings, 'APP_BASE_URL', '') else 'missing'}",
+        f"Telegram token: {'set' if getattr(settings, 'TELEGRAM_BOT_TOKEN', '') else 'missing'}",
+        f"Webhook secret: {'set' if getattr(settings, 'TELEGRAM_WEBHOOK_SECRET', '') else 'missing'}",
+        f"Drive folder: {'set' if getattr(settings, 'GOOGLE_DRIVE_MEDIA_FOLDER_ID', '') else 'missing'}",
+    ])
+
+    return "\n".join(lines)
 
 
 def _group_cases(group_id: str):

@@ -178,6 +178,10 @@ ORDER_APPROVAL_WEBAPP_AUTH_MAX_AGE_SECONDS = config(
     default=86400,
     cast=int,
 )
+ORDER_APPROVAL_BRANCH_CHOICES = config(
+    'ORDER_APPROVAL_BRANCH_CHOICES',
+    default='MURANGA,EMBU',
+)
 
 # Multi-Group/Multi-Tenant Configuration
 # Maps Telegram group chat_id to Google Sheet configurations.

@@ -160,9 +160,11 @@ class GroupRegistry:
                     parser_rules=config_dict.get('parser_rules', {}),
                 )
                 self._groups[group_id] = group_config
+                workflow_type = (group_config.workflow or {}).get('type') or 'case'
                 logger.debug(
                     f"Loaded group {repr(group_id)} -> "
-                    f"sheet {config_dict.get('sheet_id')}"
+                    f"sheet {config_dict.get('sheet_id')} "
+                    f"workflow {workflow_type}"
                 )
 
             for config_dict in admin_configs:
@@ -171,9 +173,11 @@ class GroupRegistry:
                     continue
                 group_config = GroupConfig(**config_dict)
                 self._groups[group_id] = group_config
+                workflow_type = (group_config.workflow or {}).get('type') or 'case'
                 logger.debug(
                     f"Loaded admin group {repr(group_id)} -> "
-                    f"sheet {config_dict.get('sheet_id')}"
+                    f"sheet {config_dict.get('sheet_id')} "
+                    f"workflow {workflow_type}"
                 )
 
             logger.info(

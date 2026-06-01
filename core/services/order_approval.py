@@ -12,7 +12,6 @@ import logging
 import mimetypes
 import re
 import time
-import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -35,6 +34,8 @@ DEFAULT_SEARCH_SHEETS = ['Pending', '178', '179', '180', '181']
 DEFAULT_MATCH_FIELD = 'id_number'
 DEFAULT_MEDIA_FIELD = 'media_urls'
 DEFAULT_RECORD_ID_FIELD = 'order_record_id'
+DEFAULT_RECORD_ID_PREFIX = 'JBL'
+DEFAULT_BRANCH_CHOICES = ['MURANGA', 'EMBU']
 ORDER_APPROVAL_WEBAPP_FIELDS = [
     'id_number',
     'date_visited',
@@ -141,16 +142,22 @@ FIELD_CHOICE_VALUES = {
         'pending': 'Pending',
     },
     'credit_analysis': {
-        'pass': 'Pass',
-        'fail': 'Fail',
+        'approved': 'Approved',
+        'approve': 'Approved',
+        'pass': 'Approved',
+        'passed': 'Approved',
+        'rejected': 'Rejected',
+        'reject': 'Rejected',
+        'fail': 'Rejected',
+        'failed': 'Rejected',
         'pending': 'Pending',
-        'n/a': 'N/A',
-        'na': 'N/A',
     },
     'final_decision': {
         'approved': 'Approved',
         'rejected': 'Rejected',
-        'hold': 'Hold',
+        'deferred': 'Deferred',
+        'defer': 'Deferred',
+        'hold': 'Deferred',
         'under review': 'Under Review',
     },
 }
@@ -244,13 +251,20 @@ def handle_order_approval_message(
     parsed = parse_order_approval_message(content or '')
     if not parsed.id_number:
         return _order_reply(
-            "Order approval update skipped. Add an ID: line and try again.",
+            format_order_failure_reply(
+                title='Order approval update skipped.',
+                errors=['Add an ID: line and try again.'],
+            ),
             status='failed',
         )
     validation_errors = validate_order_approval_fields(parsed.fields)
     if validation_errors:
         return _order_reply(
-            "Order approval update skipped. " + " ".join(validation_errors),
+            format_order_failure_reply(
+                title='Order approval update skipped.',
+                id_number=parsed.id_number,
+                errors=validation_errors,
+            ),
             warnings=parsed.warnings,
             status='failed',
         )
@@ -288,9 +302,10 @@ def handle_order_approval_message(
             update_record.sync_error = create_result['error']
             update_record.save(update_fields=['update_status', 'sync_error'])
             return _order_reply(
-                (
-                    f"{workflow_label(group_config)} for ID {parsed.id_number} could not "
-                    f"be created: {create_result['error']}"
+                format_order_failure_reply(
+                    title=f"{workflow_label(group_config)} could not be created.",
+                    id_number=parsed.id_number,
+                    errors=create_result.get('errors') or [create_result['error']],
                 ),
                 warnings=uploaded.warnings,
                 status='failed',
@@ -332,10 +347,14 @@ def handle_order_approval_message(
         update_record.sync_error = f"Duplicate ID matches: {locations}"
         update_record.save(update_fields=['update_status', 'sync_error'])
         return _order_reply(
-            (
-                f"Duplicate rows found for ID {parsed.id_number}: {locations}. "
-                "Please resolve the duplicate in the sheet before updating. "
-                f"Files stored: {uploaded.stored_count}."
+            format_order_failure_reply(
+                title='Duplicate order rows found.',
+                id_number=parsed.id_number,
+                errors=[
+                    f"Matches: {locations}.",
+                    "Please resolve the duplicate in the sheet before updating.",
+                    f"Files stored: {uploaded.stored_count}.",
+                ],
             ),
             warnings=uploaded.warnings,
             status='duplicate',
@@ -367,7 +386,11 @@ def handle_order_approval_message(
         update_record.sync_error = sheet_result['error']
         update_record.save(update_fields=['update_status', 'sync_error'])
         return _order_reply(
-            f"{workflow_label(group_config)} update for ID {parsed.id_number} was not saved: {sheet_result['error']}",
+            format_order_failure_reply(
+                title=f"{workflow_label(group_config)} update was not saved.",
+                id_number=parsed.id_number,
+                errors=sheet_result.get('errors') or [sheet_result['error']],
+            ),
             warnings=uploaded.warnings,
             status='failed',
         )
@@ -467,10 +490,11 @@ def handle_order_approval_media_reply(
 
     followup_update.update_status = 'success'
     followup_update.save(update_fields=['update_status'])
+    field_lines = "\n".join(field_change_lines(sheet_result.get('field_changes', [])))
     return _order_reply(
         (
             f"OK. Files linked for ID {original_update.id_number}.\n"
-            f"Updated: {field_change_summary(sheet_result.get('field_changes', []))}\n"
+            f"\nFields\n{field_lines}\n"
             f"Files stored: {uploaded.stored_count}"
         ),
         warnings=uploaded.warnings,
@@ -543,6 +567,7 @@ def process_order_approval_form_submission(
             'success': False,
             'status': 'failed',
             'message': 'ID number is required.',
+            'errors': ['ID number is required.'],
         }
     validation_errors = validate_order_approval_fields(parsed_fields)
     if validation_errors:
@@ -550,6 +575,7 @@ def process_order_approval_form_submission(
             'success': False,
             'status': 'failed',
             'message': " ".join(validation_errors),
+            'errors': validation_errors,
             'files_stored': 0,
             'warnings': [],
         }
@@ -587,6 +613,7 @@ def process_order_approval_form_submission(
                 'success': False,
                 'status': 'failed',
                 'message': create_result['error'],
+                'errors': create_result.get('errors') or [create_result['error']],
                 'files_stored': uploaded.stored_count,
                 'warnings': uploaded.warnings,
             }
@@ -682,6 +709,7 @@ def process_order_approval_form_submission(
             'success': False,
             'status': 'failed',
             'message': sheet_result['error'],
+            'errors': sheet_result.get('errors') or [sheet_result['error']],
             'files_stored': uploaded.stored_count,
             'warnings': uploaded.warnings,
         }
@@ -886,6 +914,17 @@ def validate_order_approval_fields(fields: dict[str, str]) -> list[str]:
     return errors
 
 
+def order_approval_branch_choices() -> list[str]:
+    raw = getattr(settings, 'ORDER_APPROVAL_BRANCH_CHOICES', None)
+    if raw is None:
+        choices = DEFAULT_BRANCH_CHOICES
+    elif isinstance(raw, str):
+        choices = [item.strip() for item in raw.split(',')]
+    else:
+        choices = [str(item).strip() for item in raw]
+    return [collapse_spaces(choice).upper() for choice in choices if str(choice).strip()]
+
+
 def fields_for_order_approval_match(match: SheetMatch, workflow: dict) -> dict[str, str]:
     fields: dict[str, str] = {}
     for field in ORDER_APPROVAL_WEBAPP_FIELDS:
@@ -1043,6 +1082,7 @@ def update_order_approval_row(
         return {
             'success': False,
             'error': " ".join(validation_errors),
+            'errors': validation_errors,
             'fields_updated': [],
         }
 
@@ -1053,6 +1093,7 @@ def update_order_approval_row(
         return {
             'success': False,
             'error': f"Required column {media_header!r} was not found.",
+            'errors': [f"Required column {media_header!r} was not found."],
             'fields_updated': [],
         }
 
@@ -1071,6 +1112,7 @@ def update_order_approval_row(
         return {
             'success': False,
             'error': "Missing required column(s): " + ", ".join(missing_headers),
+            'errors': ["Missing required column(s): " + ", ".join(missing_headers)],
             'fields_updated': [],
         }
 
@@ -1211,6 +1253,7 @@ def create_order_approval_row(
         return {
             'success': False,
             'error': f"Google Sheets unavailable for {sheet_name}.",
+            'errors': [f"Google Sheets unavailable for {sheet_name}."],
             'fields_updated': [],
         }
 
@@ -1223,6 +1266,10 @@ def create_order_approval_row(
                 f"Sheet {sheet_name} has no header row at row "
                 f"{configured_header_row(workflow)}."
             ),
+            'errors': [
+                f"Sheet {sheet_name} has no header row at row "
+                f"{configured_header_row(workflow)}."
+            ],
             'fields_updated': [],
         }
 
@@ -1232,6 +1279,7 @@ def create_order_approval_row(
         return {
             'success': False,
             'error': f"Required column {media_header!r} was not found.",
+            'errors': [f"Required column {media_header!r} was not found."],
             'fields_updated': [],
         }
 
@@ -1246,6 +1294,7 @@ def create_order_approval_row(
         return {
             'success': False,
             'error': " ".join(validation_errors),
+            'errors': validation_errors,
             'fields_updated': [],
         }
     if media_links:
@@ -1257,7 +1306,7 @@ def create_order_approval_row(
     if header_index(headers, record_header) is not None:
         fields_to_write.setdefault(
             DEFAULT_RECORD_ID_FIELD,
-            build_order_record_id(parsed_fields.get('id_number', '')),
+            next_order_record_id(headers, values, workflow),
         )
 
     missing_headers = []
@@ -1269,6 +1318,7 @@ def create_order_approval_row(
         return {
             'success': False,
             'error': "Missing required column(s): " + ", ".join(missing_headers),
+            'errors': ["Missing required column(s): " + ", ".join(missing_headers)],
             'fields_updated': [],
         }
 
@@ -1886,16 +1936,34 @@ def format_order_success_reply(
     verb = 'created' if status == 'created' else 'updated'
     lines = [
         f"OK. {label} {verb}.",
+        "",
+        "Order",
         f"ID: {id_number}",
     ]
     if customer_name:
         lines.append(f"Customer: {customer_name}")
-    lines.extend([
-        f"Changed: {field_change_summary(field_changes)}",
-        f"Files stored: {files_stored}",
-    ])
+    lines.append(f"Files stored: {files_stored}")
+    lines.append("")
+    lines.append("Fields")
+    lines.extend(field_change_lines(field_changes))
     if warnings:
-        lines.append("Warnings: " + "; ".join(warnings[:3]))
+        lines.append("")
+        lines.append("Warnings")
+        lines.extend(f"- {warning}" for warning in warnings[:3])
+    return "\n".join(lines)
+
+
+def format_order_failure_reply(
+    title: str,
+    id_number: str = '',
+    errors: list[str] | None = None,
+) -> str:
+    lines = [title]
+    if id_number:
+        lines.extend(['', 'Order', f"ID: {id_number}"])
+    if errors:
+        lines.extend(['', 'Fix'])
+        lines.extend(f"- {error}" for error in errors if str(error).strip())
     return "\n".join(lines)
 
 
@@ -1909,17 +1977,21 @@ def workflow_label(group_config) -> str:
 
 
 def field_change_summary(field_changes: list[dict]) -> str:
+    return "; ".join(field_change_lines(field_changes))
+
+
+def field_change_lines(field_changes: list[dict]) -> list[str]:
     if not field_changes:
-        return 'No sheet fields changed'
-    parts = []
+        return ['- No sheet fields changed']
+    lines = []
     for change in field_changes[:8]:
         column = change.get('column') or '?'
         header = change.get('header') or change.get('field') or 'field'
         action = change.get('action') or 'updated'
-        parts.append(f"{column} {header} {action}")
+        lines.append(f"- {column} {header}: {action}")
     if len(field_changes) > 8:
-        parts.append(f"+{len(field_changes) - 8} more")
-    return "; ".join(parts)
+        lines.append(f"- +{len(field_changes) - 8} more")
+    return lines
 
 
 def header_for_field(workflow: dict, field: str) -> str:
@@ -1949,16 +2021,59 @@ def ensure_order_record_id(
         match,
         header_for_field(workflow, 'id_number'),
     )
-    fields_to_write.setdefault(DEFAULT_RECORD_ID_FIELD, build_order_record_id(id_value))
+    del id_value
+    fields_to_write.setdefault(
+        DEFAULT_RECORD_ID_FIELD,
+        next_order_record_id_for_match(match, workflow),
+    )
 
 
 def build_order_record_id(id_number: str) -> str:
-    today = timezone.localtime(timezone.now()).strftime('%Y%m%d')
-    cleaned_id = re.sub(r'[^A-Za-z0-9]+', '', str(id_number or ''))[:12]
-    suffix = uuid.uuid4().hex[:8].upper()
-    if cleaned_id:
-        return f"OA-{today}-{cleaned_id}-{suffix}"
-    return f"OA-{today}-{suffix}"
+    del id_number
+    return f"{DEFAULT_RECORD_ID_PREFIX}-1"
+
+
+def order_record_id_prefix(workflow: dict) -> str:
+    prefix = str((workflow or {}).get('record_id_prefix') or DEFAULT_RECORD_ID_PREFIX)
+    prefix = re.sub(r'[^A-Za-z0-9]+', '', prefix).upper()
+    return prefix or DEFAULT_RECORD_ID_PREFIX
+
+
+def next_order_record_id_for_match(match: SheetMatch, workflow: dict) -> str:
+    values = []
+    sheet = getattr(match.service, '_sheet', None)
+    if sheet and hasattr(sheet, 'get_all_values'):
+        try:
+            values = sheet.get_all_values()
+        except Exception:
+            values = []
+    return next_order_record_id(match.headers, values, workflow)
+
+
+def next_order_record_id(
+    headers: list[str],
+    values: list[list[str]],
+    workflow: dict,
+) -> str:
+    prefix = order_record_id_prefix(workflow)
+    record_header = header_for_field(workflow, DEFAULT_RECORD_ID_FIELD)
+    record_index = header_index(headers, record_header)
+    if record_index is None:
+        return f"{prefix}-1"
+
+    pattern = re.compile(rf'^{re.escape(prefix)}-(\d+)$', flags=re.IGNORECASE)
+    max_seen = 0
+    data_row_count = 0
+    header_row = configured_header_row(workflow)
+    for row in (values or [])[header_row:]:
+        if any(str(cell or '').strip() for cell in row):
+            data_row_count += 1
+        value = row[record_index] if record_index < len(row) else ''
+        match = pattern.fullmatch(str(value or '').strip())
+        if match:
+            max_seen = max(max_seen, int(match.group(1)))
+    next_number = max(max_seen, data_row_count) + 1
+    return f"{prefix}-{next_number}"
 
 
 def field_change_detail(

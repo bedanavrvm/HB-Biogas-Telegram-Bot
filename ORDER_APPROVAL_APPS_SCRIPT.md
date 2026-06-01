@@ -184,6 +184,8 @@ The `Orders` menu contains:
 | Apply validation + formatting | `applyOrderValidationAndFormatting` | Applies dropdowns, type validation, and final-decision row colours. |
 | Repair media links | `repairMediaLinks` | Makes multiple URLs in `Media URLs` independently clickable. |
 | Refresh dashboard | `buildDashboard` | Rebuilds the dashboard sheet. |
+| Send stale digest now | `sendStaleDigestNow` | Sends the stale-order email digest immediately using Staff recipients. |
+| Send decision alert for selected row | `sendDecisionAlertForSelectedRow` | Resends the Approved/Rejected decision email for the selected order row. |
 | Setup order sheet support | `setupOrderSheetSupport` | Creates support tabs and applies validation/formatting. |
 | Create/update Staff tab | `ensureStaffSheet` | Creates or repairs the Staff tab headers. |
 | Validate Staff tab | `validateStaffSheetSetup` | Checks Staff rows for setup issues. |
@@ -398,9 +400,20 @@ Basic email format validation.
 
 Sends an email when `FINAL DECISION` becomes `Approved` or `Rejected`.
 
+`sendDecisionAlertForSelectedRow()`
+
+Menu action that sends the same decision email immediately for the currently
+selected row. Recipients come from active Staff rows matching `Notify On`,
+`Role`, `Branch`, and `Visited By`.
+
 `dailyStaleScan()`
 
 Triggered daily. Finds stale rows and calls `sendStaleDigest`.
+
+`sendStaleDigestNow()`
+
+Menu action that scans stale rows and sends the digest immediately. This uses
+the same Staff-tab recipient rules as the daily trigger.
 
 `sendStaleDigest(rows)`
 

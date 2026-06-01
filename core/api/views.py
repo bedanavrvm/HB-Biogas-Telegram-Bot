@@ -77,13 +77,18 @@ def order_approval_form(request):
             status=404,
         )
 
+    from core.services.order_approval import order_approval_branch_choices
+
     return render(
         request,
-            'order_approval/form.html',
+        'order_approval/form.html',
         {
             'group_id': str(request.GET.get('group_id', '')).strip(),
             'form_token': str(request.GET.get('token', '')).strip(),
             'max_file_size_mb': getattr(settings, 'MEDIA_MAX_FILE_SIZE_MB', 20),
+            'max_files_per_slot': getattr(settings, 'ORDER_APPROVAL_MAX_FILES_PER_SLOT', 10),
+            'max_total_upload_mb': getattr(settings, 'ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB', 60),
+            'branch_choices': order_approval_branch_choices(),
         },
     )
 
@@ -112,6 +117,7 @@ def order_approval_webapp_submit(request):
                 'success': False,
                 'status': 'failed',
                 'message': " ".join(upload_errors),
+                'errors': upload_errors,
                 'files_stored': 0,
                 'warnings': [],
             }
@@ -246,27 +252,36 @@ def _send_order_approval_webapp_chat_reply(group_id: str, result: dict) -> None:
     if result.get('success'):
         lines = [
             f"OK. {result.get('message') or 'Order approval saved.'}",
+            "",
+            "Order",
             f"ID: {id_number}",
         ]
         customer_name = result.get('customer_name', '')
         if customer_name:
             lines.append(f"Customer: {customer_name}")
+        lines.append(f"Files stored: {result.get('files_stored', 0)}")
         changes = result.get('field_changes') or []
         if changes:
-            from core.services.order_approval import field_change_summary
+            from core.services.order_approval import field_change_lines
 
-            lines.append(f"Changed: {field_change_summary(changes)}")
-        lines.append(f"Files stored: {result.get('files_stored', 0)}")
+            lines.extend(["", "Fields"])
+            lines.extend(field_change_lines(changes))
     else:
+        errors = result.get('errors') or [result.get('message') or 'Please check the form and try again.']
         lines = [
             result.get('title') or "Form update failed.",
+            "",
+            "Order",
             f"ID: {id_number or 'not provided'}",
-            result.get('message') or 'Please check the form and try again.',
+            "",
+            "Fix",
         ]
+        lines.extend(f"- {error}" for error in errors if str(error).strip())
 
     warnings = result.get('warnings') or []
     if warnings:
-        lines.append("Warnings: " + "; ".join(warnings[:3]))
+        lines.extend(["", "Warnings"])
+        lines.extend(f"- {warning}" for warning in warnings[:3])
 
     _post_telegram_reply(
         chat_id=group_id,
@@ -412,6 +427,23 @@ def _process_telegram_message(message_data: dict) -> dict:
                     sender=sender,
                     received_at=received_at,
                 )
+            if content is not None and _looks_like_order_approval_content(content):
+                workflow_type = (group_config.workflow or {}).get('type') or 'not set'
+                logger.warning(
+                    "Order approval-shaped message received in group %s, "
+                    "but workflow.type is %r",
+                    group_id,
+                    workflow_type,
+                )
+                return {
+                    'status': 'command',
+                    'reply_text': (
+                        "This group is not configured for Order Approval updates.\n"
+                        f"Current workflow: {workflow_type}\n"
+                        "Ask an admin to open this group in Django Admin and set "
+                        "Workflow preset to Order Approval, then save."
+                    ),
+                }
 
         update_content = content if content is not None else raw_content
         if reply_to_id and _looks_like_status_update(update_content):
@@ -1012,6 +1044,37 @@ def _extract_tagged_message_content(message_data: dict) -> str | None:
 def _looks_like_status_update(content: str) -> bool:
     from core.services.case_updates import looks_like_status_update
     return looks_like_status_update(content)
+
+
+def _looks_like_order_approval_content(content: str) -> bool:
+    if not content:
+        return False
+    labels = {
+        'id',
+        'date visited',
+        'customer name',
+        'primary phone',
+        'secondary phone',
+        'county',
+        'landmark',
+        'visited by',
+        'hb staff',
+        'hb deposit',
+        'jbl deposit',
+        'comment',
+        'imab created',
+        'customer no',
+        'credit analysis',
+        'final decision',
+    }
+    seen = set()
+    for line in content.splitlines():
+        if ':' not in line:
+            continue
+        label = line.split(':', 1)[0].strip().lower()
+        if label in labels:
+            seen.add(label)
+    return 'id' in seen and bool(seen - {'id'})
 
 
 def _detect_image(message_data: dict) -> bool:

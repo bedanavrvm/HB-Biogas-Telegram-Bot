@@ -223,6 +223,7 @@
       box-shadow: 0 8px 20px rgba(16, 24, 40, 0.14);
       font-size: 14px;
       font-weight: 600;
+      white-space: pre-line;
     }
 
     .status[data-state="success"] {
@@ -250,6 +251,66 @@
       font-weight: 400;
     }
 
+    .file-summary {
+      margin-top: 6px;
+      color: #475467;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .file-preview {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .file-card {
+      display: grid;
+      grid-template-columns: 56px minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+      min-height: 64px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+      background: #fcfcfd;
+    }
+
+    .file-thumb,
+    .file-icon {
+      width: 56px;
+      height: 48px;
+      border-radius: 4px;
+      object-fit: cover;
+      background: #eef2f6;
+    }
+
+    .file-icon {
+      display: grid;
+      place-items: center;
+      color: #344054;
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .file-name {
+      overflow: hidden;
+      color: #344054;
+      font-size: 13px;
+      font-weight: 700;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .file-meta {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 500;
+    }
+
     @media (min-width: 720px) {
       main {
         padding: 24px;
@@ -257,6 +318,10 @@
       }
 
       .grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .file-preview {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
@@ -313,7 +378,12 @@
           </label>
           <label>
             Branch
-            <input name="branch" autocomplete="organization">
+            <select name="branch">
+              <option value=""></option>
+              {% for branch in branch_choices %}
+                <option value="{{ branch }}">{{ branch }}</option>
+              {% endfor %}
+            </select>
           </label>
           <label>
             Primary phone
@@ -376,10 +446,9 @@
             Credit analysis
             <select name="credit_analysis">
               <option value=""></option>
-              <option value="Pass">Pass</option>
-              <option value="Fail">Fail</option>
+              <option value="Approved">Approved</option>
               <option value="Pending">Pending</option>
-              <option value="N/A">N/A</option>
+              <option value="Rejected">Rejected</option>
             </select>
           </label>
           <label>
@@ -388,7 +457,7 @@
               <option value=""></option>
               <option value="Approved">Approved</option>
               <option value="Rejected">Rejected</option>
-              <option value="Hold">Hold</option>
+              <option value="Deferred">Deferred</option>
               <option value="Under Review">Under Review</option>
             </select>
           </label>
@@ -405,16 +474,22 @@
           ID photos
           <input name="id_photos" type="file" multiple accept="image/*">
           <span class="fine-print">Upload one or more ID images. Maximum {{ max_file_size_mb }} MB per file.</span>
+          <span class="file-summary" data-file-summary="id_photos">No files selected.</span>
+          <span class="file-preview" data-file-preview="id_photos"></span>
         </label>
         <label>
           LAF document
           <input name="laf_documents" type="file" multiple accept="image/*,.pdf,.doc,.docx">
           <span class="fine-print">Upload one or more LAF pages or documents. Maximum {{ max_file_size_mb }} MB per file.</span>
+          <span class="file-summary" data-file-summary="laf_documents">No files selected.</span>
+          <span class="file-preview" data-file-preview="laf_documents"></span>
         </label>
         <label>
           Other files
           <input name="other_files" type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx">
           <span class="fine-print">Upload any supporting files. Maximum {{ max_file_size_mb }} MB per file.</span>
+          <span class="file-summary" data-file-summary="other_files">No files selected.</span>
+          <span class="file-preview" data-file-preview="other_files"></span>
         </label>
       </fieldset>
 
@@ -459,6 +534,15 @@
     ];
     const phoneFieldNames = ['primary_phone', 'secondary_phone'];
     const uppercaseFieldNames = ['customer_name', 'branch', 'county', 'visited_by', 'hb_staff'];
+    const moneyFieldNames = ['deposit_hb', 'deposit_jbl'];
+    const integerFieldNames = ['customer_no'];
+    const fileFieldNames = ['id_photos', 'laf_documents', 'other_files'];
+    const maxFileSizeMb = Number('{{ max_file_size_mb|default:20 }}');
+    const maxFileSizeBytes = maxFileSizeMb * 1024 * 1024;
+    const maxFilesPerSlot = Number('{{ max_files_per_slot|default:10 }}');
+    const maxTotalUploadMb = Number('{{ max_total_upload_mb|default:60 }}');
+    const maxTotalUploadBytes = maxTotalUploadMb * 1024 * 1024;
+    const previewUrls = new Map();
 
     if (tg) {
       tg.ready();
@@ -469,6 +553,98 @@
     function setStatus(state, text) {
       statusEl.dataset.state = state;
       statusEl.textContent = text;
+    }
+
+    function validationError(input, message, errors) {
+      input.setCustomValidity(message);
+      errors.push(message);
+    }
+
+    function formatBytes(bytes) {
+      const size = Number(bytes || 0);
+      if (size >= 1024 * 1024) {
+        return `${(size / 1024 / 1024).toFixed(1)} MB`;
+      }
+      if (size >= 1024) {
+        return `${Math.ceil(size / 1024)} KB`;
+      }
+      return `${size} B`;
+    }
+
+    function revokePreviewUrls(fieldName) {
+      const urls = previewUrls.get(fieldName) || [];
+      for (const url of urls) {
+        URL.revokeObjectURL(url);
+      }
+      previewUrls.set(fieldName, []);
+    }
+
+    function fileExtension(file) {
+      const name = String(file.name || '');
+      const parts = name.split('.');
+      return parts.length > 1 ? parts.pop().slice(0, 5) : 'file';
+    }
+
+    function renderFilePreview(fieldName) {
+      const input = form.elements[fieldName];
+      const summary = document.querySelector(`[data-file-summary="${fieldName}"]`);
+      const preview = document.querySelector(`[data-file-preview="${fieldName}"]`);
+      if (!input || !summary || !preview) {
+        return;
+      }
+
+      revokePreviewUrls(fieldName);
+      preview.replaceChildren();
+      const files = Array.from(input.files || []);
+      const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+      summary.textContent = files.length
+        ? `${files.length} file(s), ${formatBytes(totalBytes)} selected.`
+        : 'No files selected.';
+
+      files.slice(0, 12).forEach((file) => {
+        const card = document.createElement('span');
+        card.className = 'file-card';
+
+        if (file.type && file.type.startsWith('image/')) {
+          const image = document.createElement('img');
+          const url = URL.createObjectURL(file);
+          previewUrls.get(fieldName).push(url);
+          image.className = 'file-thumb';
+          image.src = url;
+          image.alt = '';
+          card.appendChild(image);
+        } else {
+          const icon = document.createElement('span');
+          icon.className = 'file-icon';
+          icon.textContent = fileExtension(file);
+          card.appendChild(icon);
+        }
+
+        const detail = document.createElement('span');
+        const name = document.createElement('span');
+        const meta = document.createElement('span');
+        name.className = 'file-name';
+        meta.className = 'file-meta';
+        name.textContent = file.name || 'Unnamed file';
+        meta.textContent = `${formatBytes(file.size)}${file.type ? ` - ${file.type}` : ''}`;
+        detail.appendChild(name);
+        detail.appendChild(meta);
+        card.appendChild(detail);
+        preview.appendChild(card);
+      });
+
+      if (files.length > 12) {
+        const more = document.createElement('span');
+        more.className = 'fine-print';
+        more.textContent = `+${files.length - 12} more selected.`;
+        preview.appendChild(more);
+      }
+    }
+
+    function renderAllFilePreviews() {
+      for (const name of fileFieldNames) {
+        renderFilePreview(name);
+      }
     }
 
     function setRecordMeta(text) {
@@ -533,10 +709,81 @@
         }
         input.value = normalizeKenyanPhone(input.value);
         input.setCustomValidity('');
-        if (input.value && !/^254[0-9]{9}$/.test(input.value)) {
-          input.setCustomValidity('Use 254XXXXXXXXX format, for example 254740614990.');
+      }
+    }
+
+    function labelText(input) {
+      const label = input.closest('label');
+      if (!label) {
+        return input.name;
+      }
+      return String(label.childNodes[0].textContent || input.name).trim();
+    }
+
+    function validateFormFields() {
+      const errors = [];
+      for (const name of editableFields) {
+        const input = form.elements[name];
+        if (input && typeof input.setCustomValidity === 'function') {
+          input.setCustomValidity('');
         }
       }
+
+      const idInput = form.elements.id_number;
+      if (!String(idInput.value || '').trim()) {
+        validationError(idInput, 'ID number is required.', errors);
+      }
+
+      for (const name of phoneFieldNames) {
+        const input = form.elements[name];
+        if (input && input.value && !/^254[0-9]{9}$/.test(input.value)) {
+          validationError(input, `${labelText(input)} must use 254XXXXXXXXX format, for example 254740614990.`, errors);
+        }
+      }
+
+      for (const name of moneyFieldNames) {
+        const input = form.elements[name];
+        if (input && input.value && !/^[0-9]+(\.[0-9]{1,2})?$/.test(input.value)) {
+          validationError(input, `${labelText(input)} must be a non-negative amount with up to 2 decimals.`, errors);
+        }
+      }
+
+      for (const name of integerFieldNames) {
+        const input = form.elements[name];
+        if (input && input.value && !/^[0-9]+$/.test(input.value)) {
+          validationError(input, 'Customer no must contain digits only.', errors);
+        }
+      }
+
+      let totalUploadBytes = 0;
+      for (const name of fileFieldNames) {
+        const input = form.elements[name];
+        if (!input) {
+          continue;
+        }
+        input.setCustomValidity('');
+        const files = Array.from(input.files || []);
+        totalUploadBytes += files.reduce((sum, file) => sum + file.size, 0);
+        if (files.length > maxFilesPerSlot) {
+          validationError(input, `${labelText(input)} allows up to ${maxFilesPerSlot} files.`, errors);
+        }
+        for (const file of files) {
+          if (file.size > maxFileSizeBytes) {
+            validationError(input, `${file.name || labelText(input)} is ${formatBytes(file.size)}. Maximum per file is ${maxFileSizeMb} MB.`, errors);
+            break;
+          }
+        }
+      }
+      if (totalUploadBytes > maxTotalUploadBytes) {
+        const firstFileInput = form.elements[fileFieldNames[0]];
+        validationError(
+          firstFileInput,
+          `Selected files total ${formatBytes(totalUploadBytes)}. Maximum total upload is ${maxTotalUploadMb} MB.`,
+          errors
+        );
+      }
+
+      return errors;
     }
 
     function normalizeUppercaseFields() {
@@ -619,12 +866,35 @@
         input.addEventListener('blur', normalizeUppercaseFields);
       }
     }
+    for (const name of fileFieldNames) {
+      const input = form.elements[name];
+      if (input) {
+        previewUrls.set(name, []);
+        input.addEventListener('change', () => {
+          input.setCustomValidity('');
+          renderFilePreview(name);
+        });
+      }
+    }
+    window.addEventListener('pagehide', () => {
+      for (const name of fileFieldNames) {
+        revokePreviewUrls(name);
+      }
+    });
+    renderAllFilePreviews();
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       normalizePhoneFields();
       normalizeUppercaseFields();
+      const validationErrors = validateFormFields();
+      if (validationErrors.length) {
+        setStatus('error', `Fix these fields:\n- ${validationErrors.join('\n- ')}`);
+        form.reportValidity();
+        return;
+      }
       if (!form.reportValidity()) {
+        setStatus('error', 'Fix the highlighted fields before submitting.');
         return;
       }
 
@@ -639,14 +909,26 @@
         const payload = await response.json();
 
         if (!response.ok || !payload.success) {
-          const message = payload.message || 'Submission failed.';
+          const errors = payload.errors || [];
+          const message = errors.length
+            ? `Fix these fields:\n- ${errors.join('\n- ')}`
+            : (payload.message || 'Submission failed.');
           setStatus('error', message);
           setBusy(false);
           return;
         }
 
-        const detail = `Sheet: ${payload.sheet}, row ${payload.row}. Files stored: ${payload.files_stored || 0}.`;
-        setStatus('success', `${payload.message} ${detail}`);
+        const changed = (payload.field_changes || [])
+          .slice(0, 6)
+          .map((change) => `- ${change.column || '?'} ${change.header || change.field}: ${change.action || 'updated'}`)
+          .join('\n');
+        const detail = [
+          payload.message,
+          `ID: ${payload.id_number || idNumberInput.value.trim()}`,
+          `Files stored: ${payload.files_stored || 0}`,
+          changed ? `Fields:\n${changed}` : ''
+        ].filter(Boolean).join('\n');
+        setStatus('success', detail);
         writeBlankFieldsInput.value = payload.status === 'created' ? '0' : writeBlankFieldsInput.value;
         setRecordMeta(`${payload.status === 'created' ? 'Created' : 'Saved'} ${payload.sheet}, row ${payload.row}.`);
         if (tg) {

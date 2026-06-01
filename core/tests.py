@@ -1416,6 +1416,7 @@ class GroupConfigurationServiceTest(TestCase):
                 'search_sheet_names': ['Orders'],
                 'create_sheet_name': 'Orders',
                 'media_field': 'media_urls',
+                'record_id_prefix': 'JBL',
                 'header_row': 3,
                 'media_root_folder': 'BRO Order Approvals',
             },
@@ -1446,6 +1447,7 @@ class GroupConfigurationServiceTest(TestCase):
         )
         self.assertEqual(workflow['header_row'], 2)
         self.assertEqual(workflow['media_root_folder'], '')
+        self.assertEqual(workflow['record_id_prefix'], 'JBL')
 
     def test_workflow_preset_overrides_order_approval_tabs(self):
         """Admin can override preset tabs without editing raw JSON."""
@@ -1898,8 +1900,61 @@ class BotCommandServiceTest(TestCase):
         self.assertEqual(result['status'], 'command')
         self.assertIn('Database: ok', result['reply_text'])
         self.assertIn('Group: configured', result['reply_text'])
-        self.assertIn('Cases in group: 1', result['reply_text'])
-        self.assertIn('Unsynced cases: 1', result['reply_text'])
+        self.assertIn('Workflow: case', result['reply_text'])
+        self.assertIn('Cases: 1', result['reply_text'])
+        self.assertIn('Unsynced: 1', result['reply_text'])
+        self.assertIn('Telegram token:', result['reply_text'])
+        GroupRegistry._instance = None
+
+    @override_settings(
+        GOOGLE_SHEET_ID='',
+        GOOGLE_SHEET_TAB_NAME='Cases',
+        GROUP_MAPPING={},
+        MEDIA_STORAGE_PROVIDER='google_drive',
+        MEDIA_MAX_FILE_SIZE_MB=20,
+        ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB=60,
+    )
+    def test_health_command_returns_order_workflow_diagnostics(self):
+        """The /health command should include order workflow counters."""
+        from core.models import GroupSheetConfiguration, MediaAttachment, OrderApprovalUpdate
+        from core.services.commands import handle_bot_command
+        from core.services.group_config import GroupRegistry
+
+        GroupSheetConfiguration.objects.create(
+            group_id='-100order',
+            display_name='Order group',
+            enabled=True,
+            sheet_id='sheet_order',
+            sheet_name='Orders',
+            workflow={
+                'type': 'order_approval',
+                'search_sheet_names': ['Orders'],
+                'header_row': 2,
+            },
+        )
+        OrderApprovalUpdate.objects.create(
+            group_id='-100order',
+            sheet_id='sheet_order',
+            id_number='113650221',
+            update_status='failed',
+        )
+        MediaAttachment.objects.create(
+            group_id='-100order',
+            telegram_message_id='1',
+            telegram_file_id='file_1',
+            upload_status='failed',
+        )
+        GroupRegistry._instance = None
+
+        result = handle_bot_command('/health', '-100order')
+
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('Workflow: order_approval', result['reply_text'])
+        self.assertIn('Order workflow', result['reply_text'])
+        self.assertIn('Failed updates: 1', result['reply_text'])
+        self.assertIn('Failed media: 1', result['reply_text'])
+        self.assertIn('Order tabs: Orders', result['reply_text'])
+        self.assertIn('Max upload total: 60 MB', result['reply_text'])
         GroupRegistry._instance = None
 
     def test_status_filter_commands(self):
@@ -2543,6 +2598,36 @@ class TelegramWebhookViewTest(TestCase):
             mock_process.call_args.kwargs['content'],
             'CUSTOMER COMPLAIN: no gas supply',
         )
+
+    @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
+    @patch('core.api.views._process_single_message')
+    def test_order_approval_message_in_case_group_returns_config_help(self, mock_process):
+        """Order-style messages should not fall through to complaint sheet sync."""
+        from core.api.views import _process_telegram_message
+        from core.services.group_config import GroupRegistry
+
+        GroupSheetConfiguration.objects.create(
+            group_id='-100123',
+            display_name='Misconfigured order group',
+            enabled=True,
+            sheet_id='sheet_order',
+            sheet_name='Orders',
+            workflow={},
+        )
+        GroupRegistry._instance = None
+
+        result = _process_telegram_message({
+            'message_id': 123,
+            'from': {'first_name': 'Test'},
+            'chat': {'id': -100123, 'type': 'supergroup'},
+            'date': 1711123456,
+            'text': '@biogas_bot\nID: 113650221\nCUSTOMER NAME: Jane Doe',
+        })
+
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('not configured for Order Approval', result['reply_text'])
+        self.assertIn('Workflow preset to Order Approval', result['reply_text'])
+        mock_process.assert_not_called()
 
     @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
     @patch('core.api.views._process_single_message')

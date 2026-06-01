@@ -29,6 +29,7 @@ WORKFLOW_PRESETS = {
             'search_sheet_names': ['Orders'],
             'create_sheet_name': 'Orders',
             'media_field': 'media_urls',
+            'record_id_prefix': 'JBL',
             'header_row': 2,
             'media_root_folder': '',
         },
