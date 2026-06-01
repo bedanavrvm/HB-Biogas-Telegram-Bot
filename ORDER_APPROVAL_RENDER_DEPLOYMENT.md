@@ -84,7 +84,9 @@ APP_BASE_URL=https://<your-render-service>.onrender.com
 MEDIA_STORAGE_PROVIDER=google_drive
 MEDIA_MAX_FILE_SIZE_MB=20
 ORDER_APPROVAL_MAX_FILES_PER_SLOT=10
-ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB=60
+ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB=30
+ORDER_APPROVAL_IMAGE_PREVIEWS_ENABLED=False
+ORDER_APPROVAL_IMAGE_PREVIEW_LIMIT=3
 GOOGLE_DRIVE_MEDIA_FOLDER_ID=<shared-drive-folder-id>
 ORDER_APPROVAL_WEBAPP_ENABLED=True
 ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True
@@ -108,13 +110,22 @@ Upload limits:
   (`ID photos`, `LAF document`, `Other files`).
 - `ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB` is the maximum total selected upload size
   for one form submission.
+- `ORDER_APPROVAL_IMAGE_PREVIEWS_ENABLED=False` keeps image thumbnails off by
+  default. Staff still see filenames and sizes, and can tap `Show thumbnails`
+  when needed.
+- `ORDER_APPROVAL_IMAGE_PREVIEW_LIMIT` caps how many thumbnails can be decoded
+  in the browser when thumbnails are enabled.
 
-The Web App previews images with browser object URLs, not base64 strings, so it
-does not duplicate full image contents in JavaScript memory. Very large photos
-still consume phone browser memory for thumbnail decoding and consume Render
-request memory while Django receives the multipart upload, so keep total mobile
-uploads conservative. A practical production starting point is 20 MB per file,
-10 files per slot, and 60 MB total per submission.
+The Web App does not render image thumbnails automatically because Telegram's
+mobile WebView can fail with a low-memory error before the upload reaches
+Django. If a user taps `Show thumbnails`, the form uses browser object URLs, not
+base64 strings, and only decodes up to `ORDER_APPROVAL_IMAGE_PREVIEW_LIMIT`
+images for that slot. Very large photos still consume phone browser memory and
+Render request memory while Django receives the multipart upload, so keep total
+mobile uploads conservative. A practical production starting point is 20 MB per
+file, 10 files per slot, and 30 MB total per submission. If staff use older
+phones or see low-memory errors, reduce `ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB` to
+10-20 and ask them to upload media in batches against the same ID.
 
 Use a Google Shared Drive for media storage. Google service accounts do not have normal My Drive storage quota, so uploads to a regular My Drive folder can fail with `storageQuotaExceeded` even when the folder is shared correctly.
 

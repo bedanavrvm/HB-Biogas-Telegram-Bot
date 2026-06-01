@@ -1013,7 +1013,10 @@ class OrderApprovalWebAppTest(TestCase):
         self.assertContains(response, 'name="other_files"')
         self.assertContains(response, 'data-file-preview="id_photos"')
         self.assertContains(response, 'data-file-preview="laf_documents"')
+        self.assertContains(response, 'data-preview-toggle="id_photos"')
+        self.assertContains(response, 'Show thumbnails')
         self.assertContains(response, 'maxTotalUploadMb')
+        self.assertContains(response, 'imagePreviewsEnabled')
         self.assertContains(response, 'pattern="254[0-9]{9}"')
         self.assertContains(response, 'placeholder="254740614990"')
 

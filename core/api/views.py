@@ -87,7 +87,13 @@ def order_approval_form(request):
             'form_token': str(request.GET.get('token', '')).strip(),
             'max_file_size_mb': getattr(settings, 'MEDIA_MAX_FILE_SIZE_MB', 20),
             'max_files_per_slot': getattr(settings, 'ORDER_APPROVAL_MAX_FILES_PER_SLOT', 10),
-            'max_total_upload_mb': getattr(settings, 'ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB', 60),
+            'max_total_upload_mb': getattr(settings, 'ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB', 30),
+            'image_previews_enabled': getattr(
+                settings,
+                'ORDER_APPROVAL_IMAGE_PREVIEWS_ENABLED',
+                False,
+            ),
+            'image_preview_limit': getattr(settings, 'ORDER_APPROVAL_IMAGE_PREVIEW_LIMIT', 3),
             'branch_choices': order_approval_branch_choices(),
         },
     )

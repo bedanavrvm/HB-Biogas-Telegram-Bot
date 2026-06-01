@@ -854,7 +854,10 @@ def _format_health(group_id: str) -> str:
             f"Header row: {workflow.get('header_row') or 1}",
             f"Media storage: {getattr(settings, 'MEDIA_STORAGE_PROVIDER', 'not set')}",
             f"Max file: {getattr(settings, 'MEDIA_MAX_FILE_SIZE_MB', 20)} MB",
-            f"Max upload total: {getattr(settings, 'ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB', 60)} MB",
+            f"Max upload total: {getattr(settings, 'ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB', 30)} MB",
+            "Image previews: "
+            f"{'on' if getattr(settings, 'ORDER_APPROVAL_IMAGE_PREVIEWS_ENABLED', False) else 'off'} "
+            f"(limit {getattr(settings, 'ORDER_APPROVAL_IMAGE_PREVIEW_LIMIT', 3)})",
         ])
 
     lines.extend([

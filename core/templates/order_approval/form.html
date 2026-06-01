@@ -311,6 +311,24 @@
       font-weight: 500;
     }
 
+    .preview-toggle {
+      display: none;
+      width: max-content;
+      min-height: 36px;
+      margin-top: 8px;
+      border: 1px solid var(--line);
+      background: #ffffff;
+      color: #344054;
+      padding: 7px 10px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .preview-toggle[data-visible="true"] {
+      display: inline-flex;
+      align-items: center;
+    }
+
     @media (min-width: 720px) {
       main {
         padding: 24px;
@@ -475,6 +493,7 @@
           <input name="id_photos" type="file" multiple accept="image/*">
           <span class="fine-print">Upload one or more ID images. Maximum {{ max_file_size_mb }} MB per file.</span>
           <span class="file-summary" data-file-summary="id_photos">No files selected.</span>
+          <button class="preview-toggle" type="button" data-preview-toggle="id_photos">Show thumbnails</button>
           <span class="file-preview" data-file-preview="id_photos"></span>
         </label>
         <label>
@@ -482,6 +501,7 @@
           <input name="laf_documents" type="file" multiple accept="image/*,.pdf,.doc,.docx">
           <span class="fine-print">Upload one or more LAF pages or documents. Maximum {{ max_file_size_mb }} MB per file.</span>
           <span class="file-summary" data-file-summary="laf_documents">No files selected.</span>
+          <button class="preview-toggle" type="button" data-preview-toggle="laf_documents">Show thumbnails</button>
           <span class="file-preview" data-file-preview="laf_documents"></span>
         </label>
         <label>
@@ -489,6 +509,7 @@
           <input name="other_files" type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx">
           <span class="fine-print">Upload any supporting files. Maximum {{ max_file_size_mb }} MB per file.</span>
           <span class="file-summary" data-file-summary="other_files">No files selected.</span>
+          <button class="preview-toggle" type="button" data-preview-toggle="other_files">Show thumbnails</button>
           <span class="file-preview" data-file-preview="other_files"></span>
         </label>
       </fieldset>
@@ -540,9 +561,12 @@
     const maxFileSizeMb = Number('{{ max_file_size_mb|default:20 }}');
     const maxFileSizeBytes = maxFileSizeMb * 1024 * 1024;
     const maxFilesPerSlot = Number('{{ max_files_per_slot|default:10 }}');
-    const maxTotalUploadMb = Number('{{ max_total_upload_mb|default:60 }}');
+    const maxTotalUploadMb = Number('{{ max_total_upload_mb|default:30 }}');
     const maxTotalUploadBytes = maxTotalUploadMb * 1024 * 1024;
+    const imagePreviewsEnabled = '{{ image_previews_enabled|yesno:"true,false" }}' === 'true';
+    const imagePreviewLimit = Number('{{ image_preview_limit|default:3 }}');
     const previewUrls = new Map();
+    const thumbnailsVisible = new Map();
 
     if (tg) {
       tg.ready();
@@ -585,10 +609,18 @@
       return parts.length > 1 ? parts.pop().slice(0, 5) : 'file';
     }
 
+    function fileIconLabel(file) {
+      if (file.type && file.type.startsWith('image/')) {
+        return 'IMG';
+      }
+      return fileExtension(file);
+    }
+
     function renderFilePreview(fieldName) {
       const input = form.elements[fieldName];
       const summary = document.querySelector(`[data-file-summary="${fieldName}"]`);
       const preview = document.querySelector(`[data-file-preview="${fieldName}"]`);
+      const toggle = document.querySelector(`[data-preview-toggle="${fieldName}"]`);
       if (!input || !summary || !preview) {
         return;
       }
@@ -597,15 +629,28 @@
       preview.replaceChildren();
       const files = Array.from(input.files || []);
       const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+      const imageCount = files.filter((file) => file.type && file.type.startsWith('image/')).length;
+      const showThumbnails = imagePreviewsEnabled || thumbnailsVisible.get(fieldName) === true;
       summary.textContent = files.length
         ? `${files.length} file(s), ${formatBytes(totalBytes)} selected.`
         : 'No files selected.';
 
+      if (toggle) {
+        toggle.dataset.visible = imageCount && !imagePreviewsEnabled ? 'true' : 'false';
+        toggle.textContent = thumbnailsVisible.get(fieldName) ? 'Hide thumbnails' : 'Show thumbnails';
+      }
+
+      let imageThumbnailsRendered = 0;
       files.slice(0, 12).forEach((file) => {
         const card = document.createElement('span');
         card.className = 'file-card';
 
-        if (file.type && file.type.startsWith('image/')) {
+        if (
+          file.type
+          && file.type.startsWith('image/')
+          && showThumbnails
+          && imageThumbnailsRendered < imagePreviewLimit
+        ) {
           const image = document.createElement('img');
           const url = URL.createObjectURL(file);
           previewUrls.get(fieldName).push(url);
@@ -613,10 +658,11 @@
           image.src = url;
           image.alt = '';
           card.appendChild(image);
+          imageThumbnailsRendered += 1;
         } else {
           const icon = document.createElement('span');
           icon.className = 'file-icon';
-          icon.textContent = fileExtension(file);
+          icon.textContent = fileIconLabel(file);
           card.appendChild(icon);
         }
 
@@ -638,6 +684,12 @@
         more.className = 'fine-print';
         more.textContent = `+${files.length - 12} more selected.`;
         preview.appendChild(more);
+      }
+      if (showThumbnails && imageCount > imagePreviewLimit) {
+        const limited = document.createElement('span');
+        limited.className = 'fine-print';
+        limited.textContent = `Showing ${imagePreviewLimit} image thumbnail(s) to protect phone memory.`;
+        preview.appendChild(limited);
       }
     }
 
@@ -870,8 +922,18 @@
       const input = form.elements[name];
       if (input) {
         previewUrls.set(name, []);
+        thumbnailsVisible.set(name, false);
         input.addEventListener('change', () => {
           input.setCustomValidity('');
+          thumbnailsVisible.set(name, false);
+          renderFilePreview(name);
+        });
+      }
+      const toggle = document.querySelector(`[data-preview-toggle="${name}"]`);
+      if (toggle) {
+        toggle.addEventListener('click', (event) => {
+          event.preventDefault();
+          thumbnailsVisible.set(name, !thumbnailsVisible.get(name));
           renderFilePreview(name);
         });
       }

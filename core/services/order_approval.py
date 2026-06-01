@@ -1669,7 +1669,7 @@ def validate_order_approval_uploaded_files(files_map) -> list[str]:
         getattr(settings, 'ORDER_APPROVAL_MAX_FILES_PER_SLOT', 10)
     )
     max_total_bytes = (
-        int(getattr(settings, 'ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB', 60))
+        int(getattr(settings, 'ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB', 30))
         * 1024
         * 1024
     )
@@ -1697,7 +1697,7 @@ def validate_order_approval_uploaded_files(files_map) -> list[str]:
     if total_size > max_total_bytes:
         errors.append(
             "Total upload size is too large. Upload at most "
-            f"{getattr(settings, 'ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB', 60)} MB "
+            f"{getattr(settings, 'ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB', 30)} MB "
             "per submission."
         )
 

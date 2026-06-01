@@ -1955,6 +1955,7 @@ class BotCommandServiceTest(TestCase):
         self.assertIn('Failed media: 1', result['reply_text'])
         self.assertIn('Order tabs: Orders', result['reply_text'])
         self.assertIn('Max upload total: 60 MB', result['reply_text'])
+        self.assertIn('Image previews: off', result['reply_text'])
         GroupRegistry._instance = None
 
     def test_status_filter_commands(self):
