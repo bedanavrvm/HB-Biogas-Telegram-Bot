@@ -1034,6 +1034,8 @@ def fields_for_order_approval_match(match: SheetMatch, workflow: dict) -> dict[s
         value = value_for_header(match, header_for_field(workflow, field))
         if field in DATE_FIELDS:
             value = html_date_value(value)
+        if field in PHONE_FIELDS:
+            value = normalize_kenyan_phone(value)
         fields[field] = value
     return fields
 

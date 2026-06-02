@@ -916,7 +916,9 @@
           input.add(option);
         }
       }
-      input.value = value;
+      input.value = phoneFieldNames.includes(input.name)
+        ? normalizeKenyanPhone(value)
+        : value;
     }
 
     function normalizeKenyanPhone(value) {

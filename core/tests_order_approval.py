@@ -580,6 +580,26 @@ class OrderApprovalSheetTest(TestCase):
 
         self.assertEqual(result['fields']['date_visited'], '2026-05-09')
 
+    def test_lookup_normalizes_existing_contact_numbers_to_254_format(self):
+        group_config = self._group_config()
+        group_config.workflow = {
+            'type': 'order_approval',
+            'match_field': 'id_number',
+            'search_sheet_names': ['Orders'],
+            'media_field': 'media_urls',
+        }
+        service = FakeService([
+            ['ID NUMBER', 'CONTACTS / PRIMARY', 'CONTACTS / SECONDARY', 'Media URLs'],
+            ['113650221', '0740 614 990', '+254 712 345 678', ''],
+        ])
+
+        with patch('core.services.order_approval.get_sheets_service', return_value=service):
+            result = lookup_order_approval_form_record(group_config, '113650221')
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['fields']['primary_phone'], '254740614990')
+        self.assertEqual(result['fields']['secondary_phone'], '254712345678')
+
     @patch('core.services.order_approval.store_uploaded_files_for_order')
     @patch('core.services.order_approval.find_order_approval_matches')
     def test_true_edit_requires_matching_loaded_context(
