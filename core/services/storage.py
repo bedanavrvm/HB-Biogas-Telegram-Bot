@@ -232,6 +232,7 @@ def process_and_store_message(
         # Attach runtime metadata for the caller (not persisted)
         parsed_message._processing_status = final_status
         parsed_message._processing_error = sync_error
+        parsed_message._processing_warnings = list(parsed_result.warnings)
 
         if final_status != processed_message.status or sync_error:
             processed_message.status = final_status

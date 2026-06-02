@@ -156,16 +156,17 @@ class CaseUpdateServiceTest(TestCase):
         case.refresh_from_db()
         self.assertEqual(result['status'], 'command')
         self.assertIn('Case updated', result['reply_text'])
+        self.assertIn('Case ID: MSG_UPDATE_1', result['reply_text'])
         self.assertEqual(case.complaint_status, 'Closed')
         self.assertIsNotNone(case.date_resolved)
-        self.assertIn('jiko relocated successfully', case.resolution_details)
+        self.assertEqual(case.resolution_details, 'jiko relocated successfully')
         update = CaseUpdate.objects.get(parsed_message=case)
         self.assertEqual(update.sync_status, 'success')
         sheet.update_case_row.assert_called_once()
         args, _ = sheet.update_case_row.call_args
         self.assertEqual(args[0], 'MSG_UPDATE_1')
         self.assertEqual(args[1]['status'], 'Closed')
-        self.assertIn('jiko relocated successfully', args[1]['resolution_details'])
+        self.assertEqual(args[1]['resolution_details'], 'jiko relocated successfully')
         self.assertIn('date_resolved', args[1])
 
     def test_reply_status_update_writes_note_to_resolution_details(self):
@@ -192,10 +193,16 @@ class CaseUpdateServiceTest(TestCase):
         case.refresh_from_db()
         self.assertEqual(result['status'], 'command')
         self.assertEqual(case.complaint_status, 'Closed')
-        self.assertIn('Jiko relocated and customer confirmed', case.resolution_details)
+        self.assertEqual(
+            case.resolution_details,
+            'Jiko relocated and customer confirmed',
+        )
         self.assertNotIn('NOTE:', case.resolution_details)
         args, _ = sheet.update_case_row.call_args
-        self.assertIn('Jiko relocated and customer confirmed', args[1]['resolution_details'])
+        self.assertEqual(
+            args[1]['resolution_details'],
+            'Jiko relocated and customer confirmed',
+        )
         self.assertNotIn('NOTE:', args[1]['resolution_details'])
 
     def test_reply_status_update_does_not_update_db_when_sheet_fails(self):
@@ -618,6 +625,40 @@ Gas leaking around the digester"""
         self.assertEqual(result.customer_id, 'A12345')
         self.assertEqual(result.problem_description, 'No gas supply')
         self.assertEqual(result.confidence, 1.0)
+
+    def test_parse_complaint_without_customer_id_is_partial(self):
+        """A complaint needs customer ID/account before it is complete."""
+        content = (
+            "CUSTOMER COMPLAIN NAME: John Doe TEL: 0712345678 "
+            "NATURE OF COMPLAIN: No gas supply"
+        )
+
+        result = parse_message(content, sender="Agent")
+
+        self.assertEqual(result.customer_phone, '0712345678')
+        self.assertEqual(result.customer_id, '')
+        self.assertLess(result.confidence, 1.0)
+        self.assertIn(
+            'Missing required complaint field(s): Customer ID / Account',
+            result.warnings,
+        )
+
+    def test_parse_complaint_without_phone_is_partial(self):
+        """A complaint needs a phone number before it is complete."""
+        content = (
+            "CUSTOMER COMPLAIN NAME: John Doe ID: A12345 "
+            "NATURE OF COMPLAIN: No gas supply"
+        )
+
+        result = parse_message(content, sender="Agent")
+
+        self.assertEqual(result.customer_id, 'A12345')
+        self.assertEqual(result.customer_phone, '')
+        self.assertLess(result.confidence, 1.0)
+        self.assertIn(
+            'Missing required complaint field(s): Phone Number',
+            result.warnings,
+        )
 
     def test_parse_complaint_fields_without_label_separators(self):
         """Labels without punctuation should still define clean field bounds."""
@@ -2769,6 +2810,7 @@ NATURE OF THE PROBLEM: Gas leakage
         text = mock_post.call_args.kwargs['data']['text']
         self.assertIn('OK. Message received and saved successfully', text)
         self.assertIn('Case ID: MSG_REPLY_1', text)
+        self.assertIn('(use this for /update)', text)
         self.assertIn('Captured:\n', text)
         self.assertIn('Sender: Agent', text)
         self.assertIn('Customer Name: Jane', text)
@@ -2776,6 +2818,37 @@ NATURE OF THE PROBLEM: Gas leakage
         self.assertIn('Complaint Description: No gas supply', text)
         self.assertNotIn('Captured: Customer Name', text)
         self.assertTrue(text.isascii())
+
+    @override_settings(TELEGRAM_BOT_TOKEN='token')
+    @patch('core.api.views.requests.post')
+    def test_telegram_reply_shows_partial_warning_details(self, mock_post):
+        """Partial complaint replies should tell staff which fields are missing."""
+        from core.api.views import _send_telegram_reply
+
+        _send_telegram_reply(
+            {
+                'message_id': 123,
+                'chat': {'id': -100123},
+            },
+            {
+                'status': 'partial',
+                'message_id': 'MSG_REPLY_PARTIAL',
+                'captured_fields': {
+                    'Customer Name': 'Jane',
+                    'Phone Number': '0712345678',
+                    'Complaint Description': 'No gas supply',
+                },
+                'warnings': [
+                    'Missing required complaint field(s): Customer ID / Account',
+                ],
+            },
+        )
+
+        text = mock_post.call_args.kwargs['data']['text']
+        self.assertIn('Warning: Message partially processed', text)
+        self.assertIn('Warnings:\n', text)
+        self.assertIn('Customer ID / Account', text)
+        self.assertIn('Case ID: MSG_REPLY_PARTIAL', text)
 
     @override_settings(TELEGRAM_BOT_TOKEN='token')
     @patch('core.api.views.requests.post')

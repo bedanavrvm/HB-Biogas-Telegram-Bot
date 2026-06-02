@@ -394,9 +394,9 @@ def _append_resolution_details(
     update_text: str,
     created_at,
 ) -> str:
-    local_time = timezone.localtime(created_at).strftime('%d/%m/%Y %H:%M')
-    actor = sender or 'Unknown'
-    entry = f"[{local_time} - {actor}] {update_text}".strip()
+    entry = " ".join(str(update_text or '').strip().split())
+    if not entry:
+        return existing or ''
     if existing and existing.strip():
         return f"{existing.strip()}\n{entry}"
     return entry
@@ -409,7 +409,7 @@ def _format_success_reply(
 ) -> str:
     lines = [
         "OK. Case updated.",
-        f"Case: {parsed_message.message_id}",
+        f"Case ID: {parsed_message.message_id} (use this for /update)",
         (
             f"Customer: {parsed_message.customer_name or 'Unknown'}"
             f" | {parsed_message.customer_phone or 'no phone'}"
@@ -431,7 +431,7 @@ def _format_ambiguous_cases(cases: list[ParsedMessage]) -> str:
     ]
     for case in cases[:10]:
         lines.append(
-            f"- {case.message_id}: {case.customer_name or 'Unknown'} | "
+            f"- Case ID {case.message_id}: {case.customer_name or 'Unknown'} | "
             f"{case.customer_phone or 'no phone'}"
         )
     lines.append("/update MSG_ID Status: resolved - details")

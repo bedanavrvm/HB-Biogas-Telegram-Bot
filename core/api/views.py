@@ -359,7 +359,7 @@ def telegram_webhook(request):
                     result = _process_telegram_message(body[key])
                     _send_telegram_reply(body[key], result)
                     if result.get('status') == 'partial':
-                        warnings = (
+                        warnings = result.get('warnings') or (
                             [result['error']] if result.get('error') else None
                         )
                         return partial_response(result, warnings=warnings)
@@ -631,6 +631,7 @@ def _process_single_message(
             'status': getattr(parsed_message, '_processing_status', 'success'),
             'message_id': parsed_message.message_id,
             'captured_fields': captured_fields,
+            'warnings': getattr(parsed_message, '_processing_warnings', []),
         }
 
         if result['status'] == 'partial':
@@ -638,7 +639,11 @@ def _process_single_message(
             if sync_error:
                 result['error'] = sync_error
             else:
-                result['warning'] = 'Message processed with partial confidence.'
+                result['warning'] = (
+                    result['warnings'][0]
+                    if result.get('warnings')
+                    else 'Message processed with partial confidence.'
+                )
 
         return result
 
@@ -695,24 +700,31 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
 
     case_id_line = ''
     if result.get('message_id'):
-        case_id_line = f"\nCase ID: {result['message_id']}"
+        case_id_line = f"\nCase ID: {result['message_id']} (use this for /update)"
+
+    warning_lines = ''
+    warnings = result.get('warnings') or []
+    if warnings:
+        warning_lines = "\nWarnings:\n" + "\n".join(
+            f"- {warning}" for warning in warnings[:5] if str(warning).strip()
+        )
 
     if status == 'success':
         text = (
             f'OK. Message received and saved successfully'
-            f'{case_id_line}{fields_summary}'
+            f'{case_id_line}{fields_summary}{warning_lines}'
         )
     elif status == 'partial':
         if result.get('error') and 'sheet' in result['error'].lower():
             text = (
                 f'Warning: Message saved to database but could not sync to the '
                 f'register at this time. It will be retried automatically.'
-                f'{case_id_line}{fields_summary}'
+                f'{case_id_line}{fields_summary}{warning_lines}'
             )
         else:
             text = (
                 f'Warning: Message partially processed (some fields were not '
-                f'recognised){case_id_line}{fields_summary}'
+                f'recognised){case_id_line}{fields_summary}{warning_lines}'
             )
     elif status == 'duplicate':
         text = 'Warning: This message has already been processed.'

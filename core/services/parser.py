@@ -350,6 +350,14 @@ def parse_message(content: str, sender: str = None, has_image: bool = False,
         # Apply intent-based extraction rules
         _extract_by_intent(clean_content, result)
         
+        if result.intent == MessageIntent.COMPLAINT:
+            missing_fields = _missing_required_complaint_fields(result)
+            if missing_fields:
+                result.warnings.append(
+                    "Missing required complaint field(s): "
+                    + ", ".join(missing_fields)
+                )
+
         # Calculate confidence
         result.confidence = _calculate_confidence(result)
         
@@ -1045,13 +1053,15 @@ def _calculate_confidence(result: ParsedResult) -> float:
     
     # Field extraction confidence depends on message intent
     if result.intent == MessageIntent.COMPLAINT:
-        # Complaint messages require: customer_name, customer_phone, problem_description
+        # Complaint messages require name, phone, customer ID/account, and description.
         complaint_fields = 0
-        total_complaint_fields = 3
+        total_complaint_fields = 4
         
         if result.customer_name:
             complaint_fields += 1
         if result.customer_phone:
+            complaint_fields += 1
+        if result.customer_id:
             complaint_fields += 1
         if result.problem_description:
             complaint_fields += 1
@@ -1091,6 +1101,19 @@ def _calculate_confidence(result: ParsedResult) -> float:
     
     total_confidence = base_confidence + field_confidence + gps_boost
     return round(min(total_confidence, 1.0), 2)
+
+
+def _missing_required_complaint_fields(result: ParsedResult) -> list[str]:
+    missing = []
+    if not result.customer_name:
+        missing.append("Customer Name")
+    if not result.customer_phone:
+        missing.append("Phone Number")
+    if not result.customer_id:
+        missing.append("Customer ID / Account")
+    if not result.problem_description:
+        missing.append("Complaint Description")
+    return missing
 
 
 def split_batch_message(content: str) -> list[dict]:
