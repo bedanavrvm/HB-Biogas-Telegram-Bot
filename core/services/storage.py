@@ -25,6 +25,22 @@ from core.services.parser import ParsedResult
 logger = logging.getLogger(__name__)
 
 
+class MessageRejectedError(Exception):
+    """Raised when a message is understood but fails mandatory intake rules."""
+
+    def __init__(
+        self,
+        message: str,
+        missing_fields: list[str] = None,
+        warnings: list[str] = None,
+        parsed_result: ParsedResult = None,
+    ):
+        super().__init__(message)
+        self.missing_fields = missing_fields or []
+        self.warnings = warnings or []
+        self.parsed_result = parsed_result
+
+
 # ---------------------------------------------------------------------------
 # Raw message storage
 # ---------------------------------------------------------------------------
@@ -191,6 +207,10 @@ def process_and_store_message(
                 received_at=received_at,
             )
 
+        rejection = _complaint_rejection(parsed_result)
+        if rejection:
+            raise rejection
+
         # ── 5. Store parsed ──────────────────────────────────────────
         parsed_message = store_parsed_message(
             processed_message=processed_message,
@@ -242,6 +262,8 @@ def process_and_store_message(
 
         return parsed_message
 
+    except MessageRejectedError:
+        raise
     except Exception as exc:
         logger.error(
             f"Failed to process and store message: {exc}", exc_info=True
@@ -257,6 +279,33 @@ def process_and_store_message(
             except Exception:
                 pass
         raise
+
+
+def _complaint_rejection(parsed_result: ParsedResult) -> MessageRejectedError | None:
+    intent_value = getattr(parsed_result, 'intent', '')
+    intent = getattr(intent_value, 'value', intent_value)
+    if intent != 'complaint':
+        return None
+
+    missing_fields = []
+    for warning in getattr(parsed_result, 'warnings', []) or []:
+        prefix = 'Missing required complaint field(s):'
+        if str(warning).startswith(prefix):
+            missing_fields.extend(
+                field.strip()
+                for field in str(warning)[len(prefix):].split(',')
+                if field.strip()
+            )
+
+    if not missing_fields:
+        return None
+
+    return MessageRejectedError(
+        'Complaint rejected because mandatory fields are missing.',
+        missing_fields=missing_fields,
+        warnings=list(getattr(parsed_result, 'warnings', []) or []),
+        parsed_result=parsed_result,
+    )
 
 
 # ---------------------------------------------------------------------------

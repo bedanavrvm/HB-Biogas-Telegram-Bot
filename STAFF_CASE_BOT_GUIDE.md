@@ -52,7 +52,7 @@ Mandatory fields for a complete case:
 - `COUNTY`
 - `NATURE OF THE PROBLEM`
 
-If `TEL`, `ID`, or `COUNTY` is missing, the bot may still save the case, but it will mark it as partially processed and reply with the missing field.
+If any mandatory field is missing, the bot rejects the case. It is not saved in the database and it is not written to the sheet. The bot reply shows what is missing so staff can resend the complete case.
 
 ## County Field
 

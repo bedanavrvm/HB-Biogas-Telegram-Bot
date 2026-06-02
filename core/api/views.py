@@ -558,6 +558,7 @@ def _process_telegram_message(message_data: dict) -> dict:
                 'total': len(messages),
                 'success': sum(1 for r in results if r.get('status') == 'success'),
                 'duplicates': sum(1 for r in results if r.get('status') == 'duplicate'),
+                'rejected': sum(1 for r in results if r.get('status') == 'rejected'),
                 'results': results,
             }
 
@@ -593,7 +594,7 @@ def _process_single_message(
     both down to process_and_store_message so the correct Google Sheet
     receives the data.
     """
-    from core.services.storage import process_and_store_message
+    from core.services.storage import MessageRejectedError, process_and_store_message
     from core.services.group_config import GroupRegistry, get_sheet_id_for_group
 
     try:
@@ -615,19 +616,22 @@ def _process_single_message(
         sheet_name = group_config.sheet_name
         sheet_schema = group_config.sheet_schema_config
 
-        parsed_message = process_and_store_message(
-            telegram_message_id=telegram_message_id,
-            content=content,
-            sender=sender,
-            received_at=received_at,
-            has_image=has_image,
-            group_id=group_id,
-            sheet_name=sheet_name,
-            source_telegram_message_id=source_telegram_message_id,
-            batch_index=batch_index,
-            sheet_id=sheet_id,       # â† forwarded to sheets service
-            sheet_schema=sheet_schema,
-        )
+        try:
+            parsed_message = process_and_store_message(
+                telegram_message_id=telegram_message_id,
+                content=content,
+                sender=sender,
+                received_at=received_at,
+                has_image=has_image,
+                group_id=group_id,
+                sheet_name=sheet_name,
+                source_telegram_message_id=source_telegram_message_id,
+                batch_index=batch_index,
+                sheet_id=sheet_id,       # â† forwarded to sheets service
+                sheet_schema=sheet_schema,
+            )
+        except MessageRejectedError as exc:
+            return _rejected_message_result(exc)
 
         if parsed_message is None:
             return {'status': 'duplicate', 'message_id': telegram_message_id}
@@ -685,6 +689,33 @@ def _process_single_message(
     except Exception as exc:
         logger.error(f"Error in _process_single_message: {exc}", exc_info=True)
         return {'status': 'error', 'error': 'Message could not be processed'}
+
+
+def _rejected_message_result(exc) -> dict:
+    parsed = getattr(exc, 'parsed_result', None)
+    captured_fields = {}
+    field_map = {
+        'sender': 'Sender',
+        'customer_name': 'Customer Name',
+        'customer_phone': 'Phone Number',
+        'customer_id': 'Customer ID',
+        'branch_region': 'County',
+        'problem_description': 'Complaint Description',
+    }
+    for attr, label in field_map.items():
+        value = getattr(parsed, attr, '') if parsed else ''
+        if value:
+            captured_fields[label] = (
+                str(value)[:140] if attr == 'problem_description' else str(value)
+            )
+
+    return {
+        'status': 'rejected',
+        'message': str(exc),
+        'missing_fields': list(getattr(exc, 'missing_fields', []) or []),
+        'warnings': list(getattr(exc, 'warnings', []) or []),
+        'captured_fields': captured_fields,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -749,6 +780,20 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
             f'OK. Message received and saved successfully'
             f'{case_id_line}{fields_summary}{warning_lines}'
         )
+    elif status == 'rejected':
+        missing = result.get('missing_fields') or []
+        missing_lines = "\n".join(f"- {field}" for field in missing if str(field).strip())
+        fix_section = f"\nMissing required fields:\n{missing_lines}" if missing_lines else ''
+        text = (
+            'Rejected. Complaint was not saved because required fields are missing.'
+            f'{fix_section}{fields_summary}\n\n'
+            'Required complaint fields:\n'
+            '- NAME\n'
+            '- TEL\n'
+            '- ID\n'
+            '- COUNTY\n'
+            '- NATURE OF THE PROBLEM'
+        )
     elif status == 'partial':
         if result.get('error') and 'sheet' in result['error'].lower():
             text = (
@@ -768,7 +813,31 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
     elif status == 'batch_processed':
         success = result.get('success', 0)
         total = result.get('total', 0)
-        text = f'OK. Batch processed: {success}/{total} messages saved.'
+        rejected = result.get('rejected', 0)
+        duplicates = result.get('duplicates', 0)
+        lines = [
+            f'Batch processed: {success}/{total} messages saved.',
+        ]
+        if rejected:
+            lines.append(f'Rejected: {rejected}')
+        if duplicates:
+            lines.append(f'Duplicates skipped: {duplicates}')
+
+        rejected_results = [
+            item for item in result.get('results', [])
+            if item.get('status') == 'rejected'
+        ]
+        if rejected_results:
+            lines.append('')
+            lines.append('Rejected case details:')
+            for index, item in enumerate(rejected_results[:3], start=1):
+                missing = item.get('missing_fields') or []
+                missing_text = ', '.join(str(field) for field in missing if str(field).strip())
+                lines.append(f'{index}. Missing: {missing_text or "required fields"}')
+            lines.append('')
+            lines.append('Each complaint must include NAME, TEL, ID, COUNTY, and NATURE OF THE PROBLEM.')
+
+        text = "\n".join(lines)
     elif status == 'error':
         text = (
             'Error: This message could not be processed. '
@@ -1101,6 +1170,12 @@ def _looks_like_status_update(content: str) -> bool:
 
 def _looks_like_order_approval_content(content: str) -> bool:
     if not content:
+        return False
+    if re.search(
+        r'\bcustomer\s+complain(?:t)?\b|\bnature\s+of\s+(?:the\s+)?problem\b',
+        content,
+        flags=re.IGNORECASE,
+    ):
         return False
     labels = {
         'id',

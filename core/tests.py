@@ -24,7 +24,11 @@ from core.services.deduplication import generate_message_hash, is_duplicate
 from core.services.parser import parse_message, split_batch_message
 from core.services.sheets import GoogleSheetsService, batch_append_messages
 from core.services.sheet_sync import sync_sheet_to_backend
-from core.services.storage import bulk_resync_to_sheets, process_and_store_message
+from core.services.storage import (
+    MessageRejectedError,
+    bulk_resync_to_sheets,
+    process_and_store_message,
+)
 
 
 def create_parsed_case(
@@ -1095,6 +1099,35 @@ class StorageServiceTest(TestCase):
         self.assertEqual(parsed.sheet_name, 'Cases')
         self.assertEqual(mock_sheet.call_args.kwargs['sheet_id'], 'sheet_123')
         self.assertEqual(mock_sheet.call_args.kwargs['sheet_name'], 'Cases')
+
+    @patch('core.services.sheets.append_parsed_message_to_sheet')
+    def test_process_and_store_rejects_incomplete_complaint_atomically(self, mock_sheet):
+        """Incomplete complaint intake should not leave raw, processed, or parsed rows."""
+        with self.assertRaises(MessageRejectedError) as context:
+            process_and_store_message(
+                telegram_message_id='reject_missing_county',
+                content=(
+                    'CUSTOMER COMPLAINT\n'
+                    'NAME: Jane Doe\n'
+                    'TEL: 0712345678\n'
+                    'ID: A12345\n'
+                    'NATURE OF THE PROBLEM: No gas supply'
+                ),
+                sender='Agent',
+                received_at=timezone.now(),
+                group_id='-100123',
+                sheet_id='sheet_123',
+                sheet_name='Complaints',
+            )
+
+        self.assertIn(
+            'County (Branch / Region)',
+            context.exception.missing_fields,
+        )
+        self.assertEqual(RawMessage.objects.count(), 0)
+        self.assertEqual(ProcessedMessage.objects.count(), 0)
+        self.assertEqual(ParsedMessage.objects.count(), 0)
+        mock_sheet.assert_not_called()
     
     @patch('core.services.storage.append_parsed_message_to_sheet')
     def test_process_duplicate_message(self, mock_sheet):
@@ -2817,6 +2850,47 @@ NATURE OF THE PROBLEM: Gas leakage
         self.assertIn('Jane Doe', mock_process.call_args_list[0].kwargs['content'])
         self.assertIn('John Smith', mock_process.call_args_list[1].kwargs['content'])
 
+    @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
+    @patch('core.api.views._process_single_message')
+    def test_telegram_batch_result_counts_rejected_cases(self, mock_process):
+        """Batch summaries should include rejected complaint blocks."""
+        from core.api.views import _process_telegram_message
+
+        mock_process.side_effect = [
+            {
+                'status': 'rejected',
+                'missing_fields': ['County (Branch / Region)'],
+                'captured_fields': {'Customer Name': 'Jane Doe'},
+            },
+            {'status': 'success', 'message_id': 'MSG_2'},
+        ]
+        payload_text = """@biogas_bot
+CUSTOMER COMPLAINT
+NAME: Jane Doe
+TEL: 0712345678
+ID: A123
+NATURE OF THE PROBLEM: No gas supply
+
+CUSTOMER COMPLAINT
+NAME: John Smith
+TEL: 0798765432
+ID: B456
+COUNTY: Kisumu
+NATURE OF THE PROBLEM: Gas leakage"""
+
+        result = _process_telegram_message({
+            'message_id': 123,
+            'from': {'first_name': 'Test'},
+            'chat': {'id': -100123, 'type': 'group'},
+            'date': 1711123456,
+            'text': payload_text,
+        })
+
+        self.assertEqual(result['status'], 'batch_processed')
+        self.assertEqual(result['total'], 2)
+        self.assertEqual(result['success'], 1)
+        self.assertEqual(result['rejected'], 1)
+
     @override_settings(TELEGRAM_BOT_TOKEN='token')
     @patch('core.api.views.requests.post')
     def test_telegram_reply_uses_plain_ascii_status_text(self, mock_post):
@@ -2882,6 +2956,71 @@ NATURE OF THE PROBLEM: Gas leakage
         self.assertIn('Warnings:\n', text)
         self.assertIn('Customer ID / Account', text)
         self.assertIn('Case ID: MSG_REPLY_PARTIAL', text)
+
+    @override_settings(TELEGRAM_BOT_TOKEN='token')
+    @patch('core.api.views.requests.post')
+    def test_telegram_reply_shows_rejected_complaint_details(self, mock_post):
+        """Rejected complaint replies should be clear and should not show a Case ID."""
+        from core.api.views import _send_telegram_reply
+
+        _send_telegram_reply(
+            {
+                'message_id': 123,
+                'chat': {'id': -100123},
+            },
+            {
+                'status': 'rejected',
+                'missing_fields': ['County (Branch / Region)'],
+                'captured_fields': {
+                    'Customer Name': 'Jane',
+                    'Phone Number': '0712345678',
+                    'Customer ID': 'A12345',
+                    'Complaint Description': 'No gas supply',
+                },
+            },
+        )
+
+        text = mock_post.call_args.kwargs['data']['text']
+        self.assertIn('Rejected. Complaint was not saved', text)
+        self.assertIn('Missing required fields:', text)
+        self.assertIn('County (Branch / Region)', text)
+        self.assertIn('Required complaint fields:', text)
+        self.assertIn('- COUNTY', text)
+        self.assertIn('Customer Name: Jane', text)
+        self.assertNotIn('Case ID:', text)
+
+    @override_settings(TELEGRAM_BOT_TOKEN='token')
+    @patch('core.api.views.requests.post')
+    def test_telegram_reply_shows_batch_rejection_summary(self, mock_post):
+        """Batch replies should list why any complaint block was rejected."""
+        from core.api.views import _send_telegram_reply
+
+        _send_telegram_reply(
+            {
+                'message_id': 123,
+                'chat': {'id': -100123},
+            },
+            {
+                'status': 'batch_processed',
+                'total': 2,
+                'success': 1,
+                'rejected': 1,
+                'duplicates': 0,
+                'results': [
+                    {
+                        'status': 'rejected',
+                        'missing_fields': ['County (Branch / Region)'],
+                    },
+                    {'status': 'success', 'message_id': 'MSG_2'},
+                ],
+            },
+        )
+
+        text = mock_post.call_args.kwargs['data']['text']
+        self.assertIn('Batch processed: 1/2 messages saved.', text)
+        self.assertIn('Rejected: 1', text)
+        self.assertIn('Missing: County (Branch / Region)', text)
+        self.assertIn('Each complaint must include NAME, TEL, ID, COUNTY', text)
 
     @override_settings(TELEGRAM_BOT_TOKEN='token')
     @patch('core.api.views.requests.post')
