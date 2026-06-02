@@ -607,7 +607,7 @@ Gas leaking around the digester"""
         result = parse_message(content, sender="Agent")
         self.assertEqual(result.intent, MessageIntent.COMPLAINT)
         self.assertEqual(result.customer_name, 'John Doe')
-        self.assertEqual(result.customer_phone, '0712345678')
+        self.assertEqual(result.customer_phone, '254712345678')
         self.assertEqual(result.customer_id, 'A12345')
         self.assertIn('No gas supply', result.problem_description)
         self.assertGreater(result.confidence, 0.0)
@@ -625,7 +625,7 @@ Gas leaking around the digester"""
 
         self.assertEqual(result.intent, MessageIntent.COMPLAINT)
         self.assertEqual(result.customer_name, 'John Doe')
-        self.assertEqual(result.customer_phone, '0712345678')
+        self.assertEqual(result.customer_phone, '254712345678')
         self.assertEqual(result.customer_id, 'A12345')
         self.assertEqual(result.branch_region, 'MURANGA')
         self.assertEqual(result.problem_description, 'No gas supply')
@@ -653,7 +653,7 @@ Gas leaking around the digester"""
 
         result = parse_message(content, sender="Agent")
 
-        self.assertEqual(result.customer_phone, '0712345678')
+        self.assertEqual(result.customer_phone, '254712345678')
         self.assertEqual(result.customer_id, '')
         self.assertLess(result.confidence, 1.0)
         self.assertIn(
@@ -707,7 +707,7 @@ Gas leaking around the digester"""
 
         self.assertEqual(result.intent, MessageIntent.COMPLAINT)
         self.assertEqual(result.customer_name, 'John Doe')
-        self.assertEqual(result.customer_phone, '0712345678')
+        self.assertEqual(result.customer_phone, '254712345678')
         self.assertEqual(result.customer_id, 'A12345')
         self.assertEqual(result.problem_description, 'No gas supply at home')
         self.assertNotIn('NAME', result.customer_name.upper())
@@ -726,7 +726,7 @@ Gas leaking around the digester"""
         result = parse_message(content, sender="Agent")
 
         self.assertEqual(result.customer_name, 'Jane Doe')
-        self.assertEqual(result.customer_phone, '0712345678')
+        self.assertEqual(result.customer_phone, '254712345678')
         self.assertEqual(result.customer_id, 'A12345')
         self.assertEqual(result.problem_description, 'No gas supply at home')
 
@@ -740,7 +740,7 @@ Gas leaking around the digester"""
         result = parse_message(content, sender="Agent")
 
         self.assertEqual(result.customer_name, 'Alice Smith')
-        self.assertEqual(result.customer_phone, '0712345678')
+        self.assertEqual(result.customer_phone, '254712345678')
         self.assertEqual(result.customer_id, 'CUST_100')
         self.assertEqual(result.problem_description, 'Burner not working')
 
@@ -757,7 +757,7 @@ Gas leaking around the digester"""
         result = parse_message(content, sender="Agent")
 
         self.assertEqual(result.customer_name, 'NYAMU, ROSE RUGURU')
-        self.assertEqual(result.customer_phone, '0721552446')
+        self.assertEqual(result.customer_phone, '254721552446')
         self.assertEqual(result.customer_id, '11598558')
         self.assertEqual(result.problem_description, 'Less cooking hrs than expected')
 
@@ -773,7 +773,7 @@ Gas leaking around the digester"""
 
         self.assertEqual(result.intent, MessageIntent.COMPLAINT)
         self.assertEqual(result.customer_name, 'Joseph Mbaabu')
-        self.assertEqual(result.customer_phone, '0714953414')
+        self.assertEqual(result.customer_phone, '254714953414')
         self.assertEqual(
             result.problem_description,
             'is requesting for an agronomy training',
@@ -792,7 +792,7 @@ Gas leaking around the digester"""
 
         self.assertEqual(result.intent, MessageIntent.COMPLAINT)
         self.assertEqual(result.customer_name, 'Francis Kaihura Kuria')
-        self.assertEqual(result.customer_phone, '0797963674')
+        self.assertEqual(result.customer_phone, '254797963674')
         self.assertEqual(result.problem_description, 'is requesting installation')
 
     def test_parse_status_description_does_not_return_full_message(self):
@@ -806,7 +806,7 @@ Gas leaking around the digester"""
         result = parse_message(content, sender="Agent")
 
         self.assertEqual(result.customer_name, 'Doreen Gaceri')
-        self.assertEqual(result.customer_phone, '0718077338')
+        self.assertEqual(result.customer_phone, '254718077338')
         self.assertEqual(result.problem_description, 'ready for installation')
         self.assertNotIn('CUSTOMER COMPLAIN', result.problem_description)
         self.assertNotIn('Phone', result.problem_description)
@@ -828,7 +828,7 @@ Gas leaking around the digester"""
         self.assertEqual(result.intent, MessageIntent.COMPLAINT)
         self.assertEqual(result.customer_name, 'Henry mwenda')
         self.assertEqual(result.customer_id, '24289449')
-        self.assertEqual(result.customer_phone, '0720809218')
+        self.assertEqual(result.customer_phone, '254720809218')
         self.assertEqual(result.problem_description, 'Requesting for a jiko relocation')
 
     def test_parse_complaint_description_excludes_trailing_awareness_mentions(self):
@@ -895,7 +895,7 @@ Gas leaking around the digester"""
 
         self.assertEqual(result.intent, MessageIntent.COMPLAINT)
         self.assertEqual(result.customer_name, 'John Doe')
-        self.assertEqual(result.customer_phone, '0712345678')
+        self.assertEqual(result.customer_phone, '254712345678')
         self.assertEqual(result.customer_id, 'A12345')
         self.assertEqual(result.branch_region, 'EMBU')
         self.assertEqual(
@@ -914,7 +914,7 @@ Gas leaking around the digester"""
 
         self.assertEqual(result.intent, MessageIntent.COMPLAINT)
         self.assertEqual(result.customer_name, 'Jane Doe')
-        self.assertEqual(result.customer_phone, '0798765432')
+        self.assertEqual(result.customer_phone, '254798765432')
         self.assertEqual(result.customer_id, 'B456')
         self.assertEqual(result.branch_region, 'MURANGA')
         self.assertEqual(result.problem_description, 'biogas is leaking near the valve')
@@ -2231,7 +2231,7 @@ class BotCommandServiceTest(TestCase):
         create_parsed_case(
             'MSG_PHONE',
             customer_name='Lookup Customer',
-            customer_phone='0712345000',
+            customer_phone='254712345000',
             customer_id='ACC-123',
         )
         create_parsed_case(
@@ -2244,10 +2244,13 @@ class BotCommandServiceTest(TestCase):
         from core.services.commands import handle_bot_command
 
         phone_result = handle_bot_command('/phone 0712345', '-100123')
+        phone_254_result = handle_bot_command('/phone 254712345000', '-100123')
         id_result = handle_bot_command('/id ACC-123', '-100123')
 
         self.assertIn('LOOKUP CUSTOMER', phone_result['reply_text'])
         self.assertNotIn('OTHER LOOKUP CUSTOMER', phone_result['reply_text'])
+        self.assertIn('LOOKUP CUSTOMER', phone_254_result['reply_text'])
+        self.assertNotIn('OTHER LOOKUP CUSTOMER', phone_254_result['reply_text'])
         self.assertIn('LOOKUP CUSTOMER', id_result['reply_text'])
         self.assertNotIn('OTHER LOOKUP CUSTOMER', id_result['reply_text'])
 
@@ -2908,7 +2911,7 @@ NATURE OF THE PROBLEM: Gas leakage"""
                 'captured_fields': {
                     'Sender': 'Agent',
                     'Customer Name': 'Jane',
-                    'Phone Number': '0712345678',
+                    'Phone Number': '254712345678',
                     'Complaint Description': 'No gas supply',
                 },
             },
@@ -2921,7 +2924,7 @@ NATURE OF THE PROBLEM: Gas leakage"""
         self.assertIn('Captured:\n', text)
         self.assertIn('Sender: Agent', text)
         self.assertIn('Customer Name: Jane', text)
-        self.assertIn('Phone Number: 0712345678', text)
+        self.assertIn('Phone Number: 254712345678', text)
         self.assertIn('Complaint Description: No gas supply', text)
         self.assertNotIn('Captured: Customer Name', text)
         self.assertTrue(text.isascii())
@@ -2942,7 +2945,7 @@ NATURE OF THE PROBLEM: Gas leakage"""
                 'message_id': 'MSG_REPLY_PARTIAL',
                 'captured_fields': {
                     'Customer Name': 'Jane',
-                    'Phone Number': '0712345678',
+                    'Phone Number': '254712345678',
                     'Complaint Description': 'No gas supply',
                 },
                 'warnings': [
@@ -2973,7 +2976,7 @@ NATURE OF THE PROBLEM: Gas leakage"""
                 'missing_fields': ['County (Branch / Region)'],
                 'captured_fields': {
                     'Customer Name': 'Jane',
-                    'Phone Number': '0712345678',
+                    'Phone Number': '254712345678',
                     'Customer ID': 'A12345',
                     'Complaint Description': 'No gas supply',
                 },
@@ -3132,7 +3135,7 @@ class ParsedMessageModelTest(TestCase):
         self.assertIsInstance(row[2], str)  # Date Reported
         self.assertEqual(row[3], 'JANE DOE', "Customer Name (CAPITALIZED by bot)")
         self.assertEqual(row[4], 'A12345', "Customer ID")
-        self.assertEqual(row[5], '0712345678', "Phone Number")
+        self.assertEqual(row[5], '254712345678', "Phone Number")
         self.assertEqual(row[6], 'John', "JBL Reported By uses the message sender")
         self.assertEqual(row[7], 'Nairobi', "Branch / Region")
         self.assertEqual(row[8], 'System Underperformance', "Complaint Category")
@@ -3152,3 +3155,4 @@ class ParsedMessageModelTest(TestCase):
         self.assertEqual(row[18], '', "Resolution Details (human)")
         self.assertEqual(row[19], '', "Date Resolved (human)")
         self.assertEqual(row[20], '', "Days Open (formula - should be empty)")
+

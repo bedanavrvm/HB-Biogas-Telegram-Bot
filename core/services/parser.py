@@ -678,9 +678,11 @@ def _normalise_phone(raw: str) -> str:
     phone = match.group(0) if match else (raw or '')
     digits = re.sub(r'\D', '', phone)
     if digits.startswith('254') and len(digits) == 12:
-        return '0' + digits[3:]
+        return digits
+    if digits.startswith('0') and len(digits) == 10 and digits[1] in {'1', '7'}:
+        return '254' + digits[1:]
     if len(digits) == 9 and digits[0] in {'1', '7'}:
-        return '0' + digits
+        return '254' + digits
     return digits
 
 

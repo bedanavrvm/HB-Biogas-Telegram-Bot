@@ -12,9 +12,12 @@ Main staff actions:
 
 - Report a new case.
 - Capture customer county into `Branch / Region`.
+- Include all mandatory complaint fields: `NAME`, `TEL`, `ID`, `COUNTY`, and `NATURE OF THE PROBLEM`.
 - Update case status.
 - Search cases by phone, ID, customer name, or text.
 - Check open, pending, closed, stale, duplicate, and incomplete cases.
+
+Incomplete complaint messages are rejected and are not saved to the database or sheet. The bot reply lists the missing fields so staff can resend the complete case.
 
 Core commands:
 
@@ -42,7 +45,7 @@ Main staff actions:
 - Open the Telegram Web App form.
 - Create or edit order rows by ID number.
 - Use ID suggestions while typing.
-- Normalize phone numbers to `254XXXXXXXXX`.
+- Phone numbers are written as `254XXXXXXXXX`.
 - Upload ID photos, LAF documents, and other files.
 
 Core commands:

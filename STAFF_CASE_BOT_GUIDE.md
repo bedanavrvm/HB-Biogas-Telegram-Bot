@@ -76,7 +76,7 @@ TEL: +254720809218
 TEL: 254720809218
 ```
 
-The order approval workflow normalizes phone numbers to `254XXXXXXXXX`. The case workflow stores the parsed phone as captured by the case parser, so use clear Kenyan numbers where possible.
+The bot accepts these formats and writes Kenyan mobile numbers as `254XXXXXXXXX` in the database, bot reply, and Google Sheet.
 
 ## Multiple Cases In One Message
 
@@ -249,7 +249,9 @@ Do not use the spreadsheet `Complaint ID` for `/update` unless the bot has been 
 
 If the bot says a field is missing, resend the case with the missing field filled.
 
-If the bot says the case was partially processed, check the bot reply and the Google Sheet row.
+If the bot says the case was rejected, add the missing mandatory fields and resend the full case. Rejected cases are not saved.
+
+If the bot says the case was partially processed, the mandatory intake passed but a later step, such as sheet sync, needs checking. Review the bot reply and the Google Sheet row.
 
 If the bot does not reply, check that the bot was tagged and that the group is configured. Send:
 

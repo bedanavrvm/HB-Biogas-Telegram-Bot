@@ -3,6 +3,7 @@ Database models for the biogas telegram bot system.
 Provides full traceability and deduplication support.
 """
 import uuid
+import re
 from django.db import models
 from django.utils import timezone
 
@@ -164,6 +165,17 @@ class ParsedMessage(models.Model):
                 return value
         return value.strftime('%d/%m/%Y')
 
+    @staticmethod
+    def _format_phone(value):
+        digits = re.sub(r'\D', '', str(value or ''))
+        if digits.startswith('254') and len(digits) == 12:
+            return digits
+        if digits.startswith('0') and len(digits) == 10 and digits[1] in {'1', '7'}:
+            return '254' + digits[1:]
+        if len(digits) == 9 and digits[0] in {'1', '7'}:
+            return '254' + digits
+        return str(value or '')
+
     def to_sheet_row(self):
         """
         Convert to Google Sheet row format (21 columns).
@@ -197,7 +209,7 @@ class ParsedMessage(models.Model):
             self._format_sheet_date(self.timestamp),                                     # [2] Date Reported
             self.customer_name.upper() if self.customer_name else '',                    # [3] Customer Name (CAPITALIZED)
             self.customer_id,                                                             # [4] Customer ID / Account
-            self.customer_phone,                                                          # [5] Phone Number
+            self._format_phone(self.customer_phone),                                      # [5] Phone Number
             self.sender or bot_display_name(),                                            # [6] Reported By (message sender)
             self.branch_region,                                                           # [7] Branch / Region
             self.complaint_category,                                                      # [8] Complaint Category

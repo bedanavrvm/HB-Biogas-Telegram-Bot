@@ -481,11 +481,16 @@ def _format_field_lookup(group_id: str, field: str, label: str, query: str) -> s
     if not query:
         return f"{label.title()} lookup value cannot be empty."
 
-    rows = list(
-        _group_cases(group_id)
-        .filter(**{f"{field}__icontains": query})
-        .order_by('-created_at')[:MAX_LAST_LIMIT]
-    )
+    queryset = _group_cases(group_id)
+    if field == 'customer_phone':
+        phone_query = Q()
+        for variant in _phone_lookup_variants(query):
+            phone_query |= Q(customer_phone__icontains=variant)
+        queryset = queryset.filter(phone_query)
+    else:
+        queryset = queryset.filter(**{f"{field}__icontains": query})
+
+    rows = list(queryset.order_by('-created_at')[:MAX_LAST_LIMIT])
 
     if not rows:
         return f"No cases found for {label}: {query}"
@@ -494,6 +499,30 @@ def _format_field_lookup(group_id: str, field: str, label: str, query: str) -> s
     for index, msg in enumerate(rows, start=1):
         lines.append(_format_case_line(index, msg))
     return "\n".join(lines)
+
+
+def _phone_lookup_variants(value: str) -> set[str]:
+    digits = re.sub(r'\D', '', str(value or ''))
+    variants = {str(value or '').strip()}
+    if digits:
+        variants.add(digits)
+    if digits.startswith('254') and len(digits) == 12:
+        variants.add('0' + digits[3:])
+        variants.add('+' + digits)
+    elif digits.startswith('254') and len(digits) > 3:
+        variants.add('0' + digits[3:])
+        variants.add('+' + digits)
+    elif digits.startswith('0') and len(digits) == 10 and digits[1] in {'1', '7'}:
+        variants.add('254' + digits[1:])
+        variants.add('+254' + digits[1:])
+    elif digits.startswith('0') and len(digits) > 1 and digits[1] in {'1', '7'}:
+        variants.add('254' + digits[1:])
+        variants.add('+254' + digits[1:])
+    elif len(digits) == 9 and digits[0] in {'1', '7'}:
+        variants.add('254' + digits)
+        variants.add('0' + digits)
+        variants.add('+254' + digits)
+    return {variant for variant in variants if variant}
 
 
 def _format_status_cases(group_id: str, status: str, limit: int) -> str:
