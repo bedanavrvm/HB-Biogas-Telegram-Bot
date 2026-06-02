@@ -184,6 +184,8 @@ class GoogleSheetsService:
         self._sheet_name = sheet_name or getattr(settings, 'GOOGLE_SHEET_TAB_NAME', '')
         self.schema = SheetSchema.from_config(sheet_schema)
         self.sheet_columns = self.schema.columns
+        self.header_row = self.schema.header_row
+        self.data_start_row = self.header_row + 1
         self.formula_columns = self.schema.formula_headers
         self.bot_writable_columns = self.schema.bot_writable_headers
         self.case_update_writable_columns = self.schema.case_update_headers
@@ -290,9 +292,9 @@ class GoogleSheetsService:
             return False, "Google Sheets not available"
 
         try:
-            actual_header = self._sheet.row_values(1)
+            actual_header = self._header_values()
             if not actual_header:
-                return False, "Sheet header row is empty"
+                return False, f"Sheet header row {self.header_row} is empty"
 
             normalized_header = [self._normalize_header(h) for h in actual_header]
             expected_header = [self._normalize_header(h) for h in self.sheet_columns]
@@ -373,7 +375,7 @@ class GoogleSheetsService:
                 for row_idx, row in enumerate(
                     sheet.get('data', [{}])[0].get('rowData', [])
                 ):
-                    if row_idx == 0:
+                    if row_idx == self.header_row - 1:
                         continue  # skip header
                     values = row.get('values', [])
                     if len(values) > category_index:
@@ -602,7 +604,7 @@ class GoogleSheetsService:
                 )
                 return False
 
-            headers = self._sheet.row_values(1)
+            headers = self._header_values()
             row_number = self._row_number_for_message_id(message_id)
             if not row_number:
                 logger.warning(
@@ -689,9 +691,15 @@ class GoogleSheetsService:
         if not values:
             return []
 
-        headers = values[0]
+        if len(values) < self.header_row:
+            return []
+
+        headers = values[self.header_row - 1]
         rows = []
-        for row_number, row in enumerate(values[1:], start=2):
+        for row_number, row in enumerate(
+            values[self.header_row:],
+            start=self.data_start_row,
+        ):
             if not any(str(cell or '').strip() for cell in row):
                 continue
 
@@ -739,10 +747,13 @@ class GoogleSheetsService:
     def _normalize_header(header: str) -> str:
         return " ".join(str(header or "").strip().lower().split())
 
+    def _header_values(self) -> list:
+        return self._sheet.row_values(self.header_row)
+
     def _header_index(self, header_name: str) -> Optional[int]:
         """Return the 1-based column index for a header name."""
         target = self._normalize_header(header_name)
-        headers = self._sheet.row_values(1)
+        headers = self._header_values()
         for idx, header in enumerate(headers, start=1):
             if self._normalize_header(header) == target:
                 return idx
@@ -765,7 +776,7 @@ class GoogleSheetsService:
         sheet columns are left blank.
         """
         try:
-            headers = self._sheet.row_values(1)
+            headers = self._header_values()
         except Exception as exc:
             logger.error(f"Could not read sheet headers for append: {exc}")
             return row
@@ -794,7 +805,7 @@ class GoogleSheetsService:
         or sorted ranges. This chooses the next row by actual case data and
         leaves formula and human workflow columns untouched.
         """
-        headers = self._sheet.row_values(1)
+        headers = self._header_values()
         if not isinstance(headers, list) or not headers:
             raise ValueError("Sheet headers are not available")
 
@@ -847,7 +858,7 @@ class GoogleSheetsService:
         """Return the next row after real case data, ignoring formula columns."""
         rows = self._sheet.get_all_values()
         if not rows:
-            return 2
+            return self.data_start_row
 
         formula_columns = {
             self._normalize_header(column)
@@ -858,8 +869,11 @@ class GoogleSheetsService:
             if self._normalize_header(header) not in formula_columns
         ]
 
-        last_data_row = 1
-        for row_number, row in enumerate(rows[1:], start=2):
+        last_data_row = self.header_row
+        for row_number, row in enumerate(
+            rows[self.header_row:],
+            start=self.data_start_row,
+        ):
             if any(
                 idx < len(row) and str(row[idx] or '').strip()
                 for idx in data_indices

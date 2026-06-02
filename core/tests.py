@@ -1440,7 +1440,7 @@ class GroupConfigurationServiceTest(TestCase):
         })
 
         self.assertTrue(form.is_valid(), form.errors)
-        self.assertEqual(form.generated_workflow(), {'type': 'case'})
+        self.assertEqual(form.generated_workflow(), {'type': 'case', 'header_row': 2})
 
     def test_workflow_presets_define_order_approval_defaults(self):
         """Future workflow additions should follow the shared preset contract."""
@@ -1459,8 +1459,8 @@ class GroupConfigurationServiceTest(TestCase):
 
         case_defaults = defaults_for_preset('case')
         self.assertEqual(case_defaults['sheet_name'], 'Complaints Register')
-        self.assertEqual(case_defaults['workflow'], {'type': 'case'})
-        self.assertEqual(build_workflow_from_preset('case'), {'type': 'case'})
+        self.assertEqual(case_defaults['workflow'], {'type': 'case', 'header_row': 2})
+        self.assertEqual(build_workflow_from_preset('case'), {'type': 'case', 'header_row': 2})
         self.assertEqual(preset_for_workflow({}), 'case')
 
         defaults = defaults_for_preset('order_approval')

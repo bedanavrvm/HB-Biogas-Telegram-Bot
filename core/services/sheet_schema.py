@@ -70,6 +70,7 @@ class SheetSchema:
         bot_writable_fields: list = None,
         case_update_fields: list = None,
         date_fields: list = None,
+        header_row: int = None,
     ):
         self.field_headers = dict(DEFAULT_FIELD_HEADERS)
         self.field_headers.update(field_headers or {})
@@ -87,6 +88,10 @@ class SheetSchema:
             case_update_fields or DEFAULT_CASE_UPDATE_FIELDS
         )
         self.date_fields = set(date_fields or DEFAULT_DATE_FIELDS)
+        try:
+            self.header_row = max(int(header_row or 1), 1)
+        except (TypeError, ValueError):
+            self.header_row = 1
 
     @classmethod
     def from_config(cls, config: dict = None) -> "SheetSchema":
@@ -98,6 +103,7 @@ class SheetSchema:
             bot_writable_fields=config.get('bot_writable_fields'),
             case_update_fields=config.get('case_update_fields'),
             date_fields=config.get('date_fields'),
+            header_row=config.get('header_row'),
         )
 
     @staticmethod

@@ -23,7 +23,8 @@ This preset generates:
 
 ```json
 {
-  "type": "case"
+  "type": "case",
+  "header_row": 2
 }
 ```
 
@@ -52,6 +53,9 @@ sheet_id: <complaint-sheet-id>
 sheet_name: Complaints Register
 workflow_preset: Case / Complaints
 ```
+
+The redesigned complaint register uses row 1 as a visual title and row 2 as the
+bot-readable header row, so keep `header_row: 2`.
 
 An existing config with an empty workflow still behaves as a case/complaints
 workflow. The admin now shows that as `Case / Complaints` so the fallback is

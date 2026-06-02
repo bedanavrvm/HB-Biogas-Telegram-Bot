@@ -263,6 +263,63 @@ class GoogleSheetsValidationTests(TestCase):
         written_ranges = [call.args[0] for call in update_calls]
         self.assertNotIn('I2:I2', written_ranges)
 
+    def test_append_row_uses_configured_header_row(self):
+        """Polished sheets can keep a title row above bot-readable headers."""
+        service = GoogleSheetsService.get_instance(
+            sheet_id='sheet_header_row',
+            sheet_name='Complaints Register',
+            sheet_schema={'header_row': 2},
+        )
+        row = ['' for _ in self.expected_columns]
+        row[1] = 'MSG_ROW2'
+        row[2] = '31/05/2026'
+
+        mock_sheet = Mock()
+        mock_sheet.row_values = Mock(return_value=self.expected_columns)
+        mock_sheet.col_values = Mock(return_value=[])
+        mock_sheet.get_all_values = Mock(
+            return_value=[
+                ['COMPLAINT MANAGEMENT REGISTER'],
+                self.expected_columns,
+                ['COMP-000001'] + [''] * 19 + ['0'],
+            ]
+        )
+        mock_sheet.update = Mock(return_value=True)
+
+        with patch.object(service, 'is_available', return_value=True):
+            with patch.object(service, '_sheet', mock_sheet):
+                result = service.append_row(row, message_id='MSG_ROW2')
+
+        self.assertTrue(result)
+        mock_sheet.row_values.assert_any_call(2)
+        update_calls = mock_sheet.update.call_args_list
+        self.assertEqual(update_calls[0].args[0], 'B3:B3')
+        self.assertEqual(update_calls[1].args[0], 'C3:C3')
+
+    def test_fetch_rows_uses_configured_header_row(self):
+        """Sheet-to-backend sync should skip visual title rows."""
+        service = GoogleSheetsService.get_instance(
+            sheet_id='sheet_fetch_header_row',
+            sheet_name='Complaints Register',
+            sheet_schema={'header_row': 2},
+        )
+        mock_sheet = Mock()
+        mock_sheet.get_all_values = Mock(
+            return_value=[
+                ['COMPLAINT MANAGEMENT REGISTER'],
+                self.expected_columns,
+                ['CMP001', 'MSG_001', '31/05/2026', 'JANE DOE'],
+            ]
+        )
+
+        with patch.object(service, 'is_available', return_value=True):
+            with patch.object(service, '_sheet', mock_sheet):
+                rows = service.fetch_rows()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['row_number'], 3)
+        self.assertEqual(rows[0]['values']['message_id'], 'MSG_001')
+
     def test_update_case_row_writes_only_workflow_columns(self):
         """Status updates should not overwrite bot intake or formula columns."""
         mock_sheet = Mock()

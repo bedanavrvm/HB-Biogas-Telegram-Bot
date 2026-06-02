@@ -55,8 +55,14 @@ class GroupConfig:
             or self.metadata.get('sheet_schema')
             or {}
         )
-        self.sheet_schema = SheetSchema.from_config(self.sheet_schema_config)
         self.workflow = workflow or self.metadata.get('workflow') or {}
+        workflow_header_row = (self.workflow or {}).get('header_row')
+        if workflow_header_row and 'header_row' not in self.sheet_schema_config:
+            self.sheet_schema_config = {
+                **self.sheet_schema_config,
+                'header_row': workflow_header_row,
+            }
+        self.sheet_schema = SheetSchema.from_config(self.sheet_schema_config)
         self.parser_rules = parser_rules or self.metadata.get('parser_rules') or {}
 
         if not self.sheet_id:

@@ -25,6 +25,7 @@ WORKFLOW_PRESETS = {
         'sheet_name': 'Complaints Register',
         'workflow': {
             'type': 'case',
+            'header_row': 2,
         },
         'sheet_schema': {},
         'parser_rules': {},
