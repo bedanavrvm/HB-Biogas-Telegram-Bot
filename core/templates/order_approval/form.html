@@ -157,6 +157,69 @@
       gap: 8px;
     }
 
+    .id-suggestions {
+      display: none;
+      grid-column: 1 / -1;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #ffffff;
+      overflow: hidden;
+    }
+
+    .id-suggestions[data-visible="true"] {
+      display: grid;
+    }
+
+    .id-suggestion {
+      display: grid;
+      grid-template-columns: minmax(88px, auto) minmax(0, 1fr);
+      gap: 8px 12px;
+      align-items: center;
+      width: 100%;
+      min-height: 48px;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      border-radius: 0;
+      background: #ffffff;
+      color: var(--text);
+      padding: 9px 10px;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .id-suggestion:last-child {
+      border-bottom: 0;
+    }
+
+    .id-suggestion:focus,
+    .id-suggestion:hover {
+      background: #f8fafc;
+      outline: 0;
+    }
+
+    .id-suggestion-id {
+      color: #101828;
+      font-size: 14px;
+      font-weight: 800;
+    }
+
+    .id-suggestion-detail {
+      min-width: 0;
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .id-suggestion-empty {
+      padding: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
     .record-meta {
       display: none;
       margin: 0 0 12px;
@@ -385,6 +448,7 @@
               <input id="id-number" name="id_number" inputmode="numeric" autocomplete="off" required>
             </label>
             <button id="lookup-button" class="secondary" type="button">Load existing</button>
+            <div id="id-suggestions" class="id-suggestions" role="listbox" aria-label="Matching ID numbers"></div>
           </div>
           <label>
             Date visited
@@ -529,6 +593,7 @@
     const lookupButton = document.getElementById('lookup-button');
     const initDataInput = document.getElementById('init-data');
     const idNumberInput = document.getElementById('id-number');
+    const idSuggestionsEl = document.getElementById('id-suggestions');
     const writeBlankFieldsInput = document.getElementById('write-blank-fields');
     const editIdNumberInput = document.getElementById('edit-id-number');
     const editSheetInput = document.getElementById('edit-sheet');
@@ -567,6 +632,8 @@
     const imagePreviewLimit = Number('{{ image_preview_limit|default:3 }}');
     const previewUrls = new Map();
     const thumbnailsVisible = new Map();
+    let suggestionTimer = null;
+    let suggestionController = null;
 
     if (tg) {
       tg.ready();
@@ -707,6 +774,119 @@
     function setBusy(isBusy) {
       submitButton.disabled = isBusy;
       lookupButton.disabled = isBusy;
+    }
+
+    function clearIdSuggestions() {
+      if (suggestionTimer) {
+        window.clearTimeout(suggestionTimer);
+        suggestionTimer = null;
+      }
+      if (suggestionController) {
+        suggestionController.abort();
+        suggestionController = null;
+      }
+      idSuggestionsEl.replaceChildren();
+      idSuggestionsEl.dataset.visible = 'false';
+    }
+
+    function suggestionLabel(suggestion) {
+      const parts = [
+        suggestion.customer_name || '',
+        suggestion.branch || '',
+        suggestion.sheet && suggestion.row ? `${suggestion.sheet} row ${suggestion.row}` : ''
+      ].filter(Boolean);
+      return parts.join(' - ');
+    }
+
+    function renderIdSuggestions(suggestions, prefix) {
+      idSuggestionsEl.replaceChildren();
+      const matches = Array.isArray(suggestions) ? suggestions : [];
+      if (!String(prefix || '').trim() || String(prefix || '').trim().length < 3) {
+        idSuggestionsEl.dataset.visible = 'false';
+        return;
+      }
+
+      if (!matches.length) {
+        const empty = document.createElement('div');
+        empty.className = 'id-suggestion-empty';
+        empty.textContent = 'No matching IDs found yet.';
+        idSuggestionsEl.appendChild(empty);
+        idSuggestionsEl.dataset.visible = 'true';
+        return;
+      }
+
+      matches.forEach((suggestion) => {
+        const button = document.createElement('button');
+        const idText = document.createElement('span');
+        const detailText = document.createElement('span');
+        button.type = 'button';
+        button.className = 'id-suggestion';
+        button.setAttribute('role', 'option');
+        idText.className = 'id-suggestion-id';
+        detailText.className = 'id-suggestion-detail';
+        idText.textContent = suggestion.id_number || '';
+        detailText.textContent = suggestionLabel(suggestion) || 'Existing order';
+        button.appendChild(idText);
+        button.appendChild(detailText);
+        button.addEventListener('click', () => {
+          idNumberInput.value = suggestion.id_number || '';
+          clearIdSuggestions();
+          loadExistingRecord();
+        });
+        idSuggestionsEl.appendChild(button);
+      });
+      idSuggestionsEl.dataset.visible = 'true';
+    }
+
+    function scheduleIdSuggestions() {
+      const prefix = idNumberInput.value.trim();
+      clearEditContext();
+      if (prefix.length < 3) {
+        clearIdSuggestions();
+        return;
+      }
+      if (suggestionTimer) {
+        window.clearTimeout(suggestionTimer);
+      }
+      suggestionTimer = window.setTimeout(fetchIdSuggestions, 280);
+    }
+
+    async function fetchIdSuggestions() {
+      const prefix = idNumberInput.value.trim();
+      suggestionTimer = null;
+      if (prefix.length < 3) {
+        clearIdSuggestions();
+        return;
+      }
+      if (suggestionController) {
+        suggestionController.abort();
+      }
+      suggestionController = new AbortController();
+
+      try {
+        const data = new FormData();
+        data.set('group_id', form.elements.group_id.value);
+        data.set('init_data', initDataInput.value);
+        data.set('form_token', form.elements.form_token.value);
+        data.set('id_prefix', prefix);
+
+        const response = await fetch('/api/order-approval/webapp/suggest/', {
+          method: 'POST',
+          body: data,
+          signal: suggestionController.signal
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.success || idNumberInput.value.trim() !== prefix) {
+          return;
+        }
+        renderIdSuggestions(payload.suggestions || [], prefix);
+      } catch (error) {
+        if (error.name !== 'AbortError') {
+          idSuggestionsEl.dataset.visible = 'false';
+        }
+      } finally {
+        suggestionController = null;
+      }
     }
 
     function clearEditContext() {
@@ -854,6 +1034,7 @@
         return;
       }
 
+      clearIdSuggestions();
       setBusy(true);
       setStatus('working', 'Loading existing order...');
 
@@ -902,9 +1083,8 @@
     }
 
     lookupButton.addEventListener('click', loadExistingRecord);
-    idNumberInput.addEventListener('input', () => {
-      clearEditContext();
-    });
+    idNumberInput.addEventListener('input', scheduleIdSuggestions);
+    idNumberInput.addEventListener('focus', scheduleIdSuggestions);
     for (const name of phoneFieldNames) {
       const input = form.elements[name];
       if (input) {

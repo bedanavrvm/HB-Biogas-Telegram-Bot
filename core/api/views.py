@@ -202,6 +202,40 @@ def order_approval_webapp_lookup(request):
         )
 
 
+@csrf_exempt
+@require_http_methods(["POST"])
+def order_approval_webapp_suggest(request):
+    """Return candidate order rows while staff type an ID prefix."""
+    try:
+        from core.services.order_approval import suggest_order_approval_form_records
+
+        group_id, group_config, auth_payload, error_response_obj = (
+            _order_approval_webapp_context(request.POST)
+        )
+        del group_id, auth_payload
+        if error_response_obj:
+            return error_response_obj
+
+        result = suggest_order_approval_form_records(
+            group_config=group_config,
+            id_prefix=request.POST.get('id_prefix', ''),
+        )
+        return JsonResponse(result, status=200 if result.get('success') else 400)
+    except Exception as exc:
+        logger.error(
+            f"Unhandled order approval webapp suggest error: {exc}",
+            exc_info=True,
+        )
+        return JsonResponse(
+            {
+                'success': False,
+                'message': 'ID search failed. Keep typing or use Load existing.',
+                'suggestions': [],
+            },
+            status=500,
+        )
+
+
 def _order_approval_webapp_context(post_data):
     from core.services.group_config import GroupRegistry
     from core.services.order_approval import (

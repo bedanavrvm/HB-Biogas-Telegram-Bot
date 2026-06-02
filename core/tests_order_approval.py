@@ -24,6 +24,7 @@ from core.services.order_approval import (
     process_order_approval_form_submission,
     store_media_for_order,
     store_uploaded_files_for_order,
+    suggest_order_approval_form_records,
     update_order_approval_row,
     validate_order_approval_uploaded_files,
     validate_telegram_webapp_init_data,
@@ -122,6 +123,45 @@ class OrderApprovalSheetTest(TestCase):
         self.assertEqual(len(matches), 1)
         self.assertEqual(matches[0].sheet_name, '178')
         self.assertEqual(matches[0].row_number, 2)
+
+    def test_suggestions_find_id_prefix_across_tabs(self):
+        pending = FakeService([
+            ['ID NUMBER', 'CUSTOMER NAME', 'BRANCH', 'Media URLs'],
+            ['113650221', 'PATRICK', 'MURANGA', ''],
+            ['113777888', 'JANE', 'EMBU', ''],
+        ])
+        tab_178 = FakeService([
+            ['CUSTOMER NAME', 'BRANCH', 'ID NUMBER', 'Media URLs'],
+            ['PAUL', 'NYERI', '113999000', ''],
+        ])
+
+        with patch(
+            'core.services.order_approval.get_sheets_service',
+            side_effect=lambda sheet_id=None, sheet_name=None, sheet_schema=None: {
+                'Pending': pending,
+                '178': tab_178,
+            }[sheet_name],
+        ):
+            result = suggest_order_approval_form_records(
+                self._group_config(),
+                '113',
+                limit=2,
+            )
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(len(result['suggestions']), 2)
+        self.assertEqual(result['suggestions'][0]['id_number'], '113650221')
+        self.assertEqual(result['suggestions'][0]['customer_name'], 'PATRICK')
+        self.assertEqual(result['suggestions'][0]['branch'], 'MURANGA')
+        self.assertEqual(result['suggestions'][0]['sheet'], 'Pending')
+
+    def test_suggestions_require_three_digits(self):
+        result = suggest_order_approval_form_records(self._group_config(), '11')
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['status'], 'too_short')
+        self.assertEqual(result['suggestions'], [])
 
     def test_matching_uses_configured_header_row(self):
         group_config = self._group_config()
@@ -1005,6 +1045,7 @@ class OrderApprovalWebAppTest(TestCase):
         self.assertContains(response, 'name="branch"')
         self.assertContains(response, 'name="final_decision"')
         self.assertContains(response, 'id="lookup-button"')
+        self.assertContains(response, 'id="id-suggestions"')
         self.assertContains(response, 'name="write_blank_fields"')
         self.assertContains(response, 'name="edit_id_number"')
         self.assertContains(response, 'name="edit_fingerprint"')
@@ -1128,6 +1169,47 @@ class OrderApprovalWebAppTest(TestCase):
         self.assertTrue(payload['success'])
         self.assertEqual(payload['status'], 'found')
         self.assertEqual(payload['fields']['branch'], 'MURANGA')
+
+    @override_settings(ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
+    @patch('core.services.order_approval.suggest_order_approval_form_records')
+    @patch('core.services.group_config.GroupRegistry.get_instance')
+    def test_webapp_suggest_returns_id_matches(
+        self,
+        mock_registry_get_instance,
+        mock_suggest,
+    ):
+        registry = MagicMock()
+        registry.get_group.return_value = self._group_config()
+        mock_registry_get_instance.return_value = registry
+        mock_suggest.return_value = {
+            'success': True,
+            'status': 'ok',
+            'message': '1 match(es) found.',
+            'suggestions': [
+                {
+                    'id_number': '113650221',
+                    'customer_name': 'PATRICK',
+                    'branch': 'MURANGA',
+                    'sheet': 'Pending',
+                    'row': 4,
+                }
+            ],
+        }
+
+        response = self.client.post(
+            '/api/order-approval/webapp/suggest/',
+            data={
+                'group_id': '-100222',
+                'id_prefix': '113',
+                'init_data': '',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'])
+        self.assertEqual(payload['suggestions'][0]['id_number'], '113650221')
+        mock_suggest.assert_called_once()
 
     @override_settings(ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
     @patch('core.services.order_approval.store_uploaded_files_for_order')

@@ -782,6 +782,109 @@ def lookup_order_approval_form_record(group_config, id_number: str) -> dict:
     }
 
 
+def suggest_order_approval_form_records(
+    group_config,
+    id_prefix: str,
+    limit: int = 8,
+) -> dict:
+    """Return small Web App suggestions for rows whose ID starts with a prefix."""
+    prefix = normalize_business_key(id_prefix)
+    if len(prefix) < 3:
+        return {
+            'success': True,
+            'status': 'too_short',
+            'message': 'Type at least 3 digits to search.',
+            'suggestions': [],
+        }
+
+    try:
+        result_limit = max(1, min(int(limit), 20))
+    except (TypeError, ValueError):
+        result_limit = 8
+
+    workflow = group_config.workflow or {}
+    match_header = header_for_field(
+        workflow,
+        workflow.get('match_field') or DEFAULT_MATCH_FIELD,
+    )
+    sheet_names = workflow.get('search_sheet_names') or DEFAULT_SEARCH_SHEETS
+    suggestions: list[dict[str, str | int]] = []
+    seen: set[tuple[str, str, int]] = set()
+
+    for sheet_name in sheet_names:
+        service = get_sheets_service(
+            sheet_id=group_config.sheet_id,
+            sheet_name=sheet_name,
+            sheet_schema=None,
+        )
+        if not service.is_available():
+            logger.warning("Google Sheets unavailable for %s", sheet_name)
+            continue
+
+        values = service._sheet.get_all_values()
+        headers = header_row_values(values, workflow)
+        if not headers:
+            continue
+
+        id_index = header_index(headers, match_header)
+        if id_index is None:
+            logger.warning("Header %r not found in %s", match_header, sheet_name)
+            continue
+
+        customer_index = header_index(
+            headers,
+            header_for_field(workflow, 'customer_name'),
+        )
+        branch_index = header_index(headers, header_for_field(workflow, 'branch'))
+        header_row = configured_header_row(workflow)
+        for row_number, row in enumerate(
+            values[header_row:],
+            start=header_row + 1,
+        ):
+            raw_id = row[id_index] if id_index < len(row) else ''
+            id_number = normalize_business_key(raw_id)
+            if not id_number or not id_number.startswith(prefix):
+                continue
+
+            key = (id_number, str(sheet_name), row_number)
+            if key in seen:
+                continue
+            seen.add(key)
+            customer_name = (
+                row[customer_index]
+                if customer_index is not None and customer_index < len(row)
+                else ''
+            )
+            branch = (
+                row[branch_index]
+                if branch_index is not None and branch_index < len(row)
+                else ''
+            )
+            suggestions.append(
+                {
+                    'id_number': id_number,
+                    'customer_name': str(customer_name or '').strip(),
+                    'branch': str(branch or '').strip(),
+                    'sheet': sheet_name,
+                    'row': row_number,
+                }
+            )
+            if len(suggestions) >= result_limit:
+                return {
+                    'success': True,
+                    'status': 'ok',
+                    'message': f'{len(suggestions)} match(es) found.',
+                    'suggestions': suggestions,
+                }
+
+    return {
+        'success': True,
+        'status': 'ok',
+        'message': f'{len(suggestions)} match(es) found.',
+        'suggestions': suggestions,
+    }
+
+
 def parse_order_approval_message(content: str) -> ParsedOrderApproval:
     """Parse strict label/value lines into canonical BRO fields."""
     fields: dict[str, str] = {}

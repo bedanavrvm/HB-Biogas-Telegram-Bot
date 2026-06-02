@@ -75,7 +75,7 @@ const CM = {
     ALL: ['All'],
   },
   COLOURS: {
-    Open: { bg: '#FFF8E1', fg: '#E65100' },
+    Open: { bg: '#FFF8E1', fg: '#f4f2f2' },
     'In Progress': { bg: '#E3F2FD', fg: '#0D47A1' },
     'Waiting for Customer': { bg: '#F3E5F5', fg: '#6A1B9A' },
     Resolved: { bg: '#E8F5E9', fg: '#1B5E20' },
