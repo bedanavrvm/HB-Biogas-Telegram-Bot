@@ -614,7 +614,7 @@ Gas leaking around the digester"""
 
         content = (
             "CUSTOMER COMPLAIN NAME: John Doe TEL: 0712345678 "
-            "ID: A12345 NATURE OF COMPLAIN: No gas supply"
+            "ID: A12345 COUNTY: Muranga NATURE OF COMPLAIN: No gas supply"
         )
 
         result = parse_message(content, sender="Agent")
@@ -623,6 +623,20 @@ Gas leaking around the digester"""
         self.assertEqual(result.customer_name, 'John Doe')
         self.assertEqual(result.customer_phone, '0712345678')
         self.assertEqual(result.customer_id, 'A12345')
+        self.assertEqual(result.branch_region, 'MURANGA')
+        self.assertEqual(result.problem_description, 'No gas supply')
+        self.assertEqual(result.confidence, 1.0)
+
+    def test_parse_complaint_county_label_can_appear_after_description(self):
+        """County should map to the Branch / Region sheet field from any label position."""
+        content = (
+            "CUSTOMER COMPLAIN NAME: John Doe TEL: 0712345678 "
+            "ID: A12345 NATURE OF COMPLAIN: No gas supply COUNTY: Kiambu"
+        )
+
+        result = parse_message(content, sender="Agent")
+
+        self.assertEqual(result.branch_region, 'KIAMBU')
         self.assertEqual(result.problem_description, 'No gas supply')
         self.assertEqual(result.confidence, 1.0)
 
@@ -630,7 +644,7 @@ Gas leaking around the digester"""
         """A complaint needs customer ID/account before it is complete."""
         content = (
             "CUSTOMER COMPLAIN NAME: John Doe TEL: 0712345678 "
-            "NATURE OF COMPLAIN: No gas supply"
+            "COUNTY: Muranga NATURE OF COMPLAIN: No gas supply"
         )
 
         result = parse_message(content, sender="Agent")
@@ -646,7 +660,7 @@ Gas leaking around the digester"""
     def test_parse_complaint_without_phone_is_partial(self):
         """A complaint needs a phone number before it is complete."""
         content = (
-            "CUSTOMER COMPLAIN NAME: John Doe ID: A12345 "
+            "CUSTOMER COMPLAIN NAME: John Doe ID: A12345 COUNTY: Muranga "
             "NATURE OF COMPLAIN: No gas supply"
         )
 
@@ -657,6 +671,22 @@ Gas leaking around the digester"""
         self.assertLess(result.confidence, 1.0)
         self.assertIn(
             'Missing required complaint field(s): Phone Number',
+            result.warnings,
+        )
+
+    def test_parse_complaint_without_county_is_partial(self):
+        """A complaint needs county before it is complete."""
+        content = (
+            "CUSTOMER COMPLAIN NAME: John Doe TEL: 0712345678 "
+            "ID: A12345 NATURE OF COMPLAIN: No gas supply"
+        )
+
+        result = parse_message(content, sender="Agent")
+
+        self.assertEqual(result.branch_region, '')
+        self.assertLess(result.confidence, 1.0)
+        self.assertIn(
+            'Missing required complaint field(s): County (Branch / Region)',
             result.warnings,
         )
 
@@ -853,6 +883,7 @@ Gas leaking around the digester"""
             "John Doe\n"
             "0712345678\n"
             "A12345\n"
+            "County: Embu\n"
             "No gas supply at home. Please assist urgently."
         )
 
@@ -862,6 +893,7 @@ Gas leaking around the digester"""
         self.assertEqual(result.customer_name, 'John Doe')
         self.assertEqual(result.customer_phone, '0712345678')
         self.assertEqual(result.customer_id, 'A12345')
+        self.assertEqual(result.branch_region, 'EMBU')
         self.assertEqual(
             result.problem_description,
             'No gas supply at home. Please assist urgently.',
@@ -872,7 +904,7 @@ Gas leaking around the digester"""
         """Phone plus complaint language should detect an unlabeled complaint."""
         from core.services.parser import MessageIntent
 
-        content = "Jane Doe 0798765432 B456 biogas is leaking near the valve"
+        content = "Jane Doe 0798765432 B456 in Muranga biogas is leaking near the valve"
 
         result = parse_message(content, sender="Agent")
 
@@ -880,6 +912,7 @@ Gas leaking around the digester"""
         self.assertEqual(result.customer_name, 'Jane Doe')
         self.assertEqual(result.customer_phone, '0798765432')
         self.assertEqual(result.customer_id, 'B456')
+        self.assertEqual(result.branch_region, 'MURANGA')
         self.assertEqual(result.problem_description, 'biogas is leaking near the valve')
         self.assertEqual(result.confidence, 1.0)
     

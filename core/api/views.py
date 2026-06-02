@@ -648,6 +648,7 @@ def _process_single_message(
             'customer_name': 'Customer Name',
             'customer_phone': 'Phone Number',
             'customer_id': 'Customer ID',
+            'branch_region': 'County',
             'complaint_description': 'Complaint Description',
             'item': 'Item',
             'quantity': 'Quantity',

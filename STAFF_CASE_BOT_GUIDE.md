@@ -1,16 +1,22 @@
-# Staff Guide: Reporting and Updating Biogas Cases
+# Staff Telegram Guide: Case And Complaint Workflow
 
-This guide explains how staff should report new customer complaints and update existing cases in the group chat.
+This guide is for staff using the Telegram complaint/case group.
 
-Use this bot tag when reporting or updating cases:
+Use the bot tag in group messages:
 
 ```text
 @hb_biogas_cases_bot
 ```
 
-## 1. Reporting a New Case
+In Telegram groups, the bot only processes messages that tag the bot or commands sent to the bot.
 
-Start every new case by tagging the bot. Then write `CUSTOMER COMPLAINT` and fill in the customer details.
+## What This Workflow Does
+
+Use this workflow for customer complaints, support cases, technical issues, follow-ups, and case status updates.
+
+The bot reads the message, saves the case, writes it to the configured complaint register, and replies in Telegram with the captured fields.
+
+## Report A New Case
 
 Use this format:
 
@@ -18,10 +24,11 @@ Use this format:
 @hb_biogas_cases_bot
 CUSTOMER COMPLAINT
 
-NAME: customer name
-TEL: customer phone number
-ID: customer ID or account number
-NATURE OF THE PROBLEM: short description of the problem
+NAME:
+TEL:
+ID:
+COUNTY:
+NATURE OF THE PROBLEM:
 ```
 
 Example:
@@ -33,39 +40,89 @@ CUSTOMER COMPLAINT
 NAME: Henry Mwenda
 TEL: 0720809218
 ID: 24289449
+COUNTY: Muranga
 NATURE OF THE PROBLEM: Requesting for a jiko relocation
 ```
 
-What matters most:
+Mandatory fields for a complete case:
 
-- Include the customer name.
-- Include the phone number or the customer ID/account number. If you have both, include both.
-- Clearly describe the problem under `NATURE OF THE PROBLEM`.
-- Keep awareness tags at the end if needed, for example `@Supervisor`, but they are not part of the complaint description.
+- `NAME`
+- `TEL`
+- `ID`
+- `COUNTY`
+- `NATURE OF THE PROBLEM`
 
-If the customer ID is not available, you can leave it blank as long as the phone number is included:
+If `TEL`, `ID`, or `COUNTY` is missing, the bot may still save the case, but it will mark it as partially processed and reply with the missing field.
+
+## County Field
+
+Type the county using this label:
 
 ```text
-ID:
+COUNTY: Muranga
 ```
 
-If the phone number is not available, you can leave it blank as long as the customer ID/account number is included.
+The bot writes this into the sheet column named `Branch / Region`.
 
-## 2. Updating an Existing Case
+The sheet dropdown should contain the 47 Kenya counties. Use the county name, not a branch nickname.
 
-To update a case, reply to the original case message that was sent to the group.
+## Phone Number Format
 
-Do not send the update as a new standalone message. The bot uses your reply to know which case you are updating.
+You can type the phone number naturally:
 
-Use this format:
+```text
+TEL: 0720809218
+TEL: +254720809218
+TEL: 254720809218
+```
+
+The order approval workflow normalizes phone numbers to `254XXXXXXXXX`. The case workflow stores the parsed phone as captured by the case parser, so use clear Kenyan numbers where possible.
+
+## Multiple Cases In One Message
+
+Start each case with a separate `CUSTOMER COMPLAINT` heading.
 
 ```text
 @hb_biogas_cases_bot
-STATUS: status
-NOTE: what was done or what happened
+CUSTOMER COMPLAINT
+NAME: Jane Doe
+TEL: 0712345678
+ID: ACC123
+COUNTY: Nairobi
+NATURE OF THE PROBLEM: No gas supply
+
+CUSTOMER COMPLAINT
+NAME: John Smith
+TEL: 0798765432
+ID: ACC456
+COUNTY: Kisumu
+NATURE OF THE PROBLEM: Gas leakage
 ```
 
-Example for a solved case:
+The bot will split the message and create separate cases.
+
+## Bot Reply After A New Case
+
+A successful reply looks like:
+
+```text
+OK. Message received and saved successfully
+Case ID: MSG_... (use this for /update)
+Captured:
+Customer Name: ...
+Phone Number: ...
+Customer ID: ...
+County: ...
+Complaint Description: ...
+```
+
+Use the `Case ID` shown by the bot for `/update` commands. The spreadsheet `Complaint ID` is for sheet display and reporting.
+
+## Update An Existing Case
+
+Best method: reply to the original case message or the bot confirmation message.
+
+Use this format:
 
 ```text
 @hb_biogas_cases_bot
@@ -73,7 +130,7 @@ STATUS: resolved
 NOTE: Jiko was relocated and the customer confirmed it is working.
 ```
 
-Example for a pending case:
+Other examples:
 
 ```text
 @hb_biogas_cases_bot
@@ -81,19 +138,27 @@ STATUS: pending
 NOTE: Customer was not reachable. Will call again tomorrow.
 ```
 
-Example for a scheduled visit:
-
 ```text
 @hb_biogas_cases_bot
 STATUS: scheduled
 NOTE: Technician visit booked for Friday morning.
 ```
 
-## 3. Recommended Status Words
+The note is written to `Resolution Details` as plain text. The timestamp and sender are kept in the audit record, not repeated inside `Resolution Details`.
 
-Use simple status words so the bot can understand the update.
+## Update By Case ID
 
-Use these when the case is solved:
+If you are not replying to the original message, use the Case ID from the bot reply.
+
+```text
+@hb_biogas_cases_bot /update MSG_ABC123 Status: resolved - Customer confirmed gas is working.
+```
+
+Use `MSG_...`, not the spreadsheet `Complaint ID`.
+
+## Status Words The Bot Understands
+
+Closed/resolved examples:
 
 ```text
 resolved
@@ -103,9 +168,10 @@ managed
 closed
 repaired
 sorted
+completed
 ```
 
-Use these when work is still ongoing:
+In-progress examples:
 
 ```text
 scheduled
@@ -116,7 +182,7 @@ contacted
 awaiting
 ```
 
-Use these when the case is still open:
+Open/pending examples:
 
 ```text
 pending
@@ -127,23 +193,49 @@ not resolved
 phone off
 ```
 
-## 4. Common Mistakes to Avoid
+## Useful Commands
 
-Do not forget to tag the bot when reporting a new case.
+In a group, tag the bot before the command:
 
-Do not update a case by sending a fresh message. Always reply to the original case message.
+```text
+@hb_biogas_cases_bot /help
+```
 
-Do not put the status update inside the complaint description.
+Common commands:
 
-Do not leave out both the phone number and customer ID. The bot needs at least one of them to identify the customer.
+```text
+/last 5
+/case MSG_ID
+/update MSG_ID Status: resolved - details
+/search text
+/phone 0712345678
+/id ACC123
+/open 10
+/pending 10
+/closed 10
+/missing phone 10
+/lowconfidence 10
+/duplicates 30
+/summary today
+/group
+/health
+```
 
-Do not write only:
+Telegram may show command suggestions when you type `/` or the first letters of a command. The visible command list depends on the workflow configured for that group.
+
+## Common Mistakes
+
+Do not send a complaint without tagging the bot.
+
+Do not leave out the customer phone, ID, or county. They are required for a complete case.
+
+Do not update a case by writing only:
 
 ```text
 Managed
 ```
 
-Instead write:
+Use:
 
 ```text
 @hb_biogas_cases_bot
@@ -151,24 +243,18 @@ STATUS: managed
 NOTE: Repaired leaking pipe and customer confirmed gas is working.
 ```
 
-## 5. Quick Copy-Paste Templates
+Do not use the spreadsheet `Complaint ID` for `/update` unless the bot has been changed to support that. Use the bot `Case ID: MSG_...`.
 
-New case:
+## Troubleshooting
 
-```text
-@hb_biogas_cases_bot
-CUSTOMER COMPLAINT
+If the bot says a field is missing, resend the case with the missing field filled.
 
-NAME:
-TEL:
-ID:
-NATURE OF THE PROBLEM:
-```
+If the bot says the case was partially processed, check the bot reply and the Google Sheet row.
 
-Case update:
+If the bot does not reply, check that the bot was tagged and that the group is configured. Send:
 
 ```text
-@hb_biogas_cases_bot
-STATUS:
-NOTE:
+@hb_biogas_cases_bot /group
 ```
+
+If the sheet is unavailable, the bot may save the case in the database and retry or require admin follow-up.

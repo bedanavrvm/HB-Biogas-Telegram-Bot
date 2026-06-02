@@ -203,7 +203,8 @@ COMPLAINT_CASE_HEADER_PATTERN = re.compile(
 COMPLAINT_INLINE_DESCRIPTION_PATTERN = re.compile(
     r'^\s*\*?\s*CUSTOMER\s+COMPLAIN(?:T|E)?\s*\*?\s*[:\-]\s*'
     r'([\s\S]+?)(?=(?:\n\s*(?:\*NAME\b|\bNAME\b|\bTEL\b|\bP/no\b|'
-    r'\bP\.no\b|\bPHONE\b|\bID\b|\bNATURE\b|\*CUSTOMER\b|@)|$))',
+    r'\bP\.no\b|\bPHONE\b|\bID\b|\bCOUNTY\b|\bBRANCH\b|\bREGION\b|'
+    r'\bNATURE\b|\*CUSTOMER\b|@)|$))',
     re.IGNORECASE | re.MULTILINE,
 )
 
@@ -213,9 +214,33 @@ COMPLAINT_FIELD_LABEL_PATTERN = re.compile(
     r'TEL(?:EPHONE)?(?:\s+NO\.?)?|PHONE(?:\s+NO\.?)?|MOBILE|CONTACT|'
     r'P\s*[/.\-]?\s*NO\.?|NO(?=\s*[:;\-,]?\s*(?:\+?254|0)?[17]\d{8})|'
     r'CUSTOMER\s+ID|ACCOUNT(?:\s+NO\.?)?|ID|I\.D|'
+    r'COUNTY|BRANCH\s*/\s*REGION|BRANCH|REGION|'
     r'NATURE\s+OF\s+(?:THE\s+)?(?:PROBLEM|COMPLAINT|COMPLAIN)|'
     r'COMPLAINT\s+DESCRIPTION|DESCRIPTION|PROBLEM'
     r')\s*\*?',
+    re.IGNORECASE,
+)
+
+KENYA_COUNTIES = (
+    'BARINGO', 'BOMET', 'BUNGOMA', 'BUSIA', 'ELGEYO MARAKWET', 'EMBU',
+    'GARISSA', 'HOMA BAY', 'ISIOLO', 'KAJIADO', 'KAKAMEGA', 'KERICHO',
+    'KIAMBU', 'KILIFI', 'KIRINYAGA', 'KISII', 'KISUMU', 'KITUI', 'KWALE',
+    'LAIKIPIA', 'LAMU', 'MACHAKOS', 'MAKUENI', 'MANDERA', 'MARSABIT',
+    'MERU', 'MIGORI', 'MOMBASA', 'MURANGA', 'NAIROBI', 'NAKURU', 'NANDI',
+    'NAROK', 'NYAMIRA', 'NYANDARUA', 'NYERI', 'SAMBURU', 'SIAYA',
+    'TAITA TAVETA', 'TANA RIVER', 'THARAKA NITHI', 'TRANS NZOIA',
+    'TURKANA', 'UASIN GISHU', 'VIHIGA', 'WAJIR', 'WEST POKOT',
+)
+COUNTY_LOOKUP = {
+    re.sub(r'[^a-z0-9]+', ' ', county.lower()).strip(): county
+    for county in KENYA_COUNTIES
+}
+COUNTY_PATTERN_BODY = '|'.join(
+    re.escape(county).replace(r'\ ', r'[\s\-]+')
+    for county in sorted(KENYA_COUNTIES, key=len, reverse=True)
+)
+COUNTY_NAME_PATTERN = re.compile(
+    r'\b(' + COUNTY_PATTERN_BODY + r')\b',
     re.IGNORECASE,
 )
 
@@ -240,6 +265,7 @@ class ParsedResult:
         self.customer_name: str = ''
         self.customer_phone: str = ''
         self.customer_id: str = ''
+        self.branch_region: str = ''
         self.complaint_category: str = ''
         self.problem_description: str = ''
         self.confidence: float = 0.0  # 0-1 indicating parse confidence
@@ -258,6 +284,7 @@ class ParsedResult:
             'customer_name': self.customer_name,
             'customer_phone': self.customer_phone,
             'customer_id': self.customer_id,
+            'branch_region': self.branch_region,
             'complaint_category': self.complaint_category,
             'problem_description': self.problem_description,
             'confidence': self.confidence,
@@ -454,6 +481,7 @@ def _extract_complaint_transaction(content: str, result: ParsedResult):
         labeled.get('customer_phone') or _extract_field(PHONE_PATTERN, content)
     )
     result.customer_id = labeled.get('customer_id') or _extract_field(ID_PATTERN, content)
+    result.branch_region = labeled.get('branch_region') or _extract_county_reference(content)
     inferred = _infer_unlabeled_complaint_fields(content)
     if not result.customer_name:
         result.customer_name = inferred.get('customer_name', '')
@@ -461,6 +489,8 @@ def _extract_complaint_transaction(content: str, result: ParsedResult):
         result.customer_phone = inferred.get('customer_phone', '')
     if not result.customer_id:
         result.customer_id = inferred.get('customer_id', '')
+    if result.branch_region:
+        result.branch_region = _canonical_county(result.branch_region) or result.branch_region
     
     # Complaint category is a dropdown - do not extract from text to avoid filling with description
     # Leave blank for human selection from dropdown
@@ -550,6 +580,10 @@ def _extract_labeled_complaint_fields(content: str) -> dict:
             customer_id = _extract_customer_id_value(value)
             if customer_id:
                 fields[kind] = customer_id
+        elif kind == 'branch_region':
+            county = _extract_county_value(value)
+            if county:
+                fields[kind] = county
         elif kind == 'problem_description':
             value = _strip_known_labels(value)
             if value:
@@ -573,6 +607,8 @@ def _complaint_label_kind(label: str) -> str:
         or normalized.startswith('account')
     ):
         return 'customer_id'
+    if normalized in {'county', 'branch / region', 'branch', 'region'}:
+        return 'branch_region'
     if (
         normalized.startswith('nature of')
         or normalized in {'complaint description', 'description', 'problem'}
@@ -717,20 +753,29 @@ def _infer_unlabeled_complaint_fields(content: str) -> dict:
 
     phone_match = PHONE_HEURISTIC_PATTERN.search(cleaned)
     phone = _normalise_phone(phone_match.group(0)) if phone_match else ''
+    branch_region = _extract_county_reference(cleaned)
 
     customer_id = _infer_unlabeled_customer_id(lines, phone)
-    name = _infer_unlabeled_customer_name(lines, phone, customer_id, cleaned)
+    name = _infer_unlabeled_customer_name(
+        lines,
+        phone,
+        customer_id,
+        cleaned,
+        branch_region=branch_region,
+    )
     description = _infer_unlabeled_description(
         lines=lines,
         name=name,
         phone=phone,
         customer_id=customer_id,
+        branch_region=branch_region,
     )
 
     return {
         'customer_name': name,
         'customer_phone': phone,
         'customer_id': customer_id,
+        'branch_region': branch_region,
         'problem_description': description,
     }
 
@@ -770,6 +815,7 @@ def _infer_unlabeled_customer_name(
     phone: str,
     customer_id: str,
     content: str = '',
+    branch_region: str = '',
 ) -> str:
     for pattern in [OF_PHONE_PATTERN, SUBJECT_OF_SENTENCE_PATTERN]:
         match = pattern.search(content or '')
@@ -778,21 +824,31 @@ def _infer_unlabeled_customer_name(
             if _looks_like_name(candidate):
                 return candidate
 
+    if phone:
+        phone_match = PHONE_HEURISTIC_PATTERN.search(content or '')
+        if phone_match:
+            candidate = _clean_name_value(content[:phone_match.start()])
+            candidate = _remove_county_from_text(candidate, branch_region)
+            if _looks_like_name(candidate):
+                return _clean_name_value(candidate)
+
     for line in lines:
         candidate = line
-        for value in [phone, customer_id]:
+        for value in [phone, customer_id, branch_region]:
             if value:
                 candidate = candidate.replace(value, ' ')
         candidate = PHONE_HEURISTIC_PATTERN.sub(' ', candidate)
+        candidate = _remove_county_from_text(candidate, branch_region)
         candidate = _strip_known_labels(candidate)
         candidate = _clean_unlabeled_line(candidate)
         if _looks_like_name(candidate):
             return _clean_name_value(candidate)
 
     compact = ' '.join(lines)
-    for value in [phone, customer_id]:
+    for value in [phone, customer_id, branch_region]:
         if value:
             compact = compact.replace(value, ' ')
+    compact = _remove_county_from_text(compact, branch_region)
     words = re.findall(r'\b[A-Z][a-zA-Z.\']+\b', compact)
     if len(words) >= 2:
         candidate = ' '.join(words[:3])
@@ -832,14 +888,16 @@ def _infer_unlabeled_description(
     name: str,
     phone: str,
     customer_id: str,
+    branch_region: str = '',
 ) -> str:
     description_lines = []
     for line in lines:
         candidate = line
-        for value in [name, phone, customer_id]:
+        for value in [name, phone, customer_id, branch_region]:
             if value:
                 candidate = candidate.replace(value, ' ')
         candidate = PHONE_HEURISTIC_PATTERN.sub(' ', candidate)
+        candidate = _remove_county_from_text(candidate, branch_region)
         candidate = re.sub(
             r'\b(?:of\s+)?(?:phone|tel(?:ephone)?|p\s*[/.\-]?\s*no)\s*:?',
             ' ',
@@ -859,6 +917,30 @@ def _infer_unlabeled_description(
     description = ' '.join(description_lines)
     description = re.sub(r'\s+', ' ', description).strip()
     return description
+
+
+def _remove_county_from_text(value: str, branch_region: str = '') -> str:
+    text = str(value or '')
+    counties = [branch_region] if branch_region else []
+    counties.extend(KENYA_COUNTIES)
+    for county in counties:
+        if not county:
+            continue
+        pattern = re.escape(county).replace(r'\ ', r'[\s\-]+')
+        text = re.sub(
+            rf'\b(?:county|branch|region)\s*[:;\-,]?\s*(?:of\s+)?{pattern}\b',
+            ' ',
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(
+            rf'\b(?:in|from|at|located\s+in|location)\s+{pattern}(?:\s+county)?\b',
+            ' ',
+            text,
+            flags=re.IGNORECASE,
+        )
+        text = re.sub(rf'\b{pattern}\s+(?:county|branch|region)\b', ' ', text, flags=re.IGNORECASE)
+    return re.sub(r'\s+', ' ', text).strip()
 
 
 def _extract_complaint_description(content: str) -> str:
@@ -1010,8 +1092,37 @@ def _extract_item_from_text(text: str) -> str:
     cleaned = _clean_item_name(text)
     if len(cleaned.split()) <= 3:  # If it's a short phrase
         return cleaned
-    
+
+
+def _extract_county_value(value: str) -> str:
+    direct = _canonical_county(value)
+    if direct:
+        return direct
+    match = COUNTY_NAME_PATTERN.search(value or '')
+    if match:
+        return _canonical_county(match.group(1))
     return ''
+
+
+def _extract_county_reference(content: str) -> str:
+    text = str(content or '')
+    patterns = [
+        rf'\b(?:county|branch|region)\s*[:;\-,]?\s*(?:of\s+)?({COUNTY_PATTERN_BODY})\b',
+        rf'\b({COUNTY_PATTERN_BODY})\s+(?:county|branch|region)\b',
+        rf'\b(?:in|from|at|located\s+in|location)\s+({COUNTY_PATTERN_BODY})(?:\s+county)?\b',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            county = _canonical_county(match.group(1))
+            if county:
+                return county
+    return ''
+
+
+def _canonical_county(value: str) -> str:
+    key = re.sub(r'[^a-z0-9]+', ' ', str(value or '').lower()).strip()
+    return COUNTY_LOOKUP.get(key, '')
 
 
 def _clean_item_name(item: str) -> str:
@@ -1053,15 +1164,17 @@ def _calculate_confidence(result: ParsedResult) -> float:
     
     # Field extraction confidence depends on message intent
     if result.intent == MessageIntent.COMPLAINT:
-        # Complaint messages require name, phone, customer ID/account, and description.
+        # Complaint messages require name, phone, customer ID/account, county, and description.
         complaint_fields = 0
-        total_complaint_fields = 4
+        total_complaint_fields = 5
         
         if result.customer_name:
             complaint_fields += 1
         if result.customer_phone:
             complaint_fields += 1
         if result.customer_id:
+            complaint_fields += 1
+        if result.branch_region:
             complaint_fields += 1
         if result.problem_description:
             complaint_fields += 1
@@ -1111,6 +1224,8 @@ def _missing_required_complaint_fields(result: ParsedResult) -> list[str]:
         missing.append("Phone Number")
     if not result.customer_id:
         missing.append("Customer ID / Account")
+    if not result.branch_region:
+        missing.append("County (Branch / Region)")
     if not result.problem_description:
         missing.append("Complaint Description")
     return missing

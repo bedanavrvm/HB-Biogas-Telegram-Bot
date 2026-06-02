@@ -67,7 +67,9 @@ HEADERS = [
 REQUIRED_HEADERS = [
     "Date Reported",
     "Customer Name",
+    "Customer ID / Account",
     "Phone Number",
+    "Branch / Region",
     "Complaint Description",
     "Status",
 ]
@@ -83,8 +85,19 @@ OPTIONS_HEADERS = [
     "Image Flag",
 ]
 
+KENYA_COUNTIES = [
+    "BARINGO", "BOMET", "BUNGOMA", "BUSIA", "ELGEYO MARAKWET", "EMBU",
+    "GARISSA", "HOMA BAY", "ISIOLO", "KAJIADO", "KAKAMEGA", "KERICHO",
+    "KIAMBU", "KILIFI", "KIRINYAGA", "KISII", "KISUMU", "KITUI", "KWALE",
+    "LAIKIPIA", "LAMU", "MACHAKOS", "MAKUENI", "MANDERA", "MARSABIT",
+    "MERU", "MIGORI", "MOMBASA", "MURANGA", "NAIROBI", "NAKURU", "NANDI",
+    "NAROK", "NYAMIRA", "NYANDARUA", "NYERI", "SAMBURU", "SIAYA",
+    "TAITA TAVETA", "TANA RIVER", "THARAKA NITHI", "TRANS NZOIA",
+    "TURKANA", "UASIN GISHU", "VIHIGA", "WAJIR", "WEST POKOT",
+]
+
 DEFAULT_OPTIONS = {
-    "Branch / Region": ["MURANGA", "EMBU", "MERU", "NYERI", "NYANDARUA"],
+    "Branch / Region": KENYA_COUNTIES,
     "JBL Reported By": ["JACKSON NJOROGE", "DICKSON MWANGI"],
     "Complaint Category": [
         "System Underperformance",
@@ -241,7 +254,6 @@ def normalize_imported_row(row: dict[str, Any]) -> None:
 def build_options(rows: list[dict[str, Any]]) -> dict[str, list[str]]:
     options = {key: list(values) for key, values in DEFAULT_OPTIONS.items()}
     for row in rows:
-        append_option(options, "Branch / Region", row.get("Branch / Region"))
         append_option(options, "JBL Reported By", row.get("JBL Reported By"))
         append_option(options, "Complaint Category", row.get("Complaint Category"))
         append_option(options, "Status", row.get("Status"))

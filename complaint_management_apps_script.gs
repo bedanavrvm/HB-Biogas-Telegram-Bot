@@ -57,7 +57,7 @@ const CM = {
     DAYS_OPEN: 21,
   },
   BOT_COLS: [1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 21],
-  REQUIRED: [3, 4, 6, 10, 18],
+  REQUIRED: [3, 4, 5, 6, 8, 10, 18],
   STAFF: {
     NAME: 1,
     EMAIL: 2,
@@ -86,6 +86,17 @@ const CM = {
     Critical: { bg: '#FCE4EC', fg: '#880E4F' },
   },
 };
+
+const KENYA_COUNTIES = [
+  'BARINGO', 'BOMET', 'BUNGOMA', 'BUSIA', 'ELGEYO MARAKWET', 'EMBU',
+  'GARISSA', 'HOMA BAY', 'ISIOLO', 'KAJIADO', 'KAKAMEGA', 'KERICHO',
+  'KIAMBU', 'KILIFI', 'KIRINYAGA', 'KISII', 'KISUMU', 'KITUI', 'KWALE',
+  'LAIKIPIA', 'LAMU', 'MACHAKOS', 'MAKUENI', 'MANDERA', 'MARSABIT',
+  'MERU', 'MIGORI', 'MOMBASA', 'MURANGA', 'NAIROBI', 'NAKURU', 'NANDI',
+  'NAROK', 'NYAMIRA', 'NYANDARUA', 'NYERI', 'SAMBURU', 'SIAYA',
+  'TAITA TAVETA', 'TANA RIVER', 'THARAKA NITHI', 'TRANS NZOIA',
+  'TURKANA', 'UASIN GISHU', 'VIHIGA', 'WAJIR', 'WEST POKOT',
+];
 
 function onOpen() {
   if (!isComplaintAdminUser_()) return;
@@ -247,14 +258,21 @@ function ensureComplaintDropdownOptionsSheet() {
   sh.setFrozenRows(1);
   sh.setColumnWidths(1, CM.OPTION_HEADERS.length, 170);
   if (sh.getLastRow() < 2) {
-    sh.getRange(2, 1, 6, CM.OPTION_HEADERS.length).setValues([
-      ['MURANGA', 'JACKSON NJOROGE', 'System Underperformance', 'Open', 'Performing', 'Low', 'telegram bot', 'TRUE'],
-      ['EMBU', 'DICKSON MWANGI', 'System Damage(Tear/Burst)', 'In Progress', 'Non Performing', 'Moderate', 'google sheets', 'FALSE'],
-      ['MERU', '', 'Bag Leakage', 'Waiting for Customer', 'Cleared', 'High', 'manual', ''],
-      ['NYERI', '', 'Blockage Inlet/Oulet', 'Resolved', 'Unknown', 'Critical', '', ''],
-      ['NYANDARUA', '', 'Relocation', 'Closed', '', '', '', ''],
-      ['', '', 'Other', '', '', '', '', ''],
-    ]);
+    const defaults = [
+      KENYA_COUNTIES,
+      ['JACKSON NJOROGE', 'DICKSON MWANGI'],
+      ['System Underperformance', 'System Damage(Tear/Burst)', 'Bag Leakage', 'Blockage Inlet/Oulet', 'Relocation', 'Other'],
+      ['Open', 'In Progress', 'Waiting for Customer', 'Resolved', 'Closed'],
+      ['Performing', 'Non Performing', 'Cleared', 'Unknown'],
+      ['Low', 'Moderate', 'High', 'Critical'],
+      ['telegram bot', 'google sheets', 'manual'],
+      ['TRUE', 'FALSE'],
+    ];
+    const rows = Math.max.apply(null, defaults.map(values => values.length));
+    const data = Array.from({ length: rows }, (_, rowIndex) =>
+      defaults.map(values => values[rowIndex] || '')
+    );
+    sh.getRange(2, 1, data.length, CM.OPTION_HEADERS.length).setValues(data);
   }
   return sh;
 }

@@ -91,6 +91,7 @@ def store_parsed_message(
             customer_name=parsed_result.customer_name,
             customer_phone=parsed_result.customer_phone,
             customer_id=parsed_result.customer_id,
+            branch_region=getattr(parsed_result, 'branch_region', ''),
             complaint_category=getattr(parsed_result, 'complaint_category', ''),
             complaint_description=parsed_result.problem_description,
         )

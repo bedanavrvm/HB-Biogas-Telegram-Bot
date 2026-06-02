@@ -45,7 +45,7 @@ FIELD_SYNONYMS = {
         'jbl reported by', 'reported by', 'sender', 'staff', 'agent',
     ],
     'branch_region': [
-        'branch / region', 'branch', 'region', 'area', 'location',
+        'branch / region', 'branch', 'region', 'county', 'area', 'location',
     ],
     'complaint_category': [
         'complaint category', 'category', 'issue type', 'problem category',
