@@ -1422,17 +1422,46 @@ class GroupConfigurationServiceTest(TestCase):
             },
         )
 
+    def test_group_configuration_admin_form_generates_case_workflow(self):
+        """Case preset should make the existing complaints workflow explicit."""
+        from core.admin import GroupSheetConfigurationAdminForm
+
+        form = GroupSheetConfigurationAdminForm(data={
+            'enabled': 'on',
+            'group_id': '-100111',
+            'display_name': 'Cases',
+            'sheet_id': 'sheet_case_123',
+            'sheet_name': 'Complaints Register',
+            'sheet_schema': '{}',
+            'workflow': '{}',
+            'parser_rules': '{}',
+            'metadata': '{}',
+            'workflow_preset': 'case',
+        })
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.generated_workflow(), {'type': 'case'})
+
     def test_workflow_presets_define_order_approval_defaults(self):
         """Future workflow additions should follow the shared preset contract."""
         from core.services.workflow_presets import (
             build_workflow_from_preset,
             defaults_for_preset,
             preset_choices,
+            preset_for_workflow,
         )
 
         choices = dict(preset_choices())
+        self.assertIn('case', choices)
+        self.assertEqual(choices['case'], 'Case / Complaints')
         self.assertIn('order_approval', choices)
         self.assertEqual(choices['order_approval'], 'Order Approval')
+
+        case_defaults = defaults_for_preset('case')
+        self.assertEqual(case_defaults['sheet_name'], 'Complaints Register')
+        self.assertEqual(case_defaults['workflow'], {'type': 'case'})
+        self.assertEqual(build_workflow_from_preset('case'), {'type': 'case'})
+        self.assertEqual(preset_for_workflow({}), 'case')
 
         defaults = defaults_for_preset('order_approval')
         self.assertEqual(defaults['sheet_name'], 'Orders')

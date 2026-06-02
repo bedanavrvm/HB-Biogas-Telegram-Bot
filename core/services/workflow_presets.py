@@ -19,6 +19,17 @@ WORKFLOW_PRESETS = {
         'parser_rules': None,
         'admin_fields': {},
     },
+    'case': {
+        'label': 'Case / Complaints',
+        'description': 'Default customer complaint intake and case update workflow.',
+        'sheet_name': 'Complaints Register',
+        'workflow': {
+            'type': 'case',
+        },
+        'sheet_schema': {},
+        'parser_rules': {},
+        'admin_fields': {},
+    },
     'order_approval': {
         'label': 'Order Approval',
         'description': 'BRO order approval updates with Google Drive media.',
@@ -86,6 +97,8 @@ def preset_for_workflow(workflow: dict) -> str:
     workflow_type = (workflow or {}).get('type')
     if workflow_type and workflow_type in WORKFLOW_PRESETS:
         return workflow_type
+    if not workflow:
+        return 'case'
     return MANUAL_PRESET
 
 

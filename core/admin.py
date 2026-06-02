@@ -270,8 +270,10 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
                 'order_approval_media_root_folder',
             ),
             'description': (
-                'For the order approval group, select the preset and save. '
-                'The workflow JSON below will be generated automatically.'
+                'Select Case / Complaints for the existing complaint intake '
+                'workflow, Order Approval for BRO updates, or Manual JSON for '
+                'a custom workflow. The workflow JSON below will be generated '
+                'automatically where a preset applies.'
             ),
         }),
         ('Advanced Workflow And Parser Rules', {

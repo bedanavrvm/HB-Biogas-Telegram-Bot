@@ -15,17 +15,24 @@ Avoid hand-writing workflow JSON unless there is a specific deployment reason.
 
 ## Current Presets
 
-### Manual JSON / Custom Workflow
+### Case / Complaints
 
 Use this for the existing complaint/case groups.
 
-This preset does not generate workflow JSON. It preserves the current behavior:
+This preset generates:
+
+```json
+{
+  "type": "case"
+}
+```
+
+It preserves the current behavior:
 
 - Bot mention is required in group messages.
 - Message goes through the existing complaint/case parser.
 - New cases are written to the configured complaint register.
 - Case status replies and `/update MSG_ID Status: ...` keep working.
-- Existing `sheet_schema`, `workflow`, and `parser_rules` values are preserved.
 
 Use this when configuring:
 
@@ -43,6 +50,28 @@ group_id: -100...
 display_name: Complaints
 sheet_id: <complaint-sheet-id>
 sheet_name: Complaints Register
+workflow_preset: Case / Complaints
+```
+
+An existing config with an empty workflow still behaves as a case/complaints
+workflow. The admin now shows that as `Case / Complaints` so the fallback is
+explicit instead of looking like a custom workflow.
+
+### Manual JSON / Custom Workflow
+
+Use this only when a group needs advanced JSON that is not covered by a preset.
+
+This preset does not generate workflow JSON. Existing `sheet_schema`,
+`workflow`, and `parser_rules` values are preserved.
+
+Recommended admin fields:
+
+```text
+enabled: checked
+group_id: -100...
+display_name: Custom Workflow
+sheet_id: <sheet-id>
+sheet_name: <worksheet tab>
 workflow_preset: Manual JSON / custom workflow
 ```
 
@@ -125,7 +154,7 @@ Yes.
 Existing complaint groups are OK if they either:
 
 - Have no workflow type, or
-- Use the `Manual JSON / custom workflow` preset, or
+- Use the `Case / Complaints` preset, or
 - Have older custom workflow JSON without `type: "order_approval"`.
 
 The webhook only switches to the order approval workflow when:
@@ -137,6 +166,18 @@ The webhook only switches to the order approval workflow when:
 ```
 
 All other configured groups continue through the original complaint/case processing path.
+
+If a cases group is working even though it is not listed in Django admin, it is
+using one of the older routing sources:
+
+- `GROUP_MAPPING_JSON`, if that env var still contains the group ID.
+- Legacy single-group mode, if there are no explicit group configs and
+  `GOOGLE_SHEET_ID` is set. In that mode every unlisted Telegram group falls
+  back to the same default case sheet.
+
+For production, add the cases group explicitly in Django admin and select
+`Case / Complaints`; then remove old group-specific env mappings when the admin
+config is confirmed.
 
 ## Where Presets Live
 
