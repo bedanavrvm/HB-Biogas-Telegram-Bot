@@ -1,0 +1,224 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+  &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name_plural|capfirst }}</a>
+  &rsaquo; <a href="{% url 'admin:core_groupsheetconfiguration_changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+  &rsaquo; <a href="{% url 'admin:core_groupsheetconfiguration_change' config.pk %}">{{ config }}</a>
+  &rsaquo; Live sheet records
+</div>
+{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<style>
+  .live-sheet-toolbar,
+  .live-sheet-panel {
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--body-bg);
+    padding: 16px;
+    margin: 16px 0;
+  }
+  .live-sheet-toolbar {
+    display: flex;
+    align-items: end;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .live-sheet-toolbar label {
+    display: block;
+    margin-bottom: 4px;
+    font-weight: 600;
+  }
+  .live-sheet-table-wrap {
+    overflow: auto;
+    max-height: 70vh;
+    border: 1px solid var(--border-color);
+  }
+  .live-sheet-table {
+    border-collapse: collapse;
+    min-width: 100%;
+    white-space: nowrap;
+  }
+  .live-sheet-table th,
+  .live-sheet-table td {
+    border-bottom: 1px solid var(--hairline-color);
+    border-right: 1px solid var(--hairline-color);
+    padding: 7px 9px;
+    text-align: left;
+    vertical-align: top;
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .live-sheet-table th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--darkened-bg);
+  }
+  .live-sheet-table .row-number {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--body-bg);
+    font-weight: 600;
+  }
+  .live-sheet-table th.row-number {
+    z-index: 3;
+    background: var(--darkened-bg);
+  }
+  .live-sheet-edit-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
+  }
+  .live-sheet-field label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .live-sheet-field input,
+  .live-sheet-field textarea {
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .live-sheet-field textarea {
+    min-height: 72px;
+    resize: vertical;
+  }
+  .live-sheet-formula {
+    color: var(--body-quiet-color);
+    font-size: 12px;
+    margin-top: 3px;
+  }
+  .live-sheet-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 16px;
+  }
+  .live-sheet-danger {
+    border-top: 1px solid var(--border-color);
+    margin-top: 20px;
+    padding-top: 16px;
+  }
+  .live-sheet-error {
+    border-left: 4px solid var(--error-fg);
+    padding: 10px 12px;
+    background: var(--darkened-bg);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<p>
+  This page reads and changes the live Google Sheet. Existing Django mirror and audit
+  tables are read-only. Formula cells and system tracking identifiers are shown
+  but cannot be edited here.
+</p>
+
+<div class="live-sheet-toolbar">
+  <form method="get">
+    <label for="sheet-tab">Worksheet tab</label>
+    <select id="sheet-tab" name="sheet_tab">
+      {% for tab in tabs %}
+        <option value="{{ tab }}" {% if tab == selected_tab %}selected{% endif %}>{{ tab }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="button">Load worksheet</button>
+  </form>
+  <a class="button" href="{{ config.sheet_url }}" target="_blank" rel="noopener">Open in Google Sheets</a>
+</div>
+
+{% if load_error %}
+  <div class="live-sheet-error">{{ load_error }}</div>
+{% elif table %}
+  <div class="live-sheet-panel">
+    <strong>{{ table.sheet_tab }}</strong>
+    <span>Header row: {{ table.header_row }} | Data rows shown: {{ table.row_count }}</span>
+  </div>
+
+  {% if edit_record and has_change_permission %}
+    <div class="live-sheet-panel">
+      <h2>Edit live row {{ edit_record.row_number }}{% if edit_record.record_key %}: {{ edit_record.record_key }}{% endif %}</h2>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="update">
+        <input type="hidden" name="sheet_tab" value="{{ table.sheet_tab }}">
+        <input type="hidden" name="row_number" value="{{ edit_record.row_number }}">
+        <div class="live-sheet-edit-grid">
+          {% for cell in edit_record.cells %}
+            <div class="live-sheet-field">
+              <label for="col-{{ cell.index }}">{{ cell.header|default:"Unnamed column" }}</label>
+              {% if cell.is_readonly or not cell.header %}
+                <textarea id="col-{{ cell.index }}" disabled>{{ cell.value }}</textarea>
+                <div class="live-sheet-formula">{{ cell.readonly_reason|default:"Read-only unnamed column" }}</div>
+              {% else %}
+                <textarea id="col-{{ cell.index }}" name="col_{{ cell.index }}">{{ cell.value }}</textarea>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+        <div class="live-sheet-actions">
+          <button type="submit" class="default">Save changes to Google Sheet</button>
+          <a class="button" href="?sheet_tab={{ table.sheet_tab|urlencode }}">Cancel</a>
+        </div>
+      </form>
+
+      <form method="post" class="live-sheet-danger">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="delete">
+        <input type="hidden" name="sheet_tab" value="{{ table.sheet_tab }}">
+        <input type="hidden" name="row_number" value="{{ edit_record.row_number }}">
+        <label>
+          <input type="checkbox" name="confirm_delete" value="yes" required>
+          I understand this permanently deletes row {{ edit_record.row_number }} from the live Google Sheet.
+        </label>
+        <div class="live-sheet-actions">
+          <button type="submit" class="deletelink">Delete live sheet row</button>
+        </div>
+      </form>
+    </div>
+  {% endif %}
+
+  <div class="live-sheet-table-wrap">
+    <table class="live-sheet-table">
+      <thead>
+        <tr>
+          <th class="row-number">Row</th>
+          {% for header in table.headers %}
+            <th>{{ header|default:"Unnamed column" }}</th>
+          {% endfor %}
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in table.rows %}
+          <tr>
+            <td class="row-number">{{ row.row_number }}</td>
+            {% for cell in row.cells %}
+              <td title="{{ cell.value }}">{{ cell.value }}</td>
+            {% endfor %}
+            <td>
+              {% if has_change_permission %}
+                <a href="?sheet_tab={{ table.sheet_tab|urlencode }}&amp;row={{ row.row_number }}">Edit</a>
+              {% else %}
+                Read only
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="2">No data rows were found in this worksheet.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+{% endblock %}

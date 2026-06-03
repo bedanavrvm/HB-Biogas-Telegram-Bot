@@ -19,12 +19,26 @@ from core.services.workflow_presets import (
 from .models import (
     CaseUpdate,
     GroupSheetConfiguration,
+    LiveSheetRecordChange,
     MediaAttachment,
     OrderApprovalUpdate,
     RawMessage,
     ProcessedMessage,
     ParsedMessage,
 )
+
+
+class ReadOnlyAuditAdmin(admin.ModelAdmin):
+    """Prevent admin edits that would not be written back to the live sheet."""
+
+    def get_readonly_fields(self, request, obj=None):
+        return [field.name for field in self.model._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 class GroupSheetConfigurationAdminForm(forms.ModelForm):
@@ -154,7 +168,7 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
 
 
 @admin.register(RawMessage)
-class RawMessageAdmin(admin.ModelAdmin):
+class RawMessageAdmin(ReadOnlyAuditAdmin):
     list_display = ['sender', 'received_at', 'has_image', 'created_at']
     list_filter = ['has_image', 'received_at']
     search_fields = ['sender', 'content']
@@ -162,7 +176,7 @@ class RawMessageAdmin(admin.ModelAdmin):
 
 
 @admin.register(ProcessedMessage)
-class ProcessedMessageAdmin(admin.ModelAdmin):
+class ProcessedMessageAdmin(ReadOnlyAuditAdmin):
     list_display = ['message_hash', 'status', 'processed_at']
     list_filter = ['status', 'processed_at']
     search_fields = ['message_hash']
@@ -170,7 +184,7 @@ class ProcessedMessageAdmin(admin.ModelAdmin):
 
 
 @admin.register(ParsedMessage)
-class ParsedMessageAdmin(admin.ModelAdmin):
+class ParsedMessageAdmin(ReadOnlyAuditAdmin):
     list_display = [
         'message_id', 'group_id', 'sheet_name', 'sender', 'customer_name',
         'customer_phone', 'complaint_status', 'synced_to_sheets', 'timestamp'
@@ -187,7 +201,7 @@ class ParsedMessageAdmin(admin.ModelAdmin):
 
 
 @admin.register(CaseUpdate)
-class CaseUpdateAdmin(admin.ModelAdmin):
+class CaseUpdateAdmin(ReadOnlyAuditAdmin):
     list_display = [
         'parsed_message', 'group_id', 'updated_by', 'old_status',
         'new_status', 'sync_status', 'created_at',
@@ -201,7 +215,7 @@ class CaseUpdateAdmin(admin.ModelAdmin):
 
 
 @admin.register(OrderApprovalUpdate)
-class OrderApprovalUpdateAdmin(admin.ModelAdmin):
+class OrderApprovalUpdateAdmin(ReadOnlyAuditAdmin):
     list_display = [
         'id_number', 'group_id', 'sheet_tab', 'row_number', 'sender',
         'update_status', 'created_at',
@@ -215,7 +229,7 @@ class OrderApprovalUpdateAdmin(admin.ModelAdmin):
 
 
 @admin.register(MediaAttachment)
-class MediaAttachmentAdmin(admin.ModelAdmin):
+class MediaAttachmentAdmin(ReadOnlyAuditAdmin):
     list_display = [
         'business_key_value', 'group_id', 'file_type', 'original_filename',
         'storage_provider', 'upload_status', 'created_at',
@@ -230,24 +244,37 @@ class MediaAttachmentAdmin(admin.ModelAdmin):
     readonly_fields = ['id', 'created_at']
 
 
+@admin.register(LiveSheetRecordChange)
+class LiveSheetRecordChangeAdmin(ReadOnlyAuditAdmin):
+    list_display = [
+        'record_key', 'action', 'group_id', 'sheet_tab', 'row_number',
+        'changed_by', 'status', 'created_at',
+    ]
+    list_filter = ['action', 'status', 'group_id', 'sheet_id', 'sheet_tab', 'created_at']
+    search_fields = [
+        'record_key', 'group_id', 'sheet_id', 'sheet_tab', 'changed_by', 'error',
+    ]
+
+
 @admin.register(GroupSheetConfiguration)
 class GroupSheetConfigurationAdmin(admin.ModelAdmin):
     form = GroupSheetConfigurationAdminForm
     list_display = [
         'display_label', 'group_id', 'enabled', 'sheet_name',
-        'sheet_link', 'data_records_link', 'media_records_link', 'updated_at',
+        'sheet_link', 'live_records_link', 'data_records_link',
+        'media_records_link', 'updated_at',
     ]
     list_filter = ['enabled', 'sheet_name', 'updated_at']
     search_fields = ['group_id', 'display_name', 'sheet_id', 'sheet_name']
     readonly_fields = [
         'created_at', 'updated_at', 'sheet_link', 'sheet_analyzer_link',
-        'data_records_link', 'media_records_link',
+        'live_records_link', 'data_records_link', 'media_records_link',
     ]
     fieldsets = (
         ('Group Routing', {
             'fields': (
                 'enabled', 'group_id', 'display_name', 'sheet_id',
-                'sheet_name', 'sheet_link', 'data_records_link',
+                'sheet_name', 'sheet_link', 'live_records_link', 'data_records_link',
                 'media_records_link', 'sheet_analyzer_link',
             ),
             'description': (
@@ -314,6 +341,13 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
         url = reverse('admin:core_groupsheetconfiguration_analyze', args=[obj.pk])
         return format_html('<a class="button" href="{}">Analyze columns and dropdowns</a>', url)
 
+    @admin.display(description='Live sheet rows')
+    def live_records_link(self, obj):
+        if not obj or not obj.pk:
+            return 'Save this configuration before viewing live rows.'
+        url = reverse('admin:core_groupsheetconfiguration_live_records', args=[obj.pk])
+        return format_html('<a class="button" href="{}">Open live sheet records</a>', url)
+
     @admin.display(description='Django data')
     def data_records_link(self, obj):
         if not obj or not obj.pk:
@@ -364,6 +398,11 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
                 '<path:object_id>/analyze-sheet/',
                 self.admin_site.admin_view(self.analyze_sheet_view),
                 name='core_groupsheetconfiguration_analyze',
+            ),
+            path(
+                '<path:object_id>/live-records/',
+                self.admin_site.admin_view(self.live_records_view),
+                name='core_groupsheetconfiguration_live_records',
             ),
         ]
         return custom_urls + urls
@@ -418,6 +457,202 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
             request,
             'admin/core/groupsheetconfiguration/analyze_sheet.html',
             context,
+        )
+
+    def live_records_view(self, request, object_id):
+        config = self.get_object(request, object_id)
+        if not config:
+            messages.error(request, 'Configuration was not found.')
+            return HttpResponseRedirect('../')
+        if not self.has_view_permission(request, config):
+            messages.error(request, 'You do not have permission to view this configuration.')
+            return HttpResponseRedirect('../')
+
+        from core.services.live_sheet_records import (
+            LiveSheetRecordError,
+            allowed_sheet_tabs,
+            delete_live_sheet_row,
+            load_live_sheet_table,
+            update_live_sheet_row,
+        )
+
+        tabs = allowed_sheet_tabs(config)
+        selected_tab = str(
+            request.POST.get('sheet_tab')
+            or request.GET.get('sheet_tab')
+            or (tabs[0] if tabs else '')
+        ).strip()
+        edit_row = self._positive_int(
+            request.POST.get('row_number') or request.GET.get('row')
+        )
+        action = request.POST.get('action', '')
+
+        if request.method == 'POST' and action in {'update', 'delete'}:
+            if not self.has_change_permission(request, config):
+                messages.error(request, 'You do not have permission to change live sheet rows.')
+                return HttpResponseRedirect(request.path)
+            try:
+                if action == 'update':
+                    submitted = {
+                        int(key[4:]): value
+                        for key, value in request.POST.items()
+                        if key.startswith('col_') and key[4:].isdigit()
+                    }
+                    result = update_live_sheet_row(
+                        config,
+                        selected_tab,
+                        edit_row,
+                        submitted,
+                    )
+                    if result.get('changed'):
+                        self._audit_live_sheet_change(
+                            config=config,
+                            request=request,
+                            action='update',
+                            result=result,
+                        )
+                        mirror_result = self._sync_case_mirror(config)
+                        messages.success(
+                            request,
+                            f"Updated live sheet row {edit_row}.",
+                        )
+                        self._warn_on_mirror_failure(request, mirror_result)
+                    else:
+                        messages.info(request, 'No sheet values changed.')
+                else:
+                    if request.POST.get('confirm_delete') != 'yes':
+                        raise LiveSheetRecordError(
+                            'Confirm the deletion before removing the live sheet row.'
+                        )
+                    result = delete_live_sheet_row(config, selected_tab, edit_row)
+                    self._audit_live_sheet_change(
+                        config=config,
+                        request=request,
+                        action='delete',
+                        result=result,
+                    )
+                    mirror_result = self._sync_case_mirror(config)
+                    messages.success(
+                        request,
+                        f"Deleted live sheet row {edit_row}.",
+                    )
+                    self._warn_on_mirror_failure(request, mirror_result)
+                return HttpResponseRedirect(
+                    f"{request.path}?{urlencode({'sheet_tab': selected_tab})}"
+                )
+            except LiveSheetRecordError as exc:
+                self._audit_live_sheet_failure(
+                    config=config,
+                    request=request,
+                    action=action,
+                    sheet_tab=selected_tab,
+                    row_number=edit_row,
+                    error=str(exc),
+                )
+                messages.error(request, str(exc))
+
+        table = None
+        load_error = ''
+        try:
+            table = load_live_sheet_table(config, selected_tab)
+        except LiveSheetRecordError as exc:
+            load_error = str(exc)
+
+        edit_record = None
+        if table and edit_row:
+            edit_record = next(
+                (
+                    row for row in table['rows']
+                    if row['row_number'] == edit_row
+                ),
+                None,
+            )
+            if not edit_record:
+                messages.warning(request, 'That worksheet row no longer exists.')
+
+        context = {
+            **self.admin_site.each_context(request),
+            'title': f'Live sheet records: {config.display_name or config.group_id}',
+            'opts': self.model._meta,
+            'original': config,
+            'config': config,
+            'tabs': tabs,
+            'selected_tab': selected_tab,
+            'table': table,
+            'load_error': load_error,
+            'edit_record': edit_record,
+            'has_change_permission': self.has_change_permission(request, config),
+        }
+        return TemplateResponse(
+            request,
+            'admin/core/groupsheetconfiguration/live_records.html',
+            context,
+        )
+
+    @staticmethod
+    def _positive_int(value):
+        try:
+            value = int(value)
+            return value if value > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _sync_case_mirror(config):
+        workflow_type = str((config.workflow or {}).get('type') or 'case')
+        if workflow_type != 'case':
+            return None
+        from core.services.sheet_sync import sync_group_from_sheet
+        return sync_group_from_sheet(group_id=config.group_id, delete_missing=True)
+
+    @staticmethod
+    def _warn_on_mirror_failure(request, result):
+        if result and result.get('status') != 'success':
+            messages.warning(
+                request,
+                'The live Google Sheet changed, but the Django case mirror could '
+                'not be refreshed. Run /sync after checking sheet access.',
+            )
+
+    @staticmethod
+    def _audit_live_sheet_change(config, request, action, result):
+        changes = (
+            result.get('changes', {})
+            if action == 'update'
+            else result.get('deleted_values', {})
+        )
+        LiveSheetRecordChange.objects.create(
+            group_configuration=config,
+            group_id=config.group_id,
+            sheet_id=config.sheet_id,
+            sheet_tab=result.get('sheet_tab', ''),
+            row_number=result.get('row_number') or 0,
+            record_key=result.get('record_key', ''),
+            action=action,
+            changed_by=request.user.get_username(),
+            changes=changes,
+            status='success',
+        )
+
+    @staticmethod
+    def _audit_live_sheet_failure(
+        config,
+        request,
+        action,
+        sheet_tab,
+        row_number,
+        error,
+    ):
+        LiveSheetRecordChange.objects.create(
+            group_configuration=config,
+            group_id=config.group_id,
+            sheet_id=config.sheet_id,
+            sheet_tab=sheet_tab,
+            row_number=row_number or 0,
+            action=action,
+            changed_by=request.user.get_username(),
+            status='failed',
+            error=error,
         )
 
     def save_model(self, request, obj, form, change):

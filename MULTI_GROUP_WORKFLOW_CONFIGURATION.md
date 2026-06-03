@@ -52,10 +52,16 @@ To avoid mixing data from different groups or spreadsheets:
 1. Open Django admin.
 2. Go to `Core` -> `Group sheet configurations`.
 3. Find the Telegram group or sheet you want to inspect.
-4. Click `View complaint cases` for a case workflow, or `View order update audit` for an order approval workflow.
-5. Click `View media audit` to inspect uploads from that group.
+4. Click `Open live sheet records` to view the actual worksheet headers and row values.
+5. Select a worksheet tab where the workflow has more than one configured tab.
+6. Click `Edit` beside a row to change its live Google Sheet values.
+7. Use the separate confirmation checkbox before permanently deleting a live sheet row.
+8. Click `View complaint cases` for a case workflow, or `View order update audit` for an order approval workflow, to inspect backend records.
+9. Click `View media audit` to inspect uploads from that group.
 
 These links open the relevant Django table with filters for that configured group and spreadsheet. The standard filters on each table can further separate records by spreadsheet ID, worksheet tab, sync status, or date.
+
+The live sheet records page displays columns in the same order as the Google Sheet header row. Formula cells and system tracking identifiers such as complaint `message_id` and order `ORDER RECORD ID` are read-only. Successful complaint row edits and deletes refresh the Django complaint mirror from the sheet. Existing mirror and audit tables are read-only in Django admin so they cannot be changed without updating the live sheet.
 
 For order approval workflows, the Google Sheet remains the complete current order table. Django stores the update audit records and media audit records rather than a full duplicate of every current sheet row.
 

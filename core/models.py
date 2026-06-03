@@ -371,6 +371,55 @@ class MediaAttachment(models.Model):
         return f"MediaAttachment {self.file_type or 'file'} {self.upload_status}"
 
 
+class LiveSheetRecordChange(models.Model):
+    """Audit trail for Django admin edits and deletes applied to live sheet rows."""
+
+    ACTION_CHOICES = [
+        ('update', 'Updated'),
+        ('delete', 'Deleted'),
+    ]
+    STATUS_CHOICES = [
+        ('success', 'Success'),
+        ('failed', 'Failed'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    group_configuration = models.ForeignKey(
+        'GroupSheetConfiguration',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='live_sheet_changes',
+    )
+    group_id = models.CharField(max_length=100, db_index=True)
+    sheet_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    sheet_tab = models.CharField(max_length=255, blank=True, default='')
+    row_number = models.PositiveIntegerField()
+    record_key = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    action = models.CharField(max_length=20, choices=ACTION_CHOICES)
+    changed_by = models.CharField(max_length=255, blank=True, default='')
+    changes = models.JSONField(blank=True, default=dict)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES)
+    error = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['group_id', 'created_at']),
+            models.Index(fields=['sheet_id', 'sheet_tab']),
+            models.Index(fields=['record_key']),
+        ]
+        verbose_name = 'Live sheet record change'
+        verbose_name_plural = 'Live sheet record changes'
+
+    def __str__(self):
+        return (
+            f"{self.get_action_display()} {self.sheet_tab}!{self.row_number} "
+            f"{self.record_key}".strip()
+        )
+
+
 class GroupSheetConfiguration(models.Model):
     """
     Admin-managed routing and workflow configuration for a Telegram group.

@@ -16,6 +16,8 @@ from unittest.mock import patch, MagicMock
 from core.models import (
     CaseUpdate,
     GroupSheetConfiguration,
+    LiveSheetRecordChange,
+    OrderApprovalUpdate,
     RawMessage,
     ProcessedMessage,
     ParsedMessage,
@@ -1398,6 +1400,133 @@ class StorageServiceTest(TestCase):
         self.assertEqual(created.sheet_name, 'Cases')
 
 
+class LiveSheetRecordServiceTest(TestCase):
+    """Test safe live worksheet row operations used by Django admin."""
+
+    def setUp(self):
+        self.config = GroupSheetConfiguration.objects.create(
+            group_id='-100live',
+            display_name='Live Cases',
+            sheet_id='sheet_live',
+            sheet_name='Complaints',
+            workflow={'type': 'case'},
+            sheet_schema={
+                'header_row': 2,
+                'columns': ['Complaint ID', 'message_id', 'Customer Name'],
+                'formula_fields': ['complaint_id'],
+                'field_headers': {
+                    'complaint_id': 'Complaint ID',
+                    'message_id': 'message_id',
+                    'customer_name': 'Customer Name',
+                },
+            },
+        )
+
+    @patch('core.services.live_sheet_records.get_sheets_service')
+    def test_load_live_sheet_table_preserves_headers_and_formula_cells(self, mock_service):
+        from core.services.live_sheet_records import load_live_sheet_table
+
+        sheet = MagicMock()
+        sheet.get_all_values.side_effect = [
+            [
+                ['TITLE'],
+                ['Complaint ID', 'message_id', 'Customer Name'],
+                ['CMP-1', 'MSG_1', 'Jane Doe'],
+            ],
+            [
+                ['TITLE'],
+                ['Complaint ID', 'message_id', 'Customer Name'],
+                ['=ROW()-2', 'MSG_1', 'Jane Doe'],
+            ],
+        ]
+        service = MagicMock()
+        service.is_available.return_value = True
+        service._sheet = sheet
+        mock_service.return_value = service
+
+        table = load_live_sheet_table(self.config)
+
+        self.assertEqual(
+            table['headers'],
+            ['Complaint ID', 'message_id', 'Customer Name'],
+        )
+        self.assertEqual(table['rows'][0]['row_number'], 3)
+        self.assertEqual(table['rows'][0]['record_key'], 'MSG_1')
+        self.assertTrue(table['rows'][0]['cells'][0]['is_readonly'])
+        self.assertTrue(table['rows'][0]['cells'][1]['is_readonly'])
+        self.assertFalse(table['rows'][0]['cells'][2]['is_readonly'])
+
+    @patch('core.services.live_sheet_records.get_sheets_service')
+    def test_update_live_sheet_row_batches_only_changed_non_formula_cells(self, mock_service):
+        from core.services.live_sheet_records import update_live_sheet_row
+
+        sheet = MagicMock()
+        sheet.get_all_values.side_effect = [
+            [
+                ['TITLE'],
+                ['Complaint ID', 'message_id', 'Customer Name'],
+                ['CMP-1', 'MSG_1', 'Jane Doe'],
+            ],
+            [
+                ['TITLE'],
+                ['Complaint ID', 'message_id', 'Customer Name'],
+                ['=ROW()-2', 'MSG_1', 'Jane Doe'],
+            ],
+        ]
+        service = MagicMock()
+        service.is_available.return_value = True
+        service._sheet = sheet
+        mock_service.return_value = service
+
+        result = update_live_sheet_row(
+            self.config,
+            'Complaints',
+            3,
+            {
+                0: 'DO NOT CHANGE FORMULA',
+                1: 'MSG_1',
+                2: 'Jane Smith',
+            },
+        )
+
+        self.assertTrue(result['changed'])
+        self.assertEqual(
+            result['changes'],
+            {'Customer Name': {'old': 'Jane Doe', 'new': 'Jane Smith'}},
+        )
+        sheet.batch_update.assert_called_once_with(
+            [{'range': 'C3', 'values': [['Jane Smith']]}],
+            raw=True,
+        )
+
+    @patch('core.services.live_sheet_records.get_sheets_service')
+    def test_delete_live_sheet_row_deletes_the_selected_live_row(self, mock_service):
+        from core.services.live_sheet_records import delete_live_sheet_row
+
+        sheet = MagicMock()
+        sheet.get_all_values.side_effect = [
+            [
+                ['TITLE'],
+                ['Complaint ID', 'message_id', 'Customer Name'],
+                ['CMP-1', 'MSG_1', 'Jane Doe'],
+            ],
+            [
+                ['TITLE'],
+                ['Complaint ID', 'message_id', 'Customer Name'],
+                ['=ROW()-2', 'MSG_1', 'Jane Doe'],
+            ],
+        ]
+        service = MagicMock()
+        service.is_available.return_value = True
+        service._sheet = sheet
+        mock_service.return_value = service
+
+        result = delete_live_sheet_row(self.config, 'Complaints', 3)
+
+        self.assertEqual(result['record_key'], 'MSG_1')
+        sheet.delete_rows.assert_called_once_with(3)
+
+
 class GroupConfigurationServiceTest(TestCase):
     """Test admin-managed group routing configuration."""
 
@@ -1500,11 +1629,178 @@ class GroupConfigurationServiceTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Admin Render Test')
         self.assertContains(response, 'Order Admin Render Test')
+        self.assertContains(response, 'Open live sheet records', count=2)
         self.assertContains(response, 'View complaint cases')
         self.assertContains(response, 'View order update audit')
         self.assertContains(response, 'View media audit', count=2)
         self.assertContains(response, 'group_id__exact=-100777')
         self.assertContains(response, 'sheet_id__exact=sheet_777')
+
+    @override_settings(
+        STORAGES={
+            'default': {
+                'BACKEND': 'django.core.files.storage.FileSystemStorage',
+            },
+            'staticfiles': {
+                'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+            },
+        },
+    )
+    @patch('core.services.live_sheet_records.load_live_sheet_table')
+    def test_live_sheet_records_admin_view_renders_actual_headers(
+        self,
+        mock_load_table,
+    ):
+        """Live records view should display the worksheet header order and values."""
+        user = get_user_model().objects.create_superuser(
+            username='admin',
+            email='admin@example.com',
+            password='password',
+        )
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100779',
+            display_name='Live Admin Test',
+            sheet_id='sheet_779',
+            sheet_name='Complaints',
+            workflow={'type': 'case'},
+        )
+        mock_load_table.return_value = {
+            'sheet_tab': 'Complaints',
+            'header_row': 2,
+            'headers': ['Complaint ID', 'Customer Name'],
+            'rows': [{
+                'row_number': 3,
+                'record_key': 'CMP-1',
+                'values': ['CMP-1', 'Jane Doe'],
+                'formula_indexes': [0],
+                'cells': [
+                    {
+                        'index': 0,
+                        'header': 'Complaint ID',
+                        'value': 'CMP-1',
+                        'is_formula': True,
+                    },
+                    {
+                        'index': 1,
+                        'header': 'Customer Name',
+                        'value': 'Jane Doe',
+                        'is_formula': False,
+                    },
+                ],
+            }],
+            'row_count': 1,
+            'formula_indexes': [0],
+            'workflow_type': 'case',
+        }
+        self.client.force_login(user)
+
+        response = self.client.get(
+            f'/admin/core/groupsheetconfiguration/{config.pk}/live-records/'
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Complaint ID')
+        self.assertContains(response, 'Customer Name')
+        self.assertContains(response, 'Jane Doe')
+        self.assertContains(response, 'Edit')
+
+    @override_settings(
+        STORAGES={
+            'default': {
+                'BACKEND': 'django.core.files.storage.FileSystemStorage',
+            },
+            'staticfiles': {
+                'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage',
+            },
+        },
+    )
+    @patch('core.admin.GroupSheetConfigurationAdmin._sync_case_mirror')
+    @patch('core.services.live_sheet_records.load_live_sheet_table')
+    @patch('core.services.live_sheet_records.update_live_sheet_row')
+    def test_live_sheet_records_admin_update_creates_audit_record(
+        self,
+        mock_update_row,
+        mock_load_table,
+        mock_sync_mirror,
+    ):
+        """Admin live-row saves should be applied through the sheet service and audited."""
+        user = get_user_model().objects.create_superuser(
+            username='admin',
+            email='admin@example.com',
+            password='password',
+        )
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100780',
+            display_name='Live Update Test',
+            sheet_id='sheet_780',
+            sheet_name='Complaints',
+            workflow={'type': 'case'},
+        )
+        mock_update_row.return_value = {
+            'changed': True,
+            'changes': {
+                'Customer Name': {'old': 'Jane Doe', 'new': 'Jane Smith'},
+            },
+            'record_key': 'MSG_1',
+            'sheet_tab': 'Complaints',
+            'row_number': 3,
+        }
+        mock_load_table.return_value = {
+            'sheet_tab': 'Complaints',
+            'header_row': 2,
+            'headers': [],
+            'rows': [],
+            'row_count': 0,
+            'formula_indexes': [],
+            'workflow_type': 'case',
+        }
+        mock_sync_mirror.return_value = {'status': 'success'}
+        self.client.force_login(user)
+
+        response = self.client.post(
+            f'/admin/core/groupsheetconfiguration/{config.pk}/live-records/',
+            {
+                'action': 'update',
+                'sheet_tab': 'Complaints',
+                'row_number': '3',
+                'col_1': 'MSG_1',
+                'col_2': 'Jane Smith',
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        mock_update_row.assert_called_once()
+        mock_sync_mirror.assert_called_once_with(config)
+        audit = LiveSheetRecordChange.objects.get()
+        self.assertEqual(audit.action, 'update')
+        self.assertEqual(audit.record_key, 'MSG_1')
+        self.assertEqual(audit.changed_by, 'admin')
+        self.assertEqual(audit.status, 'success')
+
+    def test_sheet_mirror_and_audit_admins_are_read_only(self):
+        """Backend mirror and audit tables should not allow direct admin edits."""
+        from django.contrib.admin.sites import AdminSite
+        from core.admin import (
+            LiveSheetRecordChangeAdmin,
+            OrderApprovalUpdateAdmin,
+            ParsedMessageAdmin,
+        )
+
+        site = AdminSite()
+        request = MagicMock()
+
+        for model, admin_class in [
+            (ParsedMessage, ParsedMessageAdmin),
+            (OrderApprovalUpdate, OrderApprovalUpdateAdmin),
+            (LiveSheetRecordChange, LiveSheetRecordChangeAdmin),
+        ]:
+            model_admin = admin_class(model, site)
+            self.assertFalse(model_admin.has_add_permission(request))
+            self.assertFalse(model_admin.has_delete_permission(request))
+            self.assertEqual(
+                set(model_admin.get_readonly_fields(request)),
+                {field.name for field in model._meta.fields},
+            )
 
     def test_group_configuration_admin_form_generates_order_approval_workflow(self):
         """Order approval preset should avoid hand-written workflow JSON."""
