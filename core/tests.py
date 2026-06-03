@@ -1457,6 +1457,47 @@ class LiveSheetRecordServiceTest(TestCase):
         self.assertFalse(table['rows'][0]['cells'][2]['is_readonly'])
 
     @patch('core.services.live_sheet_records.get_sheets_service')
+    def test_load_live_sheet_table_uses_workflow_header_row_for_case_group(
+        self,
+        mock_service,
+    ):
+        """The live viewer should use the configured workflow header row."""
+        from core.services.live_sheet_records import load_live_sheet_table
+
+        self.config.workflow = {'type': 'case', 'header_row': 3}
+        self.config.sheet_schema = {}
+        self.config.save(update_fields=['workflow', 'sheet_schema'])
+
+        sheet = MagicMock()
+        sheet.get_all_values.side_effect = [
+            [
+                ['TITLE'],
+                ['SUBTITLE'],
+                ['Complaint ID', 'message_id', 'Customer Name'],
+                ['CMP-1', 'MSG_1', 'Jane Doe'],
+            ],
+            [
+                ['TITLE'],
+                ['SUBTITLE'],
+                ['Complaint ID', 'message_id', 'Customer Name'],
+                ['=ROW()-3', 'MSG_1', 'Jane Doe'],
+            ],
+        ]
+        service = MagicMock()
+        service.is_available.return_value = True
+        service._sheet = sheet
+        mock_service.return_value = service
+
+        table = load_live_sheet_table(self.config)
+
+        self.assertEqual(table['header_row'], 3)
+        self.assertEqual(
+            table['headers'],
+            ['Complaint ID', 'message_id', 'Customer Name'],
+        )
+        self.assertEqual(table['rows'][0]['row_number'], 4)
+
+    @patch('core.services.live_sheet_records.get_sheets_service')
     def test_update_live_sheet_row_batches_only_changed_non_formula_cells(self, mock_service):
         from core.services.live_sheet_records import update_live_sheet_row
 

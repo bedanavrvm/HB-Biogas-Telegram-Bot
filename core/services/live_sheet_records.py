@@ -207,14 +207,14 @@ def _validated_tab(group_config, requested_tab: str) -> str:
 
 def _header_row(group_config) -> int:
     workflow = group_config.workflow or {}
-    if str(workflow.get('type') or 'case') == 'order_approval':
-        value = workflow.get('header_row') or 2
-    else:
-        value = SheetSchema.from_config(group_config.sheet_schema or {}).header_row
+    schema_header_row = SheetSchema.from_config(
+        group_config.sheet_schema or {}
+    ).header_row
+    value = workflow.get('header_row') or schema_header_row
     try:
         return max(int(value), 1)
     except (TypeError, ValueError):
-        return 1
+        return schema_header_row
 
 
 def _configured_formula_indexes(group_config, headers: list[str]) -> set[int]:

@@ -61,7 +61,7 @@ To avoid mixing data from different groups or spreadsheets:
 
 These links open the relevant Django table with filters for that configured group and spreadsheet. The standard filters on each table can further separate records by spreadsheet ID, worksheet tab, sync status, or date.
 
-The live sheet records page displays columns in the same order as the Google Sheet header row. Formula cells and system tracking identifiers such as complaint `message_id` and order `ORDER RECORD ID` are read-only. Successful complaint row edits and deletes refresh the Django complaint mirror from the sheet. Existing mirror and audit tables are read-only in Django admin so they cannot be changed without updating the live sheet.
+The live sheet records page uses the configured `workflow.header_row` for every workflow, then displays columns in the same order as that Google Sheet header row. It does not assume headers are on row 1. Formula cells and system tracking identifiers such as complaint `message_id` and order `ORDER RECORD ID` are read-only. Successful complaint row edits and deletes refresh the Django complaint mirror from the sheet. Existing mirror and audit tables are read-only in Django admin so they cannot be changed without updating the live sheet.
 
 For order approval workflows, the Google Sheet remains the complete current order table. Django stores the update audit records and media audit records rather than a full duplicate of every current sheet row.
 
