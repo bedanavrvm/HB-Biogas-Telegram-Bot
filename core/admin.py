@@ -5,6 +5,7 @@ from django.http import HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils.html import format_html
+from urllib.parse import urlencode
 
 from core.services.workflow_presets import (
     MANUAL_PRESET,
@@ -234,18 +235,20 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
     form = GroupSheetConfigurationAdminForm
     list_display = [
         'display_label', 'group_id', 'enabled', 'sheet_name',
-        'sheet_link', 'updated_at',
+        'sheet_link', 'data_records_link', 'media_records_link', 'updated_at',
     ]
     list_filter = ['enabled', 'sheet_name', 'updated_at']
     search_fields = ['group_id', 'display_name', 'sheet_id', 'sheet_name']
     readonly_fields = [
         'created_at', 'updated_at', 'sheet_link', 'sheet_analyzer_link',
+        'data_records_link', 'media_records_link',
     ]
     fieldsets = (
         ('Group Routing', {
             'fields': (
                 'enabled', 'group_id', 'display_name', 'sheet_id',
-                'sheet_name', 'sheet_link', 'sheet_analyzer_link',
+                'sheet_name', 'sheet_link', 'data_records_link',
+                'media_records_link', 'sheet_analyzer_link',
             ),
             'description': (
                 'Map one Telegram group to one Google Sheet tab. '
@@ -310,6 +313,49 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
             return 'Add a Google Sheet ID before analyzing.'
         url = reverse('admin:core_groupsheetconfiguration_analyze', args=[obj.pk])
         return format_html('<a class="button" href="{}">Analyze columns and dropdowns</a>', url)
+
+    @admin.display(description='Django data')
+    def data_records_link(self, obj):
+        if not obj or not obj.pk:
+            return 'Save this configuration before viewing records.'
+
+        workflow_type = str((obj.workflow or {}).get('type') or 'case')
+        if workflow_type == 'order_approval':
+            url = self._filtered_admin_url(
+                'admin:core_orderapprovalupdate_changelist',
+                group_id=obj.group_id,
+                sheet_id=obj.sheet_id,
+            )
+            label = 'View order update audit'
+        else:
+            url = self._filtered_admin_url(
+                'admin:core_parsedmessage_changelist',
+                group_id=obj.group_id,
+                sheet_id=obj.sheet_id,
+                sheet_name=obj.sheet_name,
+            )
+            label = 'View complaint cases'
+        return format_html('<a class="button" href="{}">{}</a>', url, label)
+
+    @admin.display(description='Media')
+    def media_records_link(self, obj):
+        if not obj or not obj.pk:
+            return 'Save this configuration before viewing media.'
+        url = self._filtered_admin_url(
+            'admin:core_mediaattachment_changelist',
+            group_id=obj.group_id,
+        )
+        return format_html('<a href="{}">View media audit</a>', url)
+
+    @staticmethod
+    def _filtered_admin_url(route_name: str, **filters) -> str:
+        query = {
+            f'{field}__exact': value
+            for field, value in filters.items()
+            if value not in (None, '')
+        }
+        url = reverse(route_name)
+        return f'{url}?{urlencode(query)}' if query else url
 
     def get_urls(self):
         urls = super().get_urls()

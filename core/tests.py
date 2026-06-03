@@ -1484,6 +1484,14 @@ class GroupConfigurationServiceTest(TestCase):
             display_name='Admin Render Test',
             sheet_id='sheet_777',
             sheet_name='Cases',
+            workflow={'type': 'case'},
+        )
+        GroupSheetConfiguration.objects.create(
+            group_id='-100778',
+            display_name='Order Admin Render Test',
+            sheet_id='sheet_778',
+            sheet_name='Orders',
+            workflow={'type': 'order_approval'},
         )
         self.client.force_login(user)
 
@@ -1491,6 +1499,12 @@ class GroupConfigurationServiceTest(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Admin Render Test')
+        self.assertContains(response, 'Order Admin Render Test')
+        self.assertContains(response, 'View complaint cases')
+        self.assertContains(response, 'View order update audit')
+        self.assertContains(response, 'View media audit', count=2)
+        self.assertContains(response, 'group_id__exact=-100777')
+        self.assertContains(response, 'sheet_id__exact=sheet_777')
 
     def test_group_configuration_admin_form_generates_order_approval_workflow(self):
         """Order approval preset should avoid hand-written workflow JSON."""

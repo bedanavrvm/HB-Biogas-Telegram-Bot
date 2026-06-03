@@ -201,25 +201,37 @@ In a group, tag the bot before the command:
 @hb_biogas_cases_bot /help
 ```
 
-Common commands:
+The number after a command is usually the maximum number of results to show.
 
-```text
-/last 5
-/case MSG_ID
-/update MSG_ID Status: resolved - details
-/search text
-/phone 0712345678
-/id ACC123
-/open 10
-/pending 10
-/closed 10
-/missing phone 10
-/lowconfidence 10
-/duplicates 30
-/summary today
-/group
-/health
-```
+| Command | Example usage | Purpose |
+| --- | --- | --- |
+| `/last` | `/last 5` | Show the latest cases from this group. |
+| `/recent` | `/recent 10` | Show the latest cases from this group. |
+| `/case` | `/case MSG_ABC123` | Show one case in detail using its bot Case ID. |
+| `/update` | `/update MSG_ABC123 Status: resolved - Customer confirmed gas is working.` | Update a case status and resolution note. |
+| `/search` | `/search gas leakage` | Search names, phone numbers, IDs, complaint text, and raw messages. |
+| `/today` | `/today` | Show cases reported today. |
+| `/week` | `/week` | Show cases reported this week. |
+| `/unsynced` | `/unsynced 10` | Show recent cases not synced to Google Sheets. |
+| `/phone` | `/phone 0712345678` | Find cases by phone number. `07...`, `254...`, and `+254...` formats are accepted. |
+| `/id` | `/id ACC123` | Find cases by customer or account ID. |
+| `/open` | `/open 10` | Show cases not marked closed. |
+| `/pending` | `/pending 10` | Show cases with no status set. |
+| `/closed` | `/closed 10` | Show closed cases. |
+| `/stale` | `/stale 7` | Show cases older than 7 days that are not closed. |
+| `/errors` | `/errors 10` | Show cases with Google Sheets sync errors. |
+| `/missing` | `/missing phone 10` | Show cases missing `phone`, `id`, or `name`. |
+| `/lowconfidence` | `/lowconfidence 10` | Show partial or incomplete historical cases. |
+| `/risk` | `/risk high 10` | Show cases by risk level. |
+| `/duplicates` | `/duplicates 30` | Show repeated phone numbers or customer IDs in the last 30 days. |
+| `/top regions` | `/top regions 7` | Show the most common regions or counties in the last 7 days. |
+| `/top issues` | `/top issues 7` | Show the most common complaint categories in the last 7 days. |
+| `/summary today` | `/summary today` | Show status and sync totals for today. |
+| `/summary week` | `/summary week` | Show status and sync totals for this week. |
+| `/sync` | `/sync` | Refresh Django records from the configured Google Sheet. |
+| `/group` | `/group` | Show this Telegram group's workflow and sheet routing. |
+| `/health` | `/health` | Show database, group configuration, and recent processing health. |
+| `/help` | `/help` | Show the commands available for this group. |
 
 Telegram may show command suggestions when you type `/` or the first letters of a command. The visible command list depends on the workflow configured for that group.
 

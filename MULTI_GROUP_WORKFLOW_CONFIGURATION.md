@@ -38,6 +38,27 @@ The preferred way to configure groups is through Django admin:
 
 Admin-managed configuration overrides `GROUP_MAPPING_JSON` for the same group ID. Environment variables remain useful for bootstrap and deployments where admin-managed config is not wanted.
 
+## Viewing Sheet-Specific Data In Django Admin
+
+The Django admin exposes the backend tables used by each workflow:
+
+- `Parsed messages` contains complaint/case records mirrored between Telegram, Django, and Google Sheets.
+- `Order approval updates` contains the audit history of order approval form and Telegram updates.
+- `Media attachments` contains the upload audit history and Drive links.
+- `Case updates` contains complaint status and resolution update history.
+
+To avoid mixing data from different groups or spreadsheets:
+
+1. Open Django admin.
+2. Go to `Core` -> `Group sheet configurations`.
+3. Find the Telegram group or sheet you want to inspect.
+4. Click `View complaint cases` for a case workflow, or `View order update audit` for an order approval workflow.
+5. Click `View media audit` to inspect uploads from that group.
+
+These links open the relevant Django table with filters for that configured group and spreadsheet. The standard filters on each table can further separate records by spreadsheet ID, worksheet tab, sync status, or date.
+
+For order approval workflows, the Google Sheet remains the complete current order table. Django stores the update audit records and media audit records rather than a full duplicate of every current sheet row.
+
 ## Order Approval Workflow
 
 Use a separate Telegram group for the live order approval Google Sheet. In that group's admin configuration, set `workflow` to:
