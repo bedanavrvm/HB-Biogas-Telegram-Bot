@@ -319,11 +319,19 @@ files are not selected again unnecessarily.
 
 ### Phone Memory And Image Previews
 
-Image thumbnails are off by default on memory-constrained deployments. The form
-still shows selected filenames and sizes.
+On phones, the form automatically uses phone-safe upload mode:
 
-Tap **Show thumbnails** only when a visual check is necessary. Large photos can
-consume much more phone memory when decoded than their saved file size.
+- It does not decode image thumbnails.
+- Each upload slot accepts up to two files per submission.
+- Additional files can be submitted later using the same customer ID.
+
+When opened inside Telegram, tap **Use phone browser** if the embedded form
+still reports low memory. It opens the same signed form in the phone's normal
+browser.
+
+Desktop browsers can retain multi-file selection and optional thumbnails.
+Large photos can consume much more memory when decoded than their saved file
+size.
 
 If the phone reports low memory:
 

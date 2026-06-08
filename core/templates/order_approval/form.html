@@ -392,6 +392,22 @@
       align-items: center;
     }
 
+    .browser-fallback {
+      display: none;
+      min-height: 40px;
+      border: 1px solid var(--line);
+      background: #ffffff;
+      color: #344054;
+      padding: 8px 12px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .browser-fallback[data-visible="true"] {
+      display: inline-flex;
+      align-items: center;
+    }
+
     @media (min-width: 720px) {
       main {
         padding: 24px;
@@ -424,6 +440,9 @@
         <h1>Order Approval</h1>
         <p class="hint">Submit BRO visit details and supporting files.</p>
       </div>
+      <button id="browser-fallback" class="browser-fallback" type="button">
+        Use phone browser
+      </button>
     </header>
 
     <form id="approval-form" enctype="multipart/form-data" novalidate>
@@ -559,7 +578,7 @@
         <label>
           ID photos
           <input name="id_photos" type="file" multiple accept="image/*">
-          <span class="fine-print">Upload one or more ID images. Maximum {{ max_file_size_mb }} MB per file.</span>
+          <span class="fine-print" data-upload-help="id_photos">Upload one or more ID images. Maximum {{ max_file_size_mb }} MB per file.</span>
           <span class="file-summary" data-file-summary="id_photos">No files selected.</span>
           <button class="preview-toggle" type="button" data-preview-toggle="id_photos">Show thumbnails</button>
           <span class="file-preview" data-file-preview="id_photos"></span>
@@ -567,7 +586,7 @@
         <label>
           LAF document
           <input name="laf_documents" type="file" multiple accept="image/*,.pdf,.doc,.docx">
-          <span class="fine-print">Upload one or more LAF pages or documents. Maximum {{ max_file_size_mb }} MB per file.</span>
+          <span class="fine-print" data-upload-help="laf_documents">Upload one or more LAF pages or documents. Maximum {{ max_file_size_mb }} MB per file.</span>
           <span class="file-summary" data-file-summary="laf_documents">No files selected.</span>
           <button class="preview-toggle" type="button" data-preview-toggle="laf_documents">Show thumbnails</button>
           <span class="file-preview" data-file-preview="laf_documents"></span>
@@ -575,7 +594,7 @@
         <label>
           Other files
           <input name="other_files" type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx">
-          <span class="fine-print">Upload any supporting files. Maximum {{ max_file_size_mb }} MB per file.</span>
+          <span class="fine-print" data-upload-help="other_files">Upload any supporting files. Maximum {{ max_file_size_mb }} MB per file.</span>
           <span class="file-summary" data-file-summary="other_files">No files selected.</span>
           <button class="preview-toggle" type="button" data-preview-toggle="other_files">Show thumbnails</button>
           <span class="file-preview" data-file-preview="other_files"></span>
@@ -593,6 +612,7 @@
     const form = document.getElementById('approval-form');
     const statusEl = document.getElementById('status');
     const recordMetaEl = document.getElementById('record-meta');
+    const browserFallbackButton = document.getElementById('browser-fallback');
     const submitButton = document.getElementById('submit-button');
     const lookupButton = document.getElementById('lookup-button');
     const initDataInput = document.getElementById('init-data');
@@ -635,6 +655,15 @@
     const maxTotalUploadBytes = maxTotalUploadMb * 1024 * 1024;
     const imagePreviewsEnabled = '{{ image_previews_enabled|yesno:"true,false" }}' === 'true';
     const imagePreviewLimit = Number('{{ image_preview_limit|default:3 }}');
+    const phoneSafeUploadMode = (
+      window.matchMedia('(pointer: coarse)').matches
+      || navigator.maxTouchPoints > 0
+      || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+    );
+    const phoneSafeMaxFilesPerSlot = 2;
+    const effectiveMaxFilesPerSlot = phoneSafeUploadMode
+      ? Math.min(maxFilesPerSlot, phoneSafeMaxFilesPerSlot)
+      : maxFilesPerSlot;
     const previewUrls = new Map();
     const thumbnailsVisible = new Map();
     let suggestionTimer = null;
@@ -644,6 +673,12 @@
       tg.ready();
       tg.expand();
       initDataInput.value = tg.initData || '';
+    }
+    if (tg && phoneSafeUploadMode && browserFallbackButton) {
+      browserFallbackButton.dataset.visible = 'true';
+      browserFallbackButton.addEventListener('click', () => {
+        tg.openLink(window.location.href);
+      });
     }
 
     function setStatus(state, text) {
@@ -702,14 +737,22 @@
       const files = Array.from(input.files || []);
       const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
       const imageCount = files.filter((file) => file.type && file.type.startsWith('image/')).length;
-      const showThumbnails = imagePreviewsEnabled || thumbnailsVisible.get(fieldName) === true;
+      const showThumbnails = !phoneSafeUploadMode && (
+        imagePreviewsEnabled || thumbnailsVisible.get(fieldName) === true
+      );
       summary.textContent = files.length
         ? `${files.length} file(s), ${formatBytes(totalBytes)} selected.`
         : 'No files selected.';
 
       if (toggle) {
-        toggle.dataset.visible = imageCount && !imagePreviewsEnabled ? 'true' : 'false';
+        toggle.dataset.visible = (
+          !phoneSafeUploadMode && imageCount && !imagePreviewsEnabled
+        ) ? 'true' : 'false';
         toggle.textContent = thumbnailsVisible.get(fieldName) ? 'Hide thumbnails' : 'Show thumbnails';
+      }
+
+      if (phoneSafeUploadMode) {
+        return;
       }
 
       let imageThumbnailsRendered = 0;
@@ -1003,8 +1046,12 @@
         input.setCustomValidity('');
         const files = Array.from(input.files || []);
         totalUploadBytes += files.reduce((sum, file) => sum + file.size, 0);
-        if (files.length > maxFilesPerSlot) {
-          validationError(input, `${labelText(input)} allows up to ${maxFilesPerSlot} files.`, errors);
+        if (files.length > effectiveMaxFilesPerSlot) {
+          validationError(
+            input,
+            `${labelText(input)} allows up to ${effectiveMaxFilesPerSlot} files on this device.`,
+            errors
+          );
         }
         for (const file of files) {
           if (file.size > maxFileSizeBytes) {
@@ -1113,10 +1160,28 @@
       if (input) {
         previewUrls.set(name, []);
         thumbnailsVisible.set(name, false);
+        if (phoneSafeUploadMode) {
+          const help = document.querySelector(`[data-upload-help="${name}"]`);
+          if (help) {
+            help.textContent = (
+              `Phone-safe upload: select up to ${effectiveMaxFilesPerSlot} files, then submit. `
+              + `Add more files by submitting the same customer ID again. `
+              + `Maximum ${maxFileSizeMb} MB per file.`
+            );
+          }
+        }
         input.addEventListener('change', () => {
           input.setCustomValidity('');
           thumbnailsVisible.set(name, false);
           renderFilePreview(name);
+          if (input.files.length > effectiveMaxFilesPerSlot) {
+            const message = (
+              `${labelText(input)} allows up to ${effectiveMaxFilesPerSlot} files on this device.`
+            );
+            input.setCustomValidity(message);
+            setStatus('error', message);
+            input.reportValidity();
+          }
         });
       }
       const toggle = document.querySelector(`[data-preview-toggle="${name}"]`);

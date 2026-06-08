@@ -930,6 +930,12 @@ class OrderApprovalMediaTest(TestCase):
             '2026-05-09 LAF Biogas ID-113650221 01.pdf',
             '2026-05-09 FILE Biogas ID-113650221 01.pdf',
         ])
+        self.assertTrue(
+            all(
+                hasattr(call.kwargs['data'], 'read')
+                for call in storage.upload.call_args_list
+            )
+        )
 
     @override_settings(MEDIA_MAX_FILE_SIZE_MB=20, MEDIA_STORAGE_PROVIDER='google_drive')
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
@@ -1174,6 +1180,11 @@ class OrderApprovalWebAppTest(TestCase):
         self.assertContains(response, 'Show thumbnails')
         self.assertContains(response, 'maxTotalUploadMb')
         self.assertContains(response, 'imagePreviewsEnabled')
+        self.assertContains(response, 'phoneSafeUploadMode')
+        self.assertContains(response, 'phoneSafeMaxFilesPerSlot = 2')
+        self.assertContains(response, 'id="browser-fallback"')
+        self.assertContains(response, 'select up to ${effectiveMaxFilesPerSlot} files')
+        self.assertNotContains(response, "input.removeAttribute('multiple')")
         self.assertContains(response, 'pattern="254[0-9]{9}"')
         self.assertContains(response, 'placeholder="254740614990"')
         self.assertNotContains(response, '${suggestion.sheet} row ${suggestion.row}')

@@ -166,6 +166,11 @@ ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB = config(
     default=30,
     cast=int,
 )
+FILE_UPLOAD_MAX_MEMORY_SIZE = config(
+    'FILE_UPLOAD_MAX_MEMORY_SIZE',
+    default=0,
+    cast=int,
+)
 ORDER_APPROVAL_IMAGE_PREVIEWS_ENABLED = config(
     'ORDER_APPROVAL_IMAGE_PREVIEWS_ENABLED',
     default=False,

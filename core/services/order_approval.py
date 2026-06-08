@@ -1705,33 +1705,32 @@ def store_uploaded_files_for_order(
             continue
 
         try:
-            data = file_obj.read()
-            if len(data) > max_bytes:
+            content_hash, actual_size = hash_uploaded_file(file_obj)
+            if actual_size > max_bytes:
                 attachment.upload_status = 'skipped'
                 attachment.upload_error = (
                     f"File is larger than {settings.MEDIA_MAX_FILE_SIZE_MB} MB"
                 )
-                attachment.size = len(data)
+                attachment.size = actual_size
                 attachment.save(update_fields=['upload_status', 'upload_error', 'size'])
                 skipped_count += 1
                 warnings.append(
                     f"Skipped {original_filename or f'file {index}'}: over {settings.MEDIA_MAX_FILE_SIZE_MB} MB."
                 )
                 continue
-            content_hash = hashlib.sha256(data).hexdigest()
             duplicate = find_existing_uploaded_media(
                 group_config=group_config,
                 business_key_value=business_key_value,
                 file_type=file_type,
                 original_filename=original_filename,
-                size=len(data),
+                size=actual_size,
                 content_hash=content_hash,
             )
             if duplicate:
                 attachment.upload_status = 'success'
                 attachment.drive_file_id = duplicate.drive_file_id
                 attachment.drive_url = duplicate.drive_url
-                attachment.size = len(data)
+                attachment.size = actual_size
                 attachment.content_hash = content_hash
                 attachment.upload_error = 'Reused existing Drive upload.'
                 attachment.save(update_fields=[
@@ -1752,7 +1751,7 @@ def store_uploaded_files_for_order(
                 file_type=attachment.file_type,
                 original_filename=original_filename,
                 mime_type=mime_type,
-                size=len(data),
+                size=actual_size,
             )
             storage_sequence = next_storage_sequence(
                 group_config=group_config,
@@ -1762,7 +1761,7 @@ def store_uploaded_files_for_order(
             )
             storage = GoogleDriveMediaStorage()
             drive_file_id, drive_url = storage.upload(
-                data=data,
+                data=file_obj,
                 filename=build_storage_filename(
                     item,
                     business_key_value,
@@ -1777,7 +1776,7 @@ def store_uploaded_files_for_order(
             attachment.upload_status = 'success'
             attachment.drive_file_id = drive_file_id
             attachment.drive_url = drive_url
-            attachment.size = len(data)
+            attachment.size = actual_size
             attachment.content_hash = content_hash
             attachment.save(update_fields=[
                 'upload_status', 'drive_file_id', 'drive_url', 'size',
@@ -1798,6 +1797,25 @@ def store_uploaded_files_for_order(
         skipped_count=skipped_count,
         warnings=warnings,
     )
+
+
+def hash_uploaded_file(file_obj) -> tuple[str, int]:
+    digest = hashlib.sha256()
+    total_size = 0
+    try:
+        file_obj.seek(0)
+    except (AttributeError, OSError):
+        pass
+    chunks = getattr(file_obj, 'chunks', None)
+    iterator = chunks() if callable(chunks) else iter(lambda: file_obj.read(64 * 1024), b'')
+    for chunk in iterator:
+        digest.update(chunk)
+        total_size += len(chunk)
+    try:
+        file_obj.seek(0)
+    except (AttributeError, OSError):
+        pass
+    return digest.hexdigest(), total_size
 
 
 def collect_order_approval_uploaded_files(files_map) -> list[UploadedFileItem]:
@@ -1920,7 +1938,7 @@ class GoogleDriveMediaStorage:
 
     def upload(
         self,
-        data: bytes,
+        data,
         filename: str,
         mime_type: str,
         id_number: str,
@@ -1930,8 +1948,13 @@ class GoogleDriveMediaStorage:
         from googleapiclient.http import MediaIoBaseUpload
 
         folder_id = self.ensure_folder_path(id_number, received_at, group_config)
+        stream = io.BytesIO(data) if isinstance(data, bytes) else data
+        try:
+            stream.seek(0)
+        except (AttributeError, OSError):
+            pass
         media = MediaIoBaseUpload(
-            io.BytesIO(data),
+            stream,
             mimetype=mime_type,
             resumable=False,
         )
