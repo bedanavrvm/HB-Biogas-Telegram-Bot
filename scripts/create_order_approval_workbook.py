@@ -28,6 +28,7 @@ HEADERS = [
     "CONTACTS / PRIMARY",
     "CONTACTS / SECONDARY",
     "COUNTY",
+    "SUB-COUNTY",
     "LOCATION AND NEAREST LANDMARK",
     "VISITED BY",
     "HB STAFF",
@@ -50,6 +51,7 @@ SAMPLE_ROW = [
     "254740614990",
     "",
     "MURANGA",
+    "KIHARU",
     "GITURI NEAR KAGANDA CENTRE",
     "JOHN & KIBINGE",
     "THOMAS",
@@ -63,10 +65,10 @@ SAMPLE_ROW = [
     "",
 ]
 
-OPTIONS_HEADERS = ["Branch", "County", "Visited By", "HB Staff"]
+OPTIONS_HEADERS = ["Branch", "County", "Sub-County", "Visited By", "HB Staff"]
 OPTIONS_SAMPLE_ROWS = [
-    ["MURANGA", "MURANGA", "JOHN", "THOMAS"],
-    ["EMBU", "EMBU", "KIBINGE", ""],
+    ["MURANGA", "MURANGA", "KIHARU", "JOHN", "THOMAS"],
+    ["EMBU", "EMBU", "", "KIBINGE", ""],
 ]
 
 STYLE_DEFAULT = 0
@@ -110,6 +112,7 @@ HEADER_GROUPS = {
     "CONTACTS / PRIMARY": "identity",
     "CONTACTS / SECONDARY": "identity",
     "COUNTY": "location",
+    "SUB-COUNTY": "location",
     "LOCATION AND NEAREST LANDMARK": "location",
     "VISITED BY": "staff",
     "HB STAFF": "staff",
@@ -132,6 +135,7 @@ COLUMN_WIDTHS = {
     "CONTACTS / PRIMARY": 18,
     "CONTACTS / SECONDARY": 18,
     "COUNTY": 18,
+    "SUB-COUNTY": 20,
     "LOCATION AND NEAREST LANDMARK": 36,
     "VISITED BY": 20,
     "HB STAFF": 20,
@@ -510,8 +514,9 @@ def data_validations_xml(headers: list[str], first_data_row: int, last_data_row:
     validations = []
     validations.extend(options_range_validation(headers, "BRANCH", 1, first_data_row, last_data_row))
     validations.extend(options_range_validation(headers, "COUNTY", 2, first_data_row, last_data_row))
-    validations.extend(options_range_validation(headers, "VISITED BY", 3, first_data_row, last_data_row))
-    validations.extend(options_range_validation(headers, "HB STAFF", 4, first_data_row, last_data_row))
+    validations.extend(options_range_validation(headers, "SUB-COUNTY", 3, first_data_row, last_data_row))
+    validations.extend(options_range_validation(headers, "VISITED BY", 4, first_data_row, last_data_row))
+    validations.extend(options_range_validation(headers, "HB STAFF", 5, first_data_row, last_data_row))
     validations.extend(dropdown_validation(headers, "IS CUSTOMER CREATED ON IMAB?", ["Yes", "No", "Pending"], first_data_row, last_data_row))
     validations.extend(dropdown_validation(headers, "CREDIT ANALYSIS", ["Approved", "Pending", "Rejected"], first_data_row, last_data_row))
     validations.extend(dropdown_validation(headers, "FINAL DECISION", ["Approved", "Rejected", "Deferred", "Under Review"], first_data_row, last_data_row))
@@ -521,7 +526,7 @@ def data_validations_xml(headers: list[str], first_data_row: int, last_data_row:
     validations.extend(decimal_validation(headers, "DEPOSIT / JBL", first_data_row, last_data_row))
     validations.extend(integer_validation(headers, "CUSTOMER NO", first_data_row, last_data_row))
     validations.extend(date_validation(headers, "DATE VISITED", first_data_row, last_data_row))
-    for header in ["CUSTOMER NAME", "BRANCH", "COUNTY", "VISITED BY", "HB STAFF"]:
+    for header in ["CUSTOMER NAME", "BRANCH", "COUNTY", "SUB-COUNTY", "VISITED BY", "HB STAFF"]:
         validations.extend(uppercase_validation(headers, header, first_data_row, last_data_row))
     if not validations:
         return ""

@@ -24,6 +24,7 @@ Before changing Render:
   - `CONTACTS / PRIMARY`
   - `CONTACTS / SECONDARY`
   - `COUNTY`
+  - `SUB-COUNTY`
   - `LOCATION AND NEAREST LANDMARK`
   - `VISITED BY`
   - `HB STAFF`
@@ -58,7 +59,7 @@ python scripts/create_order_approval_workbook.py -o order_approval_template.xlsx
 
 The generated template includes an `Orders` tab and a visible
 `Dropdown Options` tab. Staff can manually add dropdown choices for `BRANCH`,
-`COUNTY`, `VISITED BY`, and `HB STAFF` in that options tab. The template also
+`COUNTY`, `SUB-COUNTY`, `VISITED BY`, and `HB STAFF` in that options tab. The template also
 includes data type validation and final-decision row highlighting.
 
 For a template that includes one example row in `Orders`, run:
@@ -342,6 +343,7 @@ BRANCH: MURANGA
 PRIMARY PHONE: 0740614990
 SECONDARY PHONE:
 COUNTY: MURANGA
+SUB-COUNTY: KIHARU
 LANDMARK: GITURI NEAR KAGANDA CENTRE
 VISITED BY: JOHN & KIBINGE
 HB STAFF: THOMAS
@@ -360,7 +362,7 @@ Expected bot reply:
 OK. Order Approval updated.
 ID: 113650221
 Customer: PATRICK MWANGI MAINA
-Changed: E ID NUMBER confirmed; F CONTACTS / PRIMARY updated; S Media URLs appended
+Changed: E ID NUMBER confirmed; F CONTACTS / PRIMARY updated; T Media URLs appended
 Files stored: 0
 ```
 

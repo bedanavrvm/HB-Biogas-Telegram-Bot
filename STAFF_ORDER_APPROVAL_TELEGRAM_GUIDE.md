@@ -1,106 +1,132 @@
-# Staff Telegram Guide: Order Approval Workflow
+# Staff User Guide: Order Approval Workflow
 
-This guide is for staff using the Telegram order approval group.
+This guide is for staff using a Telegram group configured for the order
+approval workflow. The complaint/case workflow uses a different message format
+and different commands.
 
-Use the bot tag in group messages:
+The preferred method is the Telegram Web App form. Structured chat messages are
+available as a fallback.
+
+## Contents
+
+- [Quick Start](#quick-start)
+- [Create A New Order](#create-a-new-order)
+- [Find And Edit An Existing Order](#find-and-edit-an-existing-order)
+- [Required And Optional Fields](#required-and-optional-fields)
+- [Data Validation And Formatting](#data-validation-and-formatting)
+- [Uploading Media](#uploading-media)
+- [Drive Folder And File Naming](#drive-folder-and-file-naming)
+- [Success And Error Responses](#success-and-error-responses)
+- [Structured Chat Fallback](#structured-chat-fallback)
+- [Commands](#commands)
+- [Troubleshooting](#troubleshooting)
+- [Staff Safety Checklist](#staff-safety-checklist)
+
+## Quick Start
+
+In the order approval Telegram group, tag the bot and send:
 
 ```text
-@hb_biogas_cases_bot
+@<bot_username> /order
 ```
 
-The order approval group is separate from the complaint/case group. Its main task is to open the Telegram Web App form, save BRO visit details, update the order approval sheet, and upload supporting media to Google Drive.
-
-## Recommended Method: Use The Form
-
-In the order approval Telegram group, send:
+You can also use:
 
 ```text
-@hb_biogas_cases_bot /order
+@<bot_username> /form
 ```
 
-or:
+Tap **Open Order Approval Form** in the bot response.
+
+Use the actual bot username shown in your Telegram group. The deployment may
+use a different username from examples in older documents.
+
+## What The Form Supports
+
+The form can:
+
+- Create a new order row when the ID number does not exist.
+- Find an existing order by ID number.
+- Suggest possible IDs after the first three digits are entered.
+- Load and edit an existing row.
+- Clear existing values when a loaded field is intentionally left blank.
+- Validate data before sending it to Google Sheets.
+- Upload multiple ID photos, LAF documents, and other supporting files.
+- Reuse an existing Drive upload when the exact same file is uploaded again.
+- Show success or error details at the top of the form.
+- Send a structured success or failure response to the Telegram group.
+
+## Create A New Order
+
+1. Open the form with `/order` or `/form`.
+2. Enter the customer's full ID number.
+3. Wait briefly for ID suggestions.
+4. If no existing record is shown, complete the required details.
+5. Select any supporting files.
+6. Tap **Submit update**.
+7. Confirm that both the form and Telegram group report success.
+
+If the ID does not exist, the bot creates a row in the configured creation
+worksheet.
+
+When the sheet contains an `ORDER RECORD ID` column, the bot assigns the next
+sequential reference, for example:
 
 ```text
-@hb_biogas_cases_bot /form
+JBL-1
+JBL-2
+JBL-3
 ```
 
-The bot replies with an `Open Order Approval Form` button. Tap it to open the form.
+This reference is bot-managed. Staff should not type, change, or reuse it.
 
-## What The Form Does
-
-The form lets staff:
-
-- Create a new order row when the ID does not exist.
-- Load and edit an existing order row when the ID already exists.
-- Search possible ID matches while typing the first few digits.
-- Enter BRO visit details.
-- Upload ID photos, LAF documents, and other files.
-- Save media links to the `Media URLs` column.
-
-## Find An Existing Order
-
-In the form:
+## Find And Edit An Existing Order
 
 1. Start typing the customer's ID number.
-2. After at least 3 digits, possible matches appear.
-3. Tap a match to load the existing row.
-4. Edit the fields that need changes.
-5. Submit the form.
+2. After at least three digits, review the suggested matches.
+3. Tap the correct suggestion, or enter the full ID and tap **Load existing**.
+4. Confirm that the form says the existing row was loaded.
+5. Review all loaded values.
+6. Make the required changes.
+7. Submit the form.
 
-You can also type the full ID and tap `Load existing`.
+Do not edit a record until it has been loaded. Loading establishes the exact
+sheet row and a fingerprint of its current values.
 
-If no row is found, submitting the form creates a new row.
+### Blank Fields During Editing
 
-## Important Edit Behavior
+The form is a true row editor:
 
-When an existing row is loaded, blank fields in the form can clear existing sheet values. This is intentional for true editing.
+- For a newly created record, blank optional fields remain blank.
+- For a loaded existing record, a blank field clears the corresponding value
+  in Google Sheets.
 
-Before submitting an edit:
+Before submitting an edit, review the entire loaded form. Leave a field blank
+only when its existing sheet value should be removed.
 
-- Confirm the ID is correct.
-- Confirm the loaded customer row is the correct one.
-- Fill fields you want to update.
-- Leave a field blank only if it should be blank in the sheet.
+### Concurrent Or Stale Edits
 
-## Phone Number Format
-
-Use Kenyan `254` format:
-
-```text
-254740614990
-```
-
-The form also converts common formats when possible:
+If another person changes the row after you load it, the bot can reject your
+submission with:
 
 ```text
-0740614990
-+254740614990
-254740614990
+Reload this ID before saving. The row changed or the edit context no longer matches.
 ```
 
-Invalid examples:
+Load the ID again, review the latest values, reapply your changes, and submit.
+This prevents an older form from silently overwriting newer work.
 
-```text
-7406149900
-12345
-```
+## Required And Optional Fields
 
-If the number is invalid, the form shows an error before writing to the sheet.
+The only technically mandatory field is:
 
-## Required ID Field
+- `ID number`
 
-`ID number` is required.
+All other fields are optional at form validation level. Operational policy may
+still require staff to complete specific fields before an approval is treated
+as complete.
 
-The bot uses the ID number to:
-
-- Search existing rows.
-- Create or update the correct order row.
-- Put media in the correct Drive folder.
-- Keep audit records linked to the customer/order.
-
-## Form Fields
-
-Customer section:
+Customer fields:
 
 - `ID number`
 - `Date visited`
@@ -109,15 +135,16 @@ Customer section:
 - `Primary phone`
 - `Secondary phone`
 
-Visit section:
+Visit fields:
 
 - `County`
+- `Sub-county`
 - `Visited by`
 - `HB staff`
 - `IMAB created`
 - `Landmark`
 
-Approval section:
+Approval fields:
 
 - `HB deposit`
 - `JBL deposit`
@@ -126,17 +153,104 @@ Approval section:
 - `Final decision`
 - `Comment`
 
-Files section:
+File fields:
 
 - `ID photos`
 - `LAF document`
 - `Other files`
 
-## Dropdowns And Standard Values
+## Data Validation And Formatting
 
-Use the dropdowns where available.
+The browser validates the form before submission. The server validates it again
+before writing to Google Sheets.
 
-Current decision options:
+### ID Number
+
+The ID is the business key used to find, create, update, audit, and store media
+for an order. Verify it carefully before submitting.
+
+Duplicate rows with the same ID are rejected. Staff must resolve the duplicate
+rows in Google Sheets before trying again.
+
+### Date Visited
+
+Use the date picker. The bot writes the preferred sheet format:
+
+```text
+25-May-2026
+```
+
+### Phone Numbers
+
+Phone numbers are stored in Kenyan `254` format:
+
+```text
+254740614990
+```
+
+The form converts these common inputs when possible:
+
+```text
+0740614990
+740614990
++254740614990
+254740614990
+```
+
+A valid stored number must be `254` followed by nine digits. Invalid phone
+numbers are rejected before the sheet is updated.
+
+### Names And Locations
+
+The following values are trimmed, have repeated spaces removed, and are written
+in uppercase:
+
+- Customer name
+- Branch
+- County
+- Sub-county
+- Visited by
+- HB staff
+
+### Deposits
+
+`HB deposit` and `JBL deposit` must:
+
+- Be zero or greater.
+- Contain numbers only, with an optional decimal point.
+- Use no more than two decimal places.
+
+Valid examples:
+
+```text
+0
+5000
+5000.50
+```
+
+### Customer Number
+
+`Customer no` accepts digits only.
+
+### Dropdown Values
+
+`IMAB created`:
+
+```text
+Yes
+No
+Pending
+```
+
+`Credit analysis`:
+
+```text
+Approved
+Pending
+Rejected
+```
+
+`Final decision`:
 
 ```text
 Approved
@@ -145,43 +259,134 @@ Deferred
 Under Review
 ```
 
-Current credit analysis options:
+`Branch` is a form dropdown controlled by the deployment configuration. Use the
+standard branch shown in the list. Ask an administrator if the required branch
+is missing.
+
+At present, `County`, `Sub-county`, `Visited by`, and `HB staff` are text fields in the Web
+App even if Google Sheets has dropdown validation for those columns. Sheet
+dropdown options do not automatically populate the Web App.
+
+## Uploading Media
+
+The form provides three upload slots.
+
+### ID Photos
+
+Use for one or more ID images. The phone file picker is restricted to images.
+
+### LAF Document
+
+Use for one or more LAF pages or documents. The picker accepts:
+
+- Images
+- PDF
+- DOC
+- DOCX
+
+### Other Files
+
+Use for other supporting evidence. The picker accepts:
+
+- Images
+- PDF
+- DOC
+- DOCX
+- XLS
+- XLSX
+
+### Upload Limits
+
+The form displays the configured maximum size per file. Production defaults
+are normally:
+
+- Maximum per file: `20 MB`
+- Maximum files per slot: `10`
+- Maximum total for one submission: configured by the deployment, commonly
+  `30 MB` or `60 MB`
+
+The current deployment values are authoritative. Use `/health` to see the
+configured maximum file size and maximum total upload size.
+
+- Too many files in a slot reject the submission.
+- A total upload above the configured limit rejects the submission.
+- An individual oversized file is normally blocked by the form. If it reaches
+  the server, the bot can skip that file, save the remaining valid work, and
+  report a warning.
+
+Read the form and Telegram response before retrying so that successfully stored
+files are not selected again unnecessarily.
+
+### Phone Memory And Image Previews
+
+Image thumbnails are off by default on memory-constrained deployments. The form
+still shows selected filenames and sizes.
+
+Tap **Show thumbnails** only when a visual check is necessary. Large photos can
+consume much more phone memory when decoded than their saved file size.
+
+If the phone reports low memory:
+
+1. Close other apps or browser tabs.
+2. Do not open thumbnails.
+3. Select fewer files.
+4. Upload documents first.
+5. Reopen the same ID and upload photos in smaller batches.
+
+Uploading another batch to an existing ID updates the same order and uses the
+same Drive ID folder.
+
+## Drive Folder And File Naming
+
+All media for the same ID is stored in one ID folder:
 
 ```text
-Approved
-Pending
-Rejected
+<configured media root>/
+  <Telegram group name>/
+    2026/
+      May/
+        ID_113650221/
 ```
 
-Branch options are controlled by configuration. If a branch is missing, ask an admin to update the branch list.
+Names start with the date so files sort chronologically:
 
-## Uploading Files
+```text
+2026-05-09 KYC ID-113650221 01.jpg
+2026-05-09 LAF Biogas ID-113650221 01.pdf
+2026-05-09 FILE Biogas ID-113650221 01.pdf
+```
 
-The form has separate upload slots:
+The bot does not use `p1` or `p2`, because it cannot reliably determine whether
+several uploads are pages of one document or separate documents.
 
-- `ID photos`
-- `LAF document`
-- `Other files`
+See [ORDER_APPROVAL_MEDIA_NAMING.md](ORDER_APPROVAL_MEDIA_NAMING.md) for the
+full naming policy.
 
-You can select more than one file in each slot.
+### Duplicate Media
 
-The bot stores files in Google Drive under the configured group/order folder. Files for the same ID go into the same ID folder.
+If the same ID receives the exact same web file again, with matching file
+details and content hash, the bot reuses the existing Drive file and link.
 
-Avoid very large uploads from phones. If the phone shows a low-memory warning:
+A changed file, even with the same original filename, is treated as a new file
+and receives the next sequence number.
 
-- Upload fewer files at a time.
-- Avoid opening many image previews.
-- Upload documents first, then photos in smaller batches.
+## Success And Error Responses
 
-## Media Duplicates
+After every form submission:
 
-If the same file is uploaded again with the same content, the backend can reuse the existing Drive upload instead of creating another duplicate file.
+- The form shows a success or error message at the top of the screen.
+- The bot sends a response to the Telegram group.
 
-If the file content is different, it is treated as a new upload.
+A successful response identifies:
 
-## Bot Reply After Submit
+- Whether the order was created or updated.
+- The customer ID.
+- The customer name when available.
+- The number of files stored.
+- The actual sheet columns that were added, updated, cleared, or appended.
+- Any upload warnings.
 
-After a successful form submission, the bot replies in the Telegram group with a structured summary:
+Example:
 
 ```text
 OK. Order Approval updated.
@@ -189,20 +394,27 @@ OK. Order Approval updated.
 Order
 ID: 113650221
 Customer: PATRICK MWANGI MAINA
+Files stored: 2
 
-Saved
-Fields changed: ...
-Files stored: ...
+Fields
+- B CUSTOMER NAME: updated
+- E CONTACTS / PRIMARY: updated
+- T Media URLs: appended
 ```
 
-If there is an error, the bot replies with what staff should fix.
+An error response includes a **Fix** section. Correct every listed problem
+before resubmitting.
 
-## Structured Chat Format
+Do not assume a save succeeded merely because the form closed. Confirm the
+Telegram success response.
 
-The form is preferred. If staff must use chat text, use structured labels:
+## Structured Chat Fallback
+
+The form is recommended. When it cannot be used, send one tagged structured
+message:
 
 ```text
-@hb_biogas_cases_bot
+@<bot_username>
 ID: 113650221
 DATE VISITED: 25-May-2026
 CUSTOMER NAME: PATRICK MWANGI MAINA
@@ -210,73 +422,220 @@ BRANCH: MURANGA
 PRIMARY PHONE: 254740614990
 SECONDARY PHONE:
 COUNTY: MURANGA
+SUB-COUNTY: KIHARU
 LANDMARK: GITURI NEAR KAGANDA CENTRE
 VISITED BY: JOHN
 HB STAFF: THOMAS
 HB DEPOSIT: 5000
 JBL DEPOSIT: 0
-COMMENT: Approved
+COMMENT: APPROVED
 IMAB CREATED: YES
 CUSTOMER NO: 15118
-CREDIT ANALYSIS: Pending
-FINAL DECISION: Under Review
+CREDIT ANALYSIS: PENDING
+FINAL DECISION: UNDER REVIEW
 ```
 
-The chat format is stricter than the form. Use exact labels and include `ID`.
+Rules:
 
-## Follow-Up Media In Chat
+- Include an `ID:` line.
+- Use the supported labels exactly.
+- Phone numbers are normalized and validated.
+- Invalid decision values, amounts, dates, phone numbers, or customer numbers
+  reject the update.
+- Unknown labels are ignored and reported as warnings.
+- Fields omitted from a chat update are not cleared.
+- If no matching ID exists, the structured message creates a new row.
+- If more than one matching ID exists, no row is updated.
 
-If media was originally submitted through a Telegram message, follow-up attachments should be sent as replies to the original update message so the bot can link them to the same ID.
+This differs from the loaded Web App editor, where blank loaded fields can clear
+existing values.
 
-For normal staff use, the form upload slots are easier and safer.
+## Follow-Up Media In Telegram
 
-## Useful Commands
+When an order was submitted as a structured Telegram message, send follow-up
+photos or documents as a reply to that original update message. The bot uses
+the reply relationship to recover the ID and append the media links.
 
-In the order approval group:
+Do not send unlabelled media as a new unrelated group message. The bot may not
+know which order should receive it.
+
+For normal use, reopening the Web App and uploading against the same ID is
+clearer and provides separate file categories.
+
+## Commands
+
+Commands shown by Telegram are specific to the workflow configured for the
+group.
+
+### `/order`
 
 ```text
-@hb_biogas_cases_bot /order
-@hb_biogas_cases_bot /form
-@hb_biogas_cases_bot /group
-@hb_biogas_cases_bot /health
-@hb_biogas_cases_bot /help
+@<bot_username> /order
 ```
 
-Telegram may show command suggestions when staff type `/` or the first letters of a command. The visible command list depends on the workflow configured for that group.
+Opens the order approval form.
 
-## Common Mistakes
+### `/form`
 
-Do not use the complaint format in the order approval group.
+```text
+@<bot_username> /form
+```
 
-Do not submit without an ID number.
+Alias for `/order`.
 
-Do not upload all phone photos at once if the phone has low memory.
+### `/group`
 
-Do not manually edit the `Media URLs` column unless an admin asks you to.
+```text
+@<bot_username> /group
+```
 
-Do not change sheet headers. The bot depends on the configured headers.
+Shows whether the current Telegram group is enabled and how it is routed. Use
+it when the bot appears to be using the wrong workflow or sheet.
+
+### `/health`
+
+```text
+@<bot_username> /health
+```
+
+Shows operational diagnostics, including:
+
+- Database and group configuration status.
+- Enabled state and workflow type.
+- Whether a sheet is configured.
+- Order update and media counts.
+- Pending or failed updates and uploads.
+- Configured order tabs and header row.
+- Media provider and upload limits.
+- Whether image previews are enabled.
+- Whether required runtime settings are present.
+
+`/health` confirms configuration and audit status. It does not perform a full
+write test against Google Sheets or Google Drive.
+
+### `/help`
+
+```text
+@<bot_username> /help
+```
+
+Lists only the commands available for the current group's workflow.
 
 ## Troubleshooting
 
-If the form does not open, send:
+### The bot does not reply
+
+1. Confirm that the bot was tagged.
+2. Send `@<bot_username> /group`.
+3. Confirm the bot is still a group member.
+4. Ask an administrator to verify the current group ID and enabled state.
+
+If Telegram upgraded the group to a supergroup, its group ID may have changed
+to a value beginning with `-100`.
+
+### The form does not open
+
+- Send `/order` again instead of reusing an old button.
+- Confirm mobile data or Wi-Fi is working.
+- Run `/health` and check that the base URL and group are configured.
+- If the page says the form is unavailable, contact an administrator.
+
+### The form token expired or is invalid
+
+Close the old form and send:
 
 ```text
-@hb_biogas_cases_bot /order
+@<bot_username> /order
 ```
 
-If the bot does not reply, send:
+Use the new button. Do not reuse an old copied form URL.
 
-```text
-@hb_biogas_cases_bot /group
-```
+### No existing order is found
 
-If the form says no row was found but you expected one, check:
+Check:
 
-- The ID number is typed correctly.
-- The row exists in the configured order sheet.
-- The ID is in the `ID NUMBER` column.
-- The sheet tab is included in the configured search tabs.
+- The ID was typed correctly.
+- The ID is in the sheet's `ID NUMBER` column.
+- The row is in a worksheet configured for the order workflow.
+- The sheet's configured header row is correct.
 
-If upload fails, try fewer files and confirm each file is below the configured max file size.
+If the ID genuinely does not exist, submitting creates a new row.
 
-If the bot reports a duplicate ID, staff should resolve the duplicate rows in the sheet before submitting the update.
+### Duplicate order rows are found
+
+The bot does not choose between duplicates. Ask the sheet owner to merge or
+remove the duplicate ID rows, then load the ID again.
+
+Files selected during the failed duplicate attempt may already have been
+stored. Read the Telegram response before uploading them again.
+
+### Validation fails
+
+Read the complete message at the top of the form. It lists every detected
+problem. Typical causes are:
+
+- Missing ID.
+- Phone number not convertible to `254XXXXXXXXX`.
+- Negative or malformed deposit.
+- Customer number containing non-digits.
+- Unsupported decision value in structured chat.
+- Too many files.
+- One file exceeding the per-file limit.
+- Total upload exceeding the submission limit.
+
+### The row changed before saving
+
+Load the ID again and repeat the edit against the latest values.
+
+### Upload fails
+
+- Keep the form open and read any warning.
+- Reduce the file count or total size.
+- Retry with one slot at a time.
+- Avoid thumbnails on low-memory phones.
+- Run `/health` and report any failed or pending media count to an
+  administrator.
+
+### The sheet changed but a file failed
+
+The Telegram response lists stored file count and warnings separately. A field
+update can succeed while an individual file is skipped. Retry only the failed
+file against the same ID.
+
+### A branch is missing
+
+Do not type a non-standard substitute. Ask an administrator to update the
+configured branch choices and keep them aligned with the Google Sheet
+validation list.
+
+## Staff Safety Checklist
+
+Before submission:
+
+- Confirm the customer ID.
+- Confirm the correct existing match was loaded.
+- Review all loaded fields before clearing blanks.
+- Use the standardized branch.
+- Check phone numbers.
+- Check decision dropdowns.
+- Keep uploads within the displayed limits.
+
+After submission:
+
+- Read the form result.
+- Confirm the Telegram group response.
+- Review warnings and file count.
+- Correct and resubmit any listed error.
+
+## Administrator References
+
+Staff do not need these documents for daily data entry:
+
+- [ORDER_APPROVAL_RENDER_DEPLOYMENT.md](ORDER_APPROVAL_RENDER_DEPLOYMENT.md) -
+  Render, Telegram, Google Sheet, and group configuration.
+- [MULTI_GROUP_WORKFLOW_CONFIGURATION.md](MULTI_GROUP_WORKFLOW_CONFIGURATION.md)
+  - workflow presets and group routing.
+- [ORDER_APPROVAL_MEDIA_NAMING.md](ORDER_APPROVAL_MEDIA_NAMING.md) - Drive
+  directory and filename policy.
+- [ORDER_APPROVAL_APPS_SCRIPT.md](ORDER_APPROVAL_APPS_SCRIPT.md) - spreadsheet
+  Apps Script setup and alerts.

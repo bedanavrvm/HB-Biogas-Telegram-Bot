@@ -67,7 +67,7 @@ const CFG = {
   STAFF_HEADERS: ['Name', 'Email', 'Role', 'Branch', 'Notify On', 'Editable Columns', 'Active'],
   OPTION_HEADERS: ['Branch', 'County', 'Sub-County', 'Visited By', 'HB Staff'],
   /* Optional bootstrap/admin allowlist. Fill this if the menu does not appear before authorization. */
-  OWNER_EMAILS: [],
+  OWNER_EMAILS: ['bedanaurum@gmail.com', 'biogas-bot-sheets@biogas-telegram-bot.iam.gserviceaccount.com'],
   STAFF: {
     NAME:             1,
     EMAIL:            2,
@@ -111,9 +111,6 @@ function onOpen() {
     .addItem('Repair media links', 'repairMediaLinks')
     .addSeparator()
     .addItem('Refresh dashboard', 'buildDashboard')
-    .addSeparator()
-    .addItem('Send stale digest now', 'sendStaleDigestNow')
-    .addItem('Send decision alert for selected row', 'sendDecisionAlertForSelectedRow')
     .addSeparator()
     .addItem('Setup order sheet support', 'setupOrderSheetSupport')
     .addItem('Create/update Staff tab', 'ensureStaffSheet')
@@ -625,79 +622,7 @@ function protectBotCols() {
 }
 
 function dailyStaleScan() {
-  const sh = SpreadsheetApp.getActive().getSheetByName(CFG.TAB);
-  if (!sh) return;
-  const stale = collectStaleOrders_(sh);
-  if (stale.length > 0) sendStaleDigest(stale);
-}
-
-function sendStaleDigestNow() {
-  if (!requireOrderAdmin_()) return;
-  const sh = SpreadsheetApp.getActive().getSheetByName(CFG.TAB);
-  if (!sh) {
-    SpreadsheetApp.getUi().alert('Orders sheet not found: ' + CFG.TAB);
-    return;
-  }
-  const staffResult = validateStaffSheetSetup_(false);
-  if (!staffResult.exists || staffResult.activeRows === 0) {
-    SpreadsheetApp.getUi().alert(
-      'No active Staff recipients found.\n\n' +
-      'Open the Staff tab, add destination emails, set Notify On, and set Active=Yes.'
-    );
-    return;
-  }
-  const stale = collectStaleOrders_(sh);
-  if (stale.length === 0) {
-    SpreadsheetApp.getUi().alert('No stale rows found for the current threshold.');
-    return;
-  }
-  const result = sendStaleDigest(stale);
-  SpreadsheetApp.getUi().alert(
-    'Stale digest sent now.\n\n' +
-    'Rows included: ' + stale.length + '\n' +
-    'Emails sent to: ' + result.recipientCount
-  );
-}
-
-function sendDecisionAlertForSelectedRow() {
-  if (!requireOrderAdmin_()) return;
-  const ss = SpreadsheetApp.getActive();
-  const sh = ss.getActiveSheet();
-  if (!sh || sh.getName() !== CFG.TAB) {
-    SpreadsheetApp.getUi().alert('Select a row on the ' + CFG.TAB + ' sheet first.');
-    return;
-  }
-  const row = sh.getActiveRange().getRow();
-  if (row < CFG.DATA_ROW) {
-    SpreadsheetApp.getUi().alert('Select a data row, not the header.');
-    return;
-  }
-  const decision = String(sh.getRange(row, CFG.C.DECISION).getValue()).trim();
-  if (!['Approved', 'Rejected'].includes(decision)) {
-    SpreadsheetApp.getUi().alert(
-      'Selected row has no alertable FINAL DECISION.\n\n' +
-      'Only Approved and Rejected send decision alerts.'
-    );
-    return;
-  }
-  const staffResult = validateStaffSheetSetup_(false);
-  if (!staffResult.exists || staffResult.activeRows === 0) {
-    SpreadsheetApp.getUi().alert(
-      'No active Staff recipients found.\n\n' +
-      'Open the Staff tab, add destination emails, set Notify On, and set Active=Yes.'
-    );
-    return;
-  }
-  const result = notifyDecision(sh, row, decision);
-  SpreadsheetApp.getUi().alert(
-    'Decision alert sent.\n\n' +
-    'Row: ' + row + '\n' +
-    'Decision: ' + decision + '\n' +
-    'Emails sent to: ' + result.recipientCount
-  );
-}
-
-function collectStaleOrders_(sh) {
+  const sh   = SpreadsheetApp.getActive().getSheetByName(CFG.TAB);
   const last = sh.getLastRow();
   const now  = new Date();
   const stale = [];
@@ -713,7 +638,7 @@ function collectStaleOrders_(sh) {
     const days = Math.floor((now - dv) / 86400000);
     if (days >= CFG.STALE_DAYS) stale.push({ r, name, id, branch, visitedBy, days });
   }
-  return stale;
+  if (stale.length > 0) sendStaleDigest(stale);
 }
 
 /**
@@ -1202,7 +1127,7 @@ function notifyDecision(sh, row, decision) {
 
   if (to.length === 0) {
     Logger.log('No active Staff recipients for ' + event + ', branch=' + branch);
-    return { sent: false, recipientCount: 0 };
+    return;
   }
 
   const subject = mark + ' ' + name + ' - ' + branch;
@@ -1223,7 +1148,6 @@ function notifyDecision(sh, row, decision) {
   ].join('\n');
 
   MailApp.sendEmail({ to: to.join(','), subject, body });
-  return { sent: true, recipientCount: to.length };
 }
 
 /**
@@ -1232,7 +1156,6 @@ function notifyDecision(sh, row, decision) {
  */
 function sendStaleDigest(rows) {
   const url   = SpreadsheetApp.getActive().getUrl();
-  const allRecipients = [];
   const managerRecipients = uniqueEmails(getStaffEmails({
     event: 'stale_digest',
     roles: ['Manager', 'Back-office', 'All'],
@@ -1240,7 +1163,6 @@ function sendStaleDigest(rows) {
   }));
   if (managerRecipients.length > 0) {
     sendStaleDigestEmail(managerRecipients, rows, url);
-    allRecipients.push(...managerRecipients);
   }
 
   const byBranch = {};
@@ -1259,15 +1181,8 @@ function sendStaleDigest(rows) {
       names: branchRows.flatMap(row => staffNameTokens(row.visitedBy)),
     }));
     const recipients = branchRecipients.filter(email => !managerRecipients.includes(email));
-    if (recipients.length > 0) {
-      sendStaleDigestEmail(recipients, branchRows, url);
-      allRecipients.push(...recipients);
-    }
+    if (recipients.length > 0) sendStaleDigestEmail(recipients, branchRows, url);
   });
-  return {
-    sent: allRecipients.length > 0,
-    recipientCount: uniqueEmails(allRecipients).length,
-  };
 }
 
 
@@ -1288,7 +1203,7 @@ function buildDashboard() {
                               last - CFG.DATA_ROW + 1, orderLastColumn()).getValues();
 
   /* -- Aggregate -------------------------------------- */
-  const tot = { total:0, approved:0, rejected:0, deferred:0, pending:0 };
+  const tot = { total:0, approved:0, rejected:0, hold:0, pending:0 };
   const byBranch = {}, byMonth = {};
 
   data.forEach(row => {
@@ -1300,13 +1215,13 @@ function buildDashboard() {
     tot.total++;
     if      (dec === 'Approved') tot.approved++;
     else if (dec === 'Rejected') tot.rejected++;
-    else if (dec === 'Deferred') tot.deferred++;
+    else if (dec === 'Deferred') tot.hold++;
     else                          tot.pending++;
-    if (!byBranch[branch]) byBranch[branch] = {total:0,approved:0,rejected:0,deferred:0,pending:0};
+    if (!byBranch[branch]) byBranch[branch] = {total:0,approved:0,rejected:0,hold:0,pending:0};
     byBranch[branch].total++;
     if (dec === 'Approved') byBranch[branch].approved++;
     else if (dec === 'Rejected') byBranch[branch].rejected++;
-    else if (dec === 'Deferred') byBranch[branch].deferred++;
+    else if (dec === 'Deferred') byBranch[branch].hold++;
     else byBranch[branch].pending++;
     if (dv instanceof Date) {
       const mk = Utilities.formatDate(dv, Session.getScriptTimeZone(), 'MMM yyyy');
@@ -1328,7 +1243,7 @@ function buildDashboard() {
     ['Total',    tot.total,    '#1565C0'],
     ['Approved', tot.approved, '#2E7D32'],
     ['Rejected', tot.rejected, '#B71C1C'],
-    ['Deferred', tot.deferred, '#E65100'],
+    ['Deferred', tot.hold,     '#E65100'],
     ['Pending',  tot.pending,  '#37474F'],
   ];
   tiles.forEach(([lbl, val, bg], i) => {
@@ -1345,7 +1260,7 @@ function buildDashboard() {
   _hdrRow(dash, r, ['Branch','Total','Approved','Rejected','Deferred','Pending'], '#1A7744');
   Object.entries(byBranch).sort((a,b)=>b[1].total-a[1].total).forEach(([br,s],i) => {
     r++;
-    const vals = [br,s.total,s.approved,s.rejected,s.deferred,s.pending];
+    const vals = [br,s.total,s.approved,s.rejected,s.hold,s.pending];
     vals.forEach((v,ci) => {
       const c = dash.getRange(r,ci+1).setValue(v).setFontFamily('Arial').setFontSize(10)
         .setBackground(i%2===0?'#E8F5E9':'#FFFFFF').setVerticalAlignment('middle');

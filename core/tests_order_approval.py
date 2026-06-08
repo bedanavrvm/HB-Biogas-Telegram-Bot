@@ -67,6 +67,7 @@ BRANCH: MURANGA
 PRIMARY PHONE: 0740614990
 SECONDARY PHONE:
 COUNTY: MURANGA
+SUB-COUNTY: KIHARU
 LANDMARK: GITURI NEAR KAGANDA CENTRE
 VISITED BY: JOHN & KIBINGE
 HB STAFF: THOMAS
@@ -85,6 +86,8 @@ FINAL DECISION: Under Review
         self.assertEqual(parsed.fields['customer_name'], 'PATRICK MWANGI MAINA')
         self.assertEqual(parsed.fields['branch'], 'MURANGA')
         self.assertEqual(parsed.fields['primary_phone'], '254740614990')
+        self.assertEqual(parsed.fields['county'], 'MURANGA')
+        self.assertEqual(parsed.fields['sub_county'], 'KIHARU')
         self.assertEqual(parsed.fields['deposit_hb'], '5000')
         self.assertEqual(parsed.fields['deposit_jbl'], '0')
         self.assertEqual(parsed.fields['credit_analysis'], 'Pending')
@@ -489,10 +492,20 @@ class OrderApprovalSheetTest(TestCase):
                 'BRANCH',
                 'ID NUMBER',
                 'COUNTY',
+                'SUB-COUNTY',
                 'FINAL DECISION',
                 'Media URLs',
             ],
-            ['24/05/2026', 'PATRICK', 'MURANGA', '113650221', 'MURANGA', 'Under Review', ''],
+            [
+                '24/05/2026',
+                'PATRICK',
+                'MURANGA',
+                '113650221',
+                'MURANGA',
+                'KIHARU',
+                'Under Review',
+                '',
+            ],
         ])
 
         with patch('core.services.order_approval.get_sheets_service', return_value=service):
@@ -505,6 +518,7 @@ class OrderApprovalSheetTest(TestCase):
         self.assertEqual(result['fields']['date_visited'], '2026-05-24')
         self.assertEqual(result['fields']['branch'], 'MURANGA')
         self.assertEqual(result['fields']['county'], 'MURANGA')
+        self.assertEqual(result['fields']['sub_county'], 'KIHARU')
         self.assertEqual(result['fields']['final_decision'], 'Under Review')
         self.assertEqual(
             result['fingerprint'],
@@ -517,6 +531,7 @@ class OrderApprovalSheetTest(TestCase):
                 'id_number': '113650221',
                 'customer_name': '',
                 'branch': '',
+                'sub_county': '',
                 'comment': 'Keep this',
             },
             include_blank_fields=True,
@@ -525,6 +540,7 @@ class OrderApprovalSheetTest(TestCase):
         self.assertEqual(fields['id_number'], '113650221')
         self.assertEqual(fields['customer_name'], '')
         self.assertEqual(fields['branch'], '')
+        self.assertEqual(fields['sub_county'], '')
         self.assertEqual(fields['comment'], 'Keep this')
 
     def test_form_cleaning_normalizes_contacts_to_254_format(self):
@@ -1063,6 +1079,7 @@ class OrderApprovalWebAppTest(TestCase):
         self.assertContains(response, 'Order Approval')
         self.assertContains(response, 'name="id_number"')
         self.assertContains(response, 'name="branch"')
+        self.assertContains(response, 'name="sub_county"')
         self.assertContains(response, 'name="final_decision"')
         self.assertContains(response, 'id="lookup-button"')
         self.assertContains(response, 'id="id-suggestions"')
@@ -1110,6 +1127,7 @@ class OrderApprovalWebAppTest(TestCase):
                 'id_number': '113650221',
                 'customer_name': 'PATRICK',
                 'branch': 'MURANGA',
+                'sub_county': 'KIHARU',
                 'final_decision': 'Under Review',
                 'write_blank_fields': '1',
                 'edit_id_number': '113650221',
@@ -1124,6 +1142,7 @@ class OrderApprovalWebAppTest(TestCase):
         self.assertTrue(response.json()['success'])
         _, kwargs = mock_process.call_args
         self.assertEqual(kwargs['fields']['branch'], 'MURANGA')
+        self.assertEqual(kwargs['fields']['sub_county'], 'KIHARU')
         self.assertEqual(kwargs['fields']['final_decision'], 'Under Review')
         self.assertTrue(kwargs['include_blank_fields'])
         self.assertEqual(kwargs['edit_context']['sheet'], 'Orders')

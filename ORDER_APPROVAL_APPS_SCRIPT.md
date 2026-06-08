@@ -65,7 +65,7 @@ The script is aligned to the current generated template:
 
 ```text
 ORDER RECORD ID | DATE VISITED | CUSTOMER NAME | BRANCH | ID NUMBER |
-CONTACTS / PRIMARY | CONTACTS / SECONDARY | COUNTY |
+CONTACTS / PRIMARY | CONTACTS / SECONDARY | COUNTY | SUB-COUNTY |
 LOCATION AND NEAREST LANDMARK | VISITED BY | HB STAFF | DEPOSIT / HB |
 DEPOSIT / JBL | COMMENT | IS CUSTOMER CREATED ON IMAB? | CUSTOMER NO |
 CREDIT ANALYSIS | FINAL DECISION | Media URLs
@@ -227,7 +227,7 @@ Main edit hook for the `Orders` tab. It:
 - fills missing `DATE VISITED`
 - checks duplicate ID numbers
 - normalises phone numbers
-- uppercases customer name, branch, county, visited by, and HB staff
+- uppercases customer name, branch, county, sub-county, visited by, and HB staff
 - colours rows by final decision
 - sends decision notifications
 
@@ -276,7 +276,7 @@ Creates the `Dropdown Options` tab. Staff manually maintain options under:
 
 Applies:
 
-- dropdowns for `BRANCH`, `COUNTY`, `VISITED BY`, and `HB STAFF`
+- dropdowns for `BRANCH`, `COUNTY`, `SUB-COUNTY`, `VISITED BY`, and `HB STAFF`
 - strict dropdowns for IMAB, credit analysis, and final decision
 - `254XXXXXXXXX` phone validation
 - non-negative amount validation
@@ -455,7 +455,7 @@ number, then jumps to the first matching row.
 - Use exact branch names consistently between `Orders.BRANCH` and `Staff.Branch`.
 - Use staff names in `VISITED BY` that can match the `Staff.Name` column.
 - Use uppercase names in the sheet and form. The bot and Apps Script normalize
-  customer name, branch, county, visited by, and HB staff to uppercase.
+  customer name, branch, county, sub-county, visited by, and HB staff to uppercase.
 - Add the Render service account to Staff before applying strict staff
   permissions.
 - If emails are not sent, check the Apps Script execution logs first.

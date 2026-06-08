@@ -47,6 +47,17 @@ Main staff actions:
 - Use ID suggestions while typing.
 - Phone numbers are written as `254XXXXXXXXX`.
 - Upload ID photos, LAF documents, and other files.
+- Review form and Telegram success/error responses.
+- Use `/health` for workflow, upload-limit, and audit diagnostics.
+
+The order approval guide also documents:
+
+- True edit behavior, including clearing blank fields.
+- Stale-edit protection.
+- Form validation and standardized dropdown values.
+- Upload limits, low-memory handling, Drive naming, and duplicate media.
+- Structured chat fallback and follow-up media.
+- Command examples and troubleshooting.
 
 Core commands:
 

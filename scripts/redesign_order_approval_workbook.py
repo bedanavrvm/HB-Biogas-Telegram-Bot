@@ -38,6 +38,7 @@ HEADERS = [
     "CONTACTS / SECONDARY",
     "ID NUMBER",
     "COUNTY",
+    "SUB-COUNTY",
     "LOCATION AND NEAREST LANDMARK",
     "VISITED BY",
     "HB STAFF",
@@ -151,6 +152,7 @@ def extract_records(path: Path) -> list[dict[str, str]]:
                     "SOURCE ROW": str(row_number),
                     "SOURCE NOTE": "",
                     "SECTION": section,
+                    "SUB-COUNTY": "",
                     "Media URLs": "",
                 }
                 if has_extra_legacy_value_after_id(cells):

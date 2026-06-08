@@ -1184,6 +1184,8 @@ def _looks_like_order_approval_content(content: str) -> bool:
         'primary phone',
         'secondary phone',
         'county',
+        'sub-county',
+        'sub county',
         'landmark',
         'visited by',
         'hb staff',
