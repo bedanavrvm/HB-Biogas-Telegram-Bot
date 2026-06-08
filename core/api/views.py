@@ -290,29 +290,36 @@ def _send_order_approval_webapp_chat_reply(group_id: str, result: dict) -> None:
     status = result.get('status', 'failed')
     id_number = result.get('id_number', '')
     if result.get('success'):
+        created = status == 'created'
         lines = [
-            f"OK. {result.get('message') or 'Order approval saved.'}",
+            "ENTRY CREATED" if created else "ENTRY UPDATED",
             "",
-            "Order",
-            f"ID: {id_number}",
         ]
+        order_record_id = result.get('order_record_id', '')
+        if order_record_id:
+            lines.append(f"Order record ID: {order_record_id}")
+        lines.append(f"Customer ID: {id_number}")
         customer_name = result.get('customer_name', '')
         if customer_name:
             lines.append(f"Customer: {customer_name}")
         lines.append(f"Files stored: {result.get('files_stored', 0)}")
-        changes = result.get('field_changes') or []
-        if changes:
-            from core.services.order_approval import field_change_lines
+        from core.services.order_approval import (
+            field_change_lines,
+            visible_field_changes,
+        )
 
-            lines.extend(["", "Fields"])
+        changes = visible_field_changes(result.get('field_changes') or [])
+        lines.extend(["", "Fields saved" if created else "Updated fields"])
+        if changes:
             lines.extend(field_change_lines(changes))
+        else:
+            lines.append("- No field values changed")
     else:
         errors = result.get('errors') or [result.get('message') or 'Please check the form and try again.']
         lines = [
-            result.get('title') or "Form update failed.",
+            result.get('title') or "ENTRY NOT SAVED",
             "",
-            "Order",
-            f"ID: {id_number or 'not provided'}",
+            f"Customer ID: {id_number or 'not provided'}",
             "",
             "Fix",
         ]

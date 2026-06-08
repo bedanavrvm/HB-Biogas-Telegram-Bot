@@ -91,11 +91,11 @@ This reference is bot-managed. Staff should not type, change, or reuse it.
 7. Submit the form.
 
 Do not edit a record until it has been loaded. Loading establishes the exact
-sheet row and a fingerprint of its current values.
+entry and a fingerprint of its current values.
 
 ### Blank Fields During Editing
 
-The form is a true row editor:
+The form is a true entry editor:
 
 - For a newly created record, blank optional fields remain blank.
 - For a loaded existing record, a blank field clears the corresponding value
@@ -106,11 +106,11 @@ only when its existing sheet value should be removed.
 
 ### Concurrent Or Stale Edits
 
-If another person changes the row after you load it, the bot can reject your
+If another person changes the entry after you load it, the bot can reject your
 submission with:
 
 ```text
-Reload this ID before saving. The row changed or the edit context no longer matches.
+Reload this customer ID before saving. The entry changed after it was opened.
 ```
 
 Load the ID again, review the latest values, reapply your changes, and submit.
@@ -169,8 +169,8 @@ before writing to Google Sheets.
 The ID is the business key used to find, create, update, audit, and store media
 for an order. Verify it carefully before submitting.
 
-Duplicate rows with the same ID are rejected. Staff must resolve the duplicate
-rows in Google Sheets before trying again.
+Duplicate entries with the same ID are rejected. Contact an administrator to
+resolve them before trying again.
 
 ### Date Visited
 
@@ -379,28 +379,33 @@ After every form submission:
 
 A successful response identifies:
 
-- Whether the order was created or updated.
+- Whether the entry was created or updated.
+- The stable order record ID, such as `JBL-7`.
 - The customer ID.
 - The customer name when available.
 - The number of files stored.
-- The actual sheet columns that were added, updated, cleared, or appended.
+- Only fields that were actually added, updated, cleared, or appended.
 - Any upload warnings.
 
 Example:
 
 ```text
-OK. Order Approval updated.
+ENTRY UPDATED
 
-Order
-ID: 113650221
+Order record ID: JBL-7
+Customer ID: 113650221
 Customer: PATRICK MWANGI MAINA
 Files stored: 2
 
-Fields
-- B CUSTOMER NAME: updated
-- E CONTACTS / PRIMARY: updated
-- T Media URLs: appended
+Updated fields
+- CUSTOMER NAME: updated
+- CONTACTS / PRIMARY: updated
+- Media URLs: appended
 ```
+
+The response intentionally does not show worksheet names, row numbers, or
+column letters. Those are internal implementation details used only for audit
+and safe matching.
 
 An error response includes a **Fix** section. Correct every listed problem
 before resubmitting.
@@ -561,10 +566,10 @@ Check:
 
 If the ID genuinely does not exist, submitting creates a new row.
 
-### Duplicate order rows are found
+### Duplicate entries are found
 
-The bot does not choose between duplicates. Ask the sheet owner to merge or
-remove the duplicate ID rows, then load the ID again.
+The bot does not choose between duplicates. Ask an administrator to merge or
+remove the duplicate entries, then load the ID again.
 
 Files selected during the failed duplicate attempt may already have been
 stored. Read the Telegram response before uploading them again.
@@ -583,7 +588,7 @@ problem. Typical causes are:
 - One file exceeding the per-file limit.
 - Total upload exceeding the submission limit.
 
-### The row changed before saving
+### The entry changed before saving
 
 Load the ID again and repeat the edit against the latest values.
 

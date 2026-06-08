@@ -359,12 +359,20 @@ FINAL DECISION: Under Review
 Expected bot reply:
 
 ```text
-OK. Order Approval updated.
-ID: 113650221
+ENTRY UPDATED
+
+Order record ID: JBL-7
+Customer ID: 113650221
 Customer: PATRICK MWANGI MAINA
-Changed: E ID NUMBER confirmed; F CONTACTS / PRIMARY updated; T Media URLs appended
 Files stored: 0
+
+Updated fields
+- CONTACTS / PRIMARY: updated
+- Media URLs: appended
 ```
+
+The staff response does not expose worksheet names, row numbers, column letters,
+or unchanged fields.
 
 Then verify:
 

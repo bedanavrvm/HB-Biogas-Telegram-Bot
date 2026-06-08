@@ -15,6 +15,7 @@ from core.services.order_approval import (
     create_order_approval_form_token,
     create_order_approval_row,
     find_order_approval_matches,
+    format_order_success_reply,
     handle_order_approval_message,
     handle_order_webapp_command,
     lookup_order_approval_form_record,
@@ -28,6 +29,7 @@ from core.services.order_approval import (
     update_order_approval_row,
     validate_order_approval_uploaded_files,
     validate_telegram_webapp_init_data,
+    visible_field_changes,
 )
 
 
@@ -129,9 +131,9 @@ class OrderApprovalSheetTest(TestCase):
 
     def test_suggestions_find_id_prefix_across_tabs(self):
         pending = FakeService([
-            ['ID NUMBER', 'CUSTOMER NAME', 'BRANCH', 'Media URLs'],
-            ['113650221', 'PATRICK', 'MURANGA', ''],
-            ['113777888', 'JANE', 'EMBU', ''],
+            ['ORDER RECORD ID', 'ID NUMBER', 'CUSTOMER NAME', 'BRANCH', 'Media URLs'],
+            ['JBL-7', '113650221', 'PATRICK', 'MURANGA', ''],
+            ['JBL-8', '113777888', 'JANE', 'EMBU', ''],
         ])
         tab_178 = FakeService([
             ['CUSTOMER NAME', 'BRANCH', 'ID NUMBER', 'Media URLs'],
@@ -157,7 +159,9 @@ class OrderApprovalSheetTest(TestCase):
         self.assertEqual(result['suggestions'][0]['id_number'], '113650221')
         self.assertEqual(result['suggestions'][0]['customer_name'], 'PATRICK')
         self.assertEqual(result['suggestions'][0]['branch'], 'MURANGA')
-        self.assertEqual(result['suggestions'][0]['sheet'], 'Pending')
+        self.assertEqual(result['suggestions'][0]['order_record_id'], 'JBL-7')
+        self.assertNotIn('sheet', result['suggestions'][0])
+        self.assertNotIn('row', result['suggestions'][0])
 
     def test_suggestions_require_three_digits(self):
         result = suggest_order_approval_form_records(self._group_config(), '11')
@@ -360,6 +364,7 @@ class OrderApprovalSheetTest(TestCase):
         self.assertTrue(result['success'])
         row_values = service.batch_update_calls[0][0][0]['values'][0]
         self.assertEqual(row_values[0], 'JBL-1')
+        self.assertEqual(result['order_record_id'], 'JBL-1')
         self.assertEqual(row_values[1:], ['5655566', 'NEW CUSTOMER'])
         self.assertEqual(
             result['field_changes'][0],
@@ -421,6 +426,79 @@ class OrderApprovalSheetTest(TestCase):
             [change['header'] for change in result['field_changes']],
             ['COMMENT', 'ORDER RECORD ID'],
         )
+        self.assertEqual(result['order_record_id'], 'JBL-1')
+
+    def test_staff_response_shows_only_changed_fields_without_column_letters(self):
+        changes = [
+            {
+                'field': 'id_number',
+                'header': 'ID NUMBER',
+                'column': 'E',
+                'action': 'confirmed',
+            },
+            {
+                'field': 'customer_name',
+                'header': 'CUSTOMER NAME',
+                'column': 'C',
+                'action': 'updated',
+            },
+            {
+                'field': 'comment',
+                'header': 'COMMENT',
+                'column': 'O',
+                'action': 'cleared',
+            },
+            {
+                'field': 'order_record_id',
+                'header': 'ORDER RECORD ID',
+                'column': 'A',
+                'action': 'added',
+            },
+        ]
+
+        self.assertEqual(
+            [change['field'] for change in visible_field_changes(changes)],
+            ['customer_name', 'comment'],
+        )
+        reply = format_order_success_reply(
+            group_config=self._group_config(),
+            id_number='113650221',
+            order_record_id='JBL-7',
+            customer_name='PATRICK',
+            status='updated',
+            field_changes=changes,
+            files_stored=0,
+            warnings=[],
+        )
+
+        self.assertIn('ENTRY UPDATED', reply)
+        self.assertIn('Order record ID: JBL-7', reply)
+        self.assertIn('- CUSTOMER NAME: updated', reply)
+        self.assertIn('- COMMENT: cleared', reply)
+        self.assertNotIn('ID NUMBER: confirmed', reply)
+        self.assertNotIn('ORDER RECORD ID: added', reply)
+        self.assertNotIn('- C ', reply)
+        self.assertNotIn('row ', reply.lower())
+
+    def test_unchanged_blank_fields_are_not_reported_as_updates(self):
+        service = FakeService([])
+        match = SheetMatch(
+            sheet_name='Orders',
+            row_number=8,
+            headers=['ID NUMBER', 'COMMENT', 'Media URLs'],
+            row=['113650221', '', ''],
+            service=service,
+        )
+
+        result = update_order_approval_row(
+            match=match,
+            workflow={'media_field': 'media_urls'},
+            parsed_fields={'id_number': '113650221', 'comment': ''},
+            media_links=[],
+        )
+
+        self.assertTrue(result['success'])
+        self.assertEqual(visible_field_changes(result['field_changes']), [])
 
     def test_create_row_uses_configured_header_row(self):
         group_config = self._group_config()
@@ -520,6 +598,7 @@ class OrderApprovalSheetTest(TestCase):
         self.assertEqual(result['fields']['county'], 'MURANGA')
         self.assertEqual(result['fields']['sub_county'], 'KIHARU')
         self.assertEqual(result['fields']['final_decision'], 'Under Review')
+        self.assertEqual(result['order_record_id'], '')
         self.assertEqual(
             result['fingerprint'],
             order_approval_fields_fingerprint(result['fields']),
@@ -657,7 +736,7 @@ class OrderApprovalSheetTest(TestCase):
         )
 
         self.assertFalse(result['success'])
-        self.assertIn('Reload this ID', result['message'])
+        self.assertIn('Reload this customer ID', result['message'])
         self.assertEqual(service.update_calls, [])
 
     @patch('core.services.order_approval.store_uploaded_files_for_order')
@@ -701,7 +780,7 @@ class OrderApprovalSheetTest(TestCase):
         )
 
         self.assertFalse(result['success'])
-        self.assertIn('Reload this ID', result['message'])
+        self.assertIn('Reload this customer ID', result['message'])
         self.assertEqual(service.update_calls, [])
 
 
@@ -1097,6 +1176,8 @@ class OrderApprovalWebAppTest(TestCase):
         self.assertContains(response, 'imagePreviewsEnabled')
         self.assertContains(response, 'pattern="254[0-9]{9}"')
         self.assertContains(response, 'placeholder="254740614990"')
+        self.assertNotContains(response, '${suggestion.sheet} row ${suggestion.row}')
+        self.assertNotContains(response, 'Created ${payload.sheet}, row ${payload.row}')
 
     @override_settings(ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
     @patch('core.api.views._post_telegram_reply')
@@ -1114,9 +1195,18 @@ class OrderApprovalWebAppTest(TestCase):
         mock_process.return_value = {
             'success': True,
             'status': 'success',
-            'message': 'Order approval updated.',
-            'sheet': 'Pending',
-            'row': 2,
+            'message': 'Entry updated.',
+            'id_number': '113650221',
+            'order_record_id': 'JBL-7',
+            'customer_name': 'PATRICK',
+            'field_changes': [
+                {
+                    'field': 'customer_name',
+                    'header': 'CUSTOMER NAME',
+                    'column': 'C',
+                    'action': 'updated',
+                },
+            ],
             'files_stored': 0,
         }
 
@@ -1150,10 +1240,12 @@ class OrderApprovalWebAppTest(TestCase):
         self.assertEqual(kwargs['edit_context']['fingerprint'], 'abc123')
         mock_post_telegram_reply.assert_called_once()
         self.assertEqual(mock_post_telegram_reply.call_args.kwargs['chat_id'], '-100222')
-        self.assertIn(
-            'Order approval updated',
-            mock_post_telegram_reply.call_args.kwargs['text'],
-        )
+        telegram_text = mock_post_telegram_reply.call_args.kwargs['text']
+        self.assertIn('ENTRY UPDATED', telegram_text)
+        self.assertIn('Order record ID: JBL-7', telegram_text)
+        self.assertIn('- CUSTOMER NAME: updated', telegram_text)
+        self.assertNotIn('- C CUSTOMER NAME', telegram_text)
+        self.assertNotIn('row 2', telegram_text)
 
     @override_settings(TELEGRAM_BOT_TOKEN='token', API_REQUEST_TIMEOUT=5)
     @patch('core.api.views.requests.post')
@@ -1184,7 +1276,8 @@ class OrderApprovalWebAppTest(TestCase):
         mock_lookup.return_value = {
             'success': True,
             'status': 'found',
-            'message': 'Existing order row loaded.',
+            'message': 'Existing entry loaded.',
+            'order_record_id': 'JBL-7',
             'sheet': 'Orders',
             'row': 4,
             'fields': {
@@ -1207,6 +1300,7 @@ class OrderApprovalWebAppTest(TestCase):
         payload = response.json()
         self.assertTrue(payload['success'])
         self.assertEqual(payload['status'], 'found')
+        self.assertEqual(payload['order_record_id'], 'JBL-7')
         self.assertEqual(payload['fields']['branch'], 'MURANGA')
 
     @override_settings(ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
@@ -1227,10 +1321,9 @@ class OrderApprovalWebAppTest(TestCase):
             'suggestions': [
                 {
                     'id_number': '113650221',
+                    'order_record_id': 'JBL-7',
                     'customer_name': 'PATRICK',
                     'branch': 'MURANGA',
-                    'sheet': 'Pending',
-                    'row': 4,
                 }
             ],
         }
@@ -1248,6 +1341,9 @@ class OrderApprovalWebAppTest(TestCase):
         payload = response.json()
         self.assertTrue(payload['success'])
         self.assertEqual(payload['suggestions'][0]['id_number'], '113650221')
+        self.assertEqual(payload['suggestions'][0]['order_record_id'], 'JBL-7')
+        self.assertNotIn('sheet', payload['suggestions'][0])
+        self.assertNotIn('row', payload['suggestions'][0])
         mock_suggest.assert_called_once()
 
     @override_settings(ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)

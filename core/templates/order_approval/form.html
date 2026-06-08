@@ -796,9 +796,9 @@
 
     function suggestionLabel(suggestion) {
       const parts = [
+        suggestion.order_record_id || '',
         suggestion.customer_name || '',
-        suggestion.branch || '',
-        suggestion.sheet && suggestion.row ? `${suggestion.sheet} row ${suggestion.row}` : ''
+        suggestion.branch || ''
       ].filter(Boolean);
       return parts.join(' - ');
     }
@@ -1073,12 +1073,15 @@
           editSheetInput.value = payload.sheet || '';
           editRowInput.value = payload.row || '';
           editFingerprintInput.value = payload.fingerprint || '';
-          setRecordMeta(`Editing ${payload.sheet}, row ${payload.row}. Blank fields will clear existing values.`);
-          setStatus('success', payload.message || 'Existing order row loaded.');
+          const recordLabel = payload.order_record_id
+            ? `Editing ${payload.order_record_id}.`
+            : 'Editing existing entry.';
+          setRecordMeta(`${recordLabel} Blank fields will clear existing values.`);
+          setStatus('success', payload.message || 'Existing entry loaded.');
         } else {
           clearEditContext();
-          setRecordMeta('No existing row found. Submitting will create a new order row.');
-          setStatus('working', payload.message || 'No existing row found.');
+          setRecordMeta('No existing entry found. Submitting will create a new entry.');
+          setStatus('working', payload.message || 'No existing entry found.');
         }
       } catch (error) {
         writeBlankFieldsInput.value = '0';
@@ -1168,18 +1171,27 @@
         }
 
         const changed = (payload.field_changes || [])
-          .slice(0, 6)
-          .map((change) => `- ${change.column || '?'} ${change.header || change.field}: ${change.action || 'updated'}`)
+          .filter((change) => change.action !== 'confirmed' && change.field !== 'order_record_id')
+          .map((change) => `- ${change.header || change.field}: ${change.action || 'updated'}`)
           .join('\n');
+        const created = payload.status === 'created';
         const detail = [
-          payload.message,
-          `ID: ${payload.id_number || idNumberInput.value.trim()}`,
+          created ? 'ENTRY CREATED' : 'ENTRY UPDATED',
+          payload.order_record_id ? `Order record ID: ${payload.order_record_id}` : '',
+          `Customer ID: ${payload.id_number || idNumberInput.value.trim()}`,
+          payload.customer_name ? `Customer: ${payload.customer_name}` : '',
           `Files stored: ${payload.files_stored || 0}`,
-          changed ? `Fields:\n${changed}` : ''
+          changed
+            ? `${created ? 'Fields saved' : 'Updated fields'}:\n${changed}`
+            : 'No field values changed.'
         ].filter(Boolean).join('\n');
         setStatus('success', detail);
         writeBlankFieldsInput.value = payload.status === 'created' ? '0' : writeBlankFieldsInput.value;
-        setRecordMeta(`${payload.status === 'created' ? 'Created' : 'Saved'} ${payload.sheet}, row ${payload.row}.`);
+        setRecordMeta(
+          payload.order_record_id
+            ? `${created ? 'Created' : 'Updated'} ${payload.order_record_id}.`
+            : `${created ? 'Entry created' : 'Entry updated'}.`
+        );
         if (tg) {
           tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('success');
           setTimeout(() => tg.close(), 1200);

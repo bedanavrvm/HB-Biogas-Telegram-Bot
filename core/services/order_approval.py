@@ -309,9 +309,11 @@ def handle_order_approval_message(
             update_record.save(update_fields=['update_status', 'sync_error'])
             return _order_reply(
                 format_order_failure_reply(
-                    title=f"{workflow_label(group_config)} could not be created.",
+                    title='ENTRY NOT SAVED',
                     id_number=parsed.id_number,
-                    errors=create_result.get('errors') or [create_result['error']],
+                    errors=staff_facing_order_errors(
+                        create_result.get('errors') or [create_result['error']]
+                    ),
                 ),
                 warnings=uploaded.warnings,
                 status='failed',
@@ -327,6 +329,7 @@ def handle_order_approval_message(
             format_order_success_reply(
                 group_config=group_config,
                 id_number=parsed.id_number,
+                order_record_id=create_result.get('order_record_id', ''),
                 customer_name=parsed.fields.get('customer_name', ''),
                 status='created',
                 field_changes=create_result.get('field_changes', []),
@@ -354,11 +357,11 @@ def handle_order_approval_message(
         update_record.save(update_fields=['update_status', 'sync_error'])
         return _order_reply(
             format_order_failure_reply(
-                title='Duplicate order rows found.',
+                title='Duplicate entries found.',
                 id_number=parsed.id_number,
                 errors=[
-                    f"Matches: {locations}.",
-                    "Please resolve the duplicate in the sheet before updating.",
+                    "More than one entry uses this customer ID.",
+                    "Contact an administrator to remove the duplicate before updating.",
                     f"Files stored: {uploaded.stored_count}.",
                 ],
             ),
@@ -393,9 +396,11 @@ def handle_order_approval_message(
         update_record.save(update_fields=['update_status', 'sync_error'])
         return _order_reply(
             format_order_failure_reply(
-                title=f"{workflow_label(group_config)} update was not saved.",
+                title='ENTRY NOT SAVED',
                 id_number=parsed.id_number,
-                errors=sheet_result.get('errors') or [sheet_result['error']],
+                errors=staff_facing_order_errors(
+                    sheet_result.get('errors') or [sheet_result['error']]
+                ),
             ),
             warnings=uploaded.warnings,
             status='failed',
@@ -410,6 +415,7 @@ def handle_order_approval_message(
         format_order_success_reply(
             group_config=group_config,
             id_number=parsed.id_number,
+            order_record_id=sheet_result.get('order_record_id', ''),
             customer_name=customer_name,
             status='updated',
             field_changes=sheet_result.get('field_changes', []),
@@ -496,14 +502,21 @@ def handle_order_approval_media_reply(
 
     followup_update.update_status = 'success'
     followup_update.save(update_fields=['update_status'])
-    field_lines = "\n".join(field_change_lines(sheet_result.get('field_changes', [])))
+    order_record_id = sheet_result.get('order_record_id', '')
     return _order_reply(
-        (
-            f"OK. Files linked for ID {original_update.id_number}.\n"
-            f"\nFields\n{field_lines}\n"
-            f"Files stored: {uploaded.stored_count}"
+        format_order_success_reply(
+            group_config=group_config,
+            id_number=original_update.id_number,
+            order_record_id=order_record_id,
+            customer_name=value_for_header(
+                matches[0],
+                header_for_field(group_config.workflow or {}, 'customer_name'),
+            ),
+            status='updated',
+            field_changes=sheet_result.get('field_changes', []),
+            files_stored=uploaded.stored_count,
+            warnings=uploaded.warnings,
         ),
-        warnings=uploaded.warnings,
         status='success',
     )
 
@@ -618,8 +631,10 @@ def process_order_approval_form_submission(
             return {
                 'success': False,
                 'status': 'failed',
-                'message': create_result['error'],
-                'errors': create_result.get('errors') or [create_result['error']],
+                'message': staff_facing_order_error(create_result['error']),
+                'errors': staff_facing_order_errors(
+                    create_result.get('errors') or [create_result['error']]
+                ),
                 'files_stored': uploaded.stored_count,
                 'warnings': uploaded.warnings,
             }
@@ -633,8 +648,9 @@ def process_order_approval_form_submission(
         return {
             'success': True,
             'status': 'created',
-            'message': f'{workflow_label(group_config)} created.',
+            'message': 'Entry created.',
             'id_number': id_number,
+            'order_record_id': create_result.get('order_record_id', ''),
             'customer_name': parsed_fields.get('customer_name', ''),
             'sheet': create_result['sheet_name'],
             'row': create_result['row_number'],
@@ -665,8 +681,10 @@ def process_order_approval_form_submission(
         return {
             'success': False,
             'status': 'duplicate',
-            'message': 'Duplicate rows found for this ID. Resolve them in the sheet first.',
-            'matches': locations,
+            'message': (
+                'More than one entry uses this customer ID. '
+                'Contact an administrator to remove the duplicate before updating.'
+            ),
             'files_stored': uploaded.stored_count,
             'warnings': uploaded.warnings,
         }
@@ -684,7 +702,10 @@ def process_order_approval_form_submission(
         return {
             'success': False,
             'status': 'failed',
-            'message': 'Reload this ID before saving. The row changed or the edit context no longer matches.',
+            'message': (
+                'Reload this customer ID before saving. '
+                'The entry changed after it was opened.'
+            ),
             'files_stored': 0,
             'warnings': [],
         }
@@ -714,8 +735,10 @@ def process_order_approval_form_submission(
         return {
             'success': False,
             'status': 'failed',
-            'message': sheet_result['error'],
-            'errors': sheet_result.get('errors') or [sheet_result['error']],
+            'message': staff_facing_order_error(sheet_result['error']),
+            'errors': staff_facing_order_errors(
+                sheet_result.get('errors') or [sheet_result['error']]
+            ),
             'files_stored': uploaded.stored_count,
             'warnings': uploaded.warnings,
         }
@@ -728,8 +751,9 @@ def process_order_approval_form_submission(
     return {
         'success': True,
         'status': 'success',
-        'message': f'{workflow_label(group_config)} updated.',
+        'message': 'Entry updated.',
         'id_number': id_number,
+        'order_record_id': sheet_result.get('order_record_id', ''),
         'customer_name': customer_name,
         'sheet': match.sheet_name,
         'row': match.row_number,
@@ -754,7 +778,7 @@ def lookup_order_approval_form_record(group_config, id_number: str) -> dict:
         return {
             'success': True,
             'status': 'not_found',
-            'message': 'No existing order row found. Submitting will create a new row.',
+            'message': 'No existing entry found. Submitting will create a new entry.',
             'id_number': id_number,
             'fields': {'id_number': id_number},
         }
@@ -763,12 +787,11 @@ def lookup_order_approval_form_record(group_config, id_number: str) -> dict:
         return {
             'success': False,
             'status': 'duplicate',
-            'message': 'Duplicate rows found for this ID. Resolve them in the sheet first.',
+            'message': (
+                'More than one entry uses this customer ID. '
+                'Contact an administrator to remove the duplicate before updating.'
+            ),
             'id_number': id_number,
-            'matches': [
-                {'sheet': match.sheet_name, 'row': match.row_number}
-                for match in matches[:10]
-            ],
         }
 
     match = matches[0]
@@ -779,8 +802,12 @@ def lookup_order_approval_form_record(group_config, id_number: str) -> dict:
     return {
         'success': True,
         'status': 'found',
-        'message': 'Existing order row loaded.',
+        'message': 'Existing entry loaded.',
         'id_number': id_number,
+        'order_record_id': order_record_id_for_match(
+            match,
+            group_config.workflow or {},
+        ),
         'sheet': match.sheet_name,
         'row': match.row_number,
         'fields': fields,
@@ -842,6 +869,10 @@ def suggest_order_approval_form_records(
             header_for_field(workflow, 'customer_name'),
         )
         branch_index = header_index(headers, header_for_field(workflow, 'branch'))
+        record_id_index = header_index(
+            headers,
+            header_for_field(workflow, DEFAULT_RECORD_ID_FIELD),
+        )
         header_row = configured_header_row(workflow)
         for row_number, row in enumerate(
             values[header_row:],
@@ -866,13 +897,17 @@ def suggest_order_approval_form_records(
                 if branch_index is not None and branch_index < len(row)
                 else ''
             )
+            order_record_id = (
+                row[record_id_index]
+                if record_id_index is not None and record_id_index < len(row)
+                else ''
+            )
             suggestions.append(
                 {
                     'id_number': id_number,
+                    'order_record_id': str(order_record_id or '').strip(),
                     'customer_name': str(customer_name or '').strip(),
                     'branch': str(branch or '').strip(),
-                    'sheet': sheet_name,
-                    'row': row_number,
                 }
             )
             if len(suggestions) >= result_limit:
@@ -1265,9 +1300,14 @@ def update_order_approval_row(
         logger.error("Failed to update order approval row: %s", exc, exc_info=True)
         return {'success': False, 'error': str(exc), 'fields_updated': []}
 
+    order_record_id = (
+        str(fields_to_write.get(DEFAULT_RECORD_ID_FIELD) or '').strip()
+        or order_record_id_for_match(match, workflow)
+    )
     return {
         'success': True,
         'error': '',
+        'order_record_id': order_record_id,
         'fields_updated': [field for _, _, field in columns],
         'field_changes': [
             field_change_detail(match, workflow, field, column_index, value)
@@ -2037,26 +2077,34 @@ def download_telegram_file(file_id: str) -> bytes:
 def format_order_success_reply(
     group_config,
     id_number: str,
+    order_record_id: str,
     customer_name: str,
     status: str,
     field_changes: list[dict],
     files_stored: int,
     warnings: list[str],
 ) -> str:
-    label = workflow_label(group_config)
-    verb = 'created' if status == 'created' else 'updated'
+    del group_config
+    created = status == 'created'
+    visible_changes = visible_field_changes(field_changes)
     lines = [
-        f"OK. {label} {verb}.",
+        "ENTRY CREATED" if created else "ENTRY UPDATED",
         "",
-        "Order",
-        f"ID: {id_number}",
     ]
+    if order_record_id:
+        lines.append(f"Order record ID: {order_record_id}")
+    lines.append(f"Customer ID: {id_number}")
     if customer_name:
         lines.append(f"Customer: {customer_name}")
-    lines.append(f"Files stored: {files_stored}")
-    lines.append("")
-    lines.append("Fields")
-    lines.extend(field_change_lines(field_changes))
+    lines.extend([
+        f"Files stored: {files_stored}",
+        "",
+        "Fields saved" if created else "Updated fields",
+    ])
+    if visible_changes:
+        lines.extend(field_change_lines(visible_changes))
+    else:
+        lines.append("- No field values changed")
     if warnings:
         lines.append("")
         lines.append("Warnings")
@@ -2071,11 +2119,36 @@ def format_order_failure_reply(
 ) -> str:
     lines = [title]
     if id_number:
-        lines.extend(['', 'Order', f"ID: {id_number}"])
+        lines.extend(['', f"Customer ID: {id_number}"])
     if errors:
         lines.extend(['', 'Fix'])
         lines.extend(f"- {error}" for error in errors if str(error).strip())
     return "\n".join(lines)
+
+
+def staff_facing_order_errors(errors: list[str]) -> list[str]:
+    mapped = [staff_facing_order_error(error) for error in errors]
+    return list(dict.fromkeys(error for error in mapped if error))
+
+
+def staff_facing_order_error(error: str) -> str:
+    text = str(error or '').strip()
+    normalized = text.lower()
+    infrastructure_markers = (
+        'google sheets unavailable',
+        'required column',
+        'missing required column',
+        'has no header row',
+        'batch update is unavailable',
+        'permission_denied',
+        'does not have permission',
+    )
+    if any(marker in normalized for marker in infrastructure_markers):
+        return (
+            'The order register is unavailable or misconfigured. '
+            'Contact an administrator and provide the customer ID.'
+        )
+    return text or 'The entry could not be saved. Please try again.'
 
 
 def workflow_label(group_config) -> str:
@@ -2093,16 +2166,22 @@ def field_change_summary(field_changes: list[dict]) -> str:
 
 def field_change_lines(field_changes: list[dict]) -> list[str]:
     if not field_changes:
-        return ['- No sheet fields changed']
+        return ['- No field values changed']
     lines = []
-    for change in field_changes[:8]:
-        column = change.get('column') or '?'
+    for change in field_changes:
         header = change.get('header') or change.get('field') or 'field'
         action = change.get('action') or 'updated'
-        lines.append(f"- {column} {header}: {action}")
-    if len(field_changes) > 8:
-        lines.append(f"- +{len(field_changes) - 8} more")
+        lines.append(f"- {header}: {action}")
     return lines
+
+
+def visible_field_changes(field_changes: list[dict]) -> list[dict]:
+    return [
+        change
+        for change in (field_changes or [])
+        if change.get('action') != 'confirmed'
+        and change.get('field') != DEFAULT_RECORD_ID_FIELD
+    ]
 
 
 def header_for_field(workflow: dict, field: str) -> str:
@@ -2136,6 +2215,13 @@ def ensure_order_record_id(
     fields_to_write.setdefault(
         DEFAULT_RECORD_ID_FIELD,
         next_order_record_id_for_match(match, workflow),
+    )
+
+
+def order_record_id_for_match(match: SheetMatch, workflow: dict) -> str:
+    return value_for_header(
+        match,
+        header_for_field(workflow, DEFAULT_RECORD_ID_FIELD),
     )
 
 
@@ -2200,10 +2286,14 @@ def field_change_detail(
     if zero_index < len(match.row):
         existing = str(match.row[zero_index] or '').strip()
     new_value = str(value or '').strip()
-    if field == DEFAULT_MEDIA_FIELD and existing and new_value != existing:
+    if new_value == existing:
+        action = 'confirmed'
+    elif field == DEFAULT_MEDIA_FIELD and existing:
         action = 'appended'
+    elif existing and not new_value:
+        action = 'cleared'
     elif existing:
-        action = 'updated' if new_value != existing else 'confirmed'
+        action = 'updated'
     else:
         action = 'added'
     return {
