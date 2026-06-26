@@ -644,6 +644,105 @@ Case deferred, client has seasonal income."""
 
         self.assertEqual(extracted, export_text)
 
+    def test_whatsapp_export_parses_mm_dd_yy_and_ampm_timestamps(self):
+        from core.services.parser import analyze_whatsapp_export
+
+        export = "4/13/26, 11:49 AM - Dickson JBL: IMG-20260413-WA0042.jpg (file attached)\n0711651414"
+
+        analysis = analyze_whatsapp_export(export)
+
+        self.assertEqual(len(analysis['entries']), 1)
+        received_at = timezone.localtime(analysis['entries'][0]['received_at'])
+        self.assertEqual(received_at.strftime('%d-%b-%Y %H:%M'), '13-Apr-2026 11:49')
+
+    def test_jawabu_parser_uses_location_date_and_avoids_image_date_as_id(self):
+        from core.services.jawabu import extract_jawabu_fields
+
+        content = """IMG-20260410-WA0052.jpg (file attached)
+Latitude: S 0?36'8.10036"
+Longitude: E 36?57'50.45004"
+https://www.google.com/maps/search/?api=1&query=-0.6022501,36.9640139
+
+Altitude: -
+Location read date: 10/04/2026 14:20
+Location source: Fused
+
+Street: -Kaganjo
+City: -Kiriani
+State: -Kaganjo
+County: - Muranga
+Beatrice Nyachui Wachira
+0727769644
+Id. 8840023"""
+        received_at = timezone.make_aware(
+            datetime(2026, 10, 4, 14, 29),
+            timezone.get_current_timezone(),
+        )
+
+        fields = extract_jawabu_fields(content, 'John Muiruri JBL Biogas', received_at)
+
+        self.assertEqual(fields['visit_date'], '10-Apr-2026')
+        self.assertEqual(fields['whatsapp_message_at'], '04-Oct-2026 14:29')
+        self.assertEqual(fields['customer_name'], 'BEATRICE NYACHUI WACHIRA')
+        self.assertEqual(fields['national_id'], '8840023')
+        self.assertEqual(fields['primary_phone'], '254727769644')
+        self.assertEqual(fields['county'], 'MURANGA')
+        self.assertEqual(fields['sub_county'], 'KIRIANI')
+        self.assertEqual(fields['landmark'], 'KAGANJO')
+        self.assertEqual(fields['latitude'], '-0.6022501')
+        self.assertEqual(fields['longitude'], '36.9640139')
+
+    def test_jawabu_parser_uses_message_date_when_location_date_missing(self):
+        from core.services.jawabu import extract_jawabu_fields
+
+        content = """IMG-20260413-WA0042.jpg (file attached)
+Latitude: S 0?25'19.75116"
+Longitude: E 37?41'22.09632"
+https://www.google.com/maps/search/?api=1&query=-0.4221531,37.6894712
+State: Tharaka-Nithi County
+Country: Kenya
+Dinah karimi
+10970922
+0711651414"""
+        received_at = timezone.make_aware(
+            datetime(2026, 4, 13, 11, 49),
+            timezone.get_current_timezone(),
+        )
+
+        fields = extract_jawabu_fields(content, 'Dickson JBL', received_at)
+
+        self.assertEqual(fields['visit_date'], '13-Apr-2026')
+        self.assertEqual(fields['whatsapp_message_at'], '13-Apr-2026 11:49')
+        self.assertEqual(fields['national_id'], '10970922')
+        self.assertEqual(fields['primary_phone'], '254711651414')
+        self.assertEqual(fields['county'], 'THARAKA-NITHI')
+
+    def test_jawabu_parser_fills_message_time_from_location_date_if_header_missing(self):
+        from core.services.jawabu import extract_jawabu_fields
+
+        content = """IMG-20260410-WA0048.jpg (file attached)
+Latitude: -0.726058
+Longitude: 37.081925
+Address: C72, Kenya
+Date: Mar 25, 2026 12:45:46 PM
+Google Maps: https://maps.google.com/maps?q=-0.7260583%2C37.081925
+Street: Kwambari
+City:Kiharu
+County:Muranga
+Dan Irungu Kamau
+Id. 5919286
+0722429932
+Opted for cash"""
+
+        fields = extract_jawabu_fields(content, 'John Muiruri JBL Biogas', None)
+
+        self.assertEqual(fields['visit_date'], '25-Mar-2026')
+        self.assertEqual(fields['whatsapp_message_at'], '25-Mar-2026 12:45')
+        self.assertEqual(fields['national_id'], '5919286')
+        self.assertEqual(fields['primary_phone'], '254722429932')
+        self.assertEqual(fields['latitude'], '-0.7260583')
+        self.assertEqual(fields['longitude'], '37.081925')
+
     @patch('core.services.jawabu.get_sheets_service')
     def test_jawabu_import_appends_unique_records_to_sheet(self, mock_service):
         from core.services.jawabu import JAWABU_FIELD_HEADERS, process_jawabu_batch_export

@@ -59,12 +59,12 @@ TIMESTAMP_PATTERN = re.compile(
 WHATSAPP_EXPORT_MESSAGE_PATTERNS = (
     re.compile(
         r'^\[(?P<date>\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})'
-        r'[\s,]+(?P<time>\d{1,2}:\d{2}(?::\d{2})?)\]\s*'
+        r'[\s,]+(?P<time>\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?)\]\s*'
         r'(?:[-–—]\s*)?(?P<sender>[^:\n]{1,80}):\s*(?P<message>.*)$'
     ),
     re.compile(
         r'^(?P<date>\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})'
-        r'[\s,]+(?P<time>\d{1,2}:\d{2}(?::\d{2})?)\s*'
+        r'[\s,]+(?P<time>\d{1,2}:\d{2}(?::\d{2})?(?:\s*[AP]M)?)\s*'
         r'[-–—]\s*(?P<sender>[^:\n]{1,80}):\s*(?P<message>.*)$'
     ),
 )
@@ -1417,16 +1417,40 @@ def _finalise_whatsapp_export_entry(entry: dict) -> dict:
 
 
 def _parse_whatsapp_export_timestamp(date_text: str, time_text: str):
-    value = f"{date_text} {time_text}".strip()
+    value = re.sub(r'\s+', ' ', f"{date_text} {time_text}".strip()).upper()
     for fmt in (
+        '%m/%d/%Y %H:%M:%S',
+        '%m/%d/%Y %H:%M',
+        '%m/%d/%y %H:%M:%S',
+        '%m/%d/%y %H:%M',
+        '%m/%d/%Y %I:%M:%S %p',
+        '%m/%d/%Y %I:%M %p',
+        '%m/%d/%y %I:%M:%S %p',
+        '%m/%d/%y %I:%M %p',
+        '%m-%d-%Y %H:%M:%S',
+        '%m-%d-%Y %H:%M',
+        '%m-%d-%y %H:%M:%S',
+        '%m-%d-%y %H:%M',
+        '%m-%d-%Y %I:%M:%S %p',
+        '%m-%d-%Y %I:%M %p',
+        '%m-%d-%y %I:%M:%S %p',
+        '%m-%d-%y %I:%M %p',
         '%d/%m/%Y %H:%M:%S',
         '%d/%m/%Y %H:%M',
         '%d/%m/%y %H:%M:%S',
         '%d/%m/%y %H:%M',
+        '%d/%m/%Y %I:%M:%S %p',
+        '%d/%m/%Y %I:%M %p',
+        '%d/%m/%y %I:%M:%S %p',
+        '%d/%m/%y %I:%M %p',
         '%d-%m-%Y %H:%M:%S',
         '%d-%m-%Y %H:%M',
         '%d-%m-%y %H:%M:%S',
         '%d-%m-%y %H:%M',
+        '%d-%m-%Y %I:%M:%S %p',
+        '%d-%m-%Y %I:%M %p',
+        '%d-%m-%y %I:%M:%S %p',
+        '%d-%m-%y %I:%M %p',
     ):
         try:
             parsed = datetime.strptime(value, fmt)

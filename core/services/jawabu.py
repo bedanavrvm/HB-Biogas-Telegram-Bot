@@ -46,25 +46,61 @@ JAWABU_FIELD_HEADERS = {
 
 REQUIRED_FIELDS = ('customer_name', 'national_id_or_primary_phone')
 
-PHONE_PATTERN = re.compile(r'(?<!\d)(?:\+?254\s*)?[017]\d(?:[\s/\-]?\d){7,9}(?!\d)')
+PHONE_PATTERN = re.compile(
+    r'(?<!\d)(?:\+?254[\s\-]?(?:7|1)\d{2}[\s\-]?\d{3}[\s\-]?\d{3}'
+    r'|0(?:7|1)\d{2}[\s\-]?\d{3}[\s\-]?\d{3}'
+    r'|(?:7|1)\d{2}[\s\-]?\d{3}[\s\-]?\d{3})(?!\d)'
+)
 MAP_URL_PATTERN = re.compile(
     r'https?://(?:www\.)?(?:google\.com/maps|maps\.google\.com|maps\.app\.goo\.gl|goo\.gl/maps)[^\s]+',
     re.IGNORECASE,
 )
 MAP_COORD_PATTERN = re.compile(
-    r'(?:query=|q=)(-?\d+(?:\.\d+)?)[,+ ]+(-?\d+(?:\.\d+)?)',
+    r'(?:query=|q=)(-?\d+(?:\.\d+)?)(?:%2C|,|\+|\s)+(-?\d+(?:\.\d+)?)',
     re.IGNORECASE,
 )
+LABELED_LAT_PATTERN = re.compile(r'\bLatitude:\s*([NS])?\s*(-?\d+(?:\.\d+)?)', re.IGNORECASE)
+LABELED_LON_PATTERN = re.compile(r'\bLongitude:\s*([EW])?\s*(-?\d+(?:\.\d+)?)', re.IGNORECASE)
 IMG_PATTERN = re.compile(r'IMG-\d{8}-WA\d+\.(?:jpg|jpeg|png)', re.IGNORECASE)
-COUNTY_PATTERN = re.compile(r'\bState:\s*-?\s*([A-Za-z \-]+?)(?:\s+County)?\s*$', re.IGNORECASE)
+COUNTY_PATTERN = re.compile(r'\bState:\s*-?\s*([A-Za-z \-]+?)\s+County\s*$', re.IGNORECASE)
+EXPLICIT_COUNTY_PATTERN = re.compile(r'\bCounty:\s*-?\s*([A-Za-z \-]+?)(?:\s+County)?\s*$', re.IGNORECASE)
 CITY_PATTERN = re.compile(r'\bCity:\s*-?\s*(.+)$', re.IGNORECASE)
 STREET_PATTERN = re.compile(r'\b(?:Street|Address):\s*-?\s*(.+)$', re.IGNORECASE)
-EXPLICIT_ID_PATTERN = re.compile(r'\b(?:ID|I\.D)\s*[-:]?\s*(\d{6,8})(?!\d)', re.IGNORECASE)
+EXPLICIT_ID_PATTERN = re.compile(
+    r'\b(?:NATIONAL\s+ID|ID\s*(?:NO\.?|NUMBER)?|I\.?D\.?)\s*[-:./]?\s*(\d{6,8})(?!\d)',
+    re.IGNORECASE,
+)
 NUMBER_LINE_PATTERN = re.compile(r'^\D*(\d{6,8})(?:\D+\d{4,8})?\D*$')
 DECISION_PATTERN = re.compile(
     r'\b(?:case\s+)?(?P<decision>approved|rejected|deferred|undecided|not decided|'
     r'cash|polepole|brookside|opted(?:\s+for)?\s+cash|opted(?:\s+for)?\s+brookside)\b',
     re.IGNORECASE,
+)
+LOCATION_DATE_PATTERNS = (
+    re.compile(r'\bLocation read date:\s*(.+)$', re.IGNORECASE),
+    re.compile(r'\bDate:\s*(.+)$', re.IGNORECASE),
+)
+LOCATION_DATE_FORMATS = (
+    '%b %d, %Y %I:%M:%S %p',
+    '%b %d, %Y %I:%M %p',
+    '%B %d, %Y %I:%M:%S %p',
+    '%B %d, %Y %I:%M %p',
+    '%d/%m/%Y %H:%M:%S',
+    '%d/%m/%Y %H:%M',
+    '%d/%m/%y %H:%M:%S',
+    '%d/%m/%y %H:%M',
+    '%d/%m/%Y %I:%M:%S %p',
+    '%d/%m/%Y %I:%M %p',
+    '%d/%m/%y %I:%M:%S %p',
+    '%d/%m/%y %I:%M %p',
+    '%m/%d/%Y %H:%M:%S',
+    '%m/%d/%Y %H:%M',
+    '%m/%d/%y %H:%M:%S',
+    '%m/%d/%y %H:%M',
+    '%m/%d/%Y %I:%M:%S %p',
+    '%m/%d/%Y %I:%M %p',
+    '%m/%d/%y %I:%M:%S %p',
+    '%m/%d/%y %I:%M %p',
 )
 
 
@@ -229,9 +265,9 @@ def looks_like_jawabu_visit(content: str) -> bool:
         or '<Media omitted>' in text
     )
     has_customer_identifier = bool(
-        PHONE_PATTERN.search(text)
+        extract_phone_numbers(text)
         or EXPLICIT_ID_PATTERN.search(text)
-        or any(NUMBER_LINE_PATTERN.match(line.strip()) for line in text.splitlines())
+        or any(is_customer_identifier_line(line.strip()) for line in text.splitlines())
     )
     return has_location_or_media and has_customer_identifier
 
@@ -260,18 +296,20 @@ def parse_jawabu_entry(entry: dict, index: int) -> JawabuParsedRecord:
 
 def extract_jawabu_fields(content: str, sender: str, received_at: datetime | None) -> dict[str, str]:
     lines = [line.strip() for line in str(content or '').splitlines() if line.strip()]
-    phones = [normalise_phone(match) for match in PHONE_PATTERN.findall(content)]
-    phones = [phone for index, phone in enumerate(phones) if phone and phone not in phones[:index]]
+    phones = extract_phone_numbers(content)
     gps_link = first_match_text(MAP_URL_PATTERN, content)
-    latitude, longitude = extract_coordinates(gps_link)
+    latitude, longitude = extract_coordinates(gps_link, content)
     media_filenames = IMG_PATTERN.findall(content)
     county = extract_county(lines)
     decision, decision_note = extract_decision(content)
+    location_taken_at = extract_location_datetime(lines)
+    visit_at = location_taken_at or received_at
+    message_at = received_at or location_taken_at
 
     fields = {
         'record_id': '',
-        'visit_date': format_sheet_date(received_at),
-        'whatsapp_message_at': format_sheet_datetime(received_at),
+        'visit_date': format_sheet_date(visit_at),
+        'whatsapp_message_at': format_sheet_datetime(message_at),
         'staff_sender': sender,
         'customer_name': extract_customer_name(lines),
         'national_id': extract_national_id(lines, content),
@@ -317,12 +355,14 @@ def extract_national_id(lines: list[str], content: str) -> str:
         return explicit.group(1)
 
     phone_line_index = next(
-        (index for index, line in enumerate(lines) if PHONE_PATTERN.search(line)),
+        (index for index, line in enumerate(lines) if extract_phone_numbers(line)),
         None,
     )
     search_lines = lines[:phone_line_index] if phone_line_index is not None else lines
-    for line in reversed(search_lines[-5:]):
-        match = NUMBER_LINE_PATTERN.match(line)
+    for line in reversed(search_lines[-6:]):
+        if not is_possible_id_line(line):
+            continue
+        match = NUMBER_LINE_PATTERN.match(line.strip())
         if match:
             return match.group(1)
     return ''
@@ -347,17 +387,27 @@ def extract_customer_name(lines: list[str]) -> str:
 
 def is_customer_identifier_line(line: str) -> bool:
     value = str(line or '').strip()
+    if not value:
+        return False
+    if extract_phone_numbers(value) or EXPLICIT_ID_PATTERN.search(value):
+        return True
+    return is_possible_id_line(value)
+
+
+def is_possible_id_line(line: str) -> bool:
+    value = str(line or '').strip()
     lowered = value.lower()
     if not value:
         return False
-    if PHONE_PATTERN.search(value) or EXPLICIT_ID_PATTERN.search(value):
-        return True
     if (
         IMG_PATTERN.search(value)
         or MAP_URL_PATTERN.search(value)
+        or extract_phone_numbers(value)
+        or any(pattern.search(value) for pattern in LOCATION_DATE_PATTERNS)
         or lowered.startswith((
             'latitude:', 'longitude:', 'altitude:', 'country:', 'state:',
-            'city:', 'street:', 'address:', 'location:',
+            'county:', 'city:', 'street:', 'address:', 'location:',
+            'google maps:', 'waze:', 'download app:',
         ))
     ):
         return False
@@ -382,6 +432,11 @@ def clean_name(value: str) -> str:
 
 
 def extract_county(lines: list[str]) -> str:
+    for line in lines:
+        match = EXPLICIT_COUNTY_PATTERN.search(line)
+        if match:
+            county = match.group(1).strip(' -')
+            return normalise_county(county)
     for line in lines:
         match = COUNTY_PATTERN.search(line)
         if match:
@@ -413,9 +468,9 @@ def extract_landmark(lines: list[str]) -> str:
 
 def is_free_text_landmark(line: str) -> bool:
     lowered = str(line or '').lower()
-    if PHONE_PATTERN.search(line) or NUMBER_LINE_PATTERN.match(line):
+    if extract_phone_numbers(line) or is_possible_id_line(line):
         return False
-    if lowered.startswith(('country:', 'state:', 'city:', 'street:', 'latitude:', 'longitude:', 'http')):
+    if lowered.startswith(('country:', 'state:', 'county:', 'city:', 'street:', 'latitude:', 'longitude:', 'http')):
         return False
     if DECISION_PATTERN.search(line):
         return False
@@ -460,11 +515,35 @@ def first_match_text(pattern, content: str) -> str:
     return match.group(0) if match else ''
 
 
-def extract_coordinates(gps_link: str) -> tuple[str, str]:
+def extract_coordinates(gps_link: str, content: str = '') -> tuple[str, str]:
     match = MAP_COORD_PATTERN.search(str(gps_link or ''))
-    if not match:
+    if match:
+        return match.group(1), match.group(2)
+    lat_match = LABELED_LAT_PATTERN.search(str(content or ''))
+    lon_match = LABELED_LON_PATTERN.search(str(content or ''))
+    if not lat_match or not lon_match:
         return '', ''
-    return match.group(1), match.group(2)
+    latitude = signed_coordinate(lat_match.group(2), lat_match.group(1))
+    longitude = signed_coordinate(lon_match.group(2), lon_match.group(1))
+    return latitude, longitude
+
+
+def signed_coordinate(value: str, direction: str | None) -> str:
+    number = str(value or '').strip()
+    if not number:
+        return ''
+    if str(direction or '').upper() in {'S', 'W'} and not number.startswith('-'):
+        return '-' + number
+    return number
+
+
+def extract_phone_numbers(content: str) -> list[str]:
+    phones = []
+    for match in PHONE_PATTERN.finditer(str(content or '')):
+        phone = normalise_phone(match.group(0))
+        if is_valid_phone(phone) and phone not in phones:
+            phones.append(phone)
+    return phones
 
 
 def normalise_phone(value: str) -> str:
@@ -476,6 +555,34 @@ def normalise_phone(value: str) -> str:
     if len(digits) >= 9 and digits[0] in {'1', '7'}:
         return '254' + digits[:9]
     return digits
+
+
+def is_valid_phone(value: str) -> bool:
+    return bool(re.fullmatch(r'254(?:7|1)\d{8}', str(value or '')))
+
+
+def extract_location_datetime(lines: list[str]) -> datetime | None:
+    for line in lines:
+        for pattern in LOCATION_DATE_PATTERNS:
+            match = pattern.search(line)
+            if not match:
+                continue
+            parsed = parse_location_datetime(match.group(1).strip())
+            if parsed:
+                return parsed
+    return None
+
+
+def parse_location_datetime(value: str) -> datetime | None:
+    cleaned = re.sub(r'\s+', ' ', str(value or '').strip())
+    cleaned = re.sub(r'(?i)\s*(?:Google Maps|Waze|Download App):.*$', '', cleaned).strip()
+    for fmt in LOCATION_DATE_FORMATS:
+        try:
+            parsed = datetime.strptime(cleaned, fmt)
+            return timezone.make_aware(parsed, timezone.get_current_timezone())
+        except ValueError:
+            continue
+    return None
 
 
 def jawabu_duplicate_key(
