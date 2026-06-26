@@ -670,11 +670,127 @@ Mary Njeri njihia
         self.assertEqual(result['imported'], 1)
         self.assertEqual(result['duplicate_review'], 0)
         self.assertEqual(len(fake_sheet.appended_rows), 1)
+        self.assertEqual(fake_sheet.row_values_calls, 1)
+        self.assertEqual(fake_sheet.get_all_values_calls, 0)
+        self.assertEqual(fake_sheet.append_rows_calls, 1)
         record = JawabuVisitRecord.objects.get()
         self.assertEqual(record.import_status, 'imported')
         self.assertEqual(record.duplicate_status, 'unique')
         self.assertEqual(record.national_id, '1382654')
         self.assertEqual(record.primary_phone, '254720570031')
+
+    @patch('core.services.jawabu.get_sheets_service')
+    def test_jawabu_import_accepts_name_and_national_id_without_phone(self, mock_service):
+        from core.services.jawabu import JAWABU_FIELD_HEADERS, process_jawabu_batch_export
+
+        fake_sheet = FakeJawabuSheet(list(JAWABU_FIELD_HEADERS.values()))
+        mock_service.return_value = FakeJawabuService(fake_sheet)
+        export = """3/16/26, 11:46 - Alex Kairu: IMG-20260316-WA0005.jpg (file attached)
+https://www.google.com/maps/search/?api=1&query=-0.55393,37.526935
+State: Embu County
+Country: Kenya
+Mary Njeri Njihia
+1382654"""
+
+        result = process_jawabu_batch_export(
+            group_config=self.group,
+            export_text=export,
+            telegram_message_id='902',
+            sender='Importer',
+        )
+
+        self.assertEqual(result['imported'], 1)
+        record = JawabuVisitRecord.objects.get()
+        self.assertEqual(record.import_status, 'imported')
+        self.assertEqual(record.parsed_fields['customer_name'], 'MARY NJERI NJIHIA')
+        self.assertEqual(record.national_id, '1382654')
+        self.assertEqual(record.primary_phone, '')
+
+    @patch('core.services.jawabu.get_sheets_service')
+    def test_jawabu_import_accepts_name_and_primary_phone_without_id(self, mock_service):
+        from core.services.jawabu import JAWABU_FIELD_HEADERS, process_jawabu_batch_export
+
+        fake_sheet = FakeJawabuSheet(list(JAWABU_FIELD_HEADERS.values()))
+        mock_service.return_value = FakeJawabuService(fake_sheet)
+        export = """3/16/26, 11:46 - Alex Kairu: <Media omitted>
+https://www.google.com/maps/search/?api=1&query=-0.55393,37.526935
+State: Embu County
+Country: Kenya
+Mary Njeri Njihia
+0720570031"""
+
+        result = process_jawabu_batch_export(
+            group_config=self.group,
+            export_text=export,
+            telegram_message_id='903',
+            sender='Importer',
+        )
+
+        self.assertEqual(result['imported'], 1)
+        record = JawabuVisitRecord.objects.get()
+        self.assertEqual(record.import_status, 'imported')
+        self.assertEqual(record.parsed_fields['customer_name'], 'MARY NJERI NJIHIA')
+        self.assertEqual(record.national_id, '')
+        self.assertEqual(record.primary_phone, '254720570031')
+
+    @patch('core.services.jawabu.get_sheets_service')
+    def test_jawabu_import_rejects_identifier_without_name(self, mock_service):
+        from core.services.jawabu import JAWABU_FIELD_HEADERS, process_jawabu_batch_export
+
+        fake_sheet = FakeJawabuSheet(list(JAWABU_FIELD_HEADERS.values()))
+        mock_service.return_value = FakeJawabuService(fake_sheet)
+        export = """3/16/26, 11:46 - Alex Kairu: IMG-20260316-WA0005.jpg (file attached)
+https://www.google.com/maps/search/?api=1&query=-0.55393,37.526935
+State: Embu County
+Country: Kenya
+1382654
+0720570031"""
+
+        result = process_jawabu_batch_export(
+            group_config=self.group,
+            export_text=export,
+            telegram_message_id='904',
+            sender='Importer',
+        )
+
+        self.assertEqual(result['imported'], 0)
+        self.assertEqual(result['rejected'], 1)
+        self.assertEqual(result['rejections'][0]['missing_fields'], ['Customer Name'])
+        self.assertEqual(fake_sheet.appended_rows, [])
+        record = JawabuVisitRecord.objects.get()
+        self.assertEqual(record.import_status, 'rejected')
+
+    @patch('core.services.jawabu.get_sheets_service')
+    def test_jawabu_import_batch_appends_unique_records_once(self, mock_service):
+        from core.services.jawabu import JAWABU_FIELD_HEADERS, process_jawabu_batch_export
+
+        fake_sheet = FakeJawabuSheet(list(JAWABU_FIELD_HEADERS.values()))
+        mock_service.return_value = FakeJawabuService(fake_sheet)
+        export = """3/16/26, 11:46 - Alex Kairu: IMG-20260316-WA0005.jpg (file attached)
+https://www.google.com/maps/search/?api=1&query=-0.55393,37.526935
+State: Embu County
+Country: Kenya
+Mary Njeri Njihia
+1382654
+3/16/26, 11:47 - Alex Kairu: <Media omitted>
+https://www.google.com/maps/search/?api=1&query=-0.55393,37.526935
+State: Meru County
+Country: Kenya
+John Mwangi
+0720570031"""
+
+        result = process_jawabu_batch_export(
+            group_config=self.group,
+            export_text=export,
+            telegram_message_id='905',
+            sender='Importer',
+        )
+
+        self.assertEqual(result['imported'], 2)
+        self.assertEqual(len(fake_sheet.appended_rows), 2)
+        self.assertEqual(fake_sheet.row_values_calls, 1)
+        self.assertEqual(fake_sheet.get_all_values_calls, 0)
+        self.assertEqual(fake_sheet.append_rows_calls, 1)
 
     @patch('core.services.jawabu.get_sheets_service')
     def test_jawabu_import_flags_duplicate_id_and_phone_for_review(self, mock_service):
@@ -718,12 +834,29 @@ class FakeJawabuSheet:
     def __init__(self, headers):
         self.headers = headers
         self.appended_rows = []
+        self.row_values_calls = 0
+        self.get_all_values_calls = 0
+        self.append_rows_calls = 0
+
+    def row_values(self, row_number):
+        self.row_values_calls += 1
+        return self.headers if row_number == 1 else []
 
     def get_all_values(self):
+        self.get_all_values_calls += 1
         return [self.headers] + self.appended_rows
 
+    def append_rows(self, rows, value_input_option='USER_ENTERED'):
+        self.append_rows_calls += 1
+        first_row = len(self.appended_rows) + 2
+        self.appended_rows.extend(rows)
+        last_row = first_row + len(rows) - 1
+        return {'updates': {'updatedRange': f"'Jawabu Visits'!A{first_row}:U{last_row}"}}
+
     def append_row(self, row, value_input_option='USER_ENTERED'):
+        first_row = len(self.appended_rows) + 2
         self.appended_rows.append(row)
+        return {'updates': {'updatedRange': f"'Jawabu Visits'!A{first_row}:U{first_row}"}}
 
 
 class FakeJawabuService:

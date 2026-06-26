@@ -42,7 +42,7 @@ python manage.py sync_telegram_commands
 
 | Command | Purpose |
 |---------|---------|
-| `/batch` | Import a Jawabu WhatsApp `.txt` or `.zip` export. Duplicate `National ID + Primary Phone` records are flagged for manual verification. |
+| `/batch` | Import a Jawabu WhatsApp `.txt` or `.zip` export. Duplicate customer identifiers are flagged for manual verification. Each imported record needs Customer Name and either National ID or Primary Phone. |
 
 ## Status And Follow-Up
 

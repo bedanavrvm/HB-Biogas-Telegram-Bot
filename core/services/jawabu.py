@@ -44,7 +44,7 @@ JAWABU_FIELD_HEADERS = {
     'raw_message': 'Raw Message',
 }
 
-REQUIRED_FIELDS = ('national_id', 'primary_phone')
+REQUIRED_FIELDS = ('customer_name', 'national_id_or_primary_phone')
 
 PHONE_PATTERN = re.compile(r'(?<!\d)(?:\+?254\s*)?[017]\d(?:[\s/\-]?\d){7,9}(?!\d)')
 MAP_URL_PATTERN = re.compile(
@@ -135,10 +135,11 @@ def process_jawabu_batch_export(
             'message': 'No Jawabu visit records with phone/location data were found.',
         }
 
-    duplicate_keys = duplicate_keys_in_batch(parsed_records)
+    duplicate_keys = duplicate_keys_in_batch([record for record in parsed_records if record.is_complete])
     results = []
     duplicate_reports = []
     rejection_reports = []
+    pending_sheet_results = []
 
     for parsed in parsed_records:
         if not parsed.is_complete:
@@ -166,7 +167,7 @@ def process_jawabu_batch_export(
                 status='duplicate_review',
                 duplicate_status='possible_duplicate',
                 duplicate_group_id=group_id,
-                sync_error='Duplicate National ID + Primary Phone needs manual review.',
+                sync_error='Duplicate customer identifier needs manual review.',
             )
             results.append({'status': 'duplicate_review', 'record': record, 'parsed': parsed})
             duplicate_reports.append(duplicate_summary(parsed, existing, group_id))
@@ -179,18 +180,32 @@ def process_jawabu_batch_export(
             status='pending',
             duplicate_status='unique',
         )
-        sync_result = append_jawabu_record_to_sheet(group_config, record)
+        result_item = {'status': 'pending', 'record': record, 'parsed': parsed}
+        results.append(result_item)
+        pending_sheet_results.append(result_item)
+
+    if pending_sheet_results:
+        sync_result = append_jawabu_records_to_sheet(
+            group_config,
+            [item['record'] for item in pending_sheet_results],
+        )
         if sync_result.get('success'):
-            record.import_status = 'imported'
-            record.row_number = sync_result.get('row_number')
-            record.sync_error = ''
-            record.save(update_fields=['import_status', 'row_number', 'sync_error'])
-            results.append({'status': 'imported', 'record': record, 'parsed': parsed})
+            row_numbers = sync_result.get('row_numbers') or []
+            for index, item in enumerate(pending_sheet_results):
+                record = item['record']
+                record.import_status = 'imported'
+                record.row_number = row_numbers[index] if index < len(row_numbers) else None
+                record.sync_error = ''
+                record.save(update_fields=['import_status', 'row_number', 'sync_error'])
+                item['status'] = 'imported'
         else:
-            record.import_status = 'failed'
-            record.sync_error = sync_result.get('error') or 'Google Sheets append failed'
-            record.save(update_fields=['import_status', 'sync_error'])
-            results.append({'status': 'failed', 'record': record, 'parsed': parsed})
+            error = sync_result.get('error') or 'Google Sheets append failed'
+            for item in pending_sheet_results:
+                record = item['record']
+                record.import_status = 'failed'
+                record.sync_error = error
+                record.save(update_fields=['import_status', 'sync_error'])
+                item['status'] = 'failed'
 
     return {
         'status': 'jawabu_batch_processed',
@@ -213,7 +228,12 @@ def looks_like_jawabu_visit(content: str) -> bool:
         or IMG_PATTERN.search(text)
         or '<Media omitted>' in text
     )
-    return has_location_or_media and bool(PHONE_PATTERN.search(text))
+    has_customer_identifier = bool(
+        PHONE_PATTERN.search(text)
+        or EXPLICIT_ID_PATTERN.search(text)
+        or any(NUMBER_LINE_PATTERN.match(line.strip()) for line in text.splitlines())
+    )
+    return has_location_or_media and has_customer_identifier
 
 
 def parse_jawabu_entry(entry: dict, index: int) -> JawabuParsedRecord:
@@ -221,13 +241,11 @@ def parse_jawabu_entry(entry: dict, index: int) -> JawabuParsedRecord:
     sender = str(entry.get('sender') or '').strip()
     received_at = entry.get('received_at')
     fields = extract_jawabu_fields(raw_text, sender, received_at)
-    missing_fields = [
-        field for field in REQUIRED_FIELDS
-        if not str(fields.get(field) or '').strip()
-    ]
+    missing_fields = missing_required_jawabu_fields(fields)
     duplicate_key = jawabu_duplicate_key(
         fields.get('national_id', ''),
         fields.get('primary_phone', ''),
+        fields.get('customer_name', ''),
     )
     return JawabuParsedRecord(
         index=index,
@@ -276,8 +294,21 @@ def extract_jawabu_fields(content: str, sender: str, received_at: datetime | Non
     fields['duplicate_key'] = jawabu_duplicate_key(
         fields['national_id'],
         fields['primary_phone'],
+        fields['customer_name'],
     )
     return fields
+
+
+def missing_required_jawabu_fields(fields: dict[str, str]) -> list[str]:
+    missing = []
+    if not str(fields.get('customer_name') or '').strip():
+        missing.append('customer_name')
+    if not (
+        str(fields.get('national_id') or '').strip()
+        or str(fields.get('primary_phone') or '').strip()
+    ):
+        missing.append('national_id or primary_phone')
+    return missing
 
 
 def extract_national_id(lines: list[str], content: str) -> str:
@@ -298,17 +329,39 @@ def extract_national_id(lines: list[str], content: str) -> str:
 
 
 def extract_customer_name(lines: list[str]) -> str:
-    phone_line_index = next(
-        (index for index, line in enumerate(lines) if PHONE_PATTERN.search(line)),
+    identifier_line_index = next(
+        (
+            index for index, line in enumerate(lines)
+            if is_customer_identifier_line(line)
+        ),
         None,
     )
-    if phone_line_index is None:
+    if identifier_line_index is None:
         return ''
 
-    for line in reversed(lines[max(0, phone_line_index - 5):phone_line_index]):
+    for line in reversed(lines[max(0, identifier_line_index - 5):identifier_line_index]):
         if is_probable_name(line):
             return clean_name(line)
     return ''
+
+
+def is_customer_identifier_line(line: str) -> bool:
+    value = str(line or '').strip()
+    lowered = value.lower()
+    if not value:
+        return False
+    if PHONE_PATTERN.search(value) or EXPLICIT_ID_PATTERN.search(value):
+        return True
+    if (
+        IMG_PATTERN.search(value)
+        or MAP_URL_PATTERN.search(value)
+        or lowered.startswith((
+            'latitude:', 'longitude:', 'altitude:', 'country:', 'state:',
+            'city:', 'street:', 'address:', 'location:',
+        ))
+    ):
+        return False
+    return bool(NUMBER_LINE_PATTERN.match(value))
 
 
 def is_probable_name(line: str) -> bool:
@@ -425,12 +478,21 @@ def normalise_phone(value: str) -> str:
     return digits
 
 
-def jawabu_duplicate_key(national_id: str, primary_phone: str) -> str:
+def jawabu_duplicate_key(
+    national_id: str,
+    primary_phone: str,
+    customer_name: str = '',
+) -> str:
     national_id = re.sub(r'\D', '', str(national_id or ''))
     primary_phone = normalise_phone(primary_phone)
-    if not national_id or not primary_phone:
-        return ''
-    return f"{national_id}|{primary_phone}"
+    name_key = re.sub(r'\s+', ' ', str(customer_name or '').strip().upper())
+    if national_id and primary_phone:
+        return f"ID:{national_id}|PHONE:{primary_phone}"
+    if national_id and name_key:
+        return f"ID:{national_id}|NAME:{name_key}"
+    if primary_phone and name_key:
+        return f"PHONE:{primary_phone}|NAME:{name_key}"
+    return ''
 
 
 def duplicate_group_id(duplicate_key: str) -> str:
@@ -495,6 +557,20 @@ def save_jawabu_record(
 
 
 def append_jawabu_record_to_sheet(group_config, record: JawabuVisitRecord) -> dict:
+    result = append_jawabu_records_to_sheet(group_config, [record])
+    if not result.get('success'):
+        return result
+    row_numbers = result.get('row_numbers') or []
+    return {
+        'success': True,
+        'row_number': row_numbers[0] if row_numbers else None,
+    }
+
+
+def append_jawabu_records_to_sheet(group_config, records: list[JawabuVisitRecord]) -> dict:
+    if not records:
+        return {'success': True, 'row_numbers': []}
+
     workflow = getattr(group_config, 'workflow', None) or {}
     service = get_sheets_service(
         sheet_id=group_config.sheet_id,
@@ -504,8 +580,16 @@ def append_jawabu_record_to_sheet(group_config, record: JawabuVisitRecord) -> di
     if not service.is_available():
         return {'success': False, 'error': 'Google Sheets service unavailable.'}
 
-    values = service._sheet.get_all_values()
-    headers = header_row_values(values, workflow)
+    try:
+        header_row_number = configured_header_row(workflow)
+        headers = [
+            str(value or '').strip()
+            for value in service._sheet.row_values(header_row_number)
+        ]
+    except Exception as exc:
+        logger.error("Failed to read Jawabu header row: %s", exc, exc_info=True)
+        return {'success': False, 'error': str(exc)}
+
     if not headers:
         return {'success': False, 'error': 'Header row is empty or unavailable.'}
 
@@ -520,22 +604,49 @@ def append_jawabu_record_to_sheet(group_config, record: JawabuVisitRecord) -> di
             'error': 'Missing required column(s): ' + ', '.join(missing_headers[:8]),
         }
 
-    row_values = ['' for _ in headers]
-    fields = dict(record.parsed_fields or {})
-    fields['record_id'] = jawabu_record_id(record)
-    fields['duplicate_status'] = 'Unique'
-    fields['review_notes'] = ''
-    for field, header in field_headers.items():
-        if header in headers:
-            row_values[headers.index(header)] = fields.get(field, '')
+    rows = []
+    for record in records:
+        row_values = ['' for _ in headers]
+        fields = dict(record.parsed_fields or {})
+        fields['record_id'] = jawabu_record_id(record)
+        fields['duplicate_status'] = 'Unique'
+        fields['review_notes'] = ''
+        for field, header in field_headers.items():
+            if header in headers:
+                row_values[headers.index(header)] = fields.get(field, '')
+        rows.append(row_values)
 
     try:
-        service._sheet.append_row(row_values, value_input_option='USER_ENTERED')
-        row_number = len(values) + 1
-        return {'success': True, 'row_number': row_number}
+        if hasattr(service._sheet, 'append_rows'):
+            response = service._sheet.append_rows(rows, value_input_option='USER_ENTERED')
+        else:
+            responses = [
+                service._sheet.append_row(row_values, value_input_option='USER_ENTERED')
+                for row_values in rows
+            ]
+            response = responses[0] if responses else {}
+        return {
+            'success': True,
+            'row_numbers': row_numbers_from_append_response(response, len(rows)),
+        }
     except Exception as exc:
-        logger.error("Failed to append Jawabu row: %s", exc, exc_info=True)
+        logger.error("Failed to append Jawabu rows: %s", exc, exc_info=True)
         return {'success': False, 'error': str(exc)}
+
+
+def row_numbers_from_append_response(response: Any, count: int) -> list[int | None]:
+    if count <= 0:
+        return []
+    updated_range = ''
+    if isinstance(response, dict):
+        updated_range = str((response.get('updates') or {}).get('updatedRange') or '')
+    match = re.search(r'![A-Z]+(\d+)(?::|$)', updated_range)
+    if not match:
+        match = re.search(r'(?:^|:|\s)(?:[A-Z]+)(\d+)(?::|$)', updated_range.split('!')[-1])
+    if not match:
+        return [None for _ in range(count)]
+    first_row = int(match.group(1))
+    return [first_row + index for index in range(count)]
 
 
 def configured_field_headers(workflow: dict) -> dict[str, str]:
@@ -602,10 +713,19 @@ def duplicate_summary(parsed: JawabuParsedRecord, existing, group_id: str) -> di
 def rejection_summary(parsed: JawabuParsedRecord, missing_fields: list[str]) -> dict:
     return {
         'message': parsed.message_label,
-        'missing_fields': list(missing_fields),
+        'missing_fields': [friendly_jawabu_field_name(field) for field in missing_fields],
         'captured': {
             'national_id': parsed.fields.get('national_id', ''),
             'primary_phone': parsed.fields.get('primary_phone', ''),
             'customer_name': parsed.fields.get('customer_name', ''),
         },
     }
+
+
+def friendly_jawabu_field_name(field: str) -> str:
+    labels = {
+        'customer_name': 'Customer Name',
+        'national_id or primary_phone': 'National ID or Primary Phone',
+        'national_id_or_primary_phone': 'National ID or Primary Phone',
+    }
+    return labels.get(str(field or ''), str(field or '').replace('_', ' ').title())

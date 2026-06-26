@@ -758,7 +758,7 @@ def _process_jawabu_batch_command(
             'reply_text': (
                 "Send the Jawabu WhatsApp .txt or .zip export with:\n"
                 "@bot /batch\n\n"
-                "Records need National ID and primary phone. Duplicates are "
+                "Records need Customer Name and either National ID or primary phone. Duplicates are "
                 "flagged for manual review."
             ),
         }

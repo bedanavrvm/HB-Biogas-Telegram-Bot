@@ -28,6 +28,8 @@ Header row: 1, unless the sheet uses a different header row
 ```
 
 This keeps BRO-submitted order data and Jawabu WhatsApp-imported data separate, while still allowing manual comparison in the same workbook.
+
+Admin setup note: after creating the `Jawabu Visits` worksheet, run `Orders > Apply Jawabu validation + formatting` in Google Sheets. This applies strict county/sub-county dropdowns, phone/ID validation, date formatting, and duplicate highlighting for the imported rows.
 ## What The Bot Extracts
 
 - WhatsApp message date and time
@@ -50,23 +52,31 @@ This keeps BRO-submitted order data and Jawabu WhatsApp-imported data separate, 
 Every imported record must have:
 
 ```text
-National ID
-Primary Phone
+Customer Name
+National ID OR Primary Phone
 ```
 
-The duplicate key is:
+A record can import with only `Customer Name + National ID`, or with only
+`Customer Name + Primary Phone`. The bot normalises phone numbers to
+`254XXXXXXXXX` before writing to the sheet.
+
+If a visit-like message is missing the customer name, or is missing both
+National ID and primary phone, that record is rejected and shown in the
+Telegram reply with the missing field(s). Other valid unique records in the
+same batch continue to import.
+
+The duplicate key is selected from the strongest available identifier:
 
 ```text
 National ID + Primary Phone
+National ID + Customer Name
+Primary Phone + Customer Name
 ```
-
-If either value is missing, the record is rejected and shown in the Telegram
-reply.
 
 ## Duplicate Handling
 
-If the same `National ID + Primary Phone` appears more than once, the bot does
-not silently merge the records and does not create a new sheet row for the
+If the same customer identifier appears more than once, the bot does not
+silently merge the records and does not create a new sheet row for the
 duplicate message.
 
 It creates an audit record with:

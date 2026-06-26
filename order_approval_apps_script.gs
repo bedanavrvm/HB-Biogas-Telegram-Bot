@@ -64,8 +64,41 @@ const CFG = {
    */
   STAFF_TAB: 'Staff',
   OPTIONS_TAB: 'Dropdown Options',
+  JAWABU_TAB: 'Jawabu Visits',
+  JAWABU_HEADER_ROW: 1,
+  JAWABU_DATA_ROW: 2,
   STAFF_HEADERS: ['Name', 'Email', 'Role', 'Branch', 'Notify On', 'Editable Columns', 'Active'],
   OPTION_HEADERS: ['Branch', 'County', 'Sub-County', 'Visited By', 'HB Staff'],
+  JAWABU_HEADERS: [
+    'Record ID', 'Visit Date', 'WhatsApp Message Time', 'Staff / Sender',
+    'Customer Name', 'National ID', 'Primary Phone', 'Secondary Phone',
+    'County', 'Sub-County / City', 'Landmark / Street', 'GPS Link',
+    'Latitude', 'Longitude', 'Media Filenames', 'Decision', 'Decision Note',
+    'Duplicate Key', 'Duplicate Status', 'Review Notes', 'Raw Message',
+  ],
+  JAWABU_C: {
+    RECORD_ID: 1,
+    VISIT_DATE: 2,
+    MESSAGE_AT: 3,
+    STAFF_SENDER: 4,
+    NAME: 5,
+    NATIONAL_ID: 6,
+    PRIMARY: 7,
+    SECONDARY: 8,
+    COUNTY: 9,
+    SUB_COUNTY: 10,
+    LANDMARK: 11,
+    GPS_LINK: 12,
+    LATITUDE: 13,
+    LONGITUDE: 14,
+    MEDIA_FILENAMES: 15,
+    DECISION: 16,
+    DECISION_NOTE: 17,
+    DUPLICATE_KEY: 18,
+    DUPLICATE_STATUS: 19,
+    REVIEW_NOTES: 20,
+    RAW_MESSAGE: 21,
+  },
   /* Optional bootstrap/admin allowlist. Fill this if the menu does not appear before authorization. */
   OWNER_EMAILS: [],
   STAFF: {
@@ -108,6 +141,7 @@ function onOpen() {
     .addItem('Validate required fields', 'validateRequired')
     .addSeparator()
     .addItem('Apply validation + formatting', 'applyOrderValidationAndFormatting')
+    .addItem('Apply Jawabu validation + formatting', 'applyJawabuValidationAndFormatting')
     .addItem('Repair media links', 'repairMediaLinks')
     .addSeparator()
     .addItem('Refresh dashboard', 'buildDashboard')
@@ -119,6 +153,7 @@ function onOpen() {
     .addItem('Create/update Staff tab', 'ensureStaffSheet')
     .addItem('Validate Staff tab', 'validateStaffSheetSetup')
     .addItem('Show Staff tab', 'showStaffSheet')
+    .addItem('Show Jawabu tab', 'showJawabuSheet')
     .addSeparator()
     .addItem('Protect bot columns', 'protectBotCols')
     .addItem('Apply Staff permissions', 'applyStaffPermissions')
@@ -420,14 +455,15 @@ function applyOrderDataValidation(sh, optionsSheet) {
   ).setNumberFormat('dd-mmm-yyyy');
 }
 
-function applyOptionsDropdown(sh, optionsSheet, targetCol, optionsCol) {
-  const rows = Math.max(sh.getMaxRows() - CFG.DATA_ROW + 1, 1);
+function applyOptionsDropdown(sh, optionsSheet, targetCol, optionsCol, startRow) {
+  const firstDataRow = startRow || CFG.DATA_ROW;
+  const rows = Math.max(sh.getMaxRows() - firstDataRow + 1, 1);
   const optionRows = Math.max(optionsSheet.getMaxRows() - 1, 1);
   const source = optionsSheet.getRange(2, optionsCol, optionRows, 1);
-  sh.getRange(CFG.DATA_ROW, targetCol, rows, 1).setDataValidation(
+  sh.getRange(firstDataRow, targetCol, rows, 1).setDataValidation(
     SpreadsheetApp.newDataValidation()
       .requireValueInRange(source, true)
-      .setAllowInvalid(true)
+      .setAllowInvalid(false)
       .build()
   );
 }
@@ -440,6 +476,182 @@ function applyFormulaValidation(sh, col, rows, formula, helpText) {
       .setAllowInvalid(false)
       .build()
   );
+}
+
+function applyFormulaValidationAtRow(sh, startRow, col, rows, formula, helpText) {
+  sh.getRange(startRow, col, rows, 1).setDataValidation(
+    SpreadsheetApp.newDataValidation()
+      .requireFormulaSatisfied(formula)
+      .setHelpText(helpText)
+      .setAllowInvalid(false)
+      .build()
+  );
+}
+
+function applyJawabuValidationAndFormatting(showAlert) {
+  if (!requireOrderAdmin_()) return;
+  showAlert = showAlert !== false;
+  const ss = SpreadsheetApp.getActive();
+  const optionsSheet = ensureDropdownOptionsSheet();
+  const setup = ensureJawabuSheetStructure_();
+  if (!setup.ok) {
+    SpreadsheetApp.getUi().alert(setup.message);
+    return;
+  }
+
+  const sh = setup.sheet;
+  const startRow = CFG.JAWABU_DATA_ROW;
+  const rows = Math.max(sh.getMaxRows() - startRow + 1, 1);
+  applyJawabuDataValidation_(sh, optionsSheet, startRow, rows);
+  applyJawabuConditionalFormatting_(sh, startRow, rows);
+  formatJawabuSheet_(sh);
+
+  if (showAlert) {
+    SpreadsheetApp.getUi().alert(
+      'Jawabu validation and formatting applied.\n\n' +
+      'Tab: ' + CFG.JAWABU_TAB + '\n' +
+      'Dropdown values come from "' + CFG.OPTIONS_TAB + '".'
+    );
+  }
+}
+
+function ensureJawabuSheetStructure_() {
+  const ss = SpreadsheetApp.getActive();
+  let sh = ss.getSheetByName(CFG.JAWABU_TAB);
+  if (!sh) {
+    sh = ss.insertSheet(CFG.JAWABU_TAB, ss.getNumSheets());
+    sh.getRange(CFG.JAWABU_HEADER_ROW, 1, 1, CFG.JAWABU_HEADERS.length)
+      .setValues([CFG.JAWABU_HEADERS]);
+    return { ok: true, sheet: sh };
+  }
+
+  const headerRange = sh.getRange(CFG.JAWABU_HEADER_ROW, 1, 1, CFG.JAWABU_HEADERS.length);
+  const headers = headerRange.getValues()[0].map(value => String(value || '').trim());
+  const hasAnyHeader = headers.some(Boolean);
+  if (!hasAnyHeader && sh.getLastRow() <= CFG.JAWABU_HEADER_ROW) {
+    headerRange.setValues([CFG.JAWABU_HEADERS]);
+    return { ok: true, sheet: sh };
+  }
+
+  const missing = CFG.JAWABU_HEADERS.filter(header => !headers.includes(header));
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      sheet: sh,
+      message: 'Jawabu tab exists but is missing required header(s):\n\n' +
+        missing.join('\n') + '\n\n' +
+        'Fix the header row manually, then run this menu item again.',
+    };
+  }
+  return { ok: true, sheet: sh };
+}
+
+function applyJawabuDataValidation_(sh, optionsSheet, startRow, rows) {
+  const C = CFG.JAWABU_C;
+  sh.getRange(startRow, C.VISIT_DATE, rows, 1).setDataValidation(
+    SpreadsheetApp.newDataValidation()
+      .requireDateBetween(new Date(2020, 0, 1), new Date(2099, 11, 31))
+      .setAllowInvalid(false)
+      .build()
+  ).setNumberFormat('dd-mmm-yyyy');
+  sh.getRange(startRow, C.MESSAGE_AT, rows, 1).setNumberFormat('dd-mmm-yyyy hh:mm');
+
+  applyFormulaValidationAtRow(sh, startRow, C.NATIONAL_ID, rows, '=OR(F2="",REGEXMATCH(TO_TEXT(F2),"^[0-9]{6,8}$"))', 'Use the National ID number only.');
+  applyFormulaValidationAtRow(sh, startRow, C.PRIMARY, rows, '=OR(G2="",REGEXMATCH(TO_TEXT(G2),"^254[0-9]{9}$"))', 'Use 254XXXXXXXXX format.');
+  applyFormulaValidationAtRow(sh, startRow, C.SECONDARY, rows, '=OR(H2="",REGEXMATCH(TO_TEXT(H2),"^254[0-9]{9}$"))', 'Use 254XXXXXXXXX format.');
+  applyFormulaValidationAtRow(sh, startRow, C.LATITUDE, rows, '=OR(M2="",ISNUMBER(M2))', 'Latitude must be numeric.');
+  applyFormulaValidationAtRow(sh, startRow, C.LONGITUDE, rows, '=OR(N2="",ISNUMBER(N2))', 'Longitude must be numeric.');
+
+  applyOptionsDropdown(sh, optionsSheet, C.COUNTY, 2, startRow);
+  applyOptionsDropdown(sh, optionsSheet, C.SUB_COUNTY, 3, startRow);
+
+  sh.getRange(startRow, C.DECISION, rows, 1).setDataValidation(
+    SpreadsheetApp.newDataValidation()
+      .requireValueInList(['APPROVED', 'PENDING', 'REJECTED', 'DEFERRED', 'UNDER REVIEW', 'UNDECIDED', 'BROOKSIDE', 'CASH'], true)
+      .setAllowInvalid(false)
+      .build()
+  );
+  sh.getRange(startRow, C.DUPLICATE_STATUS, rows, 1).setDataValidation(
+    SpreadsheetApp.newDataValidation()
+      .requireValueInList(['Unique', 'Possible Duplicate', 'Confirmed Duplicate', 'Not Duplicate', 'Merged'], true)
+      .setAllowInvalid(false)
+      .build()
+  );
+}
+
+function applyJawabuConditionalFormatting_(sh, startRow, rows) {
+  const C = CFG.JAWABU_C;
+  const dataRange = sh.getRange(startRow, 1, rows, jawabuLastColumn());
+  const dataA1 = dataRange.getA1Notation();
+  const existing = sh.getConditionalFormatRules().filter(rule => {
+    return !rule.getRanges().some(range =>
+      range.getSheet().getSheetId() === sh.getSheetId()
+      && range.getA1Notation() === dataA1
+    );
+  });
+  const statusLetter = columnNumberToLetter(C.DUPLICATE_STATUS);
+  const decisionLetter = columnNumberToLetter(C.DECISION);
+  const rules = [
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=$' + statusLetter + startRow + '="Possible Duplicate"')
+      .setBackground('#FFF3E0')
+      .setFontColor('#E65100')
+      .setRanges([dataRange])
+      .build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=$' + decisionLetter + startRow + '="APPROVED"')
+      .setBackground('#E8F5E9')
+      .setFontColor('#1B5E20')
+      .setRanges([dataRange])
+      .build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=$' + decisionLetter + startRow + '="REJECTED"')
+      .setBackground('#FFEBEE')
+      .setFontColor('#B71C1C')
+      .setRanges([dataRange])
+      .build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=$' + decisionLetter + startRow + '="DEFERRED"')
+      .setBackground('#FFF8E1')
+      .setFontColor('#E65100')
+      .setRanges([dataRange])
+      .build(),
+  ];
+  sh.setConditionalFormatRules(existing.concat(rules));
+}
+
+function formatJawabuSheet_(sh) {
+  sh.setFrozenRows(CFG.JAWABU_HEADER_ROW);
+  sh.getRange(CFG.JAWABU_HEADER_ROW, 1, 1, CFG.JAWABU_HEADERS.length)
+    .setBackground('#263238')
+    .setFontColor('#FFFFFF')
+    .setFontWeight('bold')
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle')
+    .setWrap(true);
+  sh.setColumnWidths(1, jawabuLastColumn(), 150);
+  sh.setColumnWidth(CFG.JAWABU_C.CUSTOMER_NAME || CFG.JAWABU_C.NAME, 220);
+  sh.setColumnWidth(CFG.JAWABU_C.GPS_LINK, 260);
+  sh.setColumnWidth(CFG.JAWABU_C.DECISION_NOTE, 320);
+  sh.setColumnWidth(CFG.JAWABU_C.RAW_MESSAGE, 420);
+  sh.getRange(CFG.JAWABU_DATA_ROW, 1, Math.max(sh.getMaxRows() - CFG.JAWABU_DATA_ROW + 1, 1), jawabuLastColumn())
+    .setVerticalAlignment('top')
+    .setWrap(true);
+}
+
+function jawabuLastColumn() {
+  return CFG.JAWABU_HEADERS.length;
+}
+
+function columnNumberToLetter(value) {
+  let col = Number(value);
+  let letter = '';
+  while (col > 0) {
+    const mod = (col - 1) % 26;
+    letter = String.fromCharCode(65 + mod) + letter;
+    col = Math.floor((col - mod) / 26);
+  }
+  return letter;
 }
 
 function applyDecisionConditionalFormatting(sh) {
@@ -499,6 +711,7 @@ function setupOrderSheetSupport() {
   ensureStaffSheet(false);
   ensureDropdownOptionsSheet();
   applyOrderValidationAndFormatting(false);
+  applyJawabuValidationAndFormatting(false);
   const result = validateStaffSheetSetup_(false);
   SpreadsheetApp.getUi().alert(
     'Order sheet support setup complete.\n\n' +
@@ -909,6 +1122,16 @@ function showStaffSheet() {
     return;
   }
   SpreadsheetApp.getActive().setActiveSheet(sh);
+}
+
+function showJawabuSheet() {
+  if (!requireOrderAdmin_()) return;
+  const setup = ensureJawabuSheetStructure_();
+  if (!setup.ok) {
+    SpreadsheetApp.getUi().alert(setup.message);
+    return;
+  }
+  SpreadsheetApp.getActive().setActiveSheet(setup.sheet);
 }
 
 function removeOrderProtections() {
@@ -1467,4 +1690,3 @@ function runSearch(query) {
          rows + '</table>' +
          (hits.length > 20 ? '<br><i>Showing first 20 of ' + hits.length + '</i>' : '');
 }
-

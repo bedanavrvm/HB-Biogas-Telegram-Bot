@@ -82,7 +82,7 @@ WORKFLOW_PRESETS = {
     },
     'jawabu_homebiogas': {
         'label': 'Jawabu HomeBiogas',
-        'description': 'Imports Jawabu WhatsApp visit exports and flags ID+phone duplicates.',
+        'description': 'Imports Jawabu WhatsApp visit exports and flags customer identifier duplicates.',
         'sheet_name': 'Jawabu Visits',
         'workflow': {
             'type': 'jawabu_homebiogas',

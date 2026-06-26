@@ -11,7 +11,7 @@ The script improves the live Google Sheet around the bot workflow:
 - Normalises manual sheet edits.
 - Highlights pending and stale order rows.
 - Applies row conditional formatting from `FINAL DECISION`.
-- Applies dropdowns and data type validation.
+- Applies strict dropdowns and data type validation.
 - Sends decision and stale-order email notifications.
 - Builds a lightweight dashboard tab.
 - Protects bot-owned columns from manual edits.
@@ -34,10 +34,10 @@ UX, validation, notifications, and reporting inside Google Sheets.
 5. Save the project.
 6. Reload the Google Sheet.
 7. Use the new `Orders` menu.
-8. Run `Orders > Setup order sheet support`.
+8. Run `Orders > Setup order sheet support`. This also prepares the optional `Jawabu Visits` tab when it exists, or creates it if missing.
 9. Replace the sample staff rows with real staff names and emails.
-10. Add your Branch, County, Visited By, and HB Staff options in the
-   `Dropdown Options` tab.
+10. Add your Branch, County, Sub-County, Visited By, and HB Staff options in the
+   `Dropdown Options` tab. These dropdowns are strict, so add new options before staff use them.
 11. Run `Orders > Validate Staff tab`.
 12. Optional: fill `Editable Columns`, add the Render Google service account as
    an active `IT` row with `Editable Columns=All`, then run
@@ -73,6 +73,26 @@ CREDIT ANALYSIS | FINAL DECISION | Media URLs
 
 The main columns are defined in `CFG.C` inside the script. If the sheet layout
 changes, update those column numbers before using the script.
+### Jawabu Imports Tab
+
+If the same workbook is also used for the Jawabu HomeBiogas WhatsApp batch workflow, the script supports a separate tab named:
+
+```text
+Jawabu Visits
+```
+
+`Orders > Apply Jawabu validation + formatting` creates the tab if it is missing. If the tab already exists and has headers, the script validates that the expected Jawabu headers are present and will not overwrite a non-empty header row.
+
+The Jawabu tab uses row 1 as the header row and row 2+ as imported data rows. It validates:
+
+- National ID as digits only
+- primary and secondary phones as `254XXXXXXXXX`
+- county and sub-county from `Dropdown Options`
+- decision values
+- duplicate status values
+- visit date and WhatsApp message timestamp formatting
+
+This tab is for comparing WhatsApp-imported Jawabu data against BRO-submitted `Orders` data in the same workbook.
 
 ## Menu Access
 
@@ -181,7 +201,8 @@ The `Orders` menu contains:
 | Highlight pending decisions | `highlightPending` | Highlights rows with no final decision. |
 | Highlight stale rows | `highlightStale` | Highlights rows pending for `CFG.STALE_DAYS` days. |
 | Validate required fields | `validateRequired` | Reports rows missing required fields. |
-| Apply validation + formatting | `applyOrderValidationAndFormatting` | Applies dropdowns, type validation, and final-decision row colours. |
+| Apply validation + formatting | `applyOrderValidationAndFormatting` | Applies strict dropdowns, type validation, and final-decision row colours. |
+| Apply Jawabu validation + formatting | `applyJawabuValidationAndFormatting` | Creates/validates/formats the `Jawabu Visits` tab for WhatsApp batch imports. |
 | Repair media links | `repairMediaLinks` | Makes multiple URLs in `Media URLs` independently clickable. |
 | Refresh dashboard | `buildDashboard` | Rebuilds the dashboard sheet. |
 | Send stale digest now | `sendStaleDigestNow` | Sends the stale-order email digest immediately using Staff recipients. |
@@ -190,6 +211,7 @@ The `Orders` menu contains:
 | Create/update Staff tab | `ensureStaffSheet` | Creates or repairs the Staff tab headers. |
 | Validate Staff tab | `validateStaffSheetSetup` | Checks Staff rows for setup issues. |
 | Show Staff tab | `showStaffSheet` | Opens the Staff tab. |
+| Show Jawabu tab | `showJawabuSheet` | Opens or creates the `Jawabu Visits` tab after header validation. |
 | Protect bot columns | `protectBotCols` | Protects bot-managed columns. |
 | Apply Staff permissions | `applyStaffPermissions` | Applies column edit protections from `Staff.Editable Columns`. |
 | Remove order protections | `removeOrderProtections` | Removes order approval range protections. |
@@ -283,8 +305,11 @@ Applies:
 - integer customer number validation
 - date validation and `dd-mmm-yyyy` date formatting
 
-Manual option dropdowns are warning-based so the bot is not blocked if a new
-branch/staff value is submitted before the option list is updated.
+Manual option dropdowns are strict. Add new branch, county, sub-county, visited-by, and HB staff values to `Dropdown Options` before staff use them in the sheet.
+
+`applyJawabuValidationAndFormatting()`
+
+Creates or validates the `Jawabu Visits` tab, applies Jawabu-specific data validation, and formats the tab for WhatsApp batch imports.
 
 `applyDecisionConditionalFormatting(sh)`
 
