@@ -778,6 +778,10 @@ Mary Njeri njihia
         self.assertEqual(record.duplicate_status, 'unique')
         self.assertEqual(record.national_id, '1382654')
         self.assertEqual(record.primary_phone, '254720570031')
+        status_index = list(JAWABU_FIELD_HEADERS.values()).index('Import Status')
+        duplicate_index = list(JAWABU_FIELD_HEADERS.values()).index('Duplicate Status')
+        self.assertEqual(fake_sheet.appended_rows[0][status_index], 'Imported')
+        self.assertEqual(fake_sheet.appended_rows[0][duplicate_index], 'Unique')
 
     @patch('core.services.jawabu.get_sheets_service')
     def test_jawabu_import_accepts_name_and_national_id_without_phone(self, mock_service):
@@ -856,7 +860,11 @@ Country: Kenya
         self.assertEqual(result['imported'], 0)
         self.assertEqual(result['rejected'], 1)
         self.assertEqual(result['rejections'][0]['missing_fields'], ['Customer Name'])
-        self.assertEqual(fake_sheet.appended_rows, [])
+        self.assertEqual(len(fake_sheet.appended_rows), 1)
+        status_index = list(JAWABU_FIELD_HEADERS.values()).index('Import Status')
+        notes_index = list(JAWABU_FIELD_HEADERS.values()).index('Review Notes')
+        self.assertEqual(fake_sheet.appended_rows[0][status_index], 'Rejected')
+        self.assertIn('Missing required field', fake_sheet.appended_rows[0][notes_index])
         record = JawabuVisitRecord.objects.get()
         self.assertEqual(record.import_status, 'rejected')
 
@@ -961,7 +969,19 @@ Mary Njeri njihia
         self.assertEqual(result['imported'], 0)
         self.assertEqual(result['duplicate_review'], 2)
         self.assertEqual(len(result['duplicates']), 2)
-        self.assertEqual(fake_sheet.appended_rows, [])
+        self.assertEqual(len(fake_sheet.appended_rows), 2)
+        status_index = list(JAWABU_FIELD_HEADERS.values()).index('Import Status')
+        duplicate_index = list(JAWABU_FIELD_HEADERS.values()).index('Duplicate Status')
+        notes_index = list(JAWABU_FIELD_HEADERS.values()).index('Review Notes')
+        self.assertEqual(
+            [row[status_index] for row in fake_sheet.appended_rows],
+            ['Duplicate Review', 'Duplicate Review'],
+        )
+        self.assertEqual(
+            [row[duplicate_index] for row in fake_sheet.appended_rows],
+            ['Possible Duplicate', 'Possible Duplicate'],
+        )
+        self.assertTrue(all('Duplicate group:' in row[notes_index] for row in fake_sheet.appended_rows))
         self.assertEqual(
             set(JawabuVisitRecord.objects.values_list('duplicate_status', flat=True)),
             {'possible_duplicate'},
@@ -989,12 +1009,12 @@ class FakeJawabuSheet:
         first_row = len(self.appended_rows) + 2
         self.appended_rows.extend(rows)
         last_row = first_row + len(rows) - 1
-        return {'updates': {'updatedRange': f"'Jawabu Visits'!A{first_row}:U{last_row}"}}
+        return {'updates': {'updatedRange': f"'Jawabu Visits'!A{first_row}:V{last_row}"}}
 
     def append_row(self, row, value_input_option='USER_ENTERED'):
         first_row = len(self.appended_rows) + 2
         self.appended_rows.append(row)
-        return {'updates': {'updatedRange': f"'Jawabu Visits'!A{first_row}:U{first_row}"}}
+        return {'updates': {'updatedRange': f"'Jawabu Visits'!A{first_row}:V{first_row}"}}
 
 
 class FakeJawabuService:

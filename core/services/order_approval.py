@@ -37,6 +37,8 @@ DEFAULT_RECORD_ID_FIELD = 'order_record_id'
 DEFAULT_RECORD_ID_PREFIX = 'JBL'
 DEFAULT_BRANCH_CHOICES = ['MURANGA', 'EMBU']
 ORDER_APPROVAL_WEBAPP_FIELDS = [
+    'order_no',
+    'requisition_date',
     'id_number',
     'date_visited',
     'customer_name',
@@ -54,11 +56,14 @@ ORDER_APPROVAL_WEBAPP_FIELDS = [
     'imab_created',
     'customer_no',
     'credit_analysis',
+    'decision_comment',
     'final_decision',
 ]
 
 ORDER_APPROVAL_FIELD_HEADERS = {
     'order_record_id': 'ORDER RECORD ID',
+    'order_no': 'ORDER NO',
+    'requisition_date': 'REQUISITION DATE',
     'date_visited': 'DATE VISITED',
     'customer_name': 'CUSTOMER NAME',
     'branch': 'BRANCH',
@@ -72,10 +77,11 @@ ORDER_APPROVAL_FIELD_HEADERS = {
     'hb_staff': 'HB STAFF',
     'deposit_hb': 'DEPOSIT / HB',
     'deposit_jbl': 'DEPOSIT / JBL',
-    'comment': 'COMMENT',
+    'comment': 'BRO COMMENT',
     'imab_created': 'IS CUSTOMER CREATED ON IMAB?',
     'customer_no': 'CUSTOMER NO',
     'credit_analysis': 'CREDIT ANALYSIS',
+    'decision_comment': 'DECISION COMMENT',
     'final_decision': 'FINAL DECISION',
     'media_urls': 'Media URLs',
 }
@@ -83,6 +89,9 @@ ORDER_APPROVAL_FIELD_HEADERS = {
 LABEL_ALIASES = {
     'id': 'id_number',
     'id number': 'id_number',
+    'order no': 'order_no',
+    'order number': 'order_no',
+    'requisition date': 'requisition_date',
     'date visited': 'date_visited',
     'customer name': 'customer_name',
     'branch': 'branch',
@@ -104,16 +113,23 @@ LABEL_ALIASES = {
     'jbl deposit': 'deposit_jbl',
     'deposit jbl': 'deposit_jbl',
     'comment': 'comment',
+    'bro comment': 'comment',
+    'bro comments': 'comment',
+    'bro remarks': 'comment',
     'imab created': 'imab_created',
     'is customer created on imab': 'imab_created',
     'customer no': 'customer_no',
     'customer number': 'customer_no',
     'credit analysis': 'credit_analysis',
+    'decision comment': 'decision_comment',
+    'decision comments': 'decision_comment',
+    'final comment': 'decision_comment',
+    'final comments': 'decision_comment',
     'final decision': 'final_decision',
     'decision': 'final_decision',
 }
 
-DATE_FIELDS = {'date_visited'}
+DATE_FIELDS = {'date_visited', 'requisition_date'}
 PHONE_FIELDS = {'primary_phone', 'secondary_phone'}
 MONEY_FIELDS = {'deposit_hb', 'deposit_jbl'}
 INTEGER_FIELDS = {'customer_no'}
@@ -1047,13 +1063,15 @@ def validate_order_approval_fields(fields: dict[str, str]) -> list[str]:
                 f"{header_for_field({}, field)} must be one of: {', '.join(allowed)}."
             )
 
-    date_value = str(fields.get('date_visited') or '').strip()
-    if date_value:
+    for field in DATE_FIELDS:
+        date_value = str(fields.get(field) or '').strip()
+        if not date_value:
+            continue
         normalized_date = html_date_value(date_value)
         try:
             datetime.strptime(normalized_date, '%Y-%m-%d')
         except ValueError:
-            errors.append('DATE VISITED must be a valid date.')
+            errors.append(f'{header_for_field({}, field)} must be a valid date.')
 
     return errors
 

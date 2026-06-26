@@ -39,6 +39,7 @@ JAWABU_FIELD_HEADERS = {
     'media_filenames': 'Media Filenames',
     'decision': 'Decision',
     'decision_note': 'Decision Note',
+    'import_status': 'Import Status',
     'duplicate_key': 'Duplicate Key',
     'duplicate_status': 'Duplicate Status',
     'review_notes': 'Review Notes',
@@ -183,7 +184,7 @@ def process_jawabu_batch_export(
     results = []
     duplicate_reports = []
     rejection_reports = []
-    pending_sheet_results = []
+    sheet_results = []
 
     for parsed in parsed_records:
         if not parsed.is_complete:
@@ -195,7 +196,9 @@ def process_jawabu_batch_export(
                 duplicate_status='unique',
                 sync_error='Missing required field(s): ' + ', '.join(parsed.missing_fields),
             )
-            results.append({'status': 'rejected', 'record': record, 'parsed': parsed})
+            item = {'status': 'rejected', 'record': record, 'parsed': parsed}
+            results.append(item)
+            sheet_results.append(item)
             rejection_reports.append(rejection_summary(parsed, parsed.missing_fields))
             continue
 
@@ -213,7 +216,9 @@ def process_jawabu_batch_export(
                 duplicate_group_id=group_id,
                 sync_error='Duplicate customer identifier needs manual review.',
             )
-            results.append({'status': 'duplicate_review', 'record': record, 'parsed': parsed})
+            item = {'status': 'duplicate_review', 'record': record, 'parsed': parsed}
+            results.append(item)
+            sheet_results.append(item)
             duplicate_reports.append(duplicate_summary(parsed, existing, group_id))
             continue
 
@@ -226,25 +231,28 @@ def process_jawabu_batch_export(
         )
         result_item = {'status': 'pending', 'record': record, 'parsed': parsed}
         results.append(result_item)
-        pending_sheet_results.append(result_item)
+        sheet_results.append(result_item)
 
-    if pending_sheet_results:
+    if sheet_results:
         sync_result = append_jawabu_records_to_sheet(
             group_config,
-            [item['record'] for item in pending_sheet_results],
+            [item['record'] for item in sheet_results],
         )
         if sync_result.get('success'):
             row_numbers = sync_result.get('row_numbers') or []
-            for index, item in enumerate(pending_sheet_results):
+            for index, item in enumerate(sheet_results):
                 record = item['record']
-                record.import_status = 'imported'
                 record.row_number = row_numbers[index] if index < len(row_numbers) else None
-                record.sync_error = ''
-                record.save(update_fields=['import_status', 'row_number', 'sync_error'])
-                item['status'] = 'imported'
+                update_fields = ['row_number']
+                if item['status'] == 'pending':
+                    record.import_status = 'imported'
+                    record.sync_error = ''
+                    item['status'] = 'imported'
+                    update_fields.extend(['import_status', 'sync_error'])
+                record.save(update_fields=update_fields)
         else:
             error = sync_result.get('error') or 'Google Sheets append failed'
-            for item in pending_sheet_results:
+            for item in sheet_results:
                 record = item['record']
                 record.import_status = 'failed'
                 record.sync_error = error
@@ -753,8 +761,9 @@ def append_jawabu_records_to_sheet(group_config, records: list[JawabuVisitRecord
         row_values = ['' for _ in headers]
         fields = dict(record.parsed_fields or {})
         fields['record_id'] = jawabu_record_id(record)
-        fields['duplicate_status'] = 'Unique'
-        fields['review_notes'] = ''
+        fields['import_status'] = sheet_import_status(record)
+        fields['duplicate_status'] = sheet_duplicate_status(record)
+        fields['review_notes'] = jawabu_review_notes(record)
         for field, header in field_headers.items():
             if header in headers:
                 row_values[headers.index(header)] = fields.get(field, '')
@@ -820,6 +829,44 @@ def header_row_values(values: list[list[str]], workflow: dict) -> list[str]:
 
 def jawabu_record_id(record: JawabuVisitRecord) -> str:
     return f"JAW-{record.created_at.strftime('%Y%m%d')}-{str(record.id)[:8].upper()}"
+
+
+def sheet_import_status(record: JawabuVisitRecord) -> str:
+    status = str(record.import_status or '').strip()
+    if status == 'pending':
+        status = 'imported'
+    labels = {
+        'imported': 'Imported',
+        'duplicate_review': 'Duplicate Review',
+        'rejected': 'Rejected',
+        'failed': 'Failed',
+        'pending': 'Pending',
+    }
+    return labels.get(status, status.replace('_', ' ').title())
+
+
+def sheet_duplicate_status(record: JawabuVisitRecord) -> str:
+    status = str(record.duplicate_status or 'unique').strip()
+    labels = {
+        'unique': 'Unique',
+        'possible_duplicate': 'Possible Duplicate',
+        'confirmed_duplicate': 'Confirmed Duplicate',
+        'not_duplicate': 'Not Duplicate',
+        'merged': 'Merged',
+    }
+    return labels.get(status, status.replace('_', ' ').title())
+
+
+def jawabu_review_notes(record: JawabuVisitRecord) -> str:
+    notes = []
+    if record.duplicate_group_id:
+        notes.append(f'Duplicate group: {record.duplicate_group_id}')
+    if record.sync_error:
+        notes.append(str(record.sync_error))
+    existing = (record.parsed_fields or {}).get('review_notes')
+    if existing:
+        notes.append(str(existing))
+    return "\n".join(note for note in notes if str(note).strip())
 
 
 def format_sheet_date(value) -> str:

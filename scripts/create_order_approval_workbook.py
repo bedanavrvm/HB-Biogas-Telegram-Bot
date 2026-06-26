@@ -21,6 +21,8 @@ PRE_FORMATTED_ROWS = 200
 
 HEADERS = [
     "ORDER RECORD ID",
+    "ORDER NO",
+    "REQUISITION DATE",
     "DATE VISITED",
     "CUSTOMER NAME",
     "BRANCH",
@@ -34,16 +36,19 @@ HEADERS = [
     "HB STAFF",
     "DEPOSIT / HB",
     "DEPOSIT / JBL",
-    "COMMENT",
+    "BRO COMMENT",
     "IS CUSTOMER CREATED ON IMAB?",
     "CUSTOMER NO",
     "CREDIT ANALYSIS",
+    "DECISION COMMENT",
     "FINAL DECISION",
     "Media URLs",
 ]
 
 SAMPLE_ROW = [
     "JBL-1",
+    "ORD-001",
+    "08-May-2026",
     "09-May-2026",
     "PATRICK MWANGI MAINA",
     "MURANGA",
@@ -61,6 +66,7 @@ SAMPLE_ROW = [
     "CREATED",
     "15118",
     "Pending",
+    "Reviewed by credit team",
     "Deferred",
     "",
 ]
@@ -105,6 +111,8 @@ GROUP_STYLES = {
 
 HEADER_GROUPS = {
     "ORDER RECORD ID": "system",
+    "ORDER NO": "visit",
+    "REQUISITION DATE": "visit",
     "DATE VISITED": "visit",
     "CUSTOMER NAME": "visit",
     "BRANCH": "visit",
@@ -118,16 +126,19 @@ HEADER_GROUPS = {
     "HB STAFF": "staff",
     "DEPOSIT / HB": "financial",
     "DEPOSIT / JBL": "financial",
-    "COMMENT": "assessment",
+    "BRO COMMENT": "assessment",
     "IS CUSTOMER CREATED ON IMAB?": "assessment",
     "CUSTOMER NO": "assessment",
     "CREDIT ANALYSIS": "assessment",
+    "DECISION COMMENT": "decision",
     "FINAL DECISION": "decision",
     "Media URLs": "system",
 }
 
 COLUMN_WIDTHS = {
     "ORDER RECORD ID": 24,
+    "ORDER NO": 16,
+    "REQUISITION DATE": 18,
     "DATE VISITED": 15,
     "CUSTOMER NAME": 28,
     "BRANCH": 16,
@@ -141,10 +152,11 @@ COLUMN_WIDTHS = {
     "HB STAFF": 20,
     "DEPOSIT / HB": 14,
     "DEPOSIT / JBL": 14,
-    "COMMENT": 36,
+    "BRO COMMENT": 36,
     "IS CUSTOMER CREATED ON IMAB?": 24,
     "CUSTOMER NO": 16,
     "CREDIT ANALYSIS": 18,
+    "DECISION COMMENT": 36,
     "FINAL DECISION": 18,
     "Media URLs": 42,
 }

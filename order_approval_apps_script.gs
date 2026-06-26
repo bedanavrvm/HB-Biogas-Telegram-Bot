@@ -12,32 +12,35 @@ const CFG = {
   /* Column positions - 1-based, matching scripts/create_order_approval_workbook.py */
   C: {
     ORDER_RECORD_ID: 1,  /* A - bot-managed stable record ID */
-    DATE_VISITED:   2,  /* B */
-    NAME:           3,  /* C */
-    BRANCH:         4,  /* D */
-    ID_NUMBER:      5,  /* E - dedup key */
-    PRIMARY:        6,  /* F */
-    SECONDARY:      7,  /* G */
-    COUNTY:         8,  /* H */
-    SUB_COUNTY:     9,  /* I */
-    LANDMARK:      10,  /* J */
-    VISITED_BY:    11,  /* K */
-    HB_STAFF:      12,  /* L */
-    DEP_HB:        13,  /* M */
-    DEP_JBL:       14,  /* N */
-    COMMENT:       15,  /* O */
-    IMAB:          16,  /* P */
-    CUSTOMER_NO:   17,  /* Q */
-    CREDIT:        18,  /* R */
-    DECISION:      19,  /* S */
-    MEDIA_URLS:    20,  /* T - bot-managed */
+    ORDER_NO:       2,  /* B */
+    REQ_DATE:       3,  /* C */
+    DATE_VISITED:   4,  /* D */
+    NAME:           5,  /* E */
+    BRANCH:         6,  /* F */
+    ID_NUMBER:      7,  /* G - dedup key */
+    PRIMARY:        8,  /* H */
+    SECONDARY:      9,  /* I */
+    COUNTY:        10,  /* J */
+    SUB_COUNTY:    11,  /* K */
+    LANDMARK:      12,  /* L */
+    VISITED_BY:    13,  /* M */
+    HB_STAFF:      14,  /* N */
+    DEP_HB:        15,  /* O */
+    DEP_JBL:       16,  /* P */
+    BRO_COMMENT:   17,  /* Q */
+    IMAB:          18,  /* R */
+    CUSTOMER_NO:   19,  /* S */
+    CREDIT:        20,  /* T */
+    DECISION_NOTE: 21,  /* U */
+    DECISION:      22,  /* V */
+    MEDIA_URLS:    23,  /* W - bot-managed */
   },
 
   /* Columns the Telegram bot owns - show warning before manual edit */
-  BOT_COLS: [1, 20],
+  BOT_COLS: [1, 23],
 
   /* Minimum columns needed for a row to count as complete */
-  REQUIRED: [2, 3, 5, 6, 8],   /* Date, Name, ID, Primary, County */
+  REQUIRED: [4, 5, 7, 8, 10],   /* Date, Name, ID, Primary, County */
 
   /* FINAL DECISION -> row highlight colour */
   COLOURS: {
@@ -74,7 +77,7 @@ const CFG = {
     'Customer Name', 'National ID', 'Primary Phone', 'Secondary Phone',
     'County', 'Sub-County / City', 'Landmark / Street', 'GPS Link',
     'Latitude', 'Longitude', 'Media Filenames', 'Decision', 'Decision Note',
-    'Duplicate Key', 'Duplicate Status', 'Review Notes', 'Raw Message',
+    'Import Status', 'Duplicate Key', 'Duplicate Status', 'Review Notes', 'Raw Message',
   ],
   JAWABU_C: {
     RECORD_ID: 1,
@@ -94,10 +97,11 @@ const CFG = {
     MEDIA_FILENAMES: 15,
     DECISION: 16,
     DECISION_NOTE: 17,
-    DUPLICATE_KEY: 18,
-    DUPLICATE_STATUS: 19,
-    REVIEW_NOTES: 20,
-    RAW_MESSAGE: 21,
+    IMPORT_STATUS: 18,
+    DUPLICATE_KEY: 19,
+    DUPLICATE_STATUS: 20,
+    REVIEW_NOTES: 21,
+    RAW_MESSAGE: 22,
   },
   /* Optional bootstrap/admin allowlist. Fill this if the menu does not appear before authorization. */
   OWNER_EMAILS: [],
@@ -113,14 +117,14 @@ const CFG = {
 
   ROLE_EDIT_GROUPS: {
     BRO: [
-      'DATE VISITED', 'CUSTOMER NAME', 'BRANCH', 'ID NUMBER',
+      'ORDER NO', 'REQUISITION DATE', 'DATE VISITED', 'CUSTOMER NAME', 'BRANCH', 'ID NUMBER',
       'CONTACTS / PRIMARY', 'CONTACTS / SECONDARY', 'COUNTY',
       'SUB-COUNTY', 'LOCATION AND NEAREST LANDMARK', 'VISITED BY', 'HB STAFF',
-      'DEPOSIT / HB', 'DEPOSIT / JBL', 'COMMENT',
+      'DEPOSIT / HB', 'DEPOSIT / JBL', 'BRO COMMENT',
     ],
     'BACK-OFFICE': [
       'IS CUSTOMER CREATED ON IMAB?', 'CUSTOMER NO', 'CREDIT ANALYSIS',
-      'FINAL DECISION', 'COMMENT',
+      'DECISION COMMENT', 'FINAL DECISION',
     ],
     MANAGER: ['All'],
     IT: ['All'],
@@ -441,18 +445,20 @@ function applyOrderDataValidation(sh, optionsSheet) {
   applyOptionsDropdown(sh, optionsSheet, CFG.C.VISITED_BY, 4);
   applyOptionsDropdown(sh, optionsSheet, CFG.C.HB_STAFF, 5);
 
-  applyFormulaValidation(sh, CFG.C.PRIMARY, rows, '=OR(F3="",REGEXMATCH(TO_TEXT(F3),"^254[0-9]{9}$"))', 'Use 254XXXXXXXXX format.');
-  applyFormulaValidation(sh, CFG.C.SECONDARY, rows, '=OR(G3="",REGEXMATCH(TO_TEXT(G3),"^254[0-9]{9}$"))', 'Use 254XXXXXXXXX format.');
-  applyFormulaValidation(sh, CFG.C.DEP_HB, rows, '=OR(M3="",REGEXMATCH(TO_TEXT(M3),"^[0-9]+(\\.[0-9]{1,2})?$"))', 'Use a non-negative amount.');
-  applyFormulaValidation(sh, CFG.C.DEP_JBL, rows, '=OR(N3="",REGEXMATCH(TO_TEXT(N3),"^[0-9]+(\\.[0-9]{1,2})?$"))', 'Use a non-negative amount.');
-  applyFormulaValidation(sh, CFG.C.CUSTOMER_NO, rows, '=OR(Q3="",REGEXMATCH(TO_TEXT(Q3),"^[0-9]+$"))', 'Use digits only.');
+  applyFormulaValidation(sh, CFG.C.PRIMARY, rows, '=OR(H3="",REGEXMATCH(TO_TEXT(H3),"^254[0-9]{9}$"))', 'Use 254XXXXXXXXX format.');
+  applyFormulaValidation(sh, CFG.C.SECONDARY, rows, '=OR(I3="",REGEXMATCH(TO_TEXT(I3),"^254[0-9]{9}$"))', 'Use 254XXXXXXXXX format.');
+  applyFormulaValidation(sh, CFG.C.DEP_HB, rows, '=OR(O3="",REGEXMATCH(TO_TEXT(O3),"^[0-9]+(\\.[0-9]{1,2})?$"))', 'Use a non-negative amount.');
+  applyFormulaValidation(sh, CFG.C.DEP_JBL, rows, '=OR(P3="",REGEXMATCH(TO_TEXT(P3),"^[0-9]+(\\.[0-9]{1,2})?$"))', 'Use a non-negative amount.');
+  applyFormulaValidation(sh, CFG.C.CUSTOMER_NO, rows, '=OR(S3="",REGEXMATCH(TO_TEXT(S3),"^[0-9]+$"))', 'Use digits only.');
 
-  sh.getRange(CFG.DATA_ROW, CFG.C.DATE_VISITED, rows, 1).setDataValidation(
-    SpreadsheetApp.newDataValidation()
-      .requireDateBetween(new Date(2020, 0, 1), new Date(2099, 11, 31))
-      .setAllowInvalid(false)
-      .build()
-  ).setNumberFormat('dd-mmm-yyyy');
+  [CFG.C.REQ_DATE, CFG.C.DATE_VISITED].forEach(col => {
+    sh.getRange(CFG.DATA_ROW, col, rows, 1).setDataValidation(
+      SpreadsheetApp.newDataValidation()
+        .requireDateBetween(new Date(2020, 0, 1), new Date(2099, 11, 31))
+        .setAllowInvalid(false)
+        .build()
+    ).setNumberFormat('dd-mmm-yyyy');
+  });
 }
 
 function applyOptionsDropdown(sh, optionsSheet, targetCol, optionsCol, startRow) {
@@ -571,6 +577,13 @@ function applyJawabuDataValidation_(sh, optionsSheet, startRow, rows) {
       .setAllowInvalid(false)
       .build()
   );
+  sh.getRange(startRow, C.IMPORT_STATUS, rows, 1).setDataValidation(
+    SpreadsheetApp.newDataValidation()
+      .requireValueInList(['Imported', 'Duplicate Review', 'Rejected', 'Failed', 'Pending'], true)
+      .setAllowInvalid(false)
+      .build()
+  );
+
   sh.getRange(startRow, C.DUPLICATE_STATUS, rows, 1).setDataValidation(
     SpreadsheetApp.newDataValidation()
       .requireValueInList(['Unique', 'Possible Duplicate', 'Confirmed Duplicate', 'Not Duplicate', 'Merged'], true)
@@ -589,9 +602,22 @@ function applyJawabuConditionalFormatting_(sh, startRow, rows) {
       && range.getA1Notation() === dataA1
     );
   });
+  const importStatusLetter = columnNumberToLetter(C.IMPORT_STATUS);
   const statusLetter = columnNumberToLetter(C.DUPLICATE_STATUS);
   const decisionLetter = columnNumberToLetter(C.DECISION);
   const rules = [
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=$' + importStatusLetter + startRow + '="Rejected"')
+      .setBackground('#FFEBEE')
+      .setFontColor('#B71C1C')
+      .setRanges([dataRange])
+      .build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=$' + importStatusLetter + startRow + '="Failed"')
+      .setBackground('#FCE4EC')
+      .setFontColor('#880E4F')
+      .setRanges([dataRange])
+      .build(),
     SpreadsheetApp.newConditionalFormatRule()
       .whenFormulaSatisfied('=$' + statusLetter + startRow + '="Possible Duplicate"')
       .setBackground('#FFF3E0')
@@ -1405,9 +1431,10 @@ function notifyDecision(sh, row, decision) {
   const id     = g(CFG.C.ID_NUMBER);
   const branch = g(CFG.C.BRANCH);
   const visitedBy = g(CFG.C.VISITED_BY);
-  const credit = g(CFG.C.CREDIT)      || 'not set';
-  const custNo = g(CFG.C.CUSTOMER_NO) || 'not set';
-  const comment= g(CFG.C.COMMENT)     || 'not set';
+  const credit = g(CFG.C.CREDIT)        || 'not set';
+  const custNo = g(CFG.C.CUSTOMER_NO)   || 'not set';
+  const broComment = g(CFG.C.BRO_COMMENT) || 'not set';
+  const decisionComment = g(CFG.C.DECISION_NOTE) || 'not set';
   const url    = SpreadsheetApp.getActive().getUrl();
   const mark   = decision === 'Approved' ? '[APPROVED]' : '[REJECTED]';
   const event  = decision === 'Approved' ? 'decision_approved' : 'decision_rejected';
@@ -1438,7 +1465,8 @@ function notifyDecision(sh, row, decision) {
     'Branch:         ' + branch,
     'Credit analysis:' + credit,
     'Customer no:    ' + custNo,
-    'Comment:        ' + comment,
+    'BRO comment:    ' + broComment,
+    'Decision note:  ' + decisionComment,
     '',
     'View in sheet: ' + url,
     '',

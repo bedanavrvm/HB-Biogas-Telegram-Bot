@@ -470,6 +470,14 @@
             <div id="id-suggestions" class="id-suggestions" role="listbox" aria-label="Matching ID numbers"></div>
           </div>
           <label>
+            Order no
+            <input name="order_no" autocomplete="off">
+          </label>
+          <label>
+            Requisition date
+            <input name="requisition_date" type="date">
+          </label>
+          <label>
             Date visited
             <input name="date_visited" type="date">
           </label>
@@ -556,6 +564,14 @@
               <option value="Rejected">Rejected</option>
             </select>
           </label>
+          <label class="span-2">
+            BRO comment
+            <textarea name="comment"></textarea>
+          </label>
+          <label class="span-2">
+            Decision comment
+            <textarea name="decision_comment"></textarea>
+          </label>
           <label>
             Final decision
             <select name="final_decision">
@@ -565,10 +581,6 @@
               <option value="Deferred">Deferred</option>
               <option value="Under Review">Under Review</option>
             </select>
-          </label>
-          <label class="span-2">
-            Comment
-            <textarea name="comment"></textarea>
           </label>
         </div>
       </fieldset>
@@ -624,6 +636,8 @@
     const editRowInput = document.getElementById('edit-row');
     const editFingerprintInput = document.getElementById('edit-fingerprint');
     const editableFields = [
+      'order_no',
+      'requisition_date',
       'id_number',
       'date_visited',
       'customer_name',
@@ -641,6 +655,7 @@
       'imab_created',
       'customer_no',
       'credit_analysis',
+      'decision_comment',
       'final_decision'
     ];
     const phoneFieldNames = ['primary_phone', 'secondary_phone'];
