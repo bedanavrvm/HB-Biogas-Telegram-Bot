@@ -20,6 +20,7 @@ from core.models import (
     JawabuVisitRecord,
     LiveSheetRecordChange,
     OrderApprovalUpdate,
+    MediaAttachment,
     RawMessage,
     ProcessedMessage,
     ParsedMessage,
@@ -596,7 +597,7 @@ class JawabuWorkflowServiceTest(TestCase):
             enabled=True,
             sheet_id='sheet_jawabu',
             sheet_name='Jawabu Visits',
-            workflow={'type': 'jawabu_homebiogas', 'header_row': 1},
+            workflow={'type': 'jawabu_homebiogas', 'header_row': 1, 'import_start_date': ''},
         )
 
     def test_extract_jawabu_fields_uses_national_id_and_primary_phone(self):
@@ -890,6 +891,44 @@ John Mwangi
         self.assertEqual(fake_sheet.row_values_calls, 1)
         self.assertEqual(fake_sheet.get_all_values_calls, 0)
         self.assertEqual(fake_sheet.append_rows_calls, 1)
+
+    @patch('core.services.jawabu.get_sheets_service')
+    def test_jawabu_import_skips_messages_before_configured_start_date(self, mock_service):
+        from core.services.jawabu import JAWABU_FIELD_HEADERS, process_jawabu_batch_export
+
+        self.group.workflow = {'type': 'jawabu_homebiogas', 'header_row': 1}
+        self.group.save(update_fields=['workflow'])
+        fake_sheet = FakeJawabuSheet(list(JAWABU_FIELD_HEADERS.values()))
+        mock_service.return_value = FakeJawabuService(fake_sheet)
+        export = """4/30/26, 11:46 AM - Alex Kairu: IMG-20260430-WA0005.jpg (file attached)
+https://www.google.com/maps/search/?api=1&query=-0.55393,37.526935
+State: Embu County
+Country: Kenya
+April Customer
+1382654
+0720570031
+5/1/26, 09:15 AM - Alex Kairu: IMG-20260501-WA0005.jpg (file attached)
+https://www.google.com/maps/search/?api=1&query=-0.55393,37.526935
+State: Embu County
+Country: Kenya
+May Customer
+8840023
+0727769644"""
+
+        result = process_jawabu_batch_export(
+            group_config=self.group,
+            export_text=export,
+            telegram_message_id='906',
+            sender='Importer',
+        )
+
+        self.assertEqual(result['export_messages'], 2)
+        self.assertEqual(result['skipped_before_start'], 1)
+        self.assertEqual(result['imported'], 1)
+        self.assertEqual(len(fake_sheet.appended_rows), 1)
+        record = JawabuVisitRecord.objects.get()
+        self.assertEqual(record.national_id, '8840023')
+        self.assertEqual(record.primary_phone, '254727769644')
 
     @patch('core.services.jawabu.get_sheets_service')
     def test_jawabu_import_flags_duplicate_id_and_phone_for_review(self, mock_service):
@@ -1992,6 +2031,62 @@ class LiveSheetRecordServiceTest(TestCase):
         sheet.delete_rows.assert_called_once_with(3)
 
 
+class GroupResetServiceTest(TestCase):
+    def test_reset_group_data_deletes_only_selected_group_records(self):
+        from core.services.group_reset import group_data_counts, reset_group_data
+
+        target = create_parsed_case('MSG_RESET_1', group_id='-100reset')
+        other = create_parsed_case('MSG_KEEP_1', group_id='-100keep')
+        CaseUpdate.objects.create(
+            parsed_message=target,
+            group_id='-100reset',
+            raw_update_text='STATUS: Closed',
+        )
+        OrderApprovalUpdate.objects.create(
+            group_id='-100reset',
+            sheet_id='sheet_order',
+            id_number='12345678',
+        )
+        MediaAttachment.objects.create(
+            group_id='-100reset',
+            telegram_file_id='file-reset',
+            business_key_type='id_number',
+            business_key_value='12345678',
+        )
+        JawabuVisitRecord.objects.create(
+            group_id='-100reset',
+            sheet_id='sheet_jawabu',
+            national_id='12345678',
+            primary_phone='254712345678',
+        )
+        LiveSheetRecordChange.objects.create(
+            group_id='-100reset',
+            sheet_id='sheet_order',
+            sheet_tab='Orders',
+            row_number=2,
+            action='update',
+            status='success',
+        )
+
+        before = group_data_counts('-100reset')
+        result = reset_group_data('-100reset')
+
+        self.assertGreater(before['parsed_messages'], 0)
+        self.assertEqual(sum(result['after'].values()), 0)
+        self.assertFalse(ParsedMessage.objects.filter(group_id='-100reset').exists())
+        self.assertFalse(CaseUpdate.objects.filter(group_id='-100reset').exists())
+        self.assertFalse(OrderApprovalUpdate.objects.filter(group_id='-100reset').exists())
+        self.assertFalse(MediaAttachment.objects.filter(group_id='-100reset').exists())
+        self.assertFalse(JawabuVisitRecord.objects.filter(group_id='-100reset').exists())
+        self.assertFalse(LiveSheetRecordChange.objects.filter(group_id='-100reset').exists())
+        self.assertFalse(ProcessedMessage.objects.filter(pk=target.processed_message_id).exists())
+        self.assertFalse(RawMessage.objects.filter(pk=target.processed_message.raw_message_id).exists())
+
+        self.assertTrue(ParsedMessage.objects.filter(pk=other.pk).exists())
+        self.assertTrue(ProcessedMessage.objects.filter(pk=other.processed_message_id).exists())
+        self.assertTrue(RawMessage.objects.filter(pk=other.processed_message.raw_message_id).exists())
+
+
 class GroupConfigurationServiceTest(TestCase):
     """Test admin-managed group routing configuration."""
 
@@ -2323,6 +2418,30 @@ class GroupConfigurationServiceTest(TestCase):
 
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.generated_workflow(), {'type': 'case', 'header_row': 2})
+
+    def test_group_configuration_admin_form_generates_jawabu_workflow(self):
+        """Jawabu preset should expose the configurable import start date."""
+        from core.admin import GroupSheetConfigurationAdminForm
+
+        form = GroupSheetConfigurationAdminForm(data={
+            'enabled': 'on',
+            'group_id': '-100333',
+            'display_name': 'Jawabu',
+            'sheet_id': 'sheet_jawabu_123',
+            'sheet_name': 'Jawabu Visits',
+            'sheet_schema': '{}',
+            'workflow': '{}',
+            'parser_rules': '{}',
+            'metadata': '{}',
+            'workflow_preset': 'jawabu_homebiogas',
+            'jawabu_import_start_date': '2026-05-01',
+        })
+
+        self.assertTrue(form.is_valid(), form.errors)
+        workflow = form.generated_workflow()
+        self.assertEqual(workflow['type'], 'jawabu_homebiogas')
+        self.assertEqual(workflow['header_row'], 1)
+        self.assertEqual(workflow['import_start_date'], '2026-05-01')
 
     def test_workflow_presets_define_order_approval_defaults(self):
         """Future workflow additions should follow the shared preset contract."""

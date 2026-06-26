@@ -87,13 +87,23 @@ WORKFLOW_PRESETS = {
         'workflow': {
             'type': 'jawabu_homebiogas',
             'header_row': 1,
+            'import_start_date': '2026-05-01',
             'duplicate_key_fields': ['national_id', 'primary_phone'],
             'duplicate_policy': 'flag_for_review',
             'field_headers': {},
         },
         'sheet_schema': {},
         'parser_rules': {},
-        'admin_fields': {},
+        'admin_fields': {
+            'import_start_date': {
+                'label': 'Import start date',
+                'initial': '2026-05-01',
+                'help_text': (
+                    'Ignore WhatsApp visit messages before this date. '
+                    'Use YYYY-MM-DD. Leave blank to import all dates.'
+                ),
+            },
+        },
     },
 }
 
@@ -129,6 +139,14 @@ def build_workflow_from_preset(
 
     workflow = deepcopy(workflow)
     overrides = overrides or {}
+
+    if preset_key == 'jawabu_homebiogas':
+        if 'import_start_date' in overrides:
+            value = overrides.get('import_start_date')
+            if value:
+                workflow['import_start_date'] = str(value)
+            else:
+                workflow.pop('import_start_date', None)
 
     if preset_key == 'order_approval':
         if overrides.get('search_sheet_names'):

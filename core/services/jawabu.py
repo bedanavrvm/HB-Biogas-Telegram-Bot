@@ -5,7 +5,7 @@ import hashlib
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from django.utils import timezone
@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 JAWABU_WORKFLOW_TYPE = 'jawabu_homebiogas'
+DEFAULT_IMPORT_START_DATE = '2026-05-01'
 
 JAWABU_FIELD_HEADERS = {
     'record_id': 'Record ID',
@@ -141,9 +142,15 @@ def process_jawabu_batch_export(
     """Import one Jawabu WhatsApp export into audit records and the configured sheet."""
     analysis = analyze_whatsapp_export(export_text)
     entries = analysis.get('entries') or []
+    import_start_date = configured_import_start_date(group_config)
+    eligible_entries = [
+        entry for entry in entries
+        if not is_before_import_start(entry, import_start_date)
+    ]
+    skipped_before_start = len(entries) - len(eligible_entries)
     parsed_records = [
         parse_jawabu_entry(entry, index)
-        for index, entry in enumerate(entries)
+        for index, entry in enumerate(eligible_entries)
         if looks_like_jawabu_visit(entry.get('content', ''))
     ]
 
@@ -161,6 +168,7 @@ def process_jawabu_batch_export(
             'status': 'jawabu_batch_processed',
             'source': 'jawabu_homebiogas',
             'export_messages': len(entries),
+            'skipped_before_start': skipped_before_start,
             'processed': 0,
             'imported': 0,
             'duplicate_review': 0,
@@ -247,6 +255,7 @@ def process_jawabu_batch_export(
         'status': 'jawabu_batch_processed',
         'source': 'jawabu_homebiogas',
         'export_messages': len(entries),
+        'skipped_before_start': skipped_before_start,
         'processed': len(parsed_records),
         'imported': sum(1 for result in results if result['status'] == 'imported'),
         'duplicate_review': sum(1 for result in results if result['status'] == 'duplicate_review'),
@@ -256,6 +265,34 @@ def process_jawabu_batch_export(
         'rejections': rejection_reports,
     }
 
+
+
+def configured_import_start_date(group_config) -> date | None:
+    workflow = getattr(group_config, 'workflow', None) or {}
+    if 'import_start_date' in workflow:
+        raw_value = str(workflow.get('import_start_date') or '').strip()
+        if not raw_value:
+            return None
+    else:
+        raw_value = DEFAULT_IMPORT_START_DATE
+    try:
+        return datetime.strptime(raw_value, '%Y-%m-%d').date()
+    except ValueError:
+        logger.warning(
+            "Invalid Jawabu import_start_date %r for group %s; no date filter applied",
+            raw_value,
+            getattr(group_config, 'group_id', ''),
+        )
+        return None
+
+
+def is_before_import_start(entry: dict, import_start_date: date | None) -> bool:
+    if not import_start_date:
+        return False
+    received_at = entry.get('received_at')
+    if not received_at:
+        return False
+    return timezone.localtime(received_at).date() < import_start_date
 
 def looks_like_jawabu_visit(content: str) -> bool:
     text = str(content or '')

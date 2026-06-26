@@ -87,6 +87,14 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
         label=get_preset('order_approval')['admin_fields']['media_root_folder']['label'],
         help_text=get_preset('order_approval')['admin_fields']['media_root_folder']['help_text'],
     )
+    jawabu_import_start_date = forms.DateField(
+        required=False,
+        input_formats=['%Y-%m-%d'],
+        widget=forms.DateInput(attrs={'type': 'date'}),
+        initial=get_preset('jawabu_homebiogas')['admin_fields']['import_start_date']['initial'],
+        label=get_preset('jawabu_homebiogas')['admin_fields']['import_start_date']['label'],
+        help_text=get_preset('jawabu_homebiogas')['admin_fields']['import_start_date']['help_text'],
+    )
 
     class Meta:
         model = GroupSheetConfiguration
@@ -118,6 +126,12 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
             self.fields['order_approval_media_root_folder'].initial = (
                 workflow.get('media_root_folder')
                 or defaults_for_preset('order_approval')['workflow'].get('media_root_folder', '')
+            )
+        if preset_key == 'jawabu_homebiogas':
+            self.fields['workflow_preset'].initial = 'jawabu_homebiogas'
+            self.fields['jawabu_import_start_date'].initial = (
+                workflow.get('import_start_date')
+                or defaults_for_preset('jawabu_homebiogas')['workflow'].get('import_start_date')
             )
 
     def clean(self):
@@ -154,6 +168,7 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 'media_root_folder': self.cleaned_data.get(
                     'order_approval_media_root_folder'
                 ),
+                'import_start_date': self.cleaned_data.get('jawabu_import_start_date'),
             },
         )
 
@@ -287,13 +302,14 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
     readonly_fields = [
         'created_at', 'updated_at', 'sheet_link', 'sheet_analyzer_link',
         'live_records_link', 'data_records_link', 'media_records_link',
+        'reset_group_data_link',
     ]
     fieldsets = (
         ('Group Routing', {
             'fields': (
                 'enabled', 'group_id', 'display_name', 'sheet_id',
                 'sheet_name', 'sheet_link', 'live_records_link', 'data_records_link',
-                'media_records_link', 'sheet_analyzer_link',
+                'media_records_link', 'sheet_analyzer_link', 'reset_group_data_link',
             ),
             'description': (
                 'Map one Telegram group to one Google Sheet tab. '
@@ -316,6 +332,7 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
                 'order_approval_media_field',
                 'order_approval_header_row',
                 'order_approval_media_root_folder',
+                'jawabu_import_start_date',
             ),
             'description': (
                 'Select Case / Complaints for the existing complaint intake '
@@ -407,6 +424,13 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
         )
         return format_html('<a href="{}">View media audit</a>', url)
 
+    @admin.display(description='Reset local group data')
+    def reset_group_data_link(self, obj):
+        if not obj or not obj.pk:
+            return 'Save this configuration before resetting local data.'
+        url = reverse('admin:core_groupsheetconfiguration_reset_data', args=[obj.pk])
+        return format_html('<a class="button deletelink" href="{}">Reset local DB data</a>', url)
+
     @staticmethod
     def _filtered_admin_url(route_name: str, **filters) -> str:
         query = {
@@ -430,8 +454,60 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.live_records_view),
                 name='core_groupsheetconfiguration_live_records',
             ),
+            path(
+                '<path:object_id>/reset-group-data/',
+                self.admin_site.admin_view(self.reset_group_data_view),
+                name='core_groupsheetconfiguration_reset_data',
+            ),
         ]
         return custom_urls + urls
+
+    def reset_group_data_view(self, request, object_id):
+        config = self.get_object(request, object_id)
+        if not config:
+            messages.error(request, 'Configuration was not found.')
+            return HttpResponseRedirect('../')
+        if not self.has_change_permission(request, config):
+            messages.error(request, 'You do not have permission to reset this group data.')
+            return HttpResponseRedirect('../')
+
+        from core.services.group_reset import group_data_counts, reset_group_data
+
+        counts = group_data_counts(config.group_id)
+        if request.method == 'POST':
+            if request.POST.get('confirm_reset') != 'yes':
+                messages.error(request, 'Tick the confirmation checkbox before resetting group data.')
+                return HttpResponseRedirect(request.path)
+            result = reset_group_data(config.group_id)
+            deleted_total = sum(result.get('deleted', {}).values())
+            self._clear_runtime_config_cache()
+            messages.success(
+                request,
+                f'Reset complete for {config.display_name or config.group_id}. '
+                f'Deleted {deleted_total} local database record(s). '
+                'Google Sheets and Drive files were not changed.',
+            )
+            change_url = reverse(
+                'admin:core_groupsheetconfiguration_change',
+                args=[config.pk],
+            )
+            return HttpResponseRedirect(change_url)
+
+        context = {
+            **self.admin_site.each_context(request),
+            'title': f'Reset local data: {config.display_name or config.group_id}',
+            'opts': self.model._meta,
+            'original': config,
+            'config': config,
+            'counts': counts,
+            'total_count': sum(counts.values()),
+            'has_change_permission': self.has_change_permission(request, config),
+        }
+        return TemplateResponse(
+            request,
+            'admin/core/groupsheetconfiguration/reset_group_data.html',
+            context,
+        )
 
     def analyze_sheet_view(self, request, object_id):
         config = self.get_object(request, object_id)

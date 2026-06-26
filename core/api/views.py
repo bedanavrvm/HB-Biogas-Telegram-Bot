@@ -1201,12 +1201,17 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
         lines = [
             "Jawabu import processed",
             f"Export messages found: {result.get('export_messages', 0)}",
+        ]
+        skipped_before_start = result.get('skipped_before_start', 0)
+        if skipped_before_start:
+            lines.append(f"Skipped before configured start date: {skipped_before_start}")
+        lines.extend([
             f"Visit records processed: {result.get('processed', 0)}",
             f"Imported: {result.get('imported', 0)}",
             f"Duplicates needing review: {result.get('duplicate_review', 0)}",
             f"Rejected: {result.get('rejected', 0)}",
             f"Failed: {result.get('failed', 0)}",
-        ]
+        ])
         duplicates = result.get('duplicates') or []
         if duplicates:
             lines.extend(["", "Manual verification needed"])

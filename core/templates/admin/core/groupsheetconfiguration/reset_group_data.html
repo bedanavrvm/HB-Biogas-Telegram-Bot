@@ -1,0 +1,42 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<div id="content-main">
+  <p>
+    This will permanently delete local database records for
+    <strong>{{ config.display_name|default:config.group_id }}</strong>
+    (<code>{{ config.group_id }}</code>).
+  </p>
+  <p>
+    Google Sheets rows and Google Drive files will not be deleted.
+  </p>
+
+  <h2>Records To Delete</h2>
+  <table>
+    <thead>
+      <tr><th>Record type</th><th>Count</th></tr>
+    </thead>
+    <tbody>
+      {% for label, count in counts.items %}
+        <tr><td>{{ label }}</td><td>{{ count }}</td></tr>
+      {% endfor %}
+      <tr><th>Total</th><th>{{ total_count }}</th></tr>
+    </tbody>
+  </table>
+
+  <form method="post" style="margin-top: 1.5rem;">
+    {% csrf_token %}
+    <div class="form-row">
+      <label>
+        <input type="checkbox" name="confirm_reset" value="yes" required>
+        I understand this permanently deletes local database data for this group only.
+      </label>
+    </div>
+    <div class="submit-row">
+      <input type="submit" class="deletelink" value="Reset local DB data">
+      <a class="button cancel-link" href="../">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
