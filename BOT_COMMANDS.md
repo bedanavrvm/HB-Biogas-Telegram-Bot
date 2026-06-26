@@ -14,6 +14,7 @@ Telegram autocomplete is handled by Telegram's native bot command menu, not by
 chat replies. After syncing the command menu, each configured group gets a
 workflow-specific command list. Complaint/case groups show case commands, while
 order approval groups show `/order`, `/form`, and shared admin checks only.
+Jawabu HomeBiogas groups show `/batch` plus shared admin checks only.
 Staff can type `/` plus a letter, for example `/g` or `/o`, and Telegram will
 show matching options to select. In groups, Telegram may insert commands as
 `/group@hb_biogas_cases_bot`; the bot accepts that form.
@@ -35,6 +36,13 @@ python manage.py sync_telegram_commands
 | `/week` | Show cases created since the start of the current week. |
 | `/phone 0712345678` | Show cases matching a phone number or partial phone number. `07...`, `254...`, and `+254...` formats are accepted. |
 | `/id ACC123` | Show cases matching a customer/account ID or partial ID. |
+| `/batch` | Import complete complaint cases from a WhatsApp `.txt` or `.zip` chat export. |
+
+## Jawabu HomeBiogas
+
+| Command | Purpose |
+|---------|---------|
+| `/batch` | Import a Jawabu WhatsApp `.txt` or `.zip` export. Duplicate `National ID + Primary Phone` records are flagged for manual verification. |
 
 ## Status And Follow-Up
 
@@ -92,5 +100,6 @@ python manage.py sync_telegram_commands
 @hb_biogas_cases_bot /missing phone 10
 @hb_biogas_cases_bot /duplicates 30
 @hb_biogas_cases_bot /summary today
+@hb_biogas_cases_bot /batch
 @hb_biogas_cases_bot /sync
 ```

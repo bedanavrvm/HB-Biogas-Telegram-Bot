@@ -75,8 +75,24 @@ Telegram command suggestions depend on the workflow configured for the group.
 
 - Complaint groups show complaint/case commands.
 - Order approval groups show order form commands.
+- Jawabu HomeBiogas groups show the Jawabu batch import command.
 
 If staff see the wrong commands, ask an admin to check the group's workflow preset in Django Admin and rerun command sync if needed.
+
+## Jawabu HomeBiogas Workflow
+
+Use this guide for groups that import Jawabu WhatsApp visit exports:
+
+[Staff Telegram Guide: Jawabu HomeBiogas Workflow](STAFF_JAWABU_HOME_BIOGAS_GUIDE.md)
+
+Core commands:
+
+```text
+/batch
+/help
+/group
+/health
+```
 
 ## Bot Tag
 

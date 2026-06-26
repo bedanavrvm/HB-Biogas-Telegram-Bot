@@ -18,6 +18,7 @@ KEY FIXES (v2):
   instead of silently discarding context.
 """
 import logging
+import io
 from datetime import datetime, timezone as dt_timezone
 from django.utils import timezone
 from django.http import JsonResponse
@@ -29,6 +30,7 @@ import hmac
 import json
 import re
 import requests
+import zipfile
 
 from .validators import (
     validate_request_size,
@@ -452,10 +454,46 @@ def _process_telegram_message(message_data: dict) -> dict:
         from core.services.group_config import GroupRegistry
         group_config = GroupRegistry.get_instance().get_group(group_id)
         if group_config:
+            from core.services.jawabu import is_jawabu_workflow
             from core.services.order_approval import (
                 handle_order_approval_message,
                 is_order_approval_workflow,
             )
+            if is_jawabu_workflow(group_config):
+                if content is None:
+                    logger.debug(
+                        f"Ignoring Jawabu message {telegram_message_id}: "
+                        "bot was not tagged"
+                    )
+                    return {
+                        'status': 'ignored',
+                        'reason': 'Bot was not tagged',
+                        'message_id': telegram_message_id,
+                    }
+                if _looks_like_batch_command(content):
+                    return _process_jawabu_batch_command(
+                        group_config=group_config,
+                        message_data=message_data,
+                        command_content=content,
+                        sender=sender,
+                        telegram_message_id=telegram_message_id,
+                    )
+                from core.services.commands import handle_bot_command
+                command_result = handle_bot_command(
+                    content,
+                    group_id,
+                    sender=sender,
+                    telegram_message_id=telegram_message_id,
+                )
+                if command_result:
+                    return command_result
+                return {
+                    'status': 'command',
+                    'reply_text': (
+                        "This group is configured for Jawabu HomeBiogas imports.\n"
+                        "Send @bot /batch with a WhatsApp .txt or .zip export attached."
+                    ),
+                }
             if is_order_approval_workflow(group_config):
                 if content is None and not (reply_to_id and has_image):
                     logger.debug(
@@ -534,6 +572,16 @@ def _process_telegram_message(message_data: dict) -> dict:
             }
 
         from core.services.commands import handle_bot_command
+        if _looks_like_batch_command(content):
+            return _process_whatsapp_batch_command(
+                message_data=message_data,
+                command_content=content,
+                sender=sender,
+                received_at=received_at,
+                group_id=group_id,
+                telegram_message_id=telegram_message_id,
+            )
+
         command_result = handle_bot_command(
             content,
             group_id,
@@ -584,6 +632,282 @@ def _process_telegram_message(message_data: dict) -> dict:
         return {'status': 'error', 'error': 'Message could not be processed'}
 
 
+def _looks_like_batch_command(content: str) -> bool:
+    return bool(re.match(r'^/batch(?:@\w+)?(?:\s|$)', str(content or '').strip(), re.IGNORECASE))
+
+
+def _process_whatsapp_batch_command(
+    message_data: dict,
+    command_content: str,
+    sender: str,
+    received_at: datetime,
+    group_id: str,
+    telegram_message_id: str,
+) -> dict:
+    payload = _batch_command_payload(command_content)
+    if message_data.get('document') and not _looks_like_whatsapp_export_payload(payload):
+        payload, document_error = _download_telegram_text_document(message_data)
+        if document_error:
+            return {
+                'status': 'command',
+                'reply_text': document_error,
+            }
+    elif not payload:
+        payload, document_error = _download_telegram_text_document(message_data)
+        if document_error:
+            return {
+                'status': 'command',
+                'reply_text': document_error,
+            }
+
+    if not payload:
+        return {
+            'status': 'command',
+            'reply_text': (
+                "Send a WhatsApp export as a .txt file with:\n"
+                "@bot /batch\n\n"
+                "Or paste the export text after /batch.\n"
+                "Only complete complaint entries are saved."
+            ),
+        }
+
+    from core.services.parser import (
+        MessageIntent,
+        analyze_whatsapp_export,
+        detect_message_intent,
+    )
+
+    analysis = analyze_whatsapp_export(payload)
+    entries = analysis.get('entries') or []
+    if not entries:
+        return {
+            'status': 'command',
+            'reply_text': (
+                "No WhatsApp export messages were found.\n"
+                "Expected lines like:\n"
+                "23/05/2026, 12:46 - Staff Name: CUSTOMER COMPLAIN..."
+            ),
+        }
+
+    max_entries = max(1, int(getattr(settings, 'WHATSAPP_BATCH_MAX_MESSAGES', 50)))
+    truncated = len(entries) > max_entries
+    results = []
+    skipped_non_complaint = 0
+    processed_entries = 0
+
+    for index, entry in enumerate(entries[:max_entries]):
+        content = entry.get('content', '')
+        if detect_message_intent(content) != MessageIntent.COMPLAINT:
+            skipped_non_complaint += 1
+            continue
+
+        processed_entries += 1
+        result = _process_single_message(
+            telegram_message_id=f"{telegram_message_id}_wa_{index}",
+            content=content,
+            sender=entry.get('sender') or sender,
+            has_image=False,
+            received_at=entry.get('received_at') or received_at,
+            group_id=group_id,
+            source_telegram_message_id=telegram_message_id,
+            batch_index=index,
+            source='whatsapp_export',
+        )
+        results.append(result)
+
+    return {
+        'status': 'batch_processed',
+        'source': 'whatsapp_export',
+        'format': analysis.get('format', 'unknown'),
+        'total': processed_entries,
+        'export_messages': len(entries),
+        'skipped_non_complaint': skipped_non_complaint,
+        'system_lines': analysis.get('system_lines', 0),
+        'orphan_lines': analysis.get('orphan_lines', 0),
+        'truncated': truncated,
+        'max_entries': max_entries,
+        'success': sum(1 for r in results if r.get('status') == 'success'),
+        'partial': sum(1 for r in results if r.get('status') == 'partial'),
+        'duplicates': sum(1 for r in results if r.get('status') == 'duplicate'),
+        'rejected': sum(1 for r in results if r.get('status') == 'rejected'),
+        'errors': sum(1 for r in results if r.get('status') == 'error'),
+        'results': results,
+    }
+
+
+def _process_jawabu_batch_command(
+    group_config,
+    message_data: dict,
+    command_content: str,
+    sender: str,
+    telegram_message_id: str,
+) -> dict:
+    payload = _batch_command_payload(command_content)
+    if message_data.get('document') and not _looks_like_whatsapp_export_payload(payload):
+        payload, document_error = _download_telegram_text_document(message_data)
+        if document_error:
+            return {'status': 'command', 'reply_text': document_error}
+    elif not payload:
+        payload, document_error = _download_telegram_text_document(message_data)
+        if document_error:
+            return {'status': 'command', 'reply_text': document_error}
+
+    if not payload:
+        return {
+            'status': 'command',
+            'reply_text': (
+                "Send the Jawabu WhatsApp .txt or .zip export with:\n"
+                "@bot /batch\n\n"
+                "Records need National ID and primary phone. Duplicates are "
+                "flagged for manual review."
+            ),
+        }
+
+    from core.services.jawabu import process_jawabu_batch_export
+
+    return process_jawabu_batch_export(
+        group_config=group_config,
+        export_text=payload,
+        telegram_message_id=telegram_message_id,
+        sender=sender,
+    )
+
+
+def _batch_command_payload(content: str) -> str:
+    text = str(content or '').strip()
+    return re.sub(
+        r'^/batch(?:@\w+)?\s*',
+        '',
+        text,
+        count=1,
+        flags=re.IGNORECASE,
+    ).strip()
+
+
+def _looks_like_whatsapp_export_payload(content: str) -> bool:
+    if not content:
+        return False
+    return bool(
+        re.search(
+            r'(?:^|\n)\[?\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}'
+            r'[\s,]+\d{1,2}:\d{2}(?::\d{2})?\]?\s*'
+            r'(?:[-\u2013\u2014]\s*)?[^:\n]{1,80}:\s',
+            content,
+        )
+    )
+
+
+def _download_telegram_text_document(message_data: dict) -> tuple[str, str]:
+    document = message_data.get('document') or {}
+    if not document:
+        return '', ''
+
+    filename = str(document.get('file_name') or '').strip()
+    mime_type = str(document.get('mime_type') or '').lower()
+    lower_filename = filename.lower()
+    is_zip_export = (
+        lower_filename.endswith('.zip')
+        or mime_type in {'application/zip', 'application/x-zip-compressed'}
+    )
+    is_text_export = (
+        lower_filename.endswith('.txt')
+        or mime_type.startswith('text/')
+        or mime_type in {'application/octet-stream', ''}
+    )
+    if not (is_text_export or is_zip_export):
+        return '', (
+            "The /batch command only supports WhatsApp .txt or .zip exports.\n"
+            "Attach the exported chat file and send @bot /batch."
+        )
+
+    file_size = int(document.get('file_size') or 0)
+    max_mb = max(1, int(getattr(settings, 'WHATSAPP_BATCH_MAX_FILE_SIZE_MB', 5)))
+    if file_size and file_size > max_mb * 1024 * 1024:
+        return '', f"WhatsApp export is too large. Maximum size is {max_mb} MB."
+
+    bot_token = settings.TELEGRAM_BOT_TOKEN
+    file_id = document.get('file_id')
+    if not bot_token or not file_id:
+        return '', "Could not download the WhatsApp export from Telegram."
+
+    try:
+        file_meta = requests.get(
+            f'https://api.telegram.org/bot{bot_token}/getFile',
+            params={'file_id': file_id},
+            timeout=settings.API_REQUEST_TIMEOUT,
+        )
+        file_meta.raise_for_status()
+        file_path = file_meta.json().get('result', {}).get('file_path', '')
+        if not file_path:
+            return '', "Telegram did not return a downloadable file path."
+
+        file_response = requests.get(
+            f'https://api.telegram.org/file/bot{bot_token}/{file_path}',
+            timeout=settings.API_REQUEST_TIMEOUT,
+        )
+        file_response.raise_for_status()
+        raw = file_response.content
+        if len(raw) > max_mb * 1024 * 1024:
+            return '', f"WhatsApp export is too large. Maximum size is {max_mb} MB."
+        return _extract_whatsapp_export_text(raw, filename, max_mb), ''
+    except requests.Timeout:
+        logger.warning("Timed out downloading Telegram WhatsApp export")
+        return '', "Timed out downloading the WhatsApp export. Please resend it."
+    except ValueError as exc:
+        return '', str(exc)
+    except Exception as exc:
+        logger.error(f"Failed to download Telegram WhatsApp export: {exc}", exc_info=True)
+        return '', "Could not download the WhatsApp export. Please resend it."
+
+
+def _extract_whatsapp_export_text(raw: bytes, filename: str, max_mb: int) -> str:
+    if str(filename or '').lower().endswith('.zip'):
+        return _decode_whatsapp_export_zip(raw, max_mb)
+    return _decode_whatsapp_export_bytes(raw)
+
+
+def _decode_whatsapp_export_zip(raw: bytes, max_mb: int) -> str:
+    max_bytes = max(1, int(max_mb)) * 1024 * 1024
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            text_files = [
+                info for info in archive.infolist()
+                if not info.is_dir() and info.filename.lower().endswith('.txt')
+            ]
+            if not text_files:
+                raise ValueError(
+                    "The WhatsApp zip did not contain a .txt chat export. "
+                    "Use WhatsApp Export Chat and resend the zip."
+                )
+            text_files.sort(
+                key=lambda info: (
+                    'whatsapp chat' not in info.filename.lower()
+                    and '_chat' not in info.filename.lower(),
+                    len(info.filename),
+                )
+            )
+            export_info = text_files[0]
+            if export_info.file_size > max_bytes:
+                raise ValueError(
+                    f"WhatsApp chat text inside the zip is too large. "
+                    f"Maximum size is {max_mb} MB."
+                )
+            return _decode_whatsapp_export_bytes(archive.read(export_info))
+    except zipfile.BadZipFile as exc:
+        raise ValueError(
+            "The attached zip could not be opened. Please export the WhatsApp chat again."
+        ) from exc
+
+
+def _decode_whatsapp_export_bytes(raw: bytes) -> str:
+    for encoding in ('utf-8-sig', 'utf-8', 'utf-16', 'latin-1'):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode('utf-8', errors='replace')
+
+
 def _process_single_message(
     telegram_message_id: str,
     content: str,
@@ -593,6 +917,7 @@ def _process_single_message(
     group_id: str = None,
     source_telegram_message_id: str = '',
     batch_index: int = None,
+    source: str = 'telegram bot',
 ) -> dict:
     """
     Run one message through dedup â†’ parse â†’ store â†’ sheet sync.
@@ -632,6 +957,7 @@ def _process_single_message(
                 has_image=has_image,
                 group_id=group_id,
                 sheet_name=sheet_name,
+                source=source,
                 source_telegram_message_id=source_telegram_message_id,
                 batch_index=batch_index,
                 sheet_id=sheet_id,       # â† forwarded to sheets service
@@ -822,13 +1148,39 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
         total = result.get('total', 0)
         rejected = result.get('rejected', 0)
         duplicates = result.get('duplicates', 0)
-        lines = [
-            f'Batch processed: {success}/{total} messages saved.',
-        ]
+        partial = result.get('partial', 0)
+        errors = result.get('errors', 0)
+        if result.get('source') == 'whatsapp_export':
+            saved = success + partial
+            lines = [
+                'WhatsApp batch processed',
+                f"Export messages found: {result.get('export_messages', total)}",
+                f"Complaint entries processed: {total}",
+                f"Saved: {saved}",
+            ]
+            skipped = result.get('skipped_non_complaint', 0)
+            if skipped:
+                lines.append(f"Skipped non-complaint chat messages: {skipped}")
+            system_lines = result.get('system_lines', 0)
+            if system_lines:
+                lines.append(f"Skipped WhatsApp system lines: {system_lines}")
+            if result.get('truncated'):
+                lines.append(
+                    f"Stopped at {result.get('max_entries')} export messages. "
+                    "Split the export and run /batch again for the rest."
+                )
+        else:
+            lines = [
+                f'Batch processed: {success}/{total} messages saved.',
+            ]
         if rejected:
             lines.append(f'Rejected: {rejected}')
         if duplicates:
             lines.append(f'Duplicates skipped: {duplicates}')
+        if partial:
+            lines.append(f'Saved with sync warnings: {partial}')
+        if errors:
+            lines.append(f'Errors: {errors}')
 
         rejected_results = [
             item for item in result.get('results', [])
@@ -843,6 +1195,47 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
                 lines.append(f'{index}. Missing: {missing_text or "required fields"}')
             lines.append('')
             lines.append('Each complaint must include NAME, TEL, ID, COUNTY, and NATURE OF THE PROBLEM.')
+
+        text = "\n".join(lines)
+    elif status == 'jawabu_batch_processed':
+        lines = [
+            "Jawabu import processed",
+            f"Export messages found: {result.get('export_messages', 0)}",
+            f"Visit records processed: {result.get('processed', 0)}",
+            f"Imported: {result.get('imported', 0)}",
+            f"Duplicates needing review: {result.get('duplicate_review', 0)}",
+            f"Rejected: {result.get('rejected', 0)}",
+            f"Failed: {result.get('failed', 0)}",
+        ]
+        duplicates = result.get('duplicates') or []
+        if duplicates:
+            lines.extend(["", "Manual verification needed"])
+            for index, item in enumerate(duplicates[:8], start=1):
+                lines.append(
+                    f"{index}. ID {item.get('national_id') or 'missing'} | "
+                    f"Phone {item.get('primary_phone') or 'missing'}"
+                )
+                lines.append(f"   {item.get('message') or 'message details unavailable'}")
+                if item.get('duplicate_group_id'):
+                    lines.append(f"   Group: {item['duplicate_group_id']}")
+                existing_messages = item.get('existing_messages') or []
+                for existing_message in existing_messages[:3]:
+                    lines.append(f"   Existing: {existing_message}")
+            if len(duplicates) > 8:
+                lines.append(f"...and {len(duplicates) - 8} more duplicate message(s).")
+
+        rejections = result.get('rejections') or []
+        if rejections:
+            lines.extend(["", "Rejected records"])
+            for index, item in enumerate(rejections[:5], start=1):
+                missing = ', '.join(item.get('missing_fields') or [])
+                lines.append(f"{index}. Missing: {missing or 'required fields'}")
+                lines.append(f"   {item.get('message') or 'message details unavailable'}")
+            if len(rejections) > 5:
+                lines.append(f"...and {len(rejections) - 5} more rejected record(s).")
+
+        if result.get('message'):
+            lines.extend(["", str(result['message'])])
 
         text = "\n".join(lines)
     elif status == 'error':

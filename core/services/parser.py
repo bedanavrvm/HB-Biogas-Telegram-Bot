@@ -56,6 +56,25 @@ TIMESTAMP_PATTERN = re.compile(
     r'\[?(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})[\s,]+(\d{1,2}:\d{2}(?::\d{2})?)\]?'
 )
 
+WHATSAPP_EXPORT_MESSAGE_PATTERNS = (
+    re.compile(
+        r'^\[(?P<date>\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})'
+        r'[\s,]+(?P<time>\d{1,2}:\d{2}(?::\d{2})?)\]\s*'
+        r'(?:[-–—]\s*)?(?P<sender>[^:\n]{1,80}):\s*(?P<message>.*)$'
+    ),
+    re.compile(
+        r'^(?P<date>\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})'
+        r'[\s,]+(?P<time>\d{1,2}:\d{2}(?::\d{2})?)\s*'
+        r'[-–—]\s*(?P<sender>[^:\n]{1,80}):\s*(?P<message>.*)$'
+    ),
+)
+
+WHATSAPP_EXPORT_SYSTEM_LINE_PATTERN = re.compile(
+    r'^(?:\[?\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}[\s,]+'
+    r'\d{1,2}:\d{2}(?::\d{2})?\]?\s*[-–—]\s*)'
+    r'(?!(?:[^:\n]{1,80}):\s).+'
+)
+
 # Sender patterns
 SENDER_PATTERN_SOLD_TO = re.compile(
     r'\bto\s+([A-Z][a-zA-Z\s]+?)(?:\s+(?:at|for|@)|\s*$|$)',
@@ -1307,6 +1326,126 @@ def split_batch_message(content: str) -> list[dict]:
     
     logger.info(f"Split batch into {len(messages)} individual messages")
     return messages
+
+
+def analyze_whatsapp_export(content: str) -> dict:
+    """
+    Parse a WhatsApp chat export into individual message entries.
+
+    Supports the common Android export format:
+        23/05/2026, 12:46 - Sender: Message
+
+    and bracketed/iOS-like exports:
+        [23/05/2026, 12:46] Sender: Message
+
+    Continuation lines are appended to the previous message. System messages
+    with a timestamp but no sender are counted and skipped.
+    """
+    lines = str(content or '').replace('\r\n', '\n').replace('\r', '\n').split('\n')
+    entries = []
+    current = None
+    system_lines = 0
+    orphan_lines = 0
+
+    for raw_line in lines:
+        line = raw_line.rstrip('\n')
+        if not line.strip():
+            if current:
+                current['content_lines'].append('')
+            continue
+
+        match = _match_whatsapp_export_message(line)
+        if match:
+            if current:
+                entries.append(_finalise_whatsapp_export_entry(current))
+            current = {
+                'sender': match.group('sender').strip(),
+                'date': match.group('date'),
+                'time': match.group('time'),
+                'content_lines': [match.group('message').strip()],
+                'raw_header': line[: min(len(line), 140)],
+            }
+            continue
+
+        if WHATSAPP_EXPORT_SYSTEM_LINE_PATTERN.match(line):
+            if current:
+                entries.append(_finalise_whatsapp_export_entry(current))
+                current = None
+            system_lines += 1
+            continue
+
+        if current:
+            current['content_lines'].append(line.strip())
+        else:
+            orphan_lines += 1
+
+    if current:
+        entries.append(_finalise_whatsapp_export_entry(current))
+
+    entries = [entry for entry in entries if entry.get('content')]
+    return {
+        'format': _whatsapp_export_format_name(content, entries),
+        'entries': entries,
+        'entry_count': len(entries),
+        'line_count': len(lines),
+        'system_lines': system_lines,
+        'orphan_lines': orphan_lines,
+    }
+
+
+def _match_whatsapp_export_message(line: str):
+    for pattern in WHATSAPP_EXPORT_MESSAGE_PATTERNS:
+        match = pattern.match(line)
+        if match:
+            return match
+    return None
+
+
+def _finalise_whatsapp_export_entry(entry: dict) -> dict:
+    content = '\n'.join(entry.get('content_lines') or [])
+    content = re.sub(r'\n{3,}', '\n\n', content).strip()
+    received_at = _parse_whatsapp_export_timestamp(
+        entry.get('date', ''),
+        entry.get('time', ''),
+    )
+    return {
+        'sender': entry.get('sender', '').strip(),
+        'content': content,
+        'received_at': received_at,
+        'raw_header': entry.get('raw_header', ''),
+    }
+
+
+def _parse_whatsapp_export_timestamp(date_text: str, time_text: str):
+    value = f"{date_text} {time_text}".strip()
+    for fmt in (
+        '%d/%m/%Y %H:%M:%S',
+        '%d/%m/%Y %H:%M',
+        '%d/%m/%y %H:%M:%S',
+        '%d/%m/%y %H:%M',
+        '%d-%m-%Y %H:%M:%S',
+        '%d-%m-%Y %H:%M',
+        '%d-%m-%y %H:%M:%S',
+        '%d-%m-%y %H:%M',
+    ):
+        try:
+            parsed = datetime.strptime(value, fmt)
+            return timezone.make_aware(parsed, timezone.get_current_timezone())
+        except ValueError:
+            continue
+    return None
+
+
+def _whatsapp_export_format_name(content: str, entries: list[dict]) -> str:
+    if not entries:
+        return 'unknown'
+    first_line = next(
+        (line for line in str(content or '').splitlines() if line.strip()),
+        '',
+    )
+    if first_line.startswith('['):
+        return 'whatsapp_bracketed_export'
+    return 'whatsapp_dash_export'
 
 
 def _split_complaint_cases(content: str) -> list[dict]:

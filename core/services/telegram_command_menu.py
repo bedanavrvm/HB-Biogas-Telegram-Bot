@@ -22,6 +22,7 @@ CASE_BOT_COMMANDS = [
     {'command': 'duplicates', 'description': 'Show repeated phone or customer IDs'},
     {'command': 'top', 'description': 'Show top regions or issue categories'},
     {'command': 'summary', 'description': 'Show status and sync totals'},
+    {'command': 'batch', 'description': 'Import a WhatsApp .txt chat export'},
     {'command': 'sync', 'description': 'Refresh cases from Google Sheets'},
 ]
 
@@ -36,8 +37,13 @@ ORDER_APPROVAL_BOT_COMMANDS = [
     {'command': 'form', 'description': 'Open the order approval form'},
 ]
 
+JAWABU_BOT_COMMANDS = [
+    {'command': 'batch', 'description': 'Import a Jawabu WhatsApp export'},
+]
+
 PRIVATE_BOT_COMMANDS = (
     ORDER_APPROVAL_BOT_COMMANDS
+    + JAWABU_BOT_COMMANDS
     + CASE_BOT_COMMANDS
     + SHARED_GROUP_BOT_COMMANDS
 )
@@ -46,6 +52,8 @@ PRIVATE_BOT_COMMANDS = (
 def bot_commands_for_workflow(workflow_type: str = '') -> list[dict]:
     if workflow_type == 'order_approval':
         return ORDER_APPROVAL_BOT_COMMANDS + SHARED_GROUP_BOT_COMMANDS
+    if workflow_type == 'jawabu_homebiogas':
+        return JAWABU_BOT_COMMANDS + SHARED_GROUP_BOT_COMMANDS
     return CASE_BOT_COMMANDS + SHARED_GROUP_BOT_COMMANDS
 
 

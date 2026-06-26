@@ -19,6 +19,7 @@ from core.services.workflow_presets import (
 from .models import (
     CaseUpdate,
     GroupSheetConfiguration,
+    JawabuVisitRecord,
     LiveSheetRecordChange,
     MediaAttachment,
     OrderApprovalUpdate,
@@ -256,6 +257,23 @@ class LiveSheetRecordChangeAdmin(ReadOnlyAuditAdmin):
     ]
 
 
+@admin.register(JawabuVisitRecord)
+class JawabuVisitRecordAdmin(ReadOnlyAuditAdmin):
+    list_display = [
+        'national_id', 'primary_phone', 'group_id', 'sheet_tab', 'row_number',
+        'duplicate_status', 'import_status', 'sender', 'created_at',
+    ]
+    list_filter = [
+        'group_id', 'sheet_id', 'sheet_tab', 'duplicate_status',
+        'import_status', 'created_at',
+    ]
+    search_fields = [
+        'national_id', 'primary_phone', 'duplicate_key', 'duplicate_group_id',
+        'sender', 'raw_text', 'sync_error',
+    ]
+    readonly_fields = ['id', 'created_at']
+
+
 @admin.register(GroupSheetConfiguration)
 class GroupSheetConfigurationAdmin(admin.ModelAdmin):
     form = GroupSheetConfigurationAdminForm
@@ -301,8 +319,9 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
             ),
             'description': (
                 'Select Case / Complaints for the existing complaint intake '
-                'workflow, Order Approval for BRO updates, or Manual JSON for '
-                'a custom workflow. The workflow JSON below will be generated '
+                'workflow, Order Approval for BRO updates, Jawabu HomeBiogas '
+                'for WhatsApp visit exports, or Manual JSON for a custom '
+                'workflow. The workflow JSON below will be generated '
                 'automatically where a preset applies.'
             ),
         }),
@@ -361,6 +380,13 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
                 sheet_id=obj.sheet_id,
             )
             label = 'View order update audit'
+        elif workflow_type == 'jawabu_homebiogas':
+            url = self._filtered_admin_url(
+                'admin:core_jawabuvisitrecord_changelist',
+                group_id=obj.group_id,
+                sheet_id=obj.sheet_id,
+            )
+            label = 'View Jawabu import audit'
         else:
             url = self._filtered_admin_url(
                 'admin:core_parsedmessage_changelist',

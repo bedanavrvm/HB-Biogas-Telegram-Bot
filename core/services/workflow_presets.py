@@ -80,6 +80,21 @@ WORKFLOW_PRESETS = {
             },
         },
     },
+    'jawabu_homebiogas': {
+        'label': 'Jawabu HomeBiogas',
+        'description': 'Imports Jawabu WhatsApp visit exports and flags ID+phone duplicates.',
+        'sheet_name': 'Jawabu Visits',
+        'workflow': {
+            'type': 'jawabu_homebiogas',
+            'header_row': 1,
+            'duplicate_key_fields': ['national_id', 'primary_phone'],
+            'duplicate_policy': 'flag_for_review',
+            'field_headers': {},
+        },
+        'sheet_schema': {},
+        'parser_rules': {},
+        'admin_fields': {},
+    },
 }
 
 

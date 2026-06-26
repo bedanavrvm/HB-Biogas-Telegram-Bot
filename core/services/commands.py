@@ -8,7 +8,7 @@ from django.db.models import Count, Q
 from django.conf import settings
 from django.utils import timezone
 
-from core.models import MediaAttachment, OrderApprovalUpdate, ParsedMessage
+from core.models import JawabuVisitRecord, MediaAttachment, OrderApprovalUpdate, ParsedMessage
 from core.services.group_config import GroupRegistry
 from core.services.telegram_command_menu import bot_commands_for_workflow
 
@@ -52,6 +52,7 @@ def handle_bot_command(
     - /top issues [days]
     - /summary today
     - /summary week
+    - /batch
     - /sync
     - /group
     - /health
@@ -333,6 +334,7 @@ def _help_text(group_id: str) -> str:
         "/top issues 7 - show top complaint categories in 7 days\n"
         "/summary today - show status/sync totals for today\n"
         "/summary week - show status/sync totals for this week\n"
+        "/batch - import a WhatsApp .txt export attached to this command\n"
         "/sync - refresh backend cases from Google Sheets\n"
         "/group - show this chat's sheet routing\n"
         "/health - show database and group config status\n"
@@ -887,6 +889,20 @@ def _format_health(group_id: str) -> str:
             "Image previews: "
             f"{'on' if getattr(settings, 'ORDER_APPROVAL_IMAGE_PREVIEWS_ENABLED', False) else 'off'} "
             f"(limit {getattr(settings, 'ORDER_APPROVAL_IMAGE_PREVIEW_LIMIT', 3)})",
+        ])
+    elif workflow_type == 'jawabu_homebiogas':
+        records = JawabuVisitRecord.objects.filter(group_id=str(group_id))
+        recent_records = records.filter(created_at__gte=since).count()
+        lines.extend([
+            "",
+            "Jawabu workflow",
+            f"Jawabu records: {records.count()}",
+            f"Jawabu records last 24h: {recent_records}",
+            f"Imported: {records.filter(import_status='imported').count()}",
+            f"Duplicate review: {records.filter(import_status='duplicate_review').count()}",
+            f"Rejected: {records.filter(import_status='rejected').count()}",
+            f"Failed: {records.filter(import_status='failed').count()}",
+            f"Header row: {workflow.get('header_row') or 1}",
         ])
 
     lines.extend([

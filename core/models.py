@@ -420,6 +420,72 @@ class LiveSheetRecordChange(models.Model):
         )
 
 
+class JawabuVisitRecord(models.Model):
+    """Audit/import record for Jawabu HomeBiogas WhatsApp visit exports."""
+
+    IMPORT_STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('imported', 'Imported'),
+        ('duplicate_review', 'Duplicate Needs Review'),
+        ('rejected', 'Rejected'),
+        ('failed', 'Failed'),
+    ]
+    DUPLICATE_STATUS_CHOICES = [
+        ('unique', 'Unique'),
+        ('possible_duplicate', 'Possible Duplicate'),
+        ('confirmed_duplicate', 'Confirmed Duplicate'),
+        ('not_duplicate', 'Not Duplicate'),
+        ('merged', 'Merged'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    group_id = models.CharField(max_length=100, db_index=True)
+    sheet_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    sheet_tab = models.CharField(max_length=255, blank=True, default='')
+    row_number = models.PositiveIntegerField(null=True, blank=True)
+    telegram_message_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    source_telegram_message_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    whatsapp_message_index = models.PositiveIntegerField(null=True, blank=True)
+    whatsapp_message_at = models.DateTimeField(null=True, blank=True)
+    sender = models.CharField(max_length=255, blank=True, default='')
+    national_id = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    primary_phone = models.CharField(max_length=32, blank=True, default='', db_index=True)
+    duplicate_key = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    duplicate_group_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    duplicate_status = models.CharField(
+        max_length=32,
+        choices=DUPLICATE_STATUS_CHOICES,
+        default='unique',
+    )
+    import_status = models.CharField(
+        max_length=32,
+        choices=IMPORT_STATUS_CHOICES,
+        default='pending',
+    )
+    parsed_fields = models.JSONField(blank=True, default=dict)
+    raw_text = models.TextField(blank=True, default='')
+    sync_error = models.TextField(blank=True, default='')
+    review_notes = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['group_id', 'created_at']),
+            models.Index(fields=['group_id', 'duplicate_key']),
+            models.Index(fields=['national_id', 'primary_phone']),
+            models.Index(fields=['import_status', 'duplicate_status']),
+        ]
+        verbose_name = 'Jawabu visit record'
+        verbose_name_plural = 'Jawabu visit records'
+
+    def __str__(self):
+        return (
+            f"JawabuVisitRecord {self.national_id or 'no ID'} "
+            f"{self.primary_phone or 'no phone'} {self.import_status}"
+        )
+
+
 class GroupSheetConfiguration(models.Model):
     """
     Admin-managed routing and workflow configuration for a Telegram group.

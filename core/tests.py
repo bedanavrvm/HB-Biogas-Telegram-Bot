@@ -4,7 +4,8 @@ Tests for the biogas telegram bot system.
 Run with: python manage.py test
 """
 import json
-from io import StringIO
+import zipfile
+from io import BytesIO, StringIO
 from datetime import datetime, timedelta
 from decimal import Decimal
 from django.core.management import call_command
@@ -16,6 +17,7 @@ from unittest.mock import patch, MagicMock
 from core.models import (
     CaseUpdate,
     GroupSheetConfiguration,
+    JawabuVisitRecord,
     LiveSheetRecordChange,
     OrderApprovalUpdate,
     RawMessage,
@@ -23,7 +25,11 @@ from core.models import (
     ParsedMessage,
 )
 from core.services.deduplication import generate_message_hash, is_duplicate
-from core.services.parser import parse_message, split_batch_message
+from core.services.parser import (
+    analyze_whatsapp_export,
+    parse_message,
+    split_batch_message,
+)
 from core.services.sheets import GoogleSheetsService, batch_append_messages
 from core.services.sheet_sync import sync_sheet_to_backend
 from core.services.storage import (
@@ -449,6 +455,42 @@ class ParserServiceTest(TestCase):
         self.assertEqual(messages[0]['sender'], 'John')
         self.assertEqual(messages[1]['sender'], 'Mary')
 
+    def test_analyze_whatsapp_export_handles_dash_format_and_continuations(self):
+        """WhatsApp .txt exports should be split without saving system lines."""
+        export_text = """23/05/2026, 12:46 - Messages and calls are end-to-end encrypted.
+23/05/2026, 12:47 - Alice Agent: CUSTOMER COMPLAIN
+NAME: Jane Doe
+TEL: 0712345678
+ID: A123
+COUNTY: KISUMU
+NATURE OF THE PROBLEM: No gas supply
+23/05/2026, 12:48 - Bob Agent: Normal group chat"""
+
+        analysis = analyze_whatsapp_export(export_text)
+
+        self.assertEqual(analysis['format'], 'whatsapp_dash_export')
+        self.assertEqual(analysis['system_lines'], 1)
+        self.assertEqual(analysis['entry_count'], 2)
+        self.assertEqual(analysis['entries'][0]['sender'], 'Alice Agent')
+        self.assertIn('NAME: Jane Doe', analysis['entries'][0]['content'])
+        self.assertEqual(analysis['entries'][1]['content'], 'Normal group chat')
+        self.assertIsNotNone(analysis['entries'][0]['received_at'])
+
+    def test_analyze_whatsapp_export_handles_bracketed_format(self):
+        """Bracketed WhatsApp exports should also be accepted."""
+        export_text = """[23/05/2026 12:46] Alice Agent: CUSTOMER COMPLAIN
+NAME: Jane Doe
+TEL: 0712345678
+ID: A123
+COUNTY: KISUMU
+NATURE OF THE PROBLEM: No gas supply"""
+
+        analysis = analyze_whatsapp_export(export_text)
+
+        self.assertEqual(analysis['format'], 'whatsapp_bracketed_export')
+        self.assertEqual(analysis['entry_count'], 1)
+        self.assertEqual(analysis['entries'][0]['sender'], 'Alice Agent')
+
     def test_split_multiple_complaint_cases(self):
         """One message with repeated complaint headers should split into cases."""
         batch_content = """*CUSTOMER COMPLAIN*
@@ -542,7 +584,157 @@ Gas leaking around the digester"""
         
         result = detect_message_intent("Delivered 2 bags maize")
         self.assertEqual(result, MessageIntent.SALE)
-    
+
+
+class JawabuWorkflowServiceTest(TestCase):
+    """Tests for the Jawabu HomeBiogas WhatsApp import workflow."""
+
+    def setUp(self):
+        self.group = GroupSheetConfiguration.objects.create(
+            group_id='-100jawabu',
+            display_name='Jawabu HomeBiogas',
+            enabled=True,
+            sheet_id='sheet_jawabu',
+            sheet_name='Jawabu Visits',
+            workflow={'type': 'jawabu_homebiogas', 'header_row': 1},
+        )
+
+    def test_extract_jawabu_fields_uses_national_id_and_primary_phone(self):
+        from core.services.jawabu import extract_jawabu_fields, jawabu_duplicate_key
+
+        content = """IMG-20260316-WA0005.jpg (file attached)
+Latitude: S 0°33'14.148"
+https://www.google.com/maps/search/?api=1&query=-0.55393,37.526935
+State: Embu County
+Country: Kenya
+Mary Njeri njihia
+1382654
+0720570031/0785116424
+Case deferred, client has seasonal income."""
+
+        fields = extract_jawabu_fields(content, 'Alex Kairu', timezone.now())
+
+        self.assertEqual(fields['customer_name'], 'MARY NJERI NJIHIA')
+        self.assertEqual(fields['national_id'], '1382654')
+        self.assertEqual(fields['primary_phone'], '254720570031')
+        self.assertEqual(fields['secondary_phone'], '254785116424')
+        self.assertEqual(fields['county'], 'EMBU')
+        self.assertEqual(fields['latitude'], '-0.55393')
+        self.assertEqual(fields['longitude'], '37.526935')
+        self.assertEqual(fields['decision'], 'DEFERRED')
+        self.assertEqual(
+            fields['duplicate_key'],
+            jawabu_duplicate_key('1382654', '0720570031'),
+        )
+
+    def test_whatsapp_zip_export_text_is_extracted(self):
+        from core.api.views import _extract_whatsapp_export_text
+
+        zip_buffer = BytesIO()
+        export_text = "3/16/26, 11:46 - Alex Kairu: IMG-20260316-WA0005.jpg (file attached)\n0720570031"
+        with zipfile.ZipFile(zip_buffer, 'w') as archive:
+            archive.writestr('WhatsApp Chat with Jawabu-HomeBiogas.txt', export_text)
+            archive.writestr('IMG-20260316-WA0005.jpg', b'image-bytes')
+
+        extracted = _extract_whatsapp_export_text(
+            zip_buffer.getvalue(),
+            'WhatsApp Chat with Jawabu-HomeBiogas.zip',
+            5,
+        )
+
+        self.assertEqual(extracted, export_text)
+
+    @patch('core.services.jawabu.get_sheets_service')
+    def test_jawabu_import_appends_unique_records_to_sheet(self, mock_service):
+        from core.services.jawabu import JAWABU_FIELD_HEADERS, process_jawabu_batch_export
+
+        fake_sheet = FakeJawabuSheet(list(JAWABU_FIELD_HEADERS.values()))
+        mock_service.return_value = FakeJawabuService(fake_sheet)
+
+        export = """3/16/26, 11:46 - Alex Kairu: IMG-20260316-WA0005.jpg (file attached)
+https://www.google.com/maps/search/?api=1&query=-0.55393,37.526935
+State: Embu County
+Country: Kenya
+Mary Njeri njihia
+1382654
+0720570031"""
+
+        result = process_jawabu_batch_export(
+            group_config=self.group,
+            export_text=export,
+            telegram_message_id='900',
+            sender='Importer',
+        )
+
+        self.assertEqual(result['status'], 'jawabu_batch_processed')
+        self.assertEqual(result['imported'], 1)
+        self.assertEqual(result['duplicate_review'], 0)
+        self.assertEqual(len(fake_sheet.appended_rows), 1)
+        record = JawabuVisitRecord.objects.get()
+        self.assertEqual(record.import_status, 'imported')
+        self.assertEqual(record.duplicate_status, 'unique')
+        self.assertEqual(record.national_id, '1382654')
+        self.assertEqual(record.primary_phone, '254720570031')
+
+    @patch('core.services.jawabu.get_sheets_service')
+    def test_jawabu_import_flags_duplicate_id_and_phone_for_review(self, mock_service):
+        from core.services.jawabu import JAWABU_FIELD_HEADERS, process_jawabu_batch_export
+
+        fake_sheet = FakeJawabuSheet(list(JAWABU_FIELD_HEADERS.values()))
+        mock_service.return_value = FakeJawabuService(fake_sheet)
+        export = """3/16/26, 11:46 - Alex Kairu: IMG-20260316-WA0005.jpg (file attached)
+https://www.google.com/maps/search/?api=1&query=-0.55393,37.526935
+State: Embu County
+Country: Kenya
+Mary Njeri njihia
+1382654
+0720570031
+3/16/26, 11:47 - Alex Kairu: <Media omitted>
+https://www.google.com/maps/search/?api=1&query=-0.55393,37.526935
+State: Embu County
+Country: Kenya
+Mary Njeri njihia
+1382654
+0720570031"""
+
+        result = process_jawabu_batch_export(
+            group_config=self.group,
+            export_text=export,
+            telegram_message_id='901',
+            sender='Importer',
+        )
+
+        self.assertEqual(result['imported'], 0)
+        self.assertEqual(result['duplicate_review'], 2)
+        self.assertEqual(len(result['duplicates']), 2)
+        self.assertEqual(fake_sheet.appended_rows, [])
+        self.assertEqual(
+            set(JawabuVisitRecord.objects.values_list('duplicate_status', flat=True)),
+            {'possible_duplicate'},
+        )
+
+
+class FakeJawabuSheet:
+    def __init__(self, headers):
+        self.headers = headers
+        self.appended_rows = []
+
+    def get_all_values(self):
+        return [self.headers] + self.appended_rows
+
+    def append_row(self, row, value_input_option='USER_ENTERED'):
+        self.appended_rows.append(row)
+
+
+class FakeJawabuService:
+    def __init__(self, sheet):
+        self._sheet = sheet
+
+    def is_available(self):
+        return True
+
+
+class ParserServiceContinuedTest(TestCase):
     def test_intent_detection_purchase(self):
         """Test intent detection for purchase messages."""
         from core.services.parser import detect_message_intent, MessageIntent
@@ -2720,6 +2912,7 @@ class BotCommandServiceTest(TestCase):
         self.assertIn('/missing phone 10', result['reply_text'])
         self.assertIn('/duplicates 30', result['reply_text'])
         self.assertIn('/top regions 7', result['reply_text'])
+        self.assertIn('/batch', result['reply_text'])
 
     def test_help_command_uses_order_approval_group_commands(self):
         """Order approval groups should not see complaint/case commands."""
@@ -2742,6 +2935,28 @@ class BotCommandServiceTest(TestCase):
         self.assertIn('/form - Open the order approval form', result['reply_text'])
         self.assertIn('/group - Show this chat', result['reply_text'])
         self.assertNotIn('/last 5', result['reply_text'])
+        self.assertNotIn('/case MSG_ID', result['reply_text'])
+
+    def test_help_command_uses_jawabu_group_commands(self):
+        """Jawabu groups should only show Jawabu import and shared commands."""
+        from core.services.commands import handle_bot_command
+        from core.services.group_config import GroupRegistry
+
+        GroupSheetConfiguration.objects.create(
+            group_id='-100jawabu',
+            display_name='Jawabu group',
+            enabled=True,
+            sheet_id='sheet_jawabu',
+            sheet_name='Jawabu Visits',
+            workflow={'type': 'jawabu_homebiogas'},
+        )
+        GroupRegistry._instance = None
+
+        result = handle_bot_command('/help', '-100jawabu')
+
+        self.assertIn('/batch - Import a Jawabu WhatsApp export', result['reply_text'])
+        self.assertIn('/group - Show this chat', result['reply_text'])
+        self.assertNotIn('/order - Open', result['reply_text'])
         self.assertNotIn('/case MSG_ID', result['reply_text'])
 
 
@@ -2771,6 +2986,14 @@ class TelegramCommandMenuTest(TestCase):
             sheet_name='Cases',
             workflow={},
         )
+        GroupSheetConfiguration.objects.create(
+            group_id='-100jawabu',
+            display_name='Jawabu group',
+            enabled=True,
+            sheet_id='sheet_jawabu',
+            sheet_name='Jawabu Visits',
+            workflow={'type': 'jawabu_homebiogas'},
+        )
 
         output = StringIO()
         call_command('sync_telegram_commands', stdout=output)
@@ -2789,6 +3012,7 @@ class TelegramCommandMenuTest(TestCase):
         self.assertNotIn({'type': 'all_group_chats'}, scopes)
         self.assertIn({'type': 'chat', 'chat_id': '-100order'}, scopes)
         self.assertIn({'type': 'chat', 'chat_id': '-100cases'}, scopes)
+        self.assertIn({'type': 'chat', 'chat_id': '-100jawabu'}, scopes)
         self.assertEqual(
             delete_calls[0].kwargs['json']['scope'],
             {'type': 'all_group_chats'},
@@ -2811,6 +3035,15 @@ class TelegramCommandMenuTest(TestCase):
         self.assertIn('last', case_commands)
         self.assertIn('case', case_commands)
         self.assertIn('group', case_commands)
+        jawabu_payload = next(
+            payload for payload in payloads
+            if payload['scope'] == {'type': 'chat', 'chat_id': '-100jawabu'}
+        )
+        jawabu_commands = [item['command'] for item in jawabu_payload['commands']]
+        self.assertIn('batch', jawabu_commands)
+        self.assertIn('group', jawabu_commands)
+        self.assertNotIn('order', jawabu_commands)
+        self.assertNotIn('case', jawabu_commands)
         self.assertNotIn('order', case_commands)
 
     def test_sync_telegram_commands_dry_run_lists_group_scope_without_token(self):
@@ -3245,6 +3478,128 @@ NATURE OF THE PROBLEM: Gas leakage"""
         self.assertEqual(result['success'], 1)
         self.assertEqual(result['rejected'], 1)
 
+    @override_settings(
+        TELEGRAM_BOT_USERNAME='biogas_bot',
+        WHATSAPP_BATCH_MAX_MESSAGES=50,
+    )
+    @patch('core.api.views._process_single_message')
+    def test_telegram_batch_command_processes_whatsapp_export(self, mock_process):
+        """The /batch command should process complaint entries from exports only."""
+        from core.api.views import _process_telegram_message
+
+        mock_process.side_effect = [
+            {'status': 'success', 'message_id': 'MSG_1'},
+            {'status': 'duplicate', 'message_id': '123_wa_2'},
+        ]
+        payload_text = """@biogas_bot /batch
+23/05/2026, 12:46 - System: Normal group chat
+23/05/2026, 12:47 - Alice Agent: CUSTOMER COMPLAIN
+NAME: Jane Doe
+TEL: 0712345678
+ID: A123
+COUNTY: KISUMU
+NATURE OF THE PROBLEM: No gas supply
+23/05/2026, 12:48 - Bob Agent: CUSTOMER COMPLAIN
+NAME: John Smith
+TEL: 0798765432
+ID: B456
+COUNTY: NAKURU
+NATURE OF THE PROBLEM: Gas leakage"""
+
+        result = _process_telegram_message({
+            'message_id': 123,
+            'from': {'first_name': 'Test'},
+            'chat': {'id': -100123, 'type': 'group'},
+            'date': 1711123456,
+            'text': payload_text,
+        })
+
+        self.assertEqual(result['status'], 'batch_processed')
+        self.assertEqual(result['source'], 'whatsapp_export')
+        self.assertEqual(result['export_messages'], 3)
+        self.assertEqual(result['skipped_non_complaint'], 1)
+        self.assertEqual(result['total'], 2)
+        self.assertEqual(result['success'], 1)
+        self.assertEqual(result['duplicates'], 1)
+        self.assertEqual(mock_process.call_count, 2)
+        self.assertEqual(
+            mock_process.call_args_list[0].kwargs['telegram_message_id'],
+            '123_wa_1',
+        )
+        self.assertEqual(
+            mock_process.call_args_list[0].kwargs['source'],
+            'whatsapp_export',
+        )
+        self.assertEqual(
+            mock_process.call_args_list[0].kwargs['source_telegram_message_id'],
+            '123',
+        )
+        self.assertEqual(mock_process.call_args_list[0].kwargs['batch_index'], 1)
+        self.assertEqual(mock_process.call_args_list[0].kwargs['sender'], 'Alice Agent')
+        self.assertEqual(
+            timezone.localtime(mock_process.call_args_list[0].kwargs['received_at']).strftime('%d/%m/%Y %H:%M'),
+            '23/05/2026 12:47',
+        )
+
+    @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
+    @patch('core.api.views._process_single_message')
+    def test_telegram_batch_command_requires_export_content(self, mock_process):
+        """A bare /batch command should explain how to attach a WhatsApp export."""
+        from core.api.views import _process_telegram_message
+
+        result = _process_telegram_message({
+            'message_id': 123,
+            'from': {'first_name': 'Test'},
+            'chat': {'id': -100123, 'type': 'group'},
+            'date': 1711123456,
+            'text': '@biogas_bot /batch',
+        })
+
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('WhatsApp export', result['reply_text'])
+        mock_process.assert_not_called()
+
+    @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
+    @patch('core.api.views._download_telegram_text_document')
+    @patch('core.api.views._process_single_message')
+    def test_telegram_batch_command_prefers_attached_export(
+        self,
+        mock_process,
+        mock_download,
+    ):
+        """Caption notes after /batch should not hide the attached export file."""
+        from core.api.views import _process_telegram_message
+
+        mock_download.return_value = (
+            """23/05/2026, 12:47 - Alice Agent: CUSTOMER COMPLAIN
+NAME: Jane Doe
+TEL: 0712345678
+ID: A123
+COUNTY: KISUMU
+NATURE OF THE PROBLEM: No gas supply""",
+            '',
+        )
+        mock_process.return_value = {'status': 'success', 'message_id': 'MSG_1'}
+
+        result = _process_telegram_message({
+            'message_id': 123,
+            'from': {'first_name': 'Test'},
+            'chat': {'id': -100123, 'type': 'group'},
+            'date': 1711123456,
+            'caption': '@biogas_bot /batch please process this export',
+            'document': {
+                'file_id': 'file_123',
+                'file_name': 'WhatsApp Chat.txt',
+                'mime_type': 'text/plain',
+                'file_size': 500,
+            },
+        })
+
+        self.assertEqual(result['status'], 'batch_processed')
+        self.assertEqual(result['success'], 1)
+        mock_download.assert_called_once()
+        mock_process.assert_called_once()
+
     @override_settings(TELEGRAM_BOT_TOKEN='token')
     @patch('core.api.views.requests.post')
     def test_telegram_reply_uses_plain_ascii_status_text(self, mock_post):
@@ -3375,6 +3730,47 @@ NATURE OF THE PROBLEM: Gas leakage"""
         self.assertIn('Rejected: 1', text)
         self.assertIn('Missing: County (Branch / Region)', text)
         self.assertIn('Each complaint must include NAME, TEL, ID, COUNTY', text)
+
+    @override_settings(TELEGRAM_BOT_TOKEN='token')
+    @patch('core.api.views.requests.post')
+    def test_telegram_reply_shows_whatsapp_batch_summary(self, mock_post):
+        """WhatsApp batch replies should include export analysis and duplicate counts."""
+        from core.api.views import _send_telegram_reply
+
+        _send_telegram_reply(
+            {
+                'message_id': 123,
+                'chat': {'id': -100123},
+            },
+            {
+                'status': 'batch_processed',
+                'source': 'whatsapp_export',
+                'export_messages': 4,
+                'total': 2,
+                'success': 1,
+                'partial': 1,
+                'rejected': 1,
+                'duplicates': 1,
+                'skipped_non_complaint': 2,
+                'system_lines': 1,
+                'results': [
+                    {
+                        'status': 'rejected',
+                        'missing_fields': ['Phone Number'],
+                    },
+                ],
+            },
+        )
+
+        text = mock_post.call_args.kwargs['data']['text']
+        self.assertIn('WhatsApp batch processed', text)
+        self.assertIn('Export messages found: 4', text)
+        self.assertIn('Complaint entries processed: 2', text)
+        self.assertIn('Saved: 2', text)
+        self.assertIn('Skipped non-complaint chat messages: 2', text)
+        self.assertIn('Skipped WhatsApp system lines: 1', text)
+        self.assertIn('Duplicates skipped: 1', text)
+        self.assertIn('Saved with sync warnings: 1', text)
 
     @override_settings(TELEGRAM_BOT_TOKEN='token')
     @patch('core.api.views.requests.post')

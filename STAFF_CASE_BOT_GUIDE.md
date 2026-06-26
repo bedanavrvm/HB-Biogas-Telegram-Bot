@@ -228,12 +228,48 @@ The number after a command is usually the maximum number of results to show.
 | `/top issues` | `/top issues 7` | Show the most common complaint categories in the last 7 days. |
 | `/summary today` | `/summary today` | Show status and sync totals for today. |
 | `/summary week` | `/summary week` | Show status and sync totals for this week. |
+| `/batch` | `/batch` with a WhatsApp `.txt` export attached | Import complete complaint cases from a WhatsApp chat export. |
 | `/sync` | `/sync` | Refresh Django records from the configured Google Sheet. |
 | `/group` | `/group` | Show this Telegram group's workflow and sheet routing. |
 | `/health` | `/health` | Show database, group configuration, and recent processing health. |
 | `/help` | `/help` | Show the commands available for this group. |
 
 Telegram may show command suggestions when you type `/` or the first letters of a command. The visible command list depends on the workflow configured for that group.
+
+## WhatsApp Export Batch Import
+
+Use `/batch` when you have a WhatsApp chat export containing several complaint reports.
+
+Recommended method:
+
+```text
+@hb_biogas_cases_bot /batch
+```
+
+Attach the WhatsApp `.txt` export to that same Telegram message.
+
+You can also paste the export text after the command:
+
+```text
+@hb_biogas_cases_bot /batch
+23/05/2026, 12:46 - Staff Name: CUSTOMER COMPLAIN
+NAME: JANE DOE
+TEL: 0712345678
+ID: A12345
+COUNTY: KISUMU
+NATURE OF THE PROBLEM: No gas supply
+```
+
+The bot reads common WhatsApp export lines such as:
+
+```text
+23/05/2026, 12:46 - Staff Name: message
+[23/05/2026, 12:46] Staff Name: message
+```
+
+Only complaint entries are processed. Normal chat messages and WhatsApp system lines are skipped. Each complaint must still include `NAME`, `TEL`, `ID`, `COUNTY`, and `NATURE OF THE PROBLEM`; incomplete entries are rejected and listed in the batch summary.
+
+If the same export is sent again, existing cases are detected as duplicates using the WhatsApp sender, message text, and WhatsApp timestamp.
 
 ## Common Mistakes
 
