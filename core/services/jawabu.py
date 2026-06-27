@@ -890,11 +890,12 @@ def parse_location_datetime(
         return None
     if not reference_at:
         return candidates[0]
+
     reference = aware_datetime(reference_at)
-    return min(
-        candidates,
-        key=lambda candidate: abs((candidate - reference).total_seconds()),
-    )
+    not_future = [candidate for candidate in candidates if candidate <= reference]
+    if not not_future:
+        return None
+    return max(not_future)
 
 
 def parse_location_datetime_candidates(value: str) -> list[datetime]:

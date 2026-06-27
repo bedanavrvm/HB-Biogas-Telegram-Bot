@@ -716,6 +716,52 @@ Id. 8840023"""
         self.assertEqual(fields['visit_date'], '10-Apr-2026')
         self.assertEqual(fields['whatsapp_message_at'], '10-Apr-2026 14:29')
 
+    def test_jawabu_parser_never_uses_location_date_after_whatsapp_time(self):
+        from core.services.jawabu import extract_jawabu_fields
+
+        content = """IMG-20260410-WA0052.jpg (file attached)
+Latitude: S 0?36'8.10036"
+Longitude: E 36?57'50.45004"
+https://www.google.com/maps/search/?api=1&query=-0.6022501,36.9640139
+Location read date: 06/04/2026 14:20
+State: -Kaganjo
+County: - Muranga
+Beatrice Nyachui Wachira
+0727769644
+Id. 8840023"""
+        received_at = timezone.make_aware(
+            datetime(2026, 4, 10, 14, 29),
+            timezone.get_current_timezone(),
+        )
+
+        fields = extract_jawabu_fields(content, 'John Muiruri JBL Biogas', received_at)
+
+        self.assertEqual(fields['visit_date'], '06-Apr-2026')
+        self.assertEqual(fields['whatsapp_message_at'], '10-Apr-2026 14:29')
+
+    def test_jawabu_parser_ignores_unambiguous_future_location_date(self):
+        from core.services.jawabu import extract_jawabu_fields
+
+        content = """IMG-20260410-WA0052.jpg (file attached)
+Latitude: S 0?36'8.10036"
+Longitude: E 36?57'50.45004"
+https://www.google.com/maps/search/?api=1&query=-0.6022501,36.9640139
+Date: Jun 4, 2026 02:20 PM
+State: -Kaganjo
+County: - Muranga
+Beatrice Nyachui Wachira
+0727769644
+Id. 8840023"""
+        received_at = timezone.make_aware(
+            datetime(2026, 4, 10, 14, 29),
+            timezone.get_current_timezone(),
+        )
+
+        fields = extract_jawabu_fields(content, 'John Muiruri JBL Biogas', received_at)
+
+        self.assertEqual(fields['visit_date'], '10-Apr-2026')
+        self.assertEqual(fields['whatsapp_message_at'], '10-Apr-2026 14:29')
+
     def test_jawabu_parser_uses_message_date_when_location_date_missing(self):
         from core.services.jawabu import extract_jawabu_fields
 
