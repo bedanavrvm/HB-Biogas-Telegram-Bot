@@ -145,7 +145,7 @@ def process_jawabu_batch_export(
     entries = analysis.get('entries') or []
     import_start_date = configured_import_start_date(group_config)
     sheet_state = sync_jawabu_state_from_sheet(group_config)
-    latest_processed_at = latest_jawabu_processed_at(group_config, sheet_state)
+    latest_processed_at = latest_jawabu_processed_at(group_config)
     entries_after_start = [
         entry for entry in entries
         if not is_before_import_start(entry, import_start_date)
@@ -402,11 +402,13 @@ def is_at_or_before_latest_processed(
     return aware_datetime(received_at) <= aware_datetime(latest_processed_at)
 
 
-def latest_jawabu_processed_at(group_config, sheet_state: dict | None) -> datetime | None:
-    candidates = []
-    sheet_latest = (sheet_state or {}).get('latest_message_at')
-    if sheet_latest:
-        candidates.append(aware_datetime(sheet_latest))
+def latest_jawabu_processed_at(group_config) -> datetime | None:
+    """Return the moving cutoff from local import history only.
+
+    After a group DB reset there is intentionally no moving cutoff, so the next
+    batch starts from the configured import_start_date. Once that batch creates
+    local Jawabu records, later uploads use the latest stored WhatsApp time.
+    """
     db_latest = (
         JawabuVisitRecord.objects
         .filter(group_id=str(group_config.group_id))
@@ -415,9 +417,7 @@ def latest_jawabu_processed_at(group_config, sheet_state: dict | None) -> dateti
         .values_list('whatsapp_message_at', flat=True)
         .first()
     )
-    if db_latest:
-        candidates.append(aware_datetime(db_latest))
-    return max(candidates) if candidates else None
+    return aware_datetime(db_latest) if db_latest else None
 
 
 def looks_like_jawabu_visit(content: str) -> bool:

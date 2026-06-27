@@ -1056,14 +1056,13 @@ Jane Wanjiku
         self.assertEqual(fake_sheet.appended_rows[-1][name_index], 'JANE WANJIKU')
 
     @patch('core.services.jawabu.get_sheets_service')
-    def test_jawabu_import_uses_sheet_latest_time_when_db_was_reset(self, mock_service):
+    def test_jawabu_import_uses_configured_start_when_db_was_reset(self, mock_service):
         from core.services.jawabu import JAWABU_FIELD_HEADERS, process_jawabu_batch_export
 
         headers = list(JAWABU_FIELD_HEADERS.values())
         fake_sheet = FakeJawabuSheet(headers)
         existing_row = ['' for _ in headers]
         existing_row[headers.index('WhatsApp Message Time')] = '16-Mar-2026 11:46'
-        existing_row[headers.index('Duplicate Key')] = 'ID:1382654|PHONE:254720570031'
         fake_sheet.appended_rows.append(existing_row)
         mock_service.return_value = FakeJawabuService(fake_sheet)
         export = """3/16/26, 11:46 - Alex Kairu: IMG-20260316-WA0005.jpg (file attached)
@@ -1088,10 +1087,11 @@ Jane Wanjiku
             sender='Importer',
         )
 
-        self.assertEqual(result['skipped_already_processed'], 1)
-        self.assertEqual(result['latest_processed_at'], '16-Mar-2026 11:46')
-        self.assertEqual(result['imported'], 1)
-        self.assertEqual(JawabuVisitRecord.objects.count(), 1)
+        self.assertEqual(result['skipped_already_processed'], 0)
+        self.assertEqual(result['latest_processed_at'], '')
+        self.assertEqual(result['imported'], 2)
+        self.assertEqual(result['duplicate_review'], 0)
+        self.assertEqual(JawabuVisitRecord.objects.count(), 2)
 
     @patch('core.services.jawabu.get_sheets_service')
     def test_jawabu_import_ignores_stale_db_duplicates_removed_from_sheet(self, mock_service):
