@@ -1014,10 +1014,11 @@ Mary Njeri njihia
 
 
     @patch('core.services.jawabu.get_sheets_service')
-    def test_jawabu_import_flags_duplicate_id_and_phone_for_review(self, mock_service):
+    def test_jawabu_import_consolidates_duplicate_media_for_same_entry(self, mock_service):
         from core.services.jawabu import JAWABU_FIELD_HEADERS, process_jawabu_batch_export
 
-        fake_sheet = FakeJawabuSheet(list(JAWABU_FIELD_HEADERS.values()))
+        headers = list(JAWABU_FIELD_HEADERS.values())
+        fake_sheet = FakeJawabuSheet(headers)
         mock_service.return_value = FakeJawabuService(fake_sheet)
         export = """3/16/26, 11:46 - Alex Kairu: IMG-20260316-WA0005.jpg (file attached)
 https://www.google.com/maps/search/?api=1&query=-0.55393,37.526935
@@ -1026,7 +1027,7 @@ Country: Kenya
 Mary Njeri njihia
 1382654
 0720570031
-3/16/26, 11:47 - Alex Kairu: <Media omitted>
+3/16/26, 11:47 - Alex Kairu: IMG-20260316-WA0006.jpg (file attached)
 https://www.google.com/maps/search/?api=1&query=-0.55393,37.526935
 State: Embu County
 Country: Kenya
@@ -1041,25 +1042,86 @@ Mary Njeri njihia
             sender='Importer',
         )
 
+        self.assertEqual(result['imported'], 1)
+        self.assertEqual(result['duplicate_review'], 0)
+        self.assertEqual(result['consolidated'], 1)
+        self.assertEqual(len(fake_sheet.appended_rows), 1)
+        media_index = headers.index('Media Filenames')
+        self.assertIn('IMG-20260316-WA0005.jpg', fake_sheet.appended_rows[0][media_index])
+        self.assertIn('IMG-20260316-WA0006.jpg', fake_sheet.appended_rows[0][media_index])
+        record = JawabuVisitRecord.objects.get()
+        self.assertEqual(record.import_status, 'imported')
+        self.assertIn('IMG-20260316-WA0006.jpg', record.parsed_fields['media_filenames'])
+
+    @patch('core.services.jawabu.get_sheets_service')
+    def test_jawabu_import_consolidates_complementary_same_id_records(self, mock_service):
+        from core.services.jawabu import JAWABU_FIELD_HEADERS, process_jawabu_batch_export
+
+        fake_sheet = FakeJawabuSheet(list(JAWABU_FIELD_HEADERS.values()))
+        mock_service.return_value = FakeJawabuService(fake_sheet)
+        export = """3/16/26, 11:46 - Alex Kairu: IMG-20260316-WA0005.jpg (file attached)
+https://www.google.com/maps/search/?api=1&query=-0.55393,37.526935
+State: Embu County
+Country: Kenya
+Mary Njeri njihia
+1382654
+3/16/26, 11:47 - Alex Kairu: IMG-20260316-WA0006.jpg (file attached)
+https://www.google.com/maps/search/?api=1&query=-0.55393,37.526935
+State: Embu County
+Country: Kenya
+Mary Njeri njihia
+1382654
+0720570031"""
+
+        result = process_jawabu_batch_export(
+            group_config=self.group,
+            export_text=export,
+            telegram_message_id='909',
+            sender='Importer',
+        )
+
+        self.assertEqual(result['imported'], 1)
+        self.assertEqual(result['duplicate_review'], 0)
+        self.assertEqual(result['consolidated'], 1)
+        record = JawabuVisitRecord.objects.get()
+        self.assertEqual(record.primary_phone, '254720570031')
+
+    @patch('core.services.jawabu.get_sheets_service')
+    def test_jawabu_import_keeps_conflicting_same_id_records_for_review(self, mock_service):
+        from core.services.jawabu import JAWABU_FIELD_HEADERS, process_jawabu_batch_export
+
+        headers = list(JAWABU_FIELD_HEADERS.values())
+        fake_sheet = FakeJawabuSheet(headers)
+        mock_service.return_value = FakeJawabuService(fake_sheet)
+        export = """3/16/26, 11:46 - Alex Kairu: IMG-20260316-WA0005.jpg (file attached)
+https://www.google.com/maps/search/?api=1&query=-0.55393,37.526935
+State: Embu County
+Country: Kenya
+Mary Njeri njihia
+1382654
+0720570031
+3/16/26, 11:47 - Alex Kairu: IMG-20260316-WA0006.jpg (file attached)
+https://www.google.com/maps/search/?api=1&query=-0.55393,37.526935
+State: Embu County
+Country: Kenya
+Mary Njeri njihia
+1382654
+0711111111"""
+
+        result = process_jawabu_batch_export(
+            group_config=self.group,
+            export_text=export,
+            telegram_message_id='910',
+            sender='Importer',
+        )
+
         self.assertEqual(result['imported'], 0)
         self.assertEqual(result['duplicate_review'], 2)
-        self.assertEqual(len(result['duplicates']), 2)
-        self.assertEqual(len(fake_sheet.appended_rows), 2)
-        status_index = list(JAWABU_FIELD_HEADERS.values()).index('Import Status')
-        duplicate_index = list(JAWABU_FIELD_HEADERS.values()).index('Duplicate Status')
-        notes_index = list(JAWABU_FIELD_HEADERS.values()).index('Review Notes')
+        self.assertEqual(result['consolidated'], 0)
+        status_index = headers.index('Import Status')
         self.assertEqual(
             [row[status_index] for row in fake_sheet.appended_rows],
             ['Duplicate Review', 'Duplicate Review'],
-        )
-        self.assertEqual(
-            [row[duplicate_index] for row in fake_sheet.appended_rows],
-            ['Possible Duplicate', 'Possible Duplicate'],
-        )
-        self.assertTrue(all('Duplicate group:' in row[notes_index] for row in fake_sheet.appended_rows))
-        self.assertEqual(
-            set(JawabuVisitRecord.objects.values_list('duplicate_status', flat=True)),
-            {'possible_duplicate'},
         )
 
 

@@ -1205,8 +1205,13 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
         skipped_before_start = result.get('skipped_before_start', 0)
         if skipped_before_start:
             lines.append(f"Skipped before configured start date: {skipped_before_start}")
+        consolidated = result.get('consolidated', 0)
         lines.extend([
             f"Visit records processed: {result.get('processed', 0)}",
+        ])
+        if consolidated:
+            lines.append(f"Auto-consolidated duplicate media/detail messages: {consolidated}")
+        lines.extend([
             f"Imported: {result.get('imported', 0)}",
             f"Duplicates needing review: {result.get('duplicate_review', 0)}",
             f"Rejected: {result.get('rejected', 0)}",

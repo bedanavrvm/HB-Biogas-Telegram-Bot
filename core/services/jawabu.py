@@ -180,8 +180,12 @@ def process_jawabu_batch_export(
             'message': 'No Jawabu visit records with phone/location data were found.',
         }
 
+    parsed_records, consolidated_count, consolidation_conflict_keys = consolidate_jawabu_records(parsed_records)
     sheet_duplicate_keys = sync_jawabu_duplicate_state_from_sheet(group_config)
-    duplicate_keys = duplicate_keys_in_batch([record for record in parsed_records if record.is_complete])
+    duplicate_keys = (
+        duplicate_keys_in_batch([record for record in parsed_records if record.is_complete])
+        | consolidation_conflict_keys
+    )
     results = []
     duplicate_reports = []
     rejection_reports = []
@@ -274,6 +278,7 @@ def process_jawabu_batch_export(
         'export_messages': len(entries),
         'skipped_before_start': skipped_before_start,
         'processed': len(parsed_records),
+        'consolidated': consolidated_count,
         'imported': sum(1 for result in results if result['status'] == 'imported'),
         'duplicate_review': sum(1 for result in results if result['status'] == 'duplicate_review'),
         'rejected': sum(1 for result in results if result['status'] == 'rejected'),
@@ -397,6 +402,148 @@ def parse_jawabu_entry(entry: dict, index: int) -> JawabuParsedRecord:
         missing_fields=missing_fields,
         duplicate_key=duplicate_key,
     )
+
+
+CONSOLIDATE_STRICT_FIELDS = (
+    'visit_date',
+    'customer_name',
+    'national_id',
+    'primary_phone',
+    'secondary_phone',
+    'county',
+    'sub_county',
+    'landmark',
+    'gps_link',
+    'latitude',
+    'longitude',
+    'decision',
+)
+CONSOLIDATE_COMBINE_FIELDS = (
+    'media_filenames',
+    'decision_note',
+    'raw_message',
+)
+
+
+def consolidate_jawabu_records(
+    records: list[JawabuParsedRecord],
+) -> tuple[list[JawabuParsedRecord], int, set[str]]:
+    grouped: dict[str, list[JawabuParsedRecord]] = {}
+    passthrough: list[JawabuParsedRecord] = []
+    for record in records:
+        key = jawabu_consolidation_key(record)
+        if not key:
+            passthrough.append(record)
+            continue
+        grouped.setdefault(key, []).append(record)
+
+    consolidated_records: list[JawabuParsedRecord] = []
+    consolidated_count = 0
+    conflict_duplicate_keys: set[str] = set()
+    for group in grouped.values():
+        if len(group) == 1:
+            consolidated_records.append(group[0])
+            continue
+
+        merged = merge_jawabu_record_group(group)
+        if merged is None:
+            consolidated_records.extend(group)
+            conflict_duplicate_keys.update(
+                record.duplicate_key for record in group if record.duplicate_key
+            )
+            continue
+
+        consolidated_records.append(merged)
+        consolidated_count += len(group) - 1
+
+    return sorted(
+        consolidated_records + passthrough,
+        key=lambda record: record.index,
+    ), consolidated_count, conflict_duplicate_keys
+
+
+def jawabu_consolidation_key(record: JawabuParsedRecord) -> str:
+    national_id = re.sub(r'\D', '', str(record.fields.get('national_id') or ''))
+    if national_id:
+        return f'ID:{national_id}'
+    primary_phone = normalise_phone(record.fields.get('primary_phone', ''))
+    if primary_phone:
+        return f'PHONE:{primary_phone}'
+    return str(record.duplicate_key or '').strip()
+
+
+def merge_jawabu_record_group(records: list[JawabuParsedRecord]) -> JawabuParsedRecord | None:
+    ordered = sorted(records, key=lambda record: record.index)
+    merged_fields = dict(ordered[0].fields)
+
+    for record in ordered[1:]:
+        if not merge_jawabu_fields(merged_fields, record.fields):
+            return None
+
+    sender = combine_text_values(record.sender for record in ordered)
+    raw_text = combine_text_values(record.raw_text for record in ordered)
+    received_at = min(
+        (record.received_at for record in ordered if record.received_at),
+        default=None,
+    )
+    merged_fields['raw_message'] = raw_text
+    merged_fields['staff_sender'] = sender
+    merged_fields['duplicate_key'] = jawabu_duplicate_key(
+        merged_fields.get('national_id', ''),
+        merged_fields.get('primary_phone', ''),
+        merged_fields.get('customer_name', ''),
+    )
+    missing_fields = missing_required_jawabu_fields(merged_fields)
+    return JawabuParsedRecord(
+        index=ordered[0].index,
+        sender=sender,
+        received_at=received_at,
+        raw_text=raw_text,
+        fields=merged_fields,
+        missing_fields=missing_fields,
+        duplicate_key=merged_fields['duplicate_key'],
+    )
+
+
+def merge_jawabu_fields(target: dict[str, str], source: dict[str, str]) -> bool:
+    for field in CONSOLIDATE_STRICT_FIELDS:
+        left = normalized_compare_value(target.get(field, ''))
+        right = normalized_compare_value(source.get(field, ''))
+        if left and right and left != right:
+            return False
+        if not left and right:
+            target[field] = source.get(field, '')
+
+    for field in CONSOLIDATE_COMBINE_FIELDS:
+        target[field] = combine_text_values([target.get(field, ''), source.get(field, '')])
+
+    for field, value in source.items():
+        if field in CONSOLIDATE_STRICT_FIELDS or field in CONSOLIDATE_COMBINE_FIELDS:
+            continue
+        if not str(target.get(field, '') or '').strip() and str(value or '').strip():
+            target[field] = value
+    return True
+
+
+def normalized_compare_value(value: str) -> str:
+    return re.sub(r'\s+', ' ', str(value or '').strip()).upper()
+
+
+def combine_text_values(values) -> str:
+    seen = set()
+    combined = []
+    for value in values:
+        parts = str(value or '').splitlines() or [value]
+        for part in parts:
+            item = str(part or '').strip()
+            if not item:
+                continue
+            key = re.sub(r'\s+', ' ', item).upper()
+            if key in seen:
+                continue
+            seen.add(key)
+            combined.append(item)
+    return "\n".join(combined)
 
 
 def extract_jawabu_fields(content: str, sender: str, received_at: datetime | None) -> dict[str, str]:
