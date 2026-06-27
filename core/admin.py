@@ -18,6 +18,7 @@ from core.services.workflow_presets import (
 
 from .models import (
     CaseUpdate,
+    FcaImportRecord,
     GroupSheetConfiguration,
     JawabuVisitRecord,
     LiveSheetRecordChange,
@@ -285,6 +286,24 @@ class JawabuVisitRecordAdmin(ReadOnlyAuditAdmin):
     search_fields = [
         'national_id', 'primary_phone', 'duplicate_key', 'duplicate_group_id',
         'sender', 'raw_text', 'sync_error',
+    ]
+    readonly_fields = ['id', 'created_at']
+
+
+@admin.register(FcaImportRecord)
+class FcaImportRecordAdmin(ReadOnlyAuditAdmin):
+    list_display = [
+        'customer_name', 'primary_phone', 'fca_decision', 'group_id',
+        'sheet_tab', 'row_number', 'import_status', 'source_filename',
+        'source_row', 'created_at',
+    ]
+    list_filter = [
+        'group_id', 'sheet_id', 'sheet_tab', 'fca_decision',
+        'import_status', 'created_at',
+    ]
+    search_fields = [
+        'customer_name', 'primary_phone', 'source_filename', 'source_sheet',
+        'fca_comment', 'fca_decision', 'sync_error',
     ]
     readonly_fields = ['id', 'created_at']
 

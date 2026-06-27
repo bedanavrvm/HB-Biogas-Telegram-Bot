@@ -35,6 +35,7 @@ SHARED_GROUP_BOT_COMMANDS = [
 ORDER_APPROVAL_BOT_COMMANDS = [
     {'command': 'order', 'description': 'Open the order approval form'},
     {'command': 'form', 'description': 'Open the order approval form'},
+    {'command': 'batchfca', 'description': 'Import FCA Excel workbook attachments'},
 ]
 
 JAWABU_BOT_COMMANDS = [

@@ -510,7 +510,7 @@ def data_validations_xml(headers: list[str], first_data_row: int, last_data_row:
     validations.extend(dropdown_validation(headers, "CREDIT ANALYSIS", ["Approved", "Pending", "Rejected"], first_data_row, last_data_row))
     validations.extend(dropdown_validation(headers, "BACK OFFICE CREDIT ANALYSIS", ["Approved", "Pending", "Rejected"], first_data_row, last_data_row))
     validations.extend(dropdown_validation(headers, "DOCUMENTATION COMPLETE?", ["Yes", "No", "Pending"], first_data_row, last_data_row))
-    validations.extend(dropdown_validation(headers, "FINAL DECISION", ["Approved", "Rejected", "Deferred", "Under Review"], first_data_row, last_data_row))
+    validations.extend(dropdown_validation(headers, "FINAL DECISION", ["Approved", "Rejected", "Deferred", "Cash", "Under Review"], first_data_row, last_data_row))
     validations.extend(custom_phone_validation(headers, "CONTACTS / PRIMARY", first_data_row, last_data_row))
     validations.extend(custom_phone_validation(headers, "CONTACTS / SECONDARY", first_data_row, last_data_row))
     validations.extend(decimal_validation(headers, "DEPOSIT / HB", first_data_row, last_data_row))

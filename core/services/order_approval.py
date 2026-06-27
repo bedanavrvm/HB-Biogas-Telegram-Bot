@@ -179,6 +179,9 @@ FIELD_CHOICE_VALUES = {
         'defer': 'Deferred',
         'hold': 'Deferred',
         'under review': 'Under Review',
+        'cash': 'Cash',
+        'opted cash': 'Cash',
+        'opted for cash': 'Cash',
     },
 }
 FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder'

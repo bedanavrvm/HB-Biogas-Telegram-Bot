@@ -486,6 +486,56 @@ class JawabuVisitRecord(models.Model):
         )
 
 
+class FcaImportRecord(models.Model):
+    """Audit row for FCA Excel workbook imports."""
+
+    IMPORT_STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('imported', 'Imported'),
+        ('review_needed', 'Review Needed'),
+        ('failed', 'Failed'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    group_id = models.CharField(max_length=100, db_index=True)
+    sheet_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    sheet_tab = models.CharField(max_length=255, blank=True, default='')
+    row_number = models.PositiveIntegerField(null=True, blank=True)
+    telegram_message_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    source_filename = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    source_sheet = models.CharField(max_length=255, blank=True, default='')
+    source_row = models.PositiveIntegerField(null=True, blank=True)
+    sender = models.CharField(max_length=255, blank=True, default='')
+    customer_name = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    primary_phone = models.CharField(max_length=32, blank=True, default='', db_index=True)
+    fca_visit_date = models.DateField(null=True, blank=True)
+    fca_comment = models.TextField(blank=True, default='')
+    fca_decision = models.CharField(max_length=32, blank=True, default='', db_index=True)
+    import_status = models.CharField(
+        max_length=32,
+        choices=IMPORT_STATUS_CHOICES,
+        default='pending',
+    )
+    parsed_fields = models.JSONField(blank=True, default=dict)
+    sync_error = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['group_id', 'created_at']),
+            models.Index(fields=['group_id', 'source_filename', 'source_sheet', 'source_row']),
+            models.Index(fields=['primary_phone', 'customer_name']),
+            models.Index(fields=['import_status', 'fca_decision']),
+        ]
+        verbose_name = 'FCA import record'
+        verbose_name_plural = 'FCA import records'
+
+    def __str__(self):
+        label = self.customer_name or self.primary_phone or 'unknown customer'
+        return f"FCA {label} {self.import_status}"
+
+
 class GroupSheetConfiguration(models.Model):
     """
     Admin-managed routing and workflow configuration for a Telegram group.

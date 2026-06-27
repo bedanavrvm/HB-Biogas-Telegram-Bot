@@ -7,6 +7,7 @@ from django.db import transaction
 
 from core.models import (
     CaseUpdate,
+    FcaImportRecord,
     JawabuVisitRecord,
     LiveSheetRecordChange,
     MediaAttachment,
@@ -28,6 +29,7 @@ def group_data_counts(group_id: str) -> dict[str, int]:
         'order_updates': OrderApprovalUpdate.objects.filter(group_id=group_id).count(),
         'media_attachments': MediaAttachment.objects.filter(group_id=group_id).count(),
         'jawabu_records': JawabuVisitRecord.objects.filter(group_id=group_id).count(),
+        'fca_records': FcaImportRecord.objects.filter(group_id=group_id).count(),
         'live_sheet_changes': LiveSheetRecordChange.objects.filter(group_id=group_id).count(),
     }
 
@@ -47,6 +49,7 @@ def reset_group_data(group_id: str) -> dict[str, Any]:
     MediaAttachment.objects.filter(group_id=group_id).delete()
     OrderApprovalUpdate.objects.filter(group_id=group_id).delete()
     JawabuVisitRecord.objects.filter(group_id=group_id).delete()
+    FcaImportRecord.objects.filter(group_id=group_id).delete()
     LiveSheetRecordChange.objects.filter(group_id=group_id).delete()
     CaseUpdate.objects.filter(group_id=group_id).delete()
     ParsedMessage.objects.filter(group_id=group_id).delete()

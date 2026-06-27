@@ -16,6 +16,7 @@ from unittest.mock import patch, MagicMock
 
 from core.models import (
     CaseUpdate,
+    FcaImportRecord,
     GroupSheetConfiguration,
     JawabuVisitRecord,
     LiveSheetRecordChange,
@@ -1278,6 +1279,121 @@ Mary Njeri njihia
             [row[status_index] for row in fake_sheet.appended_rows],
             ['Duplicate Review', 'Duplicate Review'],
         )
+
+
+class FcaWorkflowServiceTest(TestCase):
+    """Tests for FCA Excel batch imports."""
+
+    def setUp(self):
+        self.group = GroupSheetConfiguration.objects.create(
+            group_id='-100order',
+            display_name='Order Approval',
+            enabled=True,
+            sheet_id='sheet_orders',
+            sheet_name='Orders',
+            workflow={
+                'type': 'order_approval',
+                'header_row': 2,
+                'create_sheet_name': 'Orders',
+                'record_id_prefix': 'JBL',
+            },
+        )
+
+    def fca_workbook_bytes(self):
+        from openpyxl import Workbook
+
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = 'FCA'
+        sheet['C2'] = 'FIELD CONTROL VISIT APPROVAL FORM'
+        sheet['H2'] = 'Date: 23rd June 2026'
+        sheet['H4'] = 'HUB... Kiambu'
+        sheet.append([])
+        sheet.append([])
+        sheet.append([
+            '', 'CUSTOMER NAME', 'CONTACTS', 'LOCATION', 'HB STAFF',
+            'DEPOSIT', 'APPROVAL BASIS', '',
+        ])
+        sheet.append([
+            1, 'Samuel Ndungu', '0724733556/0711111111', 'Ngenda',
+            'Nathan', '5000 HB', '', 'opted cash',
+        ])
+        sheet.append([
+            2, 'Jane Wanjiku', '724000111', 'Kieni',
+            'Mary', '5000 HB', '', 'Approved dairy farmer',
+        ])
+        stream = BytesIO()
+        workbook.save(stream)
+        return stream.getvalue()
+
+    def test_extract_fca_workbook_records_gets_date_comment_and_cash_decision(self):
+        from core.services.fca import extract_fca_workbook_records
+
+        records = extract_fca_workbook_records(
+            'FCA Kiambu 23rd June 2026 after visit.xlsx',
+            self.fca_workbook_bytes(),
+        )
+
+        self.assertEqual(len(records), 2)
+        self.assertEqual(records[0].fields['fca_visit_date'], '23-Jun-2026')
+        self.assertEqual(records[0].fields['customer_name'], 'SAMUEL NDUNGU')
+        self.assertEqual(records[0].fields['primary_phone'], '254724733556')
+        self.assertEqual(records[0].fields['secondary_phone'], '254711111111')
+        self.assertEqual(records[0].fields['fca_comment'], 'opted cash')
+        self.assertEqual(records[0].fields['fca_decision'], 'Cash')
+        self.assertEqual(records[1].fields['fca_decision'], 'Approved')
+
+    @patch('core.services.fca.get_sheets_service')
+    def test_process_fca_batch_files_appends_rows_to_order_sheet(self, mock_service):
+        from core.services.fca import FCA_FIELD_HEADERS, process_fca_batch_files
+
+        headers = list(FCA_FIELD_HEADERS.values())
+        fake_sheet = FakeFcaSheet(headers)
+        mock_service.return_value = FakeJawabuService(fake_sheet)
+
+        result = process_fca_batch_files(
+            group_config=self.group,
+            files=[('fca.xlsx', self.fca_workbook_bytes())],
+            telegram_message_id='501',
+            sender='Importer',
+        )
+
+        self.assertEqual(result['status'], 'fca_batch_processed')
+        self.assertEqual(result['processed'], 2)
+        self.assertEqual(result['imported'], 2)
+        self.assertEqual(result['cash'], 1)
+        self.assertEqual(FcaImportRecord.objects.count(), 2)
+        self.assertEqual(fake_sheet.append_rows_calls, 1)
+        decision_index = headers.index('FCA DECISION')
+        self.assertEqual(fake_sheet.appended_rows[0][decision_index], 'Cash')
+        record_id_index = headers.index('ORDER RECORD ID')
+        self.assertEqual(fake_sheet.appended_rows[0][record_id_index], 'JBL-1')
+        self.assertEqual(fake_sheet.appended_rows[1][record_id_index], 'JBL-2')
+
+
+class FakeFcaSheet:
+    def __init__(self, headers):
+        self.headers = headers
+        self.appended_rows = []
+        self.row_values_calls = 0
+        self.get_all_values_calls = 0
+        self.append_rows_calls = 0
+
+    def row_values(self, row_number):
+        self.row_values_calls += 1
+        return self.headers if row_number == 2 else []
+
+    def get_all_values(self):
+        self.get_all_values_calls += 1
+        return [[]] + [self.headers] + self.appended_rows
+
+    def append_rows(self, rows, value_input_option='USER_ENTERED'):
+        self.append_rows_calls += 1
+        first_row = len(self.appended_rows) + 3
+        self.appended_rows.extend(rows)
+        last_row = first_row + len(rows) - 1
+        return {'updates': {'updatedRange': f"'Orders'!A{first_row}:P{last_row}"}}
+
 
 
 class FakeJawabuSheet:

@@ -495,6 +495,13 @@ def _process_telegram_message(message_data: dict) -> dict:
                     ),
                 }
             if is_order_approval_workflow(group_config):
+                if content is not None and _looks_like_fca_batch_command(content):
+                    return _process_fca_batch_command(
+                        group_config=group_config,
+                        message_data=message_data,
+                        sender=sender,
+                        telegram_message_id=telegram_message_id,
+                    )
                 if content is None and not (reply_to_id and has_image):
                     logger.debug(
                         f"Ignoring order approval message {telegram_message_id}: "
@@ -636,6 +643,10 @@ def _looks_like_batch_command(content: str) -> bool:
     return bool(re.match(r'^/batch(?:@\w+)?(?:\s|$)', str(content or '').strip(), re.IGNORECASE))
 
 
+def _looks_like_fca_batch_command(content: str) -> bool:
+    return bool(re.match(r'^/batchfca(?:@\w+)?(?:\s|$)', str(content or '').strip(), re.IGNORECASE))
+
+
 def _process_whatsapp_batch_command(
     message_data: dict,
     command_content: str,
@@ -773,6 +784,36 @@ def _process_jawabu_batch_command(
     )
 
 
+def _process_fca_batch_command(
+    group_config,
+    message_data: dict,
+    sender: str,
+    telegram_message_id: str,
+) -> dict:
+    files, document_error = _download_telegram_fca_documents(message_data)
+    if document_error:
+        return {'status': 'command', 'reply_text': document_error}
+    if not files:
+        return {
+            'status': 'command',
+            'reply_text': (
+                "Attach an FCA .xlsx workbook or a .zip containing FCA workbooks and send:\n"
+                "@bot /batchfca\n\n"
+                "The target sheet must include FCA VISIT DATE, FCA COMMENT, FCA DECISION, "
+                "and FCA IMPORT STATUS columns."
+            ),
+        }
+
+    from core.services.fca import process_fca_batch_files
+
+    return process_fca_batch_files(
+        group_config=group_config,
+        files=files,
+        telegram_message_id=telegram_message_id,
+        sender=sender,
+    )
+
+
 def _batch_command_payload(content: str) -> str:
     text = str(content or '').strip()
     return re.sub(
@@ -795,6 +836,92 @@ def _looks_like_whatsapp_export_payload(content: str) -> bool:
             content,
         )
     )
+
+
+def _download_telegram_fca_documents(message_data: dict) -> tuple[list[tuple[str, bytes]], str]:
+    document = message_data.get('document') or {}
+    if not document:
+        return [], ''
+
+    filename = str(document.get('file_name') or '').strip()
+    mime_type = str(document.get('mime_type') or '').lower()
+    lower_filename = filename.lower()
+    is_excel = lower_filename.endswith('.xlsx') or mime_type in {
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/octet-stream',
+        '',
+    }
+    is_zip = lower_filename.endswith('.zip') or mime_type in {
+        'application/zip',
+        'application/x-zip-compressed',
+    }
+    if not (is_excel or is_zip):
+        return [], (
+            "The /batchfca command only supports .xlsx files or .zip files containing .xlsx files.\n"
+            "Attach the FCA workbook and send @bot /batchfca."
+        )
+
+    max_mb = max(1, int(getattr(settings, 'FCA_BATCH_MAX_FILE_SIZE_MB', 10)))
+    file_size = int(document.get('file_size') or 0)
+    if file_size and file_size > max_mb * 1024 * 1024:
+        return [], f"FCA attachment is too large. Maximum size is {max_mb} MB."
+
+    bot_token = settings.TELEGRAM_BOT_TOKEN
+    file_id = document.get('file_id')
+    if not bot_token or not file_id:
+        return [], "Could not download the FCA workbook from Telegram."
+
+    try:
+        file_meta = requests.get(
+            f'https://api.telegram.org/bot{bot_token}/getFile',
+            params={'file_id': file_id},
+            timeout=settings.API_REQUEST_TIMEOUT,
+        )
+        file_meta.raise_for_status()
+        file_path = file_meta.json().get('result', {}).get('file_path', '')
+        if not file_path:
+            return [], "Telegram did not return a downloadable file path."
+
+        file_response = requests.get(
+            f'https://api.telegram.org/file/bot{bot_token}/{file_path}',
+            timeout=settings.API_REQUEST_TIMEOUT,
+        )
+        file_response.raise_for_status()
+        raw = file_response.content
+        if len(raw) > max_mb * 1024 * 1024:
+            return [], f"FCA attachment is too large. Maximum size is {max_mb} MB."
+        return _extract_fca_workbook_files(raw, filename, max_mb), ''
+    except requests.Timeout:
+        logger.warning("Timed out downloading Telegram FCA workbook")
+        return [], "Timed out downloading the FCA workbook. Please resend it."
+    except ValueError as exc:
+        return [], str(exc)
+    except Exception as exc:
+        logger.error(f"Failed to download Telegram FCA workbook: {exc}", exc_info=True)
+        return [], "Could not download the FCA workbook. Please resend it."
+
+
+def _extract_fca_workbook_files(raw: bytes, filename: str, max_mb: int) -> list[tuple[str, bytes]]:
+    lower_filename = str(filename or '').lower()
+    if lower_filename.endswith('.xlsx'):
+        return [(filename or 'fca.xlsx', raw)]
+    if not lower_filename.endswith('.zip'):
+        raise ValueError("FCA attachment must be an .xlsx workbook or .zip file.")
+
+    max_bytes = max(1, int(max_mb)) * 1024 * 1024
+    workbooks = []
+    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+        for info in archive.infolist():
+            if info.is_dir() or not info.filename.lower().endswith('.xlsx'):
+                continue
+            if info.filename.startswith('__MACOSX/'):
+                continue
+            if info.file_size > max_bytes:
+                raise ValueError(f"FCA workbook {info.filename} is larger than {max_mb} MB.")
+            workbooks.append((info.filename, archive.read(info)))
+    if not workbooks:
+        raise ValueError("The FCA zip did not contain any .xlsx workbook files.")
+    return workbooks
 
 
 def _download_telegram_text_document(message_data: dict) -> tuple[str, str]:
@@ -1254,6 +1381,45 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
         if result.get('message'):
             lines.extend(["", str(result['message'])])
 
+        text = "\n".join(lines)
+    elif status == 'fca_batch_processed':
+        lines = [
+            "FCA Excel import processed",
+            f"Files read: {result.get('files', 0)}",
+            f"Rows processed: {result.get('processed', 0)}",
+            f"Imported: {result.get('imported', 0)}",
+            f"Review needed: {result.get('review_needed', 0)}",
+            f"Failed: {result.get('failed', 0)}",
+        ]
+        if result.get('sheet_tab'):
+            lines.append(f"Target tab: {result.get('sheet_tab')}")
+        decision_parts = []
+        for key, label in (
+            ('approved', 'Approved'),
+            ('rejected', 'Rejected'),
+            ('deferred', 'Deferred'),
+            ('cash', 'Cash'),
+        ):
+            value = result.get(key, 0)
+            if value:
+                decision_parts.append(f"{label}: {value}")
+        if decision_parts:
+            lines.extend(["", "Decisions", ", ".join(decision_parts)])
+        if result.get('duplicate_source_rows'):
+            lines.append(f"Duplicate source rows flagged: {result.get('duplicate_source_rows')}")
+        reviews = result.get('review_examples') or []
+        if reviews:
+            lines.extend(["", "Manual review examples"])
+            for index, item in enumerate(reviews[:5], start=1):
+                lines.append(
+                    f"{index}. {item.get('customer_name') or item.get('primary_phone') or 'Unknown customer'}"
+                )
+                lines.append(f"   {item.get('reason') or 'Needs review'}")
+                lines.append(f"   {item.get('source') or ''}")
+        errors = [error for error in (result.get('errors') or []) if error]
+        if errors:
+            lines.extend(["", "Errors"])
+            lines.extend(f"- {error}" for error in errors[:5])
         text = "\n".join(lines)
     elif status == 'error':
         text = (
