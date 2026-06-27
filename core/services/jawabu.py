@@ -180,6 +180,7 @@ def process_jawabu_batch_export(
             'message': 'No Jawabu visit records with phone/location data were found.',
         }
 
+    sheet_duplicate_keys = sync_jawabu_duplicate_state_from_sheet(group_config)
     duplicate_keys = duplicate_keys_in_batch([record for record in parsed_records if record.is_complete])
     results = []
     duplicate_reports = []
@@ -203,7 +204,15 @@ def process_jawabu_batch_export(
             continue
 
         existing = existing_duplicate_records(group_config, parsed.duplicate_key)
-        is_duplicate = parsed.duplicate_key in duplicate_keys or bool(existing)
+        exists_in_sheet = (
+            sheet_duplicate_keys is not None
+            and parsed.duplicate_key in sheet_duplicate_keys
+        )
+        is_duplicate = (
+            parsed.duplicate_key in duplicate_keys
+            or exists_in_sheet
+            or bool(existing)
+        )
         if is_duplicate:
             group_id = duplicate_group_id(parsed.duplicate_key)
             mark_existing_duplicates(existing, group_id)
@@ -273,6 +282,57 @@ def process_jawabu_batch_export(
         'rejections': rejection_reports,
     }
 
+
+
+def sync_jawabu_duplicate_state_from_sheet(group_config) -> set[str] | None:
+    """Return sheet duplicate keys and remove local keys no longer on the sheet.
+
+    The Jawabu sheet is the staff-facing database. If staff delete rows there,
+    stale local duplicate records must not keep future imports marked as
+    duplicates. When the sheet cannot be read, return None and keep the local DB
+    as the conservative fallback.
+    """
+    workflow = getattr(group_config, 'workflow', None) or {}
+    service = get_sheets_service(
+        sheet_id=group_config.sheet_id,
+        sheet_name=group_config.sheet_name,
+        sheet_schema=None,
+    )
+    if not service.is_available():
+        return None
+
+    try:
+        values = service._sheet.get_all_values()
+    except Exception as exc:
+        logger.warning(
+            "Failed to sync Jawabu duplicate state from sheet: %s",
+            exc,
+            exc_info=True,
+        )
+        return None
+
+    headers = header_row_values(values, workflow)
+    if not headers:
+        return None
+
+    duplicate_header = configured_field_headers(workflow).get('duplicate_key')
+    duplicate_index = find_header_index(headers, duplicate_header)
+    if duplicate_index is None:
+        return None
+
+    header_row = configured_header_row(workflow)
+    sheet_keys = {
+        str(row[duplicate_index] if duplicate_index < len(row) else '').strip()
+        for row in values[header_row:]
+    }
+    sheet_keys.discard('')
+
+    local_records = JawabuVisitRecord.objects.filter(group_id=str(group_config.group_id))
+    if sheet_keys:
+        local_records.exclude(duplicate_key__in=sheet_keys).delete()
+    else:
+        local_records.delete()
+    return sheet_keys
 
 
 def configured_import_start_date(group_config) -> date | None:
@@ -818,6 +878,16 @@ def configured_header_row(workflow: dict) -> int:
         return max(int((workflow or {}).get('header_row') or 1), 1)
     except (TypeError, ValueError):
         return 1
+
+
+def find_header_index(headers: list[str], header: str | None) -> int | None:
+    target = str(header or '').strip().lower()
+    if not target:
+        return None
+    for index, value in enumerate(headers):
+        if str(value or '').strip().lower() == target:
+            return index
+    return None
 
 
 def header_row_values(values: list[list[str]], workflow: dict) -> list[str]:

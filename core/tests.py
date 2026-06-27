@@ -771,7 +771,7 @@ Mary Njeri njihia
         self.assertEqual(result['duplicate_review'], 0)
         self.assertEqual(len(fake_sheet.appended_rows), 1)
         self.assertEqual(fake_sheet.row_values_calls, 1)
-        self.assertEqual(fake_sheet.get_all_values_calls, 0)
+        self.assertEqual(fake_sheet.get_all_values_calls, 1)
         self.assertEqual(fake_sheet.append_rows_calls, 1)
         record = JawabuVisitRecord.objects.get()
         self.assertEqual(record.import_status, 'imported')
@@ -897,7 +897,7 @@ John Mwangi
         self.assertEqual(result['imported'], 2)
         self.assertEqual(len(fake_sheet.appended_rows), 2)
         self.assertEqual(fake_sheet.row_values_calls, 1)
-        self.assertEqual(fake_sheet.get_all_values_calls, 0)
+        self.assertEqual(fake_sheet.get_all_values_calls, 1)
         self.assertEqual(fake_sheet.append_rows_calls, 1)
 
     @patch('core.services.jawabu.get_sheets_service')
@@ -937,6 +937,81 @@ May Customer
         record = JawabuVisitRecord.objects.get()
         self.assertEqual(record.national_id, '8840023')
         self.assertEqual(record.primary_phone, '254727769644')
+
+    @patch('core.services.jawabu.get_sheets_service')
+    def test_jawabu_import_ignores_stale_db_duplicates_removed_from_sheet(self, mock_service):
+        from core.services.jawabu import JAWABU_FIELD_HEADERS, process_jawabu_batch_export
+
+        JawabuVisitRecord.objects.create(
+            group_id=self.group.group_id,
+            sheet_id=self.group.sheet_id,
+            sheet_tab=self.group.sheet_name,
+            telegram_message_id='old_jawabu_1',
+            source_telegram_message_id='old',
+            whatsapp_message_index=1,
+            sender='Old Importer',
+            national_id='1382654',
+            primary_phone='254720570031',
+            duplicate_key='ID:1382654|PHONE:254720570031',
+            duplicate_status='unique',
+            import_status='imported',
+            parsed_fields={'duplicate_key': 'ID:1382654|PHONE:254720570031'},
+            raw_text='old row removed from sheet',
+        )
+        fake_sheet = FakeJawabuSheet(list(JAWABU_FIELD_HEADERS.values()))
+        mock_service.return_value = FakeJawabuService(fake_sheet)
+        export = """3/16/26, 11:46 - Alex Kairu: IMG-20260316-WA0005.jpg (file attached)
+https://www.google.com/maps/search/?api=1&query=-0.55393,37.526935
+State: Embu County
+Country: Kenya
+Mary Njeri njihia
+1382654
+0720570031"""
+
+        result = process_jawabu_batch_export(
+            group_config=self.group,
+            export_text=export,
+            telegram_message_id='907',
+            sender='Importer',
+        )
+
+        self.assertEqual(result['imported'], 1)
+        self.assertEqual(result['duplicate_review'], 0)
+        self.assertEqual(JawabuVisitRecord.objects.count(), 1)
+        record = JawabuVisitRecord.objects.get()
+        self.assertEqual(record.import_status, 'imported')
+        self.assertEqual(record.telegram_message_id, '907_jawabu_0')
+
+    @patch('core.services.jawabu.get_sheets_service')
+    def test_jawabu_import_flags_duplicates_still_present_on_sheet(self, mock_service):
+        from core.services.jawabu import JAWABU_FIELD_HEADERS, process_jawabu_batch_export
+
+        headers = list(JAWABU_FIELD_HEADERS.values())
+        fake_sheet = FakeJawabuSheet(headers)
+        row = ['' for _ in headers]
+        row[headers.index('Duplicate Key')] = 'ID:1382654|PHONE:254720570031'
+        fake_sheet.appended_rows.append(row)
+        mock_service.return_value = FakeJawabuService(fake_sheet)
+        export = """3/16/26, 11:46 - Alex Kairu: IMG-20260316-WA0005.jpg (file attached)
+https://www.google.com/maps/search/?api=1&query=-0.55393,37.526935
+State: Embu County
+Country: Kenya
+Mary Njeri njihia
+1382654
+0720570031"""
+
+        result = process_jawabu_batch_export(
+            group_config=self.group,
+            export_text=export,
+            telegram_message_id='908',
+            sender='Importer',
+        )
+
+        self.assertEqual(result['imported'], 0)
+        self.assertEqual(result['duplicate_review'], 1)
+        status_index = headers.index('Import Status')
+        self.assertEqual(fake_sheet.appended_rows[-1][status_index], 'Duplicate Review')
+
 
     @patch('core.services.jawabu.get_sheets_service')
     def test_jawabu_import_flags_duplicate_id_and_phone_for_review(self, mock_service):
