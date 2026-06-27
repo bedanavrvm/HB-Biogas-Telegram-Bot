@@ -962,6 +962,92 @@ May Customer
         self.assertEqual(record.primary_phone, '254727769644')
 
     @patch('core.services.jawabu.get_sheets_service')
+    def test_jawabu_import_skips_messages_at_or_before_latest_whatsapp_time(self, mock_service):
+        from core.services.jawabu import JAWABU_FIELD_HEADERS, process_jawabu_batch_export
+
+        headers = list(JAWABU_FIELD_HEADERS.values())
+        fake_sheet = FakeJawabuSheet(headers)
+        mock_service.return_value = FakeJawabuService(fake_sheet)
+        first_export = """3/16/26, 11:46 - Alex Kairu: IMG-20260316-WA0005.jpg (file attached)
+https://www.google.com/maps/search/?api=1&query=-0.55393,37.526935
+State: Embu County
+Country: Kenya
+Mary Njeri njihia
+1382654
+0720570031"""
+
+        first = process_jawabu_batch_export(
+            group_config=self.group,
+            export_text=first_export,
+            telegram_message_id='911',
+            sender='Importer',
+        )
+
+        self.assertEqual(first['imported'], 1)
+        second_export = first_export + """
+3/16/26, 11:50 - Alex Kairu: IMG-20260316-WA0006.jpg (file attached)
+https://www.google.com/maps/search/?api=1&query=-0.55394,37.526936
+State: Embu County
+Country: Kenya
+Jane Wanjiku
+7654321
+0720570032"""
+
+        second = process_jawabu_batch_export(
+            group_config=self.group,
+            export_text=second_export,
+            telegram_message_id='912',
+            sender='Importer',
+        )
+
+        self.assertEqual(second['skipped_already_processed'], 1)
+        self.assertEqual(second['latest_processed_at'], '16-Mar-2026 11:46')
+        self.assertEqual(second['imported'], 1)
+        self.assertEqual(second['duplicate_review'], 0)
+        self.assertEqual(JawabuVisitRecord.objects.count(), 2)
+        self.assertEqual(len(fake_sheet.appended_rows), 2)
+        name_index = headers.index('Customer Name')
+        self.assertEqual(fake_sheet.appended_rows[-1][name_index], 'JANE WANJIKU')
+
+    @patch('core.services.jawabu.get_sheets_service')
+    def test_jawabu_import_uses_sheet_latest_time_when_db_was_reset(self, mock_service):
+        from core.services.jawabu import JAWABU_FIELD_HEADERS, process_jawabu_batch_export
+
+        headers = list(JAWABU_FIELD_HEADERS.values())
+        fake_sheet = FakeJawabuSheet(headers)
+        existing_row = ['' for _ in headers]
+        existing_row[headers.index('WhatsApp Message Time')] = '16-Mar-2026 11:46'
+        existing_row[headers.index('Duplicate Key')] = 'ID:1382654|PHONE:254720570031'
+        fake_sheet.appended_rows.append(existing_row)
+        mock_service.return_value = FakeJawabuService(fake_sheet)
+        export = """3/16/26, 11:46 - Alex Kairu: IMG-20260316-WA0005.jpg (file attached)
+https://www.google.com/maps/search/?api=1&query=-0.55393,37.526935
+State: Embu County
+Country: Kenya
+Mary Njeri njihia
+1382654
+0720570031
+3/16/26, 11:50 - Alex Kairu: IMG-20260316-WA0006.jpg (file attached)
+https://www.google.com/maps/search/?api=1&query=-0.55394,37.526936
+State: Embu County
+Country: Kenya
+Jane Wanjiku
+7654321
+0720570032"""
+
+        result = process_jawabu_batch_export(
+            group_config=self.group,
+            export_text=export,
+            telegram_message_id='913',
+            sender='Importer',
+        )
+
+        self.assertEqual(result['skipped_already_processed'], 1)
+        self.assertEqual(result['latest_processed_at'], '16-Mar-2026 11:46')
+        self.assertEqual(result['imported'], 1)
+        self.assertEqual(JawabuVisitRecord.objects.count(), 1)
+
+    @patch('core.services.jawabu.get_sheets_service')
     def test_jawabu_import_ignores_stale_db_duplicates_removed_from_sheet(self, mock_service):
         from core.services.jawabu import JAWABU_FIELD_HEADERS, process_jawabu_batch_export
 

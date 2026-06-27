@@ -144,11 +144,18 @@ def process_jawabu_batch_export(
     analysis = analyze_whatsapp_export(export_text)
     entries = analysis.get('entries') or []
     import_start_date = configured_import_start_date(group_config)
-    eligible_entries = [
+    sheet_state = sync_jawabu_state_from_sheet(group_config)
+    latest_processed_at = latest_jawabu_processed_at(group_config, sheet_state)
+    entries_after_start = [
         entry for entry in entries
         if not is_before_import_start(entry, import_start_date)
     ]
-    skipped_before_start = len(entries) - len(eligible_entries)
+    eligible_entries = [
+        entry for entry in entries_after_start
+        if not is_at_or_before_latest_processed(entry, latest_processed_at)
+    ]
+    skipped_before_start = len(entries) - len(entries_after_start)
+    skipped_already_processed = len(entries_after_start) - len(eligible_entries)
     parsed_records = [
         parse_jawabu_entry(entry, index)
         for index, entry in enumerate(eligible_entries)
@@ -170,6 +177,8 @@ def process_jawabu_batch_export(
             'source': 'jawabu_homebiogas',
             'export_messages': len(entries),
             'skipped_before_start': skipped_before_start,
+            'skipped_already_processed': skipped_already_processed,
+            'latest_processed_at': format_sheet_datetime(latest_processed_at),
             'processed': 0,
             'imported': 0,
             'duplicate_review': 0,
@@ -181,7 +190,7 @@ def process_jawabu_batch_export(
         }
 
     parsed_records, consolidated_count, consolidation_conflict_keys = consolidate_jawabu_records(parsed_records)
-    sheet_duplicate_keys = sync_jawabu_duplicate_state_from_sheet(group_config)
+    sheet_duplicate_keys = (sheet_state or {}).get('duplicate_keys')
     duplicate_keys = (
         duplicate_keys_in_batch([record for record in parsed_records if record.is_complete])
         | consolidation_conflict_keys
@@ -277,6 +286,8 @@ def process_jawabu_batch_export(
         'source': 'jawabu_homebiogas',
         'export_messages': len(entries),
         'skipped_before_start': skipped_before_start,
+        'skipped_already_processed': skipped_already_processed,
+        'latest_processed_at': format_sheet_datetime(latest_processed_at),
         'processed': len(parsed_records),
         'consolidated': consolidated_count,
         'imported': sum(1 for result in results if result['status'] == 'imported'),
@@ -289,8 +300,8 @@ def process_jawabu_batch_export(
 
 
 
-def sync_jawabu_duplicate_state_from_sheet(group_config) -> set[str] | None:
-    """Return sheet duplicate keys and remove local keys no longer on the sheet.
+def sync_jawabu_state_from_sheet(group_config) -> dict[str, Any] | None:
+    """Return sheet duplicate keys/latest time and remove stale local rows.
 
     The Jawabu sheet is the staff-facing database. If staff delete rows there,
     stale local duplicate records must not keep future imports marked as
@@ -310,7 +321,7 @@ def sync_jawabu_duplicate_state_from_sheet(group_config) -> set[str] | None:
         values = service._sheet.get_all_values()
     except Exception as exc:
         logger.warning(
-            "Failed to sync Jawabu duplicate state from sheet: %s",
+            "Failed to sync Jawabu state from sheet: %s",
             exc,
             exc_info=True,
         )
@@ -320,24 +331,35 @@ def sync_jawabu_duplicate_state_from_sheet(group_config) -> set[str] | None:
     if not headers:
         return None
 
-    duplicate_header = configured_field_headers(workflow).get('duplicate_key')
-    duplicate_index = find_header_index(headers, duplicate_header)
+    field_headers = configured_field_headers(workflow)
+    duplicate_index = find_header_index(headers, field_headers.get('duplicate_key'))
+    message_at_index = find_header_index(headers, field_headers.get('whatsapp_message_at'))
     if duplicate_index is None:
         return None
 
     header_row = configured_header_row(workflow)
-    sheet_keys = {
-        str(row[duplicate_index] if duplicate_index < len(row) else '').strip()
-        for row in values[header_row:]
-    }
-    sheet_keys.discard('')
+    sheet_keys = set()
+    latest_message_at = None
+    for row in values[header_row:]:
+        duplicate_key = str(row[duplicate_index] if duplicate_index < len(row) else '').strip()
+        if duplicate_key:
+            sheet_keys.add(duplicate_key)
+        if message_at_index is not None:
+            parsed_at = parse_sheet_datetime(
+                row[message_at_index] if message_at_index < len(row) else ''
+            )
+            if parsed_at and (latest_message_at is None or parsed_at > latest_message_at):
+                latest_message_at = parsed_at
 
     local_records = JawabuVisitRecord.objects.filter(group_id=str(group_config.group_id))
     if sheet_keys:
         local_records.exclude(duplicate_key__in=sheet_keys).delete()
     else:
         local_records.delete()
-    return sheet_keys
+    return {
+        'duplicate_keys': sheet_keys,
+        'latest_message_at': latest_message_at,
+    }
 
 
 def configured_import_start_date(group_config) -> date | None:
@@ -366,6 +388,37 @@ def is_before_import_start(entry: dict, import_start_date: date | None) -> bool:
     if not received_at:
         return False
     return timezone.localtime(received_at).date() < import_start_date
+
+
+def is_at_or_before_latest_processed(
+    entry: dict,
+    latest_processed_at: datetime | None,
+) -> bool:
+    if not latest_processed_at:
+        return False
+    received_at = entry.get('received_at')
+    if not received_at:
+        return False
+    return aware_datetime(received_at) <= aware_datetime(latest_processed_at)
+
+
+def latest_jawabu_processed_at(group_config, sheet_state: dict | None) -> datetime | None:
+    candidates = []
+    sheet_latest = (sheet_state or {}).get('latest_message_at')
+    if sheet_latest:
+        candidates.append(aware_datetime(sheet_latest))
+    db_latest = (
+        JawabuVisitRecord.objects
+        .filter(group_id=str(group_config.group_id))
+        .exclude(whatsapp_message_at=None)
+        .order_by('-whatsapp_message_at')
+        .values_list('whatsapp_message_at', flat=True)
+        .first()
+    )
+    if db_latest:
+        candidates.append(aware_datetime(db_latest))
+    return max(candidates) if candidates else None
+
 
 def looks_like_jawabu_visit(content: str) -> bool:
     text = str(content or '')
@@ -1116,6 +1169,32 @@ def jawabu_review_notes(record: JawabuVisitRecord) -> str:
     if existing:
         notes.append(str(existing))
     return "\n".join(note for note in notes if str(note).strip())
+
+
+def parse_sheet_datetime(value) -> datetime | None:
+    text = str(value or '').strip()
+    if not text:
+        return None
+    for fmt in (
+        '%d-%b-%Y %H:%M',
+        '%d-%b-%Y %H:%M:%S',
+        '%d/%m/%Y %H:%M',
+        '%d/%m/%Y %H:%M:%S',
+        '%d/%m/%y %H:%M',
+        '%d/%m/%y %H:%M:%S',
+        '%m/%d/%Y %H:%M',
+        '%m/%d/%Y %H:%M:%S',
+        '%m/%d/%y %H:%M',
+        '%m/%d/%y %H:%M:%S',
+        '%Y-%m-%d %H:%M:%S',
+        '%Y-%m-%d %H:%M',
+    ):
+        try:
+            parsed = datetime.strptime(text, fmt)
+            return timezone.make_aware(parsed, timezone.get_current_timezone())
+        except ValueError:
+            continue
+    return None
 
 
 def format_sheet_date(value) -> str:
