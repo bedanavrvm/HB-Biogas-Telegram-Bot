@@ -37,8 +37,6 @@ DEFAULT_RECORD_ID_FIELD = 'order_record_id'
 DEFAULT_RECORD_ID_PREFIX = 'JBL'
 DEFAULT_BRANCH_CHOICES = ['MURANGA', 'EMBU']
 ORDER_APPROVAL_WEBAPP_FIELDS = [
-    'order_no',
-    'requisition_date',
     'id_number',
     'date_visited',
     'customer_name',

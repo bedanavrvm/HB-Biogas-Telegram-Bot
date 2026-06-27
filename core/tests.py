@@ -676,14 +676,14 @@ Beatrice Nyachui Wachira
 0727769644
 Id. 8840023"""
         received_at = timezone.make_aware(
-            datetime(2026, 10, 4, 14, 29),
+            datetime(2026, 4, 10, 14, 29),
             timezone.get_current_timezone(),
         )
 
         fields = extract_jawabu_fields(content, 'John Muiruri JBL Biogas', received_at)
 
         self.assertEqual(fields['visit_date'], '10-Apr-2026')
-        self.assertEqual(fields['whatsapp_message_at'], '04-Oct-2026 14:29')
+        self.assertEqual(fields['whatsapp_message_at'], '10-Apr-2026 14:29')
         self.assertEqual(fields['customer_name'], 'BEATRICE NYACHUI WACHIRA')
         self.assertEqual(fields['national_id'], '8840023')
         self.assertEqual(fields['primary_phone'], '254727769644')
@@ -692,6 +692,29 @@ Id. 8840023"""
         self.assertEqual(fields['landmark'], 'KAGANJO')
         self.assertEqual(fields['latitude'], '-0.6022501')
         self.assertEqual(fields['longitude'], '36.9640139')
+
+    def test_jawabu_parser_uses_whatsapp_date_to_choose_mm_dd_location_date(self):
+        from core.services.jawabu import extract_jawabu_fields
+
+        content = """IMG-20260410-WA0052.jpg (file attached)
+Latitude: S 0?36'8.10036"
+Longitude: E 36?57'50.45004"
+https://www.google.com/maps/search/?api=1&query=-0.6022501,36.9640139
+Location read date: 04/10/2026 14:20
+State: -Kaganjo
+County: - Muranga
+Beatrice Nyachui Wachira
+0727769644
+Id. 8840023"""
+        received_at = timezone.make_aware(
+            datetime(2026, 4, 10, 14, 29),
+            timezone.get_current_timezone(),
+        )
+
+        fields = extract_jawabu_fields(content, 'John Muiruri JBL Biogas', received_at)
+
+        self.assertEqual(fields['visit_date'], '10-Apr-2026')
+        self.assertEqual(fields['whatsapp_message_at'], '10-Apr-2026 14:29')
 
     def test_jawabu_parser_uses_message_date_when_location_date_missing(self):
         from core.services.jawabu import extract_jawabu_fields

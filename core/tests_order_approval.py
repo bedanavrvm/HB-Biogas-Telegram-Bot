@@ -230,7 +230,7 @@ class OrderApprovalSheetTest(TestCase):
                 'CUSTOMER NAME',
                 'CONTACTS / PRIMARY',
                 'Media URLs',
-                'COMMENT',
+                'BRO COMMENT',
             ],
             row=['113650221', '', '', '', 'https://old.example/file', ''],
             service=service,
@@ -303,7 +303,7 @@ class OrderApprovalSheetTest(TestCase):
                 'CUSTOMER NAME',
                 'CONTACTS / PRIMARY',
                 'Media URLs',
-                'COMMENT',
+                'BRO COMMENT',
             ],
             ['111', '01/05/2026', 'Existing', '', '', ''],
         ])
@@ -404,7 +404,7 @@ class OrderApprovalSheetTest(TestCase):
         match = SheetMatch(
             sheet_name='Orders',
             row_number=8,
-            headers=['ORDER RECORD ID', 'ID NUMBER', 'COMMENT', 'Media URLs'],
+            headers=['ORDER RECORD ID', 'ID NUMBER', 'BRO COMMENT', 'Media URLs'],
             row=['', '113650221', '', ''],
             service=service,
         )
@@ -424,7 +424,7 @@ class OrderApprovalSheetTest(TestCase):
         self.assertEqual(batch[1]['values'][0], ['Approved'])
         self.assertEqual(
             [change['header'] for change in result['field_changes']],
-            ['COMMENT', 'ORDER RECORD ID'],
+            ['BRO COMMENT', 'ORDER RECORD ID'],
         )
         self.assertEqual(result['order_record_id'], 'JBL-1')
 
@@ -444,7 +444,7 @@ class OrderApprovalSheetTest(TestCase):
             },
             {
                 'field': 'comment',
-                'header': 'COMMENT',
+                'header': 'BRO COMMENT',
                 'column': 'O',
                 'action': 'cleared',
             },
@@ -474,7 +474,7 @@ class OrderApprovalSheetTest(TestCase):
         self.assertIn('ENTRY UPDATED', reply)
         self.assertIn('Order record ID: JBL-7', reply)
         self.assertIn('- CUSTOMER NAME: updated', reply)
-        self.assertIn('- COMMENT: cleared', reply)
+        self.assertIn('- BRO COMMENT: cleared', reply)
         self.assertNotIn('ID NUMBER: confirmed', reply)
         self.assertNotIn('ORDER RECORD ID: added', reply)
         self.assertNotIn('- C ', reply)
@@ -485,7 +485,7 @@ class OrderApprovalSheetTest(TestCase):
         match = SheetMatch(
             sheet_name='Orders',
             row_number=8,
-            headers=['ID NUMBER', 'COMMENT', 'Media URLs'],
+            headers=['ID NUMBER', 'BRO COMMENT', 'Media URLs'],
             row=['113650221', '', ''],
             service=service,
         )
@@ -1157,6 +1157,12 @@ class OrderApprovalWebAppTest(TestCase):
         self.assertEqual(error, '')
         self.assertEqual(payload, {})
 
+    def test_order_webapp_fields_exclude_internal_sheet_fields(self):
+        from core.services.order_approval import ORDER_APPROVAL_WEBAPP_FIELDS
+
+        self.assertNotIn('order_no', ORDER_APPROVAL_WEBAPP_FIELDS)
+        self.assertNotIn('requisition_date', ORDER_APPROVAL_WEBAPP_FIELDS)
+
     def test_order_approval_form_renders(self):
         response = self.client.get('/api/order-approval/?group_id=-100222')
 
@@ -1166,6 +1172,8 @@ class OrderApprovalWebAppTest(TestCase):
         self.assertContains(response, 'name="branch"')
         self.assertContains(response, 'name="sub_county"')
         self.assertContains(response, 'name="final_decision"')
+        self.assertNotContains(response, 'name="order_no"')
+        self.assertNotContains(response, 'name="requisition_date"')
         self.assertContains(response, 'id="lookup-button"')
         self.assertContains(response, 'id="id-suggestions"')
         self.assertContains(response, 'name="write_blank_fields"')

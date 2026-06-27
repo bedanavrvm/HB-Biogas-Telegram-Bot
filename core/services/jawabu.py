@@ -554,7 +554,7 @@ def extract_jawabu_fields(content: str, sender: str, received_at: datetime | Non
     media_filenames = IMG_PATTERN.findall(content)
     county = extract_county(lines)
     decision, decision_note = extract_decision(content)
-    location_taken_at = extract_location_datetime(lines)
+    location_taken_at = extract_location_datetime(lines, received_at)
     visit_at = location_taken_at or received_at
     message_at = received_at or location_taken_at
 
@@ -813,28 +813,60 @@ def is_valid_phone(value: str) -> bool:
     return bool(re.fullmatch(r'254(?:7|1)\d{8}', str(value or '')))
 
 
-def extract_location_datetime(lines: list[str]) -> datetime | None:
+def extract_location_datetime(
+    lines: list[str],
+    reference_at: datetime | None = None,
+) -> datetime | None:
     for line in lines:
         for pattern in LOCATION_DATE_PATTERNS:
             match = pattern.search(line)
             if not match:
                 continue
-            parsed = parse_location_datetime(match.group(1).strip())
+            parsed = parse_location_datetime(match.group(1).strip(), reference_at)
             if parsed:
                 return parsed
     return None
 
 
-def parse_location_datetime(value: str) -> datetime | None:
+def parse_location_datetime(
+    value: str,
+    reference_at: datetime | None = None,
+) -> datetime | None:
+    candidates = parse_location_datetime_candidates(value)
+    if not candidates:
+        return None
+    if not reference_at:
+        return candidates[0]
+    reference = aware_datetime(reference_at)
+    return min(
+        candidates,
+        key=lambda candidate: abs((candidate - reference).total_seconds()),
+    )
+
+
+def parse_location_datetime_candidates(value: str) -> list[datetime]:
     cleaned = re.sub(r'\s+', ' ', str(value or '').strip())
     cleaned = re.sub(r'(?i)\s*(?:Google Maps|Waze|Download App):.*$', '', cleaned).strip()
+    candidates: list[datetime] = []
+    seen = set()
     for fmt in LOCATION_DATE_FORMATS:
         try:
             parsed = datetime.strptime(cleaned, fmt)
-            return timezone.make_aware(parsed, timezone.get_current_timezone())
         except ValueError:
             continue
-    return None
+        aware = timezone.make_aware(parsed, timezone.get_current_timezone())
+        key = aware.isoformat()
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(aware)
+    return candidates
+
+
+def aware_datetime(value: datetime) -> datetime:
+    if timezone.is_naive(value):
+        return timezone.make_aware(value, timezone.get_current_timezone())
+    return timezone.localtime(value)
 
 
 def jawabu_duplicate_key(
