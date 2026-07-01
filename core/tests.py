@@ -1995,6 +1995,33 @@ class StorageServiceTest(TestCase):
         self.assertEqual(mock_sheet.call_args.kwargs['sheet_name'], 'Cases')
 
     @patch('core.services.sheets.append_parsed_message_to_sheet')
+    def test_process_and_store_can_defer_sheet_sync(self, mock_sheet):
+        """Batch imports should store locally without one sheet write per row."""
+        parsed = process_and_store_message(
+            telegram_message_id='test_defer_sheet_sync',
+            content=(
+                'CUSTOMER COMPLAINT\n'
+                'NAME: Jane Doe\n'
+                'TEL: 0712345678\n'
+                'ID: A12345\n'
+                'COUNTY: KISUMU\n'
+                'NATURE OF THE PROBLEM: No gas supply'
+            ),
+            sender='Agent',
+            received_at=timezone.now(),
+            group_id='-100123',
+            sheet_id='sheet_123',
+            sheet_name='Cases',
+            defer_sheet_sync=True,
+        )
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.group_id, '-100123')
+        self.assertFalse(parsed.synced_to_sheets)
+        self.assertEqual(getattr(parsed, '_processing_status'), 'success')
+        mock_sheet.assert_not_called()
+
+    @patch('core.services.sheets.append_parsed_message_to_sheet')
     def test_process_and_store_rejects_incomplete_complaint_atomically(self, mock_sheet):
         """Incomplete complaint intake should not leave raw, processed, or parsed rows."""
         with self.assertRaises(MessageRejectedError) as context:
@@ -4321,6 +4348,7 @@ NATURE OF THE PROBLEM: Gas leakage"""
         self.assertEqual(mock_process.call_args_list[0].kwargs['batch_index'], 1)
         self.assertEqual(mock_process.call_args_list[0].kwargs['sender'], 'Alice Agent')
         self.assertIs(mock_process.call_args_list[0].kwargs['sync_after_success'], False)
+        self.assertIs(mock_process.call_args_list[0].kwargs['defer_sheet_sync'], True)
         self.assertEqual(mock_sync.call_count, 2)
         self.assertEqual(mock_sync.call_args_list[0].args, ('-100123',))
         self.assertEqual(mock_sync.call_args_list[0].kwargs, {'delete_missing': True})
@@ -4396,6 +4424,7 @@ NATURE OF THE PROBLEM: No gas supply""",
         mock_download.assert_called_once()
         mock_process.assert_called_once()
         self.assertIs(mock_process.call_args.kwargs['sync_after_success'], False)
+        self.assertIs(mock_process.call_args.kwargs['defer_sheet_sync'], True)
 
     @override_settings(TELEGRAM_BOT_TOKEN='token')
     @patch('core.api.views.requests.post')

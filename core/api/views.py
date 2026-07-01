@@ -700,14 +700,16 @@ def _process_whatsapp_batch_command(
             ),
         }
 
-    max_entries = max(1, int(getattr(settings, 'WHATSAPP_BATCH_MAX_MESSAGES', 50)))
-    truncated = len(entries) > max_entries
+    configured_max = int(getattr(settings, 'WHATSAPP_BATCH_MAX_MESSAGES', 0) or 0)
+    max_entries = configured_max if configured_max > 0 else len(entries)
+    truncated = configured_max > 0 and len(entries) > max_entries
+    entries_to_process = entries[:max_entries] if truncated else entries
     sync_before = _sync_case_sheet_for_batch(group_id, delete_missing=True)
     results = []
     skipped_non_complaint = 0
     processed_entries = 0
 
-    for index, entry in enumerate(entries[:max_entries]):
+    for index, entry in enumerate(entries_to_process):
         content = entry.get('content', '')
         if detect_message_intent(content) != MessageIntent.COMPLAINT:
             skipped_non_complaint += 1
@@ -725,10 +727,15 @@ def _process_whatsapp_batch_command(
             batch_index=index,
             source='whatsapp_export',
             sync_after_success=False,
+            defer_sheet_sync=True,
         )
         results.append(result)
 
     saved_count = sum(1 for r in results if r.get('status') in {'success', 'partial'})
+    batch_sheet_append = _batch_append_case_results(
+        results,
+        group_id=group_id,
+    ) if saved_count else None
     sync_after = (
         _sync_case_sheet_for_batch(group_id, delete_missing=False)
         if saved_count else None
@@ -752,8 +759,82 @@ def _process_whatsapp_batch_command(
         'errors': sum(1 for r in results if r.get('status') == 'error'),
         'sheet_sync_before': sync_before,
         'sheet_sync_after': sync_after,
+        'batch_sheet_append': batch_sheet_append,
         'results': results,
     }
+
+
+def _batch_append_case_results(results: list[dict], group_id: str) -> dict:
+    """Append successfully stored case batch rows to Sheets in one request."""
+    parsed_ids = [
+        item.get('parsed_message_id')
+        for item in results
+        if item.get('status') in {'success', 'partial'} and item.get('parsed_message_id')
+    ]
+    if not parsed_ids:
+        return {'status': 'skipped', 'row_count': 0, 'errors': []}
+
+    try:
+        from core.models import ParsedMessage
+        from core.services.group_config import GroupRegistry
+        from core.services.sheets import batch_append_messages
+
+        group_config = GroupRegistry.get_instance().get_group(group_id)
+        if not group_config:
+            raise RuntimeError('Group is not configured for sheet sync.')
+
+        parsed_messages = list(
+            ParsedMessage.objects.filter(pk__in=parsed_ids).order_by(
+                'processed_message__raw_message__batch_index',
+                'created_at',
+            )
+        )
+        result = batch_append_messages(
+            parsed_messages,
+            sheet_id=group_config.sheet_id,
+            sheet_name=group_config.sheet_name,
+            sheet_schema=group_config.sheet_schema_config,
+        )
+        failure_details = result.get('failure_details') or {}
+        failed_ids = set(failure_details.keys())
+        for item in results:
+            if item.get('message_id') in failed_ids:
+                item['status'] = 'partial'
+                item['error'] = failure_details[item['message_id']]
+        return {
+            'status': 'success' if not failed_ids else 'partial',
+            'row_count': len(parsed_messages),
+            'synced_count': len(result.get('synced_message_ids') or []),
+            'failed_count': len(failed_ids),
+            'errors': list(failure_details.values())[:3],
+        }
+    except Exception as exc:
+        logger.warning(
+            'Case batch sheet append failed for group %s: %s',
+            group_id,
+            exc,
+            exc_info=True,
+        )
+        try:
+            from django.db.models import F
+            from core.models import ParsedMessage
+            ParsedMessage.objects.filter(pk__in=parsed_ids).update(
+                sync_attempts=F('sync_attempts') + 1,
+                last_sync_error=str(exc),
+            )
+        except Exception:
+            logger.debug('Could not mark case batch sheet append failure on parsed rows.', exc_info=True)
+        for item in results:
+            if item.get('status') == 'success' and item.get('parsed_message_id'):
+                item['status'] = 'partial'
+                item['error'] = str(exc)
+        return {
+            'status': 'error',
+            'row_count': len(parsed_ids),
+            'synced_count': 0,
+            'failed_count': len(parsed_ids),
+            'errors': [str(exc)],
+        }
 
 
 def _sync_case_sheet_for_batch(group_id: str, delete_missing: bool) -> dict:
@@ -1093,6 +1174,7 @@ def _process_single_message(
     batch_index: int = None,
     source: str = 'telegram bot',
     sync_after_success: bool = True,
+    defer_sheet_sync: bool = False,
 ) -> dict:
     """
     Run one message through dedup → parse → store → sheet sync.
@@ -1137,6 +1219,7 @@ def _process_single_message(
                 batch_index=batch_index,
                 sheet_id=sheet_id,       # ← forwarded to sheets service
                 sheet_schema=sheet_schema,
+                defer_sheet_sync=defer_sheet_sync,
             )
         except MessageRejectedError as exc:
             return _rejected_message_result(exc)
@@ -1179,6 +1262,7 @@ def _process_single_message(
             'message_id': parsed_message.message_id,
             'captured_fields': captured_fields,
             'warnings': getattr(parsed_message, '_processing_warnings', []),
+            'parsed_message_id': parsed_message.pk,
         }
 
         if result['status'] == 'partial':
@@ -1340,8 +1424,8 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
                 lines.append(f"Skipped WhatsApp system lines: {system_lines}")
             if result.get('truncated'):
                 lines.append(
-                    f"Stopped at {result.get('max_entries')} export messages. "
-                    "Split the export and run /batch again for the rest."
+                    f"Processed the first {result.get('max_entries')} export messages because a limit is configured. "
+                    "Set WHATSAPP_BATCH_MAX_MESSAGES=0 to process the full export in one upload."
                 )
             for label, key in (
                 ('Sheet sync before import', 'sheet_sync_before'),

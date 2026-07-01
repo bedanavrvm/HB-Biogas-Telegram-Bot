@@ -143,6 +143,7 @@ def process_and_store_message(
     batch_index: int = None,
     sheet_id: str = None,          # ← forwarded to Google Sheets service
     sheet_schema: dict = None,
+    defer_sheet_sync: bool = False,
 ) -> Optional[ParsedMessage]:
     """
     Atomically process and store a message with deduplication.
@@ -222,26 +223,28 @@ def process_and_store_message(
             sheet_name=sheet_name or '',
         )
 
-        # ── 6. Sync to the correct Google Sheet ──────────────────────
-        #       sheet_id comes from the caller (resolved via GroupRegistry)
-        #       and is forwarded here so the right sheet is written.
+        # Batch imports can defer this and append all rows in one Sheets
+        # request after all messages are validated and stored.
         sync_success = False
         sync_error = ''
-        try:
-            from core.services.sheets import append_parsed_message_to_sheet
-            sync_success = append_parsed_message_to_sheet(
-                parsed_message,
-                sheet_name=sheet_name,
-                sheet_id=sheet_id,          # ← KEY FIX
-                sheet_schema=sheet_schema,
-            )
-            if not sync_success:
-                sync_error = 'Google Sheets sync failed'
-        except Exception as exc:
-            sync_error = str(exc)
-            logger.warning(
-                f"Failed to sync message to sheet (message stored in DB): {exc}"
-            )
+        if defer_sheet_sync:
+            sync_success = True
+        else:
+            try:
+                from core.services.sheets import append_parsed_message_to_sheet
+                sync_success = append_parsed_message_to_sheet(
+                    parsed_message,
+                    sheet_name=sheet_name,
+                    sheet_id=sheet_id,
+                    sheet_schema=sheet_schema,
+                )
+                if not sync_success:
+                    sync_error = 'Google Sheets sync failed'
+            except Exception as exc:
+                sync_error = str(exc)
+                logger.warning(
+                    f"Failed to sync message to sheet (message stored in DB): {exc}"
+                )
 
         # ── 7. Determine final status ─────────────────────────────────
         final_status = 'success'

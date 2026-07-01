@@ -266,11 +266,13 @@ The bot reads common WhatsApp export lines such as:
 [23/05/2026, 12:46] Staff Name: message
 ```
 
-Only complaint entries are processed. Normal chat messages and WhatsApp system lines are skipped. Each complaint must still include `NAME`, `TEL`, `ID`, `COUNTY`, and `NATURE OF THE PROBLEM`; incomplete entries are rejected and listed in the batch summary.
+Only complaint entries are processed. Normal chat messages and WhatsApp system lines are skipped. Each complaint must still include `NAME`, `TEL`, `ID`, and `NATURE OF THE PROBLEM`; incomplete entries are rejected and listed in the batch summary. `COUNTY` is optional but should be included when staff know it.
 
 Before importing the export, the bot refreshes the local case database from the configured Google Sheet. After importing, it refreshes again so the Django admin/live viewer reflects the sheet. This keeps manual sheet edits, deletions, and bot imports aligned.
 
 If the same export is sent again, existing cases are detected as duplicates using the WhatsApp sender, message text, and WhatsApp timestamp.
+
+Normal WhatsApp `.txt` or `.zip` exports can be sent whole. The bot no longer stops at 50 export messages. If a production limit is configured, admins can set `WHATSAPP_BATCH_MAX_MESSAGES=0` to process the full export in one upload.
 
 ## Common Mistakes
 
