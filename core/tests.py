@@ -4261,14 +4261,19 @@ NATURE OF THE PROBLEM: Gas leakage"""
         TELEGRAM_BOT_USERNAME='biogas_bot',
         WHATSAPP_BATCH_MAX_MESSAGES=50,
     )
+    @patch('core.api.views._sync_case_sheet_for_batch')
     @patch('core.api.views._process_single_message')
-    def test_telegram_batch_command_processes_whatsapp_export(self, mock_process):
+    def test_telegram_batch_command_processes_whatsapp_export(self, mock_process, mock_sync):
         """The /batch command should process complaint entries from exports only."""
         from core.api.views import _process_telegram_message
 
         mock_process.side_effect = [
             {'status': 'success', 'message_id': 'MSG_1'},
             {'status': 'duplicate', 'message_id': '123_wa_2'},
+        ]
+        mock_sync.side_effect = [
+            {'status': 'success', 'row_count': 4, 'backend_count': 4, 'errors': []},
+            {'status': 'success', 'row_count': 5, 'backend_count': 5, 'errors': []},
         ]
         payload_text = """@biogas_bot /batch
 23/05/2026, 12:46 - System: Normal group chat
@@ -4315,6 +4320,14 @@ NATURE OF THE PROBLEM: Gas leakage"""
         )
         self.assertEqual(mock_process.call_args_list[0].kwargs['batch_index'], 1)
         self.assertEqual(mock_process.call_args_list[0].kwargs['sender'], 'Alice Agent')
+        self.assertIs(mock_process.call_args_list[0].kwargs['sync_after_success'], False)
+        self.assertEqual(mock_sync.call_count, 2)
+        self.assertEqual(mock_sync.call_args_list[0].args, ('-100123',))
+        self.assertEqual(mock_sync.call_args_list[0].kwargs, {'delete_missing': True})
+        self.assertEqual(mock_sync.call_args_list[1].args, ('-100123',))
+        self.assertEqual(mock_sync.call_args_list[1].kwargs, {'delete_missing': False})
+        self.assertEqual(result['sheet_sync_before']['row_count'], 4)
+        self.assertEqual(result['sheet_sync_after']['row_count'], 5)
         self.assertEqual(
             timezone.localtime(mock_process.call_args_list[0].kwargs['received_at']).strftime('%d/%m/%Y %H:%M'),
             '23/05/2026 12:47',
@@ -4339,12 +4352,14 @@ NATURE OF THE PROBLEM: Gas leakage"""
         mock_process.assert_not_called()
 
     @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
+    @patch('core.api.views._sync_case_sheet_for_batch')
     @patch('core.api.views._download_telegram_text_document')
     @patch('core.api.views._process_single_message')
     def test_telegram_batch_command_prefers_attached_export(
         self,
         mock_process,
         mock_download,
+        mock_sync,
     ):
         """Caption notes after /batch should not hide the attached export file."""
         from core.api.views import _process_telegram_message
@@ -4359,6 +4374,7 @@ NATURE OF THE PROBLEM: No gas supply""",
             '',
         )
         mock_process.return_value = {'status': 'success', 'message_id': 'MSG_1'}
+        mock_sync.return_value = {'status': 'success', 'row_count': 1, 'backend_count': 1, 'errors': []}
 
         result = _process_telegram_message({
             'message_id': 123,
@@ -4376,8 +4392,10 @@ NATURE OF THE PROBLEM: No gas supply""",
 
         self.assertEqual(result['status'], 'batch_processed')
         self.assertEqual(result['success'], 1)
+        self.assertEqual(mock_sync.call_count, 2)
         mock_download.assert_called_once()
         mock_process.assert_called_once()
+        self.assertIs(mock_process.call_args.kwargs['sync_after_success'], False)
 
     @override_settings(TELEGRAM_BOT_TOKEN='token')
     @patch('core.api.views.requests.post')
@@ -4532,6 +4550,18 @@ NATURE OF THE PROBLEM: No gas supply""",
                 'duplicates': 1,
                 'skipped_non_complaint': 2,
                 'system_lines': 1,
+                'sheet_sync_before': {
+                    'status': 'success',
+                    'row_count': 10,
+                    'backend_count': 10,
+                    'errors': [],
+                },
+                'sheet_sync_after': {
+                    'status': 'success',
+                    'row_count': 12,
+                    'backend_count': 12,
+                    'errors': [],
+                },
                 'results': [
                     {
                         'status': 'rejected',
@@ -4550,6 +4580,8 @@ NATURE OF THE PROBLEM: No gas supply""",
         self.assertIn('Skipped WhatsApp system lines: 1', text)
         self.assertIn('Duplicates skipped: 1', text)
         self.assertIn('Saved with sync warnings: 1', text)
+        self.assertIn('Sheet sync before import: success (10 sheet rows, 10 backend cases)', text)
+        self.assertIn('Sheet sync after import: success (12 sheet rows, 12 backend cases)', text)
 
     @override_settings(TELEGRAM_BOT_TOKEN='token')
     @patch('core.api.views.requests.post')

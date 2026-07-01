@@ -702,6 +702,7 @@ def _process_whatsapp_batch_command(
 
     max_entries = max(1, int(getattr(settings, 'WHATSAPP_BATCH_MAX_MESSAGES', 50)))
     truncated = len(entries) > max_entries
+    sync_before = _sync_case_sheet_for_batch(group_id, delete_missing=True)
     results = []
     skipped_non_complaint = 0
     processed_entries = 0
@@ -723,8 +724,15 @@ def _process_whatsapp_batch_command(
             source_telegram_message_id=telegram_message_id,
             batch_index=index,
             source='whatsapp_export',
+            sync_after_success=False,
         )
         results.append(result)
+
+    saved_count = sum(1 for r in results if r.get('status') in {'success', 'partial'})
+    sync_after = (
+        _sync_case_sheet_for_batch(group_id, delete_missing=False)
+        if saved_count else None
+    )
 
     return {
         'status': 'batch_processed',
@@ -742,8 +750,47 @@ def _process_whatsapp_batch_command(
         'duplicates': sum(1 for r in results if r.get('status') == 'duplicate'),
         'rejected': sum(1 for r in results if r.get('status') == 'rejected'),
         'errors': sum(1 for r in results if r.get('status') == 'error'),
+        'sheet_sync_before': sync_before,
+        'sheet_sync_after': sync_after,
         'results': results,
     }
+
+
+def _sync_case_sheet_for_batch(group_id: str, delete_missing: bool) -> dict:
+    """Best-effort case sheet mirror used before/after WhatsApp batch imports."""
+    try:
+        from core.services.sheet_sync import sync_group_from_sheet
+        result = sync_group_from_sheet(
+            group_id=group_id,
+            delete_missing=delete_missing,
+        )
+        return {
+            'status': result.get('status', 'unknown'),
+            'row_count': result.get('row_count', 0),
+            'created_count': result.get('created_count', 0),
+            'updated_count': result.get('updated_count', 0),
+            'deleted_count': result.get('deleted_count', 0),
+            'skipped_count': result.get('skipped_count', 0),
+            'backend_count': result.get('backend_count', 0),
+            'errors': (result.get('errors') or [])[:3],
+        }
+    except Exception as exc:
+        logger.warning(
+            "Case sheet batch mirror failed for group %s: %s",
+            group_id,
+            exc,
+            exc_info=True,
+        )
+        return {
+            'status': 'error',
+            'row_count': 0,
+            'created_count': 0,
+            'updated_count': 0,
+            'deleted_count': 0,
+            'skipped_count': 0,
+            'backend_count': 0,
+            'errors': [str(exc)],
+        }
 
 
 def _process_jawabu_batch_command(
@@ -1045,6 +1092,7 @@ def _process_single_message(
     source_telegram_message_id: str = '',
     batch_index: int = None,
     source: str = 'telegram bot',
+    sync_after_success: bool = True,
 ) -> dict:
     """
     Run one message through dedup â†’ parse â†’ store â†’ sheet sync.
@@ -1096,7 +1144,7 @@ def _process_single_message(
         if parsed_message is None:
             return {'status': 'duplicate', 'message_id': telegram_message_id}
 
-        if getattr(parsed_message, 'synced_to_sheets', False) is True:
+        if sync_after_success and getattr(parsed_message, 'synced_to_sheets', False) is True:
             try:
                 from core.services.sheet_sync import sync_group_from_sheet
                 sync_group_from_sheet(group_id=group_id, delete_missing=True)
@@ -1296,6 +1344,22 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
                     f"Stopped at {result.get('max_entries')} export messages. "
                     "Split the export and run /batch again for the rest."
                 )
+            for label, key in (
+                ('Sheet sync before import', 'sheet_sync_before'),
+                ('Sheet sync after import', 'sheet_sync_after'),
+            ):
+                sync = result.get(key)
+                if not sync:
+                    continue
+                status_text = sync.get('status', 'unknown')
+                lines.append(
+                    f"{label}: {status_text} "
+                    f"({sync.get('row_count', 0)} sheet rows, "
+                    f"{sync.get('backend_count', 0)} backend cases)"
+                )
+                sync_errors = sync.get('errors') or []
+                if sync_errors:
+                    lines.append(f"{label} warning: {sync_errors[0]}")
         else:
             lines = [
                 f'Batch processed: {success}/{total} messages saved.',
