@@ -151,7 +151,7 @@ API_AUTH_TOKEN=<manual-api-token>
 
 Do not configure group-specific routing in Render env for new groups. Sheet IDs, tab names, group IDs, and workflow presets should be managed in Django admin under `Core -> Group sheet configurations`.
 
-`APP_BASE_URL` is required for the Telegram Web App button. It must be the public HTTPS Render URL with no trailing slash.
+`APP_BASE_URL` is required for the Telegram Mini App button. It must be the public HTTPS Render URL with no trailing slash. The same Render domain must also be registered with BotFather using `/setdomain`, otherwise Telegram may refuse to open the form inside the app.
 
 ## 3. Deploy The Code
 
@@ -202,13 +202,15 @@ Recommended Telegram setup:
 
 - Add `@<bot_username>` to the group.
 - Make the bot an admin, or disable BotFather group privacy for this bot.
-- In BotFather, set the bot Web App domain to the Render domain if Telegram blocks the button:
+- In BotFather, register the Render domain for Telegram Mini Apps:
 
 ```text
 /setdomain
 <bot_username>
 <your-render-service>.onrender.com
 ```
+
+Use only the domain, not `https://` and not a path.
 
 - Ask staff to use:
 
@@ -217,7 +219,8 @@ Recommended Telegram setup:
 ```
 
 - The bot replies with an `Open Order Approval Form` button.
-- The button opens a signed form link for that Telegram group.
+- The button is a Telegram Mini App button and should open inside Telegram, not in the phone browser.
+- The Mini App opens a signed form URL for that Telegram group.
 - Staff fill the form and submit photos/documents there.
 - Staff may still send follow-up photos/documents as replies to the original chat update message if they use the structured chat workflow.
 
@@ -322,7 +325,7 @@ First test the Telegram Web App form:
 @<bot_username> /order
 ```
 
-2. Tap `Open Order Approval Form`.
+2. Tap `Open Order Approval Form` and confirm it opens inside Telegram.
 3. Enter `ID number`.
 4. Tap `Load existing`.
 5. If a row exists, confirm the form pre-fills the current sheet values.

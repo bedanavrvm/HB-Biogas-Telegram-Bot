@@ -1107,12 +1107,15 @@ class OrderApprovalWebAppTest(TestCase):
         self.assertEqual(result['status'], 'command')
         button = result['reply_markup']['inline_keyboard'][0][0]
         self.assertEqual(button['text'], 'Open Order Approval Form')
+        self.assertNotIn('url', button)
+        self.assertIn('web_app', button)
+        web_app_url = button['web_app']['url']
         self.assertIn(
             'https://example.onrender.com/order-approval/?',
-            button['url'],
+            web_app_url,
         )
-        self.assertIn('group_id=-100222', button['url'])
-        self.assertIn('token=', button['url'])
+        self.assertIn('group_id=-100222', web_app_url)
+        self.assertIn('token=', web_app_url)
 
     def test_order_approval_group_keeps_standard_group_command(self):
         from core.services.group_config import GroupRegistry

@@ -568,7 +568,7 @@ def handle_order_webapp_command(group_config, content: str) -> dict | None:
             'inline_keyboard': [[
                 {
                     'text': 'Open Order Approval Form',
-                    'url': form_url,
+                    'web_app': {'url': form_url},
                 }
             ]]
         },
