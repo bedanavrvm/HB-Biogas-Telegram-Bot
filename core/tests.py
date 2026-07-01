@@ -4486,6 +4486,48 @@ NATURE OF THE PROBLEM: Gas leakage"""
             '23/05/2026 12:47',
         )
 
+    @override_settings(
+        TELEGRAM_BOT_USERNAME='biogas_bot',
+        WHATSAPP_BATCH_ASYNC_THRESHOLD=1,
+    )
+    @patch('core.api.views._start_case_batch_background_import')
+    @patch('core.api.views._process_single_message')
+    def test_large_telegram_batch_command_starts_background_import(
+        self,
+        mock_process,
+        mock_start_background,
+    ):
+        """Large WhatsApp exports should not block the webhook worker."""
+        from core.api.views import _process_telegram_message
+
+        payload_text = """@biogas_bot /batch
+23/05/2026, 12:47 - Alice Agent: CUSTOMER COMPLAIN
+NAME: Jane Doe
+TEL: 0712345678
+ID: A123
+COUNTY: KISUMU
+NATURE OF THE PROBLEM: No gas supply
+23/05/2026, 12:48 - Bob Agent: CUSTOMER COMPLAIN
+NAME: John Smith
+TEL: 0798765432
+ID: B456
+COUNTY: NAKURU
+NATURE OF THE PROBLEM: Gas leakage"""
+
+        result = _process_telegram_message({
+            'message_id': 123,
+            'from': {'first_name': 'Test'},
+            'chat': {'id': -100123, 'type': 'group'},
+            'date': 1711123456,
+            'text': payload_text,
+        })
+
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('WhatsApp batch import started', result['reply_text'])
+        self.assertIn('Export messages found: 2', result['reply_text'])
+        mock_start_background.assert_called_once()
+        mock_process.assert_not_called()
+
     @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
     @patch('core.api.views._process_single_message')
     def test_telegram_batch_command_requires_export_content(self, mock_process):

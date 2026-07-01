@@ -786,6 +786,108 @@ class OrderApprovalSheetTest(TestCase):
         self.assertIn('Reload this customer ID', result['message'])
         self.assertEqual(service.update_calls, [])
 
+    @patch('core.services.order_approval.store_uploaded_files_for_order')
+    @patch('core.services.order_approval.find_order_approval_matches')
+    def test_true_edit_can_correct_id_without_creating_new_row(
+        self,
+        mock_find_matches,
+        mock_store_files,
+    ):
+        service = FakeService([])
+        loaded_match = SheetMatch(
+            sheet_name='Orders',
+            row_number=7,
+            headers=['ID NUMBER', 'CUSTOMER NAME', 'Media URLs'],
+            row=['113650221', 'PATRICK', ''],
+            service=service,
+        )
+        mock_find_matches.side_effect = [
+            [loaded_match],
+            [],
+        ]
+        mock_store_files.return_value = MagicMock(
+            links=[],
+            stored_count=0,
+            warnings=[],
+        )
+
+        result = process_order_approval_form_submission(
+            group_config=self._group_config(),
+            fields={'id_number': '113650222', 'customer_name': 'PATRICK'},
+            uploaded_files=[],
+            sender='Agent',
+            include_blank_fields=True,
+            edit_context={
+                'id_number': '113650221',
+                'sheet': 'Orders',
+                'row': '7',
+                'fingerprint': order_approval_fields_fingerprint({
+                    'id_number': '113650221',
+                    'customer_name': 'PATRICK',
+                }),
+            },
+        )
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['id_number'], '113650222')
+        self.assertEqual(service.batch_update_calls[0][0][0]['range'], 'A7:B7')
+        self.assertEqual(service.batch_update_calls[0][0][0]['values'][0][0], '113650222')
+
+    @patch('core.services.order_approval.store_uploaded_files_for_order')
+    @patch('core.services.order_approval.find_order_approval_matches')
+    def test_true_edit_rejects_corrected_id_that_exists_on_another_row(
+        self,
+        mock_find_matches,
+        mock_store_files,
+    ):
+        service = FakeService([])
+        loaded_match = SheetMatch(
+            sheet_name='Orders',
+            row_number=7,
+            headers=['ID NUMBER', 'CUSTOMER NAME', 'Media URLs'],
+            row=['113650221', 'PATRICK', ''],
+            service=service,
+        )
+        conflicting_match = SheetMatch(
+            sheet_name='Orders',
+            row_number=9,
+            headers=['ID NUMBER', 'CUSTOMER NAME', 'Media URLs'],
+            row=['113650222', 'OTHER CUSTOMER', ''],
+            service=service,
+        )
+        mock_find_matches.side_effect = [
+            [loaded_match],
+            [conflicting_match],
+        ]
+        mock_store_files.return_value = MagicMock(
+            links=[],
+            stored_count=0,
+            warnings=[],
+        )
+
+        result = process_order_approval_form_submission(
+            group_config=self._group_config(),
+            fields={'id_number': '113650222', 'customer_name': 'PATRICK'},
+            uploaded_files=[],
+            sender='Agent',
+            include_blank_fields=True,
+            edit_context={
+                'id_number': '113650221',
+                'sheet': 'Orders',
+                'row': '7',
+                'fingerprint': order_approval_fields_fingerprint({
+                    'id_number': '113650221',
+                    'customer_name': 'PATRICK',
+                }),
+            },
+        )
+
+        self.assertFalse(result['success'])
+        self.assertEqual(result['status'], 'duplicate')
+        self.assertIn('already uses this customer ID', result['message'])
+        self.assertEqual(service.batch_update_calls, [])
+
 
 class OrderApprovalMediaTest(TestCase):
     def test_webapp_upload_slots_are_collected_with_categories(self):
@@ -1226,6 +1328,8 @@ class OrderApprovalWebAppTest(TestCase):
         self.assertContains(response, 'class="form-section"')
         self.assertContains(response, 'class="section-toggle"')
         self.assertContains(response, 'id="draft-banner"')
+        self.assertContains(response, 'id="entry-mode-panel"')
+        self.assertContains(response, 'id="start-new-entry"')
         self.assertContains(response, 'id="review-dialog"')
         self.assertContains(response, 'data-chip-group')
         self.assertContains(response, 'tg.MainButton')

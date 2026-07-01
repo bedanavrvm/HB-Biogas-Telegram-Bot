@@ -626,6 +626,10 @@
       <input type="hidden" name="edit_row" id="edit-row" value="">
       <input type="hidden" name="edit_fingerprint" id="edit-fingerprint" value="">
       <p id="record-meta" class="record-meta"></p>
+      <div id="entry-mode-panel" class="record-meta">
+        <span id="entry-mode-text"></span>
+        <button id="start-new-entry" class="secondary" type="button">Start new entry</button>
+      </div>
       <div id="draft-banner" class="draft-banner" role="status" aria-live="polite">
         <span>Saved draft found on this device.</span>
         <span class="draft-actions">
@@ -806,6 +810,9 @@
     const form = document.getElementById('approval-form');
     const statusEl = document.getElementById('status');
     const recordMetaEl = document.getElementById('record-meta');
+    const entryModePanel = document.getElementById('entry-mode-panel');
+    const entryModeText = document.getElementById('entry-mode-text');
+    const startNewEntryButton = document.getElementById('start-new-entry');
     const browserFallbackButton = document.getElementById('browser-fallback');
     const submitButton = document.getElementById('submit-button');
     const lookupButton = document.getElementById('lookup-button');
@@ -1110,6 +1117,21 @@
       recordMetaEl.dataset.visible = text ? 'true' : 'false';
     }
 
+    function syncEntryModePanel() {
+      if (!entryModePanel || !entryModeText) {
+        return;
+      }
+      if (formMode === 'edit') {
+        entryModeText.textContent = currentRecordId
+          ? `Submitting will update ${currentRecordId}, even if the customer ID was corrected.`
+          : 'Submitting will update the loaded entry, even if the customer ID was corrected.';
+        entryModePanel.dataset.visible = 'true';
+      } else {
+        entryModeText.textContent = '';
+        entryModePanel.dataset.visible = 'false';
+      }
+    }
+
     function submitButtonText() {
       if (!String(idNumberInput.value || '').trim()) {
         return 'Enter ID number';
@@ -1118,7 +1140,7 @@
         return 'Submitting...';
       }
       if (formMode === 'edit') {
-        return currentRecordId ? `Update ${currentRecordId}` : 'Update entry';
+        return currentRecordId ? `Update ${currentRecordId}` : 'Update loaded entry';
       }
       if (formMode === 'create') {
         return 'Create entry';
@@ -1131,6 +1153,7 @@
       const label = submitButtonText();
       submitButton.textContent = label;
       submitButton.disabled = disabled;
+      syncEntryModePanel();
       if (tg && tg.MainButton) {
         tg.MainButton.setText(label);
         if (disabled) {
@@ -1212,7 +1235,11 @@
 
     function scheduleIdSuggestions() {
       const prefix = idNumberInput.value.trim();
-      clearEditContext();
+      if (formMode !== 'edit') {
+        clearEditContext();
+      } else {
+        syncSubmitControls();
+      }
       if (prefix.length < 3) {
         clearIdSuggestions();
         return;
@@ -1271,6 +1298,19 @@
       currentRecordId = '';
       setRecordMeta('');
       syncSubmitControls();
+    }
+
+    function startNewEntryMode() {
+      writeBlankFieldsInput.value = '0';
+      editIdNumberInput.value = '';
+      editSheetInput.value = '';
+      editRowInput.value = '';
+      editFingerprintInput.value = '';
+      formMode = String(idNumberInput.value || '').trim() ? 'create' : 'unknown';
+      currentRecordId = '';
+      setRecordMeta('Submitting will create a new entry if this ID is not already in the sheet.');
+      syncSubmitControls();
+      saveDraft();
     }
 
     function fillFields(fields) {
@@ -1578,7 +1618,7 @@
         return sum + (input && input.files ? input.files.length : 0);
       }, 0);
       return [
-        ['Action', formMode === 'edit' ? `Update ${currentRecordId || 'entry'}` : 'Create / update entry'],
+        ['Action', formMode === 'edit' ? `Update loaded ${currentRecordId || 'entry'}` : 'Create new entry'],
         ['Customer ID', idNumberInput.value.trim()],
         ['Customer name', form.elements.customer_name.value],
         ['Branch', form.elements.branch.value],
@@ -1641,6 +1681,9 @@
         reviewConfirmed = true;
         form.requestSubmit();
       });
+    }
+    if (startNewEntryButton) {
+      startNewEntryButton.addEventListener('click', startNewEntryMode);
     }
 
     lookupButton.addEventListener('click', loadExistingRecord);

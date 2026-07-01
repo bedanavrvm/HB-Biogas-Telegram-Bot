@@ -19,6 +19,7 @@ KEY FIXES (v2):
 """
 import logging
 import io
+import threading
 from datetime import datetime, timezone as dt_timezone
 from django.utils import timezone
 from django.http import JsonResponse
@@ -697,11 +698,7 @@ def _process_whatsapp_batch_command(
             ),
         }
 
-    from core.services.parser import (
-        MessageIntent,
-        analyze_whatsapp_export,
-        detect_message_intent,
-    )
+    from core.services.parser import analyze_whatsapp_export
 
     analysis = analyze_whatsapp_export(payload)
     entries = analysis.get('entries') or []
@@ -715,6 +712,100 @@ def _process_whatsapp_batch_command(
             ),
         }
 
+    async_threshold = int(
+        getattr(settings, 'WHATSAPP_BATCH_ASYNC_THRESHOLD', 100) or 0
+    )
+    if async_threshold > 0 and len(entries) > async_threshold:
+        _start_case_batch_background_import(
+            payload=payload,
+            analysis=analysis,
+            message_data=message_data,
+            sender=sender,
+            received_at=received_at,
+            group_id=group_id,
+            telegram_message_id=telegram_message_id,
+        )
+        return {
+            'status': 'command',
+            'reply_text': (
+                "WhatsApp batch import started.\n"
+                f"Export messages found: {len(entries)}\n"
+                "The bot will reply here again when processing finishes. "
+                "You can keep using Telegram while it runs."
+            ),
+        }
+
+    return _run_whatsapp_batch_import(
+        analysis=analysis,
+        sender=sender,
+        received_at=received_at,
+        group_id=group_id,
+        telegram_message_id=telegram_message_id,
+    )
+
+
+def _start_case_batch_background_import(
+    payload: str,
+    analysis: dict,
+    message_data: dict,
+    sender: str,
+    received_at: datetime,
+    group_id: str,
+    telegram_message_id: str,
+) -> None:
+    """Run a large case WhatsApp import outside the webhook response."""
+    del payload  # Payload is intentionally parsed before queueing to validate the export.
+
+    def worker() -> None:
+        from django.db import close_old_connections
+
+        close_old_connections()
+        try:
+            result = _run_whatsapp_batch_import(
+                analysis=analysis,
+                sender=sender,
+                received_at=received_at,
+                group_id=group_id,
+                telegram_message_id=telegram_message_id,
+            )
+            _send_telegram_reply(message_data, result)
+        except Exception as exc:
+            logger.error(
+                "Background case WhatsApp batch import failed: %s",
+                exc,
+                exc_info=True,
+            )
+            _send_telegram_reply(
+                message_data,
+                {
+                    'status': 'command',
+                    'reply_text': (
+                        "WhatsApp batch import failed before completion.\n"
+                        "Please retry the export. If it fails again, ask an admin to check Render logs."
+                    ),
+                },
+            )
+        finally:
+            close_old_connections()
+
+    thread = threading.Thread(
+        target=worker,
+        name=f"case-batch-{telegram_message_id}",
+        daemon=True,
+    )
+    thread.start()
+
+
+def _run_whatsapp_batch_import(
+    analysis: dict,
+    sender: str,
+    received_at: datetime,
+    group_id: str,
+    telegram_message_id: str,
+) -> dict:
+    from core.services.parser import MessageIntent, detect_message_intent
+
+    entries = analysis.get('entries') or []
     configured_max = int(getattr(settings, 'WHATSAPP_BATCH_MAX_MESSAGES', 0) or 0)
     max_entries = configured_max if configured_max > 0 else len(entries)
     truncated = configured_max > 0 and len(entries) > max_entries
@@ -781,7 +872,6 @@ def _process_whatsapp_batch_command(
         'batch_sheet_append': batch_sheet_append,
         'results': results,
     }
-
 
 def _batch_append_case_results(results: list[dict], group_id: str) -> dict:
     """Append successfully stored case batch rows to Sheets in one request."""

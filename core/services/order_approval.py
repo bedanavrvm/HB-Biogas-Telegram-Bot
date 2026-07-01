@@ -623,7 +623,54 @@ def process_order_approval_form_submission(
         update_status='pending',
     )
 
-    matches = find_order_approval_matches(group_config, id_number)
+    loaded_edit_match = None
+    if include_blank_fields and edit_context_has_loaded_row(edit_context):
+        loaded_edit_match = loaded_order_edit_match(
+            group_config=group_config,
+            edit_context=edit_context,
+        )
+        if not loaded_edit_match or not edit_context_matches(
+            edit_context=edit_context,
+            match=loaded_edit_match,
+            workflow=group_config.workflow or {},
+        ):
+            update_record.update_status = 'failed'
+            update_record.sync_error = 'Edit context did not match the loaded sheet row.'
+            update_record.save(update_fields=['update_status', 'sync_error'])
+            return {
+                'success': False,
+                'status': 'failed',
+                'message': (
+                    'Reload this customer ID before saving. '
+                    'The entry changed after it was opened.'
+                ),
+                'files_stored': 0,
+                'warnings': [],
+            }
+
+        target_id_matches = find_order_approval_matches(group_config, id_number)
+        conflicting_matches = [
+            match for match in target_id_matches
+            if not same_order_approval_row(match, loaded_edit_match)
+        ]
+        if conflicting_matches:
+            update_record.update_status = 'duplicate'
+            update_record.sync_error = 'Submitted ID already exists on another row.'
+            update_record.save(update_fields=['update_status', 'sync_error'])
+            return {
+                'success': False,
+                'status': 'duplicate',
+                'message': (
+                    'Another entry already uses this customer ID. '
+                    'Load that entry or use a different ID before saving.'
+                ),
+                'files_stored': 0,
+                'warnings': [],
+            }
+        matches = [loaded_edit_match]
+    else:
+        matches = find_order_approval_matches(group_config, id_number)
+
     if not matches:
         uploaded = store_uploaded_files_for_order(
             group_config=group_config,
@@ -704,25 +751,6 @@ def process_order_approval_form_submission(
         }
 
     match = matches[0]
-    if include_blank_fields and not edit_context_matches(
-        edit_context=edit_context,
-        match=match,
-        workflow=group_config.workflow or {},
-        id_number=id_number,
-    ):
-        update_record.update_status = 'failed'
-        update_record.sync_error = 'Edit context did not match the loaded sheet row.'
-        update_record.save(update_fields=['update_status', 'sync_error'])
-        return {
-            'success': False,
-            'status': 'failed',
-            'message': (
-                'Reload this customer ID before saving. '
-                'The entry changed after it was opened.'
-            ),
-            'files_stored': 0,
-            'warnings': [],
-        }
 
     update_record.sheet_tab = match.sheet_name
     update_record.row_number = match.row_number
@@ -1097,11 +1125,43 @@ def fields_for_order_approval_match(match: SheetMatch, workflow: dict) -> dict[s
     return fields
 
 
+def edit_context_has_loaded_row(edit_context: dict | None) -> bool:
+    context = edit_context or {}
+    return bool(
+        normalize_business_key(context.get('id_number', ''))
+        and str(context.get('sheet', '')).strip()
+        and str(context.get('row', '')).strip()
+        and str(context.get('fingerprint', '')).strip()
+    )
+
+
+def loaded_order_edit_match(group_config, edit_context: dict | None) -> SheetMatch | None:
+    context = edit_context or {}
+    original_id = normalize_business_key(context.get('id_number', ''))
+    if not original_id:
+        return None
+    try:
+        context_row = int(context.get('row') or 0)
+    except (TypeError, ValueError):
+        context_row = 0
+    context_sheet = str(context.get('sheet', ''))
+    for match in find_order_approval_matches(group_config, original_id):
+        if str(match.sheet_name) == context_sheet and match.row_number == context_row:
+            return match
+    return None
+
+
+def same_order_approval_row(first: SheetMatch, second: SheetMatch) -> bool:
+    return (
+        str(first.sheet_name) == str(second.sheet_name)
+        and int(first.row_number) == int(second.row_number)
+    )
+
+
 def edit_context_matches(
     edit_context: dict | None,
     match: SheetMatch,
     workflow: dict,
-    id_number: str,
 ) -> bool:
     context = edit_context or {}
     try:
@@ -1109,8 +1169,7 @@ def edit_context_matches(
     except (TypeError, ValueError):
         context_row = 0
     if not (
-        normalize_business_key(context.get('id_number', '')) == id_number
-        and str(context.get('sheet', '')) == str(match.sheet_name)
+        str(context.get('sheet', '')) == str(match.sheet_name)
         and context_row == match.row_number
     ):
         return False

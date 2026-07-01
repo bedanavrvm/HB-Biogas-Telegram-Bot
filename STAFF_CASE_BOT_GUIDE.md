@@ -273,6 +273,8 @@ If the same export is sent again, existing cases are detected as duplicates usin
 
 Normal WhatsApp `.txt` or `.zip` exports can be sent whole. The bot no longer stops at 50 export messages. If a production limit is configured, admins can set `WHATSAPP_BATCH_MAX_MESSAGES=0` to process the full export in one upload.
 
+Large exports run in the background so Telegram does not time out. Staff will first see `WhatsApp batch import started`, then the bot replies again with the final saved/rejected/duplicate summary when processing finishes. Admins can tune this with `WHATSAPP_BATCH_ASYNC_THRESHOLD`; the production default is `100` export messages.
+
 ## Common Mistakes
 
 Do not send a complaint without tagging the bot.
