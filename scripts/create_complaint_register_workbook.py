@@ -67,9 +67,6 @@ HEADERS = [
 REQUIRED_HEADERS = [
     "Date Reported",
     "Customer Name",
-    "Customer ID / Account",
-    "Phone Number",
-    "Branch / Region",
     "Complaint Description",
     "Status",
 ]
@@ -107,7 +104,7 @@ DEFAULT_OPTIONS = {
         "Relocation",
         "Other",
     ],
-    "Status": ["Open", "In Progress", "Waiting for Customer", "Resolved", "Closed"],
+    "Status": ["Open", "Review Needed", "In Progress", "Waiting for Customer", "Resolved", "Closed"],
     "Loan Status": ["Performing", "Non Performing", "Cleared", "Unknown"],
     "Risk Level": ["Low", "Moderate", "High", "Critical"],
     "Source": ["telegram bot", "google sheets", "manual"],

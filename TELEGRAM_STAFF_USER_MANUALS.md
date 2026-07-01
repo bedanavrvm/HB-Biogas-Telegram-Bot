@@ -12,12 +12,12 @@ Main staff actions:
 
 - Report a new case.
 - Capture customer county into `Branch / Region`.
-- Include all mandatory complaint fields: `NAME`, `TEL`, `ID`, and `NATURE OF THE PROBLEM`. Add `COUNTY` when available for reporting/filtering.
+- Include all mandatory complaint fields: `NAME`, `TEL` or `ID`, and `NATURE OF THE PROBLEM`. Add both `TEL` and `ID` when available for reporting/filtering. If only one identifier is present, the case is saved with `Status = Review Needed`.
 - Update case status.
 - Search cases by phone, ID, customer name, or text.
 - Check open, pending, closed, stale, duplicate, and incomplete cases.
 
-Incomplete complaint messages are rejected and are not saved to the database or sheet. The bot reply lists the missing fields so staff can resend the complete case.
+Complaint messages missing customer name, problem description, or both identifiers are rejected. If only `TEL` or only `ID` is present, the case is saved with `Status = Review Needed` for manual completion.
 
 Core commands:
 

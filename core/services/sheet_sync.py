@@ -114,8 +114,7 @@ def sync_sheet_to_backend(
             missing = ParsedMessage.objects.filter(group_id=str(group_id)).exclude(
                 message_id__in=seen_message_ids
             )
-            result['deleted_count'] = missing.count()
-            missing.delete()
+            result['deleted_count'] = _delete_missing_cases_with_dedupe(missing)
 
     result['row_count'] = len(rows)
     result['backend_count'] = ParsedMessage.objects.filter(
@@ -123,6 +122,55 @@ def sync_sheet_to_backend(
     ).count()
     logger.info(f"Sheet-to-backend sync complete: {result}")
     return result
+
+
+def _delete_missing_cases_with_dedupe(missing_queryset) -> int:
+    """Delete sheet-missing cases and stale dedupe records they owned."""
+    processed_ids = list(
+        missing_queryset
+        .exclude(processed_message_id=None)
+        .values_list('processed_message_id', flat=True)
+        .distinct()
+    )
+    raw_ids = list(
+        ProcessedMessage.objects
+        .filter(id__in=processed_ids)
+        .values_list('raw_message_id', flat=True)
+        .distinct()
+    )
+    deleted_count = missing_queryset.count()
+    missing_queryset.delete()
+
+    ProcessedMessage.objects.filter(
+        id__in=processed_ids,
+        parsed_records__isnull=True,
+    ).delete()
+    RawMessage.objects.filter(
+        id__in=raw_ids,
+        processed_records__isnull=True,
+    ).delete()
+    _delete_orphaned_dedupe_records()
+    return deleted_count
+
+
+def _delete_orphaned_dedupe_records() -> int:
+    """Remove stale dedupe hashes left by earlier sheet-source deletions."""
+    orphaned = ProcessedMessage.objects.filter(
+        parsed_records__isnull=True,
+        status__in=['success', 'partial'],
+    )
+    raw_ids = list(
+        orphaned
+        .values_list('raw_message_id', flat=True)
+        .distinct()
+    )
+    deleted_count = orphaned.count()
+    orphaned.delete()
+    RawMessage.objects.filter(
+        id__in=raw_ids,
+        processed_records__isnull=True,
+    ).delete()
+    return deleted_count
 
 
 def sync_all_configured_groups(delete_missing: bool = True) -> dict:

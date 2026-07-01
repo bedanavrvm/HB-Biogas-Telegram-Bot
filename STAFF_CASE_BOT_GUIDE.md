@@ -47,11 +47,10 @@ NATURE OF THE PROBLEM: Requesting for a jiko relocation
 Mandatory fields for a complete case:
 
 - `NAME`
-- `TEL`
-- `ID`
+- `TEL` or `ID`
 - `NATURE OF THE PROBLEM`
 
-If any mandatory field is missing, the bot rejects the case. It is not saved in the database and it is not written to the sheet. The bot reply shows what is missing so staff can resend the complete case. County is optional, but staff should include it when known.
+If the customer name, problem description, or both identifiers are missing, the bot rejects the case. It is not saved in the database and it is not written to the sheet. If only `TEL` or only `ID` is present, the bot saves the case with `Status = Review Needed`. County is optional, but staff should include it when known.
 
 ## County Field
 
@@ -266,7 +265,7 @@ The bot reads common WhatsApp export lines such as:
 [23/05/2026, 12:46] Staff Name: message
 ```
 
-Only complaint entries are processed. Normal chat messages and WhatsApp system lines are skipped. Each complaint must still include `NAME`, `TEL`, `ID`, and `NATURE OF THE PROBLEM`; incomplete entries are rejected and listed in the batch summary. `COUNTY` is optional but should be included when staff know it.
+Only complaint entries are processed. Normal chat messages and WhatsApp system lines are skipped. Each complaint must still include `NAME`, `TEL` or `ID`, and `NATURE OF THE PROBLEM`; incomplete entries are rejected and listed in the batch summary. `COUNTY` is optional but should be included when staff know it.
 
 Before importing the export, the bot refreshes the local case database from the configured Google Sheet. After importing, it refreshes again so the Django admin/live viewer reflects the sheet. This keeps manual sheet edits, deletions, and bot imports aligned.
 
@@ -278,7 +277,7 @@ Normal WhatsApp `.txt` or `.zip` exports can be sent whole. The bot no longer st
 
 Do not send a complaint without tagging the bot.
 
-Do not leave out the customer phone or ID. They are required for a complete case. Add county when known so the sheet can be filtered by region.
+Do not leave out both customer phone and ID. At least one identifier is required. If one is missing, the case is saved for manual review.
 
 Do not update a case by writing only:
 

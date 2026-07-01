@@ -110,6 +110,7 @@ def store_parsed_message(
             branch_region=getattr(parsed_result, 'branch_region', ''),
             complaint_category=getattr(parsed_result, 'complaint_category', ''),
             complaint_description=parsed_result.problem_description,
+            complaint_status=_initial_complaint_status(parsed_result),
         )
 
         logger.info(
@@ -122,6 +123,17 @@ def store_parsed_message(
     except Exception as exc:
         logger.error(f"Failed to store parsed message: {exc}", exc_info=True)
         raise
+
+
+def _initial_complaint_status(parsed_result: ParsedResult) -> str:
+    intent_value = getattr(parsed_result, 'intent', '')
+    intent = getattr(intent_value, 'value', intent_value)
+    if intent == 'complaint' and (
+        not getattr(parsed_result, 'customer_id', '')
+        or not getattr(parsed_result, 'customer_phone', '')
+    ):
+        return 'Review Needed'
+    return ''
 
 
 # ---------------------------------------------------------------------------

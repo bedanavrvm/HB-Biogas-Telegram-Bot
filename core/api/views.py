@@ -754,6 +754,10 @@ def _process_whatsapp_batch_command(
         'max_entries': max_entries,
         'success': sum(1 for r in results if r.get('status') == 'success'),
         'partial': sum(1 for r in results if r.get('status') == 'partial'),
+        'review_needed': sum(
+            1 for r in results
+            if (r.get('captured_fields') or {}).get('Status') == 'Review Needed'
+        ),
         'duplicates': sum(1 for r in results if r.get('status') == 'duplicate'),
         'rejected': sum(1 for r in results if r.get('status') == 'rejected'),
         'errors': sum(1 for r in results if r.get('status') == 'error'),
@@ -1245,6 +1249,7 @@ def _process_single_message(
             'customer_id': 'Customer ID',
             'branch_region': 'County',
             'complaint_description': 'Complaint Description',
+            'complaint_status': 'Status',
             'item': 'Item',
             'quantity': 'Quantity',
             'price': 'Price',
@@ -1381,8 +1386,7 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
             f'{fix_section}{fields_summary}\n\n'
             'Required complaint fields:\n'
             '- NAME\n'
-            '- TEL\n'
-            '- ID\n'
+            '- TEL or ID\n'
             '- NATURE OF THE PROBLEM'
         )
     elif status == 'partial':
@@ -1422,6 +1426,9 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
             system_lines = result.get('system_lines', 0)
             if system_lines:
                 lines.append(f"Skipped WhatsApp system lines: {system_lines}")
+            review_needed = result.get('review_needed', 0)
+            if review_needed:
+                lines.append(f"Saved for manual review: {review_needed}")
             if result.get('truncated'):
                 lines.append(
                     f"Processed the first {result.get('max_entries')} export messages because a limit is configured. "
@@ -1468,7 +1475,7 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
                 missing_text = ', '.join(str(field) for field in missing if str(field).strip())
                 lines.append(f'{index}. Missing: {missing_text or "required fields"}')
             lines.append('')
-            lines.append('Each complaint must include NAME, TEL, ID, and NATURE OF THE PROBLEM.')
+            lines.append('Each complaint must include NAME, TEL or ID, and NATURE OF THE PROBLEM.')
 
         text = "\n".join(lines)
     elif status == 'jawabu_batch_processed':

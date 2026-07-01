@@ -403,6 +403,14 @@ def parse_message(content: str, sender: str = None, has_image: bool = False,
                     "Missing required complaint field(s): "
                     + ", ".join(missing_fields)
                 )
+            if result.customer_phone and not result.customer_id:
+                result.warnings.append(
+                    "Customer ID / Account missing; saved with Status: Review Needed."
+                )
+            elif result.customer_id and not result.customer_phone:
+                result.warnings.append(
+                    "Phone Number missing; saved with Status: Review Needed."
+                )
 
         # Calculate confidence
         result.confidence = _calculate_confidence(result)
@@ -1185,7 +1193,8 @@ def _calculate_confidence(result: ParsedResult) -> float:
     
     # Field extraction confidence depends on message intent
     if result.intent == MessageIntent.COMPLAINT:
-        # Complaint messages require name, phone, customer ID/account, county, and description.
+        # Complaint messages require name, phone, and description.
+        # Customer ID/account and county improve confidence but should not block intake.
         complaint_fields = 0
         total_complaint_fields = 5
         
@@ -1241,10 +1250,8 @@ def _missing_required_complaint_fields(result: ParsedResult) -> list[str]:
     missing = []
     if not result.customer_name:
         missing.append("Customer Name")
-    if not result.customer_phone:
-        missing.append("Phone Number")
-    if not result.customer_id:
-        missing.append("Customer ID / Account")
+    if not result.customer_phone and not result.customer_id:
+        missing.append("Phone Number or Customer ID / Account")
     if not result.problem_description:
         missing.append("Complaint Description")
     return missing
