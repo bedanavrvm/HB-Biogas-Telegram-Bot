@@ -41,6 +41,7 @@
       margin: 0 auto;
       padding: 16px;
       padding-top: 68px;
+      padding-bottom: 96px;
     }
 
     header {
@@ -142,13 +143,181 @@
     }
 
     .actions {
+      position: sticky;
+      bottom: 0;
+      z-index: 12;
       display: flex;
       align-items: center;
       justify-content: flex-end;
       gap: 10px;
-      margin-top: 18px;
-      padding-top: 16px;
+      margin: 18px -16px -16px;
+      padding: 12px 16px;
       border-top: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(8px);
+    }
+
+    .actions button {
+      width: 100%;
+    }
+
+    .form-section {
+      border-top: 1px solid var(--line);
+    }
+
+    .form-section:first-of-type {
+      border-top: 0;
+    }
+
+    .section-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      min-height: 44px;
+      border: 0;
+      background: transparent;
+      color: #344054;
+      padding: 0;
+      text-align: left;
+      font-size: 15px;
+      font-weight: 800;
+    }
+
+    .section-toggle:active {
+      background: transparent;
+      color: #101828;
+    }
+
+    .section-toggle-icon {
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .form-section[data-collapsed="true"] .section-body {
+      display: none;
+    }
+
+    .draft-banner {
+      display: none;
+      margin: 0 0 12px;
+      border: 1px solid #fedf89;
+      border-radius: 6px;
+      padding: 10px 12px;
+      background: var(--warn-bg);
+      color: #7a2e0e;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .draft-banner[data-visible="true"] {
+      display: grid;
+      gap: 8px;
+    }
+
+    .draft-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .draft-actions button,
+    .review-actions button {
+      min-height: 38px;
+      padding: 7px 10px;
+      font-size: 13px;
+    }
+
+    .chip-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip-button {
+      min-height: 38px;
+      border: 1px solid var(--line);
+      background: #ffffff;
+      color: #344054;
+      padding: 7px 11px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .chip-button[data-selected="true"] {
+      border-color: var(--action);
+      background: #ecfdf3;
+      color: var(--action-pressed);
+    }
+
+    .native-select-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .review-dialog {
+      width: min(92vw, 560px);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0;
+      color: var(--text);
+    }
+
+    .review-dialog::backdrop {
+      background: rgba(16, 24, 40, 0.46);
+    }
+
+    .review-panel {
+      display: grid;
+      gap: 12px;
+      padding: 16px;
+      background: var(--surface);
+    }
+
+    .review-panel h2 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.25;
+    }
+
+    .review-summary {
+      display: grid;
+      gap: 8px;
+      max-height: 56vh;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      background: #fcfcfd;
+      font-size: 13px;
+    }
+
+    .review-row {
+      display: grid;
+      grid-template-columns: minmax(112px, 0.45fr) minmax(0, 1fr);
+      gap: 8px;
+    }
+
+    .review-key {
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .review-value {
+      min-width: 0;
+      overflow-wrap: anywhere;
+      font-weight: 600;
+    }
+
+    .review-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
     }
 
     .lookup-row {
@@ -457,10 +626,17 @@
       <input type="hidden" name="edit_row" id="edit-row" value="">
       <input type="hidden" name="edit_fingerprint" id="edit-fingerprint" value="">
       <p id="record-meta" class="record-meta"></p>
+      <div id="draft-banner" class="draft-banner" role="status" aria-live="polite">
+        <span>Saved draft found on this device.</span>
+        <span class="draft-actions">
+          <button id="restore-draft" class="secondary" type="button">Restore draft</button>
+          <button id="discard-draft" class="secondary" type="button">Discard</button>
+        </span>
+      </div>
 
-      <fieldset>
-        <legend>Customer</legend>
-        <div class="grid">
+      <fieldset class="form-section" data-section="customer" data-collapsed="false">
+        <legend><button class="section-toggle" type="button" aria-expanded="true" aria-controls="section-customer">Customer <span class="section-toggle-icon">-</span></button></legend>
+        <div id="section-customer" class="section-body grid">
           <div class="lookup-row span-2">
             <label>
               ID number <span class="required">*</span>
@@ -497,9 +673,9 @@
         </div>
       </fieldset>
 
-      <fieldset>
-        <legend>Visit</legend>
-        <div class="grid">
+      <fieldset class="form-section" data-section="visit" data-collapsed="true">
+        <legend><button class="section-toggle" type="button" aria-expanded="false" aria-controls="section-visit">Visit <span class="section-toggle-icon">+</span></button></legend>
+        <div id="section-visit" class="section-body grid">
           <label>
             County
             <input name="county">
@@ -518,7 +694,7 @@
           </label>
           <label>
             IMAB created
-            <select name="imab_created">
+            <select name="imab_created" data-chip-group>
               <option value=""></option>
               <option value="Yes">Yes</option>
               <option value="No">No</option>
@@ -532,9 +708,9 @@
         </div>
       </fieldset>
 
-      <fieldset>
-        <legend>Approval</legend>
-        <div class="grid">
+      <fieldset class="form-section" data-section="approval" data-collapsed="true">
+        <legend><button class="section-toggle" type="button" aria-expanded="false" aria-controls="section-approval">Approval <span class="section-toggle-icon">+</span></button></legend>
+        <div id="section-approval" class="section-body grid">
           <label>
             HB deposit
             <input name="deposit_hb" inputmode="decimal" pattern="[0-9]+(\\.[0-9]{1,2})?" title="Use a non-negative amount, for example 5000 or 5000.50">
@@ -549,7 +725,7 @@
           </label>
           <label>
             Credit analysis
-            <select name="credit_analysis">
+            <select name="credit_analysis" data-chip-group>
               <option value=""></option>
               <option value="Approved">Approved</option>
               <option value="Pending">Pending</option>
@@ -566,7 +742,7 @@
           </label>
           <label>
             Final decision
-            <select name="final_decision">
+            <select name="final_decision" data-chip-group>
               <option value=""></option>
               <option value="Approved">Approved</option>
               <option value="Rejected">Rejected</option>
@@ -577,8 +753,9 @@
         </div>
       </fieldset>
 
-      <fieldset>
-        <legend>Files</legend>
+      <fieldset class="form-section" data-section="files" data-collapsed="true">
+        <legend><button class="section-toggle" type="button" aria-expanded="false" aria-controls="section-files">Files <span class="section-toggle-icon">+</span></button></legend>
+        <div id="section-files" class="section-body">
         <label>
           ID photos
           <input name="id_photos" type="file" multiple accept="image/*">
@@ -603,12 +780,25 @@
           <button class="preview-toggle" type="button" data-preview-toggle="other_files">Show thumbnails</button>
           <span class="file-preview" data-file-preview="other_files"></span>
         </label>
+        </div>
       </fieldset>
 
       <div class="actions">
-        <button id="submit-button" type="submit">Submit update</button>
+        <button id="submit-button" type="submit">Enter ID number</button>
       </div>
     </form>
+
+    <dialog id="review-dialog" class="review-dialog">
+      <div class="review-panel">
+        <h2>Review before submitting</h2>
+        <p class="hint">Check the key details before they are written to the order sheet.</p>
+        <div id="review-summary" class="review-summary"></div>
+        <div class="review-actions">
+          <button id="review-edit" class="secondary" type="button">Edit</button>
+          <button id="review-confirm" type="button">Submit now</button>
+        </div>
+      </div>
+    </dialog>
   </main>
 
   <script>
@@ -622,6 +812,13 @@
     const initDataInput = document.getElementById('init-data');
     const idNumberInput = document.getElementById('id-number');
     const idSuggestionsEl = document.getElementById('id-suggestions');
+    const draftBanner = document.getElementById('draft-banner');
+    const restoreDraftButton = document.getElementById('restore-draft');
+    const discardDraftButton = document.getElementById('discard-draft');
+    const reviewDialog = document.getElementById('review-dialog');
+    const reviewSummary = document.getElementById('review-summary');
+    const reviewEditButton = document.getElementById('review-edit');
+    const reviewConfirmButton = document.getElementById('review-confirm');
     const writeBlankFieldsInput = document.getElementById('write-blank-fields');
     const editIdNumberInput = document.getElementById('edit-id-number');
     const editSheetInput = document.getElementById('edit-sheet');
@@ -671,8 +868,13 @@
       : maxFilesPerSlot;
     const previewUrls = new Map();
     const thumbnailsVisible = new Map();
+    const draftStorageKey = `orderApprovalDraft:${form.elements.group_id.value || 'default'}`;
     let suggestionTimer = null;
     let suggestionController = null;
+    let formMode = 'unknown';
+    let currentRecordId = '';
+    let isSubmitting = false;
+    let reviewConfirmed = false;
 
     if (tg) {
       tg.ready();
@@ -683,6 +885,90 @@
       browserFallbackButton.dataset.visible = 'true';
       browserFallbackButton.addEventListener('click', () => {
         tg.openLink(window.location.href);
+      });
+    }
+
+    function sectionForInput(input) {
+      return input ? input.closest('.form-section') : null;
+    }
+
+    function setSectionExpanded(section, expanded) {
+      if (!section) {
+        return;
+      }
+      section.dataset.collapsed = expanded ? 'false' : 'true';
+      const button = section.querySelector('.section-toggle');
+      const icon = section.querySelector('.section-toggle-icon');
+      if (button) {
+        button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      }
+      if (icon) {
+        icon.textContent = expanded ? '-' : '+';
+      }
+    }
+
+    function expandInputSection(input) {
+      setSectionExpanded(sectionForInput(input), true);
+    }
+
+    function expandSectionsWithValues() {
+      for (const name of editableFields) {
+        const input = form.elements[name];
+        if (input && String(input.value || '').trim()) {
+          expandInputSection(input);
+        }
+      }
+    }
+
+    function enhanceSections() {
+      document.querySelectorAll('.form-section').forEach((section) => {
+        const button = section.querySelector('.section-toggle');
+        if (!button) {
+          return;
+        }
+        button.addEventListener('click', () => {
+          setSectionExpanded(section, section.dataset.collapsed === 'true');
+        });
+      });
+    }
+
+    function refreshChipButtons(select) {
+      const group = select.nextElementSibling;
+      if (!group || !group.classList.contains('chip-group')) {
+        return;
+      }
+      group.querySelectorAll('.chip-button').forEach((button) => {
+        button.dataset.selected = button.dataset.value === select.value ? 'true' : 'false';
+      });
+    }
+
+    function enhanceChipSelects() {
+      document.querySelectorAll('select[data-chip-group]').forEach((select) => {
+        const group = document.createElement('span');
+        group.className = 'chip-group';
+        group.setAttribute('role', 'group');
+        group.setAttribute('aria-label', labelText(select));
+        Array.from(select.options).forEach((option) => {
+          if (!option.value) {
+            return;
+          }
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'chip-button';
+          button.dataset.value = option.value;
+          button.textContent = option.textContent;
+          button.addEventListener('click', () => {
+            select.value = button.dataset.value;
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            refreshChipButtons(select);
+            saveDraft();
+          });
+          group.appendChild(button);
+        });
+        select.classList.add('native-select-hidden');
+        select.insertAdjacentElement('afterend', group);
+        refreshChipButtons(select);
+        select.addEventListener('change', () => refreshChipButtons(select));
       });
     }
 
@@ -824,9 +1110,42 @@
       recordMetaEl.dataset.visible = text ? 'true' : 'false';
     }
 
+    function submitButtonText() {
+      if (!String(idNumberInput.value || '').trim()) {
+        return 'Enter ID number';
+      }
+      if (isSubmitting) {
+        return 'Submitting...';
+      }
+      if (formMode === 'edit') {
+        return currentRecordId ? `Update ${currentRecordId}` : 'Update entry';
+      }
+      if (formMode === 'create') {
+        return 'Create entry';
+      }
+      return 'Review and submit';
+    }
+
+    function syncSubmitControls() {
+      const disabled = isSubmitting || !String(idNumberInput.value || '').trim();
+      const label = submitButtonText();
+      submitButton.textContent = label;
+      submitButton.disabled = disabled;
+      if (tg && tg.MainButton) {
+        tg.MainButton.setText(label);
+        if (disabled) {
+          tg.MainButton.disable();
+        } else {
+          tg.MainButton.enable();
+        }
+        tg.MainButton.show();
+      }
+    }
+
     function setBusy(isBusy) {
-      submitButton.disabled = isBusy;
+      isSubmitting = isBusy;
       lookupButton.disabled = isBusy;
+      syncSubmitControls();
     }
 
     function clearIdSuggestions() {
@@ -948,7 +1267,10 @@
       editSheetInput.value = '';
       editRowInput.value = '';
       editFingerprintInput.value = '';
+      formMode = String(idNumberInput.value || '').trim() ? 'create' : 'unknown';
+      currentRecordId = '';
       setRecordMeta('');
+      syncSubmitControls();
     }
 
     function fillFields(fields) {
@@ -972,6 +1294,9 @@
       input.value = phoneFieldNames.includes(input.name)
         ? normalizeKenyanPhone(value)
         : value;
+      if (input.tagName === 'SELECT') {
+        refreshChipButtons(input);
+      }
     }
 
     function normalizeKenyanPhone(value) {
@@ -1125,15 +1450,23 @@
           editSheetInput.value = payload.sheet || '';
           editRowInput.value = payload.row || '';
           editFingerprintInput.value = payload.fingerprint || '';
-          const recordLabel = payload.order_record_id
-            ? `Editing ${payload.order_record_id}.`
+          formMode = 'edit';
+          currentRecordId = payload.order_record_id || '';
+          const recordLabel = currentRecordId
+            ? `Editing ${currentRecordId}.`
             : 'Editing existing entry.';
           setRecordMeta(`${recordLabel} Blank fields will clear existing values.`);
           setStatus('success', payload.message || 'Existing entry loaded.');
+          expandSectionsWithValues();
+          saveDraft();
+          syncSubmitControls();
         } else {
           clearEditContext();
+          formMode = 'create';
+          currentRecordId = '';
           setRecordMeta('No existing entry found. Submitting will create a new entry.');
           setStatus('working', payload.message || 'No existing entry found.');
+          syncSubmitControls();
         }
       } catch (error) {
         writeBlankFieldsInput.value = '0';
@@ -1144,20 +1477,203 @@
       }
     }
 
+    function canUseStorage() {
+      try {
+        const probe = '__order_approval_probe__';
+        window.localStorage.setItem(probe, '1');
+        window.localStorage.removeItem(probe);
+        return true;
+      } catch (error) {
+        return false;
+      }
+    }
+
+    const draftStorageAvailable = canUseStorage();
+
+    function draftPayload() {
+      const fields = {};
+      for (const name of editableFields) {
+        const input = form.elements[name];
+        if (input) {
+          fields[name] = input.value || '';
+        }
+      }
+      return {
+        savedAt: new Date().toISOString(),
+        mode: formMode,
+        currentRecordId,
+        fields
+      };
+    }
+
+    function saveDraft() {
+      if (!draftStorageAvailable) {
+        return;
+      }
+      const hasAnyValue = editableFields.some((name) => {
+        const input = form.elements[name];
+        return input && String(input.value || '').trim();
+      });
+      if (!hasAnyValue) {
+        window.localStorage.removeItem(draftStorageKey);
+        return;
+      }
+      window.localStorage.setItem(draftStorageKey, JSON.stringify(draftPayload()));
+    }
+
+    function clearDraft() {
+      if (draftStorageAvailable) {
+        window.localStorage.removeItem(draftStorageKey);
+      }
+      if (draftBanner) {
+        draftBanner.dataset.visible = 'false';
+      }
+    }
+
+    function applyDraft(payload) {
+      if (!payload || !payload.fields) {
+        return;
+      }
+      fillFields(payload.fields);
+      formMode = payload.mode || (idNumberInput.value.trim() ? 'create' : 'unknown');
+      currentRecordId = payload.currentRecordId || '';
+      expandSectionsWithValues();
+      syncSubmitControls();
+      setStatus('working', 'Draft restored. Review the details before submitting.');
+    }
+
+    function checkDraft() {
+      if (!draftStorageAvailable || !draftBanner || idNumberInput.value.trim()) {
+        return;
+      }
+      try {
+        const raw = window.localStorage.getItem(draftStorageKey);
+        const payload = raw ? JSON.parse(raw) : null;
+        if (payload && payload.fields && Object.values(payload.fields).some(Boolean)) {
+          draftBanner.dataset.visible = 'true';
+        }
+      } catch (error) {
+        window.localStorage.removeItem(draftStorageKey);
+      }
+    }
+
+    function restoreDraft() {
+      if (!draftStorageAvailable) {
+        return;
+      }
+      try {
+        const raw = window.localStorage.getItem(draftStorageKey);
+        applyDraft(raw ? JSON.parse(raw) : null);
+        if (draftBanner) {
+          draftBanner.dataset.visible = 'false';
+        }
+      } catch (error) {
+        clearDraft();
+      }
+    }
+
+    function reviewRows() {
+      const selectedFiles = fileFieldNames.reduce((sum, name) => {
+        const input = form.elements[name];
+        return sum + (input && input.files ? input.files.length : 0);
+      }, 0);
+      return [
+        ['Action', formMode === 'edit' ? `Update ${currentRecordId || 'entry'}` : 'Create / update entry'],
+        ['Customer ID', idNumberInput.value.trim()],
+        ['Customer name', form.elements.customer_name.value],
+        ['Branch', form.elements.branch.value],
+        ['Primary phone', form.elements.primary_phone.value],
+        ['Date visited', form.elements.date_visited.value],
+        ['Credit analysis', form.elements.credit_analysis.value],
+        ['Final decision', form.elements.final_decision.value],
+        ['Files selected', String(selectedFiles)]
+      ].filter((row) => String(row[1] || '').trim());
+    }
+
+    function showReviewDialog() {
+      reviewSummary.replaceChildren();
+      reviewRows().forEach(([key, value]) => {
+        const row = document.createElement('div');
+        const keyEl = document.createElement('span');
+        const valueEl = document.createElement('span');
+        row.className = 'review-row';
+        keyEl.className = 'review-key';
+        valueEl.className = 'review-value';
+        keyEl.textContent = key;
+        valueEl.textContent = value;
+        row.appendChild(keyEl);
+        row.appendChild(valueEl);
+        reviewSummary.appendChild(row);
+      });
+      if (typeof reviewDialog.showModal === 'function') {
+        reviewDialog.showModal();
+      } else if (window.confirm('Submit this order approval update now?')) {
+        reviewConfirmed = true;
+        form.requestSubmit();
+      }
+    }
+
+    function submitFromNativeButton() {
+      if (!submitButton.disabled) {
+        form.requestSubmit();
+      }
+    }
+
+    enhanceSections();
+    enhanceChipSelects();
+    checkDraft();
+    syncSubmitControls();
+    if (tg && tg.MainButton) {
+      tg.MainButton.onClick(submitFromNativeButton);
+    }
+    if (restoreDraftButton) {
+      restoreDraftButton.addEventListener('click', restoreDraft);
+    }
+    if (discardDraftButton) {
+      discardDraftButton.addEventListener('click', clearDraft);
+    }
+    if (reviewEditButton) {
+      reviewEditButton.addEventListener('click', () => reviewDialog.close());
+    }
+    if (reviewConfirmButton) {
+      reviewConfirmButton.addEventListener('click', () => {
+        reviewDialog.close();
+        reviewConfirmed = true;
+        form.requestSubmit();
+      });
+    }
+
     lookupButton.addEventListener('click', loadExistingRecord);
-    idNumberInput.addEventListener('input', scheduleIdSuggestions);
+    idNumberInput.addEventListener('input', () => {
+      scheduleIdSuggestions();
+      saveDraft();
+      syncSubmitControls();
+    });
     idNumberInput.addEventListener('focus', scheduleIdSuggestions);
     for (const name of phoneFieldNames) {
       const input = form.elements[name];
       if (input) {
-        input.addEventListener('blur', normalizePhoneFields);
+        input.addEventListener('blur', () => {
+          normalizePhoneFields();
+          saveDraft();
+        });
         input.addEventListener('input', () => input.setCustomValidity(''));
       }
     }
     for (const name of uppercaseFieldNames) {
       const input = form.elements[name];
       if (input) {
-        input.addEventListener('blur', normalizeUppercaseFields);
+        input.addEventListener('blur', () => {
+          normalizeUppercaseFields();
+          saveDraft();
+        });
+      }
+    }
+    for (const name of editableFields) {
+      const input = form.elements[name];
+      if (input && name !== 'id_number') {
+        input.addEventListener('input', saveDraft);
+        input.addEventListener('change', saveDraft);
       }
     }
     for (const name of fileFieldNames) {
@@ -1179,6 +1695,7 @@
           input.setCustomValidity('');
           thumbnailsVisible.set(name, false);
           renderFilePreview(name);
+          syncSubmitControls();
           if (input.files.length > effectiveMaxFilesPerSlot) {
             const message = (
               `${labelText(input)} allows up to ${effectiveMaxFilesPerSlot} files on this device.`
@@ -1211,14 +1728,25 @@
       normalizeUppercaseFields();
       const validationErrors = validateFormFields();
       if (validationErrors.length) {
+        const firstInvalid = Array.from(form.elements).find((input) => input.validationMessage);
+        expandInputSection(firstInvalid);
         setStatus('error', `Fix these fields:\n- ${validationErrors.join('\n- ')}`);
         form.reportValidity();
+        syncSubmitControls();
         return;
       }
       if (!form.reportValidity()) {
+        const firstInvalid = Array.from(form.elements).find((input) => input.validationMessage);
+        expandInputSection(firstInvalid);
         setStatus('error', 'Fix the highlighted fields before submitting.');
+        syncSubmitControls();
         return;
       }
+      if (!reviewConfirmed) {
+        showReviewDialog();
+        return;
+      }
+      reviewConfirmed = false;
 
       setBusy(true);
       setStatus('working', 'Submitting update...');
@@ -1256,6 +1784,9 @@
             : 'No field values changed.'
         ].filter(Boolean).join('\n');
         setStatus('success', detail);
+        clearDraft();
+        formMode = created ? 'edit' : formMode;
+        currentRecordId = payload.order_record_id || currentRecordId;
         writeBlankFieldsInput.value = payload.status === 'created' ? '0' : writeBlankFieldsInput.value;
         setRecordMeta(
           payload.order_record_id
@@ -1267,10 +1798,12 @@
           setTimeout(() => tg.close(), 1200);
         } else {
           setBusy(false);
+          syncSubmitControls();
         }
       } catch (error) {
         setStatus('error', 'Network error. Check your connection and try again.');
         setBusy(false);
+        syncSubmitControls();
       }
     });
   </script>
