@@ -1245,8 +1245,6 @@ def _missing_required_complaint_fields(result: ParsedResult) -> list[str]:
         missing.append("Phone Number")
     if not result.customer_id:
         missing.append("Customer ID / Account")
-    if not result.branch_region:
-        missing.append("County (Branch / Region)")
     if not result.problem_description:
         missing.append("Complaint Description")
     return missing

@@ -12,7 +12,7 @@ Main staff actions:
 
 - Report a new case.
 - Capture customer county into `Branch / Region`.
-- Include all mandatory complaint fields: `NAME`, `TEL`, `ID`, `COUNTY`, and `NATURE OF THE PROBLEM`.
+- Include all mandatory complaint fields: `NAME`, `TEL`, `ID`, and `NATURE OF THE PROBLEM`. Add `COUNTY` when available for reporting/filtering.
 - Update case status.
 - Search cases by phone, ID, customer name, or text.
 - Check open, pending, closed, stale, duplicate, and incomplete cases.

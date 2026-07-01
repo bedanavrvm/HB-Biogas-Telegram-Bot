@@ -1571,8 +1571,8 @@ class ParserServiceContinuedTest(TestCase):
             result.warnings,
         )
 
-    def test_parse_complaint_without_county_is_partial(self):
-        """A complaint needs county before it is complete."""
+    def test_parse_complaint_without_county_is_complete(self):
+        """County is optional, but still extracted into Branch / Region when present."""
         content = (
             "CUSTOMER COMPLAIN NAME: John Doe TEL: 0712345678 "
             "ID: A12345 NATURE OF COMPLAIN: No gas supply"
@@ -1581,8 +1581,9 @@ class ParserServiceContinuedTest(TestCase):
         result = parse_message(content, sender="Agent")
 
         self.assertEqual(result.branch_region, '')
-        self.assertLess(result.confidence, 1.0)
-        self.assertIn(
+        self.assertEqual(result.customer_phone, '254712345678')
+        self.assertEqual(result.customer_id, 'A12345')
+        self.assertNotIn(
             'Missing required complaint field(s): County (Branch / Region)',
             result.warnings,
         )
@@ -1998,11 +1999,10 @@ class StorageServiceTest(TestCase):
         """Incomplete complaint intake should not leave raw, processed, or parsed rows."""
         with self.assertRaises(MessageRejectedError) as context:
             process_and_store_message(
-                telegram_message_id='reject_missing_county',
+                telegram_message_id='reject_missing_phone',
                 content=(
                     'CUSTOMER COMPLAINT\n'
                     'NAME: Jane Doe\n'
-                    'TEL: 0712345678\n'
                     'ID: A12345\n'
                     'NATURE OF THE PROBLEM: No gas supply'
                 ),
@@ -2014,7 +2014,7 @@ class StorageServiceTest(TestCase):
             )
 
         self.assertIn(
-            'County (Branch / Region)',
+            'Phone Number',
             context.exception.missing_fields,
         )
         self.assertEqual(RawMessage.objects.count(), 0)
@@ -4225,7 +4225,7 @@ NATURE OF THE PROBLEM: Gas leakage
         mock_process.side_effect = [
             {
                 'status': 'rejected',
-                'missing_fields': ['County (Branch / Region)'],
+                'missing_fields': ['Phone Number'],
                 'captured_fields': {'Customer Name': 'Jane Doe'},
             },
             {'status': 'success', 'message_id': 'MSG_2'},
@@ -4476,7 +4476,7 @@ NATURE OF THE PROBLEM: No gas supply""",
             },
             {
                 'status': 'rejected',
-                'missing_fields': ['County (Branch / Region)'],
+                'missing_fields': ['Phone Number'],
                 'captured_fields': {
                     'Customer Name': 'Jane',
                     'Phone Number': '254712345678',
@@ -4489,9 +4489,8 @@ NATURE OF THE PROBLEM: No gas supply""",
         text = mock_post.call_args.kwargs['data']['text']
         self.assertIn('Rejected. Complaint was not saved', text)
         self.assertIn('Missing required fields:', text)
-        self.assertIn('County (Branch / Region)', text)
+        self.assertIn('Phone Number', text)
         self.assertIn('Required complaint fields:', text)
-        self.assertIn('- COUNTY', text)
         self.assertIn('Customer Name: Jane', text)
         self.assertNotIn('Case ID:', text)
 
@@ -4515,7 +4514,7 @@ NATURE OF THE PROBLEM: No gas supply""",
                 'results': [
                     {
                         'status': 'rejected',
-                        'missing_fields': ['County (Branch / Region)'],
+                        'missing_fields': ['Phone Number'],
                     },
                     {'status': 'success', 'message_id': 'MSG_2'},
                 ],
@@ -4525,8 +4524,8 @@ NATURE OF THE PROBLEM: No gas supply""",
         text = mock_post.call_args.kwargs['data']['text']
         self.assertIn('Batch processed: 1/2 messages saved.', text)
         self.assertIn('Rejected: 1', text)
-        self.assertIn('Missing: County (Branch / Region)', text)
-        self.assertIn('Each complaint must include NAME, TEL, ID, COUNTY', text)
+        self.assertIn('Missing: Phone Number', text)
+        self.assertIn('Each complaint must include NAME, TEL, ID, and NATURE OF THE PROBLEM', text)
 
     @override_settings(TELEGRAM_BOT_TOKEN='token')
     @patch('core.api.views.requests.post')

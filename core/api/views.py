@@ -2,10 +2,10 @@
 API Views for the biogas telegram bot.
 
 Endpoints:
-- POST /api/webhook/telegram/  â€” Receive Telegram webhook
-- POST /api/process/messages/  â€” Manual batch processing
-- POST /api/resync/unsynced/   â€” Resync unsynced messages
-- GET  /api/health/            â€” Health check
+- POST /api/webhook/telegram/  — Receive Telegram webhook
+- POST /api/process/messages/  — Manual batch processing
+- POST /api/resync/unsynced/   — Resync unsynced messages
+- GET  /api/health/            — Health check
 
 KEY FIXES (v2):
 - process_messages() now passes group_id (from the request body or
@@ -438,7 +438,7 @@ def _process_telegram_message(message_data: dict) -> dict:
     try:
         group_id = str(message_data.get('chat', {}).get('id', ''))
         if not group_id:
-            logger.error("Message has no chat.id â€” cannot route to group")
+            logger.error("Message has no chat.id — cannot route to group")
             return {'status': 'error', 'error': 'Message missing chat information'}
 
         telegram_message_id = str(message_data.get('message_id', ''))
@@ -1095,7 +1095,7 @@ def _process_single_message(
     sync_after_success: bool = True,
 ) -> dict:
     """
-    Run one message through dedup â†’ parse â†’ store â†’ sheet sync.
+    Run one message through dedup → parse → store → sheet sync.
 
     Resolves the sheet_id from GroupRegistry using group_id, then passes
     both down to process_and_store_message so the correct Google Sheet
@@ -1113,7 +1113,7 @@ def _process_single_message(
         group_config = registry.get_group(group_id)
         if not group_config:
             logger.error(f"No config found for group {group_id}")
-            # Return a generic error â€” don't expose the group_id to the caller
+            # Return a generic error — don't expose the group_id to the caller
             return {
                 'status': 'error',
                 'error': 'This group is not configured to receive messages.',
@@ -1135,7 +1135,7 @@ def _process_single_message(
                 source=source,
                 source_telegram_message_id=source_telegram_message_id,
                 batch_index=batch_index,
-                sheet_id=sheet_id,       # â† forwarded to sheets service
+                sheet_id=sheet_id,       # ← forwarded to sheets service
                 sheet_schema=sheet_schema,
             )
         except MessageRejectedError as exc:
@@ -1299,7 +1299,6 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
             '- NAME\n'
             '- TEL\n'
             '- ID\n'
-            '- COUNTY\n'
             '- NATURE OF THE PROBLEM'
         )
     elif status == 'partial':
@@ -1385,7 +1384,7 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
                 missing_text = ', '.join(str(field) for field in missing if str(field).strip())
                 lines.append(f'{index}. Missing: {missing_text or "required fields"}')
             lines.append('')
-            lines.append('Each complaint must include NAME, TEL, ID, COUNTY, and NATURE OF THE PROBLEM.')
+            lines.append('Each complaint must include NAME, TEL, ID, and NATURE OF THE PROBLEM.')
 
         text = "\n".join(lines)
     elif status == 'jawabu_batch_processed':
@@ -1548,7 +1547,7 @@ def process_messages(request):
                 "sender": "John Doe",
                 "received_at": "2026-04-15T10:30:00Z",
                 "has_image": false,
-                "group_id": "-1001234567890"   â† optional
+                "group_id": "-1001234567890"   ← optional
             }
         ]
     }
@@ -1593,7 +1592,7 @@ def process_messages(request):
         for msg in messages:
             received_at = _parse_received_at(msg.get('received_at'))
 
-            # â”€â”€ KEY FIX: pass group_id from the request (or fallback) â”€â”€
+            # ── KEY FIX: pass group_id from the request (or fallback) ──
             group_id = str(msg.get('group_id', '') or default_group_id).strip()
 
             result = _process_single_message(

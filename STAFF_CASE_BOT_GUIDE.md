@@ -49,10 +49,9 @@ Mandatory fields for a complete case:
 - `NAME`
 - `TEL`
 - `ID`
-- `COUNTY`
 - `NATURE OF THE PROBLEM`
 
-If any mandatory field is missing, the bot rejects the case. It is not saved in the database and it is not written to the sheet. The bot reply shows what is missing so staff can resend the complete case.
+If any mandatory field is missing, the bot rejects the case. It is not saved in the database and it is not written to the sheet. The bot reply shows what is missing so staff can resend the complete case. County is optional, but staff should include it when known.
 
 ## County Field
 
@@ -64,7 +63,7 @@ COUNTY: Muranga
 
 The bot writes this into the sheet column named `Branch / Region`.
 
-The sheet dropdown should contain the 47 Kenya counties. Use the county name, not a branch nickname.
+The sheet dropdown should contain the 47 Kenya counties. Use the county name, not a branch nickname. County is optional for intake, but useful for filtering and reporting.
 
 ## Phone Number Format
 
@@ -277,7 +276,7 @@ If the same export is sent again, existing cases are detected as duplicates usin
 
 Do not send a complaint without tagging the bot.
 
-Do not leave out the customer phone, ID, or county. They are required for a complete case.
+Do not leave out the customer phone or ID. They are required for a complete case. Add county when known so the sheet can be filtered by region.
 
 Do not update a case by writing only:
 
