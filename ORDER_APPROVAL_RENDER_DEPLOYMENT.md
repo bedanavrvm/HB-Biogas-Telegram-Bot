@@ -91,6 +91,7 @@ ORDER_APPROVAL_IMAGE_PREVIEWS_ENABLED=False
 ORDER_APPROVAL_IMAGE_PREVIEW_LIMIT=3
 GOOGLE_DRIVE_MEDIA_FOLDER_ID=<shared-drive-folder-id>
 ORDER_APPROVAL_WEBAPP_ENABLED=True
+ORDER_APPROVAL_MINI_APP_SHORT_NAME=<botfather-mini-app-short-name>
 ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True
 ORDER_APPROVAL_WEBAPP_AUTH_MAX_AGE_SECONDS=86400
 ORDER_APPROVAL_BRANCH_CHOICES=MURANGA,EMBU
@@ -151,7 +152,9 @@ API_AUTH_TOKEN=<manual-api-token>
 
 Do not configure group-specific routing in Render env for new groups. Sheet IDs, tab names, group IDs, and workflow presets should be managed in Django admin under `Core -> Group sheet configurations`.
 
-`APP_BASE_URL` is required for the Telegram Mini App button. It must be the public HTTPS Render URL with no trailing slash. The same Render domain must also be registered with BotFather using `/setdomain`, otherwise Telegram may refuse to open the form inside the app.
+`APP_BASE_URL` is required for the order approval form. It must be the public HTTPS Render URL with no trailing slash.
+
+`ORDER_APPROVAL_MINI_APP_SHORT_NAME` is required if `/order` should open inside Telegram from a group. This is the short name created in BotFather for the Mini App, not the bot username and not a URL. If this value is blank, the bot falls back to a normal signed Render form link, which may open in the phone browser.
 
 ## 3. Deploy The Code
 
@@ -202,7 +205,19 @@ Recommended Telegram setup:
 
 - Add `@<bot_username>` to the group.
 - Make the bot an admin, or disable BotFather group privacy for this bot.
-- In BotFather, register the Render domain for Telegram Mini Apps:
+- In BotFather, create or configure a Mini App for this bot. Set its URL to:
+
+```text
+https://<your-render-service>.onrender.com/order-approval/
+```
+
+- Set the Mini App short name, for example `orderapproval`. Put that exact short name in Render as:
+
+```text
+ORDER_APPROVAL_MINI_APP_SHORT_NAME=orderapproval
+```
+
+- Register the Render domain in BotFather if BotFather asks for a Web App domain:
 
 ```text
 /setdomain
@@ -210,7 +225,13 @@ Recommended Telegram setup:
 <your-render-service>.onrender.com
 ```
 
-Use only the domain, not `https://` and not a path.
+Use only the domain for `/setdomain`, not `https://` and not a path.
+
+Telegram inline `web_app` buttons are private-chat only. For groups, this project sends a Telegram Mini App direct link:
+
+```text
+https://t.me/<bot_username>/<mini-app-short-name>?startapp=<signed-group-payload>
+```
 
 - Ask staff to use:
 
@@ -219,8 +240,9 @@ Use only the domain, not `https://` and not a path.
 ```
 
 - The bot replies with an `Open Order Approval Form` button.
-- The button is a Telegram Mini App button and should open inside Telegram, not in the phone browser.
-- The Mini App opens a signed form URL for that Telegram group.
+- The button should open the configured Mini App inside Telegram.
+- If it opens a browser, check `ORDER_APPROVAL_MINI_APP_SHORT_NAME` and the BotFather Mini App URL.
+- The Mini App carries a signed group payload so the form knows which group configuration to use.
 - Staff fill the form and submit photos/documents there.
 - Staff may still send follow-up photos/documents as replies to the original chat update message if they use the structured chat workflow.
 

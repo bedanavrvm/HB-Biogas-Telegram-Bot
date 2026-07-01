@@ -4,6 +4,8 @@ This module is intentionally separate from the complaint parser. It handles a
 structured BRO update format, finds an existing approval row by ID NUMBER, and
 updates only the configured BRO headers plus Media URLs.
 """
+import base64
+import binascii
 import io
 import hashlib
 import hmac
@@ -553,13 +555,8 @@ def handle_order_webapp_command(group_config, content: str) -> dict | None:
             status='failed',
         )
 
-    form_url = (
-        f"{base_url}/order-approval/?"
-        + urlencode({
-            'group_id': group_config.group_id,
-            'token': create_order_approval_form_token(group_config.group_id),
-        })
-    )
+    form_url = build_order_approval_form_url(group_config.group_id)
+    launch_url = build_order_approval_mini_app_url(group_config.group_id) or form_url
     return {
         'status': 'command',
         'workflow': 'order_approval',
@@ -568,7 +565,7 @@ def handle_order_webapp_command(group_config, content: str) -> dict | None:
             'inline_keyboard': [[
                 {
                     'text': 'Open Order Approval Form',
-                    'web_app': {'url': form_url},
+                    'url': launch_url,
                 }
             ]]
         },
@@ -2484,6 +2481,57 @@ def normalize_header(header: str) -> str:
 
 def normalize_business_key(value: str) -> str:
     return " ".join(str(value or '').strip().split())
+
+
+def build_order_approval_form_url(group_id: str) -> str:
+    base_url = getattr(settings, 'APP_BASE_URL', '').rstrip('/')
+    return (
+        f"{base_url}/order-approval/?"
+        + urlencode({
+            'group_id': str(group_id),
+            'token': create_order_approval_form_token(group_id),
+        })
+    )
+
+
+def build_order_approval_mini_app_url(group_id: str) -> str:
+    bot_username = str(getattr(settings, 'TELEGRAM_BOT_USERNAME', '') or '').strip().lstrip('@')
+    short_name = str(getattr(settings, 'ORDER_APPROVAL_MINI_APP_SHORT_NAME', '') or '').strip().strip('/')
+    if not bot_username or not short_name:
+        return ''
+    start_param = create_order_approval_start_param(group_id)
+    return f"https://t.me/{bot_username}/{short_name}?startapp={start_param}"
+
+
+def create_order_approval_start_param(group_id: str) -> str:
+    payload = {
+        'group_id': str(group_id),
+        'token': create_order_approval_form_token(group_id),
+    }
+    encoded = base64.urlsafe_b64encode(
+        json.dumps(payload, separators=(',', ':')).encode('utf-8')
+    ).decode('ascii')
+    return encoded.rstrip('=')
+
+
+def decode_order_approval_start_param(start_param: str) -> dict[str, str]:
+    value = str(start_param or '').strip()
+    if not value:
+        return {}
+    padding = '=' * (-len(value) % 4)
+    try:
+        payload = json.loads(
+            base64.urlsafe_b64decode((value + padding).encode('ascii')).decode('utf-8')
+        )
+    except (binascii.Error, ValueError, json.JSONDecodeError, UnicodeDecodeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    group_id = str(payload.get('group_id', '')).strip()
+    token = str(payload.get('token', '')).strip()
+    if not group_id or not token:
+        return {}
+    return {'group_id': group_id, 'token': token}
 
 
 def validate_telegram_webapp_init_data(init_data: str) -> tuple[bool, str, dict]:

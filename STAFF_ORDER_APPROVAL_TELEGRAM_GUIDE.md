@@ -36,7 +36,7 @@ You can also use:
 @<bot_username> /form
 ```
 
-Tap **Open Order Approval Form** in the bot response. It should open inside Telegram as a Mini App. If it opens in the external browser or does not open, ask an admin to check the BotFather Web App domain setup.
+Tap **Open Order Approval Form** in the bot response. It should open inside Telegram as a Mini App. If it opens in the external browser or does not open, ask an admin to check the BotFather Mini App short name, Mini App URL, and Render `ORDER_APPROVAL_MINI_APP_SHORT_NAME` setting.
 
 Use the actual bot username shown in your Telegram group. The deployment may
 use a different username from examples in older documents.

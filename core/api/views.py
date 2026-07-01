@@ -79,14 +79,29 @@ def order_approval_form(request):
             status=404,
         )
 
-    from core.services.order_approval import order_approval_branch_choices
+    from core.services.order_approval import (
+        decode_order_approval_start_param,
+        order_approval_branch_choices,
+    )
+
+    group_id = str(request.GET.get('group_id', '')).strip()
+    form_token = str(request.GET.get('token', '')).strip()
+    if not group_id or not form_token:
+        start_payload = decode_order_approval_start_param(
+            request.GET.get('tgWebAppStartParam')
+            or request.GET.get('startapp')
+            or request.GET.get('start_param')
+            or ''
+        )
+        group_id = group_id or start_payload.get('group_id', '')
+        form_token = form_token or start_payload.get('token', '')
 
     return render(
         request,
         'order_approval/form.html',
         {
-            'group_id': str(request.GET.get('group_id', '')).strip(),
-            'form_token': str(request.GET.get('token', '')).strip(),
+            'group_id': group_id,
+            'form_token': form_token,
             'max_file_size_mb': getattr(settings, 'MEDIA_MAX_FILE_SIZE_MB', 20),
             'max_files_per_slot': getattr(settings, 'ORDER_APPROVAL_MAX_FILES_PER_SLOT', 10),
             'max_total_upload_mb': getattr(settings, 'ORDER_APPROVAL_MAX_TOTAL_UPLOAD_MB', 30),

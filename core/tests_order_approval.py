@@ -13,6 +13,8 @@ from core.services.order_approval import (
     clean_form_fields,
     collect_order_approval_uploaded_files,
     create_order_approval_form_token,
+    create_order_approval_start_param,
+    decode_order_approval_start_param,
     create_order_approval_row,
     find_order_approval_matches,
     format_order_success_reply,
@@ -27,6 +29,7 @@ from core.services.order_approval import (
     store_uploaded_files_for_order,
     suggest_order_approval_form_records,
     update_order_approval_row,
+    validate_order_approval_form_token,
     validate_order_approval_uploaded_files,
     validate_telegram_webapp_init_data,
     visible_field_changes,
@@ -1100,22 +1103,48 @@ class OrderApprovalWebAppTest(TestCase):
             },
         )
 
-    @override_settings(APP_BASE_URL='https://example.onrender.com')
-    def test_order_command_returns_telegram_webapp_button(self):
+    @override_settings(
+        APP_BASE_URL='https://example.onrender.com',
+        TELEGRAM_BOT_USERNAME='hb_biogas_cases_bot',
+        ORDER_APPROVAL_MINI_APP_SHORT_NAME='orderapproval',
+    )
+    def test_order_command_returns_group_safe_mini_app_direct_link(self):
         result = handle_order_webapp_command(self._group_config(), '/order')
 
         self.assertEqual(result['status'], 'command')
         button = result['reply_markup']['inline_keyboard'][0][0]
         self.assertEqual(button['text'], 'Open Order Approval Form')
-        self.assertNotIn('url', button)
-        self.assertIn('web_app', button)
-        web_app_url = button['web_app']['url']
+        self.assertNotIn('web_app', button)
+        self.assertIn('url', button)
+        self.assertIn(
+            'https://t.me/hb_biogas_cases_bot/orderapproval?startapp=',
+            button['url'],
+        )
+        start_param = button['url'].split('startapp=', 1)[1]
+        payload = decode_order_approval_start_param(start_param)
+        self.assertEqual(payload['group_id'], '-100222')
+        valid, error = validate_order_approval_form_token(
+            token=payload['token'],
+            group_id='-100222',
+        )
+        self.assertTrue(valid, error)
+
+    @override_settings(
+        APP_BASE_URL='https://example.onrender.com',
+        TELEGRAM_BOT_USERNAME='hb_biogas_cases_bot',
+        ORDER_APPROVAL_MINI_APP_SHORT_NAME='',
+    )
+    def test_order_command_falls_back_to_signed_form_url_without_mini_app_short_name(self):
+        result = handle_order_webapp_command(self._group_config(), '/order')
+
+        button = result['reply_markup']['inline_keyboard'][0][0]
+        self.assertNotIn('web_app', button)
         self.assertIn(
             'https://example.onrender.com/order-approval/?',
-            web_app_url,
+            button['url'],
         )
-        self.assertIn('group_id=-100222', web_app_url)
-        self.assertIn('token=', web_app_url)
+        self.assertIn('group_id=-100222', button['url'])
+        self.assertIn('token=', button['url'])
 
     def test_order_approval_group_keeps_standard_group_command(self):
         from core.services.group_config import GroupRegistry
@@ -1200,6 +1229,25 @@ class OrderApprovalWebAppTest(TestCase):
         self.assertContains(response, 'placeholder="254740614990"')
         self.assertNotContains(response, '${suggestion.sheet} row ${suggestion.row}')
         self.assertNotContains(response, 'Created ${payload.sheet}, row ${payload.row}')
+
+    def test_order_approval_form_accepts_mini_app_start_param(self):
+        start_param = create_order_approval_start_param('-100222')
+
+        response = self.client.get(
+            f'/api/order-approval/?tgWebAppStartParam={start_param}'
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="group_id" value="-100222"')
+        self.assertContains(response, 'name="form_token" value=')
+
+    def test_invalid_mini_app_start_param_is_ignored(self):
+        self.assertEqual(decode_order_approval_start_param('not-valid***'), {})
+
+        response = self.client.get('/api/order-approval/?tgWebAppStartParam=not-valid***')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="group_id" value=""')
 
     @override_settings(ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
     @patch('core.api.views._post_telegram_reply')
