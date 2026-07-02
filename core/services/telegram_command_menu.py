@@ -40,6 +40,7 @@ ORDER_APPROVAL_BOT_COMMANDS = [
 
 JAWABU_BOT_COMMANDS = [
     {'command': 'batch', 'description': 'Import a Jawabu WhatsApp export'},
+    {'command': 'farmup', 'description': 'Review and import Jawabu Farmers CSV'},
 ]
 
 PRIVATE_BOT_COMMANDS = (

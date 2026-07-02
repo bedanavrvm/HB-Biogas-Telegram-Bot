@@ -1,0 +1,14 @@
+﻿source_column,master_column,field,confidence,notes
+Full Name,Customer Name,customer_name,high,Cleaned to uppercase. Bracketed National ID is removed from the name.
+ID NUMBER or bracketed ID in Full Name,National ID,national_id,high,"Uses ID NUMBER first. If blank, extracts digits from names like Jane Doe [12345678]."
+Mobile,Primary Phone,primary_phone,high,Normalized to consistent 254 format.
+Phone,Secondary Phone,secondary_phone,high,Normalized to consistent 254 format.
+HBG Hub,County,county,high,Confirmed mapping. Cleaned to uppercase county name.
+Sales Person,HB Sales Person,hb_sales_person,high,Cleaned to uppercase and removes bracketed staff IDs.
+Financial Partners,Lead Source,lead_source,medium,Jawabu values become JAWABU. Kept for review until all source types are known.
+Actual Receipts,Deposit Paid to HB,actual_receipts,high,Confirmed mapping. Cleaned as a numeric KES amount.
+Installation Status,Installation Status,installation_status,medium,Normalized lightly to the master dropdown wording.
+HBG Contract Name,<ignored>,hbg_contract_name,high,Ignored for master-data writes. Original value remains in raw_data only.
+Second Sign Date with value,HBG Visit Date,sign_date,high,"Uses Sign Date__2 when populated, otherwise falls back to Sign Date. Formatted as 24-June-2026."
+Created Date,<ignored>,created_date,high,Ignored for master-data writes. Original value remains in raw_data only.
+COMMENTS,Additional Comments,comments,medium,Cleaned as free text.

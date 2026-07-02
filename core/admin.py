@@ -20,6 +20,8 @@ from .models import (
     CaseUpdate,
     FcaImportRecord,
     GroupSheetConfiguration,
+    JawabuFarmerMaster,
+    JawabuFarmerUploadBatch,
     JawabuVisitRecord,
     LiveSheetRecordChange,
     MediaAttachment,
@@ -290,6 +292,61 @@ class JawabuVisitRecordAdmin(ReadOnlyAuditAdmin):
     readonly_fields = ['id', 'created_at']
 
 
+
+@admin.register(JawabuFarmerUploadBatch)
+class JawabuFarmerUploadBatchAdmin(ReadOnlyAuditAdmin):
+    list_display = [
+        'source_filename', 'group_id', 'status', 'total_rows',
+        'review_needed', 'committed_count', 'skipped_count', 'sender', 'created_at',
+    ]
+    list_filter = ['status', 'group_id', 'created_at', 'committed_at']
+    search_fields = ['source_filename', 'group_id', 'sender', 'telegram_message_id', 'error']
+    readonly_fields = ['id', 'created_at', 'updated_at', 'committed_at']
+@admin.register(JawabuFarmerMaster)
+class JawabuFarmerMasterAdmin(admin.ModelAdmin):
+    list_display = [
+        'customer_name', 'national_id', 'primary_phone', 'county',
+        'sub_county', 'lead_source', 'hb_sales_person', 'status', 'updated_at',
+    ]
+    list_filter = ['status', 'county', 'branch', 'lead_source', 'installation_status', 'source', 'updated_at']
+    search_fields = [
+        'customer_name', 'national_id', 'primary_phone', 'secondary_phone',
+        'duplicate_key', 'external_id', 'hbg_contract_name', 'hb_sales_person', 'county', 'sub_county',
+    ]
+    readonly_fields = [
+        'id', 'source', 'source_name', 'source_row_number',
+        'source_fingerprint', 'duplicate_key', 'raw_data', 'last_imported_at',
+        'created_at', 'updated_at',
+    ]
+    fieldsets = (
+        ('Customer', {
+            'fields': (
+                'customer_name', 'national_id', 'primary_phone',
+                'secondary_phone', 'external_id', 'status',
+            ),
+        }),
+        ('Location', {
+            'fields': (
+                'county', 'sub_county', 'ward', 'village', 'landmark',
+                'branch', 'gps_link', 'latitude', 'longitude',
+            ),
+        }),
+        ('Farmers Source Fields', {
+            'fields': (
+                'hbg_contract_name', 'lead_source', 'contract_type',
+                'installation_status', 'actual_receipts_currency',
+                'actual_receipts', 'hb_sales_person', 'sign_date',
+                'created_date', 'comments',
+            ),
+        }),
+        ('Import / Cleaning', {
+            'fields': (
+                'cleaning_notes', 'duplicate_key', 'source', 'source_name',
+                'source_row_number', 'source_fingerprint', 'last_imported_at',
+                'raw_data', 'created_at', 'updated_at',
+            ),
+        }),
+    )
 @admin.register(FcaImportRecord)
 class FcaImportRecordAdmin(ReadOnlyAuditAdmin):
     list_display = [

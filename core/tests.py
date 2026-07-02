@@ -18,6 +18,8 @@ from core.models import (
     CaseUpdate,
     FcaImportRecord,
     GroupSheetConfiguration,
+    JawabuFarmerMaster,
+    JawabuFarmerUploadBatch,
     JawabuVisitRecord,
     LiveSheetRecordChange,
     OrderApprovalUpdate,
@@ -1281,6 +1283,64 @@ Mary Njeri njihia
         )
 
 
+    def test_jawabu_workflow_farmers_csv_confirmed_master_mapping(self):
+        from core.services.jawabu_master import import_jawabu_farmers_csv
+
+        csv_file = StringIO(
+            "Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Sign Date,Sign Date,Created Date,HBG Contract Name\n"
+            "David Mugambi [23215888],,Embu,+254721997481,+254704408281,5000,01/05/2026,24/06/2026,30/06/2026,HBGC-14560\n"
+        )
+
+        result = import_jawabu_farmers_csv(csv_file, source_name='farmers.csv')
+
+        self.assertEqual(result.created, 1)
+        self.assertEqual(result.review_needed, 0)
+        farmer = JawabuFarmerMaster.objects.get()
+        self.assertEqual(farmer.customer_name, 'DAVID MUGAMBI')
+        self.assertEqual(farmer.national_id, '23215888')
+        self.assertEqual(farmer.primary_phone, '254721997481')
+        self.assertEqual(farmer.secondary_phone, '254704408281')
+        self.assertEqual(farmer.county, 'EMBU')
+        self.assertEqual(farmer.actual_receipts, '5000')
+        self.assertEqual(farmer.sign_date, '24-June-2026')
+        self.assertEqual(farmer.created_date, '')
+        self.assertEqual(farmer.hbg_contract_name, '')
+        self.assertEqual(farmer.external_id, '')
+        self.assertEqual(farmer.status, 'active')
+    def test_jawabu_farmup_review_batch_commits_edited_rows(self):
+        from core.services.jawabu_master import (
+            commit_farmup_review_batch,
+            create_farmup_review_batch,
+        )
+
+        csv_text = (
+            "Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Sign Date,Sign Date,Created Date,HBG Contract Name\n"
+            "David Mugambi [23215888],,Embu,+254721997481,+254704408281,5000,01/05/2026,24/06/2026,30/06/2026,HBGC-14560\n"
+        )
+        batch, stats = create_farmup_review_batch(
+            group_id=self.group.group_id,
+            telegram_message_id='farmup_1',
+            sender='Uploader',
+            source_filename='farmers.csv',
+            csv_text=csv_text,
+        )
+        rows = list(batch.parsed_rows)
+        rows[0]['County'] = 'Meru'
+        rows[0]['approved'] = True
+
+        result = commit_farmup_review_batch(batch, rows)
+
+        self.assertTrue(result['success'])
+        self.assertEqual(stats['total_rows'], 1)
+        self.assertEqual(result['committed'], 1)
+        self.assertEqual(JawabuFarmerUploadBatch.objects.get(pk=batch.pk).status, 'committed')
+        farmer = JawabuFarmerMaster.objects.get()
+        self.assertEqual(farmer.customer_name, 'DAVID MUGAMBI')
+        self.assertEqual(farmer.national_id, '23215888')
+        self.assertEqual(farmer.primary_phone, '254721997481')
+        self.assertEqual(farmer.county, 'MERU')
+        self.assertEqual(farmer.sign_date, '24-June-2026')
+        self.assertEqual(farmer.actual_receipts, '5000')
 class FcaWorkflowServiceTest(TestCase):
     """Tests for FCA Excel batch imports."""
 
@@ -4842,6 +4902,94 @@ NATURE OF THE PROBLEM: No gas supply""",
         )
 
 
+
+    def test_jawabu_farmers_csv_import_cleans_and_creates_master_record(self):
+        from core.services.jawabu_master import import_jawabu_farmers_csv
+
+        csv_file = StringIO(
+            "Farmer Name,ID Number,Phone,Alternative Phone,County,Sub County,Branch\n"
+            "Mary Njeri,1382654,0720570031,0785116424,Embu County,Manyatta,Embu\n"
+        )
+
+        result = import_jawabu_farmers_csv(csv_file, source_name='farmers.csv')
+
+        self.assertEqual(result.created, 1)
+        self.assertEqual(result.updated, 0)
+        farmer = JawabuFarmerMaster.objects.get()
+        self.assertEqual(farmer.customer_name, 'MARY NJERI')
+        self.assertEqual(farmer.national_id, '1382654')
+        self.assertEqual(farmer.primary_phone, '254720570031')
+        self.assertEqual(farmer.secondary_phone, '254785116424')
+        self.assertEqual(farmer.county, 'EMBU')
+        self.assertEqual(farmer.sub_county, 'MANYATTA')
+        self.assertEqual(farmer.branch, 'EMBU')
+        self.assertEqual(farmer.status, 'active')
+        self.assertIn('ID:1382654', farmer.duplicate_key)
+
+    def test_jawabu_farmers_csv_import_upserts_existing_duplicate_key(self):
+        from core.services.jawabu_master import import_jawabu_farmers_csv
+
+        first = StringIO(
+            "Name,National ID,Mobile,County\n"
+            "Mary Njeri,1382654,0720570031,Embu\n"
+        )
+        second = StringIO(
+            "Name,National ID,Mobile,County,Sub County\n"
+            "Mary Njeri,1382654,0720570031,Muranga,Kiharu\n"
+        )
+
+        import_jawabu_farmers_csv(first, source_name='first.csv')
+        result = import_jawabu_farmers_csv(second, source_name='second.csv')
+
+        self.assertEqual(result.created, 0)
+        self.assertEqual(result.updated, 1)
+        self.assertEqual(JawabuFarmerMaster.objects.count(), 1)
+        farmer = JawabuFarmerMaster.objects.get()
+        self.assertEqual(farmer.county, 'MURANGA')
+        self.assertEqual(farmer.sub_county, 'KIHARU')
+        self.assertEqual(farmer.source_name, 'second.csv')
+
+    def test_jawabu_farmers_csv_import_keeps_incomplete_rows_for_review(self):
+        from core.services.jawabu_master import import_jawabu_farmers_csv
+
+        csv_file = StringIO(
+            "Farmer Name,County,Location\n"
+            "Unknown Farmer,Kisumu,Near market\n"
+        )
+
+        result = import_jawabu_farmers_csv(csv_file, source_name='review.csv')
+
+        self.assertEqual(result.created, 1)
+        self.assertEqual(result.review_needed, 1)
+        farmer = JawabuFarmerMaster.objects.get()
+        self.assertEqual(farmer.customer_name, 'UNKNOWN FARMER')
+        self.assertEqual(farmer.status, 'review_needed')
+        self.assertIn('Missing National ID and primary phone', farmer.cleaning_notes)
+
+    def test_jawabu_farmers_csv_import_applies_confirmed_master_mapping(self):
+        from core.services.jawabu_master import import_jawabu_farmers_csv
+
+        csv_file = StringIO(
+            "Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Sign Date,Sign Date,Created Date,HBG Contract Name\n"
+            "David Mugambi [23215888],,Embu,+254721997481,+254704408281,5000,01/05/2026,24/06/2026,30/06/2026,HBGC-14560\n"
+        )
+
+        result = import_jawabu_farmers_csv(csv_file, source_name='farmers.csv')
+
+        self.assertEqual(result.created, 1)
+        self.assertEqual(result.review_needed, 0)
+        farmer = JawabuFarmerMaster.objects.get()
+        self.assertEqual(farmer.customer_name, 'DAVID MUGAMBI')
+        self.assertEqual(farmer.national_id, '23215888')
+        self.assertEqual(farmer.primary_phone, '254721997481')
+        self.assertEqual(farmer.secondary_phone, '254704408281')
+        self.assertEqual(farmer.county, 'EMBU')
+        self.assertEqual(farmer.actual_receipts, '5000')
+        self.assertEqual(farmer.sign_date, '24-June-2026')
+        self.assertEqual(farmer.created_date, '')
+        self.assertEqual(farmer.hbg_contract_name, '')
+        self.assertEqual(farmer.external_id, '')
+        self.assertEqual(farmer.status, 'active')
 class ParsedMessageModelTest(TestCase):
     """Test the ParsedMessage model."""
     

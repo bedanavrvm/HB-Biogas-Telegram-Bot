@@ -1,4 +1,4 @@
-﻿"""
+"""
 API Views for the biogas telegram bot.
 
 Endpoints:
@@ -354,6 +354,62 @@ def _send_order_approval_webapp_chat_reply(group_id: str, result: dict) -> None:
         text="\n".join(lines),
     )
 
+
+@require_http_methods(["GET"])
+def jawabu_farmers_review(request):
+    """Render Mini App review screen for a staged Jawabu Farmers CSV upload."""
+    from django.utils.safestring import mark_safe
+    from core.models import JawabuFarmerUploadBatch
+    from core.services.jawabu_master import decode_farmup_start_param, validate_farmup_review_token
+
+    batch_id = str(request.GET.get('batch_id', '')).strip()
+    token = str(request.GET.get('token', '')).strip()
+    if not batch_id or not token:
+        start_payload = decode_farmup_start_param(
+            request.GET.get('tgWebAppStartParam')
+            or request.GET.get('startapp')
+            or request.GET.get('start_param')
+            or ''
+        )
+        batch_id = batch_id or start_payload.get('batch_id', '')
+        token = token or start_payload.get('token', '')
+    valid, error = validate_farmup_review_token(batch_id, token)
+    if not valid:
+        return render(request, 'order_approval/unavailable.html', {'message': error}, status=403)
+    batch = JawabuFarmerUploadBatch.objects.filter(id=batch_id).first()
+    if not batch:
+        return render(request, 'order_approval/unavailable.html', status=404)
+    payload = {'batch_id': str(batch.id), 'token': token, 'rows': batch.parsed_rows or [], 'status': batch.status}
+    return render(request, 'jawabu_farmers/review.html', {'batch': batch, 'batch_json': mark_safe(json.dumps(payload, ensure_ascii=True).replace('</', '<\\/'))})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def jawabu_farmers_review_commit(request):
+    """Commit approved Mini App rows into the Jawabu farmer master table."""
+    from core.models import JawabuFarmerUploadBatch
+    from core.services.jawabu_master import commit_farmup_review_batch, validate_farmup_review_token
+
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'message': 'Invalid request body.'}, status=400)
+    batch_id = str(payload.get('batch_id', '')).strip()
+    token = str(payload.get('token', '')).strip()
+    valid, error = validate_farmup_review_token(batch_id, token)
+    if not valid:
+        return JsonResponse({'success': False, 'message': error}, status=403)
+    batch = JawabuFarmerUploadBatch.objects.filter(id=batch_id).first()
+    if not batch:
+        return JsonResponse({'success': False, 'message': 'Upload batch was not found.'}, status=404)
+    rows = payload.get('rows') or []
+    if not isinstance(rows, list):
+        return JsonResponse({'success': False, 'message': 'Rows must be a list.'}, status=400)
+    result = commit_farmup_review_batch(batch, rows)
+    result['rows'] = batch.parsed_rows
+    _post_telegram_reply(chat_id=batch.group_id, message_data={}, text=("Farmers master upload reviewed\n" f"Committed: {result.get('committed', 0)}\n" f"Skipped: {result.get('skipped', 0)}\n" f"Review needed: {result.get('review_needed', 0)}"))
+    return JsonResponse(result, status=200 if result.get('success') else 400)
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def telegram_webhook(request):
@@ -486,6 +542,13 @@ def _process_telegram_message(message_data: dict) -> dict:
                         'reason': 'Bot was not tagged',
                         'message_id': telegram_message_id,
                     }
+                if _looks_like_farmup_command(content):
+                    return _process_jawabu_farmup_command(
+                        group_config=group_config,
+                        message_data=message_data,
+                        sender=sender,
+                        telegram_message_id=telegram_message_id,
+                    )
                 if _looks_like_batch_command(content):
                     return _process_jawabu_batch_command(
                         group_config=group_config,
@@ -661,6 +724,10 @@ def _looks_like_batch_command(content: str) -> bool:
 
 def _looks_like_fca_batch_command(content: str) -> bool:
     return bool(re.match(r'^/batchfca(?:@\w+)?(?:\s|$)', str(content or '').strip(), re.IGNORECASE))
+
+
+def _looks_like_farmup_command(content: str) -> bool:
+    return bool(re.match(r'^/farmup(?:@\w+)?(?:\s|$)', str(content or '').strip(), re.IGNORECASE))
 
 
 def _process_whatsapp_batch_command(
@@ -983,6 +1050,59 @@ def _sync_case_sheet_for_batch(group_id: str, delete_missing: bool) -> dict:
         }
 
 
+
+def _process_jawabu_farmup_command(
+    group_config,
+    message_data: dict,
+    sender: str,
+    telegram_message_id: str,
+) -> dict:
+    csv_text, filename, document_error = _download_telegram_csv_document(message_data)
+    if document_error:
+        return {'status': 'command', 'reply_text': document_error}
+    if not csv_text:
+        return {
+            'status': 'command',
+            'reply_text': (
+                "Attach the Jawabu Farmers CSV and send:\n"
+                "@bot /farmup\n\n"
+                "The bot will open a review form before anything is written to master data."
+            ),
+        }
+
+    from core.services.jawabu_master import (
+        build_farmup_mini_app_url,
+        build_farmup_review_url,
+        create_farmup_review_batch,
+    )
+
+    batch, stats = create_farmup_review_batch(
+        group_id=group_config.group_id,
+        telegram_message_id=telegram_message_id,
+        sender=sender,
+        source_filename=filename,
+        csv_text=csv_text,
+    )
+    review_url = build_farmup_review_url(str(batch.id))
+    launch_url = build_farmup_mini_app_url(str(batch.id)) or review_url
+    if not review_url:
+        return {
+            'status': 'command',
+            'reply_text': 'CSV parsed, but APP_BASE_URL is not configured so the review form cannot open.',
+        }
+    return {
+        'status': 'command',
+        'reply_text': (
+            "Farmers CSV ready for review\n"
+            f"Rows extracted: {stats.get('total_rows', 0)}\n"
+            f"Rows needing review: {stats.get('review_needed', 0)}\n\n"
+            "Open the review form, correct any values, then commit approved rows."
+        ),
+        'reply_markup': {
+            'inline_keyboard': [[{'text': 'Review Farmers Upload', 'url': launch_url}]]
+        },
+    }
+
 def _process_jawabu_batch_command(
     group_config,
     message_data: dict,
@@ -1161,6 +1281,57 @@ def _extract_fca_workbook_files(raw: bytes, filename: str, max_mb: int) -> list[
     return workbooks
 
 
+
+def _download_telegram_csv_document(message_data: dict) -> tuple[str, str, str]:
+    document = message_data.get('document') or {}
+    if not document:
+        return '', '', ''
+
+    filename = str(document.get('file_name') or '').strip() or 'farmers.csv'
+    mime_type = str(document.get('mime_type') or '').lower()
+    if not (filename.lower().endswith('.csv') or mime_type in {'text/csv', 'application/vnd.ms-excel', 'text/plain', 'application/octet-stream', ''}):
+        return '', filename, 'The /farmup command only supports a Jawabu Farmers .csv attachment.'
+
+    file_size = int(document.get('file_size') or 0)
+    max_mb = max(1, int(getattr(settings, 'FARMUP_MAX_FILE_SIZE_MB', 5)))
+    if file_size and file_size > max_mb * 1024 * 1024:
+        return '', filename, f'Farmers CSV is too large. Maximum size is {max_mb} MB.'
+
+    bot_token = settings.TELEGRAM_BOT_TOKEN
+    file_id = document.get('file_id')
+    if not bot_token or not file_id:
+        return '', filename, 'Could not download the Farmers CSV from Telegram.'
+
+    try:
+        file_meta = requests.get(
+            f'https://api.telegram.org/bot{bot_token}/getFile',
+            params={'file_id': file_id},
+            timeout=settings.API_REQUEST_TIMEOUT,
+        )
+        file_meta.raise_for_status()
+        file_path = file_meta.json().get('result', {}).get('file_path', '')
+        if not file_path:
+            return '', filename, 'Telegram did not return a downloadable file path.'
+        file_response = requests.get(
+            f'https://api.telegram.org/file/bot{bot_token}/{file_path}',
+            timeout=settings.API_REQUEST_TIMEOUT,
+        )
+        file_response.raise_for_status()
+        raw = file_response.content
+        if len(raw) > max_mb * 1024 * 1024:
+            return '', filename, f'Farmers CSV is too large. Maximum size is {max_mb} MB.'
+        for encoding in ('utf-8-sig', 'utf-8', 'cp1252'):
+            try:
+                return raw.decode(encoding), filename, ''
+            except UnicodeDecodeError:
+                continue
+        return '', filename, 'Could not read the CSV text encoding. Export it as UTF-8 CSV and retry.'
+    except requests.Timeout:
+        logger.warning('Timed out downloading Telegram Farmers CSV')
+        return '', filename, 'Timed out downloading the Farmers CSV. Please resend it.'
+    except Exception as exc:
+        logger.error('Failed to download Telegram Farmers CSV: %s', exc, exc_info=True)
+        return '', filename, 'Could not download the Farmers CSV. Please resend it.'
 def _download_telegram_text_document(message_data: dict) -> tuple[str, str]:
     document = message_data.get('document') or {}
     if not document:

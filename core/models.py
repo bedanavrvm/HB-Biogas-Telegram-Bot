@@ -486,6 +486,125 @@ class JawabuVisitRecord(models.Model):
         )
 
 
+class JawabuFarmerMaster(models.Model):
+    """Clean internal master data for Jawabu farmers used by visit forms."""
+
+    STATUS_CHOICES = [
+        ('active', 'Active'),
+        ('review_needed', 'Review Needed'),
+        ('inactive', 'Inactive'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    source = models.CharField(max_length=100, default='jawabu_farmers_csv', db_index=True)
+    source_name = models.CharField(max_length=255, blank=True, default='')
+    source_row_number = models.PositiveIntegerField(null=True, blank=True)
+    source_fingerprint = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    external_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+
+    customer_name = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    national_id = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    primary_phone = models.CharField(max_length=32, blank=True, default='', db_index=True)
+    secondary_phone = models.CharField(max_length=32, blank=True, default='')
+
+    county = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    sub_county = models.CharField(max_length=128, blank=True, default='')
+    ward = models.CharField(max_length=128, blank=True, default='')
+    village = models.CharField(max_length=255, blank=True, default='')
+    landmark = models.TextField(blank=True, default='')
+    branch = models.CharField(max_length=128, blank=True, default='', db_index=True)
+
+    hbg_contract_name = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    lead_source = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    contract_type = models.CharField(max_length=128, blank=True, default='')
+    installation_status = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    actual_receipts_currency = models.CharField(max_length=16, blank=True, default='')
+    actual_receipts = models.CharField(max_length=64, blank=True, default='')
+    hb_sales_person = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    sign_date = models.CharField(max_length=32, blank=True, default='')
+    created_date = models.CharField(max_length=32, blank=True, default='')
+    comments = models.TextField(blank=True, default='')
+
+    gps_link = models.URLField(max_length=1000, blank=True, default='')
+    latitude = models.CharField(max_length=64, blank=True, default='')
+    longitude = models.CharField(max_length=64, blank=True, default='')
+
+    duplicate_key = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    status = models.CharField(
+        max_length=32,
+        choices=STATUS_CHOICES,
+        default='active',
+        db_index=True,
+    )
+    cleaning_notes = models.TextField(blank=True, default='')
+    raw_data = models.JSONField(blank=True, default=dict)
+    last_imported_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['customer_name', 'national_id', 'primary_phone']
+        indexes = [
+            models.Index(fields=['duplicate_key']),
+            models.Index(fields=['national_id', 'primary_phone']),
+            models.Index(fields=['customer_name', 'county']),
+            models.Index(fields=['hbg_contract_name']),
+            models.Index(fields=['hb_sales_person']),
+            models.Index(fields=['status', 'updated_at']),
+            models.Index(fields=['source', 'source_fingerprint']),
+        ]
+        verbose_name = 'Jawabu farmer master record'
+        verbose_name_plural = 'Jawabu farmer master data'
+
+    def __str__(self):
+        label = self.customer_name or self.national_id or self.primary_phone or 'unknown farmer'
+        return f"{label} ({self.status})"
+
+class JawabuFarmerUploadBatch(models.Model):
+    """Staged CSV upload for staff review before updating Jawabu farmer master data."""
+
+    STATUS_CHOICES = [
+        ('pending_review', 'Pending Review'),
+        ('committed', 'Committed'),
+        ('failed', 'Failed'),
+        ('cancelled', 'Cancelled'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    group_id = models.CharField(max_length=100, db_index=True)
+    telegram_message_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    sender = models.CharField(max_length=255, blank=True, default='')
+    source_filename = models.CharField(max_length=255, blank=True, default='')
+    status = models.CharField(
+        max_length=32,
+        choices=STATUS_CHOICES,
+        default='pending_review',
+        db_index=True,
+    )
+    total_rows = models.PositiveIntegerField(default=0)
+    review_needed = models.PositiveIntegerField(default=0)
+    committed_count = models.PositiveIntegerField(default=0)
+    skipped_count = models.PositiveIntegerField(default=0)
+    parsed_rows = models.JSONField(blank=True, default=list)
+    mapping = models.JSONField(blank=True, default=list)
+    error = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    committed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['group_id', 'created_at']),
+            models.Index(fields=['status', 'created_at']),
+            models.Index(fields=['telegram_message_id']),
+        ]
+        verbose_name = 'Jawabu farmer upload batch'
+        verbose_name_plural = 'Jawabu farmer upload batches'
+
+    def __str__(self):
+        return f"Farm upload {self.source_filename or self.id} {self.status}"
+
 class FcaImportRecord(models.Model):
     """Audit row for FCA Excel workbook imports."""
 

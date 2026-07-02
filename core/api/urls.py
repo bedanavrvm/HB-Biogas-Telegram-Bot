@@ -5,6 +5,8 @@ from django.urls import path
 from .views import (
     telegram_webhook,
     health_check,
+    jawabu_farmers_review,
+    jawabu_farmers_review_commit,
     order_approval_form,
     order_approval_webapp_lookup,
     order_approval_webapp_suggest,
@@ -17,6 +19,8 @@ from .views import (
 urlpatterns = [
     path('health/', health_check, name='health_check'),
     path('order-approval/', order_approval_form, name='order_approval_form'),
+    path('jawabu-farmers/review/', jawabu_farmers_review, name='jawabu_farmers_review'),
+    path('jawabu-farmers/review/commit/', jawabu_farmers_review_commit, name='jawabu_farmers_review_commit'),
     path('webhook/telegram/', telegram_webhook, name='telegram_webhook'),
     path(
         'order-approval/webapp/submit/',
