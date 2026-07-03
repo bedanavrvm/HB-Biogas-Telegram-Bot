@@ -365,20 +365,28 @@ def jawabu_farmers_review(request):
     batch_id = str(request.GET.get('batch_id', '')).strip()
     token = str(request.GET.get('token', '')).strip()
     if not batch_id or not token:
-        start_payload = decode_farmup_start_param(
+        raw_start_param = (
             request.GET.get('tgWebAppStartParam')
             or request.GET.get('startapp')
             or request.GET.get('start_param')
             or ''
         )
+        start_payload = decode_farmup_start_param(raw_start_param)
         batch_id = batch_id or start_payload.get('batch_id', '')
         token = token or start_payload.get('token', '')
+        if not batch_id or not token:
+            return render(request, 'jawabu_farmers/bootstrap.html')
     valid, error = validate_farmup_review_token(batch_id, token)
     if not valid:
-        return render(request, 'order_approval/unavailable.html', {'message': error}, status=403)
+        return render(request, 'jawabu_farmers/unavailable.html', {'message': error}, status=403)
     batch = JawabuFarmerUploadBatch.objects.filter(id=batch_id).first()
     if not batch:
-        return render(request, 'order_approval/unavailable.html', status=404)
+        return render(
+            request,
+            'jawabu_farmers/unavailable.html',
+            {'message': 'This Farmers upload review batch was not found.'},
+            status=404,
+        )
     payload = {'batch_id': str(batch.id), 'token': token, 'rows': batch.parsed_rows or [], 'status': batch.status}
     return render(request, 'jawabu_farmers/review.html', {'batch': batch, 'batch_json': mark_safe(json.dumps(payload, ensure_ascii=True).replace('</', '<\\/'))})
 
@@ -1129,7 +1137,11 @@ def _process_jawabu_farmup_command(
             "Correct any values, then commit approved rows."
         ),
         'reply_markup': {
-            'inline_keyboard': [[{'text': button_text, 'url': launch_url}]]
+            'inline_keyboard': [[
+                {'text': button_text, 'web_app': {'url': review_url}}
+                if mini_app_url else
+                {'text': button_text, 'url': review_url}
+            ]]
         },
     }
 
