@@ -1341,6 +1341,154 @@ Mary Njeri njihia
         self.assertEqual(farmer.county, 'MERU')
         self.assertEqual(farmer.sign_date, '24-June-2026')
         self.assertEqual(farmer.actual_receipts, '5000')
+
+    def test_farmup_master_sheet_writer_appends_system_columns_at_far_right(self):
+        from core.services.jawabu_master import (
+            MASTER_SYSTEM_HEADERS,
+            ensure_master_system_headers,
+            write_rows_to_master_sheet,
+        )
+
+        class FakeSpreadsheet:
+            def __init__(self):
+                self.requests = []
+
+            def batch_update(self, payload):
+                self.requests.append(payload)
+
+        class FakeSheet:
+            def __init__(self):
+                self.id = 123
+                self.spreadsheet = FakeSpreadsheet()
+                self.col_count = 6
+                self.values = [
+                    [],
+                    [],
+                    ['No.', 'Customer Name', 'National ID', 'Primary Phone', 'County', 'Deposit Paid to HB'],
+                    [],
+                ]
+
+            def row_values(self, row):
+                return list(self.values[row - 1])
+
+            def add_cols(self, count):
+                self.col_count += count
+
+            def update_cell(self, row, col, value):
+                while len(self.values) < row:
+                    self.values.append([])
+                while len(self.values[row - 1]) < col:
+                    self.values[row - 1].append('')
+                self.values[row - 1][col - 1] = value
+
+            def get_all_values(self):
+                return [list(row) for row in self.values]
+
+            def update(self, range_name, rows, value_input_option=None):
+                row_number = int(range_name.split(':', 1)[0][1:])
+                while len(self.values) < row_number:
+                    self.values.append([])
+                self.values[row_number - 1] = list(rows[0])
+
+        batch = JawabuFarmerUploadBatch.objects.create(
+            group_id=self.group.group_id,
+            sender='Reviewer',
+            source_filename='farmers.csv',
+            total_rows=1,
+        )
+        sheet = FakeSheet()
+        headers = ensure_master_system_headers(sheet, 3)
+        result = write_rows_to_master_sheet(
+            sheet=sheet,
+            headers=headers,
+            data_start_row=5,
+            batch=batch,
+            cleaned_rows=[{
+                'customer_name': 'DAVID MUGAMBI',
+                'national_id': '23215888',
+                'primary_phone': '254721997481',
+                'county': 'EMBU',
+                'actual_receipts': '5000',
+                'duplicate_key': '23215888|254721997481',
+                'source_row_number': 2,
+            }],
+        )
+
+        self.assertEqual(result['created'], 1)
+        self.assertEqual(result['errors'], [])
+        self.assertEqual(headers[-len(MASTER_SYSTEM_HEADERS):], MASTER_SYSTEM_HEADERS)
+        self.assertEqual(sheet.values[4][1], 'DAVID MUGAMBI')
+        self.assertEqual(sheet.values[4][5], '5000')
+        self.assertEqual(sheet.values[4][headers.index('Import Status')], 'created')
+        self.assertTrue(sheet.spreadsheet.requests)
+
+    def test_farmup_master_sheet_writer_flags_conflicts_without_overwriting(self):
+        from core.services.jawabu_master import ensure_master_system_headers, write_rows_to_master_sheet
+
+        class FakeSpreadsheet:
+            def batch_update(self, payload):
+                pass
+
+        class FakeSheet:
+            id = 123
+            spreadsheet = FakeSpreadsheet()
+            col_count = 10
+
+            def __init__(self):
+                self.values = [
+                    [],
+                    [],
+                    ['No.', 'Customer Name', 'National ID', 'Primary Phone', 'County', 'Duplicate Key'],
+                    [],
+                    ['1', 'DAVID MUGAMBI', '23215888', '254721997481', 'EMBU', '23215888|254721997481'],
+                ]
+
+            def row_values(self, row):
+                return list(self.values[row - 1])
+
+            def add_cols(self, count):
+                self.col_count += count
+
+            def update_cell(self, row, col, value):
+                while len(self.values[row - 1]) < col:
+                    self.values[row - 1].append('')
+                self.values[row - 1][col - 1] = value
+
+            def get_all_values(self):
+                return [list(row) for row in self.values]
+
+            def update(self, range_name, rows, value_input_option=None):
+                row_number = int(range_name.split(':', 1)[0][1:])
+                self.values[row_number - 1] = list(rows[0])
+
+        batch = JawabuFarmerUploadBatch.objects.create(
+            group_id=self.group.group_id,
+            sender='Reviewer',
+            source_filename='farmers.csv',
+            total_rows=1,
+        )
+        sheet = FakeSheet()
+        headers = ensure_master_system_headers(sheet, 3)
+        result = write_rows_to_master_sheet(
+            sheet=sheet,
+            headers=headers,
+            data_start_row=5,
+            batch=batch,
+            cleaned_rows=[{
+                'customer_name': 'DAVID MUGAMBI',
+                'national_id': '23215888',
+                'primary_phone': '254721997481',
+                'county': 'MERU',
+                'duplicate_key': '23215888|254721997481',
+                'source_row_number': 2,
+            }],
+        )
+
+        self.assertEqual(result['updated'], 1)
+        self.assertEqual(result['conflicts'], 1)
+        self.assertEqual(sheet.values[4][4], 'EMBU')
+        self.assertEqual(sheet.values[4][headers.index('Import Status')], 'updated_with_conflict')
+        self.assertIn('County', sheet.values[4][headers.index('Review Notes')])
 class FcaWorkflowServiceTest(TestCase):
     """Tests for FCA Excel batch imports."""
 

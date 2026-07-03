@@ -91,6 +91,12 @@ WORKFLOW_PRESETS = {
             'duplicate_key_fields': ['national_id', 'primary_phone'],
             'duplicate_policy': 'flag_for_review',
             'field_headers': {},
+            'master_sync_enabled': False,
+            'master_sheet_id': '',
+            'master_sheet_name': 'Master Data',
+            'master_header_row': 3,
+            'master_data_start_row': 5,
+            'master_import_log_sheet_name': 'Farmers Upload Log',
         },
         'sheet_schema': {},
         'parser_rules': {},
@@ -102,6 +108,41 @@ WORKFLOW_PRESETS = {
                     'Ignore WhatsApp visit messages before this date. '
                     'Use YYYY-MM-DD. Leave blank to import all dates.'
                 ),
+            },
+            'master_sync_enabled': {
+                'label': 'Sync reviewed Farmers uploads to Master Data',
+                'initial': False,
+                'help_text': (
+                    'When enabled, committing /farmup review rows writes them '
+                    'to the configured Master Data spreadsheet.'
+                ),
+            },
+            'master_sheet_id': {
+                'label': 'Master spreadsheet ID',
+                'initial': '',
+                'help_text': (
+                    'Optional. Leave blank to use this group\'s spreadsheet ID.'
+                ),
+            },
+            'master_sheet_name': {
+                'label': 'Master data tab',
+                'initial': 'Master Data',
+                'help_text': 'Worksheet tab where reviewed farmer records are written.',
+            },
+            'master_header_row': {
+                'label': 'Master header row',
+                'initial': 3,
+                'help_text': '1-based row number containing Master Data column headers.',
+            },
+            'master_data_start_row': {
+                'label': 'Master data start row',
+                'initial': 5,
+                'help_text': '1-based row number where real Master Data records begin.',
+            },
+            'master_import_log_sheet_name': {
+                'label': 'Farmers import log tab',
+                'initial': 'Farmers Upload Log',
+                'help_text': 'Optional audit tab for /farmup batch summaries.',
             },
         },
     },
@@ -147,6 +188,17 @@ def build_workflow_from_preset(
                 workflow['import_start_date'] = str(value)
             else:
                 workflow.pop('import_start_date', None)
+        if 'master_sync_enabled' in overrides:
+            workflow['master_sync_enabled'] = bool(overrides.get('master_sync_enabled'))
+        for key in ('master_sheet_id', 'master_sheet_name', 'master_import_log_sheet_name'):
+            if key in overrides:
+                workflow[key] = str(overrides.get(key) or '').strip()
+        for key in ('master_header_row', 'master_data_start_row'):
+            if key in overrides and overrides.get(key):
+                try:
+                    workflow[key] = max(int(overrides[key]), 1)
+                except (TypeError, ValueError):
+                    pass
 
     if preset_key == 'order_approval':
         if overrides.get('search_sheet_names'):

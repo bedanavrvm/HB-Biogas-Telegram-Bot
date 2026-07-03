@@ -15,6 +15,21 @@ Attach the WhatsApp `.txt` export or the WhatsApp `.zip` export to that same mes
 from WhatsApp "Export chat" and can include media filenames.
 
 
+### Farmers Master Data Upload
+
+Use this when you receive a Jawabu Farmers CSV export and want to clean/review it before adding it to the internal Master Data sheet.
+
+In the configured Jawabu Telegram group, send:
+
+```text
+@hb_biogas_cases_bot /farmup
+```
+
+Attach the Jawabu Farmers `.csv` file to that same message. The bot creates a review batch and replies with a review link or Telegram Mini App button. Review the extracted rows, correct values, untick rows that should not be committed, then submit.
+
+When Master Data sync is enabled in Django admin, approved rows are written to the configured `Master Data` tab. Existing matched rows are updated safely: blank fields can be filled, matching values are refreshed, and conflicting non-empty sheet values are not overwritten. Conflicts are written into the hidden system `Review Notes` column and counted in the Telegram reply.
+
+
 ## Recommended Configuration
 
 Use the same bot and the same Google spreadsheet as the Order Approval workflow, but configure Jawabu in a separate Telegram group and worksheet tab:
@@ -30,6 +45,27 @@ Header row: 1, unless the sheet uses a different header row
 This keeps BRO-submitted order data and Jawabu WhatsApp-imported data separate, while still allowing manual comparison in the same workbook.
 
 Admin setup note: after creating the `Jawabu Visits` worksheet, run `Orders > Apply Jawabu validation + formatting` in Google Sheets. This applies strict county/sub-county dropdowns, phone/ID validation, date formatting, and duplicate highlighting for the imported rows.
+
+For Farmers-to-Master-Data review, configure these fields in the same Jawabu group preset when the master workbook is ready:
+
+```text
+Sync reviewed Farmers uploads to Master Data: checked
+Master spreadsheet ID: leave blank to use the group spreadsheet, or paste the master workbook ID
+Master data tab: Master Data
+Master header row: 3
+Master data start row: 5
+Farmers import log tab: Farmers Upload Log
+```
+
+The master workbook should include these support tabs:
+
+```text
+Settings
+Staff Permissions
+Farmers Upload Log
+```
+
+System metadata columns are placed at the far right of `Master Data` starting at `AS` and should remain hidden. They are used by Django for matching, sync status, source row, batch ID, review notes, and audit timestamps.
 ## What The Bot Extracts
 
 - WhatsApp message date and time

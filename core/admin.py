@@ -99,6 +99,45 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
         help_text=get_preset('jawabu_homebiogas')['admin_fields']['import_start_date']['help_text'],
     )
 
+    jawabu_master_sync_enabled = forms.BooleanField(
+        required=False,
+        initial=get_preset('jawabu_homebiogas')['admin_fields']['master_sync_enabled']['initial'],
+        label=get_preset('jawabu_homebiogas')['admin_fields']['master_sync_enabled']['label'],
+        help_text=get_preset('jawabu_homebiogas')['admin_fields']['master_sync_enabled']['help_text'],
+    )
+    jawabu_master_sheet_id = forms.CharField(
+        required=False,
+        initial=get_preset('jawabu_homebiogas')['admin_fields']['master_sheet_id']['initial'],
+        label=get_preset('jawabu_homebiogas')['admin_fields']['master_sheet_id']['label'],
+        help_text=get_preset('jawabu_homebiogas')['admin_fields']['master_sheet_id']['help_text'],
+    )
+    jawabu_master_sheet_name = forms.CharField(
+        required=False,
+        initial=get_preset('jawabu_homebiogas')['admin_fields']['master_sheet_name']['initial'],
+        label=get_preset('jawabu_homebiogas')['admin_fields']['master_sheet_name']['label'],
+        help_text=get_preset('jawabu_homebiogas')['admin_fields']['master_sheet_name']['help_text'],
+    )
+    jawabu_master_header_row = forms.IntegerField(
+        required=False,
+        min_value=1,
+        initial=get_preset('jawabu_homebiogas')['admin_fields']['master_header_row']['initial'],
+        label=get_preset('jawabu_homebiogas')['admin_fields']['master_header_row']['label'],
+        help_text=get_preset('jawabu_homebiogas')['admin_fields']['master_header_row']['help_text'],
+    )
+    jawabu_master_data_start_row = forms.IntegerField(
+        required=False,
+        min_value=1,
+        initial=get_preset('jawabu_homebiogas')['admin_fields']['master_data_start_row']['initial'],
+        label=get_preset('jawabu_homebiogas')['admin_fields']['master_data_start_row']['label'],
+        help_text=get_preset('jawabu_homebiogas')['admin_fields']['master_data_start_row']['help_text'],
+    )
+    jawabu_master_import_log_sheet_name = forms.CharField(
+        required=False,
+        initial=get_preset('jawabu_homebiogas')['admin_fields']['master_import_log_sheet_name']['initial'],
+        label=get_preset('jawabu_homebiogas')['admin_fields']['master_import_log_sheet_name']['label'],
+        help_text=get_preset('jawabu_homebiogas')['admin_fields']['master_import_log_sheet_name']['help_text'],
+    )
+
     class Meta:
         model = GroupSheetConfiguration
         fields = '__all__'
@@ -132,9 +171,33 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
             )
         if preset_key == 'jawabu_homebiogas':
             self.fields['workflow_preset'].initial = 'jawabu_homebiogas'
+            defaults = defaults_for_preset('jawabu_homebiogas')['workflow']
             self.fields['jawabu_import_start_date'].initial = (
                 workflow.get('import_start_date')
-                or defaults_for_preset('jawabu_homebiogas')['workflow'].get('import_start_date')
+                or defaults.get('import_start_date')
+            )
+            self.fields['jawabu_master_sync_enabled'].initial = bool(
+                workflow.get('master_sync_enabled', defaults.get('master_sync_enabled'))
+            )
+            self.fields['jawabu_master_sheet_id'].initial = (
+                workflow.get('master_sheet_id')
+                or defaults.get('master_sheet_id', '')
+            )
+            self.fields['jawabu_master_sheet_name'].initial = (
+                workflow.get('master_sheet_name')
+                or defaults.get('master_sheet_name', 'Master Data')
+            )
+            self.fields['jawabu_master_header_row'].initial = (
+                workflow.get('master_header_row')
+                or defaults.get('master_header_row', 3)
+            )
+            self.fields['jawabu_master_data_start_row'].initial = (
+                workflow.get('master_data_start_row')
+                or defaults.get('master_data_start_row', 5)
+            )
+            self.fields['jawabu_master_import_log_sheet_name'].initial = (
+                workflow.get('master_import_log_sheet_name')
+                or defaults.get('master_import_log_sheet_name', 'Farmers Upload Log')
             )
 
     def clean(self):
@@ -172,6 +235,12 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                     'order_approval_media_root_folder'
                 ),
                 'import_start_date': self.cleaned_data.get('jawabu_import_start_date'),
+                'master_sync_enabled': self.cleaned_data.get('jawabu_master_sync_enabled'),
+                'master_sheet_id': self.cleaned_data.get('jawabu_master_sheet_id'),
+                'master_sheet_name': self.cleaned_data.get('jawabu_master_sheet_name'),
+                'master_header_row': self.cleaned_data.get('jawabu_master_header_row'),
+                'master_data_start_row': self.cleaned_data.get('jawabu_master_data_start_row'),
+                'master_import_log_sheet_name': self.cleaned_data.get('jawabu_master_import_log_sheet_name'),
             },
         )
 
@@ -409,6 +478,12 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
                 'order_approval_header_row',
                 'order_approval_media_root_folder',
                 'jawabu_import_start_date',
+                'jawabu_master_sync_enabled',
+                'jawabu_master_sheet_id',
+                'jawabu_master_sheet_name',
+                'jawabu_master_header_row',
+                'jawabu_master_data_start_row',
+                'jawabu_master_import_log_sheet_name',
             ),
             'description': (
                 'Select Case / Complaints for the existing complaint intake '

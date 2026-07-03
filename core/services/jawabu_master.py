@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 import io
+import logging
 from typing import Iterable, TextIO
 from urllib.parse import urlencode
 
@@ -20,6 +21,8 @@ from django.db import transaction
 from django.utils import timezone
 
 from core.models import JawabuFarmerMaster, JawabuFarmerUploadBatch
+logger = logging.getLogger(__name__)
+
 from core.services.jawabu import (
     is_valid_phone,
     jawabu_duplicate_key,
@@ -183,6 +186,41 @@ MASTER_PREVIEW_HEADERS = [
     'Raw Contract Type', 'Raw Financial Partners',
 ]
 
+MASTER_SYSTEM_HEADERS = [
+    'Master Record ID',
+    'Import Batch ID',
+    'Source Filename',
+    'Source Row',
+    'Duplicate Key',
+    'Import Status',
+    'Review Notes',
+    'Reviewed By',
+    'Reviewed At',
+    'Last Updated At',
+]
+
+MASTER_FIELD_HEADERS = {
+    'customer_name': ['Customer Name'],
+    'national_id': ['National ID'],
+    'primary_phone': ['Primary Phone'],
+    'secondary_phone': ['Secondary Phone'],
+    'county': ['County'],
+    'sub_county': ['Constituency', 'Sub County', 'Sub-County'],
+    'village': ['Village'],
+    'lead_source': ['Lead Source'],
+    'hb_sales_person': ['HB Sales Person'],
+    'sign_date': ['HBG Visit Date'],
+    'comments': ['Additional Comments'],
+    'actual_receipts': ['Deposit Paid to HB', 'Deposit Paid to HBG', 'Deposit Paid to JBL'],
+    'installation_status': ['Installation Status'],
+}
+
+MASTER_NORMAL_WRITE_FIELDS = [
+    'customer_name', 'national_id', 'primary_phone', 'secondary_phone', 'county',
+    'sub_county', 'village', 'lead_source', 'hb_sales_person', 'sign_date',
+    'comments', 'actual_receipts', 'installation_status',
+]
+
 
 FARMUP_TOKEN_SALT = 'jawabu-farmer-upload'
 
@@ -283,7 +321,7 @@ def create_farmup_review_batch(
 
 
 @transaction.atomic
-def commit_farmup_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict]) -> dict:
+def commit_farmup_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict], group_config=None) -> dict:
     if batch.status == 'committed':
         return {
             'success': False,
@@ -296,6 +334,7 @@ def commit_farmup_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict])
     skipped = 0
     errors = []
     saved_rows = []
+    committed_cleaned_rows = []
     now = timezone.now()
     for index, row in enumerate(rows, start=1):
         row = dict(row or {})
@@ -329,7 +368,10 @@ def commit_farmup_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict])
             row['Cleaning Notes'] = append_note(row.get('Cleaning Notes', ''), 'Secondary Phone must be in 254 format')
             saved_rows.append(row)
             continue
-        upsert_farmer(cleaned)
+        farmer_created, farmer_status = upsert_farmer(cleaned)
+        cleaned['_farmer_created'] = farmer_created
+        cleaned['_farmer_status'] = farmer_status
+        committed_cleaned_rows.append(cleaned)
         committed += 1
         row['Import Status'] = 'active'
         saved_rows.append(row)
@@ -343,14 +385,354 @@ def commit_farmup_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict])
     if not errors:
         batch.committed_at = now
     batch.save()
+
+    sheet_sync = sync_committed_farmup_rows_to_master_sheet(
+        batch=batch,
+        cleaned_rows=committed_cleaned_rows,
+        group_config=group_config,
+    )
+    sync_errors = sheet_sync.get('errors') or []
+    success = not errors and sheet_sync.get('success', True)
     return {
-        'success': not errors,
-        'message': 'Batch committed.' if not errors else 'Some rows still need correction.',
+        'success': success,
+        'message': (
+            'Batch committed.'
+            if success
+            else 'Some rows still need correction or sheet sync failed.'
+        ),
         'committed': committed,
         'skipped': skipped,
-        'errors': errors[:20],
+        'errors': (errors + sync_errors)[:20],
         'review_needed': batch.review_needed,
+        'sheet_sync': sheet_sync,
     }
+
+
+def sync_committed_farmup_rows_to_master_sheet(
+    *,
+    batch: JawabuFarmerUploadBatch,
+    cleaned_rows: list[dict],
+    group_config=None,
+) -> dict:
+    if not cleaned_rows:
+        return {'success': True, 'enabled': False, 'created': 0, 'updated': 0, 'conflicts': 0, 'errors': []}
+    workflow = getattr(group_config, 'workflow', None) or {}
+    if not workflow.get('master_sync_enabled'):
+        return {'success': True, 'enabled': False, 'created': 0, 'updated': 0, 'conflicts': 0, 'errors': []}
+
+    sheet_id = str(workflow.get('master_sheet_id') or getattr(group_config, 'sheet_id', '') or '').strip()
+    sheet_name = str(workflow.get('master_sheet_name') or 'Master Data').strip()
+    header_row = positive_int(workflow.get('master_header_row'), 3)
+    data_start_row = positive_int(workflow.get('master_data_start_row'), header_row + 2)
+    log_sheet_name = str(workflow.get('master_import_log_sheet_name') or '').strip()
+    if not sheet_id or not sheet_name:
+        return {
+            'success': False, 'enabled': True, 'created': 0, 'updated': 0, 'conflicts': 0,
+            'errors': ['Master sheet sync is enabled but master_sheet_id/master_sheet_name is incomplete.'],
+        }
+
+    try:
+        from core.services.sheets import GoogleSheetsService
+
+        service = GoogleSheetsService.get_instance(sheet_id=sheet_id, sheet_name=sheet_name)
+        if not service.is_available():
+            raise RuntimeError('Google Sheets service unavailable for Master Data sheet.')
+        sheet = service._sheet
+        headers = ensure_master_system_headers(sheet, header_row)
+        result = write_rows_to_master_sheet(
+            sheet=sheet,
+            headers=headers,
+            data_start_row=data_start_row,
+            batch=batch,
+            cleaned_rows=cleaned_rows,
+        )
+        if log_sheet_name:
+            append_master_import_log(
+                service=service,
+                log_sheet_name=log_sheet_name,
+                batch=batch,
+                result=result,
+            )
+        return {'success': result['errors'] == [], 'enabled': True, **result}
+    except Exception as exc:  # pragma: no cover - defensive external API handling
+        logger.error('Farmup Master Data sheet sync failed: %s', exc, exc_info=True)
+        return {
+            'success': False, 'enabled': True, 'created': 0, 'updated': 0, 'conflicts': 0,
+            'errors': [f'Master Data sheet sync failed: {exc}'],
+        }
+
+
+def ensure_master_system_headers(sheet, header_row: int) -> list[str]:
+    headers = list(sheet.row_values(header_row))
+    normalized = {normalize_header(header): index + 1 for index, header in enumerate(headers) if str(header or '').strip()}
+    missing = [header for header in MASTER_SYSTEM_HEADERS if normalize_header(header) not in normalized]
+    if missing:
+        first_new_col = max(len(headers) + 1, 45)
+        needed_cols = first_new_col + len(missing) - 1
+        if needed_cols > getattr(sheet, 'col_count', needed_cols):
+            sheet.add_cols(needed_cols - sheet.col_count)
+        if len(headers) < first_new_col - 1:
+            headers.extend([''] * (first_new_col - 1 - len(headers)))
+        for offset, header in enumerate(missing):
+            sheet.update_cell(header_row, first_new_col + offset, header)
+            target_index = first_new_col + offset - 1
+            if target_index < len(headers):
+                headers[target_index] = header
+            else:
+                headers.append(header)
+        hide_master_system_columns(sheet, first_new_col, first_new_col + len(missing) - 1)
+    return headers
+
+
+def hide_master_system_columns(sheet, start_col: int, end_col: int) -> None:
+    try:
+        sheet_id = sheet.id
+        sheet.spreadsheet.batch_update({
+            'requests': [{
+                'updateDimensionProperties': {
+                    'range': {
+                        'sheetId': sheet_id,
+                        'dimension': 'COLUMNS',
+                        'startIndex': start_col - 1,
+                        'endIndex': end_col,
+                    },
+                    'properties': {'hiddenByUser': True},
+                    'fields': 'hiddenByUser',
+                }
+            }]
+        })
+    except Exception as exc:  # pragma: no cover - optional presentation step
+        logger.warning('Could not hide Master Data system columns: %s', exc)
+
+
+def write_rows_to_master_sheet(
+    *,
+    sheet,
+    headers: list[str],
+    data_start_row: int,
+    batch: JawabuFarmerUploadBatch,
+    cleaned_rows: list[dict],
+) -> dict:
+    values = sheet.get_all_values()
+    header_lookup = header_lookup_from_headers(headers)
+    existing = build_master_existing_index(values, header_lookup, data_start_row)
+    created = updated = conflicts = 0
+    errors = []
+    now_text = timezone.now().strftime('%d-%B-%Y %H:%M')
+    for cleaned in cleaned_rows:
+        try:
+            row_number = find_master_row_number(cleaned, existing)
+            if row_number:
+                row_values = row_values_for_number(values, row_number, len(headers))
+                change_count, conflict_notes = merge_master_row_values(
+                    row_values=row_values,
+                    headers=headers,
+                    header_lookup=header_lookup,
+                    cleaned=cleaned,
+                    batch=batch,
+                    now_text=now_text,
+                    created=False,
+                )
+                if conflict_notes:
+                    conflicts += 1
+                if change_count:
+                    update_master_sheet_row(sheet, row_number, row_values)
+                    updated += 1
+                continue
+
+            row_number = next_master_append_row(values, header_lookup, data_start_row)
+            row_values = [''] * len(headers)
+            set_header_value(row_values, header_lookup, 'No.', row_number - data_start_row + 1)
+            merge_master_row_values(
+                row_values=row_values,
+                headers=headers,
+                header_lookup=header_lookup,
+                cleaned=cleaned,
+                batch=batch,
+                now_text=now_text,
+                created=True,
+            )
+            update_master_sheet_row(sheet, row_number, row_values)
+            values = pad_values_to_row(values, row_number, len(headers))
+            values[row_number - 1] = row_values
+            add_master_index_row(existing, row_number, row_values, header_lookup)
+            created += 1
+        except Exception as exc:  # pragma: no cover - defensive per-row handling
+            errors.append(f"{cleaned.get('customer_name') or cleaned.get('national_id') or 'row'}: {exc}")
+    return {'created': created, 'updated': updated, 'conflicts': conflicts, 'errors': errors[:20]}
+
+
+def merge_master_row_values(
+    *,
+    row_values: list,
+    headers: list[str],
+    header_lookup: dict[str, int],
+    cleaned: dict,
+    batch: JawabuFarmerUploadBatch,
+    now_text: str,
+    created: bool,
+) -> tuple[int, list[str]]:
+    before = list(row_values)
+    conflict_notes = []
+    for field in MASTER_NORMAL_WRITE_FIELDS:
+        target_header = first_existing_header(header_lookup, MASTER_FIELD_HEADERS[field])
+        if not target_header:
+            continue
+        new_value = cleaned.get(field, '')
+        if new_value in (None, ''):
+            continue
+        idx = header_lookup[normalize_header(target_header)] - 1
+        current = row_values[idx] if idx < len(row_values) else ''
+        if values_equivalent(current, new_value):
+            row_values[idx] = new_value
+        elif not str(current or '').strip():
+            row_values[idx] = new_value
+        else:
+            conflict_notes.append(f"{target_header}: sheet '{current}' vs upload '{new_value}'")
+
+    status = 'created' if created else ('updated_with_conflict' if conflict_notes else 'updated')
+    set_header_value(row_values, header_lookup, 'Master Record ID', str(cleaned.get('id') or cleaned.get('duplicate_key') or ''))
+    set_header_value(row_values, header_lookup, 'Import Batch ID', str(batch.id))
+    set_header_value(row_values, header_lookup, 'Source Filename', batch.source_filename)
+    set_header_value(row_values, header_lookup, 'Source Row', cleaned.get('source_row_number') or '')
+    set_header_value(row_values, header_lookup, 'Duplicate Key', cleaned.get('duplicate_key') or '')
+    set_header_value(row_values, header_lookup, 'Import Status', status)
+    set_header_value(row_values, header_lookup, 'Review Notes', '; '.join(conflict_notes) or cleaned.get('cleaning_notes') or '')
+    set_header_value(row_values, header_lookup, 'Reviewed By', batch.sender)
+    set_header_value(row_values, header_lookup, 'Reviewed At', now_text)
+    set_header_value(row_values, header_lookup, 'Last Updated At', now_text)
+    return sum(1 for old, new in zip(before, row_values) if str(old or '') != str(new or '')), conflict_notes
+
+
+def append_master_import_log(*, service, log_sheet_name: str, batch: JawabuFarmerUploadBatch, result: dict) -> None:
+    try:
+        spreadsheet = service._client.open_by_key(service._sheet_id)
+        try:
+            sheet = spreadsheet.worksheet(log_sheet_name)
+        except Exception:
+            sheet = spreadsheet.add_worksheet(title=log_sheet_name, rows=100, cols=10)
+            sheet.update('A1:J1', [[
+                'Batch ID', 'Source Filename', 'Group ID', 'Uploaded By', 'Committed At',
+                'Total Rows', 'Created', 'Updated', 'Conflicts', 'Errors',
+            ]])
+        sheet.append_row([
+            str(batch.id), batch.source_filename, batch.group_id, batch.sender,
+            timezone.now().strftime('%d-%B-%Y %H:%M'), batch.total_rows,
+            result.get('created', 0), result.get('updated', 0), result.get('conflicts', 0),
+            '; '.join(result.get('errors') or []),
+        ], value_input_option='USER_ENTERED')
+    except Exception as exc:  # pragma: no cover - optional audit log
+        logger.warning('Could not append Farmers Upload Log row: %s', exc, exc_info=True)
+
+
+def header_lookup_from_headers(headers: list[str]) -> dict[str, int]:
+    return {normalize_header(header): index + 1 for index, header in enumerate(headers) if str(header or '').strip()}
+
+
+def first_existing_header(header_lookup: dict[str, int], candidates: list[str]) -> str:
+    for candidate in candidates:
+        if normalize_header(candidate) in header_lookup:
+            return candidate
+    return ''
+
+
+def row_values_for_number(values: list[list[str]], row_number: int, width: int) -> list[str]:
+    if row_number - 1 < len(values):
+        row_values = list(values[row_number - 1])
+    else:
+        row_values = []
+    return row_values + [''] * (width - len(row_values))
+
+
+def pad_values_to_row(values: list[list[str]], row_number: int, width: int) -> list[list[str]]:
+    while len(values) < row_number:
+        values.append([''] * width)
+    return values
+
+
+def next_master_append_row(values: list[list[str]], header_lookup: dict[str, int], data_start_row: int) -> int:
+    name_idx = header_lookup.get(normalize_header('Customer Name'), 2) - 1
+    last = data_start_row - 1
+    for row_number, row in enumerate(values[data_start_row - 1:], start=data_start_row):
+        if name_idx < len(row) and str(row[name_idx] or '').strip():
+            last = row_number
+    return last + 1
+
+
+def build_master_existing_index(values: list[list[str]], header_lookup: dict[str, int], data_start_row: int) -> dict[str, int]:
+    existing = {}
+    for row_number, row_values in enumerate(values[data_start_row - 1:], start=data_start_row):
+        add_master_index_row(existing, row_number, row_values, header_lookup)
+    return existing
+
+
+def add_master_index_row(existing: dict[str, int], row_number: int, row_values: list, header_lookup: dict[str, int]) -> None:
+    duplicate_key = header_row_value(row_values, header_lookup, 'Duplicate Key')
+    if duplicate_key:
+        existing[f'duplicate_key:{duplicate_key}'] = row_number
+    national_id = header_row_value(row_values, header_lookup, 'National ID')
+    primary_phone = header_row_value(row_values, header_lookup, 'Primary Phone')
+    if national_id and primary_phone:
+        existing[f'id_phone:{national_id}|{primary_phone}'] = row_number
+    if national_id:
+        existing.setdefault(f'id:{national_id}', row_number)
+    if primary_phone:
+        existing.setdefault(f'phone:{primary_phone}', row_number)
+
+
+def find_master_row_number(cleaned: dict, existing: dict[str, int]) -> int:
+    duplicate_key = cleaned.get('duplicate_key') or ''
+    national_id = cleaned.get('national_id') or ''
+    primary_phone = cleaned.get('primary_phone') or ''
+    for key in (
+        f'duplicate_key:{duplicate_key}' if duplicate_key else '',
+        f'id_phone:{national_id}|{primary_phone}' if national_id and primary_phone else '',
+        f'id:{national_id}' if national_id else '',
+        f'phone:{primary_phone}' if primary_phone else '',
+    ):
+        if key and key in existing:
+            return existing[key]
+    return 0
+
+
+def header_row_value(row_values: list, header_lookup: dict[str, int], header: str) -> str:
+    index = header_lookup.get(normalize_header(header), 0) - 1
+    if index < 0 or index >= len(row_values):
+        return ''
+    return str(row_values[index] or '').strip()
+
+
+def set_header_value(row_values: list, header_lookup: dict[str, int], header: str, value) -> None:
+    index = header_lookup.get(normalize_header(header), 0) - 1
+    if index < 0:
+        return
+    if index >= len(row_values):
+        row_values.extend([''] * (index - len(row_values) + 1))
+    row_values[index] = '' if value is None else value
+
+
+def update_master_sheet_row(sheet, row_number: int, row_values: list) -> None:
+    end_cell = f"{col_letter(len(row_values))}{row_number}"
+    sheet.update(f"A{row_number}:{end_cell}", [row_values], value_input_option='USER_ENTERED')
+
+
+def values_equivalent(left, right) -> bool:
+    return clean_text(left).casefold() == clean_text(right).casefold()
+
+
+def positive_int(value, default: int) -> int:
+    try:
+        return max(int(value), 1)
+    except (TypeError, ValueError):
+        return default
+
+
+def col_letter(col_index: int) -> str:
+    letters = ''
+    while col_index > 0:
+        col_index, rem = divmod(col_index - 1, 26)
+        letters = chr(65 + rem) + letters
+    return letters
 
 
 def cleaned_master_row_from_review(

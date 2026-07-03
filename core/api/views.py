@@ -405,9 +405,31 @@ def jawabu_farmers_review_commit(request):
     rows = payload.get('rows') or []
     if not isinstance(rows, list):
         return JsonResponse({'success': False, 'message': 'Rows must be a list.'}, status=400)
-    result = commit_farmup_review_batch(batch, rows)
+    from core.services.group_config import GroupRegistry
+
+    group_config = GroupRegistry.get_instance().get_group(batch.group_id)
+    result = commit_farmup_review_batch(batch, rows, group_config=group_config)
     result['rows'] = batch.parsed_rows
-    _post_telegram_reply(chat_id=batch.group_id, message_data={}, text=("Farmers master upload reviewed\n" f"Committed: {result.get('committed', 0)}\n" f"Skipped: {result.get('skipped', 0)}\n" f"Review needed: {result.get('review_needed', 0)}"))
+    sheet_sync = result.get('sheet_sync') or {}
+    reply_lines = [
+        'Farmers master upload reviewed',
+        f"Committed: {result.get('committed', 0)}",
+        f"Skipped: {result.get('skipped', 0)}",
+        f"Review needed: {result.get('review_needed', 0)}",
+    ]
+    if sheet_sync.get('enabled'):
+        reply_lines.extend([
+            '',
+            'Master Data sheet sync:',
+            f"Created: {sheet_sync.get('created', 0)}",
+            f"Updated: {sheet_sync.get('updated', 0)}",
+            f"Conflicts: {sheet_sync.get('conflicts', 0)}",
+        ])
+        if sheet_sync.get('errors'):
+            reply_lines.append(f"Warning: {sheet_sync['errors'][0]}")
+    else:
+        reply_lines.extend(['', 'Master Data sheet sync: not enabled for this group'])
+    _post_telegram_reply(chat_id=batch.group_id, message_data={}, text='\n'.join(reply_lines))
     return JsonResponse(result, status=200 if result.get('success') else 400)
 
 @csrf_exempt

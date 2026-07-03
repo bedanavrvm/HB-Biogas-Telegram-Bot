@@ -94,6 +94,39 @@ GOOGLE_DRIVE_MEDIA_FOLDER_ID=<drive-folder-id>
 
 Photos and documents are stored under `year/month/ID_<id-number>/` in the configured Drive folder. Follow-up photos or documents can be sent as replies to the original order update message, and the bot will append their Drive links to the same approval row.
 
+## Jawabu HomeBiogas Workflow
+
+Use the `Jawabu HomeBiogas` preset for the group that imports Jawabu WhatsApp visits and Farmers CSV exports. The ordinary group `sheet_name` can remain `Jawabu Visits` for WhatsApp `/batch` imports. Farmers CSV `/farmup` commits can optionally write reviewed rows into a separate Master Data tab/workbook.
+
+Recommended workflow JSON when Master Data sync is enabled:
+
+```json
+{
+  "type": "jawabu_homebiogas",
+  "header_row": 1,
+  "import_start_date": "2026-05-01",
+  "duplicate_key_fields": ["national_id", "primary_phone"],
+  "duplicate_policy": "flag_for_review",
+  "master_sync_enabled": true,
+  "master_sheet_id": "",
+  "master_sheet_name": "Master Data",
+  "master_header_row": 3,
+  "master_data_start_row": 5,
+  "master_import_log_sheet_name": "Farmers Upload Log"
+}
+```
+
+Leave `master_sheet_id` blank when the same spreadsheet configured on the group contains the `Master Data` tab. Set it only when Master Data lives in a different spreadsheet. The service account used by Render needs edit access to that spreadsheet.
+
+The Master Data sheet reserves hidden far-right system columns from `AS` onward:
+
+```text
+Master Record ID | Import Batch ID | Source Filename | Source Row | Duplicate Key
+Import Status | Review Notes | Reviewed By | Reviewed At | Last Updated At
+```
+
+Do not place staff-facing columns after those system columns. Add future staff columns before the visible audit area, or deliberately move the system block further right and update the script/config together.
+
 ## Sheet Analyzer
 
 For a new group or a new spreadsheet layout, use the built-in Google Sheet analyzer instead of writing `sheet_schema` manually.
