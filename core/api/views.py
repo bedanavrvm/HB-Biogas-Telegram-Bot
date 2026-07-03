@@ -1084,22 +1084,30 @@ def _process_jawabu_farmup_command(
         csv_text=csv_text,
     )
     review_url = build_farmup_review_url(str(batch.id))
-    launch_url = build_farmup_mini_app_url(str(batch.id)) or review_url
+    mini_app_url = build_farmup_mini_app_url(str(batch.id))
+    launch_url = mini_app_url or review_url
     if not review_url:
         return {
             'status': 'command',
             'reply_text': 'CSV parsed, but APP_BASE_URL is not configured so the review form cannot open.',
         }
+    launch_note = (
+        "Opening as Telegram Mini App."
+        if mini_app_url
+        else "Mini App short name is not configured; this button opens the secure web review link."
+    )
+    button_text = 'Open Farmers Review Mini App' if mini_app_url else 'Open Farmers Review'
     return {
         'status': 'command',
         'reply_text': (
             "Farmers CSV ready for review\n"
             f"Rows extracted: {stats.get('total_rows', 0)}\n"
-            f"Rows needing review: {stats.get('review_needed', 0)}\n\n"
-            "Open the review form, correct any values, then commit approved rows."
+            f"Rows needing review: {stats.get('review_needed', 0)}\n"
+            f"{launch_note}\n\n"
+            "Correct any values, then commit approved rows."
         ),
         'reply_markup': {
-            'inline_keyboard': [[{'text': 'Review Farmers Upload', 'url': launch_url}]]
+            'inline_keyboard': [[{'text': button_text, 'url': launch_url}]]
         },
     }
 
