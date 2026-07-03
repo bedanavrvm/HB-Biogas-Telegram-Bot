@@ -724,7 +724,10 @@ def set_header_value(row_values: list, header_lookup: dict[str, int], header: st
 
 def update_master_sheet_row(sheet, row_number: int, row_values: list) -> None:
     end_cell = f"{col_letter(len(row_values))}{row_number}"
-    sheet.update(f"A{row_number}:{end_cell}", [row_values], value_input_option='USER_ENTERED')
+    # Preserve reviewed text exactly as staff see it in the form. USER_ENTERED
+    # lets Google Sheets reinterpret values such as 24-March-2026 as locale
+    # dates, which can display as mm/dd/yy in the Master Data sheet.
+    sheet.update(f"A{row_number}:{end_cell}", [row_values], value_input_option='RAW')
 
 
 def values_equivalent(left, right) -> bool:
@@ -1025,9 +1028,11 @@ def clean_farmer_row(raw_row: dict, header_map: dict[str, str]) -> dict:
         'latitude': clean_coordinate(values['latitude']),
         'longitude': clean_coordinate(values['longitude']),
         'hbg_contract_name': '',
-        'lead_source': clean_lead_source(values['lead_source']),
+        # Farmers CSV exports come from HomeBiogas' system. Installation status
+        # is filled later in the workflow after HB invoices/install evidence.
+        'lead_source': 'HOMEBIOGAS',
         'contract_type': clean_text(values['contract_type']),
-        'installation_status': clean_installation_status(values['installation_status']),
+        'installation_status': '',
         'actual_receipts_currency': clean_text(values['actual_receipts_currency']).upper(),
         'actual_receipts': clean_decimal(values['actual_receipts']),
         'hb_sales_person': clean_sales_person(values['hb_sales_person']),
@@ -1064,7 +1069,7 @@ def master_preview_row(cleaned: dict, source_name: str, source_row_number: int) 
         'Ignored HBG Contract Name': (cleaned.get('raw_data') or {}).get('HBG Contract Name', ''),
         'Raw Sign Date': cleaned.get('sign_date', ''),
         'Raw Contract Type': cleaned.get('contract_type', ''),
-        'Raw Financial Partners': cleaned.get('lead_source', ''),
+        'Raw Financial Partners': (cleaned.get('raw_data') or {}).get('Financial Partners', ''),
     }
 
 def raw_value(row: dict, header_map: dict[str, str], field: str) -> str:

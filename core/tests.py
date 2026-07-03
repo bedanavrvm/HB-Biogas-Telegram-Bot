@@ -1303,6 +1303,8 @@ Mary Njeri njihia
         self.assertEqual(farmer.county, 'EMBU')
         self.assertEqual(farmer.actual_receipts, '5000')
         self.assertEqual(farmer.sign_date, '24-June-2026')
+        self.assertEqual(farmer.lead_source, 'HOMEBIOGAS')
+        self.assertEqual(farmer.installation_status, '')
         self.assertEqual(farmer.created_date, '')
         self.assertEqual(farmer.hbg_contract_name, '')
         self.assertEqual(farmer.external_id, '')
@@ -1341,6 +1343,8 @@ Mary Njeri njihia
         self.assertEqual(farmer.county, 'MERU')
         self.assertEqual(farmer.sign_date, '24-June-2026')
         self.assertEqual(farmer.actual_receipts, '5000')
+        self.assertEqual(farmer.lead_source, 'HOMEBIOGAS')
+        self.assertEqual(farmer.installation_status, '')
 
     def test_jawabu_farmup_commit_removes_committed_rows_and_keeps_remaining(self):
         from core.services.jawabu_master import (
@@ -1395,6 +1399,7 @@ Mary Njeri njihia
                 self.id = 123
                 self.spreadsheet = FakeSpreadsheet()
                 self.col_count = 6
+                self.update_options = []
                 self.values = [
                     [],
                     [],
@@ -1419,6 +1424,7 @@ Mary Njeri njihia
                 return [list(row) for row in self.values]
 
             def update(self, range_name, rows, value_input_option=None):
+                self.update_options.append(value_input_option)
                 row_number = int(range_name.split(':', 1)[0][1:])
                 while len(self.values) < row_number:
                     self.values.append([])
@@ -1454,6 +1460,7 @@ Mary Njeri njihia
         self.assertEqual(sheet.values[4][1], 'DAVID MUGAMBI')
         self.assertEqual(sheet.values[4][5], '5000')
         self.assertEqual(sheet.values[4][headers.index('Import Status')], 'created')
+        self.assertEqual(sheet.update_options, ['RAW'])
         self.assertTrue(sheet.spreadsheet.requests)
 
     def test_farmup_master_sheet_writer_flags_conflicts_without_overwriting(self):
@@ -1469,6 +1476,7 @@ Mary Njeri njihia
             col_count = 10
 
             def __init__(self):
+                self.update_options = []
                 self.values = [
                     [],
                     [],
@@ -1492,6 +1500,7 @@ Mary Njeri njihia
                 return [list(row) for row in self.values]
 
             def update(self, range_name, rows, value_input_option=None):
+                self.update_options.append(value_input_option)
                 row_number = int(range_name.split(':', 1)[0][1:])
                 self.values[row_number - 1] = list(rows[0])
 
@@ -1522,6 +1531,7 @@ Mary Njeri njihia
         self.assertEqual(result['conflicts'], 1)
         self.assertEqual(sheet.values[4][4], 'EMBU')
         self.assertEqual(sheet.values[4][headers.index('Import Status')], 'updated_with_conflict')
+        self.assertEqual(sheet.update_options, ['RAW'])
         self.assertIn('County', sheet.values[4][headers.index('Review Notes')])
 class FcaWorkflowServiceTest(TestCase):
     """Tests for FCA Excel batch imports."""
