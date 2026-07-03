@@ -475,24 +475,47 @@ def sync_committed_farmup_rows_to_master_sheet(
 
 def ensure_master_system_headers(sheet, header_row: int) -> list[str]:
     headers = list(sheet.row_values(header_row))
-    normalized = {normalize_header(header): index + 1 for index, header in enumerate(headers) if str(header or '').strip()}
-    missing = [header for header in MASTER_SYSTEM_HEADERS if normalize_header(header) not in normalized]
-    if missing:
-        first_new_col = max(len(headers) + 1, 45)
-        needed_cols = first_new_col + len(missing) - 1
-        if needed_cols > getattr(sheet, 'col_count', needed_cols):
-            sheet.add_cols(needed_cols - sheet.col_count)
-        if len(headers) < first_new_col - 1:
-            headers.extend([''] * (first_new_col - 1 - len(headers)))
-        for offset, header in enumerate(missing):
-            sheet.update_cell(header_row, first_new_col + offset, header)
-            target_index = first_new_col + offset - 1
-            if target_index < len(headers):
-                headers[target_index] = header
-            else:
-                headers.append(header)
-        hide_master_system_columns(sheet, first_new_col, first_new_col + len(missing) - 1)
+    start_col = 45  # AS. Keep system metadata at the far-right fixed block.
+    end_col = start_col + len(MASTER_SYSTEM_HEADERS) - 1
+    if end_col > getattr(sheet, 'col_count', end_col):
+        sheet.add_cols(end_col - sheet.col_count)
+    if len(headers) < end_col:
+        headers.extend([''] * (end_col - len(headers)))
+
+    canonical_names = {normalize_header(header) for header in MASTER_SYSTEM_HEADERS}
+    cleanup_cells = []
+    for index, header in enumerate(headers, start=1):
+        if start_col <= index <= end_col:
+            continue
+        if normalize_header(header) in canonical_names:
+            cleanup_cells.append((header_row, index, ''))
+            cleanup_cells.append((header_row + 1, index, ''))
+            headers[index - 1] = ''
+
+    for offset, header in enumerate(MASTER_SYSTEM_HEADERS):
+        col = start_col + offset
+        headers[col - 1] = header
+        cleanup_cells.append((header_row, col, header))
+        cleanup_cells.append((
+            header_row + 1,
+            col,
+            'SYSTEM: hidden metadata used by Django import/sync. Do not edit.',
+        ))
+
+    update_sheet_cells(sheet, cleanup_cells)
+    hide_master_system_columns(sheet, start_col, end_col)
     return headers
+
+
+def update_sheet_cells(sheet, cells: list[tuple[int, int, str]]) -> None:
+    if not cells:
+        return
+    try:
+        from gspread import Cell
+        sheet.update_cells([Cell(row, col, value) for row, col, value in cells], value_input_option='RAW')
+    except Exception:
+        for row, col, value in cells:
+            sheet.update_cell(row, col, value)
 
 
 def hide_master_system_columns(sheet, start_col: int, end_col: int) -> None:

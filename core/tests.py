@@ -1420,6 +1420,10 @@ Mary Njeri njihia
                     self.values[row - 1].append('')
                 self.values[row - 1][col - 1] = value
 
+            def update_cells(self, cells, value_input_option=None):
+                for cell in cells:
+                    self.update_cell(cell.row, cell.col, cell.value)
+
             def get_all_values(self):
                 return [list(row) for row in self.values]
 
@@ -1466,11 +1470,63 @@ Mary Njeri njihia
 
         self.assertEqual(result['created'], 1)
         self.assertEqual(result['errors'], [])
-        self.assertEqual(headers[-len(MASTER_SYSTEM_HEADERS):], MASTER_SYSTEM_HEADERS)
+        self.assertEqual(headers[44:54], MASTER_SYSTEM_HEADERS)
         self.assertEqual(sheet.values[4][1], 'DAVID MUGAMBI')
         self.assertEqual(sheet.values[4][5], '5000')
         self.assertEqual(sheet.values[4][headers.index('Import Status')], 'created')
         self.assertEqual(sheet.update_options, ['RAW'])
+        self.assertTrue(sheet.spreadsheet.requests)
+
+    def test_farmup_master_system_headers_are_repaired_to_fixed_block(self):
+        from core.services.jawabu_master import MASTER_SYSTEM_HEADERS, ensure_master_system_headers
+
+        class FakeSpreadsheet:
+            def __init__(self):
+                self.requests = []
+
+            def batch_update(self, payload):
+                self.requests.append(payload)
+
+        class FakeSheet:
+            def __init__(self):
+                self.id = 123
+                self.spreadsheet = FakeSpreadsheet()
+                self.col_count = 60
+                row3 = [''] * 60
+                row4 = [''] * 60
+                row3[0] = 'No.'
+                row3[40] = 'Source Row'
+                row3[41] = 'Duplicate Key'
+                row3[42] = 'Import Status'
+                row3[44] = 'Master Record ID'
+                row4[40] = 'SYSTEM: hidden metadata used by Django import/sync. Do not edit.'
+                self.values = [[], [], row3, row4]
+
+            def row_values(self, row):
+                return list(self.values[row - 1])
+
+            def add_cols(self, count):
+                self.col_count += count
+
+            def update_cell(self, row, col, value):
+                while len(self.values) < row:
+                    self.values.append([])
+                while len(self.values[row - 1]) < col:
+                    self.values[row - 1].append('')
+                self.values[row - 1][col - 1] = value
+
+            def update_cells(self, cells, value_input_option=None):
+                for cell in cells:
+                    self.update_cell(cell.row, cell.col, cell.value)
+
+        sheet = FakeSheet()
+        headers = ensure_master_system_headers(sheet, 3)
+
+        self.assertEqual(headers[44:54], MASTER_SYSTEM_HEADERS)
+        self.assertEqual(sheet.values[2][40], '')
+        self.assertEqual(sheet.values[2][41], '')
+        self.assertEqual(sheet.values[2][42], '')
+        self.assertEqual(sheet.values[2][44:54], MASTER_SYSTEM_HEADERS)
         self.assertTrue(sheet.spreadsheet.requests)
 
     def test_farmup_master_sheet_writer_flags_conflicts_without_overwriting(self):
@@ -1505,6 +1561,10 @@ Mary Njeri njihia
                 while len(self.values[row - 1]) < col:
                     self.values[row - 1].append('')
                 self.values[row - 1][col - 1] = value
+
+            def update_cells(self, cells, value_input_option=None):
+                for cell in cells:
+                    self.update_cell(cell.row, cell.col, cell.value)
 
             def get_all_values(self):
                 return [list(row) for row in self.values]
