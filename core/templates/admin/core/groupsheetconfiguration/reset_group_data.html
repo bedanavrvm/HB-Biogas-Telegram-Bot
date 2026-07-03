@@ -9,7 +9,7 @@
     (<code>{{ config.group_id }}</code>).
   </p>
   <p>
-    Google Sheets rows and Google Drive files will not be deleted.
+    Google Sheets rows and Google Drive files will not be deleted. This page only clears local Django database records.
   </p>
 
   <h2>Records To Delete</h2>
@@ -29,8 +29,22 @@
     {% csrf_token %}
     <div class="form-row">
       <label>
+        <input type="checkbox" name="include_farmer_uploads" value="yes">
+        Also clear Farmers upload batches for this group and linked local Master Data rows.
+      </label>
+      <p class="help">Use this while retesting <code>/farmup</code>. It removes review batches and local master rows created from those batches.</p>
+    </div>
+    <div class="form-row">
+      <label>
+        <input type="checkbox" name="include_all_farmer_master" value="yes">
+        Clear all local Farmers master records, including rows not linked to this group.
+      </label>
+      <p class="help">Use only on test data. Google Sheets rows are still not deleted.</p>
+    </div>
+    <div class="form-row">
+      <label>
         <input type="checkbox" name="confirm_reset" value="yes" required>
-        I understand this permanently deletes local database data for this group only.
+        I understand this permanently deletes selected local database data.
       </label>
     </div>
     <div class="submit-row">

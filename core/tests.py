@@ -2881,6 +2881,26 @@ class GroupResetServiceTest(TestCase):
             national_id='12345678',
             primary_phone='254712345678',
         )
+        upload_batch = JawabuFarmerUploadBatch.objects.create(
+            group_id='-100reset',
+            telegram_message_id='farmup-reset',
+            source_filename='farmers.csv',
+        )
+        JawabuFarmerMaster.objects.create(
+            source='jawabu_farmup_review',
+            customer_name='RESET FARMER',
+            national_id='12345678',
+            primary_phone='254712345678',
+            duplicate_key='12345678|254712345678',
+            raw_data={'upload_batch_id': str(upload_batch.id)},
+        )
+        JawabuFarmerMaster.objects.create(
+            source='manual_test',
+            customer_name='GLOBAL FARMER',
+            national_id='99999999',
+            primary_phone='254799999999',
+            duplicate_key='99999999|254799999999',
+        )
         LiveSheetRecordChange.objects.create(
             group_id='-100reset',
             sheet_id='sheet_order',
@@ -2894,12 +2914,18 @@ class GroupResetServiceTest(TestCase):
         result = reset_group_data('-100reset')
 
         self.assertGreater(before['parsed_messages'], 0)
-        self.assertEqual(sum(result['after'].values()), 0)
+        for key, value in result['after'].items():
+            if key in {'farmer_upload_batches', 'linked_farmer_master_records', 'all_farmer_master_records'}:
+                continue
+            self.assertEqual(value, 0, key)
         self.assertFalse(ParsedMessage.objects.filter(group_id='-100reset').exists())
         self.assertFalse(CaseUpdate.objects.filter(group_id='-100reset').exists())
         self.assertFalse(OrderApprovalUpdate.objects.filter(group_id='-100reset').exists())
         self.assertFalse(MediaAttachment.objects.filter(group_id='-100reset').exists())
         self.assertFalse(JawabuVisitRecord.objects.filter(group_id='-100reset').exists())
+        self.assertTrue(JawabuFarmerUploadBatch.objects.filter(group_id='-100reset').exists())
+        self.assertTrue(JawabuFarmerMaster.objects.filter(customer_name='RESET FARMER').exists())
+        self.assertTrue(JawabuFarmerMaster.objects.filter(customer_name='GLOBAL FARMER').exists())
         self.assertFalse(LiveSheetRecordChange.objects.filter(group_id='-100reset').exists())
         self.assertFalse(ProcessedMessage.objects.filter(pk=target.processed_message_id).exists())
         self.assertFalse(RawMessage.objects.filter(pk=target.processed_message.raw_message_id).exists())
@@ -2907,6 +2933,65 @@ class GroupResetServiceTest(TestCase):
         self.assertTrue(ParsedMessage.objects.filter(pk=other.pk).exists())
         self.assertTrue(ProcessedMessage.objects.filter(pk=other.processed_message_id).exists())
         self.assertTrue(RawMessage.objects.filter(pk=other.processed_message.raw_message_id).exists())
+
+    def test_reset_group_data_can_delete_farmers_uploads_and_linked_master_rows(self):
+        from core.services.group_reset import reset_group_data
+
+        batch = JawabuFarmerUploadBatch.objects.create(
+            group_id='-100farmreset',
+            telegram_message_id='farmup-reset',
+            source_filename='farmers.csv',
+        )
+        JawabuFarmerMaster.objects.create(
+            source='jawabu_farmup_review',
+            customer_name='LINKED FARMER',
+            national_id='12345678',
+            primary_phone='254712345678',
+            duplicate_key='12345678|254712345678',
+            raw_data={'upload_batch_id': str(batch.id)},
+        )
+        JawabuFarmerMaster.objects.create(
+            source='manual_test',
+            customer_name='UNLINKED FARMER',
+            national_id='99999999',
+            primary_phone='254799999999',
+            duplicate_key='99999999|254799999999',
+        )
+
+        result = reset_group_data('-100farmreset', include_farmer_uploads=True)
+
+        self.assertEqual(result['deleted']['farmer_upload_batches'], 1)
+        self.assertEqual(result['deleted']['linked_farmer_master_records'], 1)
+        self.assertFalse(JawabuFarmerUploadBatch.objects.filter(group_id='-100farmreset').exists())
+        self.assertFalse(JawabuFarmerMaster.objects.filter(customer_name='LINKED FARMER').exists())
+        self.assertTrue(JawabuFarmerMaster.objects.filter(customer_name='UNLINKED FARMER').exists())
+
+    def test_reset_group_data_can_delete_all_farmer_master_rows_for_testing(self):
+        from core.services.group_reset import reset_group_data
+
+        batch = JawabuFarmerUploadBatch.objects.create(group_id='-100farmreset')
+        JawabuFarmerMaster.objects.create(
+            customer_name='LINKED FARMER',
+            national_id='12345678',
+            primary_phone='254712345678',
+            duplicate_key='12345678|254712345678',
+            raw_data={'upload_batch_id': str(batch.id)},
+        )
+        JawabuFarmerMaster.objects.create(
+            customer_name='UNLINKED FARMER',
+            national_id='99999999',
+            primary_phone='254799999999',
+            duplicate_key='99999999|254799999999',
+        )
+
+        reset_group_data(
+            '-100farmreset',
+            include_farmer_uploads=True,
+            include_all_farmer_master=True,
+        )
+
+        self.assertFalse(JawabuFarmerUploadBatch.objects.filter(group_id='-100farmreset').exists())
+        self.assertFalse(JawabuFarmerMaster.objects.exists())
 
 
 class GroupConfigurationServiceTest(TestCase):

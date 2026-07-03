@@ -629,7 +629,13 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
             if request.POST.get('confirm_reset') != 'yes':
                 messages.error(request, 'Tick the confirmation checkbox before resetting group data.')
                 return HttpResponseRedirect(request.path)
-            result = reset_group_data(config.group_id)
+            include_farmer_uploads = request.POST.get('include_farmer_uploads') == 'yes'
+            include_all_farmer_master = request.POST.get('include_all_farmer_master') == 'yes'
+            result = reset_group_data(
+                config.group_id,
+                include_farmer_uploads=include_farmer_uploads,
+                include_all_farmer_master=include_all_farmer_master,
+            )
             deleted_total = sum(result.get('deleted', {}).values())
             self._clear_runtime_config_cache()
             messages.success(
