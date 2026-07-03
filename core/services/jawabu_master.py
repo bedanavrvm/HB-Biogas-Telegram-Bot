@@ -529,6 +529,7 @@ def write_rows_to_master_sheet(
     existing = build_master_existing_index(values, header_lookup, data_start_row)
     created = updated = conflicts = 0
     errors = []
+    pending_updates = []
     now_text = timezone.now().strftime('%d-%B-%Y %H:%M')
     for cleaned in cleaned_rows:
         try:
@@ -547,7 +548,9 @@ def write_rows_to_master_sheet(
                 if conflict_notes:
                     conflicts += 1
                 if change_count:
-                    update_master_sheet_row(sheet, row_number, row_values)
+                    pending_updates.append((row_number, row_values))
+                    values = pad_values_to_row(values, row_number, len(headers))
+                    values[row_number - 1] = row_values
                     updated += 1
                 continue
 
@@ -563,14 +566,54 @@ def write_rows_to_master_sheet(
                 now_text=now_text,
                 created=True,
             )
-            update_master_sheet_row(sheet, row_number, row_values)
+            pending_updates.append((row_number, row_values))
             values = pad_values_to_row(values, row_number, len(headers))
             values[row_number - 1] = row_values
             add_master_index_row(existing, row_number, row_values, header_lookup)
             created += 1
         except Exception as exc:  # pragma: no cover - defensive per-row handling
             errors.append(f"{cleaned.get('customer_name') or cleaned.get('national_id') or 'row'}: {exc}")
+    if pending_updates:
+        try:
+            batch_update_master_sheet_rows(sheet, pending_updates, len(headers))
+        except Exception as exc:  # pragma: no cover - defensive external API handling
+            errors.append(f'Master Data batch write failed: {exc}')
     return {'created': created, 'updated': updated, 'conflicts': conflicts, 'errors': errors[:20]}
+
+
+def batch_update_master_sheet_rows(sheet, updates: list[tuple[int, list]], width: int) -> None:
+    if not updates:
+        return
+    payload = []
+    for start_row, block_rows in compact_master_sheet_updates(updates):
+        end_row = start_row + len(block_rows) - 1
+        payload.append({
+            'range': f'A{start_row}:{col_letter(width)}{end_row}',
+            'values': block_rows,
+        })
+    sheet.batch_update(payload, value_input_option='RAW')
+
+
+def compact_master_sheet_updates(updates: list[tuple[int, list]]) -> list[tuple[int, list[list]]]:
+    ordered = sorted(updates, key=lambda item: item[0])
+    blocks = []
+    current_start = None
+    current_rows = []
+    previous_row = None
+    for row_number, row_values in ordered:
+        if current_start is None:
+            current_start = row_number
+            current_rows = [row_values]
+        elif previous_row is not None and row_number == previous_row + 1:
+            current_rows.append(row_values)
+        else:
+            blocks.append((current_start, current_rows))
+            current_start = row_number
+            current_rows = [row_values]
+        previous_row = row_number
+    if current_start is not None:
+        blocks.append((current_start, current_rows))
+    return blocks
 
 
 def merge_master_row_values(

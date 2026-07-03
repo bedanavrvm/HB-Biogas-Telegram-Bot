@@ -1430,6 +1430,16 @@ Mary Njeri njihia
                     self.values.append([])
                 self.values[row_number - 1] = list(rows[0])
 
+            def batch_update(self, payload, value_input_option=None, **kwargs):
+                self.update_options.append(value_input_option)
+                for item in payload:
+                    row_number = int(item['range'].split(':', 1)[0][1:])
+                    for offset, row in enumerate(item['values']):
+                        target = row_number + offset
+                        while len(self.values) < target:
+                            self.values.append([])
+                        self.values[target - 1] = list(row)
+
         batch = JawabuFarmerUploadBatch.objects.create(
             group_id=self.group.group_id,
             sender='Reviewer',
@@ -1503,6 +1513,13 @@ Mary Njeri njihia
                 self.update_options.append(value_input_option)
                 row_number = int(range_name.split(':', 1)[0][1:])
                 self.values[row_number - 1] = list(rows[0])
+
+            def batch_update(self, payload, value_input_option=None, **kwargs):
+                self.update_options.append(value_input_option)
+                for item in payload:
+                    row_number = int(item['range'].split(':', 1)[0][1:])
+                    for offset, row in enumerate(item['values']):
+                        self.values[row_number + offset - 1] = list(row)
 
         batch = JawabuFarmerUploadBatch.objects.create(
             group_id=self.group.group_id,
