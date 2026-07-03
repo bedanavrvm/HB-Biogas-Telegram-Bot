@@ -330,10 +330,12 @@ def commit_farmup_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict],
             'skipped': batch.skipped_count,
         }
 
+    previous_committed = batch.committed_count or 0
     committed = 0
     skipped = 0
     errors = []
-    saved_rows = []
+    remaining_rows = []
+    committed_display_rows = []
     committed_cleaned_rows = []
     now = timezone.now()
     for index, row in enumerate(rows, start=1):
@@ -341,32 +343,32 @@ def commit_farmup_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict],
         row['row_id'] = row.get('row_id') or index
         if not row.get('approved'):
             skipped += 1
-            saved_rows.append(row)
+            remaining_rows.append(row)
             continue
         cleaned = cleaned_master_row_from_review(row, batch, index, now)
         if not cleaned['customer_name']:
             errors.append(f"Row {index}: Customer Name is required.")
             row['Import Status'] = 'review_needed'
             row['Cleaning Notes'] = append_note(row.get('Cleaning Notes', ''), 'Customer Name is required')
-            saved_rows.append(row)
+            remaining_rows.append(row)
             continue
         if not cleaned['national_id'] and not cleaned['primary_phone']:
             errors.append(f"Row {index}: National ID or Primary Phone is required.")
             row['Import Status'] = 'review_needed'
             row['Cleaning Notes'] = append_note(row.get('Cleaning Notes', ''), 'National ID or Primary Phone is required')
-            saved_rows.append(row)
+            remaining_rows.append(row)
             continue
         if cleaned['primary_phone'] and not is_valid_phone(cleaned['primary_phone']):
             errors.append(f"Row {index}: Primary Phone must be in 254 format.")
             row['Import Status'] = 'review_needed'
             row['Cleaning Notes'] = append_note(row.get('Cleaning Notes', ''), 'Primary Phone must be in 254 format')
-            saved_rows.append(row)
+            remaining_rows.append(row)
             continue
         if cleaned['secondary_phone'] and not is_valid_phone(cleaned['secondary_phone']):
             errors.append(f"Row {index}: Secondary Phone must be in 254 format.")
             row['Import Status'] = 'review_needed'
             row['Cleaning Notes'] = append_note(row.get('Cleaning Notes', ''), 'Secondary Phone must be in 254 format')
-            saved_rows.append(row)
+            remaining_rows.append(row)
             continue
         farmer_created, farmer_status = upsert_farmer(cleaned)
         cleaned['_farmer_created'] = farmer_created
@@ -374,17 +376,7 @@ def commit_farmup_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict],
         committed_cleaned_rows.append(cleaned)
         committed += 1
         row['Import Status'] = 'active'
-        saved_rows.append(row)
-
-    batch.parsed_rows = saved_rows
-    batch.committed_count = committed
-    batch.skipped_count = skipped
-    batch.review_needed = sum(1 for row in saved_rows if row.get('Import Status') == 'review_needed')
-    batch.status = 'committed' if not errors else 'pending_review'
-    batch.error = '\n'.join(errors[:20])
-    if not errors:
-        batch.committed_at = now
-    batch.save()
+        committed_display_rows.append(row)
 
     sheet_sync = sync_committed_farmup_rows_to_master_sheet(
         batch=batch,
@@ -393,6 +385,25 @@ def commit_farmup_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict],
     )
     sync_errors = sheet_sync.get('errors') or []
     success = not errors and sheet_sync.get('success', True)
+    if success:
+        saved_rows = remaining_rows
+    else:
+        saved_rows = committed_display_rows + remaining_rows
+        for row in committed_display_rows:
+            row['Import Status'] = 'review_needed'
+            row['Cleaning Notes'] = append_note(
+                row.get('Cleaning Notes', ''),
+                'Committed locally but Master Data sheet sync needs retry'
+            )
+    batch.parsed_rows = saved_rows
+    batch.committed_count = previous_committed + committed
+    batch.skipped_count = skipped
+    batch.review_needed = sum(1 for row in saved_rows if row.get('Import Status') == 'review_needed')
+    batch.status = 'committed' if success and not saved_rows else 'pending_review'
+    batch.error = '\n'.join((errors + sync_errors)[:20])
+    if batch.status == 'committed':
+        batch.committed_at = now
+    batch.save()
     return {
         'success': success,
         'message': (

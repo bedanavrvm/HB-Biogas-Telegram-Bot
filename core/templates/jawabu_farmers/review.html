@@ -147,7 +147,22 @@
         if (result.rows) { rows = result.rows; render(); }
         return;
       }
-      setStatus(`Committed ${result.committed} row(s). Skipped ${result.skipped}.`, 'ok');
+      const remaining = Array.isArray(result.rows) ? result.rows : [];
+      if (remaining.length) {
+        rows = remaining;
+        render();
+        const sync = result.sheet_sync || {};
+        const syncText = sync.enabled
+          ? ` Master sync: ${sync.created || 0} created, ${sync.updated || 0} updated, ${sync.conflicts || 0} conflict(s).`
+          : ' Master sync is not enabled for this group.';
+        setStatus(`Committed ${result.committed} row(s). ${remaining.length} row(s) remain for review.${syncText}`, 'ok');
+        return;
+      }
+      const sync = result.sheet_sync || {};
+      const syncText = sync.enabled
+        ? ` Master sync: ${sync.created || 0} created, ${sync.updated || 0} updated, ${sync.conflicts || 0} conflict(s).`
+        : ' Master sync is not enabled for this group.';
+      setStatus(`Committed ${result.committed} row(s). All rows are complete.${syncText}`, 'ok');
       if (tg) setTimeout(() => tg.close(), 900);
     } catch (err) {
       setStatus('Could not commit rows. Check your connection and try again.', 'error');

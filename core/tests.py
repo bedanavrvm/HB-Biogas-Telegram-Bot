@@ -1342,6 +1342,40 @@ Mary Njeri njihia
         self.assertEqual(farmer.sign_date, '24-June-2026')
         self.assertEqual(farmer.actual_receipts, '5000')
 
+    def test_jawabu_farmup_commit_removes_committed_rows_and_keeps_remaining(self):
+        from core.services.jawabu_master import (
+            commit_farmup_review_batch,
+            create_farmup_review_batch,
+        )
+
+        csv_text = (
+            "Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Sign Date,Sign Date\n"
+            "David Mugambi [23215888],,Embu,+254721997481,,5000,01/05/2026,24/06/2026\n"
+            "Mary Njeri [12345678],,Meru,+254722000000,,0,01/05/2026,25/06/2026\n"
+        )
+        batch, _stats = create_farmup_review_batch(
+            group_id=self.group.group_id,
+            telegram_message_id='farmup_partial',
+            sender='Uploader',
+            source_filename='farmers.csv',
+            csv_text=csv_text,
+        )
+        rows = list(batch.parsed_rows)
+        rows[0]['approved'] = True
+        rows[1]['approved'] = False
+
+        result = commit_farmup_review_batch(batch, rows)
+
+        batch.refresh_from_db()
+        self.assertTrue(result['success'])
+        self.assertEqual(result['committed'], 1)
+        self.assertEqual(batch.status, 'pending_review')
+        self.assertEqual(batch.committed_count, 1)
+        self.assertEqual(len(batch.parsed_rows), 1)
+        self.assertEqual(batch.parsed_rows[0]['Customer Name'], 'MARY NJERI')
+        self.assertFalse(batch.parsed_rows[0]['approved'])
+        self.assertEqual(JawabuFarmerMaster.objects.count(), 1)
+
     def test_farmup_master_sheet_writer_appends_system_columns_at_far_right(self):
         from core.services.jawabu_master import (
             MASTER_SYSTEM_HEADERS,
