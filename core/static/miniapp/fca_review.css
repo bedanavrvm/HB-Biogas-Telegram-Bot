@@ -1,0 +1,3 @@
+table { min-width: 1220px; }
+.status-col { width: 185px; }
+.source { width: 170px; color: var(--muted); font-size: 11px; }
