@@ -35,15 +35,30 @@ SHARED_GROUP_BOT_COMMANDS = [
 ORDER_APPROVAL_BOT_COMMANDS = [
     {'command': 'order', 'description': 'Open the order approval form'},
     {'command': 'form', 'description': 'Open the order approval form'},
-    {'command': 'batchfca', 'description': 'Import FCA Excel workbook attachments'},
+    {'command': 'fcaup', 'description': 'Update Master Data from FCA Section A'},
+    {'command': 'batchfca', 'description': 'Import legacy FCA Excel workbook attachments'},
 ]
 
 JAWABU_BOT_COMMANDS = [
     {'command': 'batch', 'description': 'Import a Jawabu WhatsApp export'},
     {'command': 'farmup', 'description': 'Review and import Jawabu Farmers CSV'},
+    {'command': 'fcaup', 'description': 'Update Master Data from FCA Section A'},
 ]
 
-PRIVATE_BOT_COMMANDS = (
+
+def unique_commands(commands: list[dict]) -> list[dict]:
+    seen = set()
+    unique = []
+    for item in commands:
+        command = item.get('command')
+        if command in seen:
+            continue
+        seen.add(command)
+        unique.append(item)
+    return unique
+
+
+PRIVATE_BOT_COMMANDS = unique_commands(
     ORDER_APPROVAL_BOT_COMMANDS
     + JAWABU_BOT_COMMANDS
     + CASE_BOT_COMMANDS

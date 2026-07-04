@@ -1672,6 +1672,93 @@ class FcaWorkflowServiceTest(TestCase):
         self.assertEqual(records[0].fields['fca_decision'], 'Cash')
         self.assertEqual(records[1].fields['fca_decision'], 'Approved')
 
+
+    def fcaup_workbook_bytes(self):
+        from openpyxl import Workbook
+
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = 'FCA Visit Form'
+        sheet['D2'] = 'FIELD CONTROL VISIT ACTIVITY FORM'
+        sheet['H2'] = 'Date: 23rd June 2026'
+        sheet['B4'] = 'Hub: Kiambu'
+        sheet['B6'] = 'SECTION A - APPRAISALS (NEW LEADS)'
+        sheet.append([])
+        sheet.append([])
+        sheet.append([])
+        sheet.append([])
+        sheet.append([])
+        sheet.append([])
+        sheet.append([
+            None, 'NO', 'CUSTOMER NAME', 'ID NUMBER', 'PHONE (254..)',
+            'LOCATION', 'HB STAFF', 'DEPOSIT', 'APPROVAL BASIS ', 'STATUS ', 'COMMENT',
+        ])
+        sheet.append([
+            None, 1, 'Samuel Ndungu', '113650221', '0724733556',
+            'Ngenda', 'Nathan', 5000, 'Ignored basis text',
+            'Approved - Pending Minimum Deposit', 'Customer needs 5k top-up',
+        ])
+        stream = BytesIO()
+        workbook.save(stream)
+        return stream.getvalue()
+
+    def test_extract_fcaup_section_a_uses_status_dropdown_and_ignores_basis(self):
+        from core.services.fca import extract_fcaup_section_a_records
+
+        records = extract_fcaup_section_a_records('JBL_FCA_TEMPLATE_V1.xlsx', self.fcaup_workbook_bytes())
+
+        self.assertEqual(len(records), 1)
+        fields = records[0].fields
+        self.assertEqual(fields['customer_name'], 'SAMUEL NDUNGU')
+        self.assertEqual(fields['id_number'], '113650221')
+        self.assertEqual(fields['primary_phone'], '254724733556')
+        self.assertEqual(fields['fca_visit_date'], '23-June-2026')
+        self.assertEqual(fields['fca_decision'], 'Approved - Pending Minimum Deposit')
+        self.assertEqual(fields['fca_comment'], 'Customer needs 5k top-up')
+        self.assertNotIn('Ignored basis text', fields['fca_comment'])
+
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_process_fcaup_files_updates_master_data_g_h_and_visit_date(self, mock_service):
+        from core.services.fca import process_fcaup_files
+
+        self.group.workflow.update({
+            'fca_master_sheet_id': 'md_sheet',
+            'fca_master_sheet_name': 'Master Data',
+            'fca_master_header_row': 3,
+            'fca_master_data_start_row': 5,
+        })
+        self.group.save(update_fields=['workflow'])
+        headers = [
+            'No.', 'Customer Name', 'National ID', 'Primary Phone',
+            'Jawabu Visit Date', 'Homebiogas Visit Date',
+            'Jawabu Comment After visit', 'Additional Comments',
+            'HB Sales Person', 'Deposit Paid to HB',
+        ]
+        fake_sheet = FakeMasterDataSheet(headers, [
+            '1', 'SAMUEL NDUNGU', '113650221', '254724733556', '', '',
+            'JBL to Schedule Visit', 'Old note', '', '',
+        ])
+        mock_service.return_value = FakeJawabuService(fake_sheet)
+
+        result = process_fcaup_files(
+            group_config=self.group,
+            files=[('JBL_FCA_TEMPLATE_V1.xlsx', self.fcaup_workbook_bytes())],
+            telegram_message_id='701',
+            sender='FCA Admin',
+        )
+
+        self.assertEqual(result['status'], 'fcaup_processed')
+        self.assertEqual(result['updated'], 1)
+        self.assertEqual(result['created'], 0)
+        self.assertEqual(result['review_needed'], 0)
+        row = fake_sheet.values[4]
+        self.assertEqual(row[4], '23-June-2026')
+        self.assertEqual(row[6], 'Approved - Pending Minimum Deposit')
+        self.assertEqual(row[7], 'Customer needs 5k top-up')
+        self.assertNotIn('Ignored basis text', row[7])
+        self.assertEqual(FcaImportRecord.objects.get().fca_decision, 'Approved - Pending Minimum Deposit')
+        self.assertEqual(fake_sheet.update_options, ['RAW'])
+
     @patch('core.services.fca.get_sheets_service')
     def test_process_fca_batch_files_appends_rows_to_order_sheet(self, mock_service):
         from core.services.fca import FCA_FIELD_HEADERS, process_fca_batch_files
@@ -1698,6 +1785,57 @@ class FcaWorkflowServiceTest(TestCase):
         record_id_index = headers.index('ORDER RECORD ID')
         self.assertEqual(fake_sheet.appended_rows[0][record_id_index], 'JBL-1')
         self.assertEqual(fake_sheet.appended_rows[1][record_id_index], 'JBL-2')
+
+
+class FakeMasterSpreadsheet:
+    def __init__(self):
+        self.requests = []
+
+    def batch_update(self, payload):
+        self.requests.append(payload)
+
+
+class FakeMasterDataSheet:
+    def __init__(self, headers, existing_row=None):
+        self.id = 321
+        self.spreadsheet = FakeMasterSpreadsheet()
+        self.col_count = len(headers)
+        self.update_options = []
+        self.values = [[], [], list(headers), [], list(existing_row or [])]
+
+    def row_values(self, row_number):
+        if row_number <= len(self.values):
+            return list(self.values[row_number - 1])
+        return []
+
+    def add_cols(self, count):
+        self.col_count += count
+
+    def update_cell(self, row, col, value):
+        while len(self.values) < row:
+            self.values.append([])
+        while len(self.values[row - 1]) < col:
+            self.values[row - 1].append('')
+        self.values[row - 1][col - 1] = value
+
+    def update_cells(self, cells, value_input_option=None):
+        for cell in cells:
+            self.update_cell(cell.row, cell.col, cell.value)
+
+    def get_all_values(self):
+        return [list(row) for row in self.values]
+
+    def batch_update(self, payload, value_input_option=None, **kwargs):
+        self.update_options.append(value_input_option)
+        import re
+        for item in payload:
+            match = re.search(r'(\d+)', item['range'].split(':', 1)[0])
+            row_number = int(match.group(1))
+            for offset, row in enumerate(item['values']):
+                target = row_number + offset
+                while len(self.values) < target:
+                    self.values.append([])
+                self.values[target - 1] = list(row)
 
 
 class FakeFcaSheet:
@@ -3390,6 +3528,10 @@ class GroupConfigurationServiceTest(TestCase):
                 'record_id_prefix': 'JBL',
                 'header_row': 3,
                 'media_root_folder': 'BRO Order Approvals',
+                'fca_master_sheet_id': '',
+                'fca_master_sheet_name': 'Master Data',
+                'fca_master_header_row': 3,
+                'fca_master_data_start_row': 5,
             },
         )
 
@@ -4386,9 +4528,17 @@ class TelegramCommandMenuTest(TestCase):
         )
         jawabu_commands = [item['command'] for item in jawabu_payload['commands']]
         self.assertIn('batch', jawabu_commands)
+        self.assertIn('farmup', jawabu_commands)
+        self.assertIn('fcaup', jawabu_commands)
         self.assertIn('group', jawabu_commands)
         self.assertNotIn('order', jawabu_commands)
         self.assertNotIn('case', jawabu_commands)
+        private_payload = next(
+            payload for payload in payloads
+            if payload['scope'] == {'type': 'all_private_chats'}
+        )
+        private_commands = [item['command'] for item in private_payload['commands']]
+        self.assertEqual(private_commands.count('fcaup'), 1)
         self.assertNotIn('order', case_commands)
 
     def test_sync_telegram_commands_dry_run_lists_group_scope_without_token(self):

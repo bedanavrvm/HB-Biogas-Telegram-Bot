@@ -629,7 +629,7 @@ class FcaImportRecord(models.Model):
     primary_phone = models.CharField(max_length=32, blank=True, default='', db_index=True)
     fca_visit_date = models.DateField(null=True, blank=True)
     fca_comment = models.TextField(blank=True, default='')
-    fca_decision = models.CharField(max_length=32, blank=True, default='', db_index=True)
+    fca_decision = models.CharField(max_length=80, blank=True, default='', db_index=True)
     import_status = models.CharField(
         max_length=32,
         choices=IMPORT_STATUS_CHOICES,

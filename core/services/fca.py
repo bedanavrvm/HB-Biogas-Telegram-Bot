@@ -23,8 +23,29 @@ except Exception:  # pragma: no cover - handled at runtime on Render if missing
 logger = logging.getLogger(__name__)
 
 FCA_BATCH_COMMAND = '/batchfca'
+FCAUP_COMMAND = '/fcaup'
 DEFAULT_HEADER_ROW = 2
 DEFAULT_FCA_SHEET_NAME = 'Orders'
+DEFAULT_MASTER_SHEET_NAME = 'Master Data'
+
+FCAUP_STATUS_VALUES = (
+    'Approved - Paid',
+    'Approved - Pending Invoice',
+    'Approved - Pending Minimum Deposit',
+    'Approved - Requisition Cancelled',
+    'Awaiting Analysis',
+    'JBL to Schedule Visit',
+    'Visit Pending / Reschedule',
+    'Deferred / On Hold',
+    'Rejected by JBL',
+    'Cancelled',
+    'Client Withdrew',
+    'Opted for Cash',
+)
+FCAUP_STATUS_LOOKUP = {
+    re.sub(r'\s+', ' ', status).casefold(): status
+    for status in FCAUP_STATUS_VALUES
+}
 
 FCA_FIELD_HEADERS = {
     'order_record_id': 'ORDER RECORD ID',
@@ -82,9 +103,126 @@ class FcaParsedRecord:
 
     @property
     def status(self) -> str:
-        if not self.fields.get('fca_comment') or not self.fields.get('fca_decision'):
+        import_status = str(self.fields.get('fca_import_status') or '').casefold()
+        if 'review' in import_status:
+            return 'review_needed'
+        if 'fail' in import_status:
+            return 'failed'
+        if self.fields.get('fca_decision'):
+            return 'pending'
+        if not self.fields.get('fca_comment'):
             return 'review_needed'
         return 'pending'
+
+
+def process_fcaup_files(
+    group_config,
+    files: list[tuple[str, bytes]],
+    telegram_message_id: str,
+    sender: str = '',
+) -> dict[str, Any]:
+    """Parse the agreed Section A FCA template and upsert results into MD."""
+    if openpyxl is None:
+        return {
+            'status': 'fcaup_processed',
+            'files': len(files),
+            'processed': 0,
+            'updated': 0,
+            'created': 0,
+            'review_needed': 0,
+            'failed': 0,
+            'errors': ['openpyxl is not installed. Add it to requirements and redeploy.'],
+        }
+
+    parsed_records: list[FcaParsedRecord] = []
+    file_errors: list[str] = []
+    for filename, content in files:
+        try:
+            parsed_records.extend(extract_fcaup_section_a_records(filename, content))
+        except Exception as exc:
+            logger.error("Failed to parse FCA update workbook %s: %s", filename, exc, exc_info=True)
+            file_errors.append(f"{filename}: {exc}")
+
+    if not files:
+        return {
+            'status': 'command',
+            'reply_text': (
+                "Attach the agreed FCA Section A .xlsx workbook or a .zip of workbooks and send:\n"
+                "@bot /fcaup"
+            ),
+        }
+
+    if not parsed_records:
+        return {
+            'status': 'fcaup_processed',
+            'files': len(files),
+            'processed': 0,
+            'updated': 0,
+            'created': 0,
+            'review_needed': 0,
+            'failed': 0,
+            'errors': file_errors or ['No Section A FCA customer rows were found.'],
+        }
+
+    records = [
+        save_fca_record(group_config, parsed, telegram_message_id, sender, configured_master_sheet_name(group_config))
+        for parsed in parsed_records
+    ]
+    sync_result = sync_fcaup_records_to_master_data(group_config, records)
+    for record in records:
+        record.refresh_from_db()
+
+    status_counts = {}
+    for record in records:
+        value = record.fca_decision or 'Missing Status'
+        status_counts[value] = status_counts.get(value, 0) + 1
+
+    return {
+        'status': 'fcaup_processed',
+        'files': len(files),
+        'processed': len(records),
+        'updated': sync_result.get('updated', 0),
+        'created': sync_result.get('created', 0),
+        'review_needed': sum(1 for record in records if record.import_status == 'review_needed'),
+        'failed': sum(1 for record in records if record.import_status == 'failed'),
+        'duplicates': sync_result.get('duplicates', 0),
+        'sheet_tab': sync_result.get('sheet_tab') or configured_master_sheet_name(group_config),
+        'status_counts': status_counts,
+        'errors': file_errors + (sync_result.get('errors') or []),
+        'review_examples': fca_review_examples(records),
+    }
+
+
+def extract_fcaup_section_a_records(filename: str, content: bytes) -> list[FcaParsedRecord]:
+    workbook = openpyxl.load_workbook(io.BytesIO(content), data_only=True, read_only=True)
+    records: list[FcaParsedRecord] = []
+    for worksheet in workbook.worksheets:
+        rows = worksheet_rows(worksheet)
+        header_row, headers = detect_fcaup_section_a_header(rows)
+        if not header_row:
+            continue
+        column_map = fcaup_column_map(headers)
+        visit_date = extract_visit_date(rows, filename)
+        hub = extract_hub(rows)
+        for row_number, values in rows:
+            if row_number <= header_row:
+                continue
+            if looks_like_footer(values) or looks_like_next_fcaup_section(values):
+                break
+            if not any(values):
+                continue
+            parsed = parse_fcaup_section_a_row(
+                filename=filename,
+                sheet_name=worksheet.title,
+                row_number=row_number,
+                values=values,
+                columns=column_map,
+                visit_date=visit_date,
+                hub=hub,
+            )
+            if parsed:
+                records.append(parsed)
+    return records
 
 
 def process_fca_batch_files(
@@ -262,6 +400,109 @@ def fca_column_map(headers: list[str], max_column: int) -> dict[str, int | None]
     }
 
 
+def detect_fcaup_section_a_header(rows: list[tuple[int, list[str]]]) -> tuple[int | None, list[str]]:
+    for row_number, values in rows[:25]:
+        lower = [value.lower().strip() for value in values]
+        if (
+            any(value == 'customer name' for value in lower)
+            and any('id number' in value or value == 'id no' for value in lower)
+            and any('status' == value.strip() for value in lower)
+            and any('comment' == value.strip() for value in lower)
+        ):
+            return row_number, values
+    return None, []
+
+
+def fcaup_column_map(headers: list[str]) -> dict[str, int | None]:
+    lower = [header.lower().strip() for header in headers]
+
+    def find(*needles: str) -> int | None:
+        for needle in needles:
+            for index, value in enumerate(lower, start=1):
+                if value == needle or needle in value:
+                    return index
+        return None
+
+    return {
+        'customer_name': find('customer name'),
+        'id_number': find('id number', 'id no', 'national id'),
+        'primary_phone': find('phone', 'contacts', 'mobile', 'tel'),
+        'landmark': find('location'),
+        'staff': find('hb staff', 'field officer', 'bro'),
+        'deposit_hb': find('deposit'),
+        'status': find('status'),
+        'fca_comment': find('comment'),
+    }
+
+
+def parse_fcaup_section_a_row(
+    filename: str,
+    sheet_name: str,
+    row_number: int,
+    values: list[str],
+    columns: dict[str, int | None],
+    visit_date: date | None,
+    hub: str,
+) -> FcaParsedRecord | None:
+    def value(field: str) -> str:
+        column = columns.get(field)
+        if not column or column < 1 or column > len(values):
+            return ''
+        return values[column - 1]
+
+    customer_name = normalize_name(value('customer_name'))
+    if not customer_name or customer_name.lower() in {'customer name', 'names'}:
+        return None
+
+    phones = extract_phone_numbers(value('primary_phone'))
+    id_number = normalize_identifier(value('id_number'))
+    status = canonical_fcaup_status(value('status'))
+    comment = normalize_cell(value('fca_comment'))
+    warnings = []
+    if not id_number and not phones:
+        warnings.append('Missing ID NUMBER and PHONE; cannot match Master Data safely')
+    if not status:
+        warnings.append('Missing or invalid FCA STATUS dropdown value')
+
+    fields = {
+        'customer_name': customer_name,
+        'primary_phone': phones[0] if phones else '',
+        'secondary_phone': phones[1] if len(phones) > 1 else '',
+        'id_number': id_number,
+        'branch': normalize_name(hub),
+        'county': normalize_name(hub),
+        'landmark': normalize_name(value('landmark')),
+        'hb_staff': normalize_name(value('staff')),
+        'deposit_hb': normalize_cell(value('deposit_hb')),
+        'fca_visit_date': format_master_date(visit_date),
+        'fca_comment': comment,
+        'fca_decision': status,
+        'fca_source_file': filename,
+        'fca_source_sheet': sheet_name,
+        'fca_source_row': str(row_number),
+        'fca_import_status': 'Review Needed' if warnings else 'Pending MD Sync',
+    }
+    return FcaParsedRecord(
+        source_filename=filename,
+        source_sheet=sheet_name,
+        source_row=row_number,
+        fields=fields,
+        warnings=warnings,
+    )
+
+
+def canonical_fcaup_status(value: str) -> str:
+    text = re.sub(r'\s+', ' ', str(value or '').strip())
+    if not text:
+        return ''
+    return FCAUP_STATUS_LOOKUP.get(text.casefold(), '')
+
+
+def looks_like_next_fcaup_section(values: list[str]) -> bool:
+    text = ' '.join(value.lower() for value in values if value)
+    return bool(re.search(r'\bsection\s+b\b|\bcollections?\b|\badmin\b', text))
+
+
 def parse_fca_data_row(
     filename: str,
     sheet_name: str,
@@ -404,6 +645,243 @@ def append_fca_records_to_sheet(group_config, records: list[FcaImportRecord], sh
     except Exception as exc:
         logger.error("Failed to append FCA rows: %s", exc, exc_info=True)
         return {'success': False, 'error': str(exc)}
+
+
+def sync_fcaup_records_to_master_data(group_config, records: list[FcaImportRecord]) -> dict[str, Any]:
+    if not records:
+        return {'created': 0, 'updated': 0, 'duplicates': 0, 'errors': [], 'sheet_tab': configured_master_sheet_name(group_config)}
+
+    workflow = getattr(group_config, 'workflow', None) or {}
+    sheet_id = str(
+        workflow.get('fca_master_sheet_id')
+        or workflow.get('master_sheet_id')
+        or getattr(group_config, 'sheet_id', '')
+        or ''
+    ).strip()
+    sheet_name = configured_master_sheet_name(group_config)
+    header_row = configured_master_header_row(workflow)
+    data_start_row = configured_master_data_start_row(workflow, header_row)
+    if not sheet_id:
+        error = 'FCA Master Data sync needs fca_master_sheet_id or master_sheet_id in workflow config.'
+        mark_fca_records_failed(records, error)
+        return {'created': 0, 'updated': 0, 'duplicates': 0, 'errors': [error], 'sheet_tab': sheet_name}
+
+    try:
+        from core.services.sheets import GoogleSheetsService
+        from core.services.jawabu_master import (
+            batch_update_master_sheet_rows,
+            ensure_master_system_headers,
+            first_existing_header,
+            header_lookup_from_headers,
+            next_master_append_row,
+            pad_values_to_row,
+            row_values_for_number,
+            set_header_value,
+        )
+
+        service = GoogleSheetsService.get_instance(sheet_id=sheet_id, sheet_name=sheet_name)
+        if not service.is_available():
+            raise RuntimeError('Google Sheets service unavailable for Master Data sheet.')
+        sheet = service._sheet
+        headers = ensure_master_system_headers(sheet, header_row)
+        header_lookup = header_lookup_from_headers(headers)
+        required = [
+            'Customer Name', 'National ID', 'Primary Phone',
+            'Jawabu Visit Date', 'Jawabu Comment After visit', 'Additional Comments',
+        ]
+        missing = [header for header in required if not first_existing_header(header_lookup, [header])]
+        if missing:
+            raise RuntimeError('Missing Master Data column(s): ' + ', '.join(missing))
+
+        values = sheet.get_all_values()
+        existing = build_fcaup_master_existing_index(values, header_lookup, data_start_row)
+        pending_updates = []
+        created = updated = duplicates = 0
+        errors = []
+        now_text = timezone.now().strftime('%d-%B-%Y %H:%M')
+
+        for record in records:
+            fields = dict(record.parsed_fields or {})
+            if record.import_status == 'review_needed':
+                continue
+            match = find_fcaup_master_match(fields, existing)
+            if match.get('duplicate'):
+                duplicates += 1
+                record.import_status = 'review_needed'
+                record.sync_error = match['message']
+                record.save(update_fields=['import_status', 'sync_error'])
+                continue
+
+            row_number = int(match.get('row_number') or 0)
+            created_row = False
+            if row_number:
+                row_values = row_values_for_number(values, row_number, len(headers))
+            else:
+                row_number = next_master_append_row(values, header_lookup, data_start_row)
+                row_values = [''] * len(headers)
+                set_header_value(row_values, header_lookup, 'No.', row_number - data_start_row + 1)
+                created_row = True
+
+            apply_fcaup_master_values(
+                row_values=row_values,
+                header_lookup=header_lookup,
+                fields=fields,
+                source_record=record,
+                now_text=now_text,
+            )
+            pending_updates.append((row_number, row_values))
+            values = pad_values_to_row(values, row_number, len(headers))
+            values[row_number - 1] = row_values
+            add_fcaup_master_index_row(existing, row_number, row_values, header_lookup)
+            record.row_number = row_number
+            record.import_status = 'imported'
+            record.sync_error = ''
+            record.save(update_fields=['row_number', 'import_status', 'sync_error'])
+            if created_row:
+                created += 1
+            else:
+                updated += 1
+
+        if pending_updates:
+            batch_update_master_sheet_rows(sheet, pending_updates, len(headers))
+        return {'created': created, 'updated': updated, 'duplicates': duplicates, 'errors': errors, 'sheet_tab': sheet_name}
+    except Exception as exc:
+        logger.error('FCA Master Data sync failed: %s', exc, exc_info=True)
+        error = f'Master Data sync failed: {exc}'
+        for record in records:
+            if record.import_status != 'review_needed':
+                record.import_status = 'failed'
+                record.sync_error = error
+                record.save(update_fields=['import_status', 'sync_error'])
+        return {'created': 0, 'updated': 0, 'duplicates': 0, 'errors': [error], 'sheet_tab': sheet_name}
+
+
+def configured_master_sheet_name(group_config) -> str:
+    workflow = getattr(group_config, 'workflow', None) or {}
+    return str(
+        workflow.get('fca_master_sheet_name')
+        or workflow.get('master_sheet_name')
+        or DEFAULT_MASTER_SHEET_NAME
+    ).strip() or DEFAULT_MASTER_SHEET_NAME
+
+
+def configured_master_header_row(workflow: dict) -> int:
+    return configured_positive_int(
+        (workflow or {}).get('fca_master_header_row') or (workflow or {}).get('master_header_row'),
+        3,
+    )
+
+
+def configured_master_data_start_row(workflow: dict, header_row: int) -> int:
+    return configured_positive_int(
+        (workflow or {}).get('fca_master_data_start_row') or (workflow or {}).get('master_data_start_row'),
+        header_row + 2,
+    )
+
+
+def configured_positive_int(value, default: int) -> int:
+    try:
+        return max(int(value), 1)
+    except (TypeError, ValueError):
+        return default
+
+
+def mark_fca_records_failed(records: list[FcaImportRecord], error: str) -> None:
+    for record in records:
+        if record.import_status != 'review_needed':
+            record.import_status = 'failed'
+            record.sync_error = error
+            record.save(update_fields=['import_status', 'sync_error'])
+
+
+def build_fcaup_master_existing_index(values: list[list[str]], header_lookup: dict[str, int], data_start_row: int) -> dict[str, list[int]]:
+    existing: dict[str, list[int]] = {}
+    for row_number, row_values in enumerate(values[data_start_row - 1:], start=data_start_row):
+        add_fcaup_master_index_row(existing, row_number, row_values, header_lookup)
+    return existing
+
+
+def add_fcaup_master_index_row(existing: dict[str, list[int]], row_number: int, row_values: list, header_lookup: dict[str, int]) -> None:
+    from core.services.jawabu_master import header_row_value
+
+    national_id = normalize_identifier(header_row_value(row_values, header_lookup, 'National ID'))
+    primary_phone = first_normalized_phone(header_row_value(row_values, header_lookup, 'Primary Phone'))
+    if national_id and primary_phone:
+        existing.setdefault(f'id_phone:{national_id}|{primary_phone}', []).append(row_number)
+    if national_id:
+        existing.setdefault(f'id:{national_id}', []).append(row_number)
+    if primary_phone:
+        existing.setdefault(f'phone:{primary_phone}', []).append(row_number)
+
+
+def find_fcaup_master_match(fields: dict, existing: dict[str, list[int]]) -> dict[str, Any]:
+    national_id = fields.get('id_number') or ''
+    primary_phone = fields.get('primary_phone') or ''
+    keys = [
+        f'id_phone:{national_id}|{primary_phone}' if national_id and primary_phone else '',
+        f'id:{national_id}' if national_id else '',
+        f'phone:{primary_phone}' if primary_phone else '',
+    ]
+    for key in keys:
+        if not key:
+            continue
+        rows = sorted(set(existing.get(key) or []))
+        if len(rows) == 1:
+            return {'row_number': rows[0]}
+        if len(rows) > 1:
+            return {
+                'duplicate': True,
+                'message': f'Multiple Master Data rows match {key.replace(":", " ")}: rows {", ".join(str(row) for row in rows[:8])}',
+            }
+    return {'row_number': 0}
+
+
+def apply_fcaup_master_values(
+    *,
+    row_values: list,
+    header_lookup: dict[str, int],
+    fields: dict,
+    source_record: FcaImportRecord,
+    now_text: str,
+) -> None:
+    from core.services.jawabu_master import set_header_value
+
+    fill_if_blank(row_values, header_lookup, 'Customer Name', fields.get('customer_name'))
+    fill_if_blank(row_values, header_lookup, 'National ID', fields.get('id_number'))
+    fill_if_blank(row_values, header_lookup, 'Primary Phone', fields.get('primary_phone'))
+    fill_if_blank(row_values, header_lookup, 'Secondary Phone', fields.get('secondary_phone'))
+    fill_if_blank(row_values, header_lookup, 'HB Sales Person', fields.get('hb_staff'))
+    fill_if_blank(row_values, header_lookup, 'Deposit Paid to HB', fields.get('deposit_hb'))
+
+    set_header_value(row_values, header_lookup, 'Jawabu Visit Date', fields.get('fca_visit_date'))
+    set_header_value(row_values, header_lookup, 'Jawabu Comment After visit', fields.get('fca_decision'))
+    set_header_value(row_values, header_lookup, 'Additional Comments', fields.get('fca_comment'))
+    set_header_value(row_values, header_lookup, 'Source Filename', source_record.source_filename)
+    set_header_value(row_values, header_lookup, 'Source Row', fields.get('fca_source_row'))
+    set_header_value(row_values, header_lookup, 'Import Status', 'fca_updated')
+    set_header_value(row_values, header_lookup, 'Review Notes', '')
+    set_header_value(row_values, header_lookup, 'Reviewed By', source_record.sender)
+    set_header_value(row_values, header_lookup, 'Reviewed At', now_text)
+    set_header_value(row_values, header_lookup, 'Last Updated At', now_text)
+
+
+def fill_if_blank(row_values: list, header_lookup: dict[str, int], header: str, value) -> None:
+    if value in (None, ''):
+        return
+    from core.services.jawabu_master import normalize_header
+
+    index = header_lookup.get(normalize_header(header), 0) - 1
+    if index < 0:
+        return
+    if index >= len(row_values):
+        row_values.extend([''] * (index - len(row_values) + 1))
+    if not str(row_values[index] or '').strip():
+        row_values[index] = value
+
+
+def first_normalized_phone(value: str) -> str:
+    phones = extract_phone_numbers(value)
+    return phones[0] if phones else ''
 
 
 def configured_field_headers(workflow: dict) -> dict[str, str]:
@@ -594,14 +1072,20 @@ def parse_fca_date_text(text: str) -> date | None:
 def parse_iso_date(value: str) -> date | None:
     if not value:
         return None
-    try:
-        return datetime.strptime(value, '%d-%b-%Y').date()
-    except ValueError:
-        return None
+    for fmt in ('%d-%b-%Y', '%d-%B-%Y'):
+        try:
+            return datetime.strptime(value, fmt).date()
+        except ValueError:
+            continue
+    return None
 
 
 def format_sheet_date(value: date | None) -> str:
     return value.strftime('%d-%b-%Y') if value else ''
+
+
+def format_master_date(value: date | None) -> str:
+    return value.strftime('%d-%B-%Y') if value else ''
 
 
 def looks_like_footer(values: list[str]) -> bool:

@@ -572,6 +572,13 @@ def _process_telegram_message(message_data: dict) -> dict:
                         'reason': 'Bot was not tagged',
                         'message_id': telegram_message_id,
                     }
+                if _looks_like_fcaup_command(content):
+                    return _process_fcaup_command(
+                        group_config=group_config,
+                        message_data=message_data,
+                        sender=sender,
+                        telegram_message_id=telegram_message_id,
+                    )
                 if _looks_like_farmup_command(content):
                     return _process_jawabu_farmup_command(
                         group_config=group_config,
@@ -604,6 +611,13 @@ def _process_telegram_message(message_data: dict) -> dict:
                     ),
                 }
             if is_order_approval_workflow(group_config):
+                if content is not None and _looks_like_fcaup_command(content):
+                    return _process_fcaup_command(
+                        group_config=group_config,
+                        message_data=message_data,
+                        sender=sender,
+                        telegram_message_id=telegram_message_id,
+                    )
                 if content is not None and _looks_like_fca_batch_command(content):
                     return _process_fca_batch_command(
                         group_config=group_config,
@@ -754,6 +768,10 @@ def _looks_like_batch_command(content: str) -> bool:
 
 def _looks_like_fca_batch_command(content: str) -> bool:
     return bool(re.match(r'^/batchfca(?:@\w+)?(?:\s|$)', str(content or '').strip(), re.IGNORECASE))
+
+
+def _looks_like_fcaup_command(content: str) -> bool:
+    return bool(re.match(r'^/fcaup(?:@\w+)?(?:\s|$)', str(content or '').strip(), re.IGNORECASE))
 
 
 def _looks_like_farmup_command(content: str) -> bool:
@@ -1178,6 +1196,37 @@ def _process_jawabu_batch_command(
     return process_jawabu_batch_export(
         group_config=group_config,
         export_text=payload,
+        telegram_message_id=telegram_message_id,
+        sender=sender,
+    )
+
+
+
+def _process_fcaup_command(
+    group_config,
+    message_data: dict,
+    sender: str,
+    telegram_message_id: str,
+) -> dict:
+    files, document_error = _download_telegram_fca_documents(message_data)
+    if document_error:
+        return {'status': 'command', 'reply_text': document_error.replace('/batchfca', '/fcaup')}
+    if not files:
+        return {
+            'status': 'command',
+            'reply_text': (
+                "Attach the agreed FCA Section A .xlsx workbook or a .zip containing FCA workbooks and send:\n"
+                "@bot /fcaup\n\n"
+                "The bot updates Master Data using ID NUMBER first, then PHONE. "
+                "STATUS writes to Jawabu Comment After visit; COMMENT writes to Additional Comments."
+            ),
+        }
+
+    from core.services.fca import process_fcaup_files
+
+    return process_fcaup_files(
+        group_config=group_config,
+        files=files,
         telegram_message_id=telegram_message_id,
         sender=sender,
     )
@@ -1853,6 +1902,39 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
         if result.get('message'):
             lines.extend(["", str(result['message'])])
 
+        text = "\n".join(lines)
+    elif status == 'fcaup_processed':
+        lines = [
+            "FCA Master Data update processed",
+            f"Files read: {result.get('files', 0)}",
+            f"Section A rows processed: {result.get('processed', 0)}",
+            f"MD rows updated: {result.get('updated', 0)}",
+            f"MD rows created: {result.get('created', 0)}",
+            f"Review needed: {result.get('review_needed', 0)}",
+            f"Failed: {result.get('failed', 0)}",
+        ]
+        if result.get('duplicates'):
+            lines.append(f"Duplicate MD matches: {result.get('duplicates')}")
+        if result.get('sheet_tab'):
+            lines.append(f"Master tab: {result.get('sheet_tab')}")
+        status_counts = result.get('status_counts') or {}
+        if status_counts:
+            lines.extend(["", "Statuses imported"])
+            for key, count in sorted(status_counts.items()):
+                lines.append(f"- {key}: {count}")
+        reviews = result.get('review_examples') or []
+        if reviews:
+            lines.extend(["", "Manual review examples"])
+            for index, item in enumerate(reviews[:5], start=1):
+                lines.append(
+                    f"{index}. {item.get('customer_name') or item.get('primary_phone') or 'Unknown customer'}"
+                )
+                lines.append(f"   {item.get('reason') or 'Needs review'}")
+                lines.append(f"   {item.get('source') or ''}")
+        errors = [error for error in (result.get('errors') or []) if error]
+        if errors:
+            lines.extend(["", "Errors"])
+            lines.extend(f"- {error}" for error in errors[:5])
         text = "\n".join(lines)
     elif status == 'fca_batch_processed':
         lines = [
