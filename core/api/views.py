@@ -625,6 +625,13 @@ def _process_telegram_message(message_data: dict) -> dict:
                 handle_order_approval_message,
                 is_order_approval_workflow,
             )
+            if content is not None and _looks_like_fcaup_command(content):
+                return _process_fcaup_command(
+                    group_config=group_config,
+                    message_data=message_data,
+                    sender=sender,
+                    telegram_message_id=telegram_message_id,
+                )
             if is_jawabu_workflow(group_config):
                 if content is None:
                     logger.debug(

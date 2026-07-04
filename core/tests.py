@@ -4905,6 +4905,49 @@ class TelegramWebhookViewTest(TestCase):
         mock_process.assert_not_called()
 
     @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
+    @patch('core.api.views._process_fcaup_command')
+    @patch('core.api.views._process_single_message')
+    def test_fcaup_in_jawabu_group_does_not_fall_through_to_case_parser(
+        self,
+        mock_process,
+        mock_fcaup,
+    ):
+        """FCA uploads in Jawabu groups must not trigger complaint sheet validation."""
+        from core.api.views import _process_telegram_message
+        from core.services.group_config import GroupRegistry
+
+        GroupSheetConfiguration.objects.create(
+            group_id='-100123',
+            display_name='Jawabu group',
+            enabled=True,
+            sheet_id='sheet_master',
+            sheet_name='Jawabu Visits',
+            workflow={'type': 'jawabu_homebiogas'},
+        )
+        GroupRegistry._instance = None
+        mock_fcaup.return_value = {
+            'status': 'fcaup_review_ready',
+            'processed': 1,
+        }
+
+        result = _process_telegram_message({
+            'message_id': 123,
+            'from': {'first_name': 'Test'},
+            'chat': {'id': -100123, 'type': 'supergroup'},
+            'date': 1711123456,
+            'caption': '@biogas_bot /fcaup',
+            'document': {
+                'file_name': 'JBL_FCA_TEMPLATE_V1.xlsx',
+                'mime_type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'file_id': 'file123',
+            },
+        })
+
+        self.assertEqual(result['status'], 'fcaup_review_ready')
+        mock_fcaup.assert_called_once()
+        mock_process.assert_not_called()
+
+    @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
     @patch('core.api.views._process_single_message')
     def test_telegram_message_processes_multiple_tagged_complaint_cases(
         self,
