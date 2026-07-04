@@ -7,6 +7,8 @@ from .views import (
     health_check,
     jawabu_farmers_review,
     jawabu_farmers_review_commit,
+    fca_review,
+    fca_review_commit,
     order_approval_form,
     order_approval_webapp_lookup,
     order_approval_webapp_suggest,
@@ -21,6 +23,8 @@ urlpatterns = [
     path('order-approval/', order_approval_form, name='order_approval_form'),
     path('jawabu-farmers/review/', jawabu_farmers_review, name='jawabu_farmers_review'),
     path('jawabu-farmers/review/commit/', jawabu_farmers_review_commit, name='jawabu_farmers_review_commit'),
+    path('fca/review/', fca_review, name='fca_review'),
+    path('fca/review/commit/', fca_review_commit, name='fca_review_commit'),
     path('webhook/telegram/', telegram_webhook, name='telegram_webhook'),
     path(
         'order-approval/webapp/submit/',

@@ -1635,7 +1635,8 @@ class FcaWorkflowServiceTest(TestCase):
         sheet = workbook.active
         sheet.title = 'FCA'
         sheet['C2'] = 'FIELD CONTROL VISIT APPROVAL FORM'
-        sheet['H2'] = 'Date: 23rd June 2026'
+        sheet['H2'] = 'Date:'
+        sheet['I2'] = datetime(2026, 6, 23)
         sheet['H4'] = 'HUB... Kiambu'
         sheet.append([])
         sheet.append([])
@@ -1717,9 +1718,28 @@ class FcaWorkflowServiceTest(TestCase):
         self.assertEqual(fields['fca_comment'], 'Customer needs 5k top-up')
         self.assertNotIn('Ignored basis text', fields['fca_comment'])
 
-    @patch('core.services.sheets.GoogleSheetsService.get_instance')
-    def test_process_fcaup_files_updates_master_data_g_h_and_visit_date(self, mock_service):
+    @override_settings(APP_BASE_URL='https://bot.example.com')
+    def test_process_fcaup_files_creates_review_batch_before_sheet_write(self):
         from core.services.fca import process_fcaup_files
+
+        result = process_fcaup_files(
+            group_config=self.group,
+            files=[('JBL_FCA_TEMPLATE_V1.xlsx', self.fcaup_workbook_bytes())],
+            telegram_message_id='701',
+            sender='FCA Admin',
+        )
+
+        self.assertEqual(result['status'], 'fcaup_review_ready')
+        self.assertEqual(result['processed'], 1)
+        self.assertIn('/fca/review/', result['review_url'])
+        self.assertEqual(FcaImportRecord.objects.count(), 1)
+        record = FcaImportRecord.objects.get()
+        self.assertEqual(record.import_status, 'pending')
+        self.assertEqual(record.fca_visit_date.isoformat(), '2026-06-23')
+
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_commit_fcaup_review_updates_master_data_g_h_and_visit_date(self, mock_service):
+        from core.services.fca import commit_fcaup_review_batch, extract_fcaup_section_a_records, save_fca_record
 
         self.group.workflow.update({
             'fca_master_sheet_id': 'md_sheet',
@@ -1728,6 +1748,8 @@ class FcaWorkflowServiceTest(TestCase):
             'fca_master_data_start_row': 5,
         })
         self.group.save(update_fields=['workflow'])
+        parsed = extract_fcaup_section_a_records('JBL_FCA_TEMPLATE_V1.xlsx', self.fcaup_workbook_bytes())[0]
+        record = save_fca_record(self.group, parsed, '701', 'FCA Admin', 'Master Data')
         headers = [
             'No.', 'Customer Name', 'National ID', 'Primary Phone',
             'Jawabu Visit Date', 'Homebiogas Visit Date',
@@ -1740,23 +1762,30 @@ class FcaWorkflowServiceTest(TestCase):
         ])
         mock_service.return_value = FakeJawabuService(fake_sheet)
 
-        result = process_fcaup_files(
-            group_config=self.group,
-            files=[('JBL_FCA_TEMPLATE_V1.xlsx', self.fcaup_workbook_bytes())],
-            telegram_message_id='701',
-            sender='FCA Admin',
-        )
+        result = commit_fcaup_review_batch('701', [{
+            'record_id': str(record.id),
+            'approved': True,
+            'Customer Name': 'Samuel Ndungu',
+            'ID Number': '113650221',
+            'Primary Phone': '0724733556',
+            'Secondary Phone': '',
+            'Location': 'Ngenda',
+            'HB Staff': 'Nathan',
+            'Deposit': '5000',
+            'Jawabu Visit Date': '23-June-2026',
+            'Status': 'Approved - Pending Minimum Deposit',
+            'Comment': 'Customer needs 5k top-up',
+        }], group_config=self.group)
 
-        self.assertEqual(result['status'], 'fcaup_processed')
-        self.assertEqual(result['updated'], 1)
-        self.assertEqual(result['created'], 0)
-        self.assertEqual(result['review_needed'], 0)
+        self.assertTrue(result['success'], result)
+        self.assertEqual(result['committed'], 1)
         row = fake_sheet.values[4]
         self.assertEqual(row[4], '23-June-2026')
         self.assertEqual(row[6], 'Approved - Pending Minimum Deposit')
         self.assertEqual(row[7], 'Customer needs 5k top-up')
         self.assertNotIn('Ignored basis text', row[7])
-        self.assertEqual(FcaImportRecord.objects.get().fca_decision, 'Approved - Pending Minimum Deposit')
+        record.refresh_from_db()
+        self.assertEqual(record.fca_decision, 'Approved - Pending Minimum Deposit')
         self.assertEqual(fake_sheet.update_options, ['RAW'])
 
     @patch('core.services.fca.get_sheets_service')

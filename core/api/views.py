@@ -440,6 +440,70 @@ def jawabu_farmers_review_commit(request):
     _post_telegram_reply(chat_id=batch.group_id, message_data={}, text='\n'.join(reply_lines))
     return JsonResponse(result, status=200 if result.get('success') else 400)
 
+
+@require_http_methods(["GET"])
+def fca_review(request):
+    from django.shortcuts import render
+    from django.utils.safestring import mark_safe
+    from core.services.fca import (
+        fcaup_review_payload,
+        validate_fcaup_review_token,
+    )
+
+    batch_id = str(request.GET.get('batch_id') or '').strip()
+    token = str(request.GET.get('token') or '').strip()
+    valid, error = validate_fcaup_review_token(batch_id, token)
+    if not batch_id or not valid:
+        return render(
+            request,
+            'fca_review/unavailable.html',
+            {'message': error or 'This FCA review link is missing or invalid.'},
+            status=403,
+        )
+    payload = fcaup_review_payload(batch_id, token)
+    return render(
+        request,
+        'fca_review/review.html',
+        {
+            'batch_id': batch_id,
+            'batch_json': mark_safe(json.dumps(payload)),
+        },
+    )
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def fca_review_commit(request):
+    from core.services.fca import (
+        commit_fcaup_review_batch,
+        validate_fcaup_review_token,
+    )
+    from core.services.group_config import GroupRegistry
+
+    try:
+        payload = json.loads(request.body or b'{}')
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'message': 'Invalid JSON payload.'}, status=400)
+
+    batch_id = str(payload.get('batch_id') or '').strip()
+    token = str(payload.get('token') or '').strip()
+    valid, error = validate_fcaup_review_token(batch_id, token)
+    if not batch_id or not valid:
+        return JsonResponse({'success': False, 'message': error or 'Invalid FCA review token.'}, status=403)
+
+    from core.models import FcaImportRecord
+    first_record = FcaImportRecord.objects.filter(telegram_message_id=batch_id).order_by('created_at').first()
+    group_config = None
+    if first_record:
+        group_config = GroupRegistry.get_instance().get_group(first_record.group_id)
+    result = commit_fcaup_review_batch(
+        batch_id=batch_id,
+        rows=payload.get('rows') or [],
+        group_config=group_config,
+    )
+    return JsonResponse(result, status=200 if result.get('success') else 400)
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def telegram_webhook(request):
@@ -1903,6 +1967,25 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
             lines.extend(["", str(result['message'])])
 
         text = "\n".join(lines)
+    elif status == 'fcaup_review_ready':
+        lines = [
+            "FCA upload ready for review",
+            f"Files read: {result.get('files', 0)}",
+            f"Section A rows extracted: {result.get('processed', 0)}",
+            f"Rows needing review: {result.get('review_needed', 0)}",
+            "Open the review form, correct values, then commit approved rows.",
+        ]
+        errors = [error for error in (result.get('errors') or []) if error]
+        if errors:
+            lines.extend(["", "Warnings"])
+            lines.extend(f"- {error}" for error in errors[:5])
+        _post_telegram_reply(
+            chat_id,
+            message_data,
+            "\n".join(lines),
+            reply_markup=result.get('reply_markup'),
+        )
+        return
     elif status == 'fcaup_processed':
         lines = [
             "FCA Master Data update processed",

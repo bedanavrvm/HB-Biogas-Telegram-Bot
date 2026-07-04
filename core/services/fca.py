@@ -4,10 +4,13 @@ from __future__ import annotations
 import io
 import logging
 import re
+from urllib.parse import urlencode
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 
+from django.conf import settings
+from django.core import signing
 from django.utils import timezone
 
 from core.models import FcaImportRecord
@@ -27,6 +30,7 @@ FCAUP_COMMAND = '/fcaup'
 DEFAULT_HEADER_ROW = 2
 DEFAULT_FCA_SHEET_NAME = 'Orders'
 DEFAULT_MASTER_SHEET_NAME = 'Master Data'
+FCAUP_TOKEN_SALT = 'fca-section-a-upload'
 
 FCAUP_STATUS_VALUES = (
     'Approved - Paid',
@@ -121,7 +125,7 @@ def process_fcaup_files(
     telegram_message_id: str,
     sender: str = '',
 ) -> dict[str, Any]:
-    """Parse the agreed Section A FCA template and upsert results into MD."""
+    """Parse the agreed Section A FCA template and create a review batch."""
     if openpyxl is None:
         return {
             'status': 'fcaup_processed',
@@ -164,33 +168,206 @@ def process_fcaup_files(
             'errors': file_errors or ['No Section A FCA customer rows were found.'],
         }
 
+    batch_id = str(telegram_message_id or timezone.now().timestamp())
     records = [
-        save_fca_record(group_config, parsed, telegram_message_id, sender, configured_master_sheet_name(group_config))
+        save_fca_record(group_config, parsed, batch_id, sender, configured_master_sheet_name(group_config))
         for parsed in parsed_records
     ]
-    sync_result = sync_fcaup_records_to_master_data(group_config, records)
-    for record in records:
-        record.refresh_from_db()
-
-    status_counts = {}
-    for record in records:
-        value = record.fca_decision or 'Missing Status'
-        status_counts[value] = status_counts.get(value, 0) + 1
+    review_url = build_fcaup_review_url(batch_id)
+    if not review_url:
+        return {
+            'status': 'fcaup_processed',
+            'files': len(files),
+            'processed': len(records),
+            'updated': 0,
+            'created': 0,
+            'review_needed': len(records),
+            'failed': 0,
+            'errors': file_errors + ['APP_BASE_URL is not configured, so the FCA review form cannot open.'],
+        }
 
     return {
-        'status': 'fcaup_processed',
+        'status': 'fcaup_review_ready',
         'files': len(files),
         'processed': len(records),
-        'updated': sync_result.get('updated', 0),
-        'created': sync_result.get('created', 0),
         'review_needed': sum(1 for record in records if record.import_status == 'review_needed'),
-        'failed': sum(1 for record in records if record.import_status == 'failed'),
-        'duplicates': sync_result.get('duplicates', 0),
-        'sheet_tab': sync_result.get('sheet_tab') or configured_master_sheet_name(group_config),
-        'status_counts': status_counts,
-        'errors': file_errors + (sync_result.get('errors') or []),
-        'review_examples': fca_review_examples(records),
+        'batch_id': batch_id,
+        'review_url': review_url,
+        'errors': file_errors,
+        'reply_markup': {
+            'inline_keyboard': [[
+                {'text': 'Open FCA Review', 'web_app': {'url': review_url}}
+            ]]
+        },
     }
+
+
+def create_fcaup_review_token(batch_id: str) -> str:
+    return signing.dumps({'batch_id': str(batch_id)}, salt=FCAUP_TOKEN_SALT)
+
+
+def validate_fcaup_review_token(batch_id: str, token: str) -> tuple[bool, str]:
+    try:
+        payload = signing.loads(token or '', salt=FCAUP_TOKEN_SALT, max_age=7 * 24 * 3600)
+    except signing.BadSignature:
+        return False, 'This FCA review link is invalid or expired.'
+    if str(payload.get('batch_id', '')) != str(batch_id):
+        return False, 'This FCA review link does not match the upload batch.'
+    return True, ''
+
+
+def build_fcaup_review_url(batch_id: str) -> str:
+    base_url = getattr(settings, 'APP_BASE_URL', '').rstrip('/')
+    if not base_url:
+        return ''
+    return f"{base_url}/fca/review/?" + urlencode({
+        'batch_id': str(batch_id),
+        'token': create_fcaup_review_token(batch_id),
+    })
+
+
+def fcaup_review_payload(batch_id: str, token: str) -> dict[str, Any]:
+    records = list(
+        FcaImportRecord.objects
+        .filter(telegram_message_id=str(batch_id))
+        .order_by('source_filename', 'source_sheet', 'source_row', 'created_at')
+    )
+    rows = [fcaup_record_to_review_row(record) for record in records]
+    return {
+        'batch_id': str(batch_id),
+        'token': token,
+        'rows': rows,
+        'status_values': list(FCAUP_STATUS_VALUES),
+    }
+
+
+def fcaup_record_to_review_row(record: FcaImportRecord) -> dict[str, Any]:
+    fields = dict(record.parsed_fields or {})
+    review = record.import_status == 'review_needed'
+    return {
+        'record_id': str(record.id),
+        'approved': not review,
+        'Customer Name': fields.get('customer_name') or record.customer_name or '',
+        'ID Number': fields.get('id_number') or '',
+        'Primary Phone': fields.get('primary_phone') or record.primary_phone or '',
+        'Secondary Phone': fields.get('secondary_phone') or '',
+        'Location': fields.get('landmark') or '',
+        'HB Staff': fields.get('hb_staff') or '',
+        'Deposit': fields.get('deposit_hb') or '',
+        'Jawabu Visit Date': fields.get('fca_visit_date') or format_master_date(record.fca_visit_date),
+        'Status': fields.get('fca_decision') or record.fca_decision or '',
+        'Comment': fields.get('fca_comment') or record.fca_comment or '',
+        'Import Status': 'review_needed' if review else 'pending',
+        'Review Notes': record.sync_error or '',
+        'Source': f"{record.source_filename} / {record.source_sheet} row {record.source_row}",
+    }
+
+
+def commit_fcaup_review_batch(batch_id: str, rows: list[dict], group_config=None, sender: str = '') -> dict[str, Any]:
+    record_ids = [str(row.get('record_id') or '') for row in rows if row.get('record_id')]
+    records_by_id = {
+        str(record.id): record
+        for record in FcaImportRecord.objects.filter(telegram_message_id=str(batch_id), id__in=record_ids)
+    }
+    approved_records = []
+    errors = []
+    for index, row in enumerate(rows, start=1):
+        record = records_by_id.get(str(row.get('record_id') or ''))
+        if not record:
+            continue
+        if not row.get('approved'):
+            record.import_status = 'review_needed'
+            record.sync_error = append_error(record.sync_error, 'Skipped in FCA review form')
+            record.save(update_fields=['import_status', 'sync_error'])
+            continue
+        fields, row_errors = cleaned_fcaup_review_fields(row)
+        if row_errors:
+            record.import_status = 'review_needed'
+            record.sync_error = '; '.join(row_errors)
+            record.parsed_fields = {**dict(record.parsed_fields or {}), **fields, 'fca_import_status': 'Review Needed'}
+            record.save(update_fields=['import_status', 'sync_error', 'parsed_fields'])
+            errors.extend(f"Row {index}: {error}" for error in row_errors)
+            continue
+        record.customer_name = fields['customer_name']
+        record.primary_phone = fields['primary_phone']
+        record.fca_visit_date = parse_iso_date(fields.get('fca_visit_date'))
+        record.fca_decision = fields['fca_decision']
+        record.fca_comment = fields['fca_comment']
+        record.parsed_fields = {**dict(record.parsed_fields or {}), **fields, 'fca_import_status': 'Pending MD Sync'}
+        record.import_status = 'pending'
+        record.sync_error = ''
+        record.save(update_fields=[
+            'customer_name', 'primary_phone', 'fca_visit_date', 'fca_decision',
+            'fca_comment', 'parsed_fields', 'import_status', 'sync_error',
+        ])
+        approved_records.append(record)
+
+    sync_result = sync_fcaup_records_to_master_data(group_config, approved_records) if group_config else {
+        'created': 0, 'updated': 0, 'duplicates': 0, 'errors': ['Group configuration was not found.'], 'sheet_tab': '',
+    }
+    remaining_records = list(
+        FcaImportRecord.objects
+        .filter(telegram_message_id=str(batch_id))
+        .exclude(import_status='imported')
+        .order_by('source_filename', 'source_sheet', 'source_row', 'created_at')
+    )
+    return {
+        'success': not errors and not sync_result.get('errors'),
+        'message': 'FCA rows committed.' if not errors and not sync_result.get('errors') else 'Some FCA rows still need review or sheet sync failed.',
+        'committed': sum(1 for record in approved_records if record.import_status == 'imported'),
+        'review_needed': len(remaining_records),
+        'errors': (errors + (sync_result.get('errors') or []))[:20],
+        'sheet_sync': sync_result,
+        'rows': [fcaup_record_to_review_row(record) for record in remaining_records],
+    }
+
+
+def cleaned_fcaup_review_fields(row: dict) -> tuple[dict[str, str], list[str]]:
+    customer_name = normalize_name(row.get('Customer Name') or '')
+    id_number = normalize_identifier(row.get('ID Number') or '')
+    primary_phone = first_normalized_phone(row.get('Primary Phone') or '')
+    secondary_phone = first_normalized_phone(row.get('Secondary Phone') or '')
+    visit_date = clean_fcaup_review_date(row.get('Jawabu Visit Date') or '')
+    status = canonical_fcaup_status(row.get('Status') or '')
+    comment = normalize_cell(row.get('Comment') or '')
+    errors = []
+    if not customer_name:
+        errors.append('Customer Name is required')
+    if not id_number and not primary_phone:
+        errors.append('ID Number or Primary Phone is required for matching')
+    if not visit_date:
+        errors.append('Jawabu Visit Date is required')
+    if not status:
+        errors.append('Status must be one of the agreed dropdown values')
+    return {
+        'customer_name': customer_name,
+        'id_number': id_number,
+        'primary_phone': primary_phone,
+        'secondary_phone': secondary_phone,
+        'landmark': normalize_name(row.get('Location') or ''),
+        'hb_staff': normalize_name(row.get('HB Staff') or ''),
+        'deposit_hb': normalize_cell(row.get('Deposit') or ''),
+        'fca_visit_date': visit_date,
+        'fca_decision': status,
+        'fca_comment': comment,
+    }, errors
+
+
+def clean_fcaup_review_date(value: str) -> str:
+    text = normalize_cell(value)
+    if not text:
+        return ''
+    parsed = parse_fca_date_text(text)
+    return format_master_date(parsed) if parsed else text
+
+
+def append_error(existing: str, error: str) -> str:
+    existing = normalize_cell(existing)
+    if not existing:
+        return error
+    if error in existing:
+        return existing
+    return f"{existing}; {error}"
 
 
 def extract_fcaup_section_a_records(filename: str, content: bytes) -> list[FcaParsedRecord]:
@@ -1043,7 +1220,20 @@ def extract_hub(rows: list[tuple[int, list[str]]]) -> str:
 def parse_fca_date_text(text: str) -> date | None:
     if not text:
         return None
-    cleaned = str(text).replace('?', ' ').replace(':', ' ').replace(',', ' ')
+    raw = str(text).strip()
+    for pattern, formats in (
+        (r'\b(20\d{2}[-/]\d{1,2}[-/]\d{1,2})\b', ('%Y-%m-%d', '%Y/%m/%d')),
+        (r'\b(\d{1,2}[-/]\d{1,2}[-/]20\d{2})\b', ('%d/%m/%Y', '%d-%m-%Y', '%m/%d/%Y', '%m-%d-%Y')),
+    ):
+        match = re.search(pattern, raw)
+        if match:
+            candidate = match.group(1)
+            for fmt in formats:
+                try:
+                    return datetime.strptime(candidate, fmt).date()
+                except ValueError:
+                    continue
+    cleaned = raw.replace('?', ' ').replace(':', ' ').replace(',', ' ')
     year_default = timezone.localdate().year
     patterns = (
         r'(\d{1,2})(?:st|nd|rd|th)?(?:\s*[-&]\s*\d{1,2}(?:st|nd|rd|th)?)?(?:\s+\d{1,2}(?:st|nd|rd|th)?)*\s+([A-Za-z]+)(?:\s+(20\d{2}))?',
