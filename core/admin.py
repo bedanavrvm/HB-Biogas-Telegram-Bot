@@ -470,13 +470,29 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
             ),
         }),
         ('Workflow Preset', {
+            'fields': ('workflow_preset',),
+            'description': (
+                'Select Case / Complaints for the existing complaint intake '
+                'workflow, Order Approval for BRO updates, Jawabu HomeBiogas '
+                'for WhatsApp visit exports, or Manual JSON for a custom '
+                'workflow. The workflow JSON below will be generated '
+                'automatically where a preset applies. '
+                'Only the relevant settings section will expand below.'
+            ),
+        }),
+        ('Order Approval Settings', {
             'fields': (
-                'workflow_preset',
                 'order_approval_search_tabs',
                 'order_approval_match_field',
                 'order_approval_media_field',
                 'order_approval_header_row',
                 'order_approval_media_root_folder',
+            ),
+            'description': 'Sheet tabs and matching config for the Order Approval (BRO) workflow.',
+            'classes': ('collapse', 'preset-section', 'preset-order_approval'),
+        }),
+        ('Jawabu HomeBiogas Settings', {
+            'fields': (
                 'jawabu_import_start_date',
                 'jawabu_master_sync_enabled',
                 'jawabu_master_sheet_id',
@@ -485,13 +501,8 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
                 'jawabu_master_data_start_row',
                 'jawabu_master_import_log_sheet_name',
             ),
-            'description': (
-                'Select Case / Complaints for the existing complaint intake '
-                'workflow, Order Approval for BRO updates, Jawabu HomeBiogas '
-                'for WhatsApp visit exports, or Manual JSON for a custom '
-                'workflow. The workflow JSON below will be generated '
-                'automatically where a preset applies.'
-            ),
+            'description': 'Master sheet sync config for the Jawabu HomeBiogas WhatsApp visit workflow.',
+            'classes': ('collapse', 'preset-section', 'preset-jawabu_homebiogas'),
         }),
         ('Advanced Workflow And Parser Rules', {
             'fields': ('workflow', 'parser_rules'),
@@ -507,6 +518,9 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
             'classes': ('collapse',),
         }),
     )
+
+    class Media:
+        js = ('admin/js/workflow_preset_toggle.js',)
 
     @admin.display(description='Group')
     def display_label(self, obj):
