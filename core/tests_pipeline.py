@@ -193,6 +193,8 @@ class JblPipelineApiTestCase(TestCase):
             'visit_status': 'Awaiting Analysis',
             'officer': 'JBL Officer Alpha',
             'comment': 'Good soil conditions',
+            'latitude': -1.2921,
+            'longitude': 36.8219,
         }
         url = reverse('portal_log_jbl_visit', args=[self.farmer.id])
         response = self.client.post(url, json.dumps(payload), content_type='application/json')
@@ -202,6 +204,10 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(self.farmer.jbl_visit_status, 'Awaiting Analysis')
         self.assertEqual(self.farmer.jbl_officer, 'JBL Officer Alpha')
         self.assertEqual(self.farmer.jbl_visit_date, date(2026, 7, 1))
+        self.assertEqual(self.farmer.latitude, '-1.2921')
+        self.assertEqual(self.farmer.longitude, '36.8219')
+        self.assertEqual(self.farmer.gps_link, 'https://maps.google.com/?q=-1.2921,36.8219')
+
 
     def test_set_credit_decision_api(self):
         """Verify Stage 3 credit decision posting."""

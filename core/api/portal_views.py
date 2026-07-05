@@ -154,6 +154,14 @@ def portal_log_jbl_visit(request, farmer_id: str):
     comment = str(body.get('comment') or '').strip()
     sender = _portal_sender_from_request(request) or officer
 
+    latitude = body.get('latitude')
+    longitude = body.get('longitude')
+    try:
+        latitude = float(latitude) if latitude is not None and str(latitude).strip() != '' else None
+        longitude = float(longitude) if longitude is not None and str(longitude).strip() != '' else None
+    except (ValueError, TypeError):
+        return JsonResponse({'ok': False, 'error': 'Invalid coordinates format.'}, status=400)
+
     ok, error = log_jbl_visit(
         farmer,
         visit_date=visit_date,
@@ -161,6 +169,8 @@ def portal_log_jbl_visit(request, farmer_id: str):
         visit_status=visit_status,
         comment=comment,
         sender=sender,
+        latitude=latitude,
+        longitude=longitude,
     )
     if not ok:
         return JsonResponse({'ok': False, 'error': error}, status=400)

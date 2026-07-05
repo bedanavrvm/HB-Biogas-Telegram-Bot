@@ -133,6 +133,8 @@ def log_jbl_visit(
     visit_status: str,
     comment: str = '',
     sender: str = '',
+    latitude: float | None = None,
+    longitude: float | None = None,
 ) -> tuple[bool, str]:
     """
     Record that a JBL officer has visited the farmer (Stage 2 advance).
@@ -148,13 +150,22 @@ def log_jbl_visit(
     farmer.jbl_officer = str(officer or sender or '').strip()
     farmer.jbl_visit_status = visit_status
     farmer.jbl_visit_comment = str(comment or '').strip()
-    farmer.save(update_fields=[
+
+    update_fields = [
         'jbl_visit_date', 'jbl_officer', 'jbl_visit_status',
         'jbl_visit_comment', 'updated_at',
-    ])
+    ]
+
+    if latitude is not None and longitude is not None:
+        farmer.latitude = latitude
+        farmer.longitude = longitude
+        farmer.gps_link = f"https://maps.google.com/?q={latitude},{longitude}"
+        update_fields.extend(['latitude', 'longitude', 'gps_link'])
+
+    farmer.save(update_fields=update_fields)
     logger.info(
-        'JBL visit logged for farmer %s by %s: %s',
-        farmer.id, sender or officer, visit_status,
+        'JBL visit logged for farmer %s by %s: %s (coordinates: %s, %s)',
+        farmer.id, sender or officer, visit_status, latitude, longitude,
     )
     # Sync change to master Google Sheet
     sync_farmer_to_master_sheet(farmer)
@@ -372,6 +383,9 @@ def sync_farmer_to_master_sheet(farmer: JawabuFarmerMaster) -> bool:
             'credit_decision': (['Credit Analysis', 'Credit Decision'], farmer.credit_decision),
             'requisition_date': (['Jawabu Requisition Date', 'Requisition Date'], farmer.requisition_date.strftime('%d-%B-%Y') if farmer.requisition_date else ''),
             'order_number': (['Order No.'], farmer.order_number),
+            'latitude': (['Latitude', 'Lat'], str(farmer.latitude) if farmer.latitude is not None else ''),
+            'longitude': (['Longitude', 'Long', 'Lng'], str(farmer.longitude) if farmer.longitude is not None else ''),
+            'gps_link': (['GPS Link', 'Google Maps Link', 'Maps Link', 'GPS'], farmer.gps_link or ''),
         }
 
         for field_name, (candidates, new_val) in pipeline_fields.items():

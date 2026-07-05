@@ -249,6 +249,7 @@
       formEl.innerHTML = buildJblForm(farmer);
       footerEl.innerHTML = `<button class="primary" id="btn-submit-jbl">Log JBL Visit</button>`;
       el('btn-submit-jbl').addEventListener('click', submitJblVisit);
+      wireGpsButton();
     } else if (mode === 'credit') {
       formEl.innerHTML = buildCreditForm(farmer);
       footerEl.innerHTML = `<button class="primary" id="btn-submit-credit">Set Credit Decision</button>`;
@@ -293,8 +294,54 @@
           <label>Comment (optional)</label>
           <textarea id="jbl-comment" rows="2" placeholder="Additional notes...">${farmer.jbl_visit_comment || ''}</textarea>
         </div>
+        <div class="form-row" style="border-bottom: none; background: transparent; padding: 12px 0 0;">
+          <button type="button" id="btn-gps" style="width: 100%; height: 38px; display: flex; align-items: center; justify-content: center; gap: 8px;">
+            📍 Capture GPS Location
+          </button>
+          <div id="gps-coords" style="font-size: 11px; font-weight: 600; color: var(--text-muted); text-align: center; margin-top: 6px;">
+            Not captured
+          </div>
+          <input type="hidden" id="jbl-lat" value="">
+          <input type="hidden" id="jbl-lng" value="">
+        </div>
       </div>
     `;
+  }
+
+  function wireGpsButton() {
+    const btn = el('btn-gps');
+    if (!btn) return;
+    btn.addEventListener('click', () => {
+      if (!navigator.geolocation) {
+        showToast('GPS is not supported by your browser', 'error');
+        return;
+      }
+      btn.disabled = true;
+      btn.innerHTML = '⏳ Capturing Location...';
+      navigator.geolocation.getCurrentPosition(
+        position => {
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+          el('jbl-lat').value = lat;
+          el('jbl-lng').value = lng;
+          el('gps-coords').innerHTML = `Location captured ✓<br><span style="font-family: monospace; font-size: 12px; color: var(--color-success)">Lat: ${lat.toFixed(6)}, Lng: ${lng.toFixed(6)}</span>`;
+          btn.innerHTML = '📍 Location Captured';
+          btn.disabled = false;
+          showToast('GPS location captured ✓', 'success');
+        },
+        error => {
+          btn.disabled = false;
+          btn.innerHTML = '📍 Try Capture Again';
+          let msg = 'Failed to get location';
+          if (error.code === error.PERMISSION_DENIED) msg = 'Location permission denied';
+          else if (error.code === error.POSITION_UNAVAILABLE) msg = 'Location unavailable';
+          else if (error.code === error.TIMEOUT) msg = 'Location request timed out';
+          el('gps-coords').textContent = '⚠️ ' + msg;
+          showToast(msg, 'error');
+        },
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+      );
+    });
   }
 
   function buildCreditForm(farmer) {
@@ -344,6 +391,8 @@
     const visitStatus = el('jbl-status')?.value || '';
     const officer = el('jbl-officer')?.value || '';
     const comment = el('jbl-comment')?.value || '';
+    const latitude = el('jbl-lat')?.value || '';
+    const longitude = el('jbl-lng')?.value || '';
     if (!visitStatus) { showToast('Please select a visit status', 'error'); return; }
 
     const btn = el('btn-submit-jbl');
@@ -352,7 +401,14 @@
 
     const { ok, data } = await apiFetch('/jbl-queue/' + farmer.id + '/', {
       method: 'POST',
-      body: JSON.stringify({ visit_date: visitDate, visit_status: visitStatus, officer, comment }),
+      body: JSON.stringify({
+        visit_date: visitDate,
+        visit_status: visitStatus,
+        officer: officer,
+        comment: comment,
+        latitude: latitude,
+        longitude: longitude
+      }),
     });
 
     btn.disabled = false;
