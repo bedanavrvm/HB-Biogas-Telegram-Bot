@@ -22,7 +22,11 @@
     metaDecisions: [],
     selectedFarmer: null,
     activeMode: null, // 'jbl_visit' | 'credit' | 'requisition'
+    filters: { county: '', branch: '' }
   };
+
+  let mapInstance = null;
+  let mapMarker = null;
 
   // ── Helpers ──────────────────────────────────────────────────────────────
   function el(id) { return document.getElementById(id); }
@@ -96,7 +100,30 @@
   function switchPage(page) {
     state.activePage = page;
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.page === page));
-    document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === 'page-' + page));
+
+    // Show filter bar only on list queue views (jbl, credit, requisition, deferred)
+    const filterBar = el('portal-filter-bar');
+    if (filterBar) {
+      if (page === 'dashboard' || page === 'all') {
+        filterBar.style.display = 'none';
+      } else {
+        filterBar.style.display = 'flex';
+        // Populate options based on new page's queues
+        updateFilterOptions(state.queues[page] || []);
+      }
+    }
+
+    document.querySelectorAll('.page').forEach(p => {
+      const isTarget = p.id === 'page-' + page;
+      if (isTarget) {
+        p.style.display = 'block';
+        p.offsetHeight; // force layout reflow for animation
+        p.classList.add('active');
+      } else {
+        p.classList.remove('active');
+        p.style.display = 'none';
+      }
+    });
   }
 
   // ── Dashboard ─────────────────────────────────────────────────────────────
@@ -176,7 +203,13 @@
     state.pagination[qKey] = data.pagination || {};
     state.pages[qKey] = page;
 
-    renderFarmerList(listEl, farmers, cfg, qKey);
+    // Apply filtering
+    if (qKey !== 'dashboard' && qKey !== 'all') {
+      updateFilterOptions(farmers);
+      applyFilters();
+    } else {
+      renderFarmerList(listEl, farmers, cfg, qKey);
+    }
     renderPagination(qKey, data.pagination);
   }
 
@@ -198,6 +231,85 @@
         </div>
       </div>
     `).join('');
+
+    listEl.querySelectorAll('.farmer-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const qKey = card.dataset.qkey;
+        const idx = parseInt(card.dataset.idx, 10);
+        const farmer = state.queues[qKey][idx];
+        openFarmerSheet(farmer, cfg.mode);
+      });
+    });
+  }
+
+  function updateFilterOptions(farmers) {
+    const countySelect = el('filter-county');
+    const branchSelect = el('filter-branch');
+    if (!countySelect || !branchSelect) return;
+
+    const currentCounty = state.filters.county;
+    const currentBranch = state.filters.branch;
+
+    const counties = new Set();
+    const branches = new Set();
+
+    farmers.forEach(f => {
+      if (f.county) counties.add(f.county.trim());
+      if (!currentCounty || (f.county && f.county.trim() === currentCounty)) {
+        if (f.branch) branches.add(f.branch.trim());
+      }
+    });
+
+    countySelect.innerHTML = '<option value="">All Counties</option>' + 
+      Array.from(counties).sort().map(c => `<option value="${c}" ${c === currentCounty ? 'selected' : ''}>${c}</option>`).join('');
+
+    branchSelect.innerHTML = '<option value="">All Branches</option>' + 
+      Array.from(branches).sort().map(b => `<option value="${b}" ${b === currentBranch ? 'selected' : ''}>${b}</option>`).join('');
+
+    const clearBtn = el('btn-clear-filters');
+    if (clearBtn) {
+      clearBtn.style.display = (currentCounty || currentBranch) ? 'inline-flex' : 'none';
+    }
+  }
+
+  function applyFilters() {
+    const qKey = state.activePage;
+    const cfg = queueConfig[qKey];
+    if (!cfg) return;
+
+    const originalFarmers = state.queues[qKey] || [];
+    
+    const filteredFarmers = originalFarmers.filter(f => {
+      const matchCounty = !state.filters.county || (f.county && f.county.trim() === state.filters.county);
+      const matchBranch = !state.filters.branch || (f.branch && f.branch.trim() === state.filters.branch);
+      return matchCounty && matchBranch;
+    });
+
+    const listEl = el(cfg.listId);
+    renderFilteredFarmerList(listEl, filteredFarmers, cfg, qKey);
+  }
+
+  function renderFilteredFarmerList(listEl, farmers, cfg, qKey) {
+    if (!farmers.length) {
+      listEl.innerHTML = `<div class="empty-state"><div class="es-icon">🔍</div><div class="es-title">${cfg.emptyTitle}</div><div class="es-sub">No matching records found for chosen filters.</div></div>`;
+      return;
+    }
+    listEl.innerHTML = farmers.map(f => {
+      const originalIdx = state.queues[qKey].indexOf(f);
+      return `
+        <div class="farmer-card" data-qkey="${qKey}" data-idx="${originalIdx}" id="fc-${qKey}-${originalIdx}">
+          <div class="fc-name">${f.customer_name || f.national_id || f.primary_phone || 'Unknown'}</div>
+          <div class="fc-sub">${fmt(f.county)}${f.sub_county ? ' · ' + f.sub_county : ''}${f.branch ? ' · ' + f.branch : ''}</div>
+          <div class="fc-sub">${f.primary_phone || ''}</div>
+          <div class="fc-badges">
+            ${stageBadge(f)}
+            ${jblBadge(f)}
+            ${creditBadge(f)}
+            ${f.order_number ? `<span class="badge badge-green">Order: ${f.order_number}</span>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
 
     listEl.querySelectorAll('.farmer-card').forEach(card => {
       card.addEventListener('click', () => {
@@ -280,7 +392,67 @@
       }
     }
 
+    // Map Rendering
+    const lat = parseFloat(farmer.latitude);
+    const lng = parseFloat(farmer.longitude);
+    if (!isNaN(lat) && !isNaN(lng)) {
+      initMap(lat, lng);
+    } else {
+      destroyMap();
+    }
+
     el('sheet-overlay').classList.add('open');
+  }
+
+  function initMap(lat, lng) {
+    const mapContainer = el('sheet-map-container');
+    if (!mapContainer) return;
+    mapContainer.style.display = 'block';
+
+    // Determine theme
+    const isDark = (window.Telegram?.WebApp?.colorScheme === 'dark') || 
+                   (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+    // Tile URL based on theme (Voyager vs Dark Matter)
+    const tileUrl = isDark 
+      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+      : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+    const attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
+
+    if (!mapInstance) {
+      mapInstance = L.map('sheet-map', {
+        zoomControl: false,
+        attributionControl: false
+      }).setView([lat, lng], 13);
+
+      L.tileLayer(tileUrl, { attribution: attribution, maxZoom: 20 }).addTo(mapInstance);
+      mapMarker = L.marker([lat, lng]).addTo(mapInstance);
+    } else {
+      // Re-locate and reset center
+      mapInstance.setView([lat, lng], 13);
+      
+      // Update tile layer URL
+      mapInstance.eachLayer(layer => {
+        if (layer instanceof L.TileLayer) {
+          layer.setUrl(tileUrl);
+        }
+      });
+
+      if (mapMarker) {
+        mapMarker.setLatLng([lat, lng]);
+      } else {
+        mapMarker = L.marker([lat, lng]).addTo(mapInstance);
+      }
+    }
+
+    setTimeout(() => {
+      if (mapInstance) mapInstance.invalidateSize();
+    }, 100);
+  }
+
+  function destroyMap() {
+    const mapContainer = el('sheet-map-container');
+    if (mapContainer) mapContainer.style.display = 'none';
   }
 
   function buildJblForm(farmer) {
@@ -391,6 +563,7 @@
     el('sheet-overlay').classList.remove('open');
     state.selectedFarmer = null;
     state.activeMode = null;
+    destroyMap();
   }
   el('sheet-overlay').addEventListener('click', e => { if (e.target === el('sheet-overlay')) closeSheet(); });
   el('sheet-close').addEventListener('click', closeSheet);
@@ -489,6 +662,28 @@
     const p = state.activePage;
     if (queueConfig[p]) loadQueue(p, state.pages[p] || 1);
   }
+
+  // ── Filters Event Listeners ────────────────────────────────────────────────
+  el('filter-county')?.addEventListener('change', e => {
+    state.filters.county = e.target.value;
+    state.filters.branch = ''; // reset branch if county changed
+    const qKey = state.activePage;
+    updateFilterOptions(state.queues[qKey] || []);
+    applyFilters();
+  });
+
+  el('filter-branch')?.addEventListener('change', e => {
+    state.filters.branch = e.target.value;
+    applyFilters();
+  });
+
+  el('btn-clear-filters')?.addEventListener('click', () => {
+    state.filters.county = '';
+    state.filters.branch = '';
+    const qKey = state.activePage;
+    updateFilterOptions(state.queues[qKey] || []);
+    applyFilters();
+  });
 
   // ── Search (All Cases tab) ────────────────────────────────────────────────
   let searchTimer;

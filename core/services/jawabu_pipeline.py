@@ -271,10 +271,11 @@ def farmer_to_card(farmer: JawabuFarmerMaster) -> dict[str, Any]:
         ),
         # Stage 4
         'requisition_date': farmer.requisition_date.isoformat() if farmer.requisition_date else None,
-        'order_number': farmer.order_number,
         # Meta
         'pipeline_stage': _pipeline_stage(farmer),
         'updated_at': farmer.updated_at.isoformat(),
+        'latitude': farmer.latitude,
+        'longitude': farmer.longitude,
     }
 
 
