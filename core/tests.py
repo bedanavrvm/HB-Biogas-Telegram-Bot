@@ -4153,6 +4153,30 @@ class BotCommandServiceTest(TestCase):
         self.assertIn('Image previews: off', result['reply_text'])
         GroupRegistry._instance = None
 
+    @patch('core.services.sheet_sync.sync_group_from_sheet')
+    def test_health_command_skips_case_sheet_refresh_for_order_workflow(self, mock_sync):
+        """Non-case workflow commands must not validate complaint sheet headers."""
+        from core.models import GroupSheetConfiguration
+        from core.services.commands import handle_bot_command
+        from core.services.group_config import GroupRegistry
+
+        GroupSheetConfiguration.objects.create(
+            group_id='-100order',
+            display_name='Order group',
+            enabled=True,
+            sheet_id='sheet_order',
+            sheet_name='Orders',
+            workflow={'type': 'order_approval'},
+        )
+        GroupRegistry._instance = None
+
+        result = handle_bot_command('/health', '-100order')
+
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('Workflow: order_approval', result['reply_text'])
+        mock_sync.assert_not_called()
+        GroupRegistry._instance = None
+
     def test_status_filter_commands(self):
         """Open, pending, and closed commands should filter by status."""
         create_parsed_case('MSG_OPEN', customer_name='Open Customer', complaint_status='Open')

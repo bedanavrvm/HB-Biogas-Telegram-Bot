@@ -611,6 +611,7 @@ def _process_telegram_message(message_data: dict) -> dict:
         sender = _extract_sender_name(message_data)
         raw_content = _extract_message_content(message_data)
         content = _extract_tagged_message_content(message_data)
+        command_content = content if content is not None else raw_content
         has_image = _detect_image(message_data)
         received_at = _extract_timestamp(message_data)
         reply_to_id = str(
@@ -619,13 +620,32 @@ def _process_telegram_message(message_data: dict) -> dict:
 
         from core.services.group_config import GroupRegistry
         group_config = GroupRegistry.get_instance().get_group(group_id)
+        if not group_config and _looks_like_fcaup_command(command_content):
+            logger.warning(
+                "Ignoring /fcaup command for unconfigured group %s message %s",
+                group_id,
+                telegram_message_id,
+            )
+            return {
+                'status': 'command',
+                'reply_text': (
+                    "FCA upload is not configured for this group.\n"
+                    "Ask an admin to add this Telegram group in Django Admin, "
+                    "then select the Jawabu HomeBiogas or Order Approval workflow."
+                ),
+            }
         if group_config:
             from core.services.jawabu import is_jawabu_workflow
             from core.services.order_approval import (
                 handle_order_approval_message,
                 is_order_approval_workflow,
             )
-            if content is not None and _looks_like_fcaup_command(content):
+            if _looks_like_fcaup_command(command_content):
+                logger.info(
+                    "Routing /fcaup command for group %s from message %s",
+                    group_id,
+                    telegram_message_id,
+                )
                 return _process_fcaup_command(
                     group_config=group_config,
                     message_data=message_data,
@@ -643,7 +663,7 @@ def _process_telegram_message(message_data: dict) -> dict:
                         'reason': 'Bot was not tagged',
                         'message_id': telegram_message_id,
                     }
-                if _looks_like_fcaup_command(content):
+                if _looks_like_fcaup_command(command_content):
                     return _process_fcaup_command(
                         group_config=group_config,
                         message_data=message_data,
@@ -682,7 +702,7 @@ def _process_telegram_message(message_data: dict) -> dict:
                     ),
                 }
             if is_order_approval_workflow(group_config):
-                if content is not None and _looks_like_fcaup_command(content):
+                if _looks_like_fcaup_command(command_content):
                     return _process_fcaup_command(
                         group_config=group_config,
                         message_data=message_data,
@@ -732,6 +752,18 @@ def _process_telegram_message(message_data: dict) -> dict:
                 }
 
         update_content = content if content is not None else raw_content
+        if group_config and _looks_like_fcaup_command(update_content):
+            logger.info(
+                "Routing /fcaup command from fallback for group %s message %s",
+                group_id,
+                telegram_message_id,
+            )
+            return _process_fcaup_command(
+                group_config=group_config,
+                message_data=message_data,
+                sender=sender,
+                telegram_message_id=telegram_message_id,
+            )
         if reply_to_id and _looks_like_status_update(update_content):
             from core.services.case_updates import handle_case_status_reply
             update_result = handle_case_status_reply(
@@ -842,7 +874,7 @@ def _looks_like_fca_batch_command(content: str) -> bool:
 
 
 def _looks_like_fcaup_command(content: str) -> bool:
-    return bool(re.match(r'^/fcaup(?:@\w+)?(?:\s|$)', str(content or '').strip(), re.IGNORECASE))
+    return bool(re.search(r'(?:^|\s)/fcaup(?:@\w+)?(?:\s|$)', str(content or '').strip(), re.IGNORECASE))
 
 
 def _looks_like_farmup_command(content: str) -> bool:

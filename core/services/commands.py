@@ -76,7 +76,7 @@ def handle_bot_command(
             'reply_text': _format_sheet_sync(group_id=group_id),
         }
 
-    if _should_refresh_from_sheet(normalized):
+    if _should_refresh_from_sheet(normalized, group_id):
         _refresh_group_from_sheet(group_id)
 
     match = re.fullmatch(r'/?update\s+(\S+)\s+(.+)', text, flags=re.IGNORECASE | re.DOTALL)
@@ -350,7 +350,9 @@ def _workflow_type_for_group(group_id: str) -> str:
     return str(workflow.get('type') or 'case')
 
 
-def _should_refresh_from_sheet(normalized: str) -> bool:
+def _should_refresh_from_sheet(normalized: str, group_id: str = '') -> bool:
+    if _workflow_type_for_group(group_id) != 'case':
+        return False
     command = normalized.lstrip('/').split()[0] if normalized else ''
     return command in {
         'today',
@@ -394,6 +396,14 @@ def _refresh_group_from_sheet(group_id: str) -> None:
 
 
 def _format_sheet_sync(group_id: str) -> str:
+    workflow_type = _workflow_type_for_group(group_id)
+    if workflow_type != 'case':
+        workflow_label = workflow_type or 'an unconfigured'
+        return (
+            '/sync is only available for Case workflow groups. '
+            f'This group uses {workflow_label} workflow.'
+        )
+
     try:
         from core.services.sheet_sync import sync_group_from_sheet
         result = sync_group_from_sheet(group_id=group_id, delete_missing=True)
