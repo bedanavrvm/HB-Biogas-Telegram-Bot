@@ -245,3 +245,76 @@ class JblPipelineApiTestCase(TestCase):
         self.farmer.refresh_from_db()
         self.assertEqual(self.farmer.order_number, 'JBL-2026-X1')
         self.assertEqual(self.farmer.requisition_date, date(2026, 7, 2))
+
+    def test_fca_officer_extraction_and_db_upsert(self):
+        """Verify extract_officer parses headers and sync_fcaup_records_to_master_data upserts DB."""
+        from core.services.fca import extract_officer, sync_fcaup_records_to_master_data
+        from core.models import FcaImportRecord, JawabuFarmerMaster
+        from unittest.mock import patch
+
+        # 1. Test extract_officer
+        mock_rows = [
+            (1, ['', 'Field Officer / BRO:', 'Officer John', '']),
+            (2, ['', 'HUB:', 'Nyeri', '']),
+        ]
+        officer = extract_officer(mock_rows)
+        self.assertEqual(officer, 'Officer John')
+
+        # 2. Test DB Upsert
+        # Create a database record for farmer to match by phone
+        db_farmer = JawabuFarmerMaster.objects.create(
+            customer_name='JOHN SMITH',
+            primary_phone='+254712345678',
+            status='active',
+        )
+
+        # Create standard test config for GroupSheetConfiguration
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-1003701615384',
+            sheet_id='1VFRZgbux8crsjAvH7Cn-F5NZdG-dz3E2aB2vhJV_0hg',
+            sheet_name='Master Data',
+            enabled=True,
+            workflow={
+                'type': 'jawabu',
+                'master_sync_enabled': True,
+                'master_sheet_id': '1VFRZgbux8crsjAvH7Cn-F5NZdG-dz3E2aB2vhJV_0hg',
+                'master_sheet_name': 'Master Data',
+                'fca_master_header_row': 3,
+                'fca_master_data_start_row': 5,
+            },
+        )
+
+        # Create FcaImportRecord simulating a review batch commit
+        record = FcaImportRecord.objects.create(
+            group_id=config.group_id,
+            customer_name='JOHN SMITH',
+            primary_phone='+254712345678',
+            fca_visit_date=date(2026, 7, 5),
+            fca_decision='Approved - Paid',
+            fca_comment='A comment',
+            import_status='pending',
+            parsed_fields={
+                'jbl_officer': 'Officer John',
+                'id_number': '',
+                'primary_phone': '254712345678',
+            }
+        )
+
+        with patch('core.services.sheets.GoogleSheetsService.get_instance') as mock_sheets:
+            from core.tests import FakeMasterDataSheet, FakeJawabuService
+            headers = ['No.', 'Customer Name', 'National ID', 'Primary Phone', 'Jawabu Visit Date', 'Jawabu Comment After visit', 'Additional Comments', 'JBL BRO']
+            fake_sheet = FakeMasterDataSheet(headers, [
+                '1', 'JOHN SMITH', '', '254712345678', '', '', '', ''
+            ])
+            mock_sheets.return_value = FakeJawabuService(fake_sheet)
+
+            res = sync_fcaup_records_to_master_data(config, [record])
+            self.assertEqual(res['updated'], 1)
+
+        # Check that the database record got updated (DB consistency check)
+        db_farmer.refresh_from_db()
+        self.assertEqual(db_farmer.jbl_officer, 'Officer John')
+        self.assertEqual(db_farmer.jbl_visit_status, 'Approved - Paid')
+        self.assertEqual(db_farmer.jbl_visit_comment, 'A comment')
+        self.assertEqual(db_farmer.jbl_visit_date, date(2026, 7, 5))
+

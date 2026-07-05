@@ -379,7 +379,7 @@ def sync_farmer_to_master_sheet(farmer: JawabuFarmerMaster) -> bool:
             'jbl_visit_date': (['Jawabu Visit Date', 'JBL Visit Date'], farmer.jbl_visit_date.strftime('%d-%B-%Y') if farmer.jbl_visit_date else ''),
             'jbl_officer': (['JBL BRO', 'JBL Officer'], farmer.jbl_officer),
             'jbl_visit_status': (['Jawabu Comment After Visit', 'JBL Visit Status'], farmer.jbl_visit_status),
-            'jbl_visit_comment': (['Jawabu Visit Comment', 'JBL Visit Comment'], farmer.jbl_visit_comment),
+            'jbl_visit_comment': (['Additional Comments', 'Jawabu Visit Comment', 'JBL Visit Comment'], farmer.jbl_visit_comment),
             'credit_decision': (['Credit Analysis', 'Credit Decision'], farmer.credit_decision),
             'requisition_date': (['Jawabu Requisition Date', 'Requisition Date'], farmer.requisition_date.strftime('%d-%B-%Y') if farmer.requisition_date else ''),
             'order_number': (['Order No.'], farmer.order_number),

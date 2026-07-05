@@ -297,6 +297,7 @@ def fcaup_record_to_review_row(record: FcaImportRecord) -> dict[str, Any]:
         'HB Staff': fields.get('hb_staff') or '',
         'Deposit': fields.get('deposit_hb') or '',
         'Jawabu Visit Date': fields.get('fca_visit_date') or format_master_date(record.fca_visit_date),
+        'JBL Officer': fields.get('jbl_officer') or '',
         'Status': fields.get('fca_decision') or record.fca_decision or '',
         'Comment': fields.get('fca_comment') or record.fca_comment or '',
         'Import Status': 'review_needed' if review else 'pending',
@@ -370,6 +371,7 @@ def cleaned_fcaup_review_fields(row: dict) -> tuple[dict[str, str], list[str]]:
     primary_phone = first_normalized_phone(row.get('Primary Phone') or '')
     secondary_phone = first_normalized_phone(row.get('Secondary Phone') or '')
     visit_date = clean_fcaup_review_date(row.get('Jawabu Visit Date') or '')
+    jbl_officer = normalize_name(row.get('JBL Officer') or '')
     status = canonical_fcaup_status(row.get('Status') or '')
     comment = normalize_cell(row.get('Comment') or '')
     errors = []
@@ -390,6 +392,7 @@ def cleaned_fcaup_review_fields(row: dict) -> tuple[dict[str, str], list[str]]:
         'hb_staff': normalize_name(row.get('HB Staff') or ''),
         'deposit_hb': normalize_cell(row.get('Deposit') or ''),
         'fca_visit_date': visit_date,
+        'jbl_officer': jbl_officer,
         'fca_decision': status,
         'fca_comment': comment,
     }, errors
@@ -423,6 +426,7 @@ def extract_fcaup_section_a_records(filename: str, content: bytes) -> list[FcaPa
         column_map = fcaup_column_map(headers)
         visit_date = extract_visit_date(rows, filename)
         hub = extract_hub(rows)
+        officer = extract_officer(rows)
         for row_number, values in rows:
             if row_number <= header_row:
                 continue
@@ -438,6 +442,7 @@ def extract_fcaup_section_a_records(filename: str, content: bytes) -> list[FcaPa
                 columns=column_map,
                 visit_date=visit_date,
                 hub=hub,
+                officer=officer,
             )
             if parsed:
                 records.append(parsed)
@@ -662,6 +667,7 @@ def parse_fcaup_section_a_row(
     columns: dict[str, int | None],
     visit_date: date | None,
     hub: str,
+    officer: str = '',
 ) -> FcaParsedRecord | None:
     def value(field: str) -> str:
         column = columns.get(field)
@@ -694,6 +700,7 @@ def parse_fcaup_section_a_row(
         'hb_staff': normalize_name(value('staff')),
         'deposit_hb': normalize_cell(value('deposit_hb')),
         'fca_visit_date': format_master_date(visit_date),
+        'jbl_officer': normalize_name(officer),
         'fca_comment': comment,
         'fca_decision': status,
         'fca_source_file': filename,
@@ -951,6 +958,45 @@ def sync_fcaup_records_to_master_data(group_config, records: list[FcaImportRecor
             pending_updates.append((row_number, row_values))
             values = pad_values_to_row(values, row_number, len(headers))
             values[row_number - 1] = row_values
+            # Ensure database consistency by upserting/updating JawabuFarmerMaster model
+            from django.db.models import Q
+            from core.models import JawabuFarmerMaster
+
+            queries = Q()
+            if record.primary_phone:
+                queries |= Q(primary_phone=record.primary_phone)
+            if fields.get('id_number'):
+                queries |= Q(national_id=fields['id_number'])
+
+            farmer = None
+            if queries:
+                farmer = JawabuFarmerMaster.objects.filter(queries).order_by('-updated_at').first()
+
+            visit_date = record.fca_visit_date
+
+            if farmer:
+                farmer.jbl_visit_date = visit_date
+                farmer.jbl_visit_status = record.fca_decision
+                farmer.jbl_visit_comment = record.fca_comment
+                if fields.get('jbl_officer'):
+                    farmer.jbl_officer = fields['jbl_officer']
+                farmer.save()
+                logger.info("FCA sync: Updated existing database record for farmer %s", farmer.id)
+            else:
+                JawabuFarmerMaster.objects.create(
+                    customer_name=record.customer_name,
+                    national_id=fields.get('id_number', ''),
+                    primary_phone=record.primary_phone,
+                    secondary_phone=fields.get('secondary_phone', ''),
+                    county=fields.get('county', '') or fields.get('branch', ''),
+                    branch=fields.get('branch', ''),
+                    jbl_visit_date=visit_date,
+                    jbl_visit_status=record.fca_decision,
+                    jbl_visit_comment=record.fca_comment,
+                    jbl_officer=fields.get('jbl_officer', ''),
+                    sign_date=visit_date,
+                    status='active',
+                )
             add_fcaup_master_index_row(existing, row_number, row_values, header_lookup)
             record.row_number = row_number
             record.import_status = 'imported'
@@ -1035,7 +1081,7 @@ def add_fcaup_master_index_row(existing: dict[str, list[int]], row_number: int, 
 
 def find_fcaup_master_match(fields: dict, existing: dict[str, list[int]]) -> dict[str, Any]:
     national_id = fields.get('id_number') or ''
-    primary_phone = fields.get('primary_phone') or ''
+    primary_phone = first_normalized_phone(fields.get('primary_phone') or '')
     keys = [
         f'id_phone:{national_id}|{primary_phone}' if national_id and primary_phone else '',
         f'id:{national_id}' if national_id else '',
@@ -1073,6 +1119,7 @@ def apply_fcaup_master_values(
     fill_if_blank(row_values, header_lookup, 'Deposit Paid to HB', fields.get('deposit_hb'))
 
     set_header_value(row_values, header_lookup, 'Jawabu Visit Date', fields.get('fca_visit_date'))
+    set_header_value(row_values, header_lookup, 'JBL BRO', fields.get('jbl_officer'))
     set_header_value(row_values, header_lookup, 'Jawabu Comment After visit', fields.get('fca_decision'))
     set_header_value(row_values, header_lookup, 'Additional Comments', fields.get('fca_comment'))
     set_header_value(row_values, header_lookup, 'Source Filename', source_record.source_filename)
@@ -1257,6 +1304,22 @@ def extract_hub(rows: list[tuple[int, list[str]]]) -> str:
         if match:
             return match.group(1).strip(' .:-?')
     return ''
+
+
+def extract_officer(rows: list[tuple[int, list[str]]]) -> str:
+    for _, values in rows[:6]:
+        for i, val in enumerate(values):
+            if val and any(needle in str(val).casefold() for needle in ('field officer', 'bro', 'officer')):
+                for next_val in values[i+1:]:
+                    if next_val and str(next_val).strip():
+                        return str(next_val).strip(' .:-?')
+                match = re.search(r'\b(?:field\s+officer|bro|officer)(?:\s*/\s*bro)?\s*[.:?-]*\s*(.+)$', str(val), re.IGNORECASE)
+                if match:
+                    val_part = match.group(1).strip(' .:-?')
+                    if val_part:
+                        return val_part
+    return ''
+
 
 
 def parse_fca_date_text(text: str) -> date | None:

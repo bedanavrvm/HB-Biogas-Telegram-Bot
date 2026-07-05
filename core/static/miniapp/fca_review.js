@@ -8,7 +8,7 @@
   const pageHeader = document.querySelector('main > header');
   const toolbar = document.querySelector('.toolbar');
   const summary = document.querySelector('.summary');
-  const fields = ['Customer Name', 'ID Number', 'Primary Phone', 'Secondary Phone', 'Location', 'HB Staff', 'Deposit', 'Jawabu Visit Date', 'Status', 'Comment', 'Review Notes', 'Source'];
+  const fields = ['Customer Name', 'ID Number', 'Primary Phone', 'Secondary Phone', 'Location', 'HB Staff', 'Deposit', 'Jawabu Visit Date', 'JBL Officer', 'Status', 'Comment', 'Review Notes', 'Source'];
 
   function updateTableFrame() {
     const chrome = (pageHeader ? pageHeader.offsetHeight : 0)
