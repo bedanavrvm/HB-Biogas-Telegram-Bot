@@ -196,7 +196,7 @@ def process_fcaup_files(
         'errors': file_errors,
         'reply_markup': {
             'inline_keyboard': [[
-                {'text': 'Open FCA Review', 'web_app': {'url': review_url}}
+                {'text': 'Open FCA Review', 'url': review_url}
             ]]
         },
     }

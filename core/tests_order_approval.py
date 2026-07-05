@@ -1283,6 +1283,32 @@ class OrderApprovalWebAppTest(TestCase):
         self.assertFalse(looks_like_non_order_command('/order'))
         self.assertFalse(looks_like_non_order_command('ID: 113650221'))
 
+    @override_settings(TELEGRAM_BOT_TOKEN='token', API_REQUEST_TIMEOUT=5)
+    @patch('core.api.views.requests.post')
+    def test_telegram_reply_retries_without_markup_when_button_rejected(self, mock_post):
+        from core.api.views import _post_telegram_reply
+
+        rejected = MagicMock()
+        rejected.ok = False
+        rejected.status_code = 400
+        rejected.text = 'Bad Request: BUTTON_TYPE_INVALID'
+        accepted = MagicMock()
+        accepted.ok = True
+        mock_post.side_effect = [rejected, accepted]
+
+        _post_telegram_reply(
+            chat_id='-100222',
+            message_data={'message_id': 99},
+            text='FCA upload ready for review',
+            reply_markup={'inline_keyboard': [[{'text': 'Open', 'web_app': {'url': 'https://bot.example.com/fca/review/'}}]]},
+        )
+
+        self.assertEqual(mock_post.call_count, 2)
+        first_data = mock_post.call_args_list[0].kwargs['data']
+        second_data = mock_post.call_args_list[1].kwargs['data']
+        self.assertIn('reply_markup', first_data)
+        self.assertNotIn('reply_markup', second_data)
+        self.assertEqual(second_data['text'], 'FCA upload ready for review')
     @override_settings(ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
     def test_webapp_auth_can_be_disabled_for_server_testing(self):
         is_valid, error, payload = validate_telegram_webapp_init_data('')

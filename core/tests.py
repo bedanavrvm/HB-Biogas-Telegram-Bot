@@ -1732,6 +1732,9 @@ class FcaWorkflowServiceTest(TestCase):
         self.assertEqual(result['status'], 'fcaup_review_ready')
         self.assertEqual(result['processed'], 1)
         self.assertIn('/fca/review/', result['review_url'])
+        button = result['reply_markup']['inline_keyboard'][0][0]
+        self.assertEqual(button['url'], result['review_url'])
+        self.assertNotIn('web_app', button)
         self.assertEqual(FcaImportRecord.objects.count(), 1)
         record = FcaImportRecord.objects.get()
         self.assertEqual(record.import_status, 'pending')

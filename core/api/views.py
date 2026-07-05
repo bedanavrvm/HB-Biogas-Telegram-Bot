@@ -2126,11 +2126,33 @@ def _post_telegram_reply(
             data['reply_to_message_id'] = reply_to_message_id
         if reply_markup:
             data['reply_markup'] = json.dumps(reply_markup)
-        requests.post(
+        response = requests.post(
             url,
             data=data,
             timeout=settings.API_REQUEST_TIMEOUT,
         )
+        if not response.ok:
+            logger.warning(
+                "Telegram reply failed for chat %s: %s %s",
+                chat_id,
+                response.status_code,
+                response.text[:500],
+            )
+            if reply_markup:
+                fallback_data = data.copy()
+                fallback_data.pop('reply_markup', None)
+                fallback = requests.post(
+                    url,
+                    data=fallback_data,
+                    timeout=settings.API_REQUEST_TIMEOUT,
+                )
+                if not fallback.ok:
+                    logger.warning(
+                        "Telegram plain reply fallback failed for chat %s: %s %s",
+                        chat_id,
+                        fallback.status_code,
+                        fallback.text[:500],
+                    )
     except requests.Timeout:
         logger.warning(f"Timeout sending Telegram reply to chat {chat_id}")
     except Exception as exc:
