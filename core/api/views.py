@@ -631,6 +631,11 @@ def _process_telegram_message(message_data: dict) -> dict:
 
         from core.services.group_config import GroupRegistry
         group_config = GroupRegistry.get_instance().get_group(group_id)
+
+        if _looks_like_portal_command(command_content):
+            logger.info("Routing /portal command for group %s from message %s", group_id, telegram_message_id)
+            return _process_portal_command(group_config, sender, telegram_message_id)
+
         if not group_config and _looks_like_fcaup_command(command_content):
             logger.warning(
                 "Ignoring /fcaup command for unconfigured group %s message %s",
@@ -2561,3 +2566,42 @@ def _split_if_batch(
     if len(split) > 1:
         return split
     return [{'sender': sender, 'content': content}]
+
+
+def _looks_like_portal_command(content: str) -> bool:
+    return bool(re.match(r'^/portal(?:@\w+)?(?:\s|$)', str(content or '').strip(), re.IGNORECASE))
+
+
+def _process_portal_command(
+    group_config,
+    sender: str,
+    telegram_message_id: str,
+) -> dict:
+    from django.conf import settings
+    bot_username = str(getattr(settings, 'TELEGRAM_BOT_USERNAME', '') or '').strip().lstrip('@')
+    short_name = str(getattr(settings, 'PORTAL_MINI_APP_SHORT_NAME', '') or '').strip().strip('/')
+    base_url = getattr(settings, 'APP_BASE_URL', '').rstrip('/')
+
+    if bot_username and short_name:
+        launch_url = f"https://t.me/{bot_username}/{short_name}"
+    else:
+        if not base_url:
+            return {
+                'status': 'command',
+                'reply_text': 'APP_BASE_URL is not configured; cannot open the Pipeline Portal.',
+            }
+        launch_url = f"{base_url}/api/portal/"
+
+    return {
+        'status': 'command',
+        'reply_text': (
+            "JBL Pipeline Portal is ready.\n"
+            "Use the portal to view/update JBL visits, credit decisions, and requisition numbers."
+        ),
+        'reply_markup': {
+            'inline_keyboard': [[
+                {'text': 'Open Pipeline Portal', 'url': launch_url}
+            ]]
+        },
+    }
+

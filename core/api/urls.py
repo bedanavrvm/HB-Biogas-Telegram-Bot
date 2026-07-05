@@ -17,6 +17,20 @@ from .views import (
     resend_unsynced,
     sync_from_sheets,
 )
+from .portal_views import (
+    portal_home,
+    portal_dashboard,
+    portal_meta,
+    portal_jbl_queue,
+    portal_log_jbl_visit,
+    portal_credit_queue,
+    portal_set_credit_decision,
+    portal_requisition_queue,
+    portal_assign_order,
+    portal_all_cases,
+    portal_deferred,
+    portal_farmer_detail,
+)
 
 urlpatterns = [
     path('health/', health_check, name='health_check'),
@@ -44,4 +58,22 @@ urlpatterns = [
     path('process/messages/', process_messages, name='process_messages'),
     path('resync/unsynced/', resend_unsynced, name='resend_unsynced'),
     path('sync/from-sheets/', sync_from_sheets, name='sync_from_sheets'),
+
+    # ── JBL Pipeline Portal ────────────────────────────────────────────────
+    path('portal/', portal_home, name='portal_home'),
+    path('portal/dashboard/', portal_dashboard, name='portal_dashboard'),
+    path('portal/meta/', portal_meta, name='portal_meta'),
+    # Stage 2 — JBL Visit
+    path('portal/jbl-queue/', portal_jbl_queue, name='portal_jbl_queue'),
+    path('portal/jbl-queue/<str:farmer_id>/', portal_log_jbl_visit, name='portal_log_jbl_visit'),
+    # Stage 3 — Credit Decision
+    path('portal/credit-queue/', portal_credit_queue, name='portal_credit_queue'),
+    path('portal/credit-queue/<str:farmer_id>/', portal_set_credit_decision, name='portal_set_credit_decision'),
+    # Stage 4 — Requisition / Order (GATED)
+    path('portal/requisition-queue/', portal_requisition_queue, name='portal_requisition_queue'),
+    path('portal/requisition-queue/<str:farmer_id>/', portal_assign_order, name='portal_assign_order'),
+    # All cases + deferred
+    path('portal/farmers/', portal_all_cases, name='portal_all_cases'),
+    path('portal/farmers/<str:farmer_id>/', portal_farmer_detail, name='portal_farmer_detail'),
+    path('portal/deferred/', portal_deferred, name='portal_deferred'),
 ]

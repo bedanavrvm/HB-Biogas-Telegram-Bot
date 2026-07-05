@@ -495,6 +495,31 @@ class JawabuFarmerMaster(models.Model):
         ('inactive', 'Inactive'),
     ]
 
+    # Stage 2 — JBL visit status dropdown (aligns with FCAUP_STATUS_VALUES in fca.py)
+    JBL_VISIT_STATUS_CHOICES = [
+        ('Approved - Paid', 'Approved - Paid'),
+        ('Approved - Pending Invoice', 'Approved - Pending Invoice'),
+        ('Approved - Pending Minimum Deposit', 'Approved - Pending Minimum Deposit'),
+        ('Approved - Requisition Cancelled', 'Approved - Requisition Cancelled'),
+        ('Awaiting Analysis', 'Awaiting Analysis'),
+        ('JBL to Schedule Visit', 'JBL to Schedule Visit'),
+        ('Visit Pending / Reschedule', 'Visit Pending / Reschedule'),
+        ('Deferred / On Hold', 'Deferred / On Hold'),
+        ('Rejected by JBL', 'Rejected by JBL'),
+        ('Cancelled', 'Cancelled'),
+        ('Client Withdrew', 'Client Withdrew'),
+        ('Opted for Cash', 'Opted for Cash'),
+    ]
+
+    # Stage 3 — Credit Decision values (master data dropdown)
+    CREDIT_DECISION_CHOICES = [
+        ('Approved', 'Approved'),
+        ('Rejected', 'Rejected'),
+        ('Deferred', 'Deferred'),
+        ('Exemption Approved', 'Exemption Approved'),
+        ('Pending', 'Pending'),
+    ]
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     source = models.CharField(max_length=100, default='jawabu_farmers_csv', db_index=True)
     source_name = models.CharField(max_length=255, blank=True, default='')
@@ -529,6 +554,50 @@ class JawabuFarmerMaster(models.Model):
     latitude = models.CharField(max_length=64, blank=True, default='')
     longitude = models.CharField(max_length=64, blank=True, default='')
 
+    # ── Stage 2: JBL visit ───────────────────────────────────────────────────
+    jbl_visit_date = models.DateField(
+        null=True, blank=True, db_index=True,
+        help_text='Date the JBL officer visited this farmer.',
+    )
+    jbl_officer = models.CharField(
+        max_length=255, blank=True, default='',
+        help_text='Name of the JBL BRO / field officer who conducted the visit.',
+    )
+    jbl_visit_status = models.CharField(
+        max_length=80, blank=True, default='',
+        choices=JBL_VISIT_STATUS_CHOICES, db_index=True,
+        help_text='Jawabu Comment After Visit — 12-option dropdown set by JBL officer.',
+    )
+    jbl_visit_comment = models.TextField(
+        blank=True, default='',
+        help_text='Optional free-text comment from the JBL officer.',
+    )
+
+    # ── Stage 3: Credit decision ─────────────────────────────────────────────
+    credit_decision = models.CharField(
+        max_length=80, blank=True, default='',
+        choices=CREDIT_DECISION_CHOICES, db_index=True,
+        help_text='Credit Analysis decision from master data dropdown.',
+    )
+    credit_decided_by = models.CharField(
+        max_length=255, blank=True, default='',
+        help_text='Telegram sender who set the credit decision.',
+    )
+    credit_decided_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text='Timestamp when the credit decision was recorded.',
+    )
+
+    # ── Stage 4: Requisition / order ─────────────────────────────────────────
+    requisition_date = models.DateField(
+        null=True, blank=True,
+        help_text='Jawabu Requisition Date — only set after Credit Decision = Approved.',
+    )
+    order_number = models.CharField(
+        max_length=128, blank=True, default='', db_index=True,
+        help_text='Order No. assigned by admin after credit approval.',
+    )
+
     duplicate_key = models.CharField(max_length=255, blank=True, default='', db_index=True)
     status = models.CharField(
         max_length=32,
@@ -552,6 +621,10 @@ class JawabuFarmerMaster(models.Model):
             models.Index(fields=['hb_sales_person']),
             models.Index(fields=['status', 'updated_at']),
             models.Index(fields=['source', 'source_fingerprint']),
+            # Pipeline stage indexes
+            models.Index(fields=['jbl_visit_date']),
+            models.Index(fields=['credit_decision']),
+            models.Index(fields=['order_number']),
         ]
         verbose_name = 'Jawabu farmer master record'
         verbose_name_plural = 'Jawabu farmer master data'

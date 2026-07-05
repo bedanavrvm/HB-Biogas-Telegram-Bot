@@ -387,6 +387,15 @@ class JawabuFarmerMasterAdmin(admin.ModelAdmin):
         'source_fingerprint', 'duplicate_key', 'raw_data', 'last_imported_at',
         'created_at', 'updated_at',
     ]
+    list_display = [
+        'customer_name', 'national_id', 'primary_phone', 'county',
+        'sub_county', 'lead_source', 'hb_sales_person', 'jbl_visit_date',
+        'jbl_visit_status', 'credit_decision', 'order_number', 'status', 'updated_at',
+    ]
+    list_filter = [
+        'status', 'county', 'branch', 'lead_source', 'installation_status',
+        'source', 'jbl_visit_status', 'credit_decision', 'updated_at',
+    ]
     fieldsets = (
         ('Customer', {
             'fields': (
@@ -408,12 +417,33 @@ class JawabuFarmerMasterAdmin(admin.ModelAdmin):
                 'created_date', 'comments',
             ),
         }),
+        ('Stage 2 — JBL Visit', {
+            'fields': (
+                'jbl_visit_date', 'jbl_officer',
+                'jbl_visit_status', 'jbl_visit_comment',
+            ),
+            'description': 'Logged by the JBL BRO after visiting the farmer.',
+        }),
+        ('Stage 3 — Credit Decision', {
+            'fields': (
+                'credit_decision', 'credit_decided_by', 'credit_decided_at',
+            ),
+            'description': (
+                'Set by the credit analyst. Only when Credit Decision = Approved '
+                'can a requisition date and order number be assigned.'
+            ),
+        }),
+        ('Stage 4 — Requisition', {
+            'fields': ('requisition_date', 'order_number'),
+            'description': 'Filled by admin once credit is approved. Gate enforced by the portal.',
+        }),
         ('Import / Cleaning', {
             'fields': (
                 'cleaning_notes', 'duplicate_key', 'source', 'source_name',
                 'source_row_number', 'source_fingerprint', 'last_imported_at',
                 'raw_data', 'created_at', 'updated_at',
             ),
+            'classes': ('collapse',),
         }),
     )
 @admin.register(FcaImportRecord)
