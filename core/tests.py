@@ -1309,6 +1309,16 @@ Mary Njeri njihia
         self.assertEqual(farmer.hbg_contract_name, '')
         self.assertEqual(farmer.external_id, '')
         self.assertEqual(farmer.status, 'active')
+
+    @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot', FARMUP_MINI_APP_SHORT_NAME='farmup')
+    def test_farmup_mini_app_url_uses_configured_short_name(self):
+        from core.services.jawabu_master import build_farmup_mini_app_url
+
+        url = build_farmup_mini_app_url('batch-123')
+
+        self.assertTrue(url.startswith('https://t.me/biogas_bot/farmup?startapp='))
+        self.assertNotIn('/jawabu-farmers/review/', url)
+
     def test_jawabu_farmup_review_batch_commits_edited_rows(self):
         from core.services.jawabu_master import (
             commit_farmup_review_batch,

@@ -92,6 +92,7 @@ ORDER_APPROVAL_IMAGE_PREVIEW_LIMIT=3
 GOOGLE_DRIVE_MEDIA_FOLDER_ID=<shared-drive-folder-id>
 ORDER_APPROVAL_WEBAPP_ENABLED=True
 ORDER_APPROVAL_MINI_APP_SHORT_NAME=<botfather-order-mini-app-short-name>
+FARMUP_MINI_APP_SHORT_NAME=<botfather-farmup-mini-app-short-name>
 FCAUP_MINI_APP_SHORT_NAME=<botfather-fca-review-mini-app-short-name>
 ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True
 ORDER_APPROVAL_WEBAPP_AUTH_MAX_AGE_SECONDS=86400
@@ -164,6 +165,14 @@ https://<your-render-service>.onrender.com/fca/review/
 ```
 
 If this value is blank, `/fcaup` falls back to a normal signed Render review link.
+
+`FARMUP_MINI_APP_SHORT_NAME` is required if `/farmup` should open the Farmers CSV review screen inside Telegram first. In BotFather, create/configure a Mini App short name for the same bot and set its URL to:
+
+```text
+https://<your-render-service>.onrender.com/jawabu-farmers/review/
+```
+
+If this value is blank, `/farmup` falls back to a normal signed Render review link.
 
 ## 3. Deploy The Code
 

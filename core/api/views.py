@@ -1270,9 +1270,7 @@ def _process_jawabu_farmup_command(
         ),
         'reply_markup': {
             'inline_keyboard': [[
-                {'text': button_text, 'web_app': {'url': review_url}}
-                if mini_app_url else
-                {'text': button_text, 'url': review_url}
+                {'text': button_text, 'url': launch_url}
             ]]
         },
     }
