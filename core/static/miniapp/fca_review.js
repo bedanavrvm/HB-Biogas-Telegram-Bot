@@ -5,8 +5,18 @@
   const statusValues = payload.status_values || [];
   const body = document.getElementById('rowsBody');
   const statusEl = document.getElementById('status');
+  const pageHeader = document.querySelector('main > header');
+  const toolbar = document.querySelector('.toolbar');
+  const summary = document.querySelector('.summary');
   const fields = ['Customer Name', 'ID Number', 'Primary Phone', 'Secondary Phone', 'Location', 'HB Staff', 'Deposit', 'Jawabu Visit Date', 'Status', 'Comment', 'Review Notes', 'Source'];
 
+  function updateTableFrame() {
+    const chrome = (pageHeader ? pageHeader.offsetHeight : 0)
+      + (toolbar ? toolbar.offsetHeight : 0)
+      + (summary ? summary.offsetHeight : 0)
+      + 18;
+    document.documentElement.style.setProperty('--fca-chrome-height', `${chrome}px`);
+  }
   function isReview(row) {
     return row['Import Status'] === 'review_needed' || String(row['Review Notes'] || '').trim();
   }
@@ -66,6 +76,7 @@
       body.appendChild(tr);
     });
     renderCounts();
+    updateTableFrame();
   }
 
   function renderCounts() {
@@ -78,6 +89,7 @@
   function setStatus(text, kind) {
     statusEl.textContent = text;
     statusEl.className = 'status ' + (kind || '');
+    updateTableFrame();
   }
 
   document.getElementById('approveAll').addEventListener('click', () => {
@@ -126,5 +138,7 @@
     }
   });
 
+  window.addEventListener('resize', updateTableFrame);
   render();
+  updateTableFrame();
 })();

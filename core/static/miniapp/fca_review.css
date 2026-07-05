@@ -1,3 +1,62 @@
-table { min-width: 1220px; }
+main {
+  max-width: none;
+  padding: 4px 4px 36px;
+}
+header {
+  margin: 0 0 2px;
+  padding: 0 2px;
+}
+h1 { font-size: 16px; }
+.meta { margin-top: 1px; font-size: 11px; }
+.toolbar {
+  gap: 4px;
+  padding: 4px 0;
+}
+.status {
+  min-height: 28px;
+  padding: 4px 7px;
+}
+button {
+  min-height: 28px;
+  padding: 4px 7px;
+}
+.summary {
+  gap: 3px;
+  margin: 4px 0;
+}
+.metric {
+  min-height: 25px;
+  padding: 3px 6px;
+}
+.table-wrap {
+  max-height: calc(100vh - var(--fca-chrome-height, 132px));
+  min-height: 220px;
+  overflow: auto;
+}
+table {
+  min-width: 1220px;
+  table-layout: fixed;
+}
+th, td {
+  padding: 2px;
+}
+th {
+  top: 0;
+  white-space: nowrap;
+}
+input, select, textarea {
+  min-height: 26px;
+  padding: 2px 4px;
+}
+textarea {
+  min-height: 26px;
+}
 .status-col { width: 185px; }
 .source { width: 170px; color: var(--muted); font-size: 11px; }
+@media (max-width: 520px) {
+  main { padding: 3px 3px 34px; }
+  h1 { font-size: 15px; }
+  .toolbar { gap: 3px; }
+  .summary { margin: 3px 0; }
+  th { top: 0; }
+}

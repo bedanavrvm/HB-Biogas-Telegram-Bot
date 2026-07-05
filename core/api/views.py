@@ -446,12 +446,23 @@ def fca_review(request):
     from django.shortcuts import render
     from django.utils.safestring import mark_safe
     from core.services.fca import (
+        decode_fcaup_start_param,
         fcaup_review_payload,
         validate_fcaup_review_token,
     )
 
     batch_id = str(request.GET.get('batch_id') or '').strip()
     token = str(request.GET.get('token') or '').strip()
+    start_param = str(
+        request.GET.get('tgWebAppStartParam')
+        or request.GET.get('startapp')
+        or request.GET.get('start_param')
+        or ''
+    ).strip()
+    if start_param and (not batch_id or not token):
+        decoded = decode_fcaup_start_param(start_param)
+        batch_id = batch_id or decoded.get('batch_id', '')
+        token = token or decoded.get('token', '')
     valid, error = validate_fcaup_review_token(batch_id, token)
     if not batch_id or not valid:
         return render(

@@ -1,7 +1,9 @@
 """FCA Excel batch import workflow."""
 from __future__ import annotations
 
+import base64
 import io
+import json
 import logging
 import re
 from urllib.parse import urlencode
@@ -174,6 +176,8 @@ def process_fcaup_files(
         for parsed in parsed_records
     ]
     review_url = build_fcaup_review_url(batch_id)
+    mini_app_url = build_fcaup_mini_app_url(batch_id)
+    launch_url = mini_app_url or review_url
     if not review_url:
         return {
             'status': 'fcaup_processed',
@@ -193,10 +197,12 @@ def process_fcaup_files(
         'review_needed': sum(1 for record in records if record.import_status == 'review_needed'),
         'batch_id': batch_id,
         'review_url': review_url,
+        'mini_app_url': mini_app_url,
+        'launch_url': launch_url,
         'errors': file_errors,
         'reply_markup': {
             'inline_keyboard': [[
-                {'text': 'Open FCA Review', 'url': review_url}
+                {'text': 'Open FCA Review', 'url': launch_url}
             ]]
         },
     }
@@ -225,6 +231,42 @@ def build_fcaup_review_url(batch_id: str) -> str:
         'token': create_fcaup_review_token(batch_id),
     })
 
+
+def build_fcaup_mini_app_url(batch_id: str) -> str:
+    bot_username = str(getattr(settings, 'TELEGRAM_BOT_USERNAME', '') or '').strip().lstrip('@')
+    short_name = str(getattr(settings, 'FCAUP_MINI_APP_SHORT_NAME', '') or '').strip().strip('/')
+    if not bot_username or not short_name:
+        return ''
+    return f"https://t.me/{bot_username}/{short_name}?startapp={create_fcaup_start_param(batch_id)}"
+
+
+def create_fcaup_start_param(batch_id: str) -> str:
+    payload = {
+        'batch_id': str(batch_id),
+        'token': create_fcaup_review_token(batch_id),
+    }
+    encoded = base64.urlsafe_b64encode(
+        json.dumps(payload, separators=(',', ':')).encode('utf-8')
+    ).decode('ascii')
+    return encoded.rstrip('=')
+
+
+def decode_fcaup_start_param(start_param: str) -> dict[str, str]:
+    value = str(start_param or '').strip()
+    if not value:
+        return {}
+    padding = '=' * (-len(value) % 4)
+    try:
+        decoded = base64.urlsafe_b64decode((value + padding).encode('ascii'))
+        payload = json.loads(decoded.decode('utf-8'))
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    return {
+        'batch_id': str(payload.get('batch_id') or ''),
+        'token': str(payload.get('token') or ''),
+    }
 
 def fcaup_review_payload(batch_id: str, token: str) -> dict[str, Any]:
     records = list(

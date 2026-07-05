@@ -1740,6 +1740,26 @@ class FcaWorkflowServiceTest(TestCase):
         self.assertEqual(record.import_status, 'pending')
         self.assertEqual(record.fca_visit_date.isoformat(), '2026-06-23')
 
+    @override_settings(
+        APP_BASE_URL='https://bot.example.com',
+        TELEGRAM_BOT_USERNAME='biogas_bot',
+        FCAUP_MINI_APP_SHORT_NAME='fcareview',
+    )
+    def test_process_fcaup_files_uses_mini_app_launch_when_configured(self):
+        from core.services.fca import process_fcaup_files
+
+        result = process_fcaup_files(
+            group_config=self.group,
+            files=[('JBL_FCA_TEMPLATE_V1.xlsx', self.fcaup_workbook_bytes())],
+            telegram_message_id='701',
+            sender='FCA Admin',
+        )
+
+        button = result['reply_markup']['inline_keyboard'][0][0]
+        self.assertEqual(result['status'], 'fcaup_review_ready')
+        self.assertIn('/fca/review/', result['review_url'])
+        self.assertTrue(result['mini_app_url'].startswith('https://t.me/biogas_bot/fcareview?startapp='))
+        self.assertEqual(button['url'], result['mini_app_url'])
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
     def test_commit_fcaup_review_updates_master_data_g_h_and_visit_date(self, mock_service):
         from core.services.fca import commit_fcaup_review_batch, extract_fcaup_section_a_records, save_fca_record

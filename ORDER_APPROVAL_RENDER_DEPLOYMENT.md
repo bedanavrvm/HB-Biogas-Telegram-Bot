@@ -91,7 +91,8 @@ ORDER_APPROVAL_IMAGE_PREVIEWS_ENABLED=False
 ORDER_APPROVAL_IMAGE_PREVIEW_LIMIT=3
 GOOGLE_DRIVE_MEDIA_FOLDER_ID=<shared-drive-folder-id>
 ORDER_APPROVAL_WEBAPP_ENABLED=True
-ORDER_APPROVAL_MINI_APP_SHORT_NAME=<botfather-mini-app-short-name>
+ORDER_APPROVAL_MINI_APP_SHORT_NAME=<botfather-order-mini-app-short-name>
+FCAUP_MINI_APP_SHORT_NAME=<botfather-fca-review-mini-app-short-name>
 ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True
 ORDER_APPROVAL_WEBAPP_AUTH_MAX_AGE_SECONDS=86400
 ORDER_APPROVAL_BRANCH_CHOICES=MURANGA,EMBU
@@ -155,6 +156,14 @@ Do not configure group-specific routing in Render env for new groups. Sheet IDs,
 `APP_BASE_URL` is required for the order approval form. It must be the public HTTPS Render URL with no trailing slash.
 
 `ORDER_APPROVAL_MINI_APP_SHORT_NAME` is required if `/order` should open inside Telegram from a group. This is the short name created in BotFather for the Mini App, not the bot username and not a URL. If this value is blank, the bot falls back to a normal signed Render form link, which may open in the phone browser.
+
+`FCAUP_MINI_APP_SHORT_NAME` is required if `/fcaup` should open the FCA review screen inside Telegram first. In BotFather, create/configure a Mini App short name for the same bot and set its URL to:
+
+```text
+https://<your-render-service>.onrender.com/fca/review/
+```
+
+If this value is blank, `/fcaup` falls back to a normal signed Render review link.
 
 ## 3. Deploy The Code
 
