@@ -15,18 +15,19 @@
 .tab-bar::-webkit-scrollbar { display: none; }
 
 .tab-btn {
+  position: relative;
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  gap: 5px;
   padding: 10px 14px 8px;
   border: none;
   border-bottom: 2.5px solid transparent;
   background: transparent;
   color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   cursor: pointer;
@@ -37,21 +38,37 @@
   white-space: nowrap;
 }
 .tab-btn:hover:not(:disabled) { background: transparent; }
-.tab-btn .tab-icon { font-size: 18px; line-height: 1; }
+.tab-btn [data-lucide],
+.tab-btn svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
+  transition: transform 0.15s;
+}
+.tab-btn.active [data-lucide],
+.tab-btn.active svg {
+  color: var(--brand-primary);
+  transform: translateY(-1px);
+}
 .tab-btn .tab-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 4px;
-  border-radius: 9px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
   background: var(--color-danger);
   color: #fff;
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 8px;
+  font-weight: 800;
   line-height: 1;
-  margin-top: 1px;
 }
 .tab-btn.active {
   color: var(--brand-primary);
@@ -81,7 +98,21 @@
   transition: transform 0.15s, box-shadow 0.15s;
 }
 .count-card:active { transform: scale(0.97); }
-.count-card .count-icon { font-size: 24px; line-height: 1; }
+.count-card [data-lucide],
+.count-card svg {
+  width: 24px;
+  height: 24px;
+  display: block;
+  stroke: var(--brand-primary);
+  stroke-width: 2;
+  fill: none;
+}
+.count-card.success [data-lucide],
+.count-card.success svg { stroke: var(--color-success); }
+.count-card.warning [data-lucide],
+.count-card.warning svg { stroke: var(--color-warning); }
+.count-card.danger [data-lucide],
+.count-card.danger svg { stroke: var(--color-danger); }
 .count-card .count-num {
   font-size: 32px;
   font-weight: 800;

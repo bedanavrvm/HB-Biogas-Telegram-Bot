@@ -122,6 +122,9 @@
     setBadge('tab-badge-credit', c.credit_queue);
     setBadge('tab-badge-req', c.requisition_queue);
     el('dash-counts').style.display = 'grid';
+    if (window.lucide) {
+      window.lucide.createIcons();
+    }
   }
 
   function setBadge(id, count) {
@@ -514,6 +517,9 @@
     await loadMeta();
     switchPage('dashboard');
     loadDashboard();
+    if (window.lucide) {
+      window.lucide.createIcons();
+    }
   }
 
   init();
