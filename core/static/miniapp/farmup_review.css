@@ -1,3 +1,106 @@
-main { max-width: 1240px; }
-table { min-width: 1080px; }
-.notes { width: 190px; }
+main {
+  max-width: none;
+  padding: 8px 8px 48px;
+}
+
+header {
+  margin: 0 0 8px;
+  padding: 0 4px;
+}
+
+h1 {
+  font-size: 20px;
+}
+
+.meta {
+  margin-top: 2px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.toolbar {
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  margin-bottom: 12px;
+}
+
+.status {
+  min-height: 32px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+}
+
+button {
+  min-height: 32px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+}
+
+.summary {
+  gap: 6px;
+  margin: 8px 0 12px;
+}
+
+.metric {
+  min-height: 28px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.table-wrap {
+  max-height: calc(100vh - var(--farmup-chrome-height, 140px));
+  min-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+
+table {
+  min-width: 1420px;
+  table-layout: fixed;
+}
+
+th, td {
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+th {
+  top: 0;
+  white-space: nowrap;
+  font-weight: 700;
+  box-shadow: 0 1px 0 var(--border-color);
+}
+
+input, select, textarea {
+  min-height: 28px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+}
+
+textarea {
+  min-height: 28px;
+}
+
+@media (max-width: 520px) {
+  main {
+    padding: 6px 6px 40px;
+  }
+  h1 {
+    font-size: 16px;
+  }
+  .toolbar {
+    gap: 6px;
+    padding: 6px 10px;
+  }
+  .summary {
+    margin: 6px 0 8px;
+  }
+  th {
+    top: 0;
+  }
+}

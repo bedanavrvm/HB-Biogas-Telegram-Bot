@@ -1,62 +1,118 @@
 main {
   max-width: none;
-  padding: 4px 4px 36px;
+  padding: 8px 8px 48px;
 }
+
 header {
-  margin: 0 0 2px;
-  padding: 0 2px;
+  margin: 0 0 8px;
+  padding: 0 4px;
 }
-h1 { font-size: 16px; }
-.meta { margin-top: 1px; font-size: 11px; }
+
+h1 {
+  font-size: 20px;
+}
+
+.meta {
+  margin-top: 2px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .toolbar {
-  gap: 4px;
-  padding: 4px 0;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  margin-bottom: 12px;
 }
+
 .status {
-  min-height: 28px;
-  padding: 4px 7px;
+  min-height: 32px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
 }
+
 button {
-  min-height: 28px;
-  padding: 4px 7px;
+  min-height: 32px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
 }
+
 .summary {
-  gap: 3px;
-  margin: 4px 0;
+  gap: 6px;
+  margin: 8px 0 12px;
 }
+
 .metric {
-  min-height: 25px;
-  padding: 3px 6px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
 }
+
 .table-wrap {
-  max-height: calc(100vh - var(--fca-chrome-height, 132px));
-  min-height: 220px;
+  max-height: calc(100vh - var(--fca-chrome-height, 140px));
+  min-height: 240px;
   overflow: auto;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
 }
+
 table {
-  min-width: 1220px;
+  min-width: 1380px;
   table-layout: fixed;
 }
+
 th, td {
-  padding: 2px;
+  padding: 6px 8px;
+  font-size: 12px;
 }
+
 th {
   top: 0;
   white-space: nowrap;
+  font-weight: 700;
+  box-shadow: 0 1px 0 var(--border-color);
 }
+
 input, select, textarea {
-  min-height: 26px;
-  padding: 2px 4px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
 }
+
 textarea {
-  min-height: 26px;
+  min-height: 28px;
 }
-.status-col { width: 185px; }
-.source { width: 170px; color: var(--muted); font-size: 11px; }
+
+/* Custom Column Widths */
+.status-col {
+  width: 180px;
+}
+
+.source {
+  width: 160px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
 @media (max-width: 520px) {
-  main { padding: 3px 3px 34px; }
-  h1 { font-size: 15px; }
-  .toolbar { gap: 3px; }
-  .summary { margin: 3px 0; }
-  th { top: 0; }
+  main {
+    padding: 6px 6px 40px;
+  }
+  h1 {
+    font-size: 16px;
+  }
+  .toolbar {
+    gap: 6px;
+    padding: 6px 10px;
+  }
+  .summary {
+    margin: 6px 0 8px;
+  }
+  th {
+    top: 0;
+  }
 }

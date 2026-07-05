@@ -4696,6 +4696,11 @@ class TelegramCommandMenuTest(TestCase):
 @override_settings(TELEGRAM_WEBHOOK_SECRET=None, DEBUG=True)
 class TelegramWebhookViewTest(TestCase):
     """Test the Telegram webhook endpoint."""
+
+    def setUp(self):
+        super().setUp()
+        from core.services.group_config import GroupRegistry
+        GroupRegistry._instance = None
     
     @patch('core.api.views._process_telegram_message')
     def test_webhook_receives_message(self, mock_process):

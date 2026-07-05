@@ -1025,8 +1025,8 @@ def build_header_map(headers: list[str]) -> dict[str, str]:
                 break
     if 'Mobile' in headers:
         header_map['primary_phone'] = 'Mobile'
-    if 'Phone' in headers:
-        header_map['secondary_phone'] = 'Phone'
+        if 'Phone' in headers:
+            header_map['secondary_phone'] = 'Phone'
     if 'Sign Date__2' in headers:
         header_map['sign_date'] = 'Sign Date__2'
     elif 'Sign Date' in headers:
