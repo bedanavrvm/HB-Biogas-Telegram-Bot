@@ -980,6 +980,10 @@ def sync_fcaup_records_to_master_data(group_config, records: list[FcaImportRecor
                 farmer.jbl_visit_comment = record.fca_comment
                 if fields.get('jbl_officer'):
                     farmer.jbl_officer = fields['jbl_officer']
+                if not farmer.county and (fields.get('county') or fields.get('branch')):
+                    farmer.county = fields.get('county') or fields.get('branch')
+                if not farmer.branch and fields.get('branch'):
+                    farmer.branch = fields.get('branch')
                 farmer.save()
                 logger.info("FCA sync: Updated existing database record for farmer %s", farmer.id)
             else:
@@ -1115,6 +1119,7 @@ def apply_fcaup_master_values(
     fill_if_blank(row_values, header_lookup, 'National ID', fields.get('id_number'))
     fill_if_blank(row_values, header_lookup, 'Primary Phone', fields.get('primary_phone'))
     fill_if_blank(row_values, header_lookup, 'Secondary Phone', fields.get('secondary_phone'))
+    fill_if_blank(row_values, header_lookup, 'County', fields.get('branch'))
     fill_if_blank(row_values, header_lookup, 'HB Sales Person', fields.get('hb_staff'))
     fill_if_blank(row_values, header_lookup, 'Deposit Paid to HB', fields.get('deposit_hb'))
 
@@ -1300,7 +1305,7 @@ def extract_visit_date(rows: list[tuple[int, list[str]]], filename: str) -> date
 def extract_hub(rows: list[tuple[int, list[str]]]) -> str:
     for _, values in rows[:5]:
         joined = ' '.join(value for value in values if value)
-        match = re.search(r'\bHUB\s*[.:?-]*\s*(.+)$', joined, re.IGNORECASE)
+        match = re.search(r'\bHUB\s*[.:?-]*\s*(.*?)(?=\b(?:field\s+officer|bro|officer|staff)\b|$)', joined, re.IGNORECASE)
         if match:
             return match.group(1).strip(' .:-?')
     return ''
