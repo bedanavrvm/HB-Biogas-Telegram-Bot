@@ -42,6 +42,9 @@
     --text-muted: var(--tg-theme-hint-color, #8e8e93);
     --border-color: rgba(255, 255, 255, 0.08);
     --color-soft: #2c2c35;
+    --color-danger-bg: #2d1616;
+    --color-success-bg: #112d19;
+    --color-warning-bg: #352512;
   }
 }
 
@@ -291,7 +294,46 @@ textarea {
 
 .row-skipped {
   background: var(--color-soft) !important;
-  color: var(--text-muted);
+}
+
+/* Clear filter and sheet close button circle fixes */
+.btn-clear-filters,
+#sheet-close {
+  padding: 0 !important;
+  min-width: unset !important;
+  width: 32px !important;
+  height: 32px !important;
+  line-height: 32px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 50% !important;
+}
+
+/* Table Inputs Aesthetics Refinements */
+td input, 
+td select, 
+td textarea {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+td input:focus, 
+td select:focus, 
+td textarea:focus {
+  background: var(--bg-base) !important;
+}
+tr.row-skipped td,
+tr.row-skipped input,
+tr.row-skipped select,
+tr.row-skipped textarea {
+  color: var(--text-muted) !important;
+}
+tr.row-review td,
+tr.row-review input,
+tr.row-review select,
+tr.row-review textarea {
+  color: var(--text-primary) !important;
 }
 
 .small {

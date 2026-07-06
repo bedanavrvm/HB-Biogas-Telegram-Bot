@@ -8,7 +8,7 @@
   const pageHeader = document.querySelector('main > header');
   const toolbar = document.querySelector('.toolbar');
   const summary = document.querySelector('.summary');
-  const fields = ['Customer Name', 'ID Number', 'Primary Phone', 'Secondary Phone', 'Location', 'HB Staff', 'Deposit', 'Jawabu Visit Date', 'JBL Officer', 'Status', 'Comment', 'Review Notes', 'Source'];
+  const fields = ['Customer Name', 'ID Number', 'Primary Phone', 'Hub', 'Field Officer', 'Location', 'HB Staff', 'Deposit', 'Jawabu Visit Date', 'JBL Officer', 'Status', 'Comment', 'Review Notes', 'Source'];
 
   function updateTableFrame() {
     const chrome = (pageHeader ? pageHeader.offsetHeight : 0)
@@ -17,12 +17,13 @@
       + 18;
     document.documentElement.style.setProperty('--fca-chrome-height', `${chrome}px`);
   }
+
   function isReview(row) {
     return row['Import Status'] === 'review_needed' || String(row['Review Notes'] || '').trim();
   }
 
   function editable(name) {
-    return name !== 'Source' && name !== 'Review Notes';
+    return name !== 'Source' && name !== 'Review Notes' && name !== 'Hub' && name !== 'Field Officer';
   }
 
   function render() {

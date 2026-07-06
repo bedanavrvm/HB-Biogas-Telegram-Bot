@@ -2030,14 +2030,11 @@
         ].filter(Boolean).join('\n');
         setStatus('success', detail);
         clearDraft();
-        formMode = created ? 'edit' : formMode;
-        currentRecordId = payload.order_record_id || currentRecordId;
-        writeBlankFieldsInput.value = payload.status === 'created' ? '0' : writeBlankFieldsInput.value;
-        setRecordMeta(
-          payload.order_record_id
-            ? `${created ? 'Created' : 'Updated'} ${payload.order_record_id}.`
-            : `${created ? 'Entry created' : 'Entry updated'}.`
-        );
+        form.reset();
+        formMode = 'create';
+        currentRecordId = '';
+        writeBlankFieldsInput.value = '1';
+        setRecordMeta('New entry.');
         if (tg) {
           tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('success');
           setTimeout(() => tg.close(), 1200);

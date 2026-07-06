@@ -5,7 +5,7 @@
   const batchId = payload.batch_id;
   const token = payload.token;
   const initData = tg ? tg.initData : '';
-  const fields = ['Customer Name', 'National ID', 'Primary Phone', 'Secondary Phone', 'County', 'HBG Visit Date', 'Deposit Paid to HB', 'HB Sales Person', 'Lead Source', 'Installation Status', 'Cleaning Notes'];
+  const fields = ['Customer Name', 'National ID', 'Primary Phone', 'Secondary Phone', 'County', 'HBG Visit Date', 'Deposit Paid to HB', 'HB Sales Person', 'Cleaning Notes'];
   const body = document.getElementById('rowsBody');
   const statusEl = document.getElementById('status');
 

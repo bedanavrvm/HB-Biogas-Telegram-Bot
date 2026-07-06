@@ -294,6 +294,8 @@ def fcaup_record_to_review_row(record: FcaImportRecord) -> dict[str, Any]:
         'Primary Phone': fields.get('primary_phone') or record.primary_phone or '',
         'Secondary Phone': fields.get('secondary_phone') or '',
         'Location': fields.get('landmark') or '',
+        'Hub': fields.get('branch') or '',
+        'Field Officer': fields.get('jbl_officer') or '',
         'HB Staff': fields.get('hb_staff') or '',
         'Deposit': fields.get('deposit_hb') or '',
         'Jawabu Visit Date': fields.get('fca_visit_date') or format_master_date(record.fca_visit_date),
@@ -319,9 +321,7 @@ def commit_fcaup_review_batch(batch_id: str, rows: list[dict], group_config=None
         if not record:
             continue
         if not row.get('approved'):
-            record.import_status = 'review_needed'
-            record.sync_error = append_error(record.sync_error, 'Skipped in FCA review form')
-            record.save(update_fields=['import_status', 'sync_error'])
+            record.delete()
             continue
         fields, row_errors = cleaned_fcaup_review_fields(row)
         if row_errors:

@@ -335,6 +335,7 @@ def commit_farmup_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict],
     skipped = 0
     errors = []
     remaining_rows = []
+    skipped_rows = []
     committed_display_rows = []
     committed_cleaned_rows = []
     now = timezone.now()
@@ -343,7 +344,7 @@ def commit_farmup_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict],
         row['row_id'] = row.get('row_id') or index
         if not row.get('approved'):
             skipped += 1
-            remaining_rows.append(row)
+            skipped_rows.append(row)
             continue
         cleaned = cleaned_master_row_from_review(row, batch, index, now)
         if not cleaned['customer_name']:
@@ -388,7 +389,7 @@ def commit_farmup_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict],
     if success:
         saved_rows = remaining_rows
     else:
-        saved_rows = committed_display_rows + remaining_rows
+        saved_rows = committed_display_rows + remaining_rows + skipped_rows
         for row in committed_display_rows:
             row['Import Status'] = 'review_needed'
             row['Cleaning Notes'] = append_note(

@@ -1383,11 +1383,10 @@ Mary Njeri njihia
         batch.refresh_from_db()
         self.assertTrue(result['success'])
         self.assertEqual(result['committed'], 1)
-        self.assertEqual(batch.status, 'pending_review')
+        self.assertEqual(batch.status, 'committed')
         self.assertEqual(batch.committed_count, 1)
-        self.assertEqual(len(batch.parsed_rows), 1)
-        self.assertEqual(batch.parsed_rows[0]['Customer Name'], 'MARY NJERI')
-        self.assertFalse(batch.parsed_rows[0]['approved'])
+        self.assertEqual(batch.skipped_count, 1)
+        self.assertEqual(len(batch.parsed_rows), 0)
         self.assertEqual(JawabuFarmerMaster.objects.count(), 1)
 
     def test_farmup_master_sheet_writer_appends_system_columns_at_far_right(self):
