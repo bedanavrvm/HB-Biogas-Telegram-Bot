@@ -338,3 +338,75 @@ def portal_farmer_detail(request, farmer_id: str):
     except JawabuFarmerMaster.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
     return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_requisition_generate(request):
+    """
+    POST /api/portal/requisition-queue/generate/
+    Body: { farmer_ids: [...], order_number: "...", requisition_date: "..." }
+    """
+    from datetime import date as _date
+    from django.http import HttpResponse
+    from core.models import JawabuFarmerMaster
+    from core.services.jawabu_pipeline import assign_order, sync_farmer_to_master_sheet
+    from core.services.requisition import generate_requisition_excel
+    import json
+
+    try:
+        body = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
+
+    farmer_ids = body.get('farmer_ids') or []
+    order_number = str(body.get('order_number') or '').strip()
+    requisition_date_raw = str(body.get('requisition_date') or '').strip()
+
+    if not farmer_ids:
+        return JsonResponse({'ok': False, 'error': 'No farmers selected.'}, status=400)
+    if not order_number:
+        return JsonResponse({'ok': False, 'error': 'Order Number / Batch Ref is required.'}, status=400)
+    if not requisition_date_raw:
+        return JsonResponse({'ok': False, 'error': 'Requisition Date is required.'}, status=400)
+
+    try:
+        requisition_date = _date.fromisoformat(requisition_date_raw)
+    except ValueError:
+        return JsonResponse(
+            {'ok': False, 'error': f"Invalid requisition_date '{requisition_date_raw}'. Use YYYY-MM-DD."},
+            status=400,
+        )
+
+    farmers = list(JawabuFarmerMaster.objects.filter(id__in=farmer_ids))
+    if len(farmers) != len(farmer_ids):
+        return JsonResponse({'ok': False, 'error': 'One or more selected farmers not found.'}, status=404)
+
+    # Check credit status
+    for farmer in farmers:
+        if farmer.credit_decision != 'Approved':
+            return JsonResponse({
+                'ok': False,
+                'error': f"Farmer '{farmer.customer_name}' is not credit-approved (status: '{farmer.credit_decision}'). Only approved cases can be requisitioned."
+            }, status=403)
+
+    # Assign order details to each farmer
+    sender = _portal_sender_from_request(request)
+    for farmer in farmers:
+        assign_order(
+            farmer,
+            order_number=order_number,
+            requisition_date=requisition_date,
+            sender=sender,
+        )
+
+    # Generate the populated requisition sheet
+    xlsx_bytes = generate_requisition_excel(farmers, order_number, requisition_date)
+
+    response = HttpResponse(
+        xlsx_bytes,
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    filename = f"JBL_Requisition_Form_{order_number}.xlsx"
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response

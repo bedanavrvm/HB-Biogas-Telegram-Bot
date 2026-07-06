@@ -22,7 +22,8 @@
     metaDecisions: [],
     selectedFarmer: null,
     activeMode: null, // 'jbl_visit' | 'credit' | 'requisition'
-    filters: { county: '', branch: '' }
+    filters: { county: '', branch: '' },
+    selectedRequisitions: new Set()
   };
 
   let mapInstance = null;
@@ -100,6 +101,11 @@
   function switchPage(page) {
     state.activePage = page;
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.page === page));
+
+    if (page !== 'requisition') {
+      state.selectedRequisitions.clear();
+      updateBatchPanel();
+    }
 
     // Show filter bar only on list queue views (jbl, credit, requisition, deferred)
     const filterBar = el('portal-filter-bar');
@@ -219,15 +225,20 @@
       return;
     }
     listEl.innerHTML = farmers.map((f, i) => `
-      <div class="farmer-card" data-qkey="${qKey}" data-idx="${i}" id="fc-${qKey}-${i}">
-        <div class="fc-name">${f.customer_name || f.national_id || f.primary_phone || 'Unknown'}</div>
-        <div class="fc-sub">${fmt(f.county)}${f.sub_county ? ' · ' + f.sub_county : ''}${f.branch ? ' · ' + f.branch : ''}</div>
-        <div class="fc-sub">${f.primary_phone || ''}</div>
-        <div class="fc-badges">
-          ${stageBadge(f)}
-          ${jblBadge(f)}
-          ${creditBadge(f)}
-          ${f.order_number ? `<span class="badge badge-green">Order: ${f.order_number}</span>` : ''}
+      <div class="farmer-card" data-qkey="${qKey}" data-idx="${i}" id="fc-${qKey}-${i}" style="display: flex; align-items: center;">
+        ${qKey === 'requisition' ? `
+          <input type="checkbox" class="farmer-card-checkbox" data-id="${f.id}" ${state.selectedRequisitions.has(f.id) ? 'checked' : ''} onclick="event.stopPropagation();">
+        ` : ''}
+        <div style="flex: 1;">
+          <div class="fc-name">${f.customer_name || f.national_id || f.primary_phone || 'Unknown'}</div>
+          <div class="fc-sub">${fmt(f.county)}${f.sub_county ? ' · ' + f.sub_county : ''}${f.branch ? ' · ' + f.branch : ''}</div>
+          <div class="fc-sub">${f.primary_phone || ''}</div>
+          <div class="fc-badges">
+            ${stageBadge(f)}
+            ${jblBadge(f)}
+            ${creditBadge(f)}
+            ${f.order_number ? `<span class="badge badge-green">Order: ${f.order_number}</span>` : ''}
+          </div>
         </div>
       </div>
     `).join('');
@@ -240,6 +251,20 @@
         openFarmerSheet(farmer, cfg.mode);
       });
     });
+
+    if (qKey === 'requisition') {
+      listEl.querySelectorAll('.farmer-card-checkbox').forEach(cb => {
+        cb.addEventListener('change', () => {
+          const id = cb.dataset.id;
+          if (cb.checked) {
+            state.selectedRequisitions.add(id);
+          } else {
+            state.selectedRequisitions.delete(id);
+          }
+          updateBatchPanel();
+        });
+      });
+    }
   }
 
   function updateFilterOptions(farmers) {
@@ -715,6 +740,117 @@
     if (window.lucide) {
       window.lucide.createIcons();
     }
+  }
+
+  function updateBatchPanel() {
+    const panel = el('requisition-batch-panel');
+    if (!panel) return;
+    const count = state.selectedRequisitions.size;
+    if (count > 0) {
+      panel.style.display = 'block';
+      const badge = el('batch-selected-count');
+      if (badge) badge.textContent = `${count} selected`;
+    } else {
+      panel.style.display = 'none';
+    }
+  }
+
+  // Bind Generate Form Button
+  el('btn-generate-requisition')?.addEventListener('click', async () => {
+    const orderNoInput = el('batch-order-num');
+    const reqDateInput = el('batch-req-date');
+    if (!orderNoInput || !reqDateInput) return;
+
+    const order_number = orderNoInput.value.trim();
+    const requisition_date = reqDateInput.value.trim();
+
+    if (!order_number) {
+      alert('Please enter an Order Number / Batch Ref.');
+      return;
+    }
+    if (!requisition_date) {
+      alert('Please select a Requisition Date.');
+      return;
+    }
+
+    const farmer_ids = Array.from(state.selectedRequisitions);
+    if (!farmer_ids.length) {
+      alert('No farmers selected.');
+      return;
+    }
+
+    try {
+      showToast('Generating requisition form...');
+      const response = await fetch(apiBase() + '/requisition-queue/generate/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...initDataHeader(),
+          'X-CSRFToken': getCookie('csrftoken') || ''
+        },
+        body: JSON.stringify({
+          farmer_ids,
+          order_number,
+          requisition_date
+        })
+      });
+
+      if (!response.ok) {
+        let errText = 'Failed to generate requisition form.';
+        try {
+          const errJson = await response.json();
+          if (errJson.error) errText = errJson.error;
+        } catch(e) {}
+        showToast(errText, 'error');
+        return;
+      }
+
+      let filename = `JBL_Requisition_Form_${order_number}.xlsx`;
+      const cd = response.headers.get('Content-Disposition');
+      if (cd && cd.includes('filename=')) {
+        const m = cd.match(/filename="([^"]+)"/);
+        if (m && m[1]) filename = m[1];
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+
+      showToast('Form downloaded successfully!', 'success');
+
+      // Clear selection & inputs, then reload
+      state.selectedRequisitions.clear();
+      orderNoInput.value = '';
+      reqDateInput.value = '';
+      updateBatchPanel();
+      
+      // Reload current queue
+      loadQueue('requisition', 1);
+    } catch (err) {
+      console.error(err);
+      showToast('An error occurred during submission.', 'error');
+    }
+  });
+
+  function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+      const cookies = document.cookie.split(';');
+      for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i].trim();
+        if (cookie.substring(0, name.length + 1) === (name + '=')) {
+          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+          break;
+        }
+      }
+    }
+    return cookieValue;
   }
 
   init();

@@ -148,6 +148,27 @@
       <h1>📋 Requisition Queue</h1>
       <p class="meta">Credit approved — assign order number</p>
     </header>
+    <div id="requisition-batch-panel" class="batch-panel" style="display: none;">
+      <div class="batch-title">
+        <span class="badge" id="batch-selected-count">0 selected</span>
+        <span>Assign Order No &amp; Generate Requisition Sheet</span>
+      </div>
+      <div class="batch-form">
+        <div class="form-row inline">
+          <div class="field-group">
+            <label for="batch-order-num">Order Number / Batch Ref</label>
+            <input type="text" id="batch-order-num" placeholder="e.g. JBL-2026-184">
+          </div>
+          <div class="field-group">
+            <label for="batch-req-date">Requisition Date</label>
+            <input type="date" id="batch-req-date">
+          </div>
+          <button class="btn btn-primary" id="btn-generate-requisition" style="display: inline-flex; align-items: center; gap: 6px;">
+            <i data-lucide="file-spreadsheet"></i> Generate Form
+          </button>
+        </div>
+      </div>
+    </div>
     <div id="req-list" class="farmer-list">
       <div class="empty-state"><div class="spinner-inline"></div></div>
     </div>

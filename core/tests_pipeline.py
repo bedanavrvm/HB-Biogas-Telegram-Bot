@@ -246,6 +246,43 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(self.farmer.order_number, 'JBL-2026-X1')
         self.assertEqual(self.farmer.requisition_date, date(2026, 7, 2))
 
+    @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
+    def test_portal_requisition_generate_success(self, mock_sync):
+        """Verify requisition generation view succeeds and downloads Excel file."""
+        self.farmer.credit_decision = 'Approved'
+        self.farmer.save()
+
+        payload = {
+            'farmer_ids': [str(self.farmer.id)],
+            'order_number': 'REQ-BATCH-99',
+            'requisition_date': '2026-07-06'
+        }
+        url = reverse('portal_requisition_generate')
+        response = self.client.post(url, json.dumps(payload), content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response['Content-Type'],
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        self.assertIn('attachment; filename="JBL_Requisition_Form_REQ-BATCH-99.xlsx"', response['Content-Disposition'])
+
+        self.farmer.refresh_from_db()
+        self.assertEqual(self.farmer.order_number, 'REQ-BATCH-99')
+        self.assertEqual(self.farmer.requisition_date, date(2026, 7, 6))
+        mock_sync.assert_called_once_with(self.farmer)
+
+    def test_portal_requisition_generate_fails_on_unapproved(self):
+        """Verify requisition generation fails with 403 on unapproved credit decision."""
+        payload = {
+            'farmer_ids': [str(self.farmer.id)],
+            'order_number': 'REQ-BATCH-99',
+            'requisition_date': '2026-07-06'
+        }
+        url = reverse('portal_requisition_generate')
+        response = self.client.post(url, json.dumps(payload), content_type='application/json')
+        self.assertEqual(response.status_code, 403)
+        self.assertIn('not credit-approved', response.json()['error'])
+
     def test_fca_officer_extraction_and_db_upsert(self):
         """Verify extract_officer parses headers and sync_fcaup_records_to_master_data upserts DB."""
         from core.services.fca import extract_officer, sync_fcaup_records_to_master_data
