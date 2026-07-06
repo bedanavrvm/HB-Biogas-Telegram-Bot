@@ -358,6 +358,30 @@ tr.row-review textarea {
   width: 136px;
 }
 
+.id-col {
+  width: 110px;
+}
+
+.hub-col {
+  width: 120px;
+}
+
+.officer-col {
+  width: 130px;
+}
+
+.location-col {
+  width: 180px;
+}
+
+.staff-col {
+  width: 130px;
+}
+
+.deposit-col {
+  width: 100px;
+}
+
 @media (max-width: 520px) {
   main {
     padding: 8px 8px 60px;
