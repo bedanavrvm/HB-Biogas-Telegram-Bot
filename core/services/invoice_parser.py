@@ -42,6 +42,30 @@ def parse_invoice_date(date_str: str) -> date | None:
             pass
     return None
 
+
+def _normalize_invoice_text(text: str) -> str:
+    """Normalize PDF text where pypdf glues invoice labels to nearby values."""
+    normalized = text or ''
+    normalized = re.sub(r'(Page\s+\d+\s+of\s+\d+)(?=\S)', r'\1\n', normalized, flags=re.IGNORECASE)
+    markers = [
+        r'BILL TO',
+        r'INVOICE\s+[A-Z0-9-]+',
+        r'DATE\s+\d{1,2}[/-]\d{1,2}[/-]\d{2,4}',
+        r'TERMS\b',
+        r'DUE DATE\b',
+        r'DESCRIPTION\b',
+        r'SERIAL NUMBER\b',
+        r'SUBTOTAL\b',
+        r'DISCOUNT\b',
+        r'\bTOTAL\s+(?:KES\s*)?-?\d',
+        r'PAYMENT\b',
+        r'BALANCE DUE\b',
+    ]
+    for marker in markers:
+        normalized = re.sub(rf'(?<!^)(?<!\n)({marker})', r'\n\1', normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r'\bBILL TO\b\s*', 'BILL TO\n', normalized, flags=re.IGNORECASE)
+    return normalized
+
 def _non_empty_lines(text):
     return [line.strip() for line in text.splitlines() if line.strip()]
 
@@ -76,7 +100,21 @@ def _customer_id(bill_to_lines):
     for line in bill_to_lines[1:]:
         if re.fullmatch(r"\d{7,8}", line):
             return line
+    for line in bill_to_lines:
+        for match in re.finditer(r"\b\d{7,8}\b", line):
+            return match.group(0)
     return ""
+
+
+def _clean_customer_name(value: str, customer_phone: str = '', customer_id: str = '') -> str:
+    name = value or ''
+    if customer_phone:
+        name = name.replace(customer_phone, ' ')
+    if customer_id:
+        name = re.sub(rf'\b{re.escape(customer_id)}\b', ' ', name)
+    name = re.sub(r'\bKenya\b', ' ', name, flags=re.IGNORECASE)
+    name = re.sub(r'\s+', ' ', name).strip(' -,:')
+    return name
 
 def _amount_lines(lines, start, end=None):
     if start < 0:
@@ -226,6 +264,7 @@ def parse_invoice_text(text: str, page_number: int) -> dict | None:
       2. **Stacked** (mock/test format): label on one line, value on the next
          e.g. 'DUE DATE\\nINV-2026-999\\n15-Jun-2026'
     """
+    text = _normalize_invoice_text(text)
     upper_text = text.upper()
     if 'HOMEBIOGAS VENTURES LIMITED' not in upper_text or 'BILL TO' not in upper_text:
         return None
@@ -250,6 +289,7 @@ def parse_invoice_text(text: str, page_number: int) -> dict | None:
     customer_name = bill_to_lines[0].strip() if bill_to_lines else ''
     customer_phone = _first_match(bill_to_lines, PHONE_RE)
     customer_id = _customer_id(bill_to_lines)
+    customer_name = _clean_customer_name(customer_name, customer_phone, customer_id)
 
     # ── Invoice metadata ──────────────────────────────────────────────────────
     # Real format:  'INVOICE 9505'  and  'DATE 16/03/2026'

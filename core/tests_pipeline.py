@@ -771,3 +771,30 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(res['results'][0]['parsed_national_id'], '2476584')
         self.assertEqual(res['results'][0]['outside_batch_matches'][0]['farmer_id'], str(farmer.id))
         self.assertEqual(res['results'][0]['outside_batch_matches'][0]['order_number'], 'OTHER-ORDER')
+
+    def test_invoice_parser_handles_glued_pdf_labels_from_render_log(self):
+        from core.services.invoice_parser import parse_invoice_text
+
+        text = (
+            "Page 1 of 1HOMEBIOGAS VENTURES LIMITED "
+            "P.O Box 11500 Kiambu, Kenya 900 KE +254797878853 "
+            "hbg.kenya@homebiogas.com Govt. UID P052063409Q INVOICE "
+            "BILL TO Peter Gitahi Karuba +254726682896 22181007 KenyaINVOICE 10029 "
+            "DATE 20/05/2026 TERMS Net 30 DUE DATE 19/06/2026 "
+            "DESCRIPTION SERIAL NUMBER QTY RATE AMOUNT "
+            "HBG Complete Farmer's System 1106112511402 1 54,000.00 54,000.00 "
+            "We appreciate your business and look forward to serving you again. SUBTOTAL 54,000.00 "
+            "DISCOUNT -3,000.00 TOTAL 51,000.00 PAYMENT 5,000.00 BALANCE DUE KES 46,000.00"
+        )
+
+        parsed = parse_invoice_text(text, 1)
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed['invoice_no'], '10029')
+        self.assertEqual(parsed['customer_name'], 'Peter Gitahi Karuba')
+        self.assertEqual(parsed['customer_phone'], '+254726682896')
+        self.assertEqual(parsed['customer_id'], '22181007')
+        self.assertEqual(parsed['invoice_amount'], '54,000.00')
+        self.assertEqual(parsed['total_after_discount'], '51,000.00')
+        self.assertEqual(parsed['balance_due'], '46,000.00')
+        self.assertEqual(parsed['balance_due_check'], 'OK')
