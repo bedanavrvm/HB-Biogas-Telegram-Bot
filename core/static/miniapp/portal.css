@@ -575,10 +575,14 @@
 }
 
 .batch-form .form-row.inline {
-  display: flex;
-  align-items: flex-end;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: flex-end !important;
   gap: 12px;
   flex-wrap: wrap;
+  border: none !important;
+  background: transparent !important;
+  padding: 0 !important;
 }
 
 .batch-form .field-group {
@@ -624,4 +628,11 @@
   cursor: pointer;
   accent-color: var(--brand-primary);
   flex-shrink: 0;
+}
+
+/* Requisition card horizontal layout override */
+.farmer-card.requisition-card {
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 12px !important;
 }

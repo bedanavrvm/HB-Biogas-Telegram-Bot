@@ -225,7 +225,7 @@
       return;
     }
     listEl.innerHTML = farmers.map((f, i) => `
-      <div class="farmer-card" data-qkey="${qKey}" data-idx="${i}" id="fc-${qKey}-${i}" style="display: flex; align-items: center;">
+      <div class="farmer-card${qKey === 'requisition' ? ' requisition-card' : ''}" data-qkey="${qKey}" data-idx="${i}" id="fc-${qKey}-${i}">
         ${qKey === 'requisition' ? `
           <input type="checkbox" class="farmer-card-checkbox" data-id="${f.id}" ${state.selectedRequisitions.has(f.id) ? 'checked' : ''} onclick="event.stopPropagation();">
         ` : ''}
@@ -322,15 +322,20 @@
     listEl.innerHTML = farmers.map(f => {
       const originalIdx = state.queues[qKey].indexOf(f);
       return `
-        <div class="farmer-card" data-qkey="${qKey}" data-idx="${originalIdx}" id="fc-${qKey}-${originalIdx}">
-          <div class="fc-name">${f.customer_name || f.national_id || f.primary_phone || 'Unknown'}</div>
-          <div class="fc-sub">${fmt(f.county)}${f.sub_county ? ' · ' + f.sub_county : ''}${f.branch ? ' · ' + f.branch : ''}</div>
-          <div class="fc-sub">${f.primary_phone || ''}</div>
-          <div class="fc-badges">
-            ${stageBadge(f)}
-            ${jblBadge(f)}
-            ${creditBadge(f)}
-            ${f.order_number ? `<span class="badge badge-green">Order: ${f.order_number}</span>` : ''}
+        <div class="farmer-card${qKey === 'requisition' ? ' requisition-card' : ''}" data-qkey="${qKey}" data-idx="${originalIdx}" id="fc-${qKey}-${originalIdx}">
+          ${qKey === 'requisition' ? `
+            <input type="checkbox" class="farmer-card-checkbox" data-id="${f.id}" ${state.selectedRequisitions.has(f.id) ? 'checked' : ''} onclick="event.stopPropagation();">
+          ` : ''}
+          <div style="flex: 1;">
+            <div class="fc-name">${f.customer_name || f.national_id || f.primary_phone || 'Unknown'}</div>
+            <div class="fc-sub">${fmt(f.county)}${f.sub_county ? ' · ' + f.sub_county : ''}${f.branch ? ' · ' + f.branch : ''}</div>
+            <div class="fc-sub">${f.primary_phone || ''}</div>
+            <div class="fc-badges">
+              ${stageBadge(f)}
+              ${jblBadge(f)}
+              ${creditBadge(f)}
+              ${f.order_number ? `<span class="badge badge-green">Order: ${f.order_number}</span>` : ''}
+            </div>
           </div>
         </div>
       `;
@@ -344,6 +349,20 @@
         openFarmerSheet(farmer, cfg.mode);
       });
     });
+
+    if (qKey === 'requisition') {
+      listEl.querySelectorAll('.farmer-card-checkbox').forEach(cb => {
+        cb.addEventListener('change', () => {
+          const id = cb.dataset.id;
+          if (cb.checked) {
+            state.selectedRequisitions.add(id);
+          } else {
+            state.selectedRequisitions.delete(id);
+          }
+          updateBatchPanel();
+        });
+      });
+    }
   }
 
   function renderPagination(qKey, pg) {
