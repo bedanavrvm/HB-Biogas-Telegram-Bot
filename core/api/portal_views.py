@@ -390,15 +390,16 @@ def portal_requisition_generate(request):
                 'error': f"Farmer '{farmer.customer_name}' is not credit-approved (status: '{farmer.credit_decision}'). Only approved cases can be requisitioned."
             }, status=403)
 
-    # Assign order details to each farmer
+    # Assign order details to each farmer if not already set or different
     sender = _portal_sender_from_request(request)
     for farmer in farmers:
-        assign_order(
-            farmer,
-            order_number=order_number,
-            requisition_date=requisition_date,
-            sender=sender,
-        )
+        if farmer.order_number != order_number or farmer.requisition_date != requisition_date:
+            assign_order(
+                farmer,
+                order_number=order_number,
+                requisition_date=requisition_date,
+                sender=sender,
+            )
 
     # Generate the populated requisition sheet
     xlsx_bytes = generate_requisition_excel(farmers, order_number, requisition_date)
@@ -410,3 +411,46 @@ def portal_requisition_generate(request):
     filename = f"JBL_Requisition_Form_{order_number}.xlsx"
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
     return response
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def portal_requisition_batches(request):
+    """GET /api/portal/requisition-batches/ — list of unique orders/requisition batches."""
+    from django.db.models import Count, Max
+    from core.models import JawabuFarmerMaster
+    
+    qs = JawabuFarmerMaster.objects.filter(
+        order_number__isnull=False
+    ).exclude(order_number='')
+    
+    county = request.GET.get('county') or ''
+    branch = request.GET.get('branch') or ''
+    if county:
+        qs = qs.filter(county__iexact=county)
+    if branch:
+        qs = qs.filter(branch__iexact=branch)
+        
+    batches_data = qs.values('order_number').annotate(
+        req_date=Max('requisition_date'),
+        farmer_count=Count('id')
+    ).order_by('-req_date', '-order_number')
+    
+    items, pagination = _paginate_qs(batches_data, request)
+    
+    batches_list = []
+    for item in items:
+        order_no = item['order_number']
+        farmers_in_batch = qs.filter(order_number=order_no).values('id', 'customer_name', 'county', 'primary_phone')
+        batches_list.append({
+            'order_number': order_no,
+            'requisition_date': item['req_date'].strftime('%Y-%m-%d') if item['req_date'] else None,
+            'farmer_count': item['farmer_count'],
+            'farmers': list(farmers_in_batch),
+        })
+        
+    return JsonResponse({
+        'ok': True,
+        'batches': batches_list,
+        'pagination': pagination,
+    })

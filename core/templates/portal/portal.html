@@ -43,6 +43,10 @@
     <i data-lucide="database"></i>
     All Cases
   </button>
+  <button class="tab-btn" data-page="batches" aria-label="Requisition Batches">
+    <i data-lucide="layers"></i>
+    Batches
+  </button>
 </nav>
 
 <main>
@@ -200,6 +204,21 @@
       <div class="empty-state"><div class="es-icon">🗂️</div><div class="es-title">Search to find farmers</div></div>
     </div>
     <div class="pagination" id="pg-all"></div>
+  </section>
+
+  <!-- ── Batches ───────────────────────────────────────────────────────── -->
+  <section id="page-batches" class="page">
+    <header>
+      <h1>📦 Requisition Batches</h1>
+      <p class="meta">Generated order batches and archives</p>
+    </header>
+    <div id="batches-list" class="farmer-list">
+      <div class="empty-state">
+        <div class="spinner-inline"></div>
+        <div class="es-sub">Loading batches…</div>
+      </div>
+    </div>
+    <div class="pagination" id="pg-batches"></div>
   </section>
 
 </main>

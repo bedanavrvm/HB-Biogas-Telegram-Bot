@@ -28,6 +28,7 @@ from .portal_views import (
     portal_requisition_queue,
     portal_assign_order,
     portal_requisition_generate,
+    portal_requisition_batches,
     portal_all_cases,
     portal_deferred,
     portal_farmer_detail,
@@ -74,6 +75,7 @@ urlpatterns = [
     path('portal/requisition-queue/', portal_requisition_queue, name='portal_requisition_queue'),
     path('portal/requisition-queue/generate/', portal_requisition_generate, name='portal_requisition_generate'),
     path('portal/requisition-queue/<str:farmer_id>/', portal_assign_order, name='portal_assign_order'),
+    path('portal/requisition-batches/', portal_requisition_batches, name='portal_requisition_batches'),
     # All cases + deferred
     path('portal/farmers/', portal_all_cases, name='portal_all_cases'),
     path('portal/farmers/<str:farmer_id>/', portal_farmer_detail, name='portal_farmer_detail'),

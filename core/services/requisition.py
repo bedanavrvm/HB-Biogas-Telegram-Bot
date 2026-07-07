@@ -5,6 +5,7 @@ import os
 import openpyxl
 from datetime import date, datetime
 from typing import Any
+from openpyxl.utils import get_column_letter
 from django.conf import settings
 from core.models import JawabuFarmerMaster
 
@@ -45,61 +46,186 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
     wb = openpyxl.load_workbook(template_path)
     ws = wb.active
     
-    # Fill headers
+    # 1. Search for date and order ref cell placeholders in rows 1 to 7
+    date_cell = None
+    order_ref_cell = None
+    for r in range(1, 8):
+        for c in range(1, 15):
+            cell = ws.cell(row=r, column=c)
+            val = str(cell.value or "").strip()
+            val_clean = val.upper().replace(" ", "")
+            if "DATE:" in val_clean:
+                date_cell = cell
+            elif "ORDERNO:" in val_clean or "BATCH/ORDERREF:" in val_clean or "ORDERREF:" in val_clean:
+                order_ref_cell = cell
+
     date_str = requisition_date.strftime('%d-%b-%Y') if isinstance(requisition_date, (date, datetime)) else str(requisition_date)
-    ws['F4'] = f"Date:   {date_str}"
-    ws['I4'] = f"Batch / Order Ref:   {order_number}"
+    if date_cell:
+        orig = str(date_cell.value)
+        prefix = orig.split(":")[0] + ":"
+        date_cell.value = f"{prefix}   {date_str}"
+    else:
+        ws['A4'] = f"Date:   {date_str}"
+
+    if order_ref_cell:
+        orig = str(order_ref_cell.value)
+        prefix = orig.split(":")[0] + ":"
+        order_ref_cell.value = f"{prefix}   {order_number}"
+    else:
+        ws['H4'] = f"Order No:   {order_number}"
     
+    # 2. Find main header row
+    header_row_idx = None
+    for r in range(1, 40):
+        for c in range(1, 20):
+            val = ws.cell(row=r, column=c).value
+            if val and "NAME OF THE CUSTOMER" in str(val).upper():
+                header_row_idx = r
+                break
+        if header_row_idx:
+            break
+
+    if not header_row_idx:
+        header_row_idx = 7
+
+    # 3. Map columns dynamically using word boundaries
+    col_mapping = {}
+    
+    def get_words(text):
+        return set(re.findall(r'\b\w+\b', text.upper()))
+        
+    for c in range(1, 16):
+        h_val = ws.cell(row=header_row_idx, column=c).value
+        sub_val = ws.cell(row=header_row_idx + 1, column=c).value
+        
+        h_text = str(h_val or "").strip()
+        sub_text = str(sub_val or "").strip()
+        
+        # Combined words
+        words = get_words(h_text) | get_words(sub_text)
+        
+        if h_text.upper() in ("NO.", "NO"):
+            col_mapping["no"] = c
+        elif "NAME" in words and "CUSTOMER" in words:
+            col_mapping["name"] = c
+        elif "CONTACT" in words or "PHONE" in words:
+            col_mapping["phone"] = c
+        elif "ID" in words and "PAID" not in words:
+            col_mapping["id"] = c
+        elif "CREDIT" in words:
+            col_mapping["credit"] = c
+        elif "COUNTY" in words:
+            col_mapping["county"] = c
+        elif "LANDMARK" in words or "LOCATION" in words:
+            col_mapping["landmark"] = c
+        elif "HBG" in words:
+            col_mapping["hbg"] = c
+        elif "JBL" in words:
+            col_mapping["jbl"] = c
+        elif "SALES" in words:
+            col_mapping["sales"] = c
+
+    col_no = col_mapping.get("no", 1)
+    col_name = col_mapping.get("name", 2)
+    col_phone = col_mapping.get("phone", 3)
+    col_id = col_mapping.get("id", 4)
+    col_credit = col_mapping.get("credit", 5)
+    col_county = col_mapping.get("county", 7)
+    col_landmark = col_mapping.get("landmark", 8)
+    col_hbg = col_mapping.get("hbg", 9)
+    col_jbl = col_mapping.get("jbl", 10)
+    col_sales = col_mapping.get("sales", 11)
+
+    # 4. Dynamically count pre-filled data rows in template
+    first_data_row = None
+    last_data_row = None
+    for r in range(header_row_idx + 2, 50):
+        val = ws.cell(row=r, column=col_no).value
+        is_num = False
+        if val is not None:
+            try:
+                int(str(val).strip())
+                is_num = True
+            except ValueError:
+                pass
+                
+        if is_num:
+            if first_data_row is None:
+                first_data_row = r
+            last_data_row = r
+        else:
+            if first_data_row is not None:
+                break
+                
+    if first_data_row is None:
+        first_data_row = 10
+        last_data_row = 14
+        
+    template_data_rows = last_data_row - first_data_row + 1
     N = len(farmers)
     
-    # Adjust row count
-    if N > 5:
-        insert_count = N - 5
-        ws.insert_rows(15, insert_count)
-        for r in range(15, 15 + insert_count):
-            copy_row_formatting(ws, 10, r)
-    elif N < 5 and N > 0:
-        delete_count = 5 - N
-        ws.delete_rows(10 + N, delete_count)
+    totals_row_idx = last_data_row + 1
+    
+    # 5. Adjust row count dynamically
+    if N > template_data_rows:
+        insert_count = N - template_data_rows
+        ws.insert_rows(totals_row_idx, insert_count)
+        for r in range(totals_row_idx, totals_row_idx + insert_count):
+            copy_row_formatting(ws, first_data_row, r)
+    elif N < template_data_rows:
+        delete_count = template_data_rows - N
+        ws.delete_rows(first_data_row + N, delete_count)
         
-    # Write the data
+    # 6. Write the data
     for idx, farmer in enumerate(farmers):
-        r = 10 + idx
-        ws.cell(row=r, column=2, value=idx + 1)  # NO.
-        ws.cell(row=r, column=3, value=farmer.customer_name)  # NAME OF THE CUSTOMER
-        ws.cell(row=r, column=4, value=farmer.primary_phone)  # CONTACT NO.
-        ws.cell(row=r, column=5, value=farmer.national_id)  # ID NO.
-        ws.cell(row=r, column=6, value=farmer.credit_decision)  # CREDIT ANALYSIS
-        ws.cell(row=r, column=7, value="")  # CALLUP COMMENT (blank)
-        ws.cell(row=r, column=8, value=farmer.county)  # COUNTY
-        ws.cell(row=r, column=9, value=farmer.landmark)  # LOCATION & NEAREST LANDMARK
+        r = first_data_row + idx
+        ws.cell(row=r, column=col_no, value=idx + 1)  # NO.
+        ws.cell(row=r, column=col_name, value=farmer.customer_name)  # NAME OF THE CUSTOMER
+        ws.cell(row=r, column=col_phone, value=farmer.primary_phone)  # CONTACT NO.
+        ws.cell(row=r, column=col_id, value=farmer.national_id)  # ID NO.
+        ws.cell(row=r, column=col_credit, value=farmer.credit_decision)  # CREDIT ANALYSIS
+        ws.cell(row=r, column=6, value="")  # CALLUP COMMENT (blank)
+        ws.cell(row=r, column=col_county, value=farmer.county)  # COUNTY
+        ws.cell(row=r, column=col_landmark, value=farmer.landmark)  # LOCATION & NEAREST LANDMARK
         
-        # Decide deposit paid to HBG vs JBL
         deposit = clean_deposit_float(farmer.actual_receipts)
-        # The deposit amount will always be from HB unless explicitly specified otherwise
         is_hbg = True
         if farmer.lead_source and 'jbl' in farmer.lead_source.lower():
             is_hbg = False
             
         if is_hbg:
-            ws.cell(row=r, column=10, value=deposit)  # HBG
-            ws.cell(row=r, column=11, value="")  # JBL
+            ws.cell(row=r, column=col_hbg, value=deposit)  # HBG
+            ws.cell(row=r, column=col_jbl, value="")  # JBL
         else:
-            ws.cell(row=r, column=10, value="")  # HBG
-            ws.cell(row=r, column=11, value=deposit)  # JBL
+            ws.cell(row=r, column=col_hbg, value="")  # HBG
+            ws.cell(row=r, column=col_jbl, value=deposit)  # JBL
             
-        ws.cell(row=r, column=12, value=farmer.hb_sales_person)  # HB SALES PERSON
+        ws.cell(row=r, column=col_sales, value=farmer.hb_sales_person)  # HB SALES PERSON
 
-    # Update formulas on the totals row (now at 10 + N)
-    totals_row = 10 + N
+    # 7. Write the totals row right after the client data
+    new_totals_row = first_data_row + N
+    ws.insert_rows(new_totals_row, 1)
+    copy_row_formatting(ws, first_data_row, new_totals_row)
+    
+    ws.cell(row=new_totals_row, column=col_name, value="TOTAL CUSTOMERS:                    TOTAL DEPOSITS →")
+    ws.cell(row=new_totals_row, column=col_name).font = openpyxl.styles.Font(bold=True)
+    
+    col_letter_hbg = get_column_letter(col_hbg)
+    col_letter_jbl = get_column_letter(col_jbl)
+    col_letter_name = get_column_letter(col_name)
+    
     if N > 0:
-        ws.cell(row=totals_row, column=10, value=f"=SUM(J10:J{9+N})")
-        ws.cell(row=totals_row, column=11, value=f"=SUM(K10:K{9+N})")
-        ws.cell(row=totals_row, column=12, value=f"=COUNTA(C10:C{9+N})")
+        ws.cell(row=new_totals_row, column=col_hbg, value=f"=SUM({col_letter_hbg}{first_data_row}:{col_letter_hbg}{first_data_row + N - 1})")
+        ws.cell(row=new_totals_row, column=col_jbl, value=f"=SUM({col_letter_jbl}{first_data_row}:{col_letter_jbl}{first_data_row + N - 1})")
+        ws.cell(row=new_totals_row, column=col_sales, value=f"=COUNTA({col_letter_name}{first_data_row}:{col_letter_name}{first_data_row + N - 1})")
     else:
-        ws.cell(row=totals_row, column=10, value=0)
-        ws.cell(row=totals_row, column=11, value=0)
-        ws.cell(row=totals_row, column=12, value=0)
+        ws.cell(row=new_totals_row, column=col_hbg, value=0)
+        ws.cell(row=new_totals_row, column=col_jbl, value=0)
+        ws.cell(row=new_totals_row, column=col_sales, value=0)
+        
+    ws.cell(row=new_totals_row, column=col_hbg).font = openpyxl.styles.Font(bold=True)
+    ws.cell(row=new_totals_row, column=col_jbl).font = openpyxl.styles.Font(bold=True)
+    ws.cell(row=new_totals_row, column=col_sales).font = openpyxl.styles.Font(bold=True)
         
     out = io.BytesIO()
     wb.save(out)

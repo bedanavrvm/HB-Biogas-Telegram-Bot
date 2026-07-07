@@ -14,9 +14,9 @@
   let state = {
     activePage: 'dashboard',
     counts: {},
-    queues: { jbl: [], credit: [], requisition: [], deferred: [], all: [] },
+    queues: { jbl: [], credit: [], requisition: [], deferred: [], all: [], batches: [] },
     pagination: {},
-    pages: { jbl: 1, credit: 1, requisition: 1, deferred: 1, all: 1 },
+    pages: { jbl: 1, credit: 1, requisition: 1, deferred: 1, all: 1, batches: 1 },
     search: '',
     metaStatuses: [],
     metaDecisions: [],
@@ -110,7 +110,7 @@
     // Show filter bar only on list queue views (jbl, credit, requisition, deferred)
     const filterBar = el('portal-filter-bar');
     if (filterBar) {
-      if (page === 'dashboard' || page === 'all') {
+      if (page === 'dashboard' || page === 'all' || page === 'batches') {
         filterBar.style.display = 'none';
       } else {
         filterBar.style.display = 'flex';
@@ -187,6 +187,7 @@
     requisition: { endpoint: '/requisition-queue/', listId: 'req-list', pageKey: 'requisition', mode: 'requisition', emptyTitle: 'No approved cases', emptySub: 'No credit-approved farmers are awaiting an order number.' },
     deferred: { endpoint: '/deferred/', listId: 'deferred-list', pageKey: 'deferred', mode: null, emptyTitle: 'No deferred cases', emptySub: 'No farmers are deferred or flagged.' },
     all: { endpoint: '/farmers/', listId: 'all-list', pageKey: 'all', mode: null, emptyTitle: 'No farmers found', emptySub: 'Try a different search term.' },
+    batches: { endpoint: '/requisition-batches/', listId: 'batches-list', pageKey: 'batches', mode: null, emptyTitle: 'No batches found', emptySub: 'No requisition batches have been generated yet.' },
   };
 
   async function loadQueue(qKey, page = 1) {
@@ -204,6 +205,16 @@
     const { ok, data } = await apiFetch(url);
     if (!ok) { listEl.innerHTML = `<div class="empty-state"><div class="es-icon">⚠️</div><div class="es-title">Error loading queue</div></div>`; return; }
 
+    if (qKey === 'batches') {
+      const batches = data.batches || [];
+      state.queues[qKey] = batches;
+      state.pagination[qKey] = data.pagination || {};
+      state.pages[qKey] = page;
+      renderBatchesList(listEl, batches, cfg);
+      renderPagination(qKey, data.pagination);
+      return;
+    }
+
     const farmers = data.farmers || [];
     state.queues[qKey] = farmers;
     state.pagination[qKey] = data.pagination || {};
@@ -217,6 +228,102 @@
       renderFarmerList(listEl, farmers, cfg, qKey);
     }
     renderPagination(qKey, data.pagination);
+  }
+
+  function renderBatchesList(listEl, batches, cfg) {
+    if (!batches.length) {
+      listEl.innerHTML = `<div class="empty-state"><div class="es-icon">📦</div><div class="es-title">${cfg.emptyTitle}</div><div class="es-sub">${cfg.emptySub}</div></div>`;
+      return;
+    }
+
+    listEl.innerHTML = batches.map((b, idx) => {
+      const farmerIds = b.farmers.map(f => f.id);
+      return `
+        <div class="farmer-card" style="display: flex; flex-direction: column; gap: 8px; cursor: default;">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+            <div>
+              <div class="fc-name" style="font-size: 16px; font-weight: 700; color: var(--text-primary);">
+                Batch: ${b.order_number}
+              </div>
+              <div class="fc-sub" style="font-size: 13px; color: var(--text-muted);">
+                Requisition Date: ${b.requisition_date || 'N/A'} · ${b.farmer_count} client(s)
+              </div>
+            </div>
+            <button class="btn btn-primary btn-download-batch" data-order="${b.order_number}" data-date="${b.requisition_date || ''}" data-ids="${farmerIds.join(',')}" style="height: 32px; padding: 0 12px; font-size: 12px; display: flex; align-items: center; gap: 6px;">
+              <i data-lucide="download" style="width: 14px; height: 14px;"></i> Download Form
+            </button>
+          </div>
+          <div style="border-top: 1px solid var(--border-color); padding-top: 8px; margin-top: 4px;">
+            <div style="font-size: 11px; text-transform: uppercase; font-weight: 600; color: var(--text-muted); margin-bottom: 4px;">Included Clients:</div>
+            <div style="font-size: 13px; color: var(--text-primary); line-height: 1.4;">
+              ${b.farmers.map(f => `
+                <span class="badge badge-gray" style="margin: 2px 4px 2px 0; display: inline-block;">
+                  ${f.customer_name} (${f.county || 'N/A'})
+                </span>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Wire download buttons
+    listEl.querySelectorAll('.btn-download-batch').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const orderNumber = btn.dataset.order;
+        const requisitionDate = btn.dataset.date;
+        const farmerIds = btn.dataset.ids.split(',');
+
+        btn.disabled = true;
+        const origText = btn.innerHTML;
+        btn.innerHTML = '<div class="spinner-inline" style="width: 14px; height: 14px; margin: 0;"></div> Downloading...';
+
+        try {
+          const rawHeader = initDataHeader();
+          const headers = { 'Content-Type': 'application/json', ...rawHeader };
+          const payload = {
+            order_number: orderNumber,
+            requisition_date: requisitionDate,
+            farmer_ids: farmerIds
+          };
+
+          const response = await fetch('/api/portal/requisition-queue/generate/', {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify(payload)
+          });
+
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error || 'Failed to download batch.');
+          }
+
+          const blob = await response.blob();
+          const downloadUrl = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = downloadUrl;
+          a.download = `JBL_Requisition_Form_${orderNumber}.xlsx`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          window.URL.revokeObjectURL(downloadUrl);
+          showToast('Form downloaded successfully!', 'success');
+        } catch (err) {
+          showToast(err.message, 'error');
+        } finally {
+          btn.disabled = false;
+          btn.innerHTML = origText;
+          if (window.lucide) window.lucide.createIcons();
+        }
+      });
+    });
+
+    if (window.lucide) {
+      window.lucide.createIcons();
+    }
   }
 
   function renderFarmerList(listEl, farmers, cfg, qKey) {

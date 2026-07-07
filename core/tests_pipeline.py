@@ -283,6 +283,23 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertIn('not credit-approved', response.json()['error'])
 
+    def test_portal_requisition_batches(self):
+        """Verify that the requisition batches view correctly lists unique batches."""
+        self.farmer.credit_decision = 'Approved'
+        self.farmer.order_number = 'BATCH-ORDER-123'
+        self.farmer.requisition_date = date(2026, 7, 7)
+        self.farmer.save()
+
+        url = reverse('portal_requisition_batches')
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(len(data['batches']), 1)
+        self.assertEqual(data['batches'][0]['order_number'], 'BATCH-ORDER-123')
+        self.assertEqual(data['batches'][0]['farmer_count'], 1)
+        self.assertEqual(data['batches'][0]['farmers'][0]['id'], str(self.farmer.id))
+
     def test_fca_officer_extraction_and_db_upsert(self):
         """Verify extract_officer parses headers and sync_fcaup_records_to_master_data upserts DB."""
         from core.services.fca import extract_officer, sync_fcaup_records_to_master_data
