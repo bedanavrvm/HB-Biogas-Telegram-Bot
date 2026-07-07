@@ -482,7 +482,27 @@ def match_and_update_invoices(order_number: str, pdf_bytes: bytes) -> dict:
         text = page.extract_text() or ""
         parsed = parse_invoice_text(text, i)
         if parsed:
+            logger.info(
+                "Extracted invoice page=%s invoice_no=%s name=%s national_id=%s phone=%s date=%s invoice_amount=%s total_after_discount=%s payment=%s balance_due=%s balance_check=%s",
+                parsed.get("page"),
+                parsed.get("invoice_no"),
+                parsed.get("customer_name"),
+                parsed.get("customer_id"),
+                parsed.get("customer_phone"),
+                parsed.get("invoice_date"),
+                parsed.get("invoice_amount"),
+                parsed.get("total_after_discount"),
+                parsed.get("payment"),
+                parsed.get("balance_due"),
+                parsed.get("balance_due_check"),
+            )
             invoices.append(parsed)
+        else:
+            logger.warning(
+                "Invoice page %s was not parsed. Text preview: %s",
+                i,
+                " ".join(text.split())[:300],
+            )
 
     if not invoices:
         logger.warning("Invoice upload for order %s found no parseable invoices", order_number)
