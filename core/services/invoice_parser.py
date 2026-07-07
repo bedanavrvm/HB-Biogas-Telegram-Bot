@@ -24,12 +24,22 @@ def clean_amount(val: str) -> Decimal | None:
     if not val:
         return None
     try:
-        cleaned = re.sub(r'[^\d.-]', '', val.replace("KES", ""))
+        cleaned = re.sub(r'[^\d.-]', '', str(val).replace("KES", ""))
         if not cleaned:
             return None
         return Decimal(cleaned)
     except (InvalidOperation, ValueError):
         return None
+
+
+def clean_discount_amount(val: str) -> Decimal | None:
+    parsed = clean_amount(val)
+    return abs(parsed) if parsed is not None else None
+
+
+def _positive_amount_text(val: str) -> str:
+    parsed = clean_discount_amount(val)
+    return str(parsed) if parsed is not None else ''
 
 def parse_invoice_date(date_str: str) -> date | None:
     if not date_str:
@@ -309,7 +319,7 @@ def parse_invoice_text(text: str, page_number: int) -> dict | None:
     # Stacked fmt:  standalone 'SUBTOTAL', value on next line
 
     subtotal  = _extract_amount_inline(lines, 'SUBTOTAL')
-    discount  = _extract_amount_inline(lines, 'DISCOUNT')
+    discount  = _positive_amount_text(_extract_amount_inline(lines, 'DISCOUNT'))
     total     = _extract_amount_inline(lines, 'TOTAL')
     payment   = _extract_amount_inline(lines, 'PAYMENT')
     balance_due = _extract_amount_inline(lines, 'BALANCE DUE')
@@ -362,7 +372,7 @@ def verify_balance_due(invoice_amount: str, discount: str, total_after_discount:
     total = clean_amount(total_after_discount)
     paid = clean_amount(payment)
     gross = clean_amount(invoice_amount)
-    disc = clean_amount(discount)
+    disc = clean_discount_amount(discount)
 
     calculated = None
     basis = ''
@@ -370,7 +380,7 @@ def verify_balance_due(invoice_amount: str, discount: str, total_after_discount:
         calculated = total - paid
         basis = 'total_after_discount_minus_payment'
     elif gross is not None and disc is not None and paid is not None:
-        adjusted_total = gross + disc if disc < 0 else gross - disc
+        adjusted_total = gross - disc
         calculated = adjusted_total - paid
         basis = 'gross_minus_discount_minus_payment'
 
@@ -569,7 +579,7 @@ def match_and_update_invoices(order_number: str, pdf_bytes: bytes) -> dict:
                     matched_farmer.invoice_number = inv["invoice_no"]
                     matched_farmer.invoice_date = parse_invoice_date(inv["invoice_date"])
                     matched_farmer.invoice_amount = clean_amount(inv["invoice_amount"])
-                    matched_farmer.discount = clean_amount(inv["discount"])
+                    matched_farmer.discount = clean_discount_amount(inv["discount"])
                     matched_farmer.payment = clean_amount(inv["payment"])
                     matched_farmer.balance_due = clean_amount(inv["balance_due"])
                     matched_farmer.save()

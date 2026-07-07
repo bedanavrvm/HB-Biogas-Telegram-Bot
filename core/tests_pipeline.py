@@ -508,10 +508,10 @@ class JblPipelineApiTestCase(TestCase):
         row = fake_sheet.values[4]
         self.assertEqual(row[4], 'INV-2026-999')
         self.assertEqual(row[5], '15-June-2026')
-        self.assertEqual(row[6], '89900.00')
-        self.assertEqual(row[7], '5000.00')
-        self.assertEqual(row[8], '10000.00')
-        self.assertEqual(row[9], '74900.00')
+        self.assertEqual(row[6], 89900)
+        self.assertEqual(row[7], 5000)
+        self.assertEqual(row[8], 10000)
+        self.assertEqual(row[9], 74900)
 
     @patch('core.services.invoice_parser.PdfReader')
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
@@ -583,6 +583,7 @@ class JblPipelineApiTestCase(TestCase):
         parsed = parse_invoice_text(mock_page.extract_text.return_value, 1)
         self.assertEqual(parsed['balance_due'], '46,000.00')
         self.assertEqual(parsed['calculated_balance_due'], '46000.00')
+        self.assertEqual(parsed['discount'], '3000.00')
         self.assertEqual(parsed['balance_due_check'], 'OK')
 
         res = match_and_update_invoices('076', b'dummy')
@@ -593,7 +594,7 @@ class JblPipelineApiTestCase(TestCase):
         farmer.refresh_from_db()
         self.assertEqual(farmer.invoice_number, '9505')
         self.assertEqual(farmer.invoice_amount, Decimal('54000.00'))
-        self.assertEqual(farmer.discount, Decimal('-3000.00'))
+        self.assertEqual(farmer.discount, Decimal('3000.00'))
         self.assertEqual(farmer.payment, Decimal('5000.00'))
         self.assertEqual(farmer.balance_due, Decimal('46000.00'))
 
@@ -796,5 +797,8 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(parsed['customer_id'], '22181007')
         self.assertEqual(parsed['invoice_amount'], '54,000.00')
         self.assertEqual(parsed['total_after_discount'], '51,000.00')
+        self.assertEqual(parsed['discount'], '3000.00')
         self.assertEqual(parsed['balance_due'], '46,000.00')
         self.assertEqual(parsed['balance_due_check'], 'OK')
+
+

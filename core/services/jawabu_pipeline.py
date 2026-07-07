@@ -306,6 +306,15 @@ def _pipeline_stage(farmer: JawabuFarmerMaster) -> int:
 
 # ── Google Sheets Sync & Notifications ────────────────────────────────────────
 
+
+def _sheet_number(value):
+    if value is None:
+        return ''
+    if value == value.to_integral_value():
+        return int(value)
+    return float(value)
+
+
 def sync_farmer_to_master_sheet(farmer: JawabuFarmerMaster) -> bool:
     """
     Sync a farmer's updated pipeline fields to the master Google sheet.
@@ -412,10 +421,10 @@ def sync_farmer_to_master_sheet(farmer: JawabuFarmerMaster) -> bool:
             'gps_link': (['GPS Link', 'Google Maps Link', 'Maps Link', 'GPS'], farmer.gps_link or ''),
             'invoice_number': (['Invoice Number', 'HBG Invoice Number'], farmer.invoice_number),
             'invoice_date': (['Invoice Date', 'HBG Invoice Date'], farmer.invoice_date.strftime('%d-%B-%Y') if farmer.invoice_date else ''),
-            'invoice_amount': (['Invoice Amount', 'Invoice Value', 'Total Amount'], str(farmer.invoice_amount) if farmer.invoice_amount is not None else ''),
-            'discount': (['Discount'], str(farmer.discount) if farmer.discount is not None else ''),
-            'payment': (['Payment'], str(farmer.payment) if farmer.payment is not None else ''),
-            'balance_due': (['Balance Due'], str(farmer.balance_due) if farmer.balance_due is not None else ''),
+            'invoice_amount': (['Invoice Amount', 'Invoice Value', 'Total Amount'], _sheet_number(farmer.invoice_amount)),
+            'discount': (['Discount'], _sheet_number(farmer.discount)),
+            'payment': (['Payment'], _sheet_number(farmer.payment)),
+            'balance_due': (['Balance Due'], _sheet_number(farmer.balance_due)),
         }
 
         for field_name, (candidates, new_val) in pipeline_fields.items():
@@ -487,3 +496,6 @@ def _notify_credit_approved(farmer: JawabuFarmerMaster) -> None:
         )
     except Exception as exc:
         logger.warning("Failed to send credit approval notification to Telegram: %s", exc)
+
+
+
