@@ -5,6 +5,7 @@ from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from pypdf import PdfReader
 from django.db import transaction
+from django.db.models import Q
 
 from core.models import JawabuFarmerMaster
 from core.services.jawabu_pipeline import sync_farmer_to_master_sheet
@@ -373,6 +374,76 @@ def _resolve_unique_match(matches, label: str):
     return None, ''
 
 
+def _invoice_debug_identity(inv: dict) -> dict:
+    return {
+        'parsed_invoice_no': str(inv.get('invoice_no') or '').strip(),
+        'parsed_customer_name': str(inv.get('customer_name') or '').strip(),
+        'parsed_national_id': str(inv.get('customer_id') or '').strip(),
+        'parsed_phone': str(inv.get('customer_phone') or '').strip(),
+        'normalized_parsed_phone': clean_phone(inv.get('customer_phone') or ''),
+    }
+
+
+def _farmer_debug_snapshot(farmer: JawabuFarmerMaster) -> dict:
+    return {
+        'farmer_id': str(farmer.id),
+        'customer_name': farmer.customer_name,
+        'national_id': farmer.national_id,
+        'primary_phone': farmer.primary_phone,
+        'normalized_primary_phone': clean_phone(farmer.primary_phone),
+        'order_number': farmer.order_number,
+        'status': farmer.status,
+    }
+
+
+def _invoice_match_diagnostics(inv: dict, farmers: list[JawabuFarmerMaster], order_number: str) -> dict:
+    identity = _invoice_debug_identity(inv)
+    inv_id = identity['parsed_national_id']
+    inv_phone = identity['normalized_parsed_phone']
+    inv_name = identity['parsed_customer_name'].upper()
+
+    batch_id_matches = [f for f in farmers if inv_id and str(f.national_id).strip() == inv_id]
+    batch_phone_matches = [f for f in farmers if inv_phone and clean_phone(f.primary_phone) == inv_phone]
+    batch_name_matches = [f for f in farmers if inv_name and str(f.customer_name).strip().upper() == inv_name]
+
+    query = Q()
+    if inv_id:
+        query |= Q(national_id=inv_id)
+    if inv_name:
+        query |= Q(customer_name__iexact=identity['parsed_customer_name'])
+    outside_candidates = []
+    if query:
+        batch_ids = {f.id for f in farmers}
+        outside_candidates = [
+            f for f in JawabuFarmerMaster.objects.filter(query).exclude(id__in=batch_ids).order_by('order_number', 'customer_name')[:10]
+        ]
+    if inv_phone:
+        batch_ids = {f.id for f in farmers}
+        existing_ids = {f.id for f in outside_candidates}
+        phone_candidates = JawabuFarmerMaster.objects.exclude(id__in=batch_ids | existing_ids).order_by('order_number', 'customer_name')
+        outside_candidates.extend([f for f in phone_candidates if clean_phone(f.primary_phone) == inv_phone][:10 - len(outside_candidates)])
+
+    if not farmers:
+        reason = f"No active farmer records found in selected batch/order '{order_number}'."
+    elif not any([batch_id_matches, batch_phone_matches, batch_name_matches]):
+        reason = "No farmer in the selected batch matched the parsed National ID, phone, or customer name."
+    else:
+        reason = "Parsed identifiers matched candidates in the selected batch, but not uniquely. Review duplicates."
+
+    if outside_candidates:
+        reason += " Matching record(s) exist outside the selected batch/order. Check whether you uploaded under the wrong order number."
+
+    return {
+        **identity,
+        'selected_order_number': order_number,
+        'batch_candidate_count': len(farmers),
+        'batch_id_match_count': len(batch_id_matches),
+        'batch_phone_match_count': len(batch_phone_matches),
+        'batch_name_match_count': len(batch_name_matches),
+        'outside_batch_matches': [_farmer_debug_snapshot(f) for f in outside_candidates[:5]],
+        'reason': reason,
+    }
+
 def _match_invoice_to_farmer(inv: dict, farmers: list[JawabuFarmerMaster]):
     inv_id = str(inv.get("customer_id") or '').strip()
     inv_name = str(inv.get("customer_name") or '').strip().upper()
@@ -414,13 +485,17 @@ def match_and_update_invoices(order_number: str, pdf_bytes: bytes) -> dict:
             invoices.append(parsed)
 
     if not invoices:
-        return {"ok": False, "error": "No valid HomeBiogas invoices found in the PDF."}
+        logger.warning("Invoice upload for order %s found no parseable invoices", order_number)
+        return {"ok": False, "error": "No valid HomeBiogas invoices found in the PDF.", "total_parsed": 0, "matched_count": 0, "results": []}
 
     # Fetch active farmers in the batch
     farmers = list(JawabuFarmerMaster.objects.filter(
         order_number=order_number,
         status='active'
     ))
+
+    logger.info("Invoice upload parsed %s invoice(s) for order %s", len(invoices), order_number)
+    logger.info("Invoice upload candidate farmer count for order %s: %s", order_number, len(farmers))
 
     results = []
     matched_count = 0
@@ -462,23 +537,55 @@ def match_and_update_invoices(order_number: str, pdf_bytes: bytes) -> dict:
                     "results": results,
                 }
 
+            logger.info("Invoice %s matched farmer %s by parsed identifiers: id=%s phone=%s name=%s", inv.get("invoice_no"), matched_farmer.id, inv.get("customer_id"), inv.get("customer_phone"), inv.get("customer_name"))
             results.append({
                 "customer_name": matched_farmer.customer_name,
                 "status": "Matched",
-                "invoice_no": inv["invoice_no"]
+                "invoice_no": inv["invoice_no"],
+                "matched_farmer_id": str(matched_farmer.id),
+                "matched_national_id": matched_farmer.national_id,
+                "matched_phone": matched_farmer.primary_phone,
+                "matched_order_number": matched_farmer.order_number,
             })
             matched_count += 1
         else:
+            diagnostics = _invoice_match_diagnostics(inv, farmers, order_number)
+            reason = match_error or diagnostics["reason"]
+            logger.warning(
+                "Invoice %s unmatched for order %s: parsed_id=%s parsed_phone=%s parsed_name=%s batch_candidates=%s reason=%s",
+                inv.get("invoice_no"),
+                order_number,
+                diagnostics.get("parsed_national_id"),
+                diagnostics.get("parsed_phone"),
+                diagnostics.get("parsed_customer_name"),
+                diagnostics.get("batch_candidate_count"),
+                reason,
+            )
             results.append({
+                **diagnostics,
                 "customer_name": inv["customer_name"],
                 "status": "Ambiguous" if match_error else "Unmatched",
                 "invoice_no": inv["invoice_no"],
-                "reason": match_error,
+                "reason": reason,
             })
 
-    return {
-        "ok": True,
+    unmatched_count = len(results) - matched_count
+    response = {
+        "ok": matched_count > 0,
+        "error": "No parsed invoices matched records in the selected batch/order." if matched_count == 0 else "",
+        "order_number": order_number,
+        "candidate_count": len(farmers),
         "total_parsed": len(invoices),
         "matched_count": matched_count,
-        "results": results
+        "unmatched_count": unmatched_count,
+        "results": results,
     }
+    logger.info(
+        "Invoice upload summary for order %s: parsed=%s matched=%s unmatched=%s candidates=%s",
+        order_number,
+        len(invoices),
+        matched_count,
+        unmatched_count,
+        len(farmers),
+    )
+    return response

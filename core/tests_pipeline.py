@@ -657,7 +657,7 @@ class JblPipelineApiTestCase(TestCase):
 
         res = match_and_update_invoices('076', b'dummy')
 
-        self.assertTrue(res['ok'], msg=str(res))
+        self.assertFalse(res['ok'], msg=str(res))
         self.assertEqual(res['matched_count'], 0)
         self.assertEqual(res['results'][0]['status'], 'Ambiguous')
         self.assertIn('Multiple farmers matched by National ID', res['results'][0]['reason'])
@@ -731,3 +731,43 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(farmer.invoice_number, '')
         self.assertIsNone(farmer.invoice_date)
         self.assertIsNone(farmer.invoice_amount)
+
+    @patch('core.services.invoice_parser.PdfReader')
+    def test_invoice_unmatched_reports_possible_match_outside_selected_order(self, mock_pdf_reader):
+        from core.services.invoice_parser import match_and_update_invoices
+
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='ALICEBETTY KIMOTHO',
+            national_id='2476584',
+            primary_phone='254721929868',
+            order_number='OTHER-ORDER',
+            status='active',
+        )
+
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = (
+            "Page 1 of 1\n"
+            "HOMEBIOGAS VENTURES LIMITED\n"
+            "BILL TO\n"
+            "Alicebetty Kimotho\n"
+            "+254721929868\n"
+            "2476584\n"
+            "Kenya\n"
+            "INVOICE 9505\n"
+            "DATE 16/03/2026\n"
+            "TOTAL 51,000.00\n"
+            "PAYMENT 5,000.00\n"
+            "BALANCE DUE KES 46,000.00\n"
+        )
+        mock_pdf_reader.return_value.pages = [mock_page]
+
+        res = match_and_update_invoices('SELECTED-ORDER', b'dummy')
+
+        self.assertFalse(res['ok'], msg=str(res))
+        self.assertEqual(res['matched_count'], 0)
+        self.assertEqual(res['candidate_count'], 0)
+        self.assertEqual(res['results'][0]['status'], 'Unmatched')
+        self.assertIn('outside the selected batch/order', res['results'][0]['reason'])
+        self.assertEqual(res['results'][0]['parsed_national_id'], '2476584')
+        self.assertEqual(res['results'][0]['outside_batch_matches'][0]['farmer_id'], str(farmer.id))
+        self.assertEqual(res['results'][0]['outside_batch_matches'][0]['order_number'], 'OTHER-ORDER')

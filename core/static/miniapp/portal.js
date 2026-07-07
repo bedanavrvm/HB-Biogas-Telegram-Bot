@@ -1108,20 +1108,44 @@
       }
 
       const res = await response.json();
-      if (!res.ok) {
+      if (!res.ok && !(res.results || []).length) {
         throw new Error(res.error || 'Invoice extraction failed.');
       }
 
-      showToast(`Invoices processed successfully! Matched ${res.matched_count} of ${res.total_parsed}.`, 'success');
+      if (res.ok) {
+        showToast(`Invoices processed successfully! Matched ${res.matched_count} of ${res.total_parsed}.`, 'success');
+      } else {
+        showToast(res.error || 'No invoice matched. Review the details below.', 'error');
+      }
 
       // Render results
-      invoiceResultsSummary.textContent = `Successfully matched ${res.matched_count} of ${res.total_parsed} parsed invoices.`;
+      const matchedCount = res.matched_count || 0;
+      const totalParsed = res.total_parsed || 0;
+      const candidateCount = res.candidate_count ?? 'unknown';
+      invoiceResultsSummary.textContent = res.ok
+        ? `Matched ${matchedCount} of ${totalParsed} parsed invoice(s). Candidates in selected batch: ${candidateCount}.`
+        : `${res.error || 'Invoice upload needs review.'} Parsed: ${totalParsed}. Matched: ${matchedCount}. Candidates in selected batch: ${candidateCount}.`;
       invoiceResultsList.innerHTML = (res.results || []).map(r => {
         const matched = r.status === 'Matched';
         const customerName = escapeHtml(r.customer_name || 'â€”');
         const invoiceNo = escapeHtml(r.invoice_no || 'â€”');
         const status = escapeHtml(r.status || 'Unmatched');
         const reason = r.reason ? `<div style="font-size:11px; color:#7f1d1d; margin-top:2px;">${escapeHtml(r.reason)}</div>` : '';
+        const parsed = !matched ? `
+          <div style="font-size:11px; color:#475569; margin-top:4px; line-height:1.45;">
+            Parsed ID: <strong>${escapeHtml(r.parsed_national_id || '—')}</strong> ·
+            Phone: <strong>${escapeHtml(r.parsed_phone || '—')}</strong> ·
+            Selected order: <strong>${escapeHtml(r.selected_order_number || res.order_number || '—')}</strong><br>
+            Batch candidates: ${escapeHtml(r.batch_candidate_count ?? '—')} ·
+            ID matches: ${escapeHtml(r.batch_id_match_count ?? '—')} ·
+            Phone matches: ${escapeHtml(r.batch_phone_match_count ?? '—')} ·
+            Name matches: ${escapeHtml(r.batch_name_match_count ?? '—')}
+          </div>` : '';
+        const outside = (r.outside_batch_matches || []).length ? `
+          <div style="font-size:11px; color:#7c2d12; margin-top:4px; line-height:1.45;">
+            Possible match outside selected order:<br>
+            ${(r.outside_batch_matches || []).map(m => `${escapeHtml(m.customer_name || '—')} · ID ${escapeHtml(m.national_id || '—')} · ${escapeHtml(m.primary_phone || '—')} · Order ${escapeHtml(m.order_number || '—')} · Status ${escapeHtml(m.status || '—')}`).join('<br>')}
+          </div>` : '';
         return `
         <div style="font-size:13px; padding:6px 8px; background:${matched ? '#f0fdf4' : '#fef2f2'}; border-radius:6px; border:1px solid ${matched ? '#bbf7d0' : '#fecaca'};">
           <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
@@ -1132,6 +1156,8 @@
             </div>
           </div>
           ${reason}
+          ${parsed}
+          ${outside}
         </div>`;
       }).join('');
       invoiceResults.style.display = 'block';
