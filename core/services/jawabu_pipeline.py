@@ -26,10 +26,7 @@ logger = logging.getLogger(__name__)
 
 # ── Approved statuses that signal a client may move to credit review ──────────
 JBL_FORWARD_STATUSES = frozenset({
-    'Approved - Paid',
-    'Approved - Pending Invoice',
-    'Approved - Pending Minimum Deposit',
-    'Approved - Requisition Cancelled',
+    'Approved',
     'Awaiting Analysis',
 })
 

@@ -497,18 +497,14 @@ class JawabuFarmerMaster(models.Model):
 
     # Stage 2 — JBL visit status dropdown (aligns with FCAUP_STATUS_VALUES in fca.py)
     JBL_VISIT_STATUS_CHOICES = [
-        ('Approved - Paid', 'Approved - Paid'),
-        ('Approved - Pending Invoice', 'Approved - Pending Invoice'),
-        ('Approved - Pending Minimum Deposit', 'Approved - Pending Minimum Deposit'),
-        ('Approved - Requisition Cancelled', 'Approved - Requisition Cancelled'),
+        ('Approved', 'Approved'),
         ('Awaiting Analysis', 'Awaiting Analysis'),
         ('JBL to Schedule Visit', 'JBL to Schedule Visit'),
-        ('Visit Pending / Reschedule', 'Visit Pending / Reschedule'),
+        ('Rescheduled', 'Rescheduled'),
         ('Deferred / On Hold', 'Deferred / On Hold'),
         ('Rejected by JBL', 'Rejected by JBL'),
-        ('Cancelled', 'Cancelled'),
-        ('Client Withdrew', 'Client Withdrew'),
         ('Opted for Cash', 'Opted for Cash'),
+        ('Opted for other Partner', 'Opted for other Partner'),
     ]
 
     # Stage 3 — Credit Decision values (master data dropdown)

@@ -1706,7 +1706,7 @@ class FcaWorkflowServiceTest(TestCase):
         sheet.append([
             None, 1, 'Samuel Ndungu', '113650221', '0724733556',
             'Ngenda', 'Nathan', 5000, 'Ignored basis text',
-            'Approved - Pending Minimum Deposit', 'Customer needs 5k top-up',
+            'Approved', 'Customer needs 5k top-up',
         ])
         stream = BytesIO()
         workbook.save(stream)
@@ -1723,7 +1723,7 @@ class FcaWorkflowServiceTest(TestCase):
         self.assertEqual(fields['id_number'], '113650221')
         self.assertEqual(fields['primary_phone'], '254724733556')
         self.assertEqual(fields['fca_visit_date'], '23-June-2026')
-        self.assertEqual(fields['fca_decision'], 'Approved - Pending Minimum Deposit')
+        self.assertEqual(fields['fca_decision'], 'Approved')
         self.assertEqual(fields['fca_comment'], 'Customer needs 5k top-up')
         self.assertNotIn('Ignored basis text', fields['fca_comment'])
 
@@ -1805,7 +1805,7 @@ class FcaWorkflowServiceTest(TestCase):
             'HB Staff': 'Nathan',
             'Deposit': '5000',
             'Jawabu Visit Date': '23-June-2026',
-            'Status': 'Approved - Pending Minimum Deposit',
+            'Status': 'Approved',
             'Comment': 'Customer needs 5k top-up',
         }], group_config=self.group)
 
@@ -1813,11 +1813,11 @@ class FcaWorkflowServiceTest(TestCase):
         self.assertEqual(result['committed'], 1)
         row = fake_sheet.values[4]
         self.assertEqual(row[4], '23-June-2026')
-        self.assertEqual(row[6], 'Approved - Pending Minimum Deposit')
+        self.assertEqual(row[6], 'Approved')
         self.assertEqual(row[7], 'Customer needs 5k top-up')
         self.assertNotIn('Ignored basis text', row[7])
         record.refresh_from_db()
-        self.assertEqual(record.fca_decision, 'Approved - Pending Minimum Deposit')
+        self.assertEqual(record.fca_decision, 'Approved')
         self.assertEqual(fake_sheet.update_options, ['RAW'])
 
     @patch('core.services.fca.get_sheets_service')

@@ -35,18 +35,14 @@ DEFAULT_MASTER_SHEET_NAME = 'Master Data'
 FCAUP_TOKEN_SALT = 'fca-section-a-upload'
 
 FCAUP_STATUS_VALUES = (
-    'Approved - Paid',
-    'Approved - Pending Invoice',
-    'Approved - Pending Minimum Deposit',
-    'Approved - Requisition Cancelled',
+    'Approved',
     'Awaiting Analysis',
     'JBL to Schedule Visit',
-    'Visit Pending / Reschedule',
+    'Rescheduled',
     'Deferred / On Hold',
     'Rejected by JBL',
-    'Cancelled',
-    'Client Withdrew',
     'Opted for Cash',
+    'Opted for other Partner',
 )
 FCAUP_STATUS_LOOKUP = {
     re.sub(r'\s+', ' ', status).casefold(): status

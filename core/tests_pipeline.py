@@ -71,7 +71,7 @@ class JblPipelineServiceTestCase(TestCase):
             sign_date='24-June-2026',
             jbl_visit_date=date(2026, 6, 25),
             jbl_officer='Officer Bob',
-            jbl_visit_status='Approved - Paid',
+            jbl_visit_status='Approved',
             credit_decision='Approved',
             status='active',
         )
@@ -84,7 +84,7 @@ class JblPipelineServiceTestCase(TestCase):
             sign_date='24-June-2026',
             jbl_visit_date=date(2026, 6, 25),
             jbl_officer='Officer Bob',
-            jbl_visit_status='Approved - Paid',
+            jbl_visit_status='Approved',
             credit_decision='Approved',
             order_number='JBL-2026-004',
             requisition_date=date(2026, 6, 26),
@@ -212,7 +212,7 @@ class JblPipelineApiTestCase(TestCase):
     def test_set_credit_decision_api(self):
         """Verify Stage 3 credit decision posting."""
         self.farmer.jbl_visit_date = date(2026, 7, 1)
-        self.farmer.jbl_visit_status = 'Approved - Paid'
+        self.farmer.jbl_visit_status = 'Approved'
         self.farmer.save()
 
         payload = {'decision': 'Approved'}
@@ -344,7 +344,7 @@ class JblPipelineApiTestCase(TestCase):
             customer_name='JOHN SMITH',
             primary_phone='+254712345678',
             fca_visit_date=date(2026, 7, 5),
-            fca_decision='Approved - Paid',
+            fca_decision='Approved',
             fca_comment='A comment',
             import_status='pending',
             parsed_fields={
@@ -368,7 +368,7 @@ class JblPipelineApiTestCase(TestCase):
         # Check that the database record got updated (DB consistency check)
         db_farmer.refresh_from_db()
         self.assertEqual(db_farmer.jbl_officer, 'Officer John')
-        self.assertEqual(db_farmer.jbl_visit_status, 'Approved - Paid')
+        self.assertEqual(db_farmer.jbl_visit_status, 'Approved')
         self.assertEqual(db_farmer.jbl_visit_comment, 'A comment')
         self.assertEqual(db_farmer.jbl_visit_date, date(2026, 7, 5))
 
