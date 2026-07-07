@@ -55,6 +55,16 @@
     _toastTimer = setTimeout(() => { t.classList.remove('show'); }, 3000);
   }
 
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    }[ch]));
+  }
+
   function fmt(v) { return v || '—'; }
   function fmtDate(v) {
     if (!v) return '—';
@@ -69,8 +79,8 @@
 
   function stageBadge(farmer) {
     const stage = farmer.pipeline_stage || 1;
-    const labels = ['—', 'Awaiting JBL', 'JBL Visited', 'Credit Set', 'Ordered'];
-    const styles = ['', 'badge-grey', 'badge-blue', 'badge-orange', 'badge-green'];
+    const labels = ['—', 'Awaiting JBL', 'JBL Visited', 'Credit Set', 'Ordered', '', '', 'Invoiced'];
+    const styles = ['', 'badge-grey', 'badge-blue', 'badge-orange', 'badge-green', '', '', 'badge-green'];
     return `<span class="badge ${styles[stage] || ''}">${labels[stage] || 'Stage ' + stage}</span>`;
   }
 
@@ -238,6 +248,12 @@
 
     listEl.innerHTML = batches.map((b, idx) => {
       const farmerIds = b.farmers.map(f => f.id);
+      const invoicedCount = b.invoiced_count ?? b.farmers.filter(f => f.invoiced).length;
+      const allInvoiced = invoicedCount === b.farmer_count;
+      const invoiceProgress = b.farmer_count
+        ? `${invoicedCount}/${b.farmer_count} invoiced`
+        : '0 invoiced';
+      const invoiceColor = allInvoiced ? 'badge-green' : invoicedCount > 0 ? 'badge-orange' : 'badge-gray';
       return `
         <div class="farmer-card" style="display: flex; flex-direction: column; gap: 8px; cursor: default;">
           <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
@@ -247,18 +263,24 @@
               </div>
               <div class="fc-sub" style="font-size: 13px; color: var(--text-muted);">
                 Requisition Date: ${b.requisition_date || 'N/A'} · ${b.farmer_count} client(s)
+                &nbsp;<span class="badge ${invoiceColor}" style="font-size: 11px;">${invoiceProgress}</span>
               </div>
             </div>
-            <button class="btn btn-primary btn-download-batch" data-order="${b.order_number}" data-date="${b.requisition_date || ''}" data-ids="${farmerIds.join(',')}" style="height: 32px; padding: 0 12px; font-size: 12px; display: flex; align-items: center; gap: 6px;">
-              <i data-lucide="download" style="width: 14px; height: 14px;"></i> Download Form
-            </button>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-primary btn-download-batch" data-order="${b.order_number}" data-date="${b.requisition_date || ''}" data-ids="${farmerIds.join(',')}" style="height: 32px; padding: 0 12px; font-size: 12px; display: flex; align-items: center; gap: 6px;">
+                <i data-lucide="download" style="width: 14px; height: 14px;"></i> Download Form
+              </button>
+              <button class="btn btn-secondary btn-upload-invoices" data-order="${b.order_number}" style="height: 32px; padding: 0 12px; font-size: 12px; display: flex; align-items: center; gap: 6px; border: 1px solid var(--border-color); color: var(--text-primary); background: transparent;">
+                <i data-lucide="upload" style="width: 14px; height: 14px;"></i> Upload Invoices
+              </button>
+            </div>
           </div>
           <div style="border-top: 1px solid var(--border-color); padding-top: 8px; margin-top: 4px;">
             <div style="font-size: 11px; text-transform: uppercase; font-weight: 600; color: var(--text-muted); margin-bottom: 4px;">Included Clients:</div>
             <div style="font-size: 13px; color: var(--text-primary); line-height: 1.4;">
               ${b.farmers.map(f => `
-                <span class="badge badge-gray" style="margin: 2px 4px 2px 0; display: inline-block;">
-                  ${f.customer_name} (${f.county || 'N/A'})
+                <span class="badge ${f.invoiced ? 'badge-green' : 'badge-gray'}" style="margin: 2px 4px 2px 0; display: inline-flex; align-items: center; gap: 4px;" title="${f.invoiced ? ('Invoice: ' + (f.invoice_number || '—') + (f.invoice_amount ? ' · KES ' + f.invoice_amount : '') + (f.balance_due ? ' · Bal: ' + f.balance_due : '')) : 'No invoice uploaded'}">
+                  ${f.invoiced ? '✅' : '⏳'} ${f.customer_name} (${f.county || 'N/A'})
                 </span>
               `).join('')}
             </div>
@@ -266,6 +288,7 @@
         </div>
       `;
     }).join('');
+
 
     // Wire download buttons
     listEl.querySelectorAll('.btn-download-batch').forEach(btn => {
@@ -318,6 +341,35 @@
           btn.innerHTML = origText;
           if (window.lucide) window.lucide.createIcons();
         }
+      });
+    });
+
+    // Wire upload buttons
+    listEl.querySelectorAll('.btn-upload-invoices').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        const orderNumber = btn.dataset.order;
+        const overlay = el('invoice-overlay');
+        const overlaySub = el('invoice-overlay-sub');
+        const batchNumInput = el('invoice-batch-number');
+        const fileInput = el('invoice-file-input');
+        const fileInfo = el('invoice-file-info');
+        const submitBtn = el('invoice-submit-btn');
+        const resultsDiv = el('invoice-results');
+
+        batchNumInput.value = orderNumber;
+        overlaySub.textContent = `Batch: ${orderNumber}`;
+
+        // Reset state
+        fileInput.value = '';
+        fileInfo.style.display = 'none';
+        fileInfo.textContent = '';
+        submitBtn.disabled = true;
+        resultsDiv.style.display = 'none';
+
+        overlay.classList.add('open');
       });
     });
 
@@ -508,6 +560,18 @@
       ['Requisition Date', fmtDate(farmer.requisition_date)],
       ['HB Sales Person', fmt(farmer.hb_sales_person)],
       ['Village', fmt(farmer.village)],
+      // Stage 7 — Invoice
+      ...(farmer.invoice_number || farmer.invoice_amount || farmer.balance_due ? [
+        ['— Invoice —', ''],
+        ['Invoice No.', farmer.invoice_number ? `<code style="font-size:12px;">${farmer.invoice_number}</code>` : '—'],
+        ['Invoice Date', fmtDate(farmer.invoice_date)],
+        ['Invoice Amount', farmer.invoice_amount ? `<strong>KES ${farmer.invoice_amount}</strong>` : '—'],
+        ['Discount', farmer.discount ? `KES ${farmer.discount}` : '—'],
+        ['Payment', farmer.payment ? `KES ${farmer.payment}` : '—'],
+        ['Balance Due', farmer.balance_due
+          ? `<span class="badge ${parseFloat(farmer.balance_due) === 0 ? 'badge-green' : 'badge-orange'}">KES ${farmer.balance_due}</span>`
+          : '—'],
+      ] : []),
     ];
     el('sheet-info').innerHTML = infoFields.map(([label, value]) =>
       `<li class="info-row"><span class="ir-label">${label}</span><span class="ir-value">${value}</span></li>`
@@ -978,6 +1042,109 @@
     }
     return cookieValue;
   }
+
+  // ── Invoice Upload Handlers ────────────────────────────────────────────────
+  const invoiceOverlay = el('invoice-overlay');
+  const invoiceOverlayClose = el('invoice-overlay-close');
+  const invoiceUploadForm = el('invoice-upload-form');
+  const invoiceFileInput = el('invoice-file-input');
+  const invoiceFileInfo = el('invoice-file-info');
+  const invoiceSubmitBtn = el('invoice-submit-btn');
+  const invoiceResults = el('invoice-results');
+  const invoiceResultsSummary = el('invoice-results-summary');
+  const invoiceResultsList = el('invoice-results-list');
+
+  function closeInvoiceOverlay() {
+    invoiceOverlay.classList.remove('open');
+  }
+
+  invoiceOverlayClose.addEventListener('click', closeInvoiceOverlay);
+  invoiceOverlay.addEventListener('click', e => {
+    if (e.target === invoiceOverlay) closeInvoiceOverlay();
+  });
+
+  invoiceFileInput.addEventListener('change', () => {
+    const file = invoiceFileInput.files[0];
+    if (file) {
+      if (!String(file.name || '').toLowerCase().endsWith('.pdf')) {
+        showToast('Only PDF files are supported.', 'error');
+        invoiceFileInput.value = '';
+        invoiceFileInfo.style.display = 'none';
+        invoiceSubmitBtn.disabled = true;
+        return;
+      }
+      invoiceFileInfo.textContent = `Selected: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+      invoiceFileInfo.style.display = 'block';
+      invoiceSubmitBtn.disabled = false;
+    } else {
+      invoiceFileInfo.style.display = 'none';
+      invoiceSubmitBtn.disabled = true;
+    }
+  });
+
+  invoiceUploadForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const file = invoiceFileInput.files[0];
+    if (!file) return;
+
+    invoiceSubmitBtn.disabled = true;
+    const origBtnText = invoiceSubmitBtn.textContent;
+    invoiceSubmitBtn.textContent = 'Extracting & Syncing...';
+
+    try {
+      const formData = new FormData(invoiceUploadForm);
+      const response = await fetch(apiBase() + '/requisition-batches/upload-invoices/', {
+        method: 'POST',
+        headers: {
+          ...initDataHeader(),
+          'X-CSRFToken': getCookie('csrftoken') || ''
+        },
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Failed to process invoices.');
+      }
+
+      const res = await response.json();
+      if (!res.ok) {
+        throw new Error(res.error || 'Invoice extraction failed.');
+      }
+
+      showToast(`Invoices processed successfully! Matched ${res.matched_count} of ${res.total_parsed}.`, 'success');
+
+      // Render results
+      invoiceResultsSummary.textContent = `Successfully matched ${res.matched_count} of ${res.total_parsed} parsed invoices.`;
+      invoiceResultsList.innerHTML = (res.results || []).map(r => {
+        const matched = r.status === 'Matched';
+        const customerName = escapeHtml(r.customer_name || '—');
+        const invoiceNo = escapeHtml(r.invoice_no || '—');
+        const status = escapeHtml(r.status || 'Unmatched');
+        const reason = r.reason ? `<div style="font-size:11px; color:#7f1d1d; margin-top:2px;">${escapeHtml(r.reason)}</div>` : '';
+        return `
+        <div style="font-size:13px; padding:6px 8px; background:${matched ? '#f0fdf4' : '#fef2f2'}; border-radius:6px; border:1px solid ${matched ? '#bbf7d0' : '#fecaca'};">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+            <span style="font-weight:600; color:#1e293b;">${customerName}</span>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span style="font-size:11px; font-family:monospace; color:#64748b;">${invoiceNo}</span>
+              <span class="badge ${matched ? 'badge-green' : 'badge-red'}" style="font-size:10px; padding:2px 6px;">${status}</span>
+            </div>
+          </div>
+          ${reason}
+        </div>`;
+      }).join('');
+      invoiceResults.style.display = 'block';
+
+      // Reload batches list
+      loadQueue('batches', state.pages['batches'] || 1);
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      invoiceSubmitBtn.disabled = false;
+      invoiceSubmitBtn.textContent = origBtnText;
+    }
+  });
 
   init();
 

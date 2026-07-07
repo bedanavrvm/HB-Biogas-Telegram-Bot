@@ -9,9 +9,15 @@ Scope: all groups are aggregated by default.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
+import time
+from functools import wraps
+from urllib.parse import parse_qsl
 
+from django.conf import settings
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
@@ -22,17 +28,76 @@ logger = logging.getLogger(__name__)
 
 # ── Identity helper ───────────────────────────────────────────────────────────
 
+def _portal_init_data_from_request(request) -> str:
+    return request.headers.get('X-Telegram-Init-Data', '') or request.POST.get('init_data', '')
+
+
+def validate_portal_telegram_init_data(init_data: str) -> tuple[bool, str, dict]:
+    """Validate Telegram Mini App initData before portal API access."""
+    if not getattr(settings, 'PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH', True):
+        return True, '', {}
+
+    bot_token = getattr(settings, 'TELEGRAM_BOT_TOKEN', '')
+    if not bot_token:
+        return False, 'TELEGRAM_BOT_TOKEN is not configured.', {}
+    if not init_data:
+        return False, 'Telegram Mini App authentication data is missing.', {}
+
+    pairs = dict(parse_qsl(init_data, keep_blank_values=True))
+    received_hash = pairs.pop('hash', '')
+    if not received_hash:
+        return False, 'Telegram Mini App hash is missing.', {}
+
+    data_check_string = "\n".join(
+        f"{key}={value}" for key, value in sorted(pairs.items())
+    )
+    secret_key = hmac.new(
+        b'WebAppData',
+        bot_token.encode('utf-8'),
+        hashlib.sha256,
+    ).digest()
+    calculated_hash = hmac.new(
+        secret_key,
+        data_check_string.encode('utf-8'),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(calculated_hash, received_hash):
+        return False, 'Telegram Mini App authentication failed.', {}
+
+    auth_date = pairs.get('auth_date')
+    max_age = int(getattr(settings, 'PORTAL_WEBAPP_AUTH_MAX_AGE_SECONDS', 86400))
+    if auth_date and max_age > 0:
+        try:
+            if time.time() - int(auth_date) > max_age:
+                return False, 'Telegram Mini App authentication expired.', {}
+        except ValueError:
+            return False, 'Telegram Mini App auth_date is invalid.', {}
+
+    return True, '', pairs
+
+
+def portal_auth_required(view_func):
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        is_valid, error, payload = validate_portal_telegram_init_data(
+            _portal_init_data_from_request(request)
+        )
+        if not is_valid:
+            return JsonResponse({'ok': False, 'error': error}, status=403)
+        request.portal_auth_payload = payload
+        return view_func(request, *args, **kwargs)
+    return wrapper
+
+
 def _portal_sender_from_request(request) -> str:
-    """Extract a human-readable sender label from Telegram initData header."""
-    raw = request.headers.get('X-Telegram-Init-Data', '')
-    if not raw:
+    """Extract a human-readable sender label from validated Telegram initData."""
+    payload = getattr(request, 'portal_auth_payload', None)
+    if payload is None:
+        payload = dict(parse_qsl(_portal_init_data_from_request(request), keep_blank_values=True))
+    user_json = payload.get('user', '')
+    if not user_json:
         return ''
     try:
-        from urllib.parse import parse_qs
-        params = parse_qs(raw)
-        user_json = (params.get('user') or [''])[0]
-        if not user_json:
-            return ''
         user = json.loads(user_json)
         first = user.get('first_name', '')
         last = user.get('last_name', '')
@@ -441,12 +506,27 @@ def portal_requisition_batches(request):
     batches_list = []
     for item in items:
         order_no = item['order_number']
-        farmers_in_batch = qs.filter(order_number=order_no).values('id', 'customer_name', 'county', 'primary_phone')
+        farmers_in_batch = list(qs.filter(order_number=order_no).values(
+            'id', 'customer_name', 'county', 'primary_phone',
+            'invoice_number', 'invoice_date', 'invoice_amount', 'balance_due',
+        ))
+        # Annotate each farmer with whether their invoice has been uploaded
+        for f in farmers_in_batch:
+            f['invoiced'] = bool(f.get('invoice_number'))
+            if f.get('invoice_date'):
+                f['invoice_date'] = f['invoice_date'].strftime('%Y-%m-%d')
+            if f.get('invoice_amount') is not None:
+                f['invoice_amount'] = str(f['invoice_amount'])
+            if f.get('balance_due') is not None:
+                f['balance_due'] = str(f['balance_due'])
+
+        invoiced_count = sum(1 for f in farmers_in_batch if f['invoiced'])
         batches_list.append({
             'order_number': order_no,
             'requisition_date': item['req_date'].strftime('%Y-%m-%d') if item['req_date'] else None,
             'farmer_count': item['farmer_count'],
-            'farmers': list(farmers_in_batch),
+            'invoiced_count': invoiced_count,
+            'farmers': farmers_in_batch,
         })
         
     return JsonResponse({
@@ -454,3 +534,27 @@ def portal_requisition_batches(request):
         'batches': batches_list,
         'pagination': pagination,
     })
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_upload_batch_invoices(request):
+    """POST /api/portal/requisition-batches/upload-invoices/ — upload a combined PDF of invoices for a batch/order."""
+    order_number = request.POST.get('order_number') or request.GET.get('order_number')
+    if not order_number:
+        return JsonResponse({'ok': False, 'error': 'order_number is required.'}, status=400)
+    
+    pdf_file = request.FILES.get('file')
+    if not pdf_file:
+        return JsonResponse({'ok': False, 'error': 'No file uploaded under key "file".'}, status=400)
+        
+    if not str(pdf_file.name or '').lower().endswith('.pdf'):
+        return JsonResponse({'ok': False, 'error': 'Only PDF files are supported.'}, status=400)
+        
+    try:
+        from core.services.invoice_parser import match_and_update_invoices
+        result = match_and_update_invoices(order_number, pdf_file.read())
+        return JsonResponse(result)
+    except Exception as e:
+        logger.exception("Error processing invoice PDF: %s", e)
+        return JsonResponse({'ok': False, 'error': f"Failed to parse PDF: {str(e)}"}, status=500)

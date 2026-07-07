@@ -268,6 +268,14 @@ def farmer_to_card(farmer: JawabuFarmerMaster) -> dict[str, Any]:
         ),
         # Stage 4
         'requisition_date': farmer.requisition_date.isoformat() if farmer.requisition_date else None,
+        'order_number': farmer.order_number,
+        # Stage 7 — Invoice
+        'invoice_number': farmer.invoice_number,
+        'invoice_date': farmer.invoice_date.isoformat() if farmer.invoice_date else None,
+        'invoice_amount': str(farmer.invoice_amount) if farmer.invoice_amount is not None else None,
+        'discount': str(farmer.discount) if farmer.discount is not None else None,
+        'payment': str(farmer.payment) if farmer.payment is not None else None,
+        'balance_due': str(farmer.balance_due) if farmer.balance_due is not None else None,
         # Meta
         'pipeline_stage': _pipeline_stage(farmer),
         'updated_at': farmer.updated_at.isoformat(),
@@ -278,9 +286,11 @@ def farmer_to_card(farmer: JawabuFarmerMaster) -> dict[str, Any]:
 
 def _pipeline_stage(farmer: JawabuFarmerMaster) -> int:
     """
-    Returns the current pipeline stage number (1–4).
-    Useful for filtering / display in the portal.
+    Returns the current pipeline stage number (1–7).
+    Stage 7 means an invoice has been uploaded for this farmer.
     """
+    if farmer.invoice_number:
+        return 7
     if farmer.order_number:
         return 4
     if farmer.credit_decision == CREDIT_APPROVED:
@@ -317,12 +327,28 @@ def sync_farmer_to_master_sheet(farmer: JawabuFarmerMaster) -> bool:
     )
 
     group_config = None
-    # Find any group configured with jawabu workflow
+    # 1. Try GroupRegistry (loaded from settings at startup)
     from core.services.jawabu import is_jawabu_workflow
     for config in GroupRegistry.get_instance().list_groups().values():
         if is_jawabu_workflow(config):
             group_config = config
             break
+
+    # 2. Fallback: query DB directly (covers test environments and admin-only configs)
+    if not group_config:
+        from core.models import GroupSheetConfiguration
+        from core.services.group_config import GroupConfig
+        db_config = GroupSheetConfiguration.objects.filter(enabled=True).first()
+        if db_config:
+            workflow = db_config.workflow or {}
+            if workflow.get('type') == 'jawabu' or workflow.get('master_sync_enabled'):
+                group_config = GroupConfig(
+                    group_id=db_config.group_id,
+                    sheet_id=db_config.sheet_id,
+                    sheet_name=db_config.sheet_name or '',
+                    enabled=db_config.enabled,
+                    workflow=workflow,
+                )
 
     if not group_config:
         logger.warning("No group configuration found for sync of farmer %s", farmer.id)
@@ -384,6 +410,12 @@ def sync_farmer_to_master_sheet(farmer: JawabuFarmerMaster) -> bool:
             'latitude': (['Latitude', 'Lat'], str(farmer.latitude) if farmer.latitude is not None else ''),
             'longitude': (['Longitude', 'Long', 'Lng'], str(farmer.longitude) if farmer.longitude is not None else ''),
             'gps_link': (['GPS Link', 'Google Maps Link', 'Maps Link', 'GPS'], farmer.gps_link or ''),
+            'invoice_number': (['Invoice Number', 'HBG Invoice Number'], farmer.invoice_number),
+            'invoice_date': (['Invoice Date', 'HBG Invoice Date'], farmer.invoice_date.strftime('%d-%B-%Y') if farmer.invoice_date else ''),
+            'invoice_amount': (['Invoice Amount', 'Invoice Value', 'Total Amount'], str(farmer.invoice_amount) if farmer.invoice_amount is not None else ''),
+            'discount': (['Discount'], str(farmer.discount) if farmer.discount is not None else ''),
+            'payment': (['Payment'], str(farmer.payment) if farmer.payment is not None else ''),
+            'balance_due': (['Balance Due'], str(farmer.balance_due) if farmer.balance_due is not None else ''),
         }
 
         for field_name, (candidates, new_val) in pipeline_fields.items():

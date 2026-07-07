@@ -1886,6 +1886,19 @@ class FakeMasterDataSheet:
     def get_all_values(self):
         return [list(row) for row in self.values]
 
+    def update(self, range_notation, values, value_input_option=None, **kwargs):
+        """Mimic gspread sheet.update('A5:J5', [[...]], value_input_option='RAW')."""
+        import re
+        match = re.search(r'(\d+)', range_notation.split(':', 1)[0])
+        if not match:
+            return
+        start_row = int(match.group(1))
+        for offset, row in enumerate(values):
+            target = start_row + offset
+            while len(self.values) < target:
+                self.values.append([])
+            self.values[target - 1] = list(row)
+
     def batch_update(self, payload, value_input_option=None, **kwargs):
         self.update_options.append(value_input_option)
         import re

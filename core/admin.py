@@ -438,6 +438,16 @@ class JawabuFarmerMasterAdmin(admin.ModelAdmin):
             'fields': ('requisition_date', 'order_number'),
             'description': 'Filled by admin once credit is approved. Gate enforced by the portal.',
         }),
+        ('Stage 7 — Invoice', {
+            'fields': (
+                'invoice_number', 'invoice_date',
+                'invoice_amount', 'discount', 'payment', 'balance_due',
+            ),
+            'description': (
+                'Populated automatically when a combined invoice PDF is uploaded '
+                'via the portal Batches tab. Can also be set manually.'
+            ),
+        }),
         ('Import / Cleaning', {
             'fields': (
                 'cleaning_notes', 'duplicate_key', 'source', 'source_name',

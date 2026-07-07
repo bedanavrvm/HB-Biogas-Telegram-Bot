@@ -160,6 +160,46 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(self.farmer_stage2.order_number, '')
 
 
+class PortalMiniAppAuthTestCase(TestCase):
+    def _signed_init_data(self, token='test-token'):
+        import hashlib
+        import hmac
+        import time
+        from urllib.parse import urlencode
+
+        payload = {
+            'auth_date': str(int(time.time())),
+            'query_id': 'portal-test-query',
+            'user': json.dumps({'id': 12345, 'first_name': 'Portal', 'last_name': 'User'}, separators=(',', ':')),
+        }
+        data_check_string = "\n".join(
+            f"{key}={value}" for key, value in sorted(payload.items())
+        )
+        secret_key = hmac.new(b'WebAppData', token.encode('utf-8'), hashlib.sha256).digest()
+        payload['hash'] = hmac.new(
+            secret_key,
+            data_check_string.encode('utf-8'),
+            hashlib.sha256,
+        ).hexdigest()
+        return urlencode(payload)
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token')
+    def test_portal_api_rejects_missing_telegram_init_data(self):
+        response = self.client.get(reverse('portal_dashboard'))
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(response.json()['ok'])
+        self.assertIn('authentication data is missing', response.json()['error'])
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token')
+    def test_portal_api_accepts_valid_telegram_init_data(self):
+        response = self.client.get(
+            reverse('portal_dashboard'),
+            HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['ok'])
+
+@override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
 class JblPipelineApiTestCase(TestCase):
     """Test suite for the portal Mini App API endpoints."""
 
@@ -372,3 +412,322 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(db_farmer.jbl_visit_comment, 'A comment')
         self.assertEqual(db_farmer.jbl_visit_date, date(2026, 7, 5))
 
+    @patch('core.services.invoice_parser.PdfReader')
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_invoice_matching_updates_farmer_and_syncs(self, mock_get_sheets, mock_pdf_reader):
+        from decimal import Decimal
+        from core.services.invoice_parser import match_and_update_invoices
+        from core.tests import FakeMasterDataSheet, FakeJawabuService
+
+        # Setup mock sheet service
+        headers = ['No.', 'Customer Name', 'National ID', 'Primary Phone', 'Invoice Number', 'Invoice Date', 'Invoice Amount', 'Discount', 'Payment', 'Balance Due']
+        fake_sheet = FakeMasterDataSheet(headers, [
+            '1', 'DAVID MUGAMBI', '23215888', '254712345678', '', '', '', '', '', ''
+        ])
+        mock_get_sheets.return_value = FakeJawabuService(fake_sheet)
+
+        # Create standard test config for GroupSheetConfiguration
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-1003701615384',
+            sheet_id='1VFRZgbux8crsjAvH7Cn-F5NZdG-dz3E2aB2vhJV_0hg',
+            sheet_name='Master Data',
+            enabled=True,
+            workflow={
+                'type': 'jawabu',
+                'master_sync_enabled': True,
+                'master_sheet_id': '1VFRZgbux8crsjAvH7Cn-F5NZdG-dz3E2aB2vhJV_0hg',
+                'master_sheet_name': 'Master Data',
+                'master_header_row': 3,
+                'master_data_start_row': 5,
+            },
+        )
+
+        # Setup a farmer record with order_number = 'B-1234'
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='DAVID MUGAMBI',
+            national_id='23215888',
+            primary_phone='+254712345678',
+            order_number='B-1234',
+            status='active'
+        )
+
+        # Setup mock PDF pages — stacked format (label then value on next line)
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = (
+            "HOMEBIOGAS VENTURES LIMITED\n"
+            "BILL TO\n"
+            "DAVID MUGAMBI\n"
+            "23215888\n"
+            "0712345678\n"
+            "DUE DATE\n"
+            "INV-2026-999\n"
+            "15-Jun-2026\n"
+            "Terms\n"
+            "15-Jun-2026\n"
+            "DESCRIPTION\n"
+            "HomeBiogas 2.0 System\n"
+            "SERIAL NUMBER\n"
+            "HB20-100223\n"
+            "QTY\n"
+            "1\n"
+            "RATE\n"
+            "KES 89,900.00\n"
+            "AMOUNT\n"
+            "KES 89,900.00\n"
+            "SUBTOTAL\n"
+            "KES 89,900.00\n"
+            "DISCOUNT\n"
+            "KES 5,000.00\n"
+            "TOTAL\n"
+            "KES 84,900.00\n"
+            "PAYMENT\n"
+            "KES 10,000.00\n"
+            "BALANCE DUE\n"
+            "KES 74,900.00\n"
+        )
+        mock_pdf_reader.return_value.pages = [mock_page]
+
+        # Process the invoices
+        res = match_and_update_invoices('B-1234', b'dummy_pdf_bytes')
+        
+        self.assertTrue(res['ok'])
+        self.assertEqual(res['matched_count'], 1)
+        self.assertEqual(res['total_parsed'], 1)
+        self.assertEqual(res['results'][0]['status'], 'Matched')
+
+        # Check DB updates
+        farmer.refresh_from_db()
+        self.assertEqual(farmer.invoice_number, 'INV-2026-999')
+        self.assertEqual(farmer.invoice_date, date(2026, 6, 15))
+        self.assertEqual(farmer.invoice_amount, Decimal('89900.00'))
+        self.assertEqual(farmer.discount, Decimal('5000.00'))
+        self.assertEqual(farmer.payment, Decimal('10000.00'))
+        self.assertEqual(farmer.balance_due, Decimal('74900.00'))
+
+        # Check Google Sheets updates
+        row = fake_sheet.values[4]
+        self.assertEqual(row[4], 'INV-2026-999')
+        self.assertEqual(row[5], '15-June-2026')
+        self.assertEqual(row[6], '89900.00')
+        self.assertEqual(row[7], '5000.00')
+        self.assertEqual(row[8], '10000.00')
+        self.assertEqual(row[9], '74900.00')
+
+    @patch('core.services.invoice_parser.PdfReader')
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_invoice_inline_format_real_pdf_layout(self, mock_get_sheets, mock_pdf_reader):
+        """Regression test: parse the real #076.pdf inline-label format."""
+        from decimal import Decimal
+        from core.services.invoice_parser import match_and_update_invoices
+        from core.tests import FakeMasterDataSheet, FakeJawabuService
+
+        headers = ['No.', 'Customer Name', 'National ID', 'Primary Phone', 'Invoice Number', 'Invoice Date', 'Invoice Amount', 'Discount', 'Payment', 'Balance Due']
+        fake_sheet = FakeMasterDataSheet(headers, [
+            '1', 'ALICEBETTY KIMOTHO', '2476584', '254721929868', '', '', '', '', '', ''
+        ])
+        mock_get_sheets.return_value = FakeJawabuService(fake_sheet)
+
+        GroupSheetConfiguration.objects.create(
+            group_id='-1003701615384',
+            sheet_id='1VFRZgbux8crsjAvH7Cn-F5NZdG-dz3E2aB2vhJV_0hg',
+            sheet_name='Master Data',
+            enabled=True,
+            workflow={
+                'type': 'jawabu',
+                'master_sync_enabled': True,
+                'master_sheet_id': '1VFRZgbux8crsjAvH7Cn-F5NZdG-dz3E2aB2vhJV_0hg',
+                'master_sheet_name': 'Master Data',
+                'master_header_row': 3,
+                'master_data_start_row': 5,
+            },
+        )
+
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Alicebetty Kimotho',
+            national_id='2476584',
+            primary_phone='+254721929868',
+            order_number='076',
+            status='active'
+        )
+
+        # Inline format — matches actual #076.pdf output
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = (
+            "Page 1 of 1\n"
+            "HOMEBIOGAS VENTURES LIMITED\n"
+            "P.O Box 11500\n"
+            "Kiambu, Kenya  900 KE\n"
+            "+254797878853\n"
+            "hbg.kenya@homebiogas.com\n"
+            "Govt. UID P052063409Q\n"
+            "INVOICE\n"
+            "BILL TO\n"
+            "Alicebetty Kimotho\n"
+            "+254721929868\n"
+            "2476584\n"
+            "Kenya\n"
+            "INVOICE 9505\n"
+            "DATE 16/03/2026\n"
+            "TERMS Net 30\n"
+            "DUE DATE 15/04/2026\n"
+            "DESCRIPTION SERIAL NUMBER QTY RATE AMOUNT\n"
+            "HBG Complete Farmer's System 1106112511402 1 54,000.00 54,000.00\n"
+            "We appreciate your business. SUBTOTAL 54,000.00\n"
+            "DISCOUNT -3,000.00\n"
+            "TOTAL 51,000.00\n"
+            "PAYMENT 5,000.00\n"
+            "BALANCE DUE KES 46,000.00\n"
+        )
+        mock_pdf_reader.return_value.pages = [mock_page]
+        from core.services.invoice_parser import parse_invoice_text
+        parsed = parse_invoice_text(mock_page.extract_text.return_value, 1)
+        self.assertEqual(parsed['balance_due'], '46,000.00')
+        self.assertEqual(parsed['calculated_balance_due'], '46000.00')
+        self.assertEqual(parsed['balance_due_check'], 'OK')
+
+        res = match_and_update_invoices('076', b'dummy')
+        self.assertTrue(res['ok'], msg=str(res))
+        self.assertEqual(res['matched_count'], 1)
+        self.assertEqual(res['results'][0]['status'], 'Matched')
+
+        farmer.refresh_from_db()
+        self.assertEqual(farmer.invoice_number, '9505')
+        self.assertEqual(farmer.invoice_amount, Decimal('54000.00'))
+        self.assertEqual(farmer.discount, Decimal('-3000.00'))
+        self.assertEqual(farmer.payment, Decimal('5000.00'))
+        self.assertEqual(farmer.balance_due, Decimal('46000.00'))
+
+    @patch('core.services.invoice_parser.PdfReader')
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_invoice_duplicate_identifier_is_not_auto_matched(self, mock_get_sheets, mock_pdf_reader):
+        from core.services.invoice_parser import match_and_update_invoices
+        from core.tests import FakeMasterDataSheet, FakeJawabuService
+
+        headers = ['No.', 'Customer Name', 'National ID', 'Primary Phone', 'Invoice Number']
+        fake_sheet = FakeMasterDataSheet(headers, [])
+        mock_get_sheets.return_value = FakeJawabuService(fake_sheet)
+
+        GroupSheetConfiguration.objects.create(
+            group_id='-1003701615384',
+            sheet_id='sheet',
+            sheet_name='Master Data',
+            enabled=True,
+            workflow={
+                'type': 'jawabu',
+                'master_sync_enabled': True,
+                'master_sheet_id': 'sheet',
+                'master_sheet_name': 'Master Data',
+            },
+        )
+        first = JawabuFarmerMaster.objects.create(
+            customer_name='ALICEBETTY KIMOTHO',
+            national_id='2476584',
+            primary_phone='254700000001',
+            order_number='076',
+            status='active',
+        )
+        second = JawabuFarmerMaster.objects.create(
+            customer_name='ALICEBETTY KIMOTHO',
+            national_id='2476584',
+            primary_phone='254700000002',
+            order_number='076',
+            status='active',
+        )
+
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = (
+            "Page 1 of 1\n"
+            "HOMEBIOGAS VENTURES LIMITED\n"
+            "BILL TO\n"
+            "Alicebetty Kimotho\n"
+            "2476584\n"
+            "Kenya\n"
+            "INVOICE 9505\n"
+            "DATE 16/03/2026\n"
+            "TOTAL 51,000.00\n"
+            "PAYMENT 5,000.00\n"
+            "BALANCE DUE KES 46,000.00\n"
+        )
+        mock_pdf_reader.return_value.pages = [mock_page]
+        from core.services.invoice_parser import parse_invoice_text
+        parsed = parse_invoice_text(mock_page.extract_text.return_value, 1)
+        self.assertEqual(parsed['balance_due'], '46,000.00')
+        self.assertEqual(parsed['calculated_balance_due'], '46000.00')
+        self.assertEqual(parsed['balance_due_check'], 'OK')
+
+        res = match_and_update_invoices('076', b'dummy')
+
+        self.assertTrue(res['ok'], msg=str(res))
+        self.assertEqual(res['matched_count'], 0)
+        self.assertEqual(res['results'][0]['status'], 'Ambiguous')
+        self.assertIn('Multiple farmers matched by National ID', res['results'][0]['reason'])
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(first.invoice_number, '')
+        self.assertEqual(second.invoice_number, '')
+
+
+    @patch('core.services.invoice_parser.PdfReader')
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_invoice_sheet_sync_failure_fails_upload_and_rolls_back_db(self, mock_get_sheets, mock_pdf_reader):
+        from core.services.invoice_parser import match_and_update_invoices
+        from core.tests import FakeMasterDataSheet, FakeJawabuService
+
+        headers = ['No.', 'Customer Name', 'National ID', 'Primary Phone', 'Invoice Number']
+        fake_sheet = FakeMasterDataSheet(headers, [])
+        mock_get_sheets.return_value = FakeJawabuService(fake_sheet)
+
+        GroupSheetConfiguration.objects.create(
+            group_id='-1003701615384',
+            sheet_id='sheet',
+            sheet_name='Master Data',
+            enabled=True,
+            workflow={
+                'type': 'jawabu',
+                'master_sync_enabled': True,
+                'master_sheet_id': 'sheet',
+                'master_sheet_name': 'Master Data',
+                'master_header_row': 3,
+                'master_data_start_row': 5,
+            },
+        )
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='ALICEBETTY KIMOTHO',
+            national_id='2476584',
+            primary_phone='254721929868',
+            order_number='076',
+            status='active',
+        )
+
+        mock_page = MagicMock()
+        mock_page.extract_text.return_value = (
+            "Page 1 of 1\n"
+            "HOMEBIOGAS VENTURES LIMITED\n"
+            "BILL TO\n"
+            "Alicebetty Kimotho\n"
+            "+254721929868\n"
+            "2476584\n"
+            "Kenya\n"
+            "INVOICE 9505\n"
+            "DATE 16/03/2026\n"
+            "TOTAL 51,000.00\n"
+            "PAYMENT 5,000.00\n"
+            "BALANCE DUE KES 46,000.00\n"
+        )
+        mock_pdf_reader.return_value.pages = [mock_page]
+        from core.services.invoice_parser import parse_invoice_text
+        parsed = parse_invoice_text(mock_page.extract_text.return_value, 1)
+        self.assertEqual(parsed['balance_due'], '46,000.00')
+        self.assertEqual(parsed['calculated_balance_due'], '46000.00')
+        self.assertEqual(parsed['balance_due_check'], 'OK')
+
+        res = match_and_update_invoices('076', b'dummy')
+
+        self.assertFalse(res['ok'], msg=str(res))
+        self.assertEqual(res['matched_count'], 0)
+        self.assertEqual(res['results'][0]['status'], 'Sync failed')
+        self.assertIn('Google Sheet sync failed', res['error'])
+        farmer.refresh_from_db()
+        self.assertEqual(farmer.invoice_number, '')
+        self.assertIsNone(farmer.invoice_date)
+        self.assertIsNone(farmer.invoice_amount)

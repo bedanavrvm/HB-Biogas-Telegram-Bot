@@ -248,6 +248,45 @@
   </div>
 </div>
 
+<!-- ── Invoice upload overlay ────────────────────────────────────────────── -->
+<div class="sheet-overlay" id="invoice-overlay" role="dialog" aria-modal="true">
+  <div class="sheet-panel">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+        <div>
+          <h2>Upload Invoice PDF</h2>
+          <p class="sheet-sub" id="invoice-overlay-sub">Batch: —</p>
+        </div>
+        <button id="invoice-overlay-close" style="flex-shrink:0;min-width:32px;width:32px;height:32px;border-radius:50%;padding:0;font-size:16px;" aria-label="Close">✕</button>
+      </div>
+    </div>
+    <div class="sheet-body">
+      <p style="margin-bottom:12px; font-size:14px; color:#5c6e84;">Upload a combined PDF containing the invoices for this batch. The engine will extract the invoice numbers, dates, and amounts, match them to the correct farmers, and automatically sync the details to the Master Data sheet.</p>
+      
+      <form id="invoice-upload-form" style="display:flex; flex-direction:column; gap:16px;">
+        <input type="hidden" id="invoice-batch-number" name="order_number">
+        <div style="border:2px dashed #cbd5e1; padding:24px; border-radius:12px; text-align:center; cursor:pointer; background:#f8fafc;" onclick="document.getElementById('invoice-file-input').click()">
+          <svg style="width:48px; height:48px; margin:0 auto 12px auto; color:#64748b;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+          </svg>
+          <p style="font-weight:600; color:#334155; margin-bottom:4px;">Click to upload PDF file</p>
+          <p style="font-size:12px; color:#64748b;">Combined PDF invoices only</p>
+          <input type="file" id="invoice-file-input" name="file" accept="application/pdf" style="display:none;">
+        </div>
+        <div id="invoice-file-info" style="display:none; font-size:13px; font-weight:600; color:#0f766e; background:#f0fdfa; padding:8px 12px; border-radius:6px; border:1px solid #99f6e4;"></div>
+        <button type="submit" id="invoice-submit-btn" class="btn" style="width:100%; justify-content:center;" disabled>Extract & Match Invoices</button>
+      </form>
+
+      <div id="invoice-results" style="display:none; margin-top:20px; border-top:1px solid #e2e8f0; padding-top:16px;">
+        <h3 style="font-size:15px; font-weight:700; margin-bottom:12px;">Extraction Results</h3>
+        <div id="invoice-results-summary" style="font-size:13px; font-weight:600; margin-bottom:10px; color:#1e293b;"></div>
+        <div id="invoice-results-list" style="display:flex; flex-direction:column; gap:8px; max-height:200px; overflow-y:auto; padding-right:4px;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ── Toast ──────────────────────────────────────────────────────────────── -->
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 

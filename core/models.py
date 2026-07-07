@@ -594,6 +594,14 @@ class JawabuFarmerMaster(models.Model):
         help_text='Order No. assigned by admin after credit approval.',
     )
 
+    # ── Stage 7: Invoice generation ──────────────────────────────────────────
+    invoice_number = models.CharField(max_length=128, blank=True, default='')
+    invoice_date = models.DateField(null=True, blank=True)
+    invoice_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    discount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    payment = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    balance_due = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+
     duplicate_key = models.CharField(max_length=255, blank=True, default='', db_index=True)
     status = models.CharField(
         max_length=32,
