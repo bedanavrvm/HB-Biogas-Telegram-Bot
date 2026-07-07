@@ -817,3 +817,22 @@ class GroupSheetConfiguration(models.Model):
     def __str__(self):
         label = self.display_name or self.group_id
         return f"{label} -> {self.sheet_name}"
+
+
+class RequisitionTemplate(models.Model):
+    """
+    Admin-uploaded Excel templates used for Requisition/Order generation.
+    """
+    name = models.CharField(max_length=255, default='JBL Requisition Form')
+    file = models.FileField(upload_to='requisition/', help_text='Upload the Excel (.xlsx) template here.')
+    is_active = models.BooleanField(default=True, help_text='Mark this as the active template used for generation.')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-is_active', '-updated_at']
+        verbose_name = 'Requisition template'
+        verbose_name_plural = 'Requisition templates'
+
+    def __str__(self):
+        return f"{self.name} ({'Active' if self.is_active else 'Inactive'})"

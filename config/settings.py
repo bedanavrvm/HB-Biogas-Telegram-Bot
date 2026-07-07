@@ -154,6 +154,9 @@ GOOGLE_SERVICE_ACCOUNT_FILE = config('GOOGLE_SERVICE_ACCOUNT_FILE', default='cre
 GOOGLE_SHEET_TAB_NAME = config('GOOGLE_SHEET_TAB_NAME', default='Complaints Register')
 
 # Media storage for workflows that receive Telegram photos/documents.
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
 MEDIA_STORAGE_PROVIDER = config('MEDIA_STORAGE_PROVIDER', default='google_drive')
 MEDIA_MAX_FILE_SIZE_MB = config('MEDIA_MAX_FILE_SIZE_MB', default=20, cast=int)
 ORDER_APPROVAL_MAX_FILES_PER_SLOT = config(

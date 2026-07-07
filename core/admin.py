@@ -29,6 +29,7 @@ from .models import (
     RawMessage,
     ProcessedMessage,
     ParsedMessage,
+    RequisitionTemplate,
 )
 
 
@@ -987,3 +988,10 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
 
         GroupRegistry._instance = None
         GoogleSheetsService.clear_instances()
+
+
+@admin.register(RequisitionTemplate)
+class RequisitionTemplateAdmin(admin.ModelAdmin):
+    list_display = ('name', 'is_active', 'file', 'created_at', 'updated_at')
+    list_editable = ('is_active',)
+    search_fields = ('name',)

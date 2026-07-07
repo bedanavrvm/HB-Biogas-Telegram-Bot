@@ -1,9 +1,11 @@
 import re
 import copy
 import io
+import os
 import openpyxl
 from datetime import date, datetime
 from typing import Any
+from django.conf import settings
 from core.models import JawabuFarmerMaster
 
 def clean_deposit_float(val: Any) -> float | int | None:
@@ -30,7 +32,17 @@ def copy_row_formatting(ws: Any, src_row: int, dst_row: int) -> None:
         dst_cell.number_format = src_cell.number_format
 
 def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: str, requisition_date: date) -> bytes:
-    wb = openpyxl.load_workbook("requisition/JBL_Requisition_Form_184.xlsx")
+    import os
+    from django.conf import settings
+    from core.models import RequisitionTemplate
+
+    active_template = RequisitionTemplate.objects.filter(is_active=True).first()
+    if active_template and active_template.file:
+        template_path = active_template.file.path
+    else:
+        template_path = os.path.join(settings.BASE_DIR, "requisition", "JBL_Requisition_Form_184.xlsx")
+
+    wb = openpyxl.load_workbook(template_path)
     ws = wb.active
     
     # Fill headers
