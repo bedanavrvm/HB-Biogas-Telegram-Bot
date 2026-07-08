@@ -7,7 +7,8 @@ import json
 from datetime import date
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase, override_settings
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -412,6 +413,26 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(db_farmer.jbl_visit_comment, 'A comment')
         self.assertEqual(db_farmer.jbl_visit_date, date(2026, 7, 5))
 
+    @override_settings(INVOICE_UPLOAD_MAX_FILE_SIZE_MB=1)
+    def test_invoice_upload_rejects_file_over_configured_limit(self):
+        from core.api.portal_views import portal_upload_batch_invoices
+
+        request = RequestFactory().post(
+            '/api/portal/requisition-batches/upload-invoices/',
+            {
+                'order_number': 'B-1234',
+                'file': SimpleUploadedFile('invoices.pdf', b'x' * (1024 * 1024 + 1), content_type='application/pdf'),
+            },
+        )
+
+        response = portal_upload_batch_invoices(request)
+        payload = json.loads(response.content.decode('utf-8'))
+
+        self.assertEqual(response.status_code, 413)
+        self.assertFalse(payload['ok'])
+        self.assertEqual(payload['max_file_size_mb'], 1)
+        self.assertIn('too large', payload['error'])
+
     @patch('core.services.invoice_parser.PdfReader')
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
     def test_invoice_matching_updates_farmer_and_syncs(self, mock_get_sheets, mock_pdf_reader):
@@ -800,5 +821,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(parsed['discount'], '3000.00')
         self.assertEqual(parsed['balance_due'], '46,000.00')
         self.assertEqual(parsed['balance_due_check'], 'OK')
+
+
 
 

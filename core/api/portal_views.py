@@ -136,7 +136,9 @@ def _paginate_qs(qs, request, page_size: int = 30):
 @require_http_methods(["GET"])
 def portal_home(request):
     """Render the main JBL Pipeline Portal Mini App page."""
-    return render(request, 'portal/portal.html')
+    return render(request, 'portal/portal.html', {
+        'invoice_upload_max_file_size_mb': int(getattr(settings, 'INVOICE_UPLOAD_MAX_FILE_SIZE_MB', 8) or 8),
+    })
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -550,11 +552,29 @@ def portal_upload_batch_invoices(request):
         
     if not str(pdf_file.name or '').lower().endswith('.pdf'):
         return JsonResponse({'ok': False, 'error': 'Only PDF files are supported.'}, status=400)
-        
+
+    max_mb = max(1, int(getattr(settings, 'INVOICE_UPLOAD_MAX_FILE_SIZE_MB', 8) or 8))
+    max_bytes = max_mb * 1024 * 1024
+    if getattr(pdf_file, 'size', 0) and pdf_file.size > max_bytes:
+        return JsonResponse({
+            'ok': False,
+            'error': f'Invoice PDF is too large for this Mini App upload. Maximum size is {max_mb} MB.',
+            'max_file_size_mb': max_mb,
+        }, status=413)
+
     try:
+        logger.info(
+            'Invoice upload received: order=%s filename=%s size=%s bytes',
+            order_number,
+            getattr(pdf_file, 'name', ''),
+            getattr(pdf_file, 'size', ''),
+        )
         from core.services.invoice_parser import match_and_update_invoices
         result = match_and_update_invoices(order_number, pdf_file.read())
+        result['max_file_size_mb'] = max_mb
         return JsonResponse(result)
     except Exception as e:
         logger.exception("Error processing invoice PDF: %s", e)
         return JsonResponse({'ok': False, 'error': f"Failed to parse PDF: {str(e)}"}, status=500)
+
+

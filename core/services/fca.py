@@ -13,6 +13,7 @@ from typing import Any
 
 from django.conf import settings
 from django.core import signing
+from django.db import transaction
 from django.utils import timezone
 
 from core.models import FcaImportRecord
@@ -304,17 +305,20 @@ def fcaup_record_to_review_row(record: FcaImportRecord) -> dict[str, Any]:
     }
 
 
+@transaction.atomic
 def commit_fcaup_review_batch(batch_id: str, rows: list[dict], group_config=None, sender: str = '') -> dict[str, Any]:
     record_ids = [str(row.get('record_id') or '') for row in rows if row.get('record_id')]
     records_by_id = {
         str(record.id): record
-        for record in FcaImportRecord.objects.filter(telegram_message_id=str(batch_id), id__in=record_ids)
+        for record in FcaImportRecord.objects.select_for_update().filter(telegram_message_id=str(batch_id), id__in=record_ids)
     }
     approved_records = []
     errors = []
     for index, row in enumerate(rows, start=1):
         record = records_by_id.get(str(row.get('record_id') or ''))
         if not record:
+            continue
+        if record.import_status == 'imported':
             continue
         if not row.get('approved'):
             record.delete()
@@ -1425,3 +1429,4 @@ def derive_fca_decision(comment: str) -> str:
     ):
         return 'Deferred'
     return ''
+

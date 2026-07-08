@@ -324,10 +324,14 @@ def create_farmup_review_batch(
 def commit_farmup_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict], group_config=None) -> dict:
     if batch.status == 'committed':
         return {
-            'success': False,
-            'message': 'This batch has already been committed.',
-            'committed': batch.committed_count,
-            'skipped': batch.skipped_count,
+            'success': True,
+            'message': 'This batch has already been committed. No duplicate write was made.',
+            'committed': 0,
+            'skipped': 0,
+            'errors': [],
+            'review_needed': 0,
+            'rows': [],
+            'sheet_sync': {'success': True, 'enabled': False, 'created': 0, 'updated': 0, 'conflicts': 0, 'errors': []},
         }
 
     previous_committed = batch.committed_count or 0
@@ -1276,3 +1280,4 @@ def farmer_lookup(cleaned: dict) -> dict[str, str]:
     if cleaned.get('external_id'):
         return {'source': cleaned['source'], 'external_id': cleaned['external_id']}
     return {'source': cleaned['source'], 'source_fingerprint': cleaned['source_fingerprint']}
+

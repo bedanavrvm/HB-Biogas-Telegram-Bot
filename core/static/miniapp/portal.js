@@ -1053,6 +1053,24 @@
   const invoiceResults = el('invoice-results');
   const invoiceResultsSummary = el('invoice-results-summary');
   const invoiceResultsList = el('invoice-results-list');
+  const invoiceUploadMaxMb = Number(window.PORTAL_CONFIG?.invoiceUploadMaxFileSizeMb || 8);
+  const invoiceUploadMaxBytes = Math.max(1, invoiceUploadMaxMb) * 1024 * 1024;
+  let invoiceUploadInProgress = false;
+
+  function invoiceFileSizeLabel(bytes) {
+    if (!bytes && bytes !== 0) return 'unknown size';
+    if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  function validateInvoiceFile(file) {
+    if (!file) return 'Select a PDF file first.';
+    if (!String(file.name || '').toLowerCase().endsWith('.pdf')) return 'Only PDF files are supported.';
+    if (file.size > invoiceUploadMaxBytes) {
+      return `This PDF is ${invoiceFileSizeLabel(file.size)}. Maximum supported size is ${invoiceUploadMaxMb} MB.`;
+    }
+    return '';
+  }
 
   function closeInvoiceOverlay() {
     invoiceOverlay.classList.remove('open');
@@ -1066,14 +1084,15 @@
   invoiceFileInput.addEventListener('change', () => {
     const file = invoiceFileInput.files[0];
     if (file) {
-      if (!String(file.name || '').toLowerCase().endsWith('.pdf')) {
-        showToast('Only PDF files are supported.', 'error');
+      const validationError = validateInvoiceFile(file);
+      if (validationError) {
+        showToast(validationError, 'error');
         invoiceFileInput.value = '';
         invoiceFileInfo.style.display = 'none';
         invoiceSubmitBtn.disabled = true;
         return;
       }
-      invoiceFileInfo.textContent = `Selected: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+      invoiceFileInfo.textContent = `Selected: ${file.name} (${invoiceFileSizeLabel(file.size)}). Limit: ${invoiceUploadMaxMb} MB.`;
       invoiceFileInfo.style.display = 'block';
       invoiceSubmitBtn.disabled = false;
     } else {
@@ -1084,9 +1103,15 @@
 
   invoiceUploadForm.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (invoiceUploadInProgress) return;
     const file = invoiceFileInput.files[0];
-    if (!file) return;
+    const validationError = validateInvoiceFile(file);
+    if (validationError) {
+      showToast(validationError, 'error');
+      return;
+    }
 
+    invoiceUploadInProgress = true;
     invoiceSubmitBtn.disabled = true;
     const origBtnText = invoiceSubmitBtn.textContent;
     invoiceSubmitBtn.textContent = 'Extracting & Syncing...';
@@ -1167,6 +1192,7 @@
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
+      invoiceUploadInProgress = false;
       invoiceSubmitBtn.disabled = false;
       invoiceSubmitBtn.textContent = origBtnText;
     }
@@ -1175,3 +1201,4 @@
   init();
 
 })();
+

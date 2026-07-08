@@ -281,6 +281,7 @@ WHATSAPP_BATCH_MAX_MESSAGES = config('WHATSAPP_BATCH_MAX_MESSAGES', default=0, c
 WHATSAPP_BATCH_ASYNC_THRESHOLD = config('WHATSAPP_BATCH_ASYNC_THRESHOLD', default=100, cast=int)
 WHATSAPP_BATCH_MAX_FILE_SIZE_MB = config('WHATSAPP_BATCH_MAX_FILE_SIZE_MB', default=5, cast=int)
 FCA_BATCH_MAX_FILE_SIZE_MB = config('FCA_BATCH_MAX_FILE_SIZE_MB', default=10, cast=int)
+INVOICE_UPLOAD_MAX_FILE_SIZE_MB = config('INVOICE_UPLOAD_MAX_FILE_SIZE_MB', default=8, cast=int)
 
 # API Configuration & Security
 API_REQUEST_SIZE_LIMIT = 1_000_000  # 1MB - Prevent DoS from large payloads
@@ -295,3 +296,4 @@ REQUIRED_MESSAGE_FIELDS = ['message_id', 'chat', 'date']
 # Rate Limiting (if enabled with django-ratelimit)
 RATELIMIT_ENABLE = config('RATELIMIT_ENABLE', default=False, cast=bool)
 RATELIMIT_PER_IP = '100/h'  # 100 requests per hour per IP
+
