@@ -55,6 +55,21 @@
     _toastTimer = setTimeout(() => { t.classList.remove('show'); }, 3000);
   }
 
+  function updateConnectionBanner() {
+    const banner = el('portal-offline-banner');
+    if (!banner) return;
+    banner.style.display = navigator.onLine === false ? 'block' : 'none';
+  }
+
+  window.addEventListener('online', () => {
+    updateConnectionBanner();
+    showToast('Back online.', 'success');
+  });
+  window.addEventListener('offline', () => {
+    updateConnectionBanner();
+    showToast('Offline. Loaded data remains visible, but updates need a connection.', 'error');
+  });
+
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, ch => ({
       '&': '&amp;',
@@ -1110,6 +1125,11 @@
       showToast(validationError, 'error');
       return;
     }
+    if (navigator.onLine === false) {
+      updateConnectionBanner();
+      showToast('Offline. Reconnect before uploading invoice PDFs.', 'error');
+      return;
+    }
 
     invoiceUploadInProgress = true;
     invoiceSubmitBtn.disabled = true;
@@ -1198,7 +1218,9 @@
     }
   });
 
+  updateConnectionBanner();
   init();
 
 })();
+
 

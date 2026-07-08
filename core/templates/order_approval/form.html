@@ -825,11 +825,14 @@
         <button id="start-new-entry" class="secondary" type="button">Start new entry</button>
       </div>
       <div id="draft-banner" class="draft-banner" role="status" aria-live="polite">
-        <span>Saved draft found on this device.</span>
+        <span id="draft-banner-text">Saved draft found on this device.</span>
         <span class="draft-actions">
           <button id="restore-draft" class="secondary" type="button">Restore draft</button>
           <button id="discard-draft" class="secondary" type="button">Discard</button>
         </span>
+      </div>
+      <div id="offline-banner" class="draft-banner" role="status" aria-live="polite">
+        <span id="offline-banner-text">Offline. Form values are saved on this phone; files must be reselected before submitting.</span>
       </div>
 
       <fieldset class="form-section" data-section="customer" data-collapsed="false">
@@ -1014,6 +1017,9 @@
     const idNumberInput = document.getElementById('id-number');
     const idSuggestionsEl = document.getElementById('id-suggestions');
     const draftBanner = document.getElementById('draft-banner');
+    const draftBannerText = document.getElementById('draft-banner-text');
+    const offlineBanner = document.getElementById('offline-banner');
+    const offlineBannerText = document.getElementById('offline-banner-text');
     const restoreDraftButton = document.getElementById('restore-draft');
     const discardDraftButton = document.getElementById('discard-draft');
     const reviewDialog = document.getElementById('review-dialog');
@@ -1772,6 +1778,47 @@
       }
     }
 
+    function draftHasValues(payload) {
+      return !!(payload && payload.fields && Object.values(payload.fields).some((value) => String(value || '').trim()));
+    }
+
+    function draftExpired(payload) {
+      const saved = payload && payload.savedAt ? Date.parse(payload.savedAt) : NaN;
+      return Number.isNaN(saved) || (Date.now() - saved > draftMaxAgeMs);
+    }
+
+    function readDraft() {
+      if (!draftStorageAvailable) {
+        return null;
+      }
+      try {
+        const raw = window.localStorage.getItem(draftStorageKey);
+        const payload = raw ? JSON.parse(raw) : null;
+        if (!draftHasValues(payload)) {
+          return null;
+        }
+        if (draftExpired(payload)) {
+          window.localStorage.removeItem(draftStorageKey);
+          return null;
+        }
+        return payload;
+      } catch (error) {
+        window.localStorage.removeItem(draftStorageKey);
+        return null;
+      }
+    }
+
+    function updateOfflineBanner() {
+      if (!offlineBanner) {
+        return;
+      }
+      const offline = navigator.onLine === false;
+      offlineBanner.dataset.visible = offline ? 'true' : 'false';
+      if (offline && offlineBannerText) {
+        offlineBannerText.textContent = 'Offline. Form values are saved on this phone. Files are not saved offline and must be reselected before submitting.';
+      }
+    }
+
     function applyDraft(payload) {
       if (!payload || !payload.fields) {
         return;
@@ -1781,36 +1828,31 @@
       currentRecordId = payload.currentRecordId || '';
       expandSectionsWithValues();
       syncSubmitControls();
-      setStatus('working', 'Draft restored. Review the details before submitting.');
+      setStatus('working', 'Draft restored. Review the details before submitting. Files were not saved offline.');
     }
 
     function checkDraft() {
       if (!draftStorageAvailable || !draftBanner || idNumberInput.value.trim()) {
         return;
       }
-      try {
-        const raw = window.localStorage.getItem(draftStorageKey);
-        const payload = raw ? JSON.parse(raw) : null;
-        if (payload && payload.fields && Object.values(payload.fields).some(Boolean)) {
-          draftBanner.dataset.visible = 'true';
+      const payload = readDraft();
+      if (payload) {
+        if (draftBannerText && payload.savedAt) {
+          draftBannerText.textContent = `Saved draft found on this device (${new Date(payload.savedAt).toLocaleString()}).`;
         }
-      } catch (error) {
-        window.localStorage.removeItem(draftStorageKey);
+        draftBanner.dataset.visible = 'true';
       }
     }
 
     function restoreDraft() {
-      if (!draftStorageAvailable) {
+      const payload = readDraft();
+      if (!payload) {
+        clearDraft();
         return;
       }
-      try {
-        const raw = window.localStorage.getItem(draftStorageKey);
-        applyDraft(raw ? JSON.parse(raw) : null);
-        if (draftBanner) {
-          draftBanner.dataset.visible = 'false';
-        }
-      } catch (error) {
-        clearDraft();
+      applyDraft(payload);
+      if (draftBanner) {
+        draftBanner.dataset.visible = 'false';
       }
     }
 
@@ -1864,6 +1906,9 @@
     enhanceSections();
     enhanceChipSelects();
     checkDraft();
+    updateOfflineBanner();
+    window.addEventListener('online', updateOfflineBanner);
+    window.addEventListener('offline', updateOfflineBanner);
     syncSubmitControls();
     if (tg && tg.MainButton) {
       tg.MainButton.onClick(submitFromNativeButton);
@@ -1961,6 +2006,7 @@
       }
     }
     window.addEventListener('pagehide', () => {
+      saveDraft();
       for (const name of fileFieldNames) {
         revokePreviewUrls(name);
       }
@@ -1984,6 +2030,13 @@
         const firstInvalid = Array.from(form.elements).find((input) => input.validationMessage);
         expandInputSection(firstInvalid);
         setStatus('error', 'Fix the highlighted fields before submitting.');
+        syncSubmitControls();
+        return;
+      }
+      if (navigator.onLine === false) {
+        saveDraft();
+        updateOfflineBanner();
+        setStatus('error', 'You appear to be offline. The form values are saved on this phone. Reopen this form when online, restore the draft, reselect files, and submit.');
         syncSubmitControls();
         return;
       }
@@ -2043,7 +2096,9 @@
           syncSubmitControls();
         }
       } catch (error) {
-        setStatus('error', 'Network error. Check your connection and try again.');
+        saveDraft();
+        updateOfflineBanner();
+        setStatus('error', 'Network error. Draft saved on this phone. Reopen the form when online, restore the draft, reselect files, and submit again.');
         setBusy(false);
         syncSubmitControls();
       }
@@ -2051,3 +2106,9 @@
   </script>
 </body>
 </html>
+
+
+
+
+
+

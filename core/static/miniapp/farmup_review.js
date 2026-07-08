@@ -5,6 +5,8 @@
   const batchId = payload.batch_id;
   const token = payload.token;
   const initData = tg ? tg.initData : '';
+  const draftKey = 'farmupReviewDraft:' + batchId;
+  const draftMaxAgeMs = 7 * 24 * 60 * 60 * 1000;
   const fields = ['Customer Name', 'National ID', 'Primary Phone', 'Secondary Phone', 'County', 'HBG Visit Date', 'Deposit Paid to HB', 'HB Sales Person', 'Cleaning Notes'];
   const body = document.getElementById('rowsBody');
   const statusEl = document.getElementById('status');
@@ -24,6 +26,7 @@
       checkbox.checked = !!row.approved;
       checkbox.addEventListener('change', () => {
         row.approved = checkbox.checked;
+        saveDraft();
         renderCounts();
         tr.className = !row.approved ? 'row-skipped' : (isReview(row) ? 'row-review' : '');
       });
@@ -34,7 +37,7 @@
         const td = document.createElement('td');
         const input = name === 'Cleaning Notes' ? document.createElement('textarea') : document.createElement('input');
         input.value = row[name] || '';
-        input.addEventListener('input', () => { row[name] = input.value; });
+        input.addEventListener('input', () => { row[name] = input.value; saveDraft(); });
         td.appendChild(input);
         tr.appendChild(td);
       });
@@ -55,18 +58,72 @@
     statusEl.className = 'status ' + (kind || '');
   }
 
+  function canUseStorage() {
+    try {
+      const probe = '__farmup_review_probe__';
+      window.localStorage.setItem(probe, '1');
+      window.localStorage.removeItem(probe);
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  const storageAvailable = canUseStorage();
+
+  function saveDraft() {
+    if (!storageAvailable) return;
+    if (!rows.length) {
+      window.localStorage.removeItem(draftKey);
+      return;
+    }
+    window.localStorage.setItem(draftKey, JSON.stringify({ savedAt: new Date().toISOString(), rows }));
+  }
+
+  function restoreDraftIfFresh() {
+    if (!storageAvailable) return;
+    try {
+      const raw = window.localStorage.getItem(draftKey);
+      const draft = raw ? JSON.parse(raw) : null;
+      const saved = draft && draft.savedAt ? Date.parse(draft.savedAt) : NaN;
+      if (!draft || !Array.isArray(draft.rows) || Number.isNaN(saved) || Date.now() - saved > draftMaxAgeMs) {
+        window.localStorage.removeItem(draftKey);
+        return;
+      }
+      rows = draft.rows;
+      setStatus('Unsaved review draft restored from this device.', '');
+    } catch (err) {
+      window.localStorage.removeItem(draftKey);
+    }
+  }
+
+  function clearDraft() {
+    if (storageAvailable) window.localStorage.removeItem(draftKey);
+  }
+
+  window.addEventListener('pagehide', saveDraft);
+  window.addEventListener('offline', () => setStatus('Offline. Review edits are saved on this device; commit when online.', 'error'));
+  window.addEventListener('online', () => setStatus('Back online. Review edits are still saved locally until commit succeeds.', ''));
   document.getElementById('approveAll').addEventListener('click', () => {
     rows.forEach((row) => { if (!isReview(row)) row.approved = true; });
+    saveDraft();
     render();
   });
 
   document.getElementById('skipReview').addEventListener('click', () => {
     rows.forEach((row) => { if (isReview(row)) row.approved = false; });
+    saveDraft();
     render();
   });
 
   document.getElementById('commitBtn').addEventListener('click', async () => {
     const btn = document.getElementById('commitBtn');
+    if (navigator.onLine === false) {
+      saveDraft();
+      setStatus('Offline. Review edits are saved on this device. Commit when online.', 'error');
+      return;
+    }
+    saveDraft();
     btn.disabled = true;
     setStatus('Committing approved rows...', '');
     try {
@@ -102,11 +159,17 @@
       setStatus(`Committed ${result.committed} row(s). All rows are complete.${syncText}`, 'ok');
       if (tg) setTimeout(() => tg.close(), 900);
     } catch (err) {
-      setStatus('Could not commit rows. Check your connection and try again.', 'error');
+      saveDraft();
+      setStatus('Could not commit rows. Review edits were saved on this device. Check your connection and try again.', 'error');
     } finally {
       btn.disabled = false;
     }
   });
 
+  restoreDraftIfFresh();
   render();
 })();
+
+
+
+
