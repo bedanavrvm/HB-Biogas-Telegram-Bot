@@ -105,6 +105,12 @@ WORKFLOW_PRESETS = {
             'fca_master_header_row': 3,
             'fca_master_data_start_row': 5,
             'master_import_log_sheet_name': 'Farmers Upload Log',
+            'internal_order_sync_enabled': False,
+            'internal_order_sheet_id': '',
+            'internal_order_sheet_name': 'Orders',
+            'internal_order_header_row': 2,
+            'internal_order_data_start_row': 3,
+            'internal_order_record_id_prefix': 'JBL',
         },
         'sheet_schema': {},
         'parser_rules': {},
@@ -152,6 +158,36 @@ WORKFLOW_PRESETS = {
                 'initial': 'Farmers Upload Log',
                 'help_text': 'Optional audit tab for /farmup batch summaries.',
             },
+            'internal_order_sync_enabled': {
+                'label': 'Sync pipeline updates to internal Order Sheet',
+                'initial': False,
+                'help_text': 'When enabled, portal updates also create/update rows in the separate internal Order Sheet.',
+            },
+            'internal_order_sheet_id': {
+                'label': 'Internal Order spreadsheet ID',
+                'initial': '',
+                'help_text': 'Separate Google Sheet document used by Head of Rural/order staff.',
+            },
+            'internal_order_sheet_name': {
+                'label': 'Internal Order tab',
+                'initial': 'Orders',
+                'help_text': 'Worksheet tab in the internal Order Sheet.',
+            },
+            'internal_order_header_row': {
+                'label': 'Internal Order header row',
+                'initial': 2,
+                'help_text': '1-based row containing internal Order Sheet headers.',
+            },
+            'internal_order_data_start_row': {
+                'label': 'Internal Order data start row',
+                'initial': 3,
+                'help_text': '1-based first row where internal order records begin.',
+            },
+            'internal_order_record_id_prefix': {
+                'label': 'Internal Order record ID prefix',
+                'initial': 'JBL',
+                'help_text': 'Prefix used when creating sequential ORDER RECORD ID values such as JBL-1.',
+            },
         },
     },
 }
@@ -198,10 +234,12 @@ def build_workflow_from_preset(
                 workflow.pop('import_start_date', None)
         if 'master_sync_enabled' in overrides:
             workflow['master_sync_enabled'] = bool(overrides.get('master_sync_enabled'))
-        for key in ('master_sheet_id', 'master_sheet_name', 'master_import_log_sheet_name'):
+        if 'internal_order_sync_enabled' in overrides:
+            workflow['internal_order_sync_enabled'] = bool(overrides.get('internal_order_sync_enabled'))
+        for key in ('master_sheet_id', 'master_sheet_name', 'master_import_log_sheet_name', 'internal_order_sheet_id', 'internal_order_sheet_name', 'internal_order_record_id_prefix'):
             if key in overrides:
                 workflow[key] = str(overrides.get(key) or '').strip()
-        for key in ('master_header_row', 'master_data_start_row'):
+        for key in ('master_header_row', 'master_data_start_row', 'internal_order_header_row', 'internal_order_data_start_row'):
             if key in overrides and overrides.get(key):
                 try:
                     workflow[key] = max(int(overrides[key]), 1)

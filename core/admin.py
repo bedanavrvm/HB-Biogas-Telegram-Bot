@@ -139,6 +139,45 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
         help_text=get_preset('jawabu_homebiogas')['admin_fields']['master_import_log_sheet_name']['help_text'],
     )
 
+    jawabu_internal_order_sync_enabled = forms.BooleanField(
+        required=False,
+        initial=get_preset('jawabu_homebiogas')['admin_fields']['internal_order_sync_enabled']['initial'],
+        label=get_preset('jawabu_homebiogas')['admin_fields']['internal_order_sync_enabled']['label'],
+        help_text=get_preset('jawabu_homebiogas')['admin_fields']['internal_order_sync_enabled']['help_text'],
+    )
+    jawabu_internal_order_sheet_id = forms.CharField(
+        required=False,
+        initial=get_preset('jawabu_homebiogas')['admin_fields']['internal_order_sheet_id']['initial'],
+        label=get_preset('jawabu_homebiogas')['admin_fields']['internal_order_sheet_id']['label'],
+        help_text=get_preset('jawabu_homebiogas')['admin_fields']['internal_order_sheet_id']['help_text'],
+    )
+    jawabu_internal_order_sheet_name = forms.CharField(
+        required=False,
+        initial=get_preset('jawabu_homebiogas')['admin_fields']['internal_order_sheet_name']['initial'],
+        label=get_preset('jawabu_homebiogas')['admin_fields']['internal_order_sheet_name']['label'],
+        help_text=get_preset('jawabu_homebiogas')['admin_fields']['internal_order_sheet_name']['help_text'],
+    )
+    jawabu_internal_order_header_row = forms.IntegerField(
+        required=False,
+        min_value=1,
+        initial=get_preset('jawabu_homebiogas')['admin_fields']['internal_order_header_row']['initial'],
+        label=get_preset('jawabu_homebiogas')['admin_fields']['internal_order_header_row']['label'],
+        help_text=get_preset('jawabu_homebiogas')['admin_fields']['internal_order_header_row']['help_text'],
+    )
+    jawabu_internal_order_data_start_row = forms.IntegerField(
+        required=False,
+        min_value=1,
+        initial=get_preset('jawabu_homebiogas')['admin_fields']['internal_order_data_start_row']['initial'],
+        label=get_preset('jawabu_homebiogas')['admin_fields']['internal_order_data_start_row']['label'],
+        help_text=get_preset('jawabu_homebiogas')['admin_fields']['internal_order_data_start_row']['help_text'],
+    )
+    jawabu_internal_order_record_id_prefix = forms.CharField(
+        required=False,
+        initial=get_preset('jawabu_homebiogas')['admin_fields']['internal_order_record_id_prefix']['initial'],
+        label=get_preset('jawabu_homebiogas')['admin_fields']['internal_order_record_id_prefix']['label'],
+        help_text=get_preset('jawabu_homebiogas')['admin_fields']['internal_order_record_id_prefix']['help_text'],
+    )
+
     class Meta:
         model = GroupSheetConfiguration
         fields = '__all__'
@@ -200,6 +239,29 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 workflow.get('master_import_log_sheet_name')
                 or defaults.get('master_import_log_sheet_name', 'Farmers Upload Log')
             )
+            self.fields['jawabu_internal_order_sync_enabled'].initial = bool(
+                workflow.get('internal_order_sync_enabled', defaults.get('internal_order_sync_enabled'))
+            )
+            self.fields['jawabu_internal_order_sheet_id'].initial = (
+                workflow.get('internal_order_sheet_id')
+                or defaults.get('internal_order_sheet_id', '')
+            )
+            self.fields['jawabu_internal_order_sheet_name'].initial = (
+                workflow.get('internal_order_sheet_name')
+                or defaults.get('internal_order_sheet_name', 'Orders')
+            )
+            self.fields['jawabu_internal_order_header_row'].initial = (
+                workflow.get('internal_order_header_row')
+                or defaults.get('internal_order_header_row', 2)
+            )
+            self.fields['jawabu_internal_order_data_start_row'].initial = (
+                workflow.get('internal_order_data_start_row')
+                or defaults.get('internal_order_data_start_row', 3)
+            )
+            self.fields['jawabu_internal_order_record_id_prefix'].initial = (
+                workflow.get('internal_order_record_id_prefix')
+                or defaults.get('internal_order_record_id_prefix', 'JBL')
+            )
 
     def clean(self):
         cleaned = super().clean()
@@ -242,6 +304,12 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 'master_header_row': self.cleaned_data.get('jawabu_master_header_row'),
                 'master_data_start_row': self.cleaned_data.get('jawabu_master_data_start_row'),
                 'master_import_log_sheet_name': self.cleaned_data.get('jawabu_master_import_log_sheet_name'),
+                'internal_order_sync_enabled': self.cleaned_data.get('jawabu_internal_order_sync_enabled'),
+                'internal_order_sheet_id': self.cleaned_data.get('jawabu_internal_order_sheet_id'),
+                'internal_order_sheet_name': self.cleaned_data.get('jawabu_internal_order_sheet_name'),
+                'internal_order_header_row': self.cleaned_data.get('jawabu_internal_order_header_row'),
+                'internal_order_data_start_row': self.cleaned_data.get('jawabu_internal_order_data_start_row'),
+                'internal_order_record_id_prefix': self.cleaned_data.get('jawabu_internal_order_record_id_prefix'),
             },
         )
 
@@ -541,8 +609,14 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
                 'jawabu_master_header_row',
                 'jawabu_master_data_start_row',
                 'jawabu_master_import_log_sheet_name',
+                'jawabu_internal_order_sync_enabled',
+                'jawabu_internal_order_sheet_id',
+                'jawabu_internal_order_sheet_name',
+                'jawabu_internal_order_header_row',
+                'jawabu_internal_order_data_start_row',
+                'jawabu_internal_order_record_id_prefix',
             ),
-            'description': 'Master sheet sync config for the Jawabu HomeBiogas WhatsApp visit workflow.',
+            'description': 'Master Data sync plus optional downstream internal Order Sheet sync for the Jawabu HomeBiogas workflow.',
             'classes': ('collapse', 'preset-section', 'preset-jawabu_homebiogas'),
         }),
         ('Advanced Workflow And Parser Rules', {

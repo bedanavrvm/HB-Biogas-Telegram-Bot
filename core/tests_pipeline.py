@@ -17,11 +17,13 @@ from core.services.jawabu_pipeline import (
     assign_order,
     credit_queue,
     deferred_queue,
+    final_review_queue,
     jbl_visit_queue,
     log_jbl_visit,
     pipeline_counts,
     requisition_queue,
     set_credit_decision,
+    set_final_decision,
 )
 
 
@@ -64,7 +66,20 @@ class JblPipelineServiceTestCase(TestCase):
             status='active',
         )
 
-        # Stage 3: Credit Approved
+        # Stage 3: Credit Approved, awaiting Head of Rural final review
+        self.farmer_stage_review = JawabuFarmerMaster.objects.create(
+            customer_name='Farmer Review',
+            national_id='33333332',
+            primary_phone='254733333332',
+            sign_date='24-June-2026',
+            jbl_visit_date=date(2026, 6, 25),
+            jbl_officer='Officer Bob',
+            jbl_visit_status='Approved',
+            credit_decision='Approved',
+            status='active',
+        )
+
+        # Stage 4: Final approved, awaiting order
         self.farmer_stage3 = JawabuFarmerMaster.objects.create(
             customer_name='Farmer Three',
             national_id='33333333',
@@ -74,10 +89,11 @@ class JblPipelineServiceTestCase(TestCase):
             jbl_officer='Officer Bob',
             jbl_visit_status='Approved',
             credit_decision='Approved',
+            final_decision='Approved',
             status='active',
         )
 
-        # Stage 4: Ordered
+        # Stage 5: Ordered
         self.farmer_stage4 = JawabuFarmerMaster.objects.create(
             customer_name='Farmer Four',
             national_id='44444444',
@@ -87,6 +103,7 @@ class JblPipelineServiceTestCase(TestCase):
             jbl_officer='Officer Bob',
             jbl_visit_status='Approved',
             credit_decision='Approved',
+            final_decision='Approved',
             order_number='JBL-2026-004',
             requisition_date=date(2026, 6, 26),
             status='active',
@@ -105,6 +122,16 @@ class JblPipelineServiceTestCase(TestCase):
         queue = list(credit_queue())
         self.assertNotIn(self.farmer_stage1, queue)
         self.assertIn(self.farmer_stage2, queue)
+        self.assertNotIn(self.farmer_stage_review, queue)
+        self.assertNotIn(self.farmer_stage3, queue)
+        self.assertNotIn(self.farmer_stage4, queue)
+
+    def test_final_review_queue(self):
+        """Verify final review queue only returns BRO analysis-complete records."""
+        queue = list(final_review_queue())
+        self.assertNotIn(self.farmer_stage1, queue)
+        self.assertNotIn(self.farmer_stage2, queue)
+        self.assertIn(self.farmer_stage_review, queue)
         self.assertNotIn(self.farmer_stage3, queue)
         self.assertNotIn(self.farmer_stage4, queue)
 
@@ -121,8 +148,9 @@ class JblPipelineServiceTestCase(TestCase):
         counts = pipeline_counts()
         self.assertEqual(counts['jbl_queue'], 1)
         self.assertEqual(counts['credit_queue'], 1)
+        self.assertEqual(counts['final_review_queue'], 1)
         self.assertEqual(counts['requisition_queue'], 1)
-        self.assertEqual(counts['total'], 4)
+        self.assertEqual(counts['total'], 5)
 
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
     def test_log_jbl_visit(self, mock_sync):
@@ -142,16 +170,36 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(self.farmer_stage1.jbl_visit_comment, 'Ready for credit review')
         mock_sync.assert_called_once_with(self.farmer_stage1)
 
+    @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
-    @patch('core.services.jawabu_pipeline._notify_credit_approved')
-    def test_set_credit_decision(self, mock_notify, mock_sync):
+    def test_set_credit_decision(self, mock_sync, mock_order_sync):
         """Verify credit decision update and notification trigger."""
         ok, error = set_credit_decision(self.farmer_stage2, decision='Approved', sender='analyst_1')
         self.assertTrue(ok)
         self.assertEqual(self.farmer_stage2.credit_decision, 'Approved')
         self.assertEqual(self.farmer_stage2.credit_decided_by, 'analyst_1')
         mock_sync.assert_called_once_with(self.farmer_stage2)
-        mock_notify.assert_called_once_with(self.farmer_stage2)
+        mock_order_sync.assert_called_once_with(self.farmer_stage2)
+
+    @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
+    @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
+    @patch('core.services.jawabu_pipeline._notify_final_approved')
+    def test_set_final_decision(self, mock_notify, mock_sync, mock_order_sync):
+        """Verify Head of Rural final decision update and notification trigger."""
+        ok, error = set_final_decision(
+            self.farmer_stage_review,
+            final_decision='Approved',
+            decision_comment='Called and approved',
+            sender='head_rural',
+        )
+        self.assertTrue(ok)
+        self.assertEqual(error, '')
+        self.assertEqual(self.farmer_stage_review.final_decision, 'Approved')
+        self.assertEqual(self.farmer_stage_review.final_decision_comment, 'Called and approved')
+        self.assertEqual(self.farmer_stage_review.final_decided_by, 'head_rural')
+        mock_sync.assert_called_once_with(self.farmer_stage_review)
+        mock_order_sync.assert_called_once_with(self.farmer_stage_review)
+        mock_notify.assert_called_once_with(self.farmer_stage_review)
 
     def test_assign_order_gate_enforcement(self):
         """Verify credit approval gate block (cannot assign order to Stage 2)."""
@@ -264,9 +312,28 @@ class JblPipelineApiTestCase(TestCase):
         self.farmer.refresh_from_db()
         self.assertEqual(self.farmer.credit_decision, 'Approved')
 
+    def test_set_final_decision_api(self):
+        """Verify Head of Rural final review stores decision and after-call comments."""
+        self.farmer.jbl_visit_date = date(2026, 7, 1)
+        self.farmer.jbl_visit_status = 'Approved'
+        self.farmer.credit_decision = 'Approved'
+        self.farmer.save()
+
+        payload = {
+            'final_decision': 'Approved',
+            'decision_comment': 'Called client; ready for order.',
+        }
+        url = reverse('portal_set_final_decision', args=[self.farmer.id])
+        response = self.client.post(url, json.dumps(payload), content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+
+        self.farmer.refresh_from_db()
+        self.assertEqual(self.farmer.final_decision, 'Approved')
+        self.assertEqual(self.farmer.final_decision_comment, 'Called client; ready for order.')
+
     def test_assign_order_gate_fails_on_unapproved(self):
         """Verify requisition posting fails with 403 on credit not approved."""
-        # Farmer is Stage 1 (not credit-approved)
+        # Farmer is Stage 1 (not finally approved)
         payload = {'order_number': 'JBL-2026-X1', 'requisition_date': '2026-07-02'}
         url = reverse('portal_assign_order', args=[self.farmer.id])
         response = self.client.post(url, json.dumps(payload), content_type='application/json')
@@ -275,7 +342,7 @@ class JblPipelineApiTestCase(TestCase):
 
     def test_assign_order_succeeds_on_approved(self):
         """Verify requisition posting succeeds when credit is approved."""
-        self.farmer.credit_decision = 'Approved'
+        self.farmer.final_decision = 'Approved'
         self.farmer.save()
 
         payload = {'order_number': 'JBL-2026-X1', 'requisition_date': '2026-07-02'}
@@ -291,7 +358,7 @@ class JblPipelineApiTestCase(TestCase):
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
     def test_portal_requisition_generate_success(self, mock_sync, mock_generate):
         """Verify requisition generation view succeeds and downloads Excel file."""
-        self.farmer.credit_decision = 'Approved'
+        self.farmer.final_decision = 'Approved'
         self.farmer.save()
 
         payload = {
@@ -316,7 +383,7 @@ class JblPipelineApiTestCase(TestCase):
 
     @override_settings(BASE_DIR='C:/tmp/no-requisition-template')
     def test_portal_requisition_generate_reports_missing_template(self):
-        self.farmer.credit_decision = 'Approved'
+        self.farmer.final_decision = 'Approved'
         self.farmer.save()
         payload = {
             'farmer_ids': [str(self.farmer.id)],
@@ -348,7 +415,7 @@ class JblPipelineApiTestCase(TestCase):
         url = reverse('portal_requisition_generate')
         response = self.client.post(url, json.dumps(payload), content_type='application/json')
         self.assertEqual(response.status_code, 403)
-        self.assertIn('not credit-approved', response.json()['error'])
+        self.assertIn('not finally approved', response.json()['error'])
 
     def test_portal_requisition_batches(self):
         """Verify that the requisition batches view correctly lists unique batches."""

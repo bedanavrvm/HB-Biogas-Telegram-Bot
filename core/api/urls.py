@@ -25,6 +25,8 @@ from .portal_views import (
     portal_log_jbl_visit,
     portal_credit_queue,
     portal_set_credit_decision,
+    portal_final_review_queue,
+    portal_set_final_decision,
     portal_requisition_queue,
     portal_assign_order,
     portal_requisition_generate,
@@ -73,6 +75,8 @@ urlpatterns = [
     # Stage 3 — Credit Decision
     path('portal/credit-queue/', portal_auth_required(portal_credit_queue), name='portal_credit_queue'),
     path('portal/credit-queue/<str:farmer_id>/', portal_auth_required(portal_set_credit_decision), name='portal_set_credit_decision'),
+    path('portal/final-review-queue/', portal_auth_required(portal_final_review_queue), name='portal_final_review_queue'),
+    path('portal/final-review-queue/<str:farmer_id>/', portal_auth_required(portal_set_final_decision), name='portal_set_final_decision'),
     # Stage 4 — Requisition / Order (GATED)
     path('portal/requisition-queue/', portal_auth_required(portal_requisition_queue), name='portal_requisition_queue'),
     path('portal/requisition-queue/generate/', portal_auth_required(portal_requisition_generate), name='portal_requisition_generate'),

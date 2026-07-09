@@ -163,6 +163,7 @@ def portal_meta(request):
         'ok': True,
         'jbl_visit_statuses': [c[0] for c in JawabuFarmerMaster.JBL_VISIT_STATUS_CHOICES],
         'credit_decisions': [c[0] for c in JawabuFarmerMaster.CREDIT_DECISION_CHOICES],
+        'final_decisions': [c[0] for c in JawabuFarmerMaster.FINAL_DECISION_CHOICES],
     })
 
 
@@ -292,6 +293,60 @@ def portal_set_credit_decision(request, farmer_id: str):
     return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer)})
 
 
+
+# Stage 4: Head of Rural final review
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def portal_final_review_queue(request):
+    """GET /api/portal/final-review-queue/ - records awaiting Head of Rural final decision."""
+    from core.services.jawabu_pipeline import final_review_queue, farmer_to_card
+    qs = final_review_queue()
+    items, pagination = _paginate_qs(qs, request)
+    return JsonResponse({
+        'ok': True,
+        'queue': 'final_review',
+        'farmers': [farmer_to_card(f) for f in items],
+        'pagination': pagination,
+    })
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_set_final_decision(request, farmer_id: str):
+    """
+    POST /api/portal/final-review-queue/<farmer_id>/
+    Body: { final_decision, decision_comment }
+    """
+    from core.models import JawabuFarmerMaster
+    from core.services.jawabu_pipeline import set_final_decision, farmer_to_card
+
+    try:
+        farmer = JawabuFarmerMaster.objects.get(pk=farmer_id)
+    except JawabuFarmerMaster.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
+
+    try:
+        body = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
+
+    final_decision = str(body.get('final_decision') or '').strip()
+    decision_comment = str(body.get('decision_comment') or '').strip()
+    if not final_decision:
+        return JsonResponse({'ok': False, 'error': 'final_decision is required.'}, status=400)
+
+    sender = _portal_sender_from_request(request)
+    ok, error = set_final_decision(
+        farmer,
+        final_decision=final_decision,
+        decision_comment=decision_comment,
+        sender=sender,
+    )
+    if not ok:
+        return JsonResponse({'ok': False, 'error': error}, status=400)
+    return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer)})
+
 # ── Stage 4: Requisition / Order queue ───────────────────────────────────────
 
 @csrf_exempt
@@ -316,7 +371,7 @@ def portal_assign_order(request, farmer_id: str):
     POST /api/portal/requisition-queue/<farmer_id>/
     Body: { order_number, requisition_date (YYYY-MM-DD, optional) }
 
-    GATE: Returns HTTP 403 if credit_decision != 'Approved'.
+    GATE: Returns HTTP 403 if final_decision != 'Approved'.
     """
     from datetime import date as _date
     from core.models import JawabuFarmerMaster
@@ -353,7 +408,7 @@ def portal_assign_order(request, farmer_id: str):
     )
     if not ok:
         # Gate failure → 403 Forbidden
-        status_code = 403 if 'Credit Decision' in error or 'credit' in error.lower() else 400
+        status_code = 403 if 'Final Decision' in error or 'final review' in error.lower() else 400
         return JsonResponse({'ok': False, 'error': error}, status=status_code)
     return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer)})
 
@@ -449,12 +504,12 @@ def portal_requisition_generate(request):
     if len(farmers) != len(farmer_ids):
         return JsonResponse({'ok': False, 'error': 'One or more selected farmers not found.'}, status=404)
 
-    # Check credit status
+    # Check Head of Rural final decision gate.
     for farmer in farmers:
-        if farmer.credit_decision != 'Approved':
+        if farmer.final_decision != 'Approved':
             return JsonResponse({
                 'ok': False,
-                'error': f"Farmer '{farmer.customer_name}' is not credit-approved (status: '{farmer.credit_decision}'). Only approved cases can be requisitioned."
+                'error': f"Farmer '{farmer.customer_name}' is not finally approved (Final Decision: '{farmer.final_decision or 'not set'}'). Complete Head of Rural final review first."
             }, status=403)
 
     try:

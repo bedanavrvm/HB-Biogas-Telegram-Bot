@@ -516,6 +516,13 @@ class JawabuFarmerMaster(models.Model):
         ('Pending', 'Pending'),
     ]
 
+    FINAL_DECISION_CHOICES = [
+        ('Approved', 'Approved'),
+        ('Rejected', 'Rejected'),
+        ('Deferred', 'Deferred'),
+        ('Under Review', 'Under Review'),
+    ]
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     source = models.CharField(max_length=100, default='jawabu_farmers_csv', db_index=True)
     source_name = models.CharField(max_length=255, blank=True, default='')
@@ -584,6 +591,25 @@ class JawabuFarmerMaster(models.Model):
         help_text='Timestamp when the credit decision was recorded.',
     )
 
+    # Stage 4: Head of Rural final review. This is the order-readiness gate.
+    final_decision = models.CharField(
+        max_length=80, blank=True, default='',
+        choices=FINAL_DECISION_CHOICES, db_index=True,
+        help_text='Head of Rural final decision. Approved records are ready for order batching.',
+    )
+    final_decision_comment = models.TextField(
+        blank=True, default='',
+        help_text='Head of Rural decision comment shown before order batching.',
+    )
+    final_decided_by = models.CharField(
+        max_length=255, blank=True, default='',
+        help_text='Telegram sender who set the final decision.',
+    )
+    final_decided_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text='Timestamp when the final decision was recorded.',
+    )
+
     # ── Stage 4: Requisition / order ─────────────────────────────────────────
     requisition_date = models.DateField(
         null=True, blank=True,
@@ -628,6 +654,7 @@ class JawabuFarmerMaster(models.Model):
             # Pipeline stage indexes
             models.Index(fields=['jbl_visit_date']),
             models.Index(fields=['credit_decision']),
+            models.Index(fields=['final_decision']),
             models.Index(fields=['order_number']),
         ]
         verbose_name = 'Jawabu farmer master record'

@@ -35,6 +35,11 @@
     Credit
     <span class="tab-badge" id="tab-badge-credit" style="display:none">0</span>
   </button>
+  <button class="tab-btn" data-page="final" aria-label="Head of Rural Final Review">
+    <i data-lucide="phone-call"></i>
+    Review
+    <span class="tab-badge" id="tab-badge-final" style="display:none">0</span>
+  </button>
   <button class="tab-btn" data-page="requisition" aria-label="Requisition Queue">
     <i data-lucide="shopping-bag"></i>
     Orders
@@ -95,7 +100,12 @@
       <div class="count-card" data-page="credit" id="card-credit">
         <i data-lucide="shield-check"></i>
         <div class="count-num" id="cnt-credit">—</div>
-        <div class="count-label">Awaiting Credit</div>
+        <div class="count-label">BRO Analysis</div>
+      </div>
+      <div class="count-card" data-page="final" id="card-final">
+        <i data-lucide="phone-call"></i>
+        <div class="count-num" id="cnt-final">-</div>
+        <div class="count-label">Head of Rural Review</div>
       </div>
       <div class="count-card success" data-page="requisition" id="card-requisition">
         <i data-lucide="shopping-bag"></i>
@@ -153,10 +163,21 @@
   </section>
 
   <!-- ── Requisition Queue ──────────────────────────────────────────────── -->
+  <section id="page-final" class="page">
+    <header>
+      <h1>Head of Rural Review</h1>
+      <p class="meta">Call clients, add after-call comments, and record final decision</p>
+    </header>
+    <div id="final-list" class="farmer-list">
+      <div class="empty-state"><div class="spinner-inline"></div></div>
+    </div>
+    <div class="pagination" id="pg-final"></div>
+  </section>
+
   <section id="page-requisition" class="page">
     <header>
       <h1>📋 Requisition Queue</h1>
-      <p class="meta">Credit approved — assign order number</p>
+      <p class="meta">Final decision approved — assign order number</p>
     </header>
     <div id="requisition-batch-panel" class="batch-panel" style="display: none;">
       <div class="batch-title">

@@ -14,14 +14,15 @@
   let state = {
     activePage: 'dashboard',
     counts: {},
-    queues: { jbl: [], credit: [], requisition: [], deferred: [], all: [], batches: [] },
+    queues: { jbl: [], credit: [], final: [], requisition: [], deferred: [], all: [], batches: [] },
     pagination: {},
-    pages: { jbl: 1, credit: 1, requisition: 1, deferred: 1, all: 1, batches: 1 },
+    pages: { jbl: 1, credit: 1, final: 1, requisition: 1, deferred: 1, all: 1, batches: 1 },
     search: '',
     metaStatuses: [],
     metaDecisions: [],
+    metaFinalDecisions: [],
     selectedFarmer: null,
-    activeMode: null, // 'jbl_visit' | 'credit' | 'requisition'
+    activeMode: null, // 'jbl_visit' | 'credit' | 'final_review' | 'requisition'
     filters: { county: '', branch: '' },
     selectedRequisitions: new Set()
   };
@@ -105,6 +106,12 @@
     return `<span class="badge ${map[farmer.credit_decision] || 'badge-grey'}">${farmer.credit_decision}</span>`;
   }
 
+  function finalDecisionBadge(farmer) {
+    if (!farmer.final_decision) return '';
+    const map = { Approved: 'badge-green', Rejected: 'badge-red', Deferred: 'badge-orange', 'Under Review': 'badge-blue' };
+    return `<span class="badge ${map[farmer.final_decision] || 'badge-grey'}">Final: ${farmer.final_decision}</span>`;
+  }
+
   function jblBadge(farmer) {
     if (!farmer.jbl_visit_status) return '';
     const cls = farmer.jbl_visit_status.startsWith('Approved') ? 'badge-green'
@@ -178,6 +185,7 @@
     // Update tab badges
     setBadge('tab-badge-jbl', c.jbl_queue);
     setBadge('tab-badge-credit', c.credit_queue);
+    setBadge('tab-badge-final', c.final_review_queue);
     setBadge('tab-badge-req', c.requisition_queue);
     el('dash-counts').style.display = 'grid';
     if (window.lucide) {
@@ -208,7 +216,8 @@
   // ── Generic queue loader ──────────────────────────────────────────────────
   const queueConfig = {
     jbl: { endpoint: '/jbl-queue/', listId: 'jbl-list', pageKey: 'jbl', mode: 'jbl_visit', emptyTitle: 'All caught up!', emptySub: 'No farmers are waiting for a JBL visit.' },
-    credit: { endpoint: '/credit-queue/', listId: 'credit-list', pageKey: 'credit', mode: 'credit', emptyTitle: 'No credit cases', emptySub: 'No farmers are awaiting credit analysis.' },
+    credit: { endpoint: '/credit-queue/', listId: 'credit-list', pageKey: 'credit', mode: 'credit', emptyTitle: 'No BRO analysis cases', emptySub: 'No farmers are awaiting BRO credit analysis.' },
+    final: { endpoint: '/final-review-queue/', listId: 'final-list', pageKey: 'final', mode: 'final_review', emptyTitle: 'No final review cases', emptySub: 'No clients are awaiting Head of Rural review.' },
     requisition: { endpoint: '/requisition-queue/', listId: 'req-list', pageKey: 'requisition', mode: 'requisition', emptyTitle: 'No approved cases', emptySub: 'No credit-approved farmers are awaiting an order number.' },
     deferred: { endpoint: '/deferred/', listId: 'deferred-list', pageKey: 'deferred', mode: null, emptyTitle: 'No deferred cases', emptySub: 'No farmers are deferred or flagged.' },
     all: { endpoint: '/farmers/', listId: 'all-list', pageKey: 'all', mode: null, emptyTitle: 'No farmers found', emptySub: 'Try a different search term.' },
@@ -608,13 +617,17 @@
       formEl.innerHTML = buildCreditForm(farmer);
       footerEl.innerHTML = `<button class="primary" id="btn-submit-credit">Set Credit Decision</button>`;
       el('btn-submit-credit').addEventListener('click', submitCreditDecision);
+    } else if (mode === 'final_review') {
+      formEl.innerHTML = buildFinalReviewForm(farmer);
+      footerEl.innerHTML = `<button class="primary" id="btn-submit-final">Save Final Review</button>`;
+      el('btn-submit-final').addEventListener('click', submitFinalDecision);
     } else if (mode === 'requisition') {
-      const notApproved = farmer.credit_decision !== 'Approved';
+      const notApproved = farmer.final_decision !== 'Approved';
       if (notApproved) {
         el('sheet-gate-warning').style.display = 'flex';
-        el('sheet-gate-warning').innerHTML = `⚠️ Credit Decision is <strong>${farmer.credit_decision || 'not set'}</strong>. Must be <strong>Approved</strong> to assign an order.`;
+        el('sheet-gate-warning').innerHTML = `⚠️ Final Decision is <strong>${farmer.final_decision || 'not set'}</strong>. Must be <strong>Approved</strong> to assign an order.`;
         formEl.innerHTML = buildRequisitionForm(farmer);
-        footerEl.innerHTML = `<button class="primary" id="btn-submit-req" disabled>Assign Order (Gate: Not Approved)</button>`;
+        footerEl.innerHTML = `<button class="primary" id="btn-submit-req" disabled>Assign Order (Gate: Final Review)</button>`;
       } else {
         formEl.innerHTML = buildRequisitionForm(farmer);
         footerEl.innerHTML = `<button class="primary" id="btn-submit-req">Assign Order Number</button>`;
@@ -773,6 +786,33 @@
     `;
   }
 
+  function buildFinalReviewForm(farmer) {
+    const decisionOptions = state.metaFinalDecisions.map(d =>
+      `<option value="${d}"${farmer.final_decision === d ? ' selected' : ''}>${d}</option>`
+    ).join('');
+    const phone = String(farmer.primary_phone || '').replace(/[^0-9+]/g, '');
+    return `
+      <div class="form-section">
+        <div class="form-row">
+          <label>Client Phone</label>
+          <div style="display:flex;gap:8px;align-items:center;width:100%;">
+            <input type="tel" value="${escapeHtml(farmer.primary_phone || '')}" readonly style="flex:1;">
+            ${phone ? `<a class="btn btn-primary" href="tel:+${phone.replace(/^\+/, '')}" style="height:38px;display:inline-flex;align-items:center;gap:6px;text-decoration:none;white-space:nowrap;">Call</a>` : ''}
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Final Decision</label>
+          <select id="final-decision"><option value="">- Select -</option>${decisionOptions}</select>
+        </div>
+        <div class="form-row">
+          <label>After-call Comments</label>
+          <textarea id="final-comment" rows="4" placeholder="Summarize the call and reason for the decision...">${escapeHtml(farmer.final_decision_comment || '')}</textarea>
+        </div>
+      </div>
+      ${farmer.jbl_visit_comment ? `<div class="info-row"><span class="ir-label">BRO Comment</span><span class="ir-value">${escapeHtml(farmer.jbl_visit_comment)}</span></div>` : ''}
+    `;
+  }
+
   function buildRequisitionForm(farmer) {
     const today = new Date().toISOString().split('T')[0];
     return `
@@ -859,6 +899,31 @@
     loadDashboard();
   }
 
+  async function submitFinalDecision() {
+    const farmer = state.selectedFarmer;
+    if (!farmer) return;
+    const finalDecision = el('final-decision')?.value || '';
+    const decisionComment = el('final-comment')?.value || '';
+    if (!finalDecision) { showToast('Please select a final decision', 'error'); return; }
+
+    const btn = el('btn-submit-final');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-inline"></span> Saving...';
+
+    const { ok, data } = await apiFetch('/final-review-queue/' + farmer.id + '/', {
+      method: 'POST',
+      body: JSON.stringify({ final_decision: finalDecision, decision_comment: decisionComment }),
+    });
+
+    btn.disabled = false;
+    btn.textContent = 'Save Final Review';
+    if (!ok) { showToast(data.error || 'Save failed', 'error'); return; }
+    showToast('Final review saved', 'success');
+    closeSheet();
+    reloadCurrentQueue();
+    loadDashboard();
+  }
+
   async function submitOrder() {
     const farmer = state.selectedFarmer;
     if (!farmer) return;
@@ -878,7 +943,7 @@
     btn.disabled = false;
     btn.textContent = 'Assign Order Number';
     if (!ok) {
-      if (status === 403) { showToast('⛔ ' + (data.error || 'Credit not approved'), 'error'); }
+      if (status === 403) { showToast('⛔ ' + (data.error || 'Final review not approved'), 'error'); }
       else { showToast(data.error || 'Save failed', 'error'); }
       return;
     }
@@ -929,6 +994,7 @@
     if (!ok) return;
     state.metaStatuses = data.jbl_visit_statuses || [];
     state.metaDecisions = data.credit_decisions || [];
+    state.metaFinalDecisions = data.final_decisions || [];
   }
 
   // ── Page router ───────────────────────────────────────────────────────────
