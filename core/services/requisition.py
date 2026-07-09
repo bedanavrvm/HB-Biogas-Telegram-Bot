@@ -9,6 +9,10 @@ from openpyxl.utils import get_column_letter
 from django.conf import settings
 from core.models import JawabuFarmerMaster
 
+
+class RequisitionTemplateError(RuntimeError):
+    pass
+
 def clean_deposit_float(val: Any) -> float | int | None:
     if not val:
         return None
@@ -39,9 +43,23 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
 
     active_template = RequisitionTemplate.objects.filter(is_active=True).first()
     if active_template and active_template.file:
-        template_path = active_template.file.path
+        try:
+            template_path = active_template.file.path
+        except (NotImplementedError, ValueError):
+            template_path = ''
+        if not template_path or not os.path.exists(template_path):
+            raise RequisitionTemplateError(
+                'The active requisition template file is not available on this server. '
+                'Upload the Excel template again in Django Admin > Requisition templates, '
+                'or attach persistent storage for Render media files.'
+            )
     else:
-        template_path = os.path.join(settings.BASE_DIR, "requisition", "JBL_Requisition_Form_184.xlsx")
+        template_path = os.path.join(settings.BASE_DIR, 'requisition', 'JBL_Requisition_Form_184.xlsx')
+        if not os.path.exists(template_path):
+            raise RequisitionTemplateError(
+                'No requisition Excel template is configured. Upload the template in '
+                'Django Admin > Requisition templates and mark it active.'
+            )
 
     wb = openpyxl.load_workbook(template_path)
     ws = wb.active

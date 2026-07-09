@@ -287,8 +287,9 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(self.farmer.order_number, 'JBL-2026-X1')
         self.assertEqual(self.farmer.requisition_date, date(2026, 7, 2))
 
+    @patch('core.services.requisition.generate_requisition_excel', return_value=b'xlsx-bytes')
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
-    def test_portal_requisition_generate_success(self, mock_sync):
+    def test_portal_requisition_generate_success(self, mock_sync, mock_generate):
         """Verify requisition generation view succeeds and downloads Excel file."""
         self.farmer.credit_decision = 'Approved'
         self.farmer.save()
@@ -311,6 +312,31 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(self.farmer.order_number, 'REQ-BATCH-99')
         self.assertEqual(self.farmer.requisition_date, date(2026, 7, 6))
         mock_sync.assert_called_once_with(self.farmer)
+        mock_generate.assert_called_once()
+
+    @override_settings(BASE_DIR='C:/tmp/no-requisition-template')
+    def test_portal_requisition_generate_reports_missing_template(self):
+        self.farmer.credit_decision = 'Approved'
+        self.farmer.save()
+        payload = {
+            'farmer_ids': [str(self.farmer.id)],
+            'order_number': 'REQ-BATCH-99',
+            'requisition_date': '2026-07-06'
+        }
+
+        response = self.client.post(
+            reverse('portal_requisition_generate'),
+            json.dumps(payload),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        data = response.json()
+        self.assertFalse(data['ok'])
+        self.assertIn('requisition Excel template', data['error'])
+        self.farmer.refresh_from_db()
+        self.assertEqual(self.farmer.order_number, '')
+        self.assertIsNone(self.farmer.requisition_date)
 
     def test_portal_requisition_generate_fails_on_unapproved(self):
         """Verify requisition generation fails with 403 on unapproved credit decision."""
@@ -821,7 +847,3 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(parsed['discount'], '3000.00')
         self.assertEqual(parsed['balance_due'], '46,000.00')
         self.assertEqual(parsed['balance_due_check'], 'OK')
-
-
-
-

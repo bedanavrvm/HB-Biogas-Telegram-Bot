@@ -133,7 +133,7 @@ def _paginate_qs(qs, request, page_size: int = 30):
 
 # ── Render View ───────────────────────────────────────────────────────────────
 
-@require_http_methods(["GET"])
+@require_http_methods(["GET", "HEAD"])
 def portal_home(request):
     """Render the main JBL Pipeline Portal Mini App page."""
     return render(request, 'portal/portal.html', {
@@ -418,7 +418,7 @@ def portal_requisition_generate(request):
     from django.http import HttpResponse
     from core.models import JawabuFarmerMaster
     from core.services.jawabu_pipeline import assign_order, sync_farmer_to_master_sheet
-    from core.services.requisition import generate_requisition_excel
+    from core.services.requisition import RequisitionTemplateError, generate_requisition_excel
     import json
 
     try:
@@ -457,7 +457,18 @@ def portal_requisition_generate(request):
                 'error': f"Farmer '{farmer.customer_name}' is not credit-approved (status: '{farmer.credit_decision}'). Only approved cases can be requisitioned."
             }, status=403)
 
-    # Assign order details to each farmer if not already set or different
+    try:
+        xlsx_bytes = generate_requisition_excel(farmers, order_number, requisition_date)
+    except RequisitionTemplateError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    except FileNotFoundError:
+        logger.exception('Requisition template file is missing.')
+        return JsonResponse({
+            'ok': False,
+            'error': 'The requisition Excel template file is missing. Upload it in Django Admin > Requisition templates and mark it active.',
+        }, status=400)
+
+    # Assign order details only after the Excel has been generated successfully.
     sender = _portal_sender_from_request(request)
     for farmer in farmers:
         if farmer.order_number != order_number or farmer.requisition_date != requisition_date:
@@ -467,9 +478,6 @@ def portal_requisition_generate(request):
                 requisition_date=requisition_date,
                 sender=sender,
             )
-
-    # Generate the populated requisition sheet
-    xlsx_bytes = generate_requisition_excel(farmers, order_number, requisition_date)
 
     response = HttpResponse(
         xlsx_bytes,
@@ -576,5 +584,3 @@ def portal_upload_batch_invoices(request):
     except Exception as e:
         logger.exception("Error processing invoice PDF: %s", e)
         return JsonResponse({'ok': False, 'error': f"Failed to parse PDF: {str(e)}"}, status=500)
-
-
