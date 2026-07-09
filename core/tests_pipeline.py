@@ -76,6 +76,8 @@ class JblPipelineServiceTestCase(TestCase):
             jbl_officer='Officer Bob',
             jbl_visit_status='Approved',
             credit_decision='Approved',
+            imab_created='Yes',
+            customer_no='15118',
             status='active',
         )
 
@@ -89,6 +91,8 @@ class JblPipelineServiceTestCase(TestCase):
             jbl_officer='Officer Bob',
             jbl_visit_status='Approved',
             credit_decision='Approved',
+            imab_created='Yes',
+            customer_no='15119',
             final_decision='Approved',
             status='active',
         )
@@ -103,6 +107,8 @@ class JblPipelineServiceTestCase(TestCase):
             jbl_officer='Officer Bob',
             jbl_visit_status='Approved',
             credit_decision='Approved',
+            imab_created='Yes',
+            customer_no='15120',
             final_decision='Approved',
             order_number='JBL-2026-004',
             requisition_date=date(2026, 6, 26),
@@ -174,9 +180,17 @@ class JblPipelineServiceTestCase(TestCase):
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
     def test_set_credit_decision(self, mock_sync, mock_order_sync):
         """Verify credit decision update and notification trigger."""
-        ok, error = set_credit_decision(self.farmer_stage2, decision='Approved', sender='analyst_1')
+        ok, error = set_credit_decision(
+            self.farmer_stage2,
+            decision='Approved',
+            imab_created='Yes',
+            customer_no='15121',
+            sender='analyst_1',
+        )
         self.assertTrue(ok)
         self.assertEqual(self.farmer_stage2.credit_decision, 'Approved')
+        self.assertEqual(self.farmer_stage2.imab_created, 'Yes')
+        self.assertEqual(self.farmer_stage2.customer_no, '15121')
         self.assertEqual(self.farmer_stage2.credit_decided_by, 'analyst_1')
         mock_sync.assert_called_once_with(self.farmer_stage2)
         mock_order_sync.assert_called_once_with(self.farmer_stage2)
@@ -298,25 +312,46 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(self.farmer.gps_link, 'https://maps.google.com/?q=-1.2921,36.8219')
 
 
+    @patch('core.services.jawabu_pipeline.append_jbl_media_links')
+    def test_upload_jbl_media_api(self, mock_upload):
+        """Verify JBL visit media upload endpoint accepts files and returns stored counts."""
+        mock_upload.return_value = (
+            True,
+            '',
+            {'stored_count': 1, 'skipped_count': 0, 'warnings': [], 'links': ['https://drive.example/file']},
+        )
+        upload = SimpleUploadedFile('visit.jpg', b'image-bytes', content_type='image/jpeg')
+        url = reverse('portal_upload_jbl_media', args=[self.farmer.id])
+        response = self.client.post(url, {'files': upload})
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['stored_count'], 1)
+        mock_upload.assert_called_once()
+
     def test_set_credit_decision_api(self):
         """Verify Stage 3 credit decision posting."""
         self.farmer.jbl_visit_date = date(2026, 7, 1)
         self.farmer.jbl_visit_status = 'Approved'
         self.farmer.save()
 
-        payload = {'decision': 'Approved'}
+        payload = {'decision': 'Approved', 'imab_created': 'Yes', 'customer_no': '15122'}
         url = reverse('portal_set_credit_decision', args=[self.farmer.id])
         response = self.client.post(url, json.dumps(payload), content_type='application/json')
         self.assertEqual(response.status_code, 200)
 
         self.farmer.refresh_from_db()
         self.assertEqual(self.farmer.credit_decision, 'Approved')
+        self.assertEqual(self.farmer.imab_created, 'Yes')
+        self.assertEqual(self.farmer.customer_no, '15122')
 
     def test_set_final_decision_api(self):
         """Verify Head of Rural final review stores decision and after-call comments."""
         self.farmer.jbl_visit_date = date(2026, 7, 1)
         self.farmer.jbl_visit_status = 'Approved'
         self.farmer.credit_decision = 'Approved'
+        self.farmer.imab_created = 'Yes'
+        self.farmer.customer_no = '15123'
         self.farmer.save()
 
         payload = {
@@ -364,16 +399,24 @@ class JblPipelineApiTestCase(TestCase):
         payload = {
             'farmer_ids': [str(self.farmer.id)],
             'order_number': 'REQ-BATCH-99',
-            'requisition_date': '2026-07-06'
+            'requisition_date': '2026-07-06',
+            'return_url': True,
         }
         url = reverse('portal_requisition_generate')
         response = self.client.post(url, json.dumps(payload), content_type='application/json')
         self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['filename'], 'JBL_Requisition_Form_REQ-BATCH-99.xlsx')
+        self.assertIn('/api/portal/requisition-download/', data['download_url'])
+
+        download_response = self.client.get(data['download_url'])
+        self.assertEqual(download_response.status_code, 200)
         self.assertEqual(
-            response['Content-Type'],
+            download_response['Content-Type'],
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
-        self.assertIn('attachment; filename="JBL_Requisition_Form_REQ-BATCH-99.xlsx"', response['Content-Disposition'])
+        self.assertIn('attachment; filename="JBL_Requisition_Form_REQ-BATCH-99.xlsx"', download_response['Content-Disposition'])
 
         self.farmer.refresh_from_db()
         self.assertEqual(self.farmer.order_number, 'REQ-BATCH-99')
@@ -565,7 +608,7 @@ class JblPipelineApiTestCase(TestCase):
             status='active'
         )
 
-        # Setup mock PDF pages — stacked format (label then value on next line)
+        # Setup mock PDF pages â€” stacked format (label then value on next line)
         mock_page = MagicMock()
         mock_page.extract_text.return_value = (
             "HOMEBIOGAS VENTURES LIMITED\n"
@@ -664,7 +707,7 @@ class JblPipelineApiTestCase(TestCase):
             status='active'
         )
 
-        # Inline format — matches actual #076.pdf output
+        # Inline format â€” matches actual #076.pdf output
         mock_page = MagicMock()
         mock_page.extract_text.return_value = (
             "Page 1 of 1\n"

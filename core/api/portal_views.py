@@ -14,11 +14,13 @@ import hmac
 import json
 import logging
 import time
+import uuid
 from functools import wraps
 from urllib.parse import parse_qsl
 
 from django.conf import settings
-from django.http import JsonResponse
+from django.core.cache import cache
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -163,6 +165,7 @@ def portal_meta(request):
         'ok': True,
         'jbl_visit_statuses': [c[0] for c in JawabuFarmerMaster.JBL_VISIT_STATUS_CHOICES],
         'credit_decisions': [c[0] for c in JawabuFarmerMaster.CREDIT_DECISION_CHOICES],
+        'imab_created_options': ['Yes', 'No', 'Pending'],
         'final_decisions': [c[0] for c in JawabuFarmerMaster.FINAL_DECISION_CHOICES],
     })
 
@@ -248,6 +251,31 @@ def portal_log_jbl_visit(request, farmer_id: str):
 # ── Stage 3: Credit Decision queue ───────────────────────────────────────────
 
 @csrf_exempt
+@require_http_methods(["POST"])
+def portal_upload_jbl_media(request, farmer_id: str):
+    """POST /api/portal/jbl-queue/<farmer_id>/media/ - upload visit media to Drive."""
+    from core.models import JawabuFarmerMaster
+    from core.services.jawabu_pipeline import append_jbl_media_links, farmer_to_card
+
+    try:
+        farmer = JawabuFarmerMaster.objects.get(pk=farmer_id)
+    except JawabuFarmerMaster.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
+
+    getlist = getattr(request.FILES, 'getlist', None)
+    files = getlist('files') if getlist else []
+    if not files:
+        files = list(request.FILES.values())
+    if not files:
+        return JsonResponse({'ok': False, 'error': 'Select at least one document or image to upload.'}, status=400)
+
+    sender = _portal_sender_from_request(request)
+    ok, error, result = append_jbl_media_links(farmer, uploaded_files=files, sender=sender)
+    if not ok:
+        return JsonResponse({'ok': False, 'error': error, **result}, status=400)
+    return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer), **result})
+
+@csrf_exempt
 @require_http_methods(["GET"])
 def portal_credit_queue(request):
     """GET /api/portal/credit-queue/ — farmers awaiting credit analysis."""
@@ -283,11 +311,19 @@ def portal_set_credit_decision(request, farmer_id: str):
         return JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
 
     decision = str(body.get('decision') or '').strip()
+    imab_created = str(body.get('imab_created') or '').strip()
+    customer_no = str(body.get('customer_no') or '').strip()
     if not decision:
         return JsonResponse({'ok': False, 'error': 'decision is required.'}, status=400)
 
     sender = _portal_sender_from_request(request)
-    ok, error = set_credit_decision(farmer, decision=decision, sender=sender)
+    ok, error = set_credit_decision(
+        farmer,
+        decision=decision,
+        imab_created=imab_created,
+        customer_no=customer_no,
+        sender=sender,
+    )
     if not ok:
         return JsonResponse({'ok': False, 'error': error}, status=400)
     return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer)})
@@ -470,7 +506,6 @@ def portal_requisition_generate(request):
     Body: { farmer_ids: [...], order_number: "...", requisition_date: "..." }
     """
     from datetime import date as _date
-    from django.http import HttpResponse
     from core.models import JawabuFarmerMaster
     from core.services.jawabu_pipeline import assign_order, sync_farmer_to_master_sheet
     from core.services.requisition import RequisitionTemplateError, generate_requisition_excel
@@ -534,12 +569,41 @@ def portal_requisition_generate(request):
                 sender=sender,
             )
 
+    filename = f"JBL_Requisition_Form_{order_number}.xlsx"
+    if body.get('return_url'):
+        token = uuid.uuid4().hex
+        cache.set(
+            f'portal_requisition_download:{token}',
+            {'filename': filename, 'content': xlsx_bytes},
+            timeout=30 * 60,
+        )
+        return JsonResponse({
+            'ok': True,
+            'filename': filename,
+            'download_url': request.build_absolute_uri(f'/api/portal/requisition-download/{token}/'),
+        })
+
     response = HttpResponse(
         xlsx_bytes,
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     )
-    filename = f"JBL_Requisition_Form_{order_number}.xlsx"
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
+
+
+@csrf_exempt
+@require_http_methods(["GET", "HEAD"])
+def portal_requisition_download(request, token: str):
+    """Short-lived mobile-friendly download for generated requisition Excel files."""
+    payload = cache.get(f'portal_requisition_download:{token}')
+    if not payload:
+        return JsonResponse({'ok': False, 'error': 'Download link expired. Generate the requisition form again.'}, status=404)
+    response = HttpResponse(
+        b'' if request.method == 'HEAD' else payload['content'],
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    response['Content-Disposition'] = f'attachment; filename="{payload["filename"]}"'
+    response['X-Content-Type-Options'] = 'nosniff'
     return response
 
 

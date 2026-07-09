@@ -51,7 +51,7 @@ SAMPLE_ROW = [
     "08-May-2026",
     "09-May-2026",
     "PATRICK MWANGI MAINA",
-    "MURANGA",
+    "EMBU",
     "113650221",
     "254740614990",
     "",
@@ -73,10 +73,11 @@ SAMPLE_ROW = [
 
 OPTIONS_HEADERS = ["Branch", "County", "Sub-County", "Visited By", "HB Staff"]
 OPTIONS_SAMPLE_ROWS = [
-    ["MURANGA", "MURANGA", "KIHARU", "JOHN", "THOMAS"],
+    ["BIOGAS UNIT", "", "", "", ""],
     ["EMBU", "EMBU", "", "KIBINGE", ""],
+    ["NAKURU", "NAKURU", "", "", ""],
+    ["WEST NAIROBI", "NAIROBI", "", "", ""],
 ]
-
 STYLE_DEFAULT = 0
 STYLE_TITLE = 1
 STYLE_TITLE_FILL = 2

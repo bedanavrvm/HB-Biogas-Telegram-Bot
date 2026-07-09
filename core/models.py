@@ -591,6 +591,15 @@ class JawabuFarmerMaster(models.Model):
         help_text='Timestamp when the credit decision was recorded.',
     )
 
+    imab_created = models.CharField(
+        max_length=32, blank=True, default='',
+        help_text='Whether the customer has been created on IMAB before Head of Rural review.',
+    )
+    customer_no = models.CharField(
+        max_length=64, blank=True, default='', db_index=True,
+        help_text='IMAB customer number required before Head of Rural review.',
+    )
+
     # Stage 4: Head of Rural final review. This is the order-readiness gate.
     final_decision = models.CharField(
         max_length=80, blank=True, default='',
@@ -608,6 +617,11 @@ class JawabuFarmerMaster(models.Model):
     final_decided_at = models.DateTimeField(
         null=True, blank=True,
         help_text='Timestamp when the final decision was recorded.',
+    )
+
+    jbl_media_urls = models.TextField(
+        blank=True, default='',
+        help_text='Drive links for documents/images uploaded during the JBL visit stage.',
     )
 
     # ── Stage 4: Requisition / order ─────────────────────────────────────────
@@ -654,6 +668,7 @@ class JawabuFarmerMaster(models.Model):
             # Pipeline stage indexes
             models.Index(fields=['jbl_visit_date']),
             models.Index(fields=['credit_decision']),
+            models.Index(fields=['customer_no']),
             models.Index(fields=['final_decision']),
             models.Index(fields=['order_number']),
         ]

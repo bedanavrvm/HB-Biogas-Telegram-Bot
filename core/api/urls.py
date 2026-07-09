@@ -23,6 +23,7 @@ from .portal_views import (
     portal_meta,
     portal_jbl_queue,
     portal_log_jbl_visit,
+    portal_upload_jbl_media,
     portal_credit_queue,
     portal_set_credit_decision,
     portal_final_review_queue,
@@ -30,6 +31,7 @@ from .portal_views import (
     portal_requisition_queue,
     portal_assign_order,
     portal_requisition_generate,
+    portal_requisition_download,
     portal_requisition_batches,
     portal_upload_batch_invoices,
     portal_all_cases,
@@ -72,6 +74,7 @@ urlpatterns = [
     # Stage 2 — JBL Visit
     path('portal/jbl-queue/', portal_auth_required(portal_jbl_queue), name='portal_jbl_queue'),
     path('portal/jbl-queue/<str:farmer_id>/', portal_auth_required(portal_log_jbl_visit), name='portal_log_jbl_visit'),
+    path('portal/jbl-queue/<str:farmer_id>/media/', portal_auth_required(portal_upload_jbl_media), name='portal_upload_jbl_media'),
     # Stage 3 — Credit Decision
     path('portal/credit-queue/', portal_auth_required(portal_credit_queue), name='portal_credit_queue'),
     path('portal/credit-queue/<str:farmer_id>/', portal_auth_required(portal_set_credit_decision), name='portal_set_credit_decision'),
@@ -80,6 +83,7 @@ urlpatterns = [
     # Stage 4 — Requisition / Order (GATED)
     path('portal/requisition-queue/', portal_auth_required(portal_requisition_queue), name='portal_requisition_queue'),
     path('portal/requisition-queue/generate/', portal_auth_required(portal_requisition_generate), name='portal_requisition_generate'),
+    path('portal/requisition-download/<str:token>/', portal_requisition_download, name='portal_requisition_download'),
     path('portal/requisition-queue/<str:farmer_id>/', portal_auth_required(portal_assign_order), name='portal_assign_order'),
     path('portal/requisition-batches/', portal_auth_required(portal_requisition_batches), name='portal_requisition_batches'),
     path('portal/requisition-batches/upload-invoices/', portal_auth_required(portal_upload_batch_invoices), name='portal_upload_batch_invoices'),

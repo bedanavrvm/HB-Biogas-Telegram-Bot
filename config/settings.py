@@ -212,7 +212,7 @@ ORDER_APPROVAL_WEBAPP_AUTH_MAX_AGE_SECONDS = config(
 )
 ORDER_APPROVAL_BRANCH_CHOICES = config(
     'ORDER_APPROVAL_BRANCH_CHOICES',
-    default='MURANGA,EMBU',
+    default='BIOGAS UNIT,EMBU,NAKURU,WEST NAIROBI',
 )
 
 # Multi-Group/Multi-Tenant Configuration
@@ -296,4 +296,3 @@ REQUIRED_MESSAGE_FIELDS = ['message_id', 'chat', 'date']
 # Rate Limiting (if enabled with django-ratelimit)
 RATELIMIT_ENABLE = config('RATELIMIT_ENABLE', default=False, cast=bool)
 RATELIMIT_PER_IP = '100/h'  # 100 requests per hour per IP
-

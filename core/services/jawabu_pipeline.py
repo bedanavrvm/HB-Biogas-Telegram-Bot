@@ -19,6 +19,7 @@ from datetime import date
 from typing import Any
 
 from django.utils import timezone
+from django.db.models import Q
 
 from core.models import JawabuFarmerMaster
 
@@ -31,6 +32,7 @@ JBL_FORWARD_STATUSES = frozenset({
 })
 
 CREDIT_APPROVED = 'Approved'
+CREDIT_TERMINAL = frozenset({'Approved', 'Rejected', 'Deferred', 'Exemption Approved'})
 FINAL_DECISION_APPROVED = 'Approved'
 FINAL_DECISION_TERMINAL = frozenset({'Approved', 'Rejected', 'Deferred'})
 
@@ -61,7 +63,9 @@ def credit_queue():
         jbl_visit_date__isnull=False,
         status='active',
     ).exclude(
-        credit_decision__in=['Approved', 'Rejected', 'Deferred', 'Exemption Approved'],
+        Q(credit_decision__in=CREDIT_TERMINAL)
+        & ~Q(imab_created='')
+        & ~Q(customer_no='')
     ).order_by('jbl_visit_date', 'customer_name')
 
 
@@ -76,6 +80,10 @@ def final_review_queue():
         status='active',
     ).exclude(
         credit_decision='',
+    ).exclude(
+        imab_created='',
+    ).exclude(
+        customer_no='',
     ).exclude(
         final_decision__in=FINAL_DECISION_TERMINAL,
     ).order_by('credit_decided_at', 'jbl_visit_date', 'customer_name')
@@ -98,7 +106,6 @@ def deferred_queue():
     """
     Deferred / flagged cases - credit not moving forward or final review blocked.
     """
-    from django.db.models import Q
     return JawabuFarmerMaster.objects.filter(
         status='active',
     ).filter(
@@ -191,6 +198,8 @@ def set_credit_decision(
     farmer: JawabuFarmerMaster,
     *,
     decision: str,
+    imab_created: str = '',
+    customer_no: str = '',
     sender: str = '',
 ) -> tuple[bool, str]:
     """
@@ -202,11 +211,19 @@ def set_credit_decision(
     if decision not in valid_decisions:
         return False, f"Invalid credit decision: '{decision}'. Must be one of: {', '.join(sorted(valid_decisions))}"
 
+    imab_created = str(imab_created or '').strip()
+    customer_no = str(customer_no or '').strip()
+    if decision in CREDIT_TERMINAL and (not imab_created or not customer_no):
+        return False, 'IS CUSTOMER CREATED ON IMAB and CUSTOMER NO are required before the case can reach Head of Rural review.'
+
     farmer.credit_decision = decision
+    farmer.imab_created = imab_created
+    farmer.customer_no = customer_no
     farmer.credit_decided_by = str(sender or '').strip()
     farmer.credit_decided_at = timezone.now()
     farmer.save(update_fields=[
-        'credit_decision', 'credit_decided_by', 'credit_decided_at', 'updated_at',
+        'credit_decision', 'imab_created', 'customer_no',
+        'credit_decided_by', 'credit_decided_at', 'updated_at',
     ])
     logger.info(
         'Credit decision %s set for farmer %s by %s',
@@ -240,6 +257,8 @@ def set_final_decision(
         return False, 'Cannot set final decision before the JBL/BRO visit is logged.'
     if not farmer.credit_decision:
         return False, 'Cannot set final decision before Credit Analysis is completed.'
+    if not farmer.imab_created or not farmer.customer_no:
+        return False, 'Cannot set final decision before IS CUSTOMER CREATED ON IMAB and CUSTOMER NO are completed in the credit stage.'
 
     old_decision = farmer.final_decision
     farmer.final_decision = final_decision
@@ -262,6 +281,60 @@ def set_final_decision(
 
     return True, ''
 
+
+
+def append_jbl_media_links(
+    farmer: JawabuFarmerMaster,
+    *,
+    uploaded_files: list,
+    sender: str = '',
+) -> tuple[bool, str, dict[str, Any]]:
+    """Upload JBL visit media to Drive, append links to farmer/order sheet, and audit uploads."""
+    if not uploaded_files:
+        return False, 'No files were uploaded.', {}
+    business_key = str(farmer.national_id or '').strip()
+    if not business_key:
+        return False, 'National ID is required before uploading JBL visit media.', {}
+
+    group_config = _jawabu_group_config()
+    if not group_config:
+        return False, 'Jawabu workflow group configuration was not found.', {}
+
+    from core.services.order_approval import store_uploaded_files_for_order
+
+    uploaded = store_uploaded_files_for_order(
+        group_config=group_config,
+        uploaded_files=uploaded_files,
+        sender=sender,
+        received_at=timezone.now(),
+        business_key_value=business_key,
+        order_update=None,
+    )
+    if uploaded.links:
+        existing = [line.strip() for line in str(farmer.jbl_media_urls or '').splitlines() if line.strip()]
+        for link in uploaded.links:
+            if link and link not in existing:
+                existing.append(link)
+        farmer.jbl_media_urls = '\n'.join(existing)
+        farmer.save(update_fields=['jbl_media_urls', 'updated_at'])
+        sync_farmer_to_master_sheet(farmer)
+        sync_farmer_to_internal_order_sheet(farmer)
+
+    if not uploaded.links and uploaded.warnings:
+        return False, 'No media files were stored. ' + ' '.join(uploaded.warnings), {
+            'stored_count': uploaded.stored_count,
+            'skipped_count': uploaded.skipped_count,
+            'warnings': uploaded.warnings,
+            'links': uploaded.links,
+        }
+
+    return True, '', {
+        'stored_count': uploaded.stored_count,
+        'skipped_count': uploaded.skipped_count,
+        'warnings': uploaded.warnings,
+        'links': uploaded.links,
+        'media_count': len([line for line in str(farmer.jbl_media_urls or '').splitlines() if line.strip()]),
+    }
 
 
 def assign_order(
@@ -318,6 +391,8 @@ def farmer_to_card(farmer: JawabuFarmerMaster) -> dict[str, Any]:
         'jbl_visit_comment': farmer.jbl_visit_comment,
         # Stage 3
         'credit_decision': farmer.credit_decision,
+        'imab_created': farmer.imab_created,
+        'customer_no': farmer.customer_no,
         'credit_decided_by': farmer.credit_decided_by,
         'credit_decided_at': (
             farmer.credit_decided_at.isoformat() if farmer.credit_decided_at else None
@@ -344,6 +419,8 @@ def farmer_to_card(farmer: JawabuFarmerMaster) -> dict[str, Any]:
         'updated_at': farmer.updated_at.isoformat(),
         'latitude': farmer.latitude,
         'longitude': farmer.longitude,
+        'jbl_media_urls': farmer.jbl_media_urls,
+        'jbl_media_count': len([line for line in str(farmer.jbl_media_urls or '').splitlines() if line.strip()]),
     }
 
 
@@ -360,8 +437,10 @@ def _pipeline_stage(farmer: JawabuFarmerMaster) -> int:
         return 5  # Head of Rural approved, awaiting order/requisition batching.
     if farmer.final_decision:
         return 4
-    if farmer.credit_decision:
+    if farmer.credit_decision and farmer.imab_created and farmer.customer_no:
         return 4  # BRO analysis complete, awaiting Head of Rural review.
+    if farmer.credit_decision:
+        return 3  # BRO analysis started but IMAB/customer number is still incomplete.
     if farmer.jbl_visit_date:
         return 3
     if farmer.sign_date:
@@ -479,6 +558,9 @@ def sync_farmer_to_master_sheet(farmer: JawabuFarmerMaster) -> bool:
             'jbl_visit_status': (['Jawabu Comment After Visit', 'JBL Visit Status'], farmer.jbl_visit_status),
             'jbl_visit_comment': (['Additional Comments', 'Jawabu Visit Comment', 'JBL Visit Comment'], farmer.jbl_visit_comment),
             'credit_decision': (['Credit Analysis', 'Credit Decision'], farmer.credit_decision),
+            'imab_created': (['IS CUSTOMER CREATED ON IMAB?', 'IMAB Created', 'Customer Created On IMAB'], farmer.imab_created),
+            'customer_no': (['CUSTOMER NO', 'Customer No', 'Customer Number'], farmer.customer_no),
+            'jbl_media_urls': (['Media URLs', 'Media URLS', 'Drive Links'], farmer.jbl_media_urls),
             'final_decision_comment': (['Decision Comment', 'Final Decision Comment', 'Additional Comments'], farmer.final_decision_comment),
             'final_decision': (['Final Decision', 'Head of Rural Decision'], farmer.final_decision),
             'final_decided_by': (['Final Decided By', 'Decision By'], farmer.final_decided_by),
@@ -659,6 +741,9 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
         put(['DEPOSIT / HB', 'Deposit Paid to HBG', 'Deposit Paid to HB'], farmer.actual_receipts)
         put(['BRO COMMENT', 'COMMENT', 'JBL Visit Comment'], farmer.jbl_visit_comment)
         put(['CREDIT ANALYSIS', 'Credit Analysis', 'Credit Decision'], farmer.credit_decision)
+        put(['IS CUSTOMER CREATED ON IMAB?', 'IMAB Created', 'Customer Created On IMAB'], farmer.imab_created)
+        put(['CUSTOMER NO', 'Customer No', 'Customer Number'], farmer.customer_no)
+        put(['Media URLs', 'MEDIA URLS', 'Drive Links'], farmer.jbl_media_urls)
         put(['DECISION COMMENT', 'Final Decision Comment', 'Additional Comments'], farmer.final_decision_comment)
         put(['FINAL DECISION', 'Final Decision', 'Head of Rural Decision'], farmer.final_decision)
         put(['Final Decided By', 'Decision By'], farmer.final_decided_by)
@@ -772,6 +857,3 @@ def _notify_final_approved(farmer: JawabuFarmerMaster) -> None:
         )
     except Exception as exc:
         logger.warning("Failed to send final approval notification to Telegram: %s", exc)
-
-
-

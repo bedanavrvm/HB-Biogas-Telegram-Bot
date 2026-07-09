@@ -20,6 +20,7 @@
     search: '',
     metaStatuses: [],
     metaDecisions: [],
+    metaImabOptions: [],
     metaFinalDecisions: [],
     selectedFarmer: null,
     activeMode: null, // 'jbl_visit' | 'credit' | 'final_review' | 'requisition'
@@ -580,6 +581,9 @@
       ['JBL Officer', fmt(farmer.jbl_officer)],
       ['JBL Status', farmer.jbl_visit_status ? `<span class="badge badge-blue">${farmer.jbl_visit_status}</span>` : '—'],
       ['Credit Decision', farmer.credit_decision ? `<span class="badge ${farmer.credit_decision === 'Approved' ? 'badge-green' : 'badge-orange'}">${farmer.credit_decision}</span>` : '—'],
+      ['IMAB Created', fmt(farmer.imab_created)],
+      ['Customer No.', fmt(farmer.customer_no)],
+      ['Visit Media', farmer.jbl_media_count ? `${farmer.jbl_media_count} file link${farmer.jbl_media_count === 1 ? '' : 's'}` : '-'],
       ['Order No.', farmer.order_number ? `<strong>${farmer.order_number}</strong>` : '—'],
       ['Requisition Date', fmtDate(farmer.requisition_date)],
       ['HB Sales Person', fmt(farmer.hb_sales_person)],
@@ -721,6 +725,14 @@
           <label>Comment (optional)</label>
           <textarea id="jbl-comment" rows="2" placeholder="Additional notes...">${farmer.jbl_visit_comment || ''}</textarea>
         </div>
+        <div class="form-row media-upload-row">
+          <label>Visit Media</label>
+          <div class="media-upload-control">
+            <input type="file" id="jbl-media" name="files" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx">
+            <small>Optional. Upload visit photos, signed docs, or supporting files.</small>
+            ${farmer.jbl_media_count ? `<small>${farmer.jbl_media_count} existing Drive link${farmer.jbl_media_count === 1 ? '' : 's'} on this record.</small>` : ''}
+          </div>
+        </div>
         <div class="form-row" style="border-bottom: none; background: transparent; padding: 12px 0 0;">
           <button type="button" id="btn-gps" style="width: 100%; height: 38px; display: flex; align-items: center; justify-content: center; gap: 8px;">
             📍 Capture GPS Location
@@ -775,14 +787,25 @@
     const decisionOptions = state.metaDecisions.map(d =>
       `<option value="${d}"${farmer.credit_decision === d ? ' selected' : ''}>${d}</option>`
     ).join('');
+    const imabOptions = (state.metaImabOptions.length ? state.metaImabOptions : ['Yes', 'No', 'Pending']).map(v =>
+      `<option value="${v}"${farmer.imab_created === v ? ' selected' : ''}>${v}</option>`
+    ).join('');
     return `
       <div class="form-section">
         <div class="form-row">
           <label>Credit Decision</label>
-          <select id="credit-decision"><option value="">— Select —</option>${decisionOptions}</select>
+          <select id="credit-decision"><option value="">- Select -</option>${decisionOptions}</select>
+        </div>
+        <div class="form-row">
+          <label>IS CUSTOMER CREATED ON IMAB?</label>
+          <select id="credit-imab"><option value="">- Select -</option>${imabOptions}</select>
+        </div>
+        <div class="form-row">
+          <label>CUSTOMER NO</label>
+          <input type="text" id="credit-customer-no" inputmode="numeric" pattern="[0-9]*" placeholder="IMAB customer number" value="${escapeHtml(farmer.customer_no || '')}">
         </div>
       </div>
-      ${farmer.jbl_visit_comment ? `<div class="info-row"><span class="ir-label">JBL Comment</span><span class="ir-value">${farmer.jbl_visit_comment}</span></div>` : ''}
+      ${farmer.jbl_visit_comment ? `<div class="info-row"><span class="ir-label">JBL Comment</span><span class="ir-value">${escapeHtml(farmer.jbl_visit_comment)}</span></div>` : ''}
     `;
   }
 
@@ -852,7 +875,7 @@
 
     const btn = el('btn-submit-jbl');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-inline"></span> Saving…';
+    btn.innerHTML = '<span class="spinner-inline"></span> Saving...';
 
     const { ok, data } = await apiFetch('/jbl-queue/' + farmer.id + '/', {
       method: 'POST',
@@ -869,31 +892,72 @@
     btn.disabled = false;
     btn.textContent = 'Log JBL Visit';
     if (!ok) { showToast(data.error || 'Save failed', 'error'); return; }
-    showToast('JBL visit logged ✓', 'success');
+    const uploadOk = await uploadJblMediaIfSelected(farmer.id);
+    if (!uploadOk) return;
+    showToast('JBL visit logged', 'success');
     closeSheet();
     reloadCurrentQueue();
     loadDashboard();
   }
 
+  async function uploadJblMediaIfSelected(farmerId) {
+    const input = el('jbl-media');
+    const files = input?.files ? Array.from(input.files) : [];
+    if (!files.length) return true;
+    if (!navigator.onLine) {
+      showToast('Offline. Reconnect before uploading visit media.', 'error');
+      return false;
+    }
+    const formData = new FormData();
+    files.forEach(file => formData.append('files', file));
+    showToast('Uploading visit media...');
+    try {
+      const response = await fetch(apiBase() + '/jbl-queue/' + farmerId + '/media/', {
+        method: 'POST',
+        headers: {
+          ...initDataHeader(),
+          'X-CSRFToken': getCookie('csrftoken') || ''
+        },
+        body: formData
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.ok === false) {
+        showToast(data.error || 'Media upload failed. Visit was saved; retry media upload from the record.', 'error');
+        return false;
+      }
+      const warnings = Array.isArray(data.warnings) && data.warnings.length ? ' ' + data.warnings.join(' ') : '';
+      showToast(`Stored ${data.stored_count || 0} media file${(data.stored_count || 0) === 1 ? '' : 's'}.${warnings}`, data.warnings?.length ? 'warning' : 'success');
+      return true;
+    } catch (err) {
+      console.error(err);
+      showToast('Media upload failed. Visit was saved; retry media upload from the record.', 'error');
+      return false;
+    }
+  }
+
+
   async function submitCreditDecision() {
     const farmer = state.selectedFarmer;
     if (!farmer) return;
     const decision = el('credit-decision')?.value || '';
+    const imabCreated = el('credit-imab')?.value || '';
+    const customerNo = (el('credit-customer-no')?.value || '').replace(/[^0-9]/g, '');
     if (!decision) { showToast('Please select a decision', 'error'); return; }
+    if (!imabCreated || !customerNo) { showToast('IMAB status and Customer No are required before Head of Rural review.', 'error'); return; }
 
     const btn = el('btn-submit-credit');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-inline"></span> Saving…';
+    btn.innerHTML = '<span class="spinner-inline"></span> Saving...';
 
     const { ok, data } = await apiFetch('/credit-queue/' + farmer.id + '/', {
       method: 'POST',
-      body: JSON.stringify({ decision }),
+      body: JSON.stringify({ decision, imab_created: imabCreated, customer_no: customerNo }),
     });
 
     btn.disabled = false;
     btn.textContent = 'Set Credit Decision';
     if (!ok) { showToast(data.error || 'Save failed', 'error'); return; }
-    showToast('Credit decision saved ✓', 'success');
+    showToast('Credit decision saved', 'success');
     closeSheet();
     reloadCurrentQueue();
     loadDashboard();
@@ -994,6 +1058,7 @@
     if (!ok) return;
     state.metaStatuses = data.jbl_visit_statuses || [];
     state.metaDecisions = data.credit_decisions || [];
+    state.metaImabOptions = data.imab_created_options || [];
     state.metaFinalDecisions = data.final_decisions || [];
   }
 
@@ -1062,7 +1127,8 @@
         body: JSON.stringify({
           farmer_ids,
           order_number,
-          requisition_date
+          requisition_date,
+          return_url: true
         })
       });
 
@@ -1076,24 +1142,19 @@
         return;
       }
 
-      let filename = `JBL_Requisition_Form_${order_number}.xlsx`;
-      const cd = response.headers.get('Content-Disposition');
-      if (cd && cd.includes('filename=')) {
-        const m = cd.match(/filename="([^"]+)"/);
-        if (m && m[1]) filename = m[1];
+      const result = await response.json();
+      if (!result.ok || !result.download_url) {
+        showToast(result.error || 'Requisition form was generated but no download link was returned.', 'error');
+        return;
       }
 
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-
-      showToast('Form downloaded successfully!', 'success');
+      const downloadUrl = result.download_url;
+      if (tg?.openLink) {
+        tg.openLink(downloadUrl);
+      } else {
+        window.open(downloadUrl, '_blank', 'noopener');
+      }
+      showToast('Form ready. Open the download link if it did not appear automatically.', 'success');
 
       // Clear selection & inputs, then reload
       state.selectedRequisitions.clear();
