@@ -12,7 +12,7 @@ from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import GroupSheetConfiguration, JawabuFarmerMaster, LiveSheetRecordChange
+from core.models import GroupSheetConfiguration, JawabuFarmerMaster, LiveSheetRecordChange, RequisitionBatch
 from core.services.jawabu_pipeline import (
     assign_order,
     credit_queue,
@@ -389,11 +389,56 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(self.farmer.order_number, 'JBL-2026-X1')
         self.assertEqual(self.farmer.requisition_date, date(2026, 7, 2))
 
+    def test_portal_requisition_preview_reports_ready_clients(self):
+        self.farmer.final_decision = 'Approved'
+        self.farmer.imab_created = 'Yes'
+        self.farmer.customer_no = '15124'
+        self.farmer.save()
+        payload = {
+            'farmer_ids': [str(self.farmer.id)],
+            'order_number': 'REQ-PREVIEW-1',
+            'requisition_date': '2026-07-06',
+        }
+        response = self.client.post(
+            reverse('portal_requisition_preview'),
+            json.dumps(payload),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['ready_count'], 1)
+        self.assertEqual(data['blocked_count'], 0)
+
+    def test_portal_requisition_preview_blocks_missing_customer_no(self):
+        self.farmer.final_decision = 'Approved'
+        self.farmer.imab_created = 'Yes'
+        self.farmer.customer_no = ''
+        self.farmer.save()
+        payload = {
+            'farmer_ids': [str(self.farmer.id)],
+            'order_number': 'REQ-PREVIEW-2',
+            'requisition_date': '2026-07-06',
+        }
+        response = self.client.post(
+            reverse('portal_requisition_preview'),
+            json.dumps(payload),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['ready_count'], 0)
+        self.assertEqual(data['blocked_count'], 1)
+        self.assertIn('Customer No', data['blocked'][0]['missing'])
+
     @patch('core.services.requisition.generate_requisition_excel', return_value=b'xlsx-bytes')
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
     def test_portal_requisition_generate_success(self, mock_sync, mock_generate):
         """Verify requisition generation view succeeds and downloads Excel file."""
         self.farmer.final_decision = 'Approved'
+        self.farmer.imab_created = 'Yes'
+        self.farmer.customer_no = '15124'
         self.farmer.save()
 
         payload = {
@@ -408,7 +453,8 @@ class JblPipelineApiTestCase(TestCase):
         data = response.json()
         self.assertTrue(data['ok'])
         self.assertEqual(data['filename'], 'JBL_Requisition_Form_REQ-BATCH-99.xlsx')
-        self.assertIn('/api/portal/requisition-download/', data['download_url'])
+        self.assertIn('/api/portal/requisition-batches/REQ-BATCH-99/download/', data['download_url'])
+        self.assertTrue(RequisitionBatch.objects.filter(order_number='REQ-BATCH-99').exists())
 
         download_response = self.client.get(data['download_url'])
         self.assertEqual(download_response.status_code, 200)
@@ -424,9 +470,36 @@ class JblPipelineApiTestCase(TestCase):
         mock_sync.assert_called_once_with(self.farmer)
         mock_generate.assert_called_once()
 
+    def test_portal_requisition_batch_detail_and_download(self):
+        self.farmer.order_number = 'REQ-DETAIL-1'
+        self.farmer.requisition_date = date(2026, 7, 6)
+        self.farmer.final_decision = 'Approved'
+        self.farmer.save()
+        RequisitionBatch.objects.create(
+            order_number='REQ-DETAIL-1',
+            requisition_date=date(2026, 7, 6),
+            filename='JBL_Requisition_Form_REQ-DETAIL-1.xlsx',
+            file_content=b'xlsx-bytes',
+            farmer_ids=[str(self.farmer.id)],
+            farmer_count=1,
+        )
+
+        detail = self.client.get(reverse('portal_requisition_batch_detail', args=['REQ-DETAIL-1']))
+        self.assertEqual(detail.status_code, 200)
+        detail_data = detail.json()
+        self.assertTrue(detail_data['ok'])
+        self.assertEqual(detail_data['batch']['order_number'], 'REQ-DETAIL-1')
+        self.assertEqual(len(detail_data['batch']['farmers']), 1)
+
+        download = self.client.get(reverse('portal_requisition_batch_download', args=['REQ-DETAIL-1']))
+        self.assertEqual(download.status_code, 200)
+        self.assertEqual(download.content, b'xlsx-bytes')
+
     @override_settings(BASE_DIR='C:/tmp/no-requisition-template')
     def test_portal_requisition_generate_reports_missing_template(self):
         self.farmer.final_decision = 'Approved'
+        self.farmer.imab_created = 'Yes'
+        self.farmer.customer_no = '15124'
         self.farmer.save()
         payload = {
             'farmer_ids': [str(self.farmer.id)],
@@ -458,7 +531,7 @@ class JblPipelineApiTestCase(TestCase):
         url = reverse('portal_requisition_generate')
         response = self.client.post(url, json.dumps(payload), content_type='application/json')
         self.assertEqual(response.status_code, 403)
-        self.assertIn('not finally approved', response.json()['error'])
+        self.assertIn('not ready for requisition', response.json()['error'])
 
     def test_portal_requisition_batches(self):
         """Verify that the requisition batches view correctly lists unique batches."""
@@ -568,6 +641,45 @@ class JblPipelineApiTestCase(TestCase):
         self.assertFalse(payload['ok'])
         self.assertEqual(payload['max_file_size_mb'], 1)
         self.assertIn('too large', payload['error'])
+
+    @patch('core.services.invoice_parser.match_and_update_invoices')
+    def test_invoice_upload_updates_requisition_batch_status(self, mock_match):
+        from core.api.portal_views import portal_upload_batch_invoices
+
+        self.farmer.order_number = 'B-1234'
+        self.farmer.save(update_fields=['order_number'])
+        RequisitionBatch.objects.create(
+            order_number='B-1234',
+            farmer_ids=[str(self.farmer.id)],
+            farmer_count=1,
+            filename='JBL_Requisition_Form_B-1234.xlsx',
+            file_content=b'xlsx-bytes',
+        )
+
+        def mark_invoice(order_number, pdf_bytes):
+            self.farmer.invoice_number = 'INV-1'
+            self.farmer.save(update_fields=['invoice_number'])
+            return {'ok': True, 'total_parsed': 1, 'matched_count': 1, 'candidate_count': 1}
+
+        mock_match.side_effect = mark_invoice
+        request = RequestFactory().post(
+            '/api/portal/requisition-batches/upload-invoices/',
+            {
+                'order_number': 'B-1234',
+                'file': SimpleUploadedFile('invoices.pdf', b'%PDF-1.4', content_type='application/pdf'),
+            },
+        )
+
+        response = portal_upload_batch_invoices(request)
+        payload = json.loads(response.content.decode('utf-8'))
+        batch = RequisitionBatch.objects.get(order_number='B-1234')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload['ok'])
+        self.assertEqual(batch.status, 'completed')
+        self.assertEqual(batch.invoice_summary['matched_count'], 1)
+        self.assertEqual(batch.invoice_summary['pending_invoice_count'], 0)
+        self.assertEqual(batch.last_invoice_result['total_parsed'], 1)
 
     @patch('core.services.invoice_parser.PdfReader')
     @patch('core.services.sheets.GoogleSheetsService.get_instance')

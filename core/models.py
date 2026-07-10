@@ -865,6 +865,48 @@ class GroupSheetConfiguration(models.Model):
         return f"{label} -> {self.sheet_name}"
 
 
+class RequisitionBatch(models.Model):
+    """Generated requisition/order batch output kept for portal reference."""
+
+    STATUS_CHOICES = [
+        ('generated', 'Generated'),
+        ('invoices_uploaded', 'Invoices Uploaded'),
+        ('partially_invoiced', 'Partially Invoiced'),
+        ('completed', 'Completed'),
+        ('needs_review', 'Needs Review'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    order_number = models.CharField(max_length=128, unique=True, db_index=True)
+    requisition_date = models.DateField(null=True, blank=True)
+    generated_by = models.CharField(max_length=255, blank=True, default='')
+    filename = models.CharField(max_length=255, blank=True, default='')
+    content_type = models.CharField(
+        max_length=255,
+        default='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    file_content = models.BinaryField(blank=True, default=bytes)
+    farmer_ids = models.JSONField(blank=True, default=list)
+    farmer_count = models.PositiveIntegerField(default=0)
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='generated', db_index=True)
+    invoice_summary = models.JSONField(blank=True, default=dict)
+    last_invoice_result = models.JSONField(blank=True, default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-requisition_date', '-updated_at']
+        indexes = [
+            models.Index(fields=['order_number']),
+            models.Index(fields=['status', 'updated_at']),
+        ]
+        verbose_name = 'Requisition batch'
+        verbose_name_plural = 'Requisition batches'
+
+    def __str__(self):
+        return f"{self.order_number} ({self.status})"
+
+
 class RequisitionTemplate(models.Model):
     """
     Admin-uploaded Excel templates used for Requisition/Order generation.

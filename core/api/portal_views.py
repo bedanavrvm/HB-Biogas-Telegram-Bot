@@ -16,7 +16,7 @@ import logging
 import time
 import uuid
 from functools import wraps
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, quote
 
 from django.conf import settings
 from django.core.cache import cache
@@ -115,25 +115,137 @@ def _portal_sender_from_request(request) -> str:
     return ''
 
 
-def _paginate_qs(qs, request, page_size: int = 30):
-    """Return a paginated slice and pagination metadata."""
+def _pagination_window(request, total: int, page_size: int = 30):
     try:
         page = max(1, int(request.GET.get('page', 1)))
     except (ValueError, TypeError):
         page = 1
-    total = qs.count()
     start = (page - 1) * page_size
     end = start + page_size
-    items = list(qs[start:end])
-    return items, {
+    pagination = {
         'page': page,
         'page_size': page_size,
         'total': total,
         'pages': max(1, (total + page_size - 1) // page_size),
     }
+    return start, end, pagination
+
+
+def _paginate_qs(qs, request, page_size: int = 30):
+    """Return a paginated slice and pagination metadata."""
+    total = qs.count()
+    start, end, pagination = _pagination_window(request, total, page_size)
+    return list(qs[start:end]), pagination
+
+
+def _paginate_list(items: list, request, page_size: int = 30):
+    """Return a paginated slice and pagination metadata for already-built portal payloads."""
+    start, end, pagination = _pagination_window(request, len(items), page_size)
+    return items[start:end], pagination
 
 
 # ── Render View ───────────────────────────────────────────────────────────────
+
+
+def _batch_download_url(request, order_number: str) -> str:
+    return request.build_absolute_uri(
+        f'/api/portal/requisition-batches/{quote(str(order_number), safe="")}/download/'
+    )
+
+
+def _invoice_summary_for_farmers(farmers) -> dict:
+    total = len(farmers)
+    invoiced = sum(1 for farmer in farmers if getattr(farmer, 'invoice_number', ''))
+    pending = max(total - invoiced, 0)
+    if total and invoiced == total:
+        status = 'completed'
+    elif invoiced:
+        status = 'partially_invoiced'
+    else:
+        status = 'generated'
+    return {
+        'total_clients': total,
+        'invoiced_count': invoiced,
+        'pending_invoice_count': pending,
+        'status': status,
+    }
+
+
+def _validate_requisition_farmers(farmers) -> tuple[list[dict], list[dict], list[dict]]:
+    from core.services.jawabu_pipeline import farmer_to_card
+
+    ready = []
+    blocked = []
+    warnings = []
+    for farmer in farmers:
+        card = farmer_to_card(farmer)
+        missing = []
+        if farmer.final_decision != 'Approved':
+            missing.append(f"Final Decision is {farmer.final_decision or 'not set'}")
+        if not farmer.customer_name:
+            missing.append('Customer Name')
+        if not farmer.customer_no:
+            missing.append('Customer No')
+        if not farmer.imab_created:
+            missing.append('IMAB status')
+        if not farmer.national_id:
+            warnings.append({'farmer_id': str(farmer.id), 'message': f'{farmer.customer_name or farmer.id}: National ID is blank.'})
+        if not farmer.primary_phone:
+            warnings.append({'farmer_id': str(farmer.id), 'message': f'{farmer.customer_name or farmer.id}: Primary phone is blank.'})
+        if missing:
+            blocked.append({'farmer': card, 'missing': missing})
+        else:
+            ready.append(card)
+    return ready, blocked, warnings
+
+
+def _farmers_for_batch(order_number: str, farmer_ids=None):
+    from core.models import JawabuFarmerMaster, RequisitionBatch
+
+    if farmer_ids:
+        return list(JawabuFarmerMaster.objects.filter(id__in=farmer_ids).order_by('customer_name'))
+    return list(JawabuFarmerMaster.objects.filter(order_number=order_number).order_by('customer_name'))
+
+
+def _serialize_batch(batch, farmers, request, include_farmers: bool = True) -> dict:
+    summary = _invoice_summary_for_farmers(farmers)
+    stored_summary = batch.invoice_summary or {}
+    if stored_summary:
+        summary = {**summary, **stored_summary}
+    farmers_payload = []
+    if include_farmers:
+        for farmer in farmers:
+            farmers_payload.append({
+                'id': str(farmer.id),
+                'customer_name': farmer.customer_name,
+                'national_id': farmer.national_id,
+                'primary_phone': farmer.primary_phone,
+                'county': farmer.county,
+                'sub_county': farmer.sub_county,
+                'branch': farmer.branch,
+                'invoice_number': farmer.invoice_number,
+                'invoice_date': farmer.invoice_date.strftime('%Y-%m-%d') if farmer.invoice_date else None,
+                'invoice_amount': str(farmer.invoice_amount) if farmer.invoice_amount is not None else None,
+                'balance_due': str(farmer.balance_due) if farmer.balance_due is not None else None,
+                'invoiced': bool(farmer.invoice_number),
+            })
+    return {
+        'id': str(batch.id),
+        'order_number': batch.order_number,
+        'requisition_date': batch.requisition_date.strftime('%Y-%m-%d') if batch.requisition_date else None,
+        'generated_by': batch.generated_by,
+        'generated_at': batch.created_at.isoformat() if batch.created_at else None,
+        'updated_at': batch.updated_at.isoformat() if batch.updated_at else None,
+        'filename': batch.filename,
+        'has_requisition_file': bool(batch.file_content),
+        'download_url': _batch_download_url(request, batch.order_number) if batch.file_content else '',
+        'farmer_count': batch.farmer_count or len(farmers),
+        'invoiced_count': summary.get('invoiced_count', 0),
+        'status': batch.status,
+        'invoice_summary': summary,
+        'last_invoice_result': batch.last_invoice_result or {},
+        'farmers': farmers_payload,
+    }
 
 @require_http_methods(["GET", "HEAD"])
 def portal_home(request):
@@ -498,6 +610,60 @@ def portal_farmer_detail(request, farmer_id: str):
     return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer)})
 
 
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_requisition_preview(request):
+    """POST /api/portal/requisition-queue/preview/ - validate selected clients before generating Excel."""
+    from datetime import date as _date
+    from core.models import JawabuFarmerMaster
+
+    try:
+        body = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
+
+    farmer_ids = body.get('farmer_ids') or []
+    order_number = str(body.get('order_number') or '').strip()
+    requisition_date_raw = str(body.get('requisition_date') or '').strip()
+    if not farmer_ids:
+        return JsonResponse({'ok': False, 'error': 'No farmers selected.'}, status=400)
+    if not order_number:
+        return JsonResponse({'ok': False, 'error': 'Order Number / Batch Ref is required.'}, status=400)
+    if not requisition_date_raw:
+        return JsonResponse({'ok': False, 'error': 'Requisition Date is required.'}, status=400)
+    try:
+        requisition_date = _date.fromisoformat(requisition_date_raw)
+    except ValueError:
+        return JsonResponse({'ok': False, 'error': f"Invalid requisition_date '{requisition_date_raw}'. Use YYYY-MM-DD."}, status=400)
+
+    farmers = list(JawabuFarmerMaster.objects.filter(id__in=farmer_ids))
+    if len(farmers) != len(farmer_ids):
+        return JsonResponse({'ok': False, 'error': 'One or more selected farmers was not found.'}, status=404)
+
+    existing_order = (
+        JawabuFarmerMaster.objects
+        .filter(order_number=order_number)
+        .exclude(id__in=farmer_ids)
+        .count()
+    )
+    ready, blocked, warnings = _validate_requisition_farmers(farmers)
+    if existing_order:
+        warnings.append({
+            'message': f"Order number {order_number} already exists on {existing_order} other client(s). Generating will add/update this same batch.",
+        })
+    return JsonResponse({
+        'ok': True,
+        'order_number': order_number,
+        'requisition_date': requisition_date.isoformat(),
+        'ready_count': len(ready),
+        'blocked_count': len(blocked),
+        'warning_count': len(warnings),
+        'ready': ready,
+        'blocked': blocked,
+        'warnings': warnings,
+    })
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def portal_requisition_generate(request):
@@ -506,7 +672,7 @@ def portal_requisition_generate(request):
     Body: { farmer_ids: [...], order_number: "...", requisition_date: "..." }
     """
     from datetime import date as _date
-    from core.models import JawabuFarmerMaster
+    from core.models import JawabuFarmerMaster, RequisitionBatch
     from core.services.jawabu_pipeline import assign_order, sync_farmer_to_master_sheet
     from core.services.requisition import RequisitionTemplateError, generate_requisition_excel
     import json
@@ -539,13 +705,16 @@ def portal_requisition_generate(request):
     if len(farmers) != len(farmer_ids):
         return JsonResponse({'ok': False, 'error': 'One or more selected farmers not found.'}, status=404)
 
-    # Check Head of Rural final decision gate.
-    for farmer in farmers:
-        if farmer.final_decision != 'Approved':
-            return JsonResponse({
-                'ok': False,
-                'error': f"Farmer '{farmer.customer_name}' is not finally approved (Final Decision: '{farmer.final_decision or 'not set'}'). Complete Head of Rural final review first."
-            }, status=403)
+    ready, blocked, warnings = _validate_requisition_farmers(farmers)
+    if blocked:
+        first = blocked[0]
+        name = first['farmer'].get('customer_name') or first['farmer'].get('national_id') or 'Selected client'
+        return JsonResponse({
+            'ok': False,
+            'error': f"{name} is not ready for requisition: {', '.join(first['missing'])}.",
+            'blocked': blocked,
+            'warnings': warnings,
+        }, status=403)
 
     try:
         xlsx_bytes = generate_requisition_excel(farmers, order_number, requisition_date)
@@ -570,22 +739,32 @@ def portal_requisition_generate(request):
             )
 
     filename = f"JBL_Requisition_Form_{order_number}.xlsx"
+    summary = _invoice_summary_for_farmers(farmers)
+    batch, _created = RequisitionBatch.objects.update_or_create(
+        order_number=order_number,
+        defaults={
+            'requisition_date': requisition_date,
+            'generated_by': sender,
+            'filename': filename,
+            'file_content': xlsx_bytes,
+            'farmer_ids': [str(farmer.id) for farmer in farmers],
+            'farmer_count': len(farmers),
+            'status': summary.get('status') or 'generated',
+            'invoice_summary': summary,
+        },
+    )
+
     if body.get('return_url'):
-        token = uuid.uuid4().hex
-        cache.set(
-            f'portal_requisition_download:{token}',
-            {'filename': filename, 'content': xlsx_bytes},
-            timeout=30 * 60,
-        )
         return JsonResponse({
             'ok': True,
             'filename': filename,
-            'download_url': request.build_absolute_uri(f'/api/portal/requisition-download/{token}/'),
+            'download_url': _batch_download_url(request, order_number),
+            'batch': _serialize_batch(batch, farmers, request),
         })
 
     response = HttpResponse(
         xlsx_bytes,
-        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        content_type=batch.content_type,
     )
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
     return response
@@ -610,59 +789,117 @@ def portal_requisition_download(request, token: str):
 @csrf_exempt
 @require_http_methods(["GET"])
 def portal_requisition_batches(request):
-    """GET /api/portal/requisition-batches/ — list of unique orders/requisition batches."""
+    """GET /api/portal/requisition-batches/ - generated batch output history."""
     from django.db.models import Count, Max
-    from core.models import JawabuFarmerMaster
-    
-    qs = JawabuFarmerMaster.objects.filter(
-        order_number__isnull=False
-    ).exclude(order_number='')
-    
-    county = request.GET.get('county') or ''
-    branch = request.GET.get('branch') or ''
+    from core.models import JawabuFarmerMaster, RequisitionBatch
+
+    county = (request.GET.get('county') or '').strip().lower()
+    branch = (request.GET.get('branch') or '').strip().lower()
+
+    batches_list = []
+    seen_orders = set()
+    for batch in RequisitionBatch.objects.all().order_by('-requisition_date', '-updated_at'):
+        farmers = _farmers_for_batch(batch.order_number, batch.farmer_ids or None)
+        if county:
+            farmers = [farmer for farmer in farmers if (farmer.county or '').lower() == county]
+        if branch:
+            farmers = [farmer for farmer in farmers if (farmer.branch or '').lower() == branch]
+        if (county or branch) and not farmers:
+            continue
+        batches_list.append(_serialize_batch(batch, farmers, request))
+        seen_orders.add(batch.order_number)
+
+    # Include older sheet/order batches generated before RequisitionBatch existed.
+    qs = JawabuFarmerMaster.objects.filter(order_number__isnull=False).exclude(order_number='')
     if county:
         qs = qs.filter(county__iexact=county)
     if branch:
         qs = qs.filter(branch__iexact=branch)
-        
-    batches_data = qs.values('order_number').annotate(
+    legacy_data = qs.exclude(order_number__in=seen_orders).values('order_number').annotate(
         req_date=Max('requisition_date'),
-        farmer_count=Count('id')
-    ).order_by('-req_date', '-order_number')
-    
-    items, pagination = _paginate_qs(batches_data, request)
-    
-    batches_list = []
-    for item in items:
+        farmer_count=Count('id'),
+    )
+    for item in legacy_data:
         order_no = item['order_number']
-        farmers_in_batch = list(qs.filter(order_number=order_no).values(
-            'id', 'customer_name', 'county', 'primary_phone',
-            'invoice_number', 'invoice_date', 'invoice_amount', 'balance_due',
-        ))
-        # Annotate each farmer with whether their invoice has been uploaded
-        for f in farmers_in_batch:
-            f['invoiced'] = bool(f.get('invoice_number'))
-            if f.get('invoice_date'):
-                f['invoice_date'] = f['invoice_date'].strftime('%Y-%m-%d')
-            if f.get('invoice_amount') is not None:
-                f['invoice_amount'] = str(f['invoice_amount'])
-            if f.get('balance_due') is not None:
-                f['balance_due'] = str(f['balance_due'])
-
-        invoiced_count = sum(1 for f in farmers_in_batch if f['invoiced'])
-        batches_list.append({
-            'order_number': order_no,
-            'requisition_date': item['req_date'].strftime('%Y-%m-%d') if item['req_date'] else None,
-            'farmer_count': item['farmer_count'],
-            'invoiced_count': invoiced_count,
-            'farmers': farmers_in_batch,
+        farmers = list(qs.filter(order_number=order_no).order_by('customer_name'))
+        summary = _invoice_summary_for_farmers(farmers)
+        pseudo = RequisitionBatch(
+            order_number=order_no,
+            requisition_date=item['req_date'],
+            farmer_count=item['farmer_count'],
+            status=summary.get('status', 'generated'),
+            invoice_summary=summary,
+        )
+        payload = _serialize_batch(pseudo, farmers, request)
+        payload.update({
+            'id': '',
+            'generated_by': '',
+            'generated_at': '',
+            'updated_at': '',
+            'filename': '',
+            'has_requisition_file': False,
+            'download_url': '',
+            'last_invoice_result': {},
         })
-        
+        batches_list.append(payload)
+
+    batches_list.sort(
+        key=lambda item: (item.get('requisition_date') or '', item.get('updated_at') or '', item.get('order_number') or ''),
+        reverse=True,
+    )
+    paged_batches, pagination = _paginate_list(batches_list, request)
     return JsonResponse({
         'ok': True,
-        'batches': batches_list,
+        'batches': paged_batches,
         'pagination': pagination,
     })
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def portal_requisition_batch_detail(request, order_number: str):
+    """GET /api/portal/requisition-batches/<order_number>/ - one batch with clients and invoice state."""
+    from core.models import JawabuFarmerMaster, RequisitionBatch
+
+    try:
+        batch = RequisitionBatch.objects.get(order_number=order_number)
+        farmers = _farmers_for_batch(order_number, batch.farmer_ids or None)
+        return JsonResponse({'ok': True, 'batch': _serialize_batch(batch, farmers, request)})
+    except RequisitionBatch.DoesNotExist:
+        farmers = list(JawabuFarmerMaster.objects.filter(order_number=order_number).order_by('customer_name'))
+        if not farmers:
+            return JsonResponse({'ok': False, 'error': 'Batch not found.'}, status=404)
+        summary = _invoice_summary_for_farmers(farmers)
+        pseudo = RequisitionBatch(
+            order_number=order_number,
+            requisition_date=farmers[0].requisition_date,
+            farmer_count=len(farmers),
+            status=summary.get('status', 'generated'),
+            invoice_summary=summary,
+        )
+        return JsonResponse({'ok': True, 'batch': _serialize_batch(pseudo, farmers, request)})
+
+
+@csrf_exempt
+@require_http_methods(["GET", "HEAD"])
+def portal_requisition_batch_download(request, order_number: str):
+    """Download a persisted generated requisition Excel file by order number."""
+    from core.models import RequisitionBatch
+
+    try:
+        batch = RequisitionBatch.objects.get(order_number=order_number)
+    except RequisitionBatch.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Generated requisition file was not found for this order.'}, status=404)
+    if not batch.file_content:
+        return JsonResponse({'ok': False, 'error': 'This batch has no saved requisition file. Regenerate it from Ready for Orders.'}, status=404)
+    filename = batch.filename or f'JBL_Requisition_Form_{batch.order_number}.xlsx'
+    response = HttpResponse(
+        b'' if request.method == 'HEAD' else batch.file_content,
+        content_type=batch.content_type,
+    )
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
 
 
 @csrf_exempt
@@ -696,9 +933,30 @@ def portal_upload_batch_invoices(request):
             getattr(pdf_file, 'name', ''),
             getattr(pdf_file, 'size', ''),
         )
+        from core.models import RequisitionBatch
         from core.services.invoice_parser import match_and_update_invoices
         result = match_and_update_invoices(order_number, pdf_file.read())
         result['max_file_size_mb'] = max_mb
+        try:
+            batch = RequisitionBatch.objects.get(order_number=order_number)
+            farmers = _farmers_for_batch(order_number, batch.farmer_ids or None)
+            summary = _invoice_summary_for_farmers(farmers)
+            summary.update({
+                'total_parsed': result.get('total_parsed', 0),
+                'matched_count': result.get('matched_count', 0),
+                'candidate_count': result.get('candidate_count', 0),
+            })
+            if result.get('ok') and summary.get('pending_invoice_count') == 0:
+                batch.status = 'completed'
+            elif result.get('matched_count'):
+                batch.status = 'partially_invoiced'
+            else:
+                batch.status = 'needs_review'
+            batch.invoice_summary = summary
+            batch.last_invoice_result = result
+            batch.save(update_fields=['status', 'invoice_summary', 'last_invoice_result', 'updated_at'])
+        except RequisitionBatch.DoesNotExist:
+            pass
         return JsonResponse(result)
     except Exception as e:
         logger.exception("Error processing invoice PDF: %s", e)

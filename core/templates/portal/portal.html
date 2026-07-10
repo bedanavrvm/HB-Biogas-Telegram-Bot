@@ -1,9 +1,9 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="description" content="JBL Pipeline Portal — manage JBL visits, credit analysis, and requisitions.">
+  <meta name="description" content="JBL Pipeline Portal â€” manage JBL visits, credit analysis, and requisitions.">
   <title>JBL Pipeline Portal</title>
   <script>
     window.PORTAL_CONFIG = {
@@ -19,7 +19,7 @@
 </head>
 <body>
 
-<!-- ── Tab bar ──────────────────────────────────────────────────────────── -->
+<!-- â”€â”€ Tab bar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
 <nav class="tab-bar" role="tablist">
   <button class="tab-btn active" data-page="dashboard" aria-label="Dashboard">
     <i data-lucide="bar-chart-3"></i>
@@ -76,15 +76,15 @@
       </select>
     </div>
     <button class="btn-clear-filters" id="btn-clear-filters" title="Clear Filters" style="display:none">
-      ✕
+      âœ•
     </button>
   </div>
 
-  <!-- ── Dashboard ──────────────────────────────────────────────────────── -->
+  <!-- â”€â”€ Dashboard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
   <section id="page-dashboard" class="page active">
     <header>
       <h1>Pipeline Portal</h1>
-      <p class="meta">JBL HomeBiogas — farmer workflow overview</p>
+      <p class="meta">JBL HomeBiogas â€” farmer workflow overview</p>
     </header>
 
     <div id="dash-loading" class="empty-state" style="padding: 24px 0;">
@@ -94,12 +94,12 @@
     <div id="dash-counts" class="count-grid" style="display:none">
       <div class="count-card" data-page="jbl" id="card-jbl">
         <i data-lucide="home"></i>
-        <div class="count-num" id="cnt-jbl">—</div>
+        <div class="count-num" id="cnt-jbl">â€”</div>
         <div class="count-label">Awaiting JBL Visit</div>
       </div>
       <div class="count-card" data-page="credit" id="card-credit">
         <i data-lucide="shield-check"></i>
-        <div class="count-num" id="cnt-credit">—</div>
+        <div class="count-num" id="cnt-credit">â€”</div>
         <div class="count-label">BRO Analysis</div>
       </div>
       <div class="count-card" data-page="final" id="card-final">
@@ -109,19 +109,19 @@
       </div>
       <div class="count-card success" data-page="requisition" id="card-requisition">
         <i data-lucide="shopping-bag"></i>
-        <div class="count-num" id="cnt-requisition">—</div>
+        <div class="count-num" id="cnt-requisition">â€”</div>
         <div class="count-label">Ready for Order</div>
       </div>
       <div class="count-card warning" data-page="deferred" id="card-deferred">
         <i data-lucide="clock"></i>
-        <div class="count-num" id="cnt-deferred">—</div>
+        <div class="count-num" id="cnt-deferred">â€”</div>
         <div class="count-label">Deferred / Flagged</div>
       </div>
       <div class="count-card" style="grid-column: 1/-1;" data-page="all">
         <div style="display:flex;align-items:center;gap:12px;">
           <i data-lucide="database" style="width: 28px; height: 28px; color: var(--brand-primary);"></i>
           <div>
-            <div class="count-num" id="cnt-total">—</div>
+            <div class="count-num" id="cnt-total">â€”</div>
             <div class="count-label">Total Farmers in System</div>
           </div>
         </div>
@@ -130,18 +130,18 @@
 
     <div style="margin-top: 20px; padding: 12px 0; border-top: 1px solid var(--border-color);">
       <p class="meta" style="font-size: 11px;">
-        Stage 1 → HB uploads CSV &nbsp;·&nbsp;
-        Stage 2 → JBL site visit &nbsp;·&nbsp;
-        Stage 3 → Credit analysis &nbsp;·&nbsp;
-        Stage 4 → Order assigned
+        Stage 1 â†’ HB uploads CSV &nbsp;Â·&nbsp;
+        Stage 2 â†’ JBL site visit &nbsp;Â·&nbsp;
+        Stage 3 â†’ Credit analysis &nbsp;Â·&nbsp;
+        Stage 4 â†’ Order assigned
       </p>
     </div>
   </section>
 
-  <!-- ── JBL Queue ──────────────────────────────────────────────────────── -->
+  <!-- â”€â”€ JBL Queue â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
   <section id="page-jbl" class="page">
     <header>
-      <h1>🏡 JBL Visit Queue</h1>
+      <h1>ðŸ¡ JBL Visit Queue</h1>
       <p class="meta">Farmers visited by HB, not yet visited by JBL</p>
     </header>
     <div id="jbl-list" class="farmer-list">
@@ -150,11 +150,11 @@
     <div class="pagination" id="pg-jbl"></div>
   </section>
 
-  <!-- ── Credit Queue ───────────────────────────────────────────────────── -->
+  <!-- â”€â”€ Credit Queue â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
   <section id="page-credit" class="page">
     <header>
-      <h1>🔍 Credit Analysis Queue</h1>
-      <p class="meta">JBL visited — awaiting credit decision</p>
+      <h1>ðŸ” Credit Analysis Queue</h1>
+      <p class="meta">JBL visited â€” awaiting credit decision</p>
     </header>
     <div id="credit-list" class="farmer-list">
       <div class="empty-state"><div class="spinner-inline"></div></div>
@@ -162,7 +162,7 @@
     <div class="pagination" id="pg-credit"></div>
   </section>
 
-  <!-- ── Requisition Queue ──────────────────────────────────────────────── -->
+  <!-- â”€â”€ Requisition Queue â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
   <section id="page-final" class="page">
     <header>
       <h1>Head of Rural Review</h1>
@@ -176,8 +176,8 @@
 
   <section id="page-requisition" class="page">
     <header>
-      <h1>📋 Requisition Queue</h1>
-      <p class="meta">Final decision approved — assign order number</p>
+      <h1>ðŸ“‹ Requisition Queue</h1>
+      <p class="meta">Final decision approved â€” assign order number</p>
     </header>
     <div id="requisition-batch-panel" class="batch-panel" style="display: none;">
       <div class="batch-title">
@@ -206,10 +206,10 @@
     <div class="pagination" id="pg-requisition"></div>
   </section>
 
-  <!-- ── Deferred ───────────────────────────────────────────────────────── -->
+  <!-- â”€â”€ Deferred â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
   <section id="page-deferred" class="page">
     <header>
-      <h1>⏸️ Deferred / Flagged</h1>
+      <h1>â¸ï¸ Deferred / Flagged</h1>
       <p class="meta">Rejected by JBL, credit declined, or on hold</p>
     </header>
     <div id="deferred-list" class="farmer-list">
@@ -218,31 +218,31 @@
     <div class="pagination" id="pg-deferred"></div>
   </section>
 
-  <!-- ── All Cases ──────────────────────────────────────────────────────── -->
+  <!-- â”€â”€ All Cases â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
   <section id="page-all" class="page">
     <header>
-      <h1>🗂️ All Cases</h1>
+      <h1>ðŸ—‚ï¸ All Cases</h1>
       <p class="meta">Full farmer list across all groups</p>
     </header>
     <div class="search-bar">
-      <input id="all-search" type="search" placeholder="Search name, phone, or ID…" autocomplete="off" enterkeyhint="search">
+      <input id="all-search" type="search" placeholder="Search name, phone, or IDâ€¦" autocomplete="off" enterkeyhint="search">
     </div>
     <div id="all-list" class="farmer-list">
-      <div class="empty-state"><div class="es-icon">🗂️</div><div class="es-title">Search to find farmers</div></div>
+      <div class="empty-state"><div class="es-icon">ðŸ—‚ï¸</div><div class="es-title">Search to find farmers</div></div>
     </div>
     <div class="pagination" id="pg-all"></div>
   </section>
 
-  <!-- ── Batches ───────────────────────────────────────────────────────── -->
+  <!-- â”€â”€ Batches â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
   <section id="page-batches" class="page">
     <header>
-      <h1>📦 Requisition Batches</h1>
+      <h1>ðŸ“¦ Requisition Batches</h1>
       <p class="meta">Generated order batches and archives</p>
     </header>
     <div id="batches-list" class="farmer-list">
       <div class="empty-state">
         <div class="spinner-inline"></div>
-        <div class="es-sub">Loading batches…</div>
+        <div class="es-sub">Loading batchesâ€¦</div>
       </div>
     </div>
     <div class="pagination" id="pg-batches"></div>
@@ -250,17 +250,17 @@
 
 </main>
 
-<!-- ── Farmer detail sheet ────────────────────────────────────────────────── -->
+<!-- â”€â”€ Farmer detail sheet â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
 <div class="sheet-overlay" id="sheet-overlay" role="dialog" aria-modal="true">
   <div class="sheet-panel">
     <div class="sheet-handle"></div>
     <div class="sheet-header">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
         <div>
-          <h2 id="sheet-name">—</h2>
+          <h2 id="sheet-name">â€”</h2>
           <p class="sheet-sub" id="sheet-sub"></p>
         </div>
-        <button id="sheet-close" style="flex-shrink:0;min-width:32px;width:32px;height:32px;border-radius:50%;padding:0;font-size:16px;" aria-label="Close">✕</button>
+        <button id="sheet-close" style="flex-shrink:0;min-width:32px;width:32px;height:32px;border-radius:50%;padding:0;font-size:16px;" aria-label="Close">âœ•</button>
       </div>
     </div>
     <div class="sheet-body">
@@ -275,7 +275,55 @@
   </div>
 </div>
 
-<!-- ── Invoice upload overlay ────────────────────────────────────────────── -->
+<!-- â”€â”€ Invoice upload overlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+
+<!-- Requisition preview overlay -->
+<div class="sheet-overlay" id="requisition-preview-overlay" role="dialog" aria-modal="true">
+  <div class="sheet-panel">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+        <div>
+          <h2>Preview Requisition Batch</h2>
+          <p class="sheet-sub" id="requisition-preview-sub">Review selected clients before generation</p>
+        </div>
+        <button id="requisition-preview-close" style="flex-shrink:0;min-width:32px;width:32px;height:32px;border-radius:50%;padding:0;font-size:16px;" aria-label="Close">x</button>
+      </div>
+    </div>
+    <div class="sheet-body">
+      <div id="requisition-preview-summary" class="batch-summary-grid"></div>
+      <div id="requisition-preview-warnings"></div>
+      <div id="requisition-preview-list" class="batch-client-list"></div>
+    </div>
+    <div class="sheet-footer">
+      <button class="btn" id="requisition-preview-cancel" type="button">Back</button>
+      <button class="primary" id="requisition-preview-confirm" type="button">Generate Requisition</button>
+    </div>
+  </div>
+</div>
+
+<!-- Batch detail overlay -->
+<div class="sheet-overlay" id="batch-detail-overlay" role="dialog" aria-modal="true">
+  <div class="sheet-panel">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+        <div>
+          <h2 id="batch-detail-title">Batch</h2>
+          <p class="sheet-sub" id="batch-detail-sub">Generated output details</p>
+        </div>
+        <button id="batch-detail-close" style="flex-shrink:0;min-width:32px;width:32px;height:32px;border-radius:50%;padding:0;font-size:16px;" aria-label="Close">x</button>
+      </div>
+    </div>
+    <div class="sheet-body">
+      <div id="batch-detail-summary" class="batch-summary-grid"></div>
+      <div id="batch-detail-actions" class="batch-action-row"></div>
+      <div id="batch-detail-invoice-result"></div>
+      <div id="batch-detail-clients" class="batch-client-list"></div>
+    </div>
+  </div>
+</div>
+
 <div class="sheet-overlay" id="invoice-overlay" role="dialog" aria-modal="true">
   <div class="sheet-panel">
     <div class="sheet-handle"></div>
@@ -283,9 +331,9 @@
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
         <div>
           <h2>Upload Invoice PDF</h2>
-          <p class="sheet-sub" id="invoice-overlay-sub">Batch: —</p>
+          <p class="sheet-sub" id="invoice-overlay-sub">Batch: â€”</p>
         </div>
-        <button id="invoice-overlay-close" style="flex-shrink:0;min-width:32px;width:32px;height:32px;border-radius:50%;padding:0;font-size:16px;" aria-label="Close">✕</button>
+        <button id="invoice-overlay-close" style="flex-shrink:0;min-width:32px;width:32px;height:32px;border-radius:50%;padding:0;font-size:16px;" aria-label="Close">âœ•</button>
       </div>
     </div>
     <div class="sheet-body">
@@ -314,13 +362,9 @@
   </div>
 </div>
 
-<!-- ── Toast ──────────────────────────────────────────────────────────────── -->
+<!-- â”€â”€ Toast â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script src="/static/miniapp/portal.js?v=5"></script>
 </body>
 </html>
-
-
-
-

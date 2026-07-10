@@ -29,6 +29,7 @@ from .models import (
     RawMessage,
     ProcessedMessage,
     ParsedMessage,
+    RequisitionBatch,
     RequisitionTemplate,
 )
 
@@ -1079,3 +1080,13 @@ class RequisitionTemplateAdmin(admin.ModelAdmin):
     list_display = ('name', 'is_active', 'file', 'created_at', 'updated_at')
     list_editable = ('is_active',)
     search_fields = ('name',)
+
+
+@admin.register(RequisitionBatch)
+class RequisitionBatchAdmin(ReadOnlyAuditAdmin):
+    list_display = (
+        'order_number', 'requisition_date', 'farmer_count', 'status',
+        'generated_by', 'created_at', 'updated_at',
+    )
+    list_filter = ('status', 'requisition_date', 'created_at')
+    search_fields = ('order_number', 'generated_by', 'filename')
