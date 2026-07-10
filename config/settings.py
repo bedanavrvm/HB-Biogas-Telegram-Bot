@@ -1,4 +1,4 @@
-"""
+﻿"""
 Django settings for biogas_bot project.
 Production-ready configuration for Render deployment.
 """
@@ -190,6 +190,7 @@ ORDER_APPROVAL_MINI_APP_SHORT_NAME = config('ORDER_APPROVAL_MINI_APP_SHORT_NAME'
 FARMUP_MINI_APP_SHORT_NAME = config('FARMUP_MINI_APP_SHORT_NAME', default='').strip().strip('/')
 FCAUP_MINI_APP_SHORT_NAME = config('FCAUP_MINI_APP_SHORT_NAME', default='').strip().strip('/')
 PORTAL_MINI_APP_SHORT_NAME = config('PORTAL_MINI_APP_SHORT_NAME', default='').strip().strip('/')
+SPIN_MINI_APP_SHORT_NAME = config('SPIN_MINI_APP_SHORT_NAME', default='').strip().strip('/')
 PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH = config(
     'PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH',
     default=True,
@@ -207,6 +208,16 @@ ORDER_APPROVAL_WEBAPP_REQUIRE_TELEGRAM_AUTH = config(
 )
 ORDER_APPROVAL_WEBAPP_AUTH_MAX_AGE_SECONDS = config(
     'ORDER_APPROVAL_WEBAPP_AUTH_MAX_AGE_SECONDS',
+    default=86400,
+    cast=int,
+)
+SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH = config(
+    'SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH',
+    default=True,
+    cast=bool,
+)
+SPIN_WEBAPP_AUTH_MAX_AGE_SECONDS = config(
+    'SPIN_WEBAPP_AUTH_MAX_AGE_SECONDS',
     default=86400,
     cast=int,
 )
@@ -296,3 +307,4 @@ REQUIRED_MESSAGE_FIELDS = ['message_id', 'chat', 'date']
 # Rate Limiting (if enabled with django-ratelimit)
 RATELIMIT_ENABLE = config('RATELIMIT_ENABLE', default=False, cast=bool)
 RATELIMIT_PER_IP = '100/h'  # 100 requests per hour per IP
+

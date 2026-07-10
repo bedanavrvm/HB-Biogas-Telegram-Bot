@@ -1,4 +1,4 @@
-"""Workflow presets for simple group configuration.
+﻿"""Workflow presets for simple group configuration.
 
 Adding a new group workflow should usually mean adding one entry here, then
 letting Django admin generate the JSON fields from the selected preset.
@@ -83,6 +83,19 @@ WORKFLOW_PRESETS = {
                 ),
             },
         },
+    },
+    'spin_credit_analysis': {
+        'label': 'SPIN / CRB Requests',
+        'description': 'Imports or captures SPIN and CRB requests. Credit analysis is tracked as the outcome/status.',
+        'sheet_name': 'SPIN Requests',
+        'workflow': {
+            'type': 'spin_credit_analysis',
+            'header_row': 1,
+            'field_headers': {},
+        },
+        'sheet_schema': {},
+        'parser_rules': {},
+        'admin_fields': {},
     },
     'jawabu_homebiogas': {
         'label': 'Jawabu HomeBiogas',
@@ -275,3 +288,4 @@ def defaults_for_preset(preset_key: str) -> dict:
         'sheet_schema': deepcopy(preset.get('sheet_schema')),
         'parser_rules': deepcopy(preset.get('parser_rules')),
     }
+

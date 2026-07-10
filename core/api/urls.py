@@ -1,4 +1,4 @@
-"""
+﻿"""
 URL routing for the core API.
 """
 from django.urls import path
@@ -13,6 +13,8 @@ from .views import (
     order_approval_webapp_lookup,
     order_approval_webapp_suggest,
     order_approval_webapp_submit,
+    spin_form,
+    spin_form_submit,
     process_messages,
     resend_unsynced,
     sync_from_sheets,
@@ -50,6 +52,8 @@ urlpatterns = [
     path('jawabu-farmers/review/commit/', jawabu_farmers_review_commit, name='jawabu_farmers_review_commit'),
     path('fca/review/', fca_review, name='fca_review'),
     path('fca/review/commit/', fca_review_commit, name='fca_review_commit'),
+    path('spin/', spin_form, name='spin_form'),
+    path('spin/submit/', spin_form_submit, name='spin_form_submit'),
     path('webhook/telegram/', telegram_webhook, name='telegram_webhook'),
     path(
         'order-approval/webapp/submit/',
@@ -70,20 +74,20 @@ urlpatterns = [
     path('resync/unsynced/', resend_unsynced, name='resend_unsynced'),
     path('sync/from-sheets/', sync_from_sheets, name='sync_from_sheets'),
 
-    # ── JBL Pipeline Portal ────────────────────────────────────────────────
+    # â”€â”€ JBL Pipeline Portal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     path('portal/', portal_home, name='portal_home'),
     path('portal/dashboard/', portal_auth_required(portal_dashboard), name='portal_dashboard'),
     path('portal/meta/', portal_auth_required(portal_meta), name='portal_meta'),
-    # Stage 2 — JBL Visit
+    # Stage 2 â€” JBL Visit
     path('portal/jbl-queue/', portal_auth_required(portal_jbl_queue), name='portal_jbl_queue'),
     path('portal/jbl-queue/<str:farmer_id>/', portal_auth_required(portal_log_jbl_visit), name='portal_log_jbl_visit'),
     path('portal/jbl-queue/<str:farmer_id>/media/', portal_auth_required(portal_upload_jbl_media), name='portal_upload_jbl_media'),
-    # Stage 3 — Credit Decision
+    # Stage 3 â€” Credit Decision
     path('portal/credit-queue/', portal_auth_required(portal_credit_queue), name='portal_credit_queue'),
     path('portal/credit-queue/<str:farmer_id>/', portal_auth_required(portal_set_credit_decision), name='portal_set_credit_decision'),
     path('portal/final-review-queue/', portal_auth_required(portal_final_review_queue), name='portal_final_review_queue'),
     path('portal/final-review-queue/<str:farmer_id>/', portal_auth_required(portal_set_final_decision), name='portal_set_final_decision'),
-    # Stage 4 — Requisition / Order (GATED)
+    # Stage 4 â€” Requisition / Order (GATED)
     path('portal/requisition-queue/', portal_auth_required(portal_requisition_queue), name='portal_requisition_queue'),
     path('portal/requisition-queue/preview/', portal_auth_required(portal_requisition_preview), name='portal_requisition_preview'),
     path('portal/requisition-queue/generate/', portal_auth_required(portal_requisition_generate), name='portal_requisition_generate'),
@@ -98,3 +102,5 @@ urlpatterns = [
     path('portal/farmers/<str:farmer_id>/', portal_auth_required(portal_farmer_detail), name='portal_farmer_detail'),
     path('portal/deferred/', portal_auth_required(portal_deferred), name='portal_deferred'),
 ]
+
+

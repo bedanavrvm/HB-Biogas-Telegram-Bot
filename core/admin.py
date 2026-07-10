@@ -31,6 +31,7 @@ from .models import (
     ParsedMessage,
     RequisitionBatch,
     RequisitionTemplate,
+    SpinCreditRequest,
 )
 
 
@@ -1090,3 +1091,15 @@ class RequisitionBatchAdmin(ReadOnlyAuditAdmin):
     )
     list_filter = ('status', 'requisition_date', 'created_at')
     search_fields = ('order_number', 'generated_by', 'filename')
+
+@admin.register(SpinCreditRequest)
+class SpinCreditRequestAdmin(ReadOnlyAuditAdmin):
+    list_display = (
+        'request_datetime', 'request_type', 'customer_name', 'national_id',
+        'primary_phone', 'requested_amount', 'import_status', 'requested_by',
+    )
+    list_filter = ('request_type', 'import_status', 'source_chat', 'created_at')
+    search_fields = (
+        'customer_name', 'national_id', 'primary_phone', 'secondary_phone',
+        'requested_by', 'raw_message', 'source_message_hash',
+    )

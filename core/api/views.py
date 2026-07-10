@@ -1,11 +1,11 @@
-"""
+﻿"""
 API Views for the biogas telegram bot.
 
 Endpoints:
-- POST /api/webhook/telegram/  — Receive Telegram webhook
-- POST /api/process/messages/  — Manual batch processing
-- POST /api/resync/unsynced/   — Resync unsynced messages
-- GET  /api/health/            — Health check
+- POST /api/webhook/telegram/  â€” Receive Telegram webhook
+- POST /api/process/messages/  â€” Manual batch processing
+- POST /api/resync/unsynced/   â€” Resync unsynced messages
+- GET  /api/health/            â€” Health check
 
 KEY FIXES (v2):
 - process_messages() now passes group_id (from the request body or
@@ -515,6 +515,122 @@ def fca_review_commit(request):
     return JsonResponse(result, status=200 if result.get('success') else 400)
 
 
+@require_http_methods(["GET"])
+def spin_form(request):
+    """Render the SPIN/CRB request Mini App form."""
+    from django.utils.safestring import mark_safe
+    from core.services.spin_credit import decode_spin_start_param
+
+    group_id = str(request.GET.get('group_id', '')).strip()
+    form_token = str(request.GET.get('token', '')).strip()
+    if not group_id or not form_token:
+        start_payload = decode_spin_start_param(
+            request.GET.get('tgWebAppStartParam')
+            or request.GET.get('startapp')
+            or request.GET.get('start_param')
+            or ''
+        )
+        group_id = group_id or start_payload.get('group_id', '')
+        form_token = form_token or start_payload.get('token', '')
+
+    payload = {'group_id': group_id, 'form_token': form_token}
+    return render(
+        request,
+        'spin/form.html',
+        {'form_json': mark_safe(json.dumps(payload, ensure_ascii=True).replace('</', '<\\/'))},
+    )
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def spin_form_submit(request):
+    """Accept a SPIN/CRB Mini App form submission."""
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'message': 'Invalid request body.'}, status=400)
+
+    group_id, group_config, auth_payload, error_response_obj = _spin_webapp_context(payload)
+    if error_response_obj:
+        return error_response_obj
+
+    from core.services.spin_credit import process_spin_form_submission
+
+    result = process_spin_form_submission(
+        group_config=group_config,
+        fields=payload.get('fields') or payload,
+        sender=_sender_from_webapp_auth(auth_payload),
+        received_at=timezone.now(),
+    )
+    _send_spin_webapp_chat_reply(group_id, result)
+    return JsonResponse(result, status=200 if result.get('success') else 400)
+
+
+def _spin_webapp_context(payload: dict):
+    from core.services.group_config import GroupRegistry
+    from core.services.spin_credit import (
+        is_spin_workflow,
+        validate_spin_form_token,
+        validate_spin_telegram_webapp_init_data,
+    )
+
+    group_id = str((payload or {}).get('group_id', '')).strip()
+    is_valid, auth_error, auth_payload = validate_spin_telegram_webapp_init_data(
+        (payload or {}).get('init_data', '')
+    )
+    if not is_valid:
+        token_valid, token_error = validate_spin_form_token(
+            token=(payload or {}).get('form_token', ''),
+            group_id=group_id,
+        )
+        if not token_valid:
+            return (
+                group_id,
+                None,
+                {},
+                JsonResponse({'success': False, 'message': auth_error or token_error}, status=403),
+            )
+        auth_payload = {}
+
+    group_config = GroupRegistry.get_instance().get_group(group_id)
+    if not group_config or not is_spin_workflow(group_config):
+        return (
+            group_id,
+            None,
+            auth_payload,
+            JsonResponse(
+                {'success': False, 'message': 'This Telegram group is not configured for SPIN/CRB requests.'},
+                status=400,
+            ),
+        )
+    return group_id, group_config, auth_payload, None
+
+
+def _send_spin_webapp_chat_reply(group_id: str, result: dict) -> None:
+    if not group_id:
+        return
+    if result.get('success'):
+        lines = [
+            'SPIN/CRB REQUEST SUBMITTED',
+            '',
+            f"Request ID: {result.get('request_id', '')}",
+            f"Type: {result.get('request_type', '')}",
+            f"Customer: {result.get('customer_name', '')}",
+            f"National ID: {result.get('national_id', '')}",
+            f"Phone: {result.get('primary_phone', '')}",
+        ]
+    else:
+        lines = [
+            'SPIN/CRB REQUEST NOT SUBMITTED',
+            '',
+            result.get('message') or 'Please check the form and try again.',
+        ]
+        errors = [str(error) for error in (result.get('errors') or []) if str(error).strip()]
+        if errors:
+            lines.extend(['', 'Fix'])
+            lines.extend(f'- {error}' for error in errors[:6])
+    _post_telegram_reply(chat_id=group_id, message_data={}, text='\n'.join(lines))
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def telegram_webhook(request):
@@ -615,7 +731,7 @@ def _process_telegram_message(message_data: dict) -> dict:
     try:
         group_id = str(message_data.get('chat', {}).get('id', ''))
         if not group_id:
-            logger.error("Message has no chat.id — cannot route to group")
+            logger.error("Message has no chat.id â€” cannot route to group")
             return {'status': 'error', 'error': 'Message missing chat information'}
 
         telegram_message_id = str(message_data.get('message_id', ''))
@@ -652,6 +768,7 @@ def _process_telegram_message(message_data: dict) -> dict:
             }
         if group_config:
             from core.services.jawabu import is_jawabu_workflow
+            from core.services.spin_credit import is_spin_workflow
             from core.services.order_approval import (
                 handle_order_approval_message,
                 is_order_approval_workflow,
@@ -668,6 +785,47 @@ def _process_telegram_message(message_data: dict) -> dict:
                     sender=sender,
                     telegram_message_id=telegram_message_id,
                 )
+            if is_spin_workflow(group_config):
+                if content is None:
+                    logger.debug(
+                        f"Ignoring SPIN message {telegram_message_id}: bot was not tagged"
+                    )
+                    return {
+                        'status': 'ignored',
+                        'reason': 'Bot was not tagged',
+                        'message_id': telegram_message_id,
+                    }
+                if _looks_like_spin_form_command(content):
+                    return _process_spin_form_command(
+                        group_config=group_config,
+                        sender=sender,
+                        telegram_message_id=telegram_message_id,
+                    )
+                if _looks_like_batch_command(content):
+                    return _process_spin_batch_command(
+                        group_config=group_config,
+                        message_data=message_data,
+                        command_content=content,
+                        sender=sender,
+                        telegram_message_id=telegram_message_id,
+                    )
+                from core.services.commands import handle_bot_command
+                command_result = handle_bot_command(
+                    content,
+                    group_id,
+                    sender=sender,
+                    telegram_message_id=telegram_message_id,
+                )
+                if command_result:
+                    return command_result
+                return {
+                    'status': 'command',
+                    'reply_text': (
+                        "This group is configured for SPIN/CRB requests.\n"
+                        "Send @bot /spin to open the request form, or @bot /batch with a WhatsApp .txt/.zip export."
+                    ),
+                }
+
             if is_jawabu_workflow(group_config):
                 if content is None:
                     logger.debug(
@@ -714,7 +872,7 @@ def _process_telegram_message(message_data: dict) -> dict:
                     'status': 'command',
                     'reply_text': (
                         "This group is configured for Jawabu HomeBiogas imports.\n"
-                        "Send @bot /batch with a WhatsApp .txt or .zip export attached."
+                        "Send @bot /spin to open the request form, or @bot /batch with a WhatsApp .txt/.zip export."
                     ),
                 }
             if is_order_approval_workflow(group_config):
@@ -895,6 +1053,10 @@ def _looks_like_fcaup_command(content: str) -> bool:
 
 def _looks_like_farmup_command(content: str) -> bool:
     return bool(re.match(r'^/farmup(?:@\w+)?(?:\s|$)', str(content or '').strip(), re.IGNORECASE))
+
+
+def _looks_like_spin_form_command(content: str) -> bool:
+    return bool(re.match(r'^/(?:spin|form)(?:@\w+)?(?:\s|$)', str(content or '').strip(), re.IGNORECASE))
 
 
 def _process_whatsapp_batch_command(
@@ -1279,6 +1441,80 @@ def _process_jawabu_farmup_command(
             ]]
         },
     }
+
+def _process_spin_form_command(
+    group_config,
+    sender: str,
+    telegram_message_id: str,
+) -> dict:
+    from core.services.spin_credit import build_spin_form_url, build_spin_mini_app_url
+
+    form_url = build_spin_form_url(group_config.group_id)
+    mini_app_url = build_spin_mini_app_url(group_config.group_id)
+    launch_url = mini_app_url or form_url
+    if not launch_url:
+        return {
+            'status': 'command',
+            'reply_text': 'APP_BASE_URL is not configured; cannot open the SPIN/CRB form.',
+        }
+    launch_note = (
+        'Opening as Telegram Mini App.'
+        if mini_app_url
+        else 'Mini App short name is not configured; this button opens the secure web form link.'
+    )
+    button_text = 'Open SPIN/CRB Mini App' if mini_app_url else 'Open SPIN/CRB Form'
+    return {
+        'status': 'command',
+        'reply_text': (
+            'SPIN/CRB request form is ready.\n'
+            f'{launch_note}\n\n'
+            'Use Request Type = SPIN or CRB. Credit analysis is tracked later as the outcome/status.'
+        ),
+        'reply_markup': {
+            'inline_keyboard': [[{'text': button_text, 'url': launch_url}]]
+        },
+    }
+
+def _process_spin_batch_command(
+    group_config,
+    message_data: dict,
+    command_content: str,
+    sender: str,
+    telegram_message_id: str,
+) -> dict:
+    payload = _batch_command_payload(command_content)
+    if message_data.get('document') and not _looks_like_whatsapp_export_payload(payload):
+        payload, document_error = _download_telegram_text_document(message_data)
+        if document_error:
+            return {'status': 'command', 'reply_text': document_error}
+    elif not payload:
+        payload, document_error = _download_telegram_text_document(message_data)
+        if document_error:
+            return {'status': 'command', 'reply_text': document_error}
+
+    if not payload:
+        return {
+            'status': 'command',
+            'reply_text': (
+                "Send the SPIN/CRB/Credit Analysis WhatsApp .txt or .zip export with:\n"
+                "@bot /batch\n\n"
+                "Supported request formats: labelled SPIN, inline SPIN + credit analysis, "
+                "analysis-only, and CRB report requests."
+            ),
+        }
+
+    document = message_data.get('document') or {}
+    source_filename = str(document.get('file_name') or '').strip()
+    from core.services.spin_credit import process_spin_batch_export
+
+    return process_spin_batch_export(
+        group_config=group_config,
+        export_text=payload,
+        telegram_message_id=telegram_message_id,
+        sender=sender,
+        source_filename=source_filename,
+    )
+
 
 def _process_jawabu_batch_command(
     group_config,
@@ -1665,7 +1901,7 @@ def _process_single_message(
     defer_sheet_sync: bool = False,
 ) -> dict:
     """
-    Run one message through dedup → parse → store → sheet sync.
+    Run one message through dedup â†’ parse â†’ store â†’ sheet sync.
 
     Resolves the sheet_id from GroupRegistry using group_id, then passes
     both down to process_and_store_message so the correct Google Sheet
@@ -1683,7 +1919,7 @@ def _process_single_message(
         group_config = registry.get_group(group_id)
         if not group_config:
             logger.error(f"No config found for group {group_id}")
-            # Return a generic error — don't expose the group_id to the caller
+            # Return a generic error â€” don't expose the group_id to the caller
             return {
                 'status': 'error',
                 'error': 'This group is not configured to receive messages.',
@@ -1705,7 +1941,7 @@ def _process_single_message(
                 source=source,
                 source_telegram_message_id=source_telegram_message_id,
                 batch_index=batch_index,
-                sheet_id=sheet_id,       # ← forwarded to sheets service
+                sheet_id=sheet_id,       # â† forwarded to sheets service
                 sheet_schema=sheet_schema,
                 defer_sheet_sync=defer_sheet_sync,
             )
@@ -1962,6 +2198,41 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
             lines.append('Each complaint must include NAME, TEL or ID, and NATURE OF THE PROBLEM.')
 
         text = "\n".join(lines)
+    elif status == 'spin_batch_processed':
+        lines = [
+            "SPIN / Credit Analysis import processed",
+            f"Export messages found: {result.get('export_messages', 0)}",
+            f"Request messages processed: {result.get('processed', 0)}",
+            f"Imported: {result.get('imported', 0)}",
+            f"Needs review: {result.get('review_needed', 0)}",
+            f"Duplicates skipped: {result.get('duplicates', 0)}",
+            f"Failed: {result.get('failed', 0)}",
+        ]
+        skipped = result.get('skipped', 0)
+        if skipped:
+            lines.append(f"Skipped other chat messages: {skipped}")
+        sheet_sync = result.get('sheet_sync') or {}
+        if sheet_sync:
+            if sheet_sync.get('success'):
+                lines.append(f"Sheet sync: appended {len(sheet_sync.get('row_numbers') or [])} row(s)")
+            else:
+                lines.append(f"Sheet sync failed: {sheet_sync.get('error') or 'unknown error'}")
+        review_items = result.get('review_items') or []
+        if review_items:
+            lines.extend(['', 'Review needed'])
+            for index, item in enumerate(review_items[:5], start=1):
+                missing = ', '.join(item.get('missing_fields') or [])
+                label = item.get('customer_name') or item.get('national_id') or item.get('primary_phone') or 'Unknown customer'
+                lines.append(f"{index}. {label} - missing {missing or 'required fields'}")
+        duplicates = result.get('duplicates_list') or []
+        if duplicates:
+            lines.extend(['', 'Duplicate source messages skipped'])
+            for index, item in enumerate(duplicates[:5], start=1):
+                label = item.get('customer_name') or item.get('national_id') or item.get('primary_phone') or 'Unknown customer'
+                lines.append(f"{index}. {label}")
+        if result.get('message'):
+            lines.extend(['', str(result['message'])])
+        text = "\n".join(lines)
     elif status == 'jawabu_batch_processed':
         lines = [
             "Jawabu import processed",
@@ -2196,7 +2467,7 @@ def process_messages(request):
                 "sender": "John Doe",
                 "received_at": "2026-04-15T10:30:00Z",
                 "has_image": false,
-                "group_id": "-1001234567890"   ← optional
+                "group_id": "-1001234567890"   â† optional
             }
         ]
     }
@@ -2241,7 +2512,7 @@ def process_messages(request):
         for msg in messages:
             received_at = _parse_received_at(msg.get('received_at'))
 
-            # ── KEY FIX: pass group_id from the request (or fallback) ──
+            # â”€â”€ KEY FIX: pass group_id from the request (or fallback) â”€â”€
             group_id = str(msg.get('group_id', '') or default_group_id).strip()
 
             result = _process_single_message(
@@ -2604,4 +2875,9 @@ def _process_portal_command(
             ]]
         },
     }
+
+
+
+
+
 

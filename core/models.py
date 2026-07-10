@@ -1,4 +1,4 @@
-"""
+﻿"""
 Database models for the biogas telegram bot system.
 Provides full traceability and deduplication support.
 """
@@ -371,6 +371,78 @@ class MediaAttachment(models.Model):
         return f"MediaAttachment {self.file_type or 'file'} {self.upload_status}"
 
 
+class SpinCreditRequest(models.Model):
+    """Parsed SPIN / CRB request imported from WhatsApp exports or Mini App forms."""
+
+    REQUEST_TYPE_CHOICES = [
+        ('spin', 'SPIN'),
+        ('crb', 'CRB Report'),
+    ]
+    IMPORT_STATUS_CHOICES = [
+        ('imported', 'Imported'),
+        ('review_needed', 'Review Needed'),
+        ('duplicate', 'Duplicate'),
+        ('rejected', 'Rejected'),
+        ('failed', 'Failed'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    group_id = models.CharField(max_length=100, db_index=True)
+    sheet_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    sheet_name = models.CharField(max_length=255, blank=True, default='')
+    row_number = models.PositiveIntegerField(null=True, blank=True)
+
+    telegram_message_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    source_message_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    source_chat = models.CharField(max_length=255, blank=True, default='')
+    source_filename = models.CharField(max_length=255, blank=True, default='')
+    source_message_index = models.PositiveIntegerField(null=True, blank=True)
+
+    request_datetime = models.DateTimeField(null=True, blank=True, db_index=True)
+    requested_by = models.CharField(max_length=255, blank=True, default='')
+    request_type = models.CharField(max_length=40, choices=REQUEST_TYPE_CHOICES, db_index=True)
+    customer_name = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    national_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
+    raw_id_text = models.CharField(max_length=255, blank=True, default='')
+    primary_phone = models.CharField(max_length=50, blank=True, default='', db_index=True)
+    secondary_phone = models.CharField(max_length=50, blank=True, default='')
+    customer_type = models.CharField(max_length=50, blank=True, default='')
+    loan_product = models.CharField(max_length=255, blank=True, default='')
+    requested_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    tenor = models.CharField(max_length=100, blank=True, default='')
+    business_notes = models.TextField(blank=True, default='')
+    code = models.CharField(max_length=255, blank=True, default='')
+    attachment_names = models.JSONField(blank=True, default=list)
+
+    raw_message = models.TextField(blank=True, default='')
+    parsed_fields = models.JSONField(blank=True, default=dict)
+    missing_fields = models.JSONField(blank=True, default=list)
+    import_status = models.CharField(max_length=30, choices=IMPORT_STATUS_CHOICES, default='review_needed', db_index=True)
+    sync_error = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-request_datetime', '-created_at']
+        indexes = [
+            models.Index(fields=['group_id', 'request_datetime']),
+            models.Index(fields=['group_id', 'national_id', 'primary_phone']),
+            models.Index(fields=['group_id', 'import_status']),
+            models.Index(fields=['source_message_hash']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['group_id', 'source_message_hash'],
+                name='unique_spin_request_source_per_group',
+            ),
+        ]
+        verbose_name = 'SPIN / CRB request'
+        verbose_name_plural = 'SPIN / CRB requests'
+
+    def __str__(self):
+        return f"{self.get_request_type_display()} {self.customer_name or self.national_id or self.primary_phone}".strip()
+
+
 class LiveSheetRecordChange(models.Model):
     """Audit trail for Django admin edits and deletes applied to live sheet rows."""
 
@@ -495,7 +567,7 @@ class JawabuFarmerMaster(models.Model):
         ('inactive', 'Inactive'),
     ]
 
-    # Stage 2 — JBL visit status dropdown (aligns with FCAUP_STATUS_VALUES in fca.py)
+    # Stage 2 â€” JBL visit status dropdown (aligns with FCAUP_STATUS_VALUES in fca.py)
     JBL_VISIT_STATUS_CHOICES = [
         ('Approved', 'Approved'),
         ('Awaiting Analysis', 'Awaiting Analysis'),
@@ -507,7 +579,7 @@ class JawabuFarmerMaster(models.Model):
         ('Opted for other Partner', 'Opted for other Partner'),
     ]
 
-    # Stage 3 — Credit Decision values (master data dropdown)
+    # Stage 3 â€” Credit Decision values (master data dropdown)
     CREDIT_DECISION_CHOICES = [
         ('Approved', 'Approved'),
         ('Rejected', 'Rejected'),
@@ -557,7 +629,7 @@ class JawabuFarmerMaster(models.Model):
     latitude = models.CharField(max_length=64, blank=True, default='')
     longitude = models.CharField(max_length=64, blank=True, default='')
 
-    # ── Stage 2: JBL visit ───────────────────────────────────────────────────
+    # â”€â”€ Stage 2: JBL visit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     jbl_visit_date = models.DateField(
         null=True, blank=True, db_index=True,
         help_text='Date the JBL officer visited this farmer.',
@@ -569,14 +641,14 @@ class JawabuFarmerMaster(models.Model):
     jbl_visit_status = models.CharField(
         max_length=80, blank=True, default='',
         choices=JBL_VISIT_STATUS_CHOICES, db_index=True,
-        help_text='Jawabu Comment After Visit — 12-option dropdown set by JBL officer.',
+        help_text='Jawabu Comment After Visit â€” 12-option dropdown set by JBL officer.',
     )
     jbl_visit_comment = models.TextField(
         blank=True, default='',
         help_text='Optional free-text comment from the JBL officer.',
     )
 
-    # ── Stage 3: Credit decision ─────────────────────────────────────────────
+    # â”€â”€ Stage 3: Credit decision â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     credit_decision = models.CharField(
         max_length=80, blank=True, default='',
         choices=CREDIT_DECISION_CHOICES, db_index=True,
@@ -624,17 +696,17 @@ class JawabuFarmerMaster(models.Model):
         help_text='Drive links for documents/images uploaded during the JBL visit stage.',
     )
 
-    # ── Stage 4: Requisition / order ─────────────────────────────────────────
+    # â”€â”€ Stage 4: Requisition / order â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     requisition_date = models.DateField(
         null=True, blank=True,
-        help_text='Jawabu Requisition Date — only set after Credit Decision = Approved.',
+        help_text='Jawabu Requisition Date â€” only set after Credit Decision = Approved.',
     )
     order_number = models.CharField(
         max_length=128, blank=True, default='', db_index=True,
         help_text='Order No. assigned by admin after credit approval.',
     )
 
-    # ── Stage 7: Invoice generation ──────────────────────────────────────────
+    # â”€â”€ Stage 7: Invoice generation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     invoice_number = models.CharField(max_length=128, blank=True, default='')
     invoice_date = models.DateField(null=True, blank=True)
     invoice_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
@@ -924,3 +996,4 @@ class RequisitionTemplate(models.Model):
 
     def __str__(self):
         return f"{self.name} ({'Active' if self.is_active else 'Inactive'})"
+
