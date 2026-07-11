@@ -221,6 +221,16 @@ SPIN_WEBAPP_AUTH_MAX_AGE_SECONDS = config(
     default=86400,
     cast=int,
 )
+SPIN_MAX_FILES_PER_SLOT = config(
+    'SPIN_MAX_FILES_PER_SLOT',
+    default=2,
+    cast=int,
+)
+SPIN_MAX_TOTAL_UPLOAD_MB = config(
+    'SPIN_MAX_TOTAL_UPLOAD_MB',
+    default=20,
+    cast=int,
+)
 ORDER_APPROVAL_BRANCH_CHOICES = config(
     'ORDER_APPROVAL_BRANCH_CHOICES',
     default='BIOGAS UNIT,EMBU,NAKURU,WEST NAIROBI',
@@ -307,4 +317,5 @@ REQUIRED_MESSAGE_FIELDS = ['message_id', 'chat', 'date']
 # Rate Limiting (if enabled with django-ratelimit)
 RATELIMIT_ENABLE = config('RATELIMIT_ENABLE', default=False, cast=bool)
 RATELIMIT_PER_IP = '100/h'  # 100 requests per hour per IP
+
 

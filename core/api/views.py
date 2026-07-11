@@ -545,10 +545,31 @@ def spin_form(request):
 @require_http_methods(["POST"])
 def spin_form_submit(request):
     """Accept a SPIN/CRB Mini App form submission."""
-    try:
-        payload = json.loads(request.body.decode('utf-8') or '{}')
-    except json.JSONDecodeError:
-        return JsonResponse({'success': False, 'message': 'Invalid request body.'}, status=400)
+    uploaded_files = []
+    content_type = str(request.META.get('CONTENT_TYPE', ''))
+    if content_type.startswith('application/json'):
+        try:
+            payload = json.loads(request.body.decode('utf-8') or '{}')
+        except json.JSONDecodeError:
+            return JsonResponse({'success': False, 'message': 'Invalid request body.'}, status=400)
+        fields = payload.get('fields') or payload
+    else:
+        payload = request.POST.dict()
+        fields = payload
+        from core.services.spin_credit import collect_spin_uploaded_files, validate_spin_uploaded_files
+
+        upload_errors = validate_spin_uploaded_files(request.FILES)
+        if upload_errors:
+            return JsonResponse(
+                {
+                    'success': False,
+                    'status': 'validation_error',
+                    'message': 'Fix the highlighted file upload issue and submit again.',
+                    'errors': upload_errors,
+                },
+                status=400,
+            )
+        uploaded_files = collect_spin_uploaded_files(request.FILES)
 
     group_id, group_config, auth_payload, error_response_obj = _spin_webapp_context(payload)
     if error_response_obj:
@@ -558,9 +579,10 @@ def spin_form_submit(request):
 
     result = process_spin_form_submission(
         group_config=group_config,
-        fields=payload.get('fields') or payload,
+        fields=fields,
         sender=_sender_from_webapp_auth(auth_payload),
         received_at=timezone.now(),
+        uploaded_files=uploaded_files,
     )
     _send_spin_webapp_chat_reply(group_id, result)
     return JsonResponse(result, status=200 if result.get('success') else 400)
@@ -618,6 +640,7 @@ def _send_spin_webapp_chat_reply(group_id: str, result: dict) -> None:
             f"Customer: {result.get('customer_name', '')}",
             f"National ID: {result.get('national_id', '')}",
             f"Phone: {result.get('primary_phone', '')}",
+            f"Files stored: {result.get('files_stored', 0)}",
         ]
     else:
         lines = [
@@ -2875,6 +2898,8 @@ def _process_portal_command(
             ]]
         },
     }
+
+
 
 
 

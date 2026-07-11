@@ -1,6 +1,9 @@
-﻿import json`r`nfrom datetime import datetime
+﻿import json
+from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -127,8 +130,9 @@ Code 171889/633893"""
 
 class SpinCreditMiniAppTestCase(TestCase):
     @override_settings(SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
+    @patch('core.api.views._post_telegram_reply')
     @patch('core.services.spin_credit.append_spin_requests_to_sheet')
-    def test_form_submission_normalizes_phone_and_syncs_sheet(self, mock_append):
+    def test_form_submission_normalizes_phone_and_syncs_sheet(self, mock_append, mock_reply):
         mock_append.return_value = {'success': True, 'row_numbers': [5]}
         GroupSheetConfiguration.objects.create(
             group_id='-100spinform',
@@ -173,3 +177,29 @@ class SpinCreditMiniAppTestCase(TestCase):
         mock_append.assert_called_once()
         mock_reply.assert_called_once()
 
+
+
+    @override_settings(SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
+    @patch('core.api.views._post_telegram_reply')
+    @patch('core.services.order_approval.store_uploaded_files_for_order')
+    @patch('core.services.spin_credit.append_spin_requests_to_sheet')
+    def test_form_submission_uploads_laf_docs_and_writes_media_urls(self, mock_append, mock_store, mock_reply):
+        mock_append.return_value = {'success': True, 'row_numbers': [6]}
+        mock_store.return_value = SimpleNamespace(links=['https://drive.google.com/file/d/laf-doc/view'], stored_count=1, skipped_count=0, warnings=[])
+        GroupSheetConfiguration.objects.create(group_id='-100spinmedia', display_name='Nakuru SPIN Requests', sheet_id='sheet-id', sheet_name='SPIN Requests', enabled=True, workflow={'type': 'spin_credit_analysis', 'header_row': 1})
+        from core.services.group_config import GroupRegistry
+        GroupRegistry._instance = None
+        response = self.client.post('/api/spin/submit/', data={
+            'group_id': '-100spinmedia', 'request_type': 'spin', 'customer_name': 'Peter Mwangi', 'national_id': '12345678',
+            'primary_phone': '0712345678', 'requested_amount': '54000', 'tenor': '12 months',
+            'supporting_docs': SimpleUploadedFile('laf.pdf', b'%PDF-1.4 test', content_type='application/pdf'),
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['files_stored'], 1)
+        uploaded_files = mock_store.call_args.kwargs['uploaded_files']
+        self.assertEqual(uploaded_files[0].file_type, 'laf_doc')
+        record = SpinCreditRequest.objects.get(group_id='-100spinmedia')
+        self.assertEqual(record.attachment_names, ['laf.pdf'])
+        self.assertEqual(record.parsed_fields['media_urls'], 'https://drive.google.com/file/d/laf-doc/view')
+        mock_append.assert_called_once()
+        mock_reply.assert_called_once()

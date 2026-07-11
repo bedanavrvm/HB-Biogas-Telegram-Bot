@@ -214,3 +214,15 @@ button:disabled { opacity: 0.65; }
   .wide { grid-column: 1 / -1; }
   .actions { grid-template-columns: 140px 220px; justify-content: end; }
 }
+
+.file-field input[type="file"] {
+  min-height: auto;
+  padding: 8px;
+  background: var(--spin-surface);
+}
+
+.file-field small {
+  color: var(--spin-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}

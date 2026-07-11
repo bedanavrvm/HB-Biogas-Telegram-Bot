@@ -1,0 +1,138 @@
+﻿{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>SPIN/CRB Request</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=3">
+  <link rel="stylesheet" href="{% static 'miniapp/spin_form.css' %}?v=2">
+</head>
+<body>
+<main class="spin-shell">
+  <header class="spin-header">
+    <div>
+      <p class="eyebrow">JBL Credit Desk</p>
+      <h1>SPIN/CRB Request</h1>
+    </div>
+    <span id="draftState" class="draft-state">Draft saved</span>
+  </header>
+
+  <div id="statusBanner" class="status-banner" role="status" aria-live="polite" hidden></div>
+
+  <form id="spinForm" class="spin-form" novalidate enctype="multipart/form-data">
+    <input type="hidden" id="groupId" name="group_id">
+    <input type="hidden" id="formToken" name="form_token">
+
+    <section class="form-section">
+      <h2>Request</h2>
+      <div class="segmented" role="radiogroup" aria-label="Request type">
+        <label>
+          <input type="radio" name="request_type" value="spin" checked>
+          <span>SPIN</span>
+        </label>
+        <label>
+          <input type="radio" name="request_type" value="crb">
+          <span>CRB</span>
+        </label>
+      </div>
+      <p class="helper">Credit analysis is the outcome/status after this request is handled.</p>
+    </section>
+
+    <section class="form-section grid-2">
+      <h2>Customer</h2>
+      <label class="field wide">
+        <span>Customer Name</span>
+        <input name="customer_name" autocomplete="name" required>
+      </label>
+      <label class="field">
+        <span>National ID</span>
+        <input name="national_id" inputmode="numeric" pattern="[0-9]{7,8}" required>
+      </label>
+      <label class="field">
+        <span>Customer Type</span>
+        <select name="customer_type">
+          <option value="">Not specified</option>
+          <option value="New">New</option>
+          <option value="Existing">Existing</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Primary Phone</span>
+        <input name="primary_phone" type="tel" inputmode="tel" placeholder="254712345678" required>
+      </label>
+      <label class="field">
+        <span>Secondary Phone</span>
+        <input name="secondary_phone" type="tel" inputmode="tel" placeholder="Optional">
+      </label>
+    </section>
+
+    <section class="form-section grid-2">
+      <h2>Loan Details</h2>
+      <label class="field">
+        <span>Requested Amount</span>
+        <input name="requested_amount" inputmode="decimal" placeholder="10000" required>
+      </label>
+      <label class="field">
+        <span>Tenor</span>
+        <input name="tenor" placeholder="6 weeks" required>
+      </label>
+      <label class="field">
+        <span>Loan Product</span>
+        <input name="loan_product" list="loanProducts" placeholder="Msingi">
+        <datalist id="loanProducts">
+          <option value="Msingi"></option>
+          <option value="Daraja"></option>
+          <option value="Kilimo Biashara"></option>
+          <option value="Logbook"></option>
+          <option value="Digital"></option>
+          <option value="Biashara"></option>
+        </datalist>
+      </label>
+      <label class="field">
+        <span>Code</span>
+        <input name="code" placeholder="Optional">
+      </label>
+      <label class="field wide">
+        <span>Business / Employment Notes</span>
+        <textarea name="business_notes" rows="3" placeholder="Short context for the analyst"></textarea>
+      </label>
+    </section>
+
+    <section class="form-section uploads-section">
+      <h2>Documents</h2>
+      <p class="helper">Each slot accepts up to 2 files. Use small clear photos or PDFs where possible.</p>
+      <label class="field file-field">
+        <span>ID Photos</span>
+        <input name="id_photos" type="file" accept="image/*,.pdf" multiple data-max-files="2">
+        <small data-file-summary="id_photos">No files selected</small>
+      </label>
+      <label class="field file-field">
+        <span>LAF Documents</span>
+        <input name="supporting_docs" type="file" accept="image/*,.pdf,.doc,.docx" multiple data-max-files="2">
+        <small data-file-summary="supporting_docs">No files selected</small>
+      </label>
+      <label class="field file-field">
+        <span>Other Files</span>
+        <input name="other_files" type="file" accept="image/*,.pdf,.doc,.docx" multiple data-max-files="2">
+        <small data-file-summary="other_files">No files selected</small>
+      </label>
+    </section>
+
+    <section class="review-section" aria-label="Request summary">
+      <h2>Summary</h2>
+      <dl id="summaryList"></dl>
+    </section>
+
+    <div class="actions">
+      <button type="button" id="clearDraft" class="secondary">Clear</button>
+      <button type="submit" id="submitBtn" class="primary">Submit Request</button>
+    </div>
+  </form>
+</main>
+<script id="spin-form-data" type="application/json">{{ form_json|safe }}</script>
+<script src="{% static 'miniapp/telegram.js' %}"></script>
+<script src="{% static 'miniapp/spin_form.js' %}?v=2"></script>
+</body>
+</html>

@@ -28,6 +28,11 @@ logger = logging.getLogger(__name__)
 SPIN_WORKFLOW_TYPE = 'spin_credit_analysis'
 SPIN_FORM_TOKEN_SALT = 'spin-crb-form'
 SPIN_FORM_REQUEST_TYPES = {'spin', 'crb'}
+SPIN_UPLOAD_FIELDS = [
+    ('id_photos', 'id_photo'),
+    ('supporting_docs', 'laf_doc'),
+    ('other_files', 'other_file'),
+]
 
 DEFAULT_FIELD_HEADERS = {
     'request_id': 'Request ID',
@@ -47,6 +52,7 @@ DEFAULT_FIELD_HEADERS = {
     'business_notes': 'Business / Employment Notes',
     'code': 'Code',
     'attachment_names': 'Attachments',
+    'media_urls': 'Media URLs',
     'raw_message': 'Raw Message',
     'source_chat': 'Source Chat',
     'source_filename': 'Source Filename',
@@ -566,13 +572,16 @@ def append_spin_requests_to_sheet(group_config, records: list[SpinCreditRequest]
     if not headers:
         return {'success': False, 'error': 'Header row is empty or unavailable.'}
     field_headers = configured_field_headers(workflow)
-    missing_headers = [header for header in field_headers.values() if header and header not in headers]
-    if missing_headers:
-        return {'success': False, 'error': 'Missing required column(s): ' + ', '.join(missing_headers[:8])}
     rows = []
     for record in records:
         row = ['' for _ in headers]
         values = sheet_values_for(record)
+        missing_headers = [
+            header for field, header in field_headers.items()
+            if header and header not in headers and values.get(field, '') not in ('', None)
+        ]
+        if missing_headers:
+            return {'success': False, 'error': 'Missing required column(s): ' + ', '.join(missing_headers[:8])}
         for field, header in field_headers.items():
             if header in headers:
                 row[headers.index(header)] = values.get(field, '')
@@ -608,6 +617,7 @@ def sheet_values_for(record: SpinCreditRequest) -> dict[str, Any]:
         'business_notes': record.business_notes,
         'code': record.code,
         'attachment_names': '\n'.join(record.attachment_names or []),
+        'media_urls': (record.parsed_fields or {}).get('media_urls', ''),
         'raw_message': record.raw_message,
         'source_chat': record.source_chat,
         'source_filename': record.source_filename,
@@ -790,6 +800,7 @@ def process_spin_form_submission(
     fields: dict[str, Any],
     sender: str = '',
     received_at=None,
+    uploaded_files: list | None = None,
 ) -> dict[str, Any]:
     cleaned, errors = validate_spin_form_fields(fields)
     if errors:
@@ -801,7 +812,36 @@ def process_spin_form_submission(
         }
 
     received_at = received_at or timezone.now()
-    raw_message = json.dumps(cleaned, ensure_ascii=True, sort_keys=True)
+    uploaded_files = uploaded_files or []
+    media_links: list[str] = []
+    media_warnings: list[str] = []
+    attachment_names = uploaded_file_names(uploaded_files)
+    if uploaded_files:
+        from core.services.order_approval import store_uploaded_files_for_order
+
+        uploaded_media = store_uploaded_files_for_order(
+            group_config=group_config,
+            uploaded_files=uploaded_files,
+            sender=sender or 'Telegram Mini App',
+            received_at=received_at,
+            business_key_value=cleaned['national_id'],
+            order_update=None,
+        )
+        media_links = uploaded_media.links
+        media_warnings = uploaded_media.warnings
+        if media_warnings or uploaded_media.skipped_count:
+            return {
+                'success': False,
+                'status': 'media_upload_failed',
+                'message': 'Request was not submitted because one or more files could not be stored.',
+                'errors': media_warnings or ['One or more files could not be stored.'],
+                'files_stored': uploaded_media.stored_count,
+            }
+    if media_links:
+        cleaned['media_urls'] = '\n'.join(media_links)
+    if attachment_names:
+        cleaned['attachment_names'] = attachment_names
+    raw_message = json.dumps({**cleaned, 'requested_amount': str(cleaned.get('requested_amount') or '')}, ensure_ascii=True, sort_keys=True)
     parsed = ParsedSpinRequest(
         request_type=cleaned['request_type'],
         request_datetime=received_at,
@@ -817,6 +857,7 @@ def process_spin_form_submission(
         tenor=cleaned['tenor'],
         business_notes=cleaned.get('business_notes', ''),
         code=cleaned.get('code', ''),
+        attachment_names=attachment_names,
         raw_message=raw_message,
         source_filename='Telegram Mini App',
         source_message_hash=hashlib.sha256(
@@ -825,6 +866,8 @@ def process_spin_form_submission(
     )
     parsed.missing_fields = missing_fields_for(parsed)
     parsed.parsed_fields = parsed_fields(parsed)
+    if media_links:
+        parsed.parsed_fields['media_urls'] = '\n'.join(media_links)
 
     try:
         record = save_spin_request(
@@ -870,6 +913,8 @@ def process_spin_form_submission(
         'customer_name': record.customer_name,
         'national_id': record.national_id,
         'primary_phone': record.primary_phone,
+        'files_stored': len(media_links),
+        'media_urls': media_links,
     }
 
 
@@ -924,3 +969,62 @@ def validate_spin_form_fields(fields: dict[str, Any]) -> tuple[dict[str, Any], l
         'business_notes': data.get('business_notes', '')[:1000],
         'code': data.get('code', '')[:255],
     }, errors
+
+
+
+
+def collect_spin_uploaded_files(files_map) -> list:
+    from core.services.order_approval import UploadedFileItem
+
+    uploads = []
+    getlist = getattr(files_map, 'getlist', None)
+    if not getlist:
+        return uploads
+    for field_name, file_type in SPIN_UPLOAD_FIELDS:
+        for file_obj in getlist(field_name) or []:
+            uploads.append(UploadedFileItem(file=file_obj, file_type=file_type))
+    return uploads
+
+
+def validate_spin_uploaded_files(files_map) -> list[str]:
+    errors: list[str] = []
+    getlist = getattr(files_map, 'getlist', None)
+    if not getlist:
+        return errors
+
+    max_files_per_slot = int(getattr(settings, 'SPIN_MAX_FILES_PER_SLOT', 2))
+    max_total_bytes = int(getattr(settings, 'SPIN_MAX_TOTAL_UPLOAD_MB', 20)) * 1024 * 1024
+    labels = {
+        'id_photos': 'ID photos',
+        'supporting_docs': 'Supporting documents',
+        'other_files': 'Other files',
+    }
+    total_size = 0
+    for field_name, _file_type in SPIN_UPLOAD_FIELDS:
+        files = list(getlist(field_name) or [])
+        if len(files) > max_files_per_slot:
+            errors.append(f"{labels.get(field_name, field_name)} supports at most {max_files_per_slot} file(s).")
+        for file_obj in files:
+            try:
+                total_size += int(getattr(file_obj, 'size', 0) or 0)
+            except (TypeError, ValueError):
+                continue
+    if total_size > max_total_bytes:
+        errors.append(
+            "Total upload size is too large. Upload at most "
+            f"{getattr(settings, 'SPIN_MAX_TOTAL_UPLOAD_MB', 20)} MB per submission."
+        )
+    return errors
+
+
+def uploaded_file_names(uploaded_files: list) -> list[str]:
+    names = []
+    for item in uploaded_files or []:
+        file_obj = getattr(item, 'file', item)
+        name = str(getattr(file_obj, 'name', '') or '').strip()
+        if name:
+            names.append(name)
+    return names
+
+
+

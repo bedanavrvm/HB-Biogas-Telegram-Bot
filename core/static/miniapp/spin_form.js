@@ -35,7 +35,7 @@
     return String(value || '').replace(/,/g, '').trim();
   }
 
-  function formData() {
+  function formValues() {
     const selectedType = form.querySelector('input[name="request_type"]:checked');
     return {
       request_type: selectedType ? selectedType.value : '',
@@ -86,8 +86,32 @@
     return { errors, invalid };
   }
 
+
+  function updateFileSummaries() {
+    form.querySelectorAll('input[type="file"]').forEach(input => {
+      const summary = form.querySelector(`[data-file-summary="${input.name}"]`);
+      const files = Array.from(input.files || []);
+      if (summary) {
+        summary.textContent = files.length ? files.map(file => file.name).join(', ') : 'No files selected';
+      }
+    });
+  }
+
+  function validateFiles() {
+    const errors = [];
+    const invalid = [];
+    form.querySelectorAll('input[type="file"]').forEach(input => {
+      const maxFiles = Number(input.dataset.maxFiles || 2);
+      if ((input.files || []).length > maxFiles) {
+        errors.push(`${input.closest('.field').querySelector('span').textContent} supports at most ${maxFiles} files.`);
+        invalid.push(input.name);
+      }
+    });
+    return { errors, invalid };
+  }
+
   function updateSummary() {
-    const data = formData();
+    const data = formValues();
     const rows = [
       ['Type', data.request_type ? data.request_type.toUpperCase() : ''],
       ['Name', data.customer_name || '-'],
@@ -105,7 +129,7 @@
 
   function saveDraft() {
     try {
-      localStorage.setItem(draftKey, JSON.stringify(formData()));
+      localStorage.setItem(draftKey, JSON.stringify(formValues()));
       draftState.textContent = 'Draft saved';
     } catch (_) {
       draftState.textContent = 'Draft not saved';
@@ -139,6 +163,7 @@
     markInvalid([]);
     setBanner('', '');
     updateSummary();
+    updateFileSummaries();
     saveDraft();
   }
 
@@ -151,26 +176,26 @@
       field('secondary_phone').value = normalizePhone(field('secondary_phone').value) || field('secondary_phone').value.trim();
     }
 
-    const data = formData();
+    const data = formValues();
     const check = validate(data);
-    markInvalid(check.invalid);
-    if (check.errors.length) {
-      setBanner(check.errors[0], 'error');
+    const fileCheck = validateFiles();
+    markInvalid(check.invalid.concat(fileCheck.invalid));
+    if (check.errors.length || fileCheck.errors.length) {
+      setBanner((check.errors[0] || fileCheck.errors[0]), 'error');
       return;
     }
 
     submitBtn.disabled = true;
     submitBtn.textContent = 'Submitting...';
     try {
+      const payload = new FormData(form);
+      payload.set('group_id', config.group_id || '');
+      payload.set('form_token', config.form_token || '');
+      payload.set('init_data', tg ? tg.initData || '' : '');
+      Object.entries(data).forEach(([key, value]) => payload.set(key, value || ''));
       const response = await fetch('/api/spin/submit/', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          group_id: config.group_id || '',
-          form_token: config.form_token || '',
-          init_data: tg ? tg.initData || '' : '',
-          fields: data
-        })
+        body: payload
       });
       const result = await response.json();
       if (!response.ok || !result.success) {
@@ -193,10 +218,13 @@
   }
 
   form.addEventListener('input', () => { updateSummary(); saveDraft(); });
-  form.addEventListener('change', () => { updateSummary(); saveDraft(); });
+  form.addEventListener('change', () => { updateSummary(); updateFileSummaries(); saveDraft(); });
   form.addEventListener('submit', submitForm);
   clearBtn.addEventListener('click', clearDraft);
 
   loadDraft();
   updateSummary();
+  updateFileSummaries();
 }());
+
+
