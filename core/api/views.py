@@ -1,4 +1,4 @@
-﻿"""
+"""
 API Views for the biogas telegram bot.
 
 Endpoints:
@@ -602,6 +602,178 @@ def spin_form_submit(request):
     )
     _send_spin_webapp_chat_reply(group_id, result)
     return JsonResponse(result, status=200 if result.get('success') else 400)
+
+
+def _spin_webapp_context_get(request):
+    from core.services.group_config import GroupRegistry
+    from core.services.spin_credit import (
+        is_spin_workflow,
+        validate_spin_form_token,
+        validate_spin_telegram_webapp_init_data,
+    )
+    group_id = str(request.GET.get('group_id', '')).strip()
+    init_data = request.GET.get('init_data', '') or request.headers.get('X-Telegram-Init-Data', '')
+    form_token = request.GET.get('form_token', '')
+    is_valid, auth_error, auth_payload = validate_spin_telegram_webapp_init_data(init_data)
+    if not is_valid:
+        token_valid, token_error = validate_spin_form_token(
+            token=form_token,
+            group_id=group_id,
+        )
+        if not token_valid:
+            return group_id, None, {}, JsonResponse({'success': False, 'message': auth_error or token_error}, status=403)
+        auth_payload = {}
+    group_config = GroupRegistry.get_instance().get_group(group_id)
+    if not group_config or not is_spin_workflow(group_config):
+        return group_id, None, auth_payload, JsonResponse({'success': False, 'message': 'This Telegram group is not configured for SPIN/CRB requests.'}, status=400)
+    return group_id, group_config, auth_payload, None
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def spin_form_requests(request):
+    """List SPIN/CRB requests for dashboard."""
+    group_id, group_config, auth_payload, error_response = _spin_webapp_context_get(request)
+    if error_response:
+        return error_response
+    user_payload = {}
+    if auth_payload.get('user'):
+        try:
+            user_payload = json.loads(auth_payload['user'])
+        except json.JSONDecodeError:
+            pass
+    from core.services.spin_credit import is_user_spin_analyst, spin_request_id, format_sheet_datetime, REQUEST_TYPE_LABELS
+    is_analyst = is_user_spin_analyst(user_payload)
+    from core.models import SpinCreditRequest
+    if is_analyst:
+        if request.GET.get('filter_group') == 'true' and group_id:
+            queryset = SpinCreditRequest.objects.filter(group_id=group_id)
+        else:
+            queryset = SpinCreditRequest.objects.all()
+    else:
+        queryset = SpinCreditRequest.objects.filter(group_id=group_id)
+    queryset = queryset.order_by('-request_datetime', '-created_at')
+    data = []
+    for r in queryset:
+        parsed_f = r.parsed_fields or {}
+        data.append({
+            'id': str(r.id),
+            'request_id': spin_request_id(r),
+            'request_datetime': format_sheet_datetime(r.request_datetime) if r.request_datetime else '',
+            'requested_by': r.requested_by,
+            'request_type': REQUEST_TYPE_LABELS.get(r.request_type, r.request_type),
+            'customer_name': r.customer_name,
+            'national_id': r.national_id,
+            'primary_phone': r.primary_phone,
+            'secondary_phone': r.secondary_phone,
+            'customer_type': r.customer_type,
+            'loan_product': r.loan_product,
+            'requested_amount': float(r.requested_amount) if r.requested_amount is not None else 0.0,
+            'tenor': r.tenor,
+            'business_notes': r.business_notes,
+            'code': r.code,
+            'attachment_names': r.attachment_names or [],
+            'media_urls': parsed_f.get('media_urls', '').split('\n') if parsed_f.get('media_urls') else [],
+            'import_status': r.import_status,
+            'sync_error': r.sync_error,
+            'spin_report_url': parsed_f.get('spin_report_url', ''),
+            'crb_report_url': parsed_f.get('crb_report_url', ''),
+            'credit_analysis_report_url': parsed_f.get('credit_analysis_report_url', ''),
+            'analysis_completed_at': parsed_f.get('analysis_completed_at', ''),
+            'analysis_completed_by': parsed_f.get('analysis_completed_by', ''),
+        })
+    return JsonResponse({
+        'success': True,
+        'is_analyst': is_analyst,
+        'requests': data
+    })
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def spin_form_complete(request):
+    """Accept analyst completing a SPIN/CRB request and uploading reports."""
+    payload = request.POST.dict()
+    group_id, group_config, auth_payload, error_response = _spin_webapp_context(payload)
+    if error_response:
+        return error_response
+    user_payload = {}
+    if auth_payload.get('user'):
+        try:
+            user_payload = json.loads(auth_payload['user'])
+        except json.JSONDecodeError:
+            pass
+    from core.services.spin_credit import is_user_spin_analyst
+    if not is_user_spin_analyst(user_payload):
+        return JsonResponse({'success': False, 'message': 'Only designated credit analysts can complete requests.'}, status=403)
+    request_id = payload.get('request_id')
+    if not request_id:
+        return JsonResponse({'success': False, 'message': 'Request ID is required.'}, status=400)
+    from core.models import SpinCreditRequest
+    try:
+        record = SpinCreditRequest.objects.get(id=request_id)
+    except (SpinCreditRequest.DoesNotExist, ValueError):
+        return JsonResponse({'success': False, 'message': 'Request not found.'}, status=404)
+    spin_report = request.FILES.get('spin_report')
+    crb_report = request.FILES.get('crb_report')
+    credit_analysis = request.FILES.get('credit_analysis')
+    if not spin_report and not crb_report and not credit_analysis:
+        return JsonResponse({'success': False, 'message': 'At least one report file must be uploaded.'}, status=400)
+    sender_name = _sender_from_webapp_auth(auth_payload) or 'Credit Analyst'
+    from core.services.spin_credit import upload_report, update_spin_request_in_sheet, spin_request_id
+    spin_url = upload_report(group_config, spin_report, 'spin_report', sender_name, record.national_id) if spin_report else None
+    crb_url = upload_report(group_config, crb_report, 'crb_report', sender_name, record.national_id) if crb_report else None
+    analysis_url = upload_report(group_config, credit_analysis, 'credit_analysis_report', sender_name, record.national_id) if credit_analysis else None
+    if not record.parsed_fields:
+        record.parsed_fields = {}
+    if spin_url:
+        record.parsed_fields['spin_report_url'] = spin_url
+    if crb_url:
+        record.parsed_fields['crb_report_url'] = crb_url
+    if analysis_url:
+        record.parsed_fields['credit_analysis_report_url'] = analysis_url
+    record.parsed_fields['analysis_completed_at'] = timezone.now().isoformat()
+    record.parsed_fields['analysis_completed_by'] = sender_name
+    record.import_status = 'completed'
+    record.save(update_fields=['parsed_fields', 'import_status', 'updated_at'])
+    sheet_updates = {
+        'analysis_status': 'Completed'
+    }
+    url_lines = []
+    if spin_url:
+        url_lines.append(f"SPIN: {spin_url}")
+    if crb_url:
+        url_lines.append(f"CRB: {crb_url}")
+    if analysis_url:
+        url_lines.append(f"Analysis: {analysis_url}")
+    new_response = '\n'.join(url_lines)
+    sheet_updates['analyst_response'] = new_response
+    sheet_synced = update_spin_request_in_sheet(group_config, record, sheet_updates)
+    tg_lines = [
+        'SPIN/CRB ANALYSIS COMPLETED',
+        '',
+        f"Request ID: {spin_request_id(record)}",
+        f"Customer: {record.customer_name}",
+        f"Completed by: {sender_name}",
+        '',
+        'Reports Uploaded:'
+    ]
+    if spin_url:
+        tg_lines.append(f"- SPIN Report: {spin_url}")
+    if crb_url:
+        tg_lines.append(f"- CRB Report: {crb_url}")
+    if analysis_url:
+        tg_lines.append(f"- Credit Analysis: {analysis_url}")
+    _post_telegram_reply(chat_id=group_config.group_id, message_data={}, text='\n'.join(tg_lines))
+    return JsonResponse({
+        'success': True,
+        'message': 'Request marked completed and reports synced to sheets.',
+        'spin_report_url': spin_url,
+        'crb_report_url': crb_url,
+        'credit_analysis_report_url': analysis_url,
+        'sheet_synced': sheet_synced
+    })
+
 
 
 def _spin_webapp_context(payload: dict):

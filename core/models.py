@@ -1,4 +1,4 @@
-﻿"""
+"""
 Database models for the biogas telegram bot system.
 Provides full traceability and deduplication support.
 """
@@ -385,7 +385,9 @@ class SpinCreditRequest(models.Model):
         ('duplicate', 'Duplicate'),
         ('rejected', 'Rejected'),
         ('failed', 'Failed'),
+        ('completed', 'Completed'),
     ]
+
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     group_id = models.CharField(max_length=100, db_index=True)

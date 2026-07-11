@@ -1,4 +1,4 @@
-﻿"""
+"""
 URL routing for the core API.
 """
 from django.urls import path
@@ -15,6 +15,8 @@ from .views import (
     order_approval_webapp_submit,
     spin_form,
     spin_form_submit,
+    spin_form_requests,
+    spin_form_complete,
     process_messages,
     resend_unsynced,
     sync_from_sheets,
@@ -54,6 +56,8 @@ urlpatterns = [
     path('fca/review/commit/', fca_review_commit, name='fca_review_commit'),
     path('spin/', spin_form, name='spin_form'),
     path('spin/submit/', spin_form_submit, name='spin_form_submit'),
+    path('spin/requests/', spin_form_requests, name='spin_form_requests'),
+    path('spin/complete/', spin_form_complete, name='spin_form_complete'),
     path('webhook/telegram/', telegram_webhook, name='telegram_webhook'),
     path(
         'order-approval/webapp/submit/',

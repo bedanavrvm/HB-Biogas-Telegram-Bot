@@ -18,6 +18,25 @@
   const summaryList = document.getElementById('summaryList');
   const draftKey = `spin_form_draft:${config.group_id || 'unknown'}`;
 
+  // Dashboard & Modal Elements
+  const tabDashboardBtn = document.getElementById('tab-dashboard-btn');
+  const requestsList = document.getElementById('requestsList');
+  const dashboardLoading = document.getElementById('dashboardLoading');
+  const dashboardSearch = document.getElementById('dashboardSearch');
+  const statusFilter = document.getElementById('statusFilter');
+  const groupFilterLabel = document.getElementById('groupFilterLabel');
+  const groupFilterCheckbox = document.getElementById('groupFilterCheckbox');
+
+  const completeModal = document.getElementById('completeModal');
+  const completeForm = document.getElementById('completeForm');
+  const closeModalBtn = document.getElementById('closeModalBtn');
+  const cancelModalBtn = document.getElementById('cancelModalBtn');
+  const submitCompleteBtn = document.getElementById('submitCompleteBtn');
+  const modalBanner = document.getElementById('modalBanner');
+
+  let requests = [];
+  let isAnalyst = false;
+
   document.getElementById('groupId').value = config.group_id || '';
   document.getElementById('formToken').value = config.form_token || '';
 
@@ -69,21 +88,23 @@
     return files;
   }
 
-  function setBanner(message, type) {
+  function setBanner(message, type, targetBanner) {
+    const activeBanner = targetBanner || banner;
     if (!message) {
-      banner.hidden = true;
-      banner.style.display = 'none';
-      banner.textContent = '';
-      banner.className = 'status-banner';
+      activeBanner.hidden = true;
+      activeBanner.style.display = 'none';
+      activeBanner.textContent = '';
+      activeBanner.className = 'status-banner';
       return;
     }
-    banner.hidden = false;
-    banner.style.display = 'block';
-    banner.className = `status-banner ${type || ''}`.trim();
-    banner.textContent = message;
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    activeBanner.hidden = false;
+    activeBanner.style.display = 'block';
+    activeBanner.className = `status-banner ${type || ''}`.trim();
+    activeBanner.textContent = message;
+    if (!targetBanner) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   }
-
 
   function markInvalid(names) {
     form.querySelectorAll('.field.invalid').forEach(el => el.classList.remove('invalid'));
@@ -254,6 +275,290 @@
     }
   }
 
+  // --- Dashboard Functionality ---
+
+  function formatAmount(amount) {
+    return Number(amount).toLocaleString('en-KE', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  }
+
+  function getStatusLabel(status) {
+    if (status === 'completed') return 'Completed';
+    if (status === 'review_needed') return 'Awaiting Review';
+    if (status === 'failed') return 'Failed';
+    if (status === 'imported') return 'Imported';
+    return status;
+  }
+
+  function renderRequests() {
+    const keyword = dashboardSearch.value.trim().toLowerCase();
+    const status = statusFilter.value;
+
+    const filtered = requests.filter(r => {
+      if (status !== 'all' && r.import_status !== status) return false;
+      if (keyword) {
+        const name = (r.customer_name || '').toLowerCase();
+        const id = (r.national_id || '').toLowerCase();
+        const phone = (r.primary_phone || '').toLowerCase();
+        const reqId = (r.request_id || '').toLowerCase();
+        if (!name.includes(keyword) && !id.includes(keyword) && !phone.includes(keyword) && !reqId.includes(keyword)) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    if (!filtered.length) {
+      requestsList.innerHTML = `
+        <div class="empty-state">
+          <i data-lucide="info" style="width:32px; height:32px; color:var(--spin-muted); margin:0 auto 8px; display:block;"></i>
+          <p>No matching requests found.</p>
+        </div>
+      `;
+      if (window.lucide) window.lucide.createIcons();
+      return;
+    }
+
+    requestsList.innerHTML = filtered.map(r => {
+      const attachments = (r.attachment_names || []).map((name, i) => {
+        const url = (r.media_urls || [])[i] || '#';
+        return `<a href="${url}" target="_blank" class="card-link"><i data-lucide="file"></i> ${escapeHtml(name)}</a>`;
+      }).join('');
+
+      let reports = '';
+      if (r.import_status === 'completed') {
+        const reportLinks = [];
+        if (r.spin_report_url) reportLinks.push(`<a href="${r.spin_report_url}" target="_blank" class="card-link"><i data-lucide="shield"></i> SPIN Report</a>`);
+        if (r.crb_report_url) reportLinks.push(`<a href="${r.crb_report_url}" target="_blank" class="card-link"><i data-lucide="file-text"></i> CRB Report</a>`);
+        if (r.credit_analysis_report_url) reportLinks.push(`<a href="${r.credit_analysis_report_url}" target="_blank" class="card-link"><i data-lucide="trending-up"></i> Credit Analysis</a>`);
+        
+        if (reportLinks.length) {
+          reports = `
+            <div class="card-section-title">Reports Uploaded</div>
+            <div class="card-links">${reportLinks.join('')}</div>
+          `;
+        }
+      }
+
+      let actions = '';
+      if (isAnalyst && r.import_status !== 'completed') {
+        actions = `
+          <div class="card-actions">
+            <button type="button" class="primary complete-action-btn" data-id="${r.id}">
+              <i data-lucide="check-square" style="width:14px; height:14px; display:inline-block; vertical-align:middle; margin-right:4px;"></i>
+              Complete Request
+            </button>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="request-card" id="card-${r.id}">
+          <header class="card-header">
+            <div class="card-title-group">
+              <span class="card-id">${escapeHtml(r.request_id)}</span>
+              <span class="card-date">${escapeHtml(r.request_datetime || 'Date not set')}</span>
+            </div>
+            <span class="badge status-${r.import_status}">${getStatusLabel(r.import_status)}</span>
+          </header>
+          <div class="card-body">
+            <div class="card-field">
+              <label>Customer Name</label>
+              <span>${escapeHtml(r.customer_name)}</span>
+            </div>
+            <div class="card-field">
+              <label>National ID</label>
+              <span>${escapeHtml(r.national_id)}</span>
+            </div>
+            <div class="card-field">
+              <label>Primary Phone</label>
+              <span>${escapeHtml(r.primary_phone)}</span>
+            </div>
+            <div class="card-field">
+              <label>Request Type</label>
+              <span class="badge type" style="display:inline-block; width:fit-content;">${escapeHtml(r.request_type)}</span>
+            </div>
+            <div class="card-field">
+              <label>Amount (KES)</label>
+              <span>${formatAmount(r.requested_amount)}</span>
+            </div>
+            <div class="card-field">
+              <label>Tenor</label>
+              <span>${escapeHtml(r.tenor)}</span>
+            </div>
+            ${r.business_notes ? `
+            <div class="card-field wide">
+              <label>Business / Employment Notes</label>
+              <p>${escapeHtml(r.business_notes)}</p>
+            </div>` : ''}
+            ${attachments ? `
+            <div class="card-section-title">Submitted Documents</div>
+            <div class="card-links">${attachments}</div>` : ''}
+            ${reports}
+            ${actions}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    if (window.lucide) window.lucide.createIcons();
+
+    // Hook modal triggers
+    requestsList.querySelectorAll('.complete-action-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        openCompleteModal(btn.dataset.id);
+      });
+    });
+  }
+
+  async function fetchRequests() {
+    requestsList.style.display = 'none';
+    dashboardLoading.style.display = 'block';
+    
+    const filterGroup = groupFilterCheckbox.checked ? 'true' : 'false';
+    const initDataEnc = encodeURIComponent(tg ? tg.initData || '' : '');
+    const url = `/api/spin/requests/?group_id=${config.group_id || ''}&form_token=${config.form_token || ''}&init_data=${initDataEnc}&filter_group=${filterGroup}`;
+
+    try {
+      const response = await fetch(url);
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        requestsList.innerHTML = `
+          <div class="empty-state">
+            <i data-lucide="alert-triangle" style="width:32px; height:32px; color:var(--spin-danger); margin:0 auto 8px; display:block;"></i>
+            <p>${escapeHtml(result.message || 'Could not load requests.')}</p>
+          </div>
+        `;
+        if (window.lucide) window.lucide.createIcons();
+        return;
+      }
+      requests = result.requests || [];
+      isAnalyst = !!result.is_analyst;
+
+      // Show/hide analyst group filters
+      if (isAnalyst) {
+        groupFilterLabel.style.display = 'inline-flex';
+      } else {
+        groupFilterLabel.style.display = 'none';
+      }
+
+      renderRequests();
+      requestsList.style.display = 'block';
+    } catch (_) {
+      requestsList.innerHTML = `
+        <div class="empty-state">
+          <i data-lucide="wifi-off" style="width:32px; height:32px; color:var(--spin-danger); margin:0 auto 8px; display:block;"></i>
+          <p>Network error loading dashboard.</p>
+        </div>
+      `;
+      if (window.lucide) window.lucide.createIcons();
+    } finally {
+      dashboardLoading.style.display = 'none';
+    }
+  }
+
+  // --- Tab Navigation Setup ---
+
+  document.querySelectorAll('.spin-tab-bar .tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      // Toggle button active states
+      document.querySelectorAll('.spin-tab-bar .tab-btn').forEach(b => {
+        b.classList.remove('active');
+        b.setAttribute('aria-selected', 'false');
+      });
+      btn.classList.add('active');
+      btn.setAttribute('aria-selected', 'true');
+
+      // Toggle tab page visibility
+      const tabName = btn.dataset.tab;
+      document.querySelectorAll('.tab-page').forEach(page => {
+        page.classList.remove('active');
+      });
+      document.getElementById(`tab-${tabName}`).classList.add('active');
+
+      // Clear any global banners
+      setBanner('', '');
+
+      // Trigger load if dashboard
+      if (tabName === 'dashboard') {
+        fetchRequests();
+      }
+      
+      if (window.lucide) window.lucide.createIcons();
+    });
+  });
+
+  // --- Complete Modal Handlers ---
+
+  function openCompleteModal(reqId) {
+    document.getElementById('completeRequestId').value = reqId;
+    completeForm.reset();
+    setBanner('', '', modalBanner);
+    completeModal.hidden = false;
+    if (window.lucide) window.lucide.createIcons();
+  }
+
+  function closeCompleteModal() {
+    completeModal.hidden = true;
+    completeForm.reset();
+    setBanner('', '', modalBanner);
+  }
+
+  async function submitComplete(event) {
+    event.preventDefault();
+    setBanner('', '', modalBanner);
+
+    const spin = completeForm.elements['spin_report'].files[0];
+    const crb = completeForm.elements['crb_report'].files[0];
+    const analysis = completeForm.elements['credit_analysis'].files[0];
+
+    if (!spin && !crb && !analysis) {
+      setBanner('Please upload at least one report file.', 'error', modalBanner);
+      return;
+    }
+
+    submitCompleteBtn.disabled = true;
+    submitCompleteBtn.textContent = 'Uploading...';
+
+    const formData = new FormData(completeForm);
+    formData.append('group_id', config.group_id || '');
+    formData.append('form_token', config.form_token || '');
+    formData.append('init_data', tg ? tg.initData || '' : '');
+
+    try {
+      const response = await fetch('/api/spin/complete/', {
+        method: 'POST',
+        body: formData
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        setBanner(result.message || 'Upload failed.', 'error', modalBanner);
+        return;
+      }
+
+      closeCompleteModal();
+      setBanner('Reports submitted and request marked completed.', 'success');
+      fetchRequests();
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+    } catch (_) {
+      setBanner('Network error submitting reports.', 'error', modalBanner);
+    } finally {
+      submitCompleteBtn.disabled = false;
+      submitCompleteBtn.textContent = 'Submit Reports';
+    }
+  }
+
+  // Hook Modal events
+  closeModalBtn.addEventListener('click', closeCompleteModal);
+  cancelModalBtn.addEventListener('click', closeCompleteModal);
+  completeForm.addEventListener('submit', submitComplete);
+
+  // Hook search & filters events
+  dashboardSearch.addEventListener('input', renderRequests);
+  statusFilter.addEventListener('change', renderRequests);
+  groupFilterCheckbox.addEventListener('change', fetchRequests);
+
+  // --- Initial Setup ---
+
   form.addEventListener('input', () => { updateSummary(); saveDraft(); });
   form.addEventListener('change', () => { updateSummary(); updateFileSummaries(); saveDraft(); });
   form.addEventListener('submit', submitForm);
@@ -262,4 +567,7 @@
   loadDraft();
   updateSummary();
   updateFileSummaries();
+  
+  if (window.lucide) window.lucide.createIcons();
 }());
+

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Django settings for biogas_bot project.
 Production-ready configuration for Render deployment.
 """
@@ -144,6 +144,14 @@ TELEGRAM_BOT_USERNAME = config('TELEGRAM_BOT_USERNAME', default='').lstrip('@')
 TELEGRAM_BOT_DISPLAY_NAME = config('TELEGRAM_BOT_DISPLAY_NAME', default='Telegram Bot')
 APP_DISPLAY_NAME = config('APP_DISPLAY_NAME', default='Telegram Workflow Bot')
 APP_BASE_URL = config('APP_BASE_URL', default='').rstrip('/')
+
+# Spin Credit Analysts (Telegram usernames/user IDs)
+SPIN_ANALYSTS = [
+    username.strip().lower() 
+    for username in config('SPIN_ANALYSTS', default='').split(',') 
+    if username.strip()
+]
+
 
 # API protection for manual endpoints
 API_AUTH_TOKEN = config('API_AUTH_TOKEN', default='')

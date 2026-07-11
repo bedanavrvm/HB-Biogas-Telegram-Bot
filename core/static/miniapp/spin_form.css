@@ -224,3 +224,428 @@ button:disabled { opacity: 0.65; }
   font-size: 12px;
   overflow-wrap: anywhere;
 }
+
+
+/* --- SPIN Portal & Dashboard Tab Styles --- */
+
+.spin-tab-bar {
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--spin-line);
+  margin-bottom: 16px;
+  padding-bottom: 2px;
+}
+
+.spin-tab-bar .tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: var(--spin-muted);
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  min-height: auto;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.spin-tab-bar .tab-btn:hover {
+  color: var(--spin-text);
+  background: transparent;
+}
+
+.spin-tab-bar .tab-btn.active {
+  color: var(--spin-primary);
+  border-bottom-color: var(--spin-primary);
+}
+
+.spin-tab-bar .tab-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.tab-page {
+  display: none;
+}
+
+.tab-page.active {
+  display: block;
+}
+
+
+/* --- Dashboard Filters & Search --- */
+
+.dashboard-filters {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.search-input-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.search-input-wrap input {
+  padding-left: 36px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  color: var(--spin-muted);
+  pointer-events: none;
+}
+
+.filter-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.filter-controls select {
+  flex: 1;
+  min-width: 120px;
+  max-width: 200px;
+  min-height: 38px;
+}
+
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--spin-text);
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  min-height: auto;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--spin-primary);
+}
+
+
+/* --- Request Cards List --- */
+
+.requests-list {
+  display: grid;
+  gap: 12px;
+}
+
+.request-card {
+  border: 1px solid var(--spin-line);
+  border-radius: 8px;
+  background: var(--spin-surface);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 1px 2.5px rgba(0, 0, 0, 0.04);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--spin-line);
+  padding-bottom: 8px;
+  margin-bottom: 2px;
+}
+
+.card-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.card-id {
+  font-size: 13px;
+  font-weight: 750;
+  color: var(--spin-text);
+}
+
+.card-date {
+  font-size: 11px;
+  color: var(--spin-muted);
+}
+
+.badge {
+  font-size: 10px;
+  font-weight: 750;
+  padding: 2.5px 6.5px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.badge.type {
+  background: var(--spin-bg);
+  color: var(--spin-text);
+  border: 1px solid var(--spin-line);
+}
+
+.badge.status-completed {
+  background: var(--spin-ok-bg);
+  color: var(--spin-ok);
+}
+
+.badge.status-review_needed {
+  background: #fff9e6;
+  color: #b25e00;
+}
+
+.badge.status-failed {
+  background: var(--spin-danger-bg);
+  color: var(--spin-danger);
+}
+
+.badge.status-imported {
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.card-body {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px 12px;
+}
+
+.card-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.card-field.wide {
+  grid-column: 1 / -1;
+}
+
+.card-field label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--spin-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.card-field span,
+.card-field p {
+  font-size: 13px;
+  margin: 0;
+  color: var(--spin-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-field p {
+  white-space: normal;
+  overflow: visible;
+  line-height: 1.4;
+}
+
+.card-section-title {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  font-weight: 750;
+  color: var(--spin-muted);
+  text-transform: uppercase;
+  border-top: 1px solid var(--spin-line);
+  padding-top: 8px;
+  margin-top: 6px;
+  letter-spacing: 0.04em;
+}
+
+.card-links {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--spin-bg);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-top: 4px;
+}
+
+.card-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--spin-primary);
+  text-decoration: none;
+}
+
+.card-link:hover {
+  text-decoration: underline;
+}
+
+.card-link svg {
+  width: 14px;
+  height: 14px;
+}
+
+.card-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+  border-top: 1px solid var(--spin-line);
+  padding-top: 10px;
+}
+
+.card-actions button {
+  min-height: 34px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+
+/* --- Modal Overlay & Dialog --- */
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+  background: rgba(18, 24, 38, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  backdrop-filter: blur(2px);
+}
+
+.modal-card {
+  width: min(100%, 500px);
+  background: var(--spin-surface);
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--spin-line);
+  padding-bottom: 10px;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 750;
+  color: var(--spin-text);
+}
+
+.close-modal-btn {
+  background: transparent;
+  border: none;
+  color: var(--spin-muted);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.close-modal-btn:hover {
+  background: var(--spin-bg);
+  color: var(--spin-text);
+}
+
+.close-modal-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid var(--spin-line);
+  padding-top: 12px;
+  margin-top: 8px;
+}
+
+.modal-footer button {
+  min-height: 38px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+
+/* --- Spinner & Loading States --- */
+
+.spinner-inline {
+  width: 24px;
+  height: 24px;
+  border: 3px solid var(--spin-line);
+  border-top-color: var(--spin-primary);
+  border-radius: 50%;
+  animation: spin-anim 0.8s linear infinite;
+  margin: 12px auto;
+}
+
+@keyframes spin-anim {
+  to { transform: rotate(360deg); }
+}
+
+.empty-state {
+  text-align: center;
+  padding: 36px 16px;
+  color: var(--spin-muted);
+}
+
+.empty-state p {
+  margin: 8px 0 0;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+
+@media (min-width: 540px) {
+  .modal-overlay {
+    align-items: center;
+  }
+  .modal-card {
+    border-radius: 12px;
+    margin: 20px;
+    max-height: 80vh;
+  }
+}
+

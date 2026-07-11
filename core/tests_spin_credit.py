@@ -265,4 +265,97 @@ class SpinCreditSheetSyncTestCase(TestCase):
         self.assertIsInstance(rows[0][requested_amount_idx], float)
 
 
+class SpinCreditPortalTestCase(TestCase):
+    def setUp(self):
+        self.config = GroupSheetConfiguration.objects.create(
+            group_id='-100spin_test',
+            display_name='Nakuru SPIN Requests',
+            sheet_id='sheet-id',
+            sheet_name='SPIN Requests',
+            enabled=True,
+            workflow={
+                'type': 'spin_credit_analysis',
+                'header_row': 1,
+            }
+        )
+        from core.services.group_config import GroupRegistry
+        GroupRegistry._instance = None
+        
+        self.record = SpinCreditRequest.objects.create(
+            group_id='-100spin_test',
+            request_type='spin',
+            customer_name='JOHN DOE',
+            national_id='12345678',
+            primary_phone='254712345678',
+            requested_amount=15000,
+            tenor='6 weeks',
+            row_number=5,
+        )
+
+    def test_is_user_spin_analyst(self):
+        from django.test import override_settings
+        from core.services.spin_credit import is_user_spin_analyst
+        
+        with override_settings(SPIN_ANALYSTS=['analyst1', '12345']):
+            self.assertTrue(is_user_spin_analyst({'username': 'analyst1', 'id': '99999'}))
+            self.assertTrue(is_user_spin_analyst({'username': 'other', 'id': '12345'}))
+            self.assertFalse(is_user_spin_analyst({'username': 'other', 'id': '99999'}))
+            self.assertFalse(is_user_spin_analyst(None))
+
+    @patch('core.services.spin_credit.validate_spin_telegram_webapp_init_data')
+    def test_spin_form_requests_analyst(self, mock_validate):
+        import json
+        mock_validate.return_value = (True, None, {'user': json.dumps({'username': 'analyst1', 'id': '12345'})})
+        
+        from django.test import override_settings
+        with override_settings(SPIN_ANALYSTS=['analyst1']):
+            url = f"/api/spin/requests/?group_id={self.config.group_id}&init_data=mock_data"
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 200)
+            res_data = response.json()
+            self.assertTrue(res_data['success'])
+            self.assertTrue(res_data['is_analyst'])
+            self.assertEqual(len(res_data['requests']), 1)
+            self.assertEqual(res_data['requests'][0]['customer_name'], 'JOHN DOE')
+
+    @patch('core.services.spin_credit.validate_spin_telegram_webapp_init_data')
+    @patch('core.api.views._post_telegram_reply')
+    @patch('core.services.spin_credit.update_spin_request_in_sheet')
+    @patch('core.services.spin_credit.upload_report')
+    def test_spin_form_complete(self, mock_upload, mock_update_sheet, mock_tg_reply, mock_validate):
+        import json
+        mock_validate.return_value = (True, None, {'user': json.dumps({'username': 'analyst1', 'id': '12345'})})
+        mock_upload.side_effect = lambda config, file, type, sender, nat_id: f"https://drive.google.com/{type}"
+        mock_update_sheet.return_value = True
+
+        from django.test import override_settings
+        with override_settings(SPIN_ANALYSTS=['analyst1']):
+            from django.core.files.uploadedfile import SimpleUploadedFile
+            spin_file = SimpleUploadedFile("spin.pdf", b"spin_data", content_type="application/pdf")
+            crb_file = SimpleUploadedFile("crb.pdf", b"crb_data", content_type="application/pdf")
+            
+            payload = {
+                'request_id': str(self.record.id),
+                'group_id': self.config.group_id,
+                'init_data': 'mock_data',
+                'spin_report': spin_file,
+                'crb_report': crb_file,
+            }
+            response = self.client.post("/api/spin/complete/", payload)
+            self.assertEqual(response.status_code, 200)
+            res_data = response.json()
+            self.assertTrue(res_data['success'])
+            
+            # Verify record updated
+            self.record.refresh_from_db()
+            self.assertEqual(self.record.import_status, 'completed')
+            self.assertEqual(self.record.parsed_fields['spin_report_url'], 'https://drive.google.com/spin_report')
+            self.assertEqual(self.record.parsed_fields['crb_report_url'], 'https://drive.google.com/crb_report')
+            self.assertIn('analysis_completed_at', self.record.parsed_fields)
+
+            mock_update_sheet.assert_called_once()
+            mock_tg_reply.assert_called_once()
+
+
+
 

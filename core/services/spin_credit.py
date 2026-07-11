@@ -1042,6 +1042,66 @@ def uploaded_file_names(uploaded_files: list) -> list[str]:
     return names
 
 
+def is_user_spin_analyst(user_payload: dict) -> bool:
+    if not user_payload:
+        return False
+    spin_analysts = getattr(settings, 'SPIN_ANALYSTS', [])
+    if not spin_analysts or '*' in spin_analysts:
+        return True
+    username = str(user_payload.get('username') or '').strip().lower()
+    user_id = str(user_payload.get('id') or '').strip()
+    if username and username in spin_analysts:
+        return True
+    if user_id and user_id in spin_analysts:
+        return True
+    return False
+
+
+def upload_report(group_config, file_obj, file_type: str, sender_name: str, national_id: str) -> str | None:
+    if not file_obj:
+        return None
+    from core.services.order_approval import UploadedFileItem, store_uploaded_files_for_order
+    uploaded = store_uploaded_files_for_order(
+        group_config=group_config,
+        uploaded_files=[UploadedFileItem(file=file_obj, file_type=file_type)],
+        sender=sender_name,
+        received_at=timezone.now(),
+        business_key_value=national_id,
+    )
+    if uploaded.links:
+        return uploaded.links[0]
+    return None
+
+
+def update_spin_request_in_sheet(group_config, record: SpinCreditRequest, updates: dict[str, Any]) -> bool:
+    if not record.row_number:
+        logger.warning("SPIN request %s has no row_number saved, cannot update sheet.", record.pk)
+        return False
+    service = get_sheets_service(
+        sheet_id=group_config.sheet_id,
+        sheet_name=group_config.sheet_name,
+        sheet_schema=None,
+    )
+    if not service.is_available():
+        logger.warning("Google Sheets service unavailable for sheet update.")
+        return False
+    workflow = getattr(group_config, 'workflow', None) or {}
+    try:
+        header_row_number = configured_header_row(workflow)
+        headers = [str(value or '').strip() for value in service._sheet.row_values(header_row_number)]
+        field_headers = configured_field_headers(workflow)
+        for field, value in updates.items():
+            header = field_headers.get(field)
+            if header in headers:
+                col_index = headers.index(header) + 1
+                service._sheet.update_cell(record.row_number, col_index, value)
+        return True
+    except Exception as exc:
+        logger.error("Failed to update SPIN request in sheet: %s", exc, exc_info=True)
+        return False
+
+
+
 
 
 
