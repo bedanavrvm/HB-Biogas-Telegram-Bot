@@ -35,6 +35,13 @@
     return String(value || '').replace(/,/g, '').trim();
   }
 
+  function requestTypeLabel(value) {
+    if (value === 'spin_crb') return 'SPIN/CRB';
+    if (value === 'spin') return 'SPIN';
+    if (value === 'crb') return 'CRB';
+    return '';
+  }
+
   function formValues() {
     const selectedType = form.querySelector('input[name="request_type"]:checked');
     return {
@@ -50,6 +57,16 @@
       code: field('code').value.trim(),
       business_notes: field('business_notes').value.trim()
     };
+  }
+
+  function selectedFiles() {
+    const files = [];
+    form.querySelectorAll('input[type="file"]').forEach(input => {
+      Array.from(input.files || []).forEach(file => {
+        if (file && file.name) files.push({ fieldName: input.name, file });
+      });
+    });
+    return files;
   }
 
   function setBanner(message, type) {
@@ -76,7 +93,7 @@
   function validate(data) {
     const errors = [];
     const invalid = [];
-    if (!['spin', 'crb'].includes(data.request_type)) errors.push('Choose SPIN or CRB.');
+    if (!['spin_crb', 'spin', 'crb'].includes(data.request_type)) errors.push('Choose SPIN/CRB, SPIN, or CRB.');
     if (!data.customer_name) { errors.push('Customer Name is required.'); invalid.push('customer_name'); }
     if (!/^\d{7,8}$/.test(data.national_id)) { errors.push('National ID must be 7 or 8 digits.'); invalid.push('national_id'); }
     if (!normalizePhone(data.primary_phone)) { errors.push('Primary Phone must be a valid Kenyan number.'); invalid.push('primary_phone'); }
@@ -85,7 +102,6 @@
     if (!data.tenor) { errors.push('Tenor is required.'); invalid.push('tenor'); }
     return { errors, invalid };
   }
-
 
   function updateFileSummaries() {
     form.querySelectorAll('input[type="file"]').forEach(input => {
@@ -113,7 +129,7 @@
   function updateSummary() {
     const data = formValues();
     const rows = [
-      ['Type', data.request_type ? data.request_type.toUpperCase() : ''],
+      ['Type', requestTypeLabel(data.request_type)],
       ['Name', data.customer_name || '-'],
       ['National ID', data.national_id || '-'],
       ['Phone', normalizePhone(data.primary_phone) || data.primary_phone || '-'],
@@ -167,6 +183,30 @@
     saveDraft();
   }
 
+  function buildSubmitOptions(data) {
+    const files = selectedFiles();
+    if (!files.length) {
+      return {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          group_id: config.group_id || '',
+          form_token: config.form_token || '',
+          init_data: tg ? tg.initData || '' : '',
+          fields: data
+        })
+      };
+    }
+
+    const payload = new FormData();
+    payload.set('group_id', config.group_id || '');
+    payload.set('form_token', config.form_token || '');
+    payload.set('init_data', tg ? tg.initData || '' : '');
+    Object.entries(data).forEach(([key, value]) => payload.set(key, value || ''));
+    files.forEach(({ fieldName, file }) => payload.append(fieldName, file, file.name));
+    return { method: 'POST', body: payload };
+  }
+
   async function submitForm(event) {
     event.preventDefault();
     setBanner('', '');
@@ -188,15 +228,7 @@
     submitBtn.disabled = true;
     submitBtn.textContent = 'Submitting...';
     try {
-      const payload = new FormData(form);
-      payload.set('group_id', config.group_id || '');
-      payload.set('form_token', config.form_token || '');
-      payload.set('init_data', tg ? tg.initData || '' : '');
-      Object.entries(data).forEach(([key, value]) => payload.set(key, value || ''));
-      const response = await fetch('/api/spin/submit/', {
-        method: 'POST',
-        body: payload
-      });
+      const response = await fetch('/api/spin/submit/', buildSubmitOptions(data));
       const result = await response.json();
       if (!response.ok || !result.success) {
         const message = (result.errors && result.errors[0]) || result.message || 'Submission failed.';
@@ -208,6 +240,7 @@
       setBanner(`Submitted ${result.request_id || ''} for ${result.customer_name || 'customer'}.`, 'success');
       form.reset();
       updateSummary();
+      updateFileSummaries();
       if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
     } catch (_) {
       setBanner('Network error. Check your connection and submit again.', 'error');
@@ -226,5 +259,3 @@
   updateSummary();
   updateFileSummaries();
 }());
-
-

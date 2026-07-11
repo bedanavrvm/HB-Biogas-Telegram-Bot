@@ -554,11 +554,27 @@ def spin_form_submit(request):
             return JsonResponse({'success': False, 'message': 'Invalid request body.'}, status=400)
         fields = payload.get('fields') or payload
     else:
-        payload = request.POST.dict()
+        try:
+            payload = request.POST.dict()
+            files_map = request.FILES
+        except Exception as exc:
+            from django.http.multipartparser import MultiPartParserError
+
+            if isinstance(exc, MultiPartParserError):
+                return JsonResponse(
+                    {
+                        'success': False,
+                        'status': 'upload_error',
+                        'message': 'Telegram could not upload those files. Submit without files first, or retry with fewer/smaller files.',
+                        'errors': ['Telegram could not upload those files. Submit without files first, or retry with fewer/smaller files.'],
+                    },
+                    status=400,
+                )
+            raise
         fields = payload
         from core.services.spin_credit import collect_spin_uploaded_files, validate_spin_uploaded_files
 
-        upload_errors = validate_spin_uploaded_files(request.FILES)
+        upload_errors = validate_spin_uploaded_files(files_map)
         if upload_errors:
             return JsonResponse(
                 {
@@ -569,7 +585,7 @@ def spin_form_submit(request):
                 },
                 status=400,
             )
-        uploaded_files = collect_spin_uploaded_files(request.FILES)
+        uploaded_files = collect_spin_uploaded_files(files_map)
 
     group_id, group_config, auth_payload, error_response_obj = _spin_webapp_context(payload)
     if error_response_obj:
@@ -1491,7 +1507,7 @@ def _process_spin_form_command(
         'reply_text': (
             'SPIN/CRB request form is ready.\n'
             f'{launch_note}\n\n'
-            'Use Request Type = SPIN or CRB. Credit analysis is tracked later as the outcome/status.'
+            'Use Request Type = SPIN/CRB for the normal credit analysis request. Choose only SPIN or only CRB for rare single-report requests.'
         ),
         'reply_markup': {
             'inline_keyboard': [[{'text': button_text, 'url': launch_url}]]
@@ -2898,6 +2914,8 @@ def _process_portal_command(
             ]]
         },
     }
+
+
 
 
 

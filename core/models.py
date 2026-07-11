@@ -375,6 +375,7 @@ class SpinCreditRequest(models.Model):
     """Parsed SPIN / CRB request imported from WhatsApp exports or Mini App forms."""
 
     REQUEST_TYPE_CHOICES = [
+        ('spin_crb', 'SPIN/CRB'),
         ('spin', 'SPIN'),
         ('crb', 'CRB Report'),
     ]
@@ -996,4 +997,5 @@ class RequisitionTemplate(models.Model):
 
     def __str__(self):
         return f"{self.name} ({'Active' if self.is_active else 'Inactive'})"
+
 

@@ -45,7 +45,7 @@ Kindly share a spin and credit analysis for Eunice Njeri kamande a new customer 
         parsed = parse_spin_entry(self.entry(text))
 
         self.assertIsNotNone(parsed)
-        self.assertEqual(parsed.request_type, 'spin')
+        self.assertEqual(parsed.request_type, 'spin_crb')
         self.assertEqual(parsed.customer_name, 'EUNICE NJERI KAMANDE')
         self.assertEqual(parsed.national_id, '25111100')
         self.assertEqual(parsed.primary_phone, '254721111379')
@@ -63,7 +63,7 @@ New client at thika has rental units requesting ksh 90,000 to pay in 6 months.""
         parsed = parse_spin_entry(self.entry(text))
 
         self.assertIsNotNone(parsed)
-        self.assertEqual(parsed.request_type, 'spin')
+        self.assertEqual(parsed.request_type, 'spin_crb')
         self.assertEqual(parsed.customer_name, 'GLADLY MWIHAKI KAMAU')
         self.assertEqual(parsed.raw_id_text, '22026930-379124')
         self.assertEqual(parsed.national_id, '22026930')
@@ -148,7 +148,7 @@ class SpinCreditMiniAppTestCase(TestCase):
         payload = {
             'group_id': '-100spinform',
             'fields': {
-                'request_type': 'crb',
+                'request_type': 'spin_crb',
                 'customer_name': 'Mary Wanjiku',
                 'national_id': '12345678',
                 'primary_phone': '0712345678',
@@ -171,7 +171,7 @@ class SpinCreditMiniAppTestCase(TestCase):
         body = response.json()
         self.assertTrue(body['success'])
         record = SpinCreditRequest.objects.get()
-        self.assertEqual(record.request_type, 'crb')
+        self.assertEqual(record.request_type, 'spin_crb')
         self.assertEqual(record.primary_phone, '254712345678')
         self.assertEqual(record.row_number, 5)
         mock_append.assert_called_once()
@@ -190,7 +190,7 @@ class SpinCreditMiniAppTestCase(TestCase):
         from core.services.group_config import GroupRegistry
         GroupRegistry._instance = None
         response = self.client.post('/api/spin/submit/', data={
-            'group_id': '-100spinmedia', 'request_type': 'spin', 'customer_name': 'Peter Mwangi', 'national_id': '12345678',
+            'group_id': '-100spinmedia', 'request_type': 'spin_crb', 'customer_name': 'Peter Mwangi', 'national_id': '12345678',
             'primary_phone': '0712345678', 'requested_amount': '54000', 'tenor': '12 months',
             'supporting_docs': SimpleUploadedFile('laf.pdf', b'%PDF-1.4 test', content_type='application/pdf'),
         })
@@ -203,3 +203,4 @@ class SpinCreditMiniAppTestCase(TestCase):
         self.assertEqual(record.parsed_fields['media_urls'], 'https://drive.google.com/file/d/laf-doc/view')
         mock_append.assert_called_once()
         mock_reply.assert_called_once()
+

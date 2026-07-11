@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 SPIN_WORKFLOW_TYPE = 'spin_credit_analysis'
 SPIN_FORM_TOKEN_SALT = 'spin-crb-form'
-SPIN_FORM_REQUEST_TYPES = {'spin', 'crb'}
+SPIN_FORM_REQUEST_TYPES = {'spin_crb', 'spin', 'crb'}
 SPIN_UPLOAD_FIELDS = [
     ('id_photos', 'id_photo'),
     ('supporting_docs', 'laf_doc'),
@@ -50,7 +50,7 @@ DEFAULT_FIELD_HEADERS = {
     'requested_amount': 'Requested Amount',
     'tenor': 'Tenor',
     'business_notes': 'Business / Employment Notes',
-    'code': 'Code',
+    'code': 'MPESA Statement Code',
     'attachment_names': 'Attachments',
     'media_urls': 'Media URLs',
     'raw_message': 'Raw Message',
@@ -64,11 +64,13 @@ DEFAULT_FIELD_HEADERS = {
 }
 
 REQUEST_TYPE_LABELS = {
+    'spin_crb': 'SPIN/CRB',
     'spin': 'SPIN',
     'crb': 'CRB Report',
 }
 
 REQUIRED_FIELDS = {
+    'spin_crb': ['customer_name', 'national_id', 'primary_phone', 'requested_amount', 'tenor'],
     'spin': ['customer_name', 'national_id', 'primary_phone', 'requested_amount', 'tenor'],
     'crb': ['customer_name', 'national_id', 'primary_phone', 'requested_amount', 'tenor'],
 }
@@ -287,11 +289,13 @@ def classify_request(text: str) -> str | None:
     if re.search(r'\bpost this payment|post this payments|reverse this transaction|create downpayment|zero rate\b', low):
         return None
     if re.search(r'\bkindly share\s+(a\s+)?spin\s+and\s+credit\s+analysis\s+for\b', low):
-        return 'spin'
+        return 'spin_crb'
+    if re.search(r'\b(?:kindly\s+)?share\s+(?:a\s+)?(?:spin\s*/\s*crb|spin\s+(?:and|&)\s+crb|spin\s+crb)\b', low):
+        return 'spin_crb'
     if re.search(r'\bkindly share\s+spin\s+for\b', low):
         return 'spin'
     if re.search(r'\bkindly share\s+(the\s+)?analysis\s+for\b', low):
-        return 'spin'
+        return 'spin_crb'
     if re.search(r'\bkindly share\s+crb\s+report\b|\bshare\s+crb\s+report\b|\bpls share crb\b', low):
         return 'crb'
     return None
@@ -326,10 +330,12 @@ def extract_attachment_names(text: str) -> list[str]:
 def extract_customer_name(text: str, request_type: str) -> str:
     single = normalize_text(strip_attachment_lines(text))
     patterns = []
-    if request_type == 'spin':
+    if request_type == 'spin_crb':
         patterns.append(r'spin\s+and\s+credit\s+analysis\s+for\s+(?P<name>.+?)(?:\s+a\s+(?:new|existing)\s+(?:customer|client)|\s+an\s+(?:new|existing)\s+(?:customer|client)|\s+requesting|\s+id\b|\s+phone\b|$)')
-        patterns.append(r'share\s+spin\s+for\s+(?P<name>.+?)(?:\s+id\b|\s+phn\b|\s+phone\b|\s+new\b|\s+existing\b|$)')
+        patterns.append(r'(?:spin\s*/\s*crb|spin\s+(?:and|&)\s+crb|spin\s+crb)\s+(?:request\s+)?(?:for\s+)?(?P<name>.+?)(?:\s+a\s+(?:new|existing)\s+(?:customer|client)|\s+an\s+(?:new|existing)\s+(?:customer|client)|\s+requesting|\s+id\b|\s+phone\b|$)')
         patterns.append(r'share\s+(?:the\s+)?analysis\s+for\s+(?P<name>.+?)(?:\s+phone\b|\s+id\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
+    elif request_type == 'spin':
+        patterns.append(r'share\s+spin\s+for\s+(?P<name>.+?)(?:\s+id\b|\s+phn\b|\s+phone\b|\s+new\b|\s+existing\b|$)')
     elif request_type == 'crb':
         patterns.append(r'share\s+crb\s+report\s+(?:of|for)?\s*(?P<name>.+?)(?:\s+he\s+is|\s+she\s+is|\s+they\s+are|\s+requesting|\s+id\b|\s+phone\b|$)')
     for pattern in patterns:
@@ -920,12 +926,10 @@ def process_spin_form_submission(
 
 def validate_spin_form_fields(fields: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     data = {key: str(value or '').strip() for key, value in (fields or {}).items()}
-    request_type = data.get('request_type', '').lower().replace(' report', '')
-    if request_type == 'crb report':
-        request_type = 'crb'
+    request_type = normalize_spin_request_type(data.get('request_type', ''))
     errors = []
     if request_type not in SPIN_FORM_REQUEST_TYPES:
-        errors.append('Request Type must be SPIN or CRB.')
+        errors.append('Request Type must be SPIN/CRB, SPIN, or CRB.')
 
     name = clean_name(data.get('customer_name', ''))
     if not name:
@@ -1025,6 +1029,8 @@ def uploaded_file_names(uploaded_files: list) -> list[str]:
         if name:
             names.append(name)
     return names
+
+
 
 
 

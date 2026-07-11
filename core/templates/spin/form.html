@@ -7,7 +7,7 @@
   <title>SPIN/CRB Request</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=3">
-  <link rel="stylesheet" href="{% static 'miniapp/spin_form.css' %}?v=2">
+  <link rel="stylesheet" href="{% static 'miniapp/spin_form.css' %}?v=3">
 </head>
 <body>
 <main class="spin-shell">
@@ -29,7 +29,11 @@
       <h2>Request</h2>
       <div class="segmented" role="radiogroup" aria-label="Request type">
         <label>
-          <input type="radio" name="request_type" value="spin" checked>
+          <input type="radio" name="request_type" value="spin_crb" checked>
+          <span>SPIN/CRB</span>
+        </label>
+        <label>
+          <input type="radio" name="request_type" value="spin">
           <span>SPIN</span>
         </label>
         <label>
@@ -37,7 +41,7 @@
           <span>CRB</span>
         </label>
       </div>
-      <p class="helper">Credit analysis is the outcome/status after this request is handled.</p>
+      <p class="helper">SPIN/CRB is the usual credit analysis request. Choose only SPIN or only CRB for the rare single-report request.</p>
     </section>
 
     <section class="form-section grid-2">
@@ -91,8 +95,8 @@
         </datalist>
       </label>
       <label class="field">
-        <span>Code</span>
-        <input name="code" placeholder="Optional">
+        <span>MPESA Statement Code</span>
+        <input name="code" placeholder="Optional MPESA statement code">
       </label>
       <label class="field wide">
         <span>Business / Employment Notes</span>
@@ -133,6 +137,8 @@
 </main>
 <script id="spin-form-data" type="application/json">{{ form_json|safe }}</script>
 <script src="{% static 'miniapp/telegram.js' %}"></script>
-<script src="{% static 'miniapp/spin_form.js' %}?v=2"></script>
+<script src="{% static 'miniapp/spin_form.js' %}?v=3"></script>
 </body>
 </html>
+
+
