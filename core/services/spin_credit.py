@@ -1,4 +1,4 @@
-﻿"""SPIN / CRB / credit-analysis WhatsApp export workflow."""
+"""SPIN / CRB / credit-analysis WhatsApp export workflow."""
 from __future__ import annotations
 
 import base64
@@ -922,6 +922,17 @@ def process_spin_form_submission(
         'files_stored': len(media_links),
         'media_urls': media_links,
     }
+
+
+def normalize_spin_request_type(value: str) -> str:
+    val = str(value or '').strip().lower()
+    if val in {'spin_crb', 'spin/crb', 'spin-crb', 'both'}:
+        return 'spin_crb'
+    if val in {'spin', 'only_spin'}:
+        return 'spin'
+    if val in {'crb', 'crb_report', 'crb report', 'only_crb'}:
+        return 'crb'
+    return val
 
 
 def validate_spin_form_fields(fields: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
