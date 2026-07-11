@@ -20,6 +20,12 @@
 
   // Dashboard & Modal Elements
   const tabDashboardBtn = document.getElementById('tab-dashboard-btn');
+  const dashboardTabBadge = document.getElementById('dashboardTabBadge');
+  const dashboardCounts = document.getElementById('dashboardCounts');
+  const cntAll = document.getElementById('cnt-all');
+  const cntReview = document.getElementById('cnt-review');
+  const cntCompleted = document.getElementById('cnt-completed');
+  const cntFailed = document.getElementById('cnt-failed');
   const requestsList = document.getElementById('requestsList');
   const dashboardLoading = document.getElementById('dashboardLoading');
   const dashboardSearch = document.getElementById('dashboardSearch');
@@ -434,6 +440,26 @@
       requests = result.requests || [];
       isAnalyst = !!result.is_analyst;
 
+      // Update summary count values
+      const countAllVal = requests.length;
+      const countReviewVal = requests.filter(r => r.import_status === 'review_needed').length;
+      const countCompletedVal = requests.filter(r => r.import_status === 'completed').length;
+      const countFailedVal = requests.filter(r => r.import_status === 'failed').length;
+
+      cntAll.textContent = countAllVal;
+      cntReview.textContent = countReviewVal;
+      cntCompleted.textContent = countCompletedVal;
+      cntFailed.textContent = countFailedVal;
+      dashboardCounts.style.display = 'grid';
+
+      // Update dashboard tab badge
+      if (countReviewVal > 0) {
+        dashboardTabBadge.textContent = countReviewVal;
+        dashboardTabBadge.style.display = 'inline-flex';
+      } else {
+        dashboardTabBadge.style.display = 'none';
+      }
+
       // Show/hide analyst group filters
       if (isAnalyst) {
         groupFilterLabel.style.display = 'inline-flex';
@@ -554,7 +580,30 @@
 
   // Hook search & filters events
   dashboardSearch.addEventListener('input', renderRequests);
-  statusFilter.addEventListener('change', renderRequests);
+  
+  statusFilter.addEventListener('change', () => {
+    // Sync active class on count cards
+    const val = statusFilter.value;
+    document.querySelectorAll('.count-card').forEach(card => {
+      if (card.dataset.filter === val) {
+        card.classList.add('active');
+      } else {
+        card.classList.remove('active');
+      }
+    });
+    renderRequests();
+  });
+
+  // Count cards click handler
+  document.querySelectorAll('.count-card').forEach(card => {
+    card.addEventListener('click', () => {
+      document.querySelectorAll('.count-card').forEach(c => c.classList.remove('active'));
+      card.classList.add('active');
+      statusFilter.value = card.dataset.filter;
+      renderRequests();
+    });
+  });
+
   groupFilterCheckbox.addEventListener('change', fetchRequests);
 
   // --- Initial Setup ---

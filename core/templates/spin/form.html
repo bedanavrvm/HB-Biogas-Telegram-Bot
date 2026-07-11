@@ -29,6 +29,7 @@
     <button class="tab-btn" data-tab="dashboard" aria-selected="false" role="tab" id="tab-dashboard-btn">
       <i data-lucide="list"></i>
       Dashboard
+      <span class="tab-badge" id="dashboardTabBadge" style="display:none">0</span>
     </button>
   </nav>
 
@@ -153,6 +154,30 @@
 
   <!-- Tab Page 2: Dashboard -->
   <div id="tab-dashboard" class="tab-page">
+    <!-- Summary Count Cards -->
+    <div id="dashboardCounts" class="count-grid" style="display:none">
+      <div class="count-card active" data-filter="all" id="card-all-requests">
+        <i data-lucide="list"></i>
+        <div class="count-num" id="cnt-all">-</div>
+        <div class="count-label">Total Requests</div>
+      </div>
+      <div class="count-card warning" data-filter="review_needed" id="card-review-requests">
+        <i data-lucide="clock"></i>
+        <div class="count-num" id="cnt-review">-</div>
+        <div class="count-label">Awaiting Review</div>
+      </div>
+      <div class="count-card success" data-filter="completed" id="card-completed-requests">
+        <i data-lucide="check-circle"></i>
+        <div class="count-num" id="cnt-completed">-</div>
+        <div class="count-label">Completed</div>
+      </div>
+      <div class="count-card danger" data-filter="failed" id="card-failed-requests">
+        <i data-lucide="alert-triangle"></i>
+        <div class="count-num" id="cnt-failed">-</div>
+        <div class="count-label">Failed</div>
+      </div>
+    </div>
+
     <!-- Filter bar -->
     <div class="dashboard-filters">
       <div class="search-input-wrap">

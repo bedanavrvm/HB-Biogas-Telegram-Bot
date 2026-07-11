@@ -549,15 +549,17 @@ button:disabled { opacity: 0.65; }
   overflow-y: auto;
 }
 
-.modal-header {
+.modal-card .modal-header {
   display: flex;
+  flex-direction: row;
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid var(--spin-line);
   padding-bottom: 10px;
+  margin: 0;
 }
 
-.modal-header h3 {
+.modal-card .modal-header h3 {
   margin: 0;
   font-size: 16px;
   font-weight: 750;
@@ -648,4 +650,94 @@ button:disabled { opacity: 0.65; }
     max-height: 80vh;
   }
 }
+
+
+/* --- Dashboard Summary Count Cards Styles --- */
+
+.tab-btn {
+  position: relative;
+}
+
+.tab-badge {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 7.5px;
+  background: var(--spin-danger);
+  color: #ffffff;
+  font-size: 8.5px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.count-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.count-card {
+  background: var(--spin-surface);
+  border: 1px solid var(--spin-line);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+  user-select: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.count-card:active {
+  transform: scale(0.97);
+}
+
+.count-card.active {
+  border-color: var(--spin-primary);
+  box-shadow: 0 0 0 1.5px rgba(36, 129, 204, 0.15);
+}
+
+.count-card [data-lucide],
+.count-card svg {
+  width: 20px;
+  height: 20px;
+  stroke: var(--spin-primary);
+  stroke-width: 2.5;
+  fill: none;
+}
+
+.count-card.success [data-lucide],
+.count-card.success svg { stroke: var(--spin-ok); }
+.count-card.warning [data-lucide],
+.count-card.warning svg { stroke: #b25e00; }
+.count-card.danger [data-lucide],
+.count-card.danger svg { stroke: var(--spin-danger); }
+
+.count-card .count-num {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--spin-primary);
+  line-height: 1;
+}
+.count-card.success .count-num { color: var(--spin-ok); }
+.count-card.warning .count-num { color: #b25e00; }
+.count-card.danger .count-num { color: var(--spin-danger); }
+
+.count-card .count-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--spin-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 
