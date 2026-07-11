@@ -205,6 +205,7 @@
     });
     return { errors, invalid };
   }
+
   function updateSummary() {
     const data = formValues();
     const rows = [
@@ -415,8 +416,8 @@
       }
 
       return `
-        <article class="request-card collapsed" id="card-${escapeHtml(r.id)}">
-          <button type="button" class="card-toggle" data-id="${escapeHtml(r.id)}" aria-expanded="false">
+        <details class="request-card" id="card-${escapeHtml(r.id)}">
+          <summary class="card-toggle">
             <span class="card-title-group">
               <span class="card-customer-name">${escapeHtml(customerName)}</span>
               <span class="card-summary-meta">${escapeHtml(r.national_id || 'No ID')} · ${escapeHtml(r.primary_phone || 'No phone')} · KES ${formatAmount(r.requested_amount)}</span>
@@ -426,8 +427,8 @@
               <span class="badge status-${statusClass}">${getStatusLabel(r.import_status)}</span>
               <i data-lucide="chevron-down" class="card-chevron"></i>
             </span>
-          </button>
-          <div class="card-body" hidden>
+          </summary>
+          <div class="card-body">
             <div class="card-field">
               <label>Request ID</label>
               <span>${escapeHtml(r.request_id)}</span>
@@ -472,24 +473,11 @@
             ${reports}
             ${actions}
           </div>
-        </article>
+        </details>
       `;
     }).join('');
 
     if (window.lucide) window.lucide.createIcons();
-
-    requestsList.querySelectorAll('.card-toggle').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const card = btn.closest('.request-card');
-        const body = card ? card.querySelector('.card-body') : null;
-        if (!card || !body) return;
-        const expanded = btn.getAttribute('aria-expanded') === 'true';
-        btn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
-        body.hidden = expanded;
-        card.classList.toggle('collapsed', expanded);
-        card.classList.toggle('expanded', !expanded);
-      });
-    });
 
     requestsList.querySelectorAll('.complete-action-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -700,6 +688,8 @@
   
   if (window.lucide) window.lucide.createIcons();
 }());
+
+
 
 
 

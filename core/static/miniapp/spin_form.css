@@ -1057,3 +1057,29 @@ button:focus-visible,
     flex-direction: column;
   }
 }
+
+/* --- Native details/summary dropdown cards --- */
+.request-card > summary.card-toggle {
+  list-style: none;
+}
+
+.request-card > summary.card-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.request-card[open] .card-toggle {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--spin-line);
+}
+
+.request-card[open] .card-body {
+  padding-top: 2px;
+}
+
+.request-card[open] .card-chevron {
+  transform: rotate(180deg);
+}
+
+.request-card:not([open]) .card-body {
+  display: none;
+}
