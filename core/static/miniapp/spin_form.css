@@ -14,7 +14,7 @@
 
 * { box-sizing: border-box; }
 
-body {
+html, body {
   margin: 0;
   background: var(--spin-bg);
   color: var(--spin-text);
@@ -690,6 +690,19 @@ button:disabled { opacity: 0.65; }
   grid-template-columns: 1fr 1fr;
   gap: 10px;
   margin-bottom: 18px;
+}
+
+#card-all-requests {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 500px) {
+  .count-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  #card-all-requests {
+    grid-column: auto;
+  }
 }
 
 .count-card {

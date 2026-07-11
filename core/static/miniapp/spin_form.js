@@ -289,9 +289,7 @@
 
   function getStatusLabel(status) {
     if (status === 'completed') return 'Completed';
-    if (status === 'review_needed') return 'Awaiting Review';
-    if (status === 'failed') return 'Failed';
-    if (status === 'imported') return 'Imported';
+    if (status === 'review_needed' || status === 'imported') return 'Awaiting Review';
     return status;
   }
 
@@ -300,7 +298,13 @@
     const status = statusFilter.value;
 
     const filtered = requests.filter(r => {
-      if (status !== 'all' && r.import_status !== status) return false;
+      if (status !== 'all') {
+        if (status === 'review_needed') {
+          if (r.import_status !== 'review_needed' && r.import_status !== 'imported') return false;
+        } else if (r.import_status !== status) {
+          return false;
+        }
+      }
       if (keyword) {
         const name = (r.customer_name || '').toLowerCase();
         const id = (r.national_id || '').toLowerCase();
@@ -364,7 +368,7 @@
               <span class="card-id">${escapeHtml(r.request_id)}</span>
               <span class="card-date">${escapeHtml(r.request_datetime || 'Date not set')}</span>
             </div>
-            <span class="badge status-${r.import_status}">${getStatusLabel(r.import_status)}</span>
+            <span class="badge status-${r.import_status === 'imported' ? 'review_needed' : r.import_status}">${getStatusLabel(r.import_status)}</span>
           </header>
           <div class="card-body">
             <div class="card-field">
@@ -437,19 +441,17 @@
         if (window.lucide) window.lucide.createIcons();
         return;
       }
-      requests = result.requests || [];
+      requests = (result.requests || []).filter(r => r.import_status !== 'failed');
       isAnalyst = !!result.is_analyst;
 
       // Update summary count values
       const countAllVal = requests.length;
-      const countReviewVal = requests.filter(r => r.import_status === 'review_needed').length;
+      const countReviewVal = requests.filter(r => r.import_status === 'review_needed' || r.import_status === 'imported').length;
       const countCompletedVal = requests.filter(r => r.import_status === 'completed').length;
-      const countFailedVal = requests.filter(r => r.import_status === 'failed').length;
 
       cntAll.textContent = countAllVal;
       cntReview.textContent = countReviewVal;
       cntCompleted.textContent = countCompletedVal;
-      cntFailed.textContent = countFailedVal;
       dashboardCounts.style.display = 'grid';
 
       // Update dashboard tab badge
