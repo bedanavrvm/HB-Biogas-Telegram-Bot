@@ -520,11 +520,13 @@
     completeForm.reset();
     setBanner('', '', modalBanner);
     completeModal.hidden = false;
+    completeModal.classList.remove('hidden');
     if (window.lucide) window.lucide.createIcons();
   }
 
   function closeCompleteModal() {
     completeModal.hidden = true;
+    completeModal.classList.add('hidden');
     completeForm.reset();
     setBanner('', '', modalBanner);
   }

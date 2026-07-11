@@ -7,8 +7,8 @@
   <title>SPIN/CRB Request</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
-  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=3">
-  <link rel="stylesheet" href="{% static 'miniapp/spin_form.css' %}?v=4">
+  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=99">
+  <link rel="stylesheet" href="{% static 'miniapp/spin_form.css' %}?v=99">
 </head>
 <body>
 <main class="spin-shell">
@@ -209,7 +209,7 @@
 </main>
 
 <!-- Complete Request Modal (Analyst Only) -->
-<div id="completeModal" class="modal-overlay" hidden>
+<div id="completeModal" class="modal-overlay hidden" hidden>
   <div class="modal-card">
     <header class="modal-header">
       <h3>Complete Request Analysis</h3>
@@ -249,7 +249,7 @@
 
 <script id="spin-form-data" type="application/json">{{ form_json|safe }}</script>
 <script src="{% static 'miniapp/telegram.js' %}"></script>
-<script src="{% static 'miniapp/spin_form.js' %}?v=4"></script>
+<script src="{% static 'miniapp/spin_form.js' %}?v=99"></script>
 </body>
 </html>
 
