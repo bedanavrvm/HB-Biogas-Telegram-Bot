@@ -1,4 +1,4 @@
-﻿import json
+import json
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -203,4 +203,66 @@ class SpinCreditMiniAppTestCase(TestCase):
         self.assertEqual(record.parsed_fields['media_urls'], 'https://drive.google.com/file/d/laf-doc/view')
         mock_append.assert_called_once()
         mock_reply.assert_called_once()
+
+
+class SpinCreditSheetSyncTestCase(TestCase):
+    @patch('core.services.spin_credit.get_sheets_service')
+    def test_append_spin_requests_to_sheet_serializes_decimal(self, mock_get_sheets_service):
+        from decimal import Decimal
+        from unittest.mock import MagicMock
+        from core.services.spin_credit import append_spin_requests_to_sheet
+
+        # Create a mock sheet service and sheet
+        mock_service = MagicMock()
+        mock_sheet = MagicMock()
+        mock_service.is_available.return_value = True
+        mock_service._sheet = mock_sheet
+        mock_get_sheets_service.return_value = mock_service
+
+        from core.services.spin_credit import DEFAULT_FIELD_HEADERS
+        # Mock sheet row values (headers)
+        mock_sheet.row_values.return_value = list(DEFAULT_FIELD_HEADERS.values())
+        
+        # Create a config
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100spin_test',
+            display_name='Nakuru SPIN Requests',
+            sheet_id='sheet-id',
+            sheet_name='SPIN Requests',
+            enabled=True,
+            workflow={
+                'type': 'spin_credit_analysis',
+                'header_row': 1,
+            }
+        )
+
+        # Create a record with a Decimal amount
+        record = SpinCreditRequest.objects.create(
+            group_id='-100spin_test',
+            request_type='spin',
+            customer_name='TEST FARMER',
+            requested_amount=Decimal('25000.50'),
+        )
+
+        # Call append_spin_requests_to_sheet
+        mock_sheet.append_rows.return_value = {
+            'updates': {'updatedRange': 'Sheet1!A2:C2'}
+        }
+        result = append_spin_requests_to_sheet(config, [record])
+
+        # Verify sheets service was used
+        self.assertTrue(result['success'])
+        mock_sheet.append_rows.assert_called_once()
+        args, kwargs = mock_sheet.append_rows.call_args
+        
+        # Check that the list of rows does not contain a Decimal object
+        rows = args[0]
+        self.assertEqual(len(rows), 1)
+        customer_name_idx = list(DEFAULT_FIELD_HEADERS.keys()).index('customer_name')
+        requested_amount_idx = list(DEFAULT_FIELD_HEADERS.keys()).index('requested_amount')
+        self.assertEqual(rows[0][customer_name_idx], 'TEST FARMER')
+        self.assertEqual(rows[0][requested_amount_idx], 25000.50)
+        self.assertIsInstance(rows[0][requested_amount_idx], float)
+
+
 

@@ -618,7 +618,7 @@ def sheet_values_for(record: SpinCreditRequest) -> dict[str, Any]:
         'secondary_phone': record.secondary_phone,
         'customer_type': record.customer_type,
         'loan_product': record.loan_product,
-        'requested_amount': record.requested_amount if record.requested_amount is not None else '',
+        'requested_amount': float(record.requested_amount) if record.requested_amount is not None else '',
         'tenor': record.tenor,
         'business_notes': record.business_notes,
         'code': record.code,
