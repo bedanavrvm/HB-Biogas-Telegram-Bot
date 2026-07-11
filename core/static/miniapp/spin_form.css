@@ -777,3 +777,283 @@ button:disabled { opacity: 0.65; }
 }
 
 
+
+/* --- Telegram native theme, contrast, and readability refinements --- */
+:root {
+  --spin-link: var(--tg-theme-link-color, var(--spin-primary));
+  --spin-subtitle: var(--tg-theme-subtitle-text-color, var(--spin-muted));
+  --spin-accent-text: var(--tg-theme-accent-text-color, var(--spin-primary));
+  --spin-section: var(--tg-theme-section-bg-color, var(--spin-surface));
+  --spin-warning: #8a4b00;
+  --spin-warning-bg: #fff4d6;
+}
+
+body.tg-dark {
+  --spin-line: rgba(255, 255, 255, 0.16);
+  --spin-danger: var(--tg-theme-destructive-text-color, #ff8a80);
+  --spin-danger-bg: rgba(255, 138, 128, 0.14);
+  --spin-ok: #7ee2a8;
+  --spin-ok-bg: rgba(126, 226, 168, 0.13);
+  --spin-warning: #ffd166;
+  --spin-warning-bg: rgba(255, 209, 102, 0.14);
+}
+
+body.tg-light {
+  --spin-danger: var(--tg-theme-destructive-text-color, #b42318);
+}
+
+.form-section,
+.review-section,
+.request-card,
+.modal-card,
+.count-card {
+  background: var(--spin-section);
+}
+
+.spin-header,
+.actions {
+  background: var(--spin-bg);
+}
+
+.actions {
+  background: var(--spin-bg);
+  border-top: 1px solid var(--spin-line);
+}
+
+.status-banner {
+  position: sticky;
+  top: 58px;
+  z-index: 40;
+  border-radius: 8px;
+  line-height: 1.35;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.status-banner strong {
+  display: block;
+  margin-bottom: 4px;
+  color: inherit;
+}
+
+.status-banner ul {
+  margin: 4px 0 0 18px;
+  padding: 0;
+}
+
+.status-banner li + li {
+  margin-top: 3px;
+}
+
+.status-banner.error {
+  border-color: var(--spin-danger);
+  border-left: 4px solid var(--spin-danger);
+  background: var(--spin-danger-bg);
+  color: var(--spin-danger);
+}
+
+.status-banner.success {
+  border-color: var(--spin-ok);
+  border-left: 4px solid var(--spin-ok);
+  background: var(--spin-ok-bg);
+  color: var(--spin-ok);
+}
+
+input,
+select,
+textarea,
+.search-input-wrap input {
+  background: var(--spin-bg);
+  color: var(--spin-text);
+  caret-color: var(--spin-primary);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--spin-muted);
+  opacity: 0.85;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+button:focus-visible,
+.checkbox-label input:focus-visible + span {
+  outline: 2px solid var(--spin-primary);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.field.invalid input,
+.field.invalid select,
+.field.invalid textarea {
+  border-color: var(--spin-danger);
+  background: var(--spin-danger-bg);
+}
+
+.field-error {
+  display: none;
+  color: var(--spin-danger);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.field.invalid .field-error {
+  display: block;
+}
+
+.group-filter-block {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: min(100%, 260px);
+}
+
+.group-filter-block small {
+  color: var(--spin-muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.search-input-wrap input {
+  font-weight: 650;
+}
+
+.request-card {
+  gap: 8px;
+}
+
+.card-header {
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.card-customer-name {
+  color: var(--spin-text);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.card-id {
+  color: var(--spin-muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.card-date {
+  color: var(--spin-subtitle);
+}
+
+.card-link {
+  color: var(--spin-link);
+}
+
+.badge.status-review_needed,
+.badge.status-imported {
+  background: var(--spin-warning-bg);
+  color: var(--spin-warning);
+}
+
+.badge.status-completed {
+  background: var(--spin-ok-bg);
+  color: var(--spin-ok);
+}
+
+.badge.status-failed {
+  background: var(--spin-danger-bg);
+  color: var(--spin-danger);
+}
+
+.count-card.warning [data-lucide],
+.count-card.warning svg { stroke: var(--spin-warning); }
+.count-card.warning .count-num { color: var(--spin-warning); }
+
+@media (max-width: 420px) {
+  .spin-tab-bar .tab-btn {
+    flex: 1;
+    justify-content: center;
+    padding-inline: 8px;
+  }
+
+  .card-header {
+    flex-direction: column;
+  }
+
+  .card-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- Collapsible dashboard request cards --- */
+.card-toggle {
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--spin-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.card-toggle:focus-visible {
+  outline: 2px solid var(--spin-primary);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+.card-header-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.card-summary-meta {
+  color: var(--spin-muted);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.card-chevron {
+  width: 18px;
+  height: 18px;
+  color: var(--spin-muted);
+  transition: transform 0.16s ease;
+}
+
+.request-card.expanded .card-chevron {
+  transform: rotate(180deg);
+}
+
+.request-card.collapsed {
+  padding-block: 12px;
+}
+
+.request-card.expanded .card-toggle {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--spin-line);
+}
+
+.request-card.expanded .card-body {
+  padding-top: 2px;
+}
+
+.card-link.muted {
+  color: var(--spin-muted);
+}
+
+@media (max-width: 420px) {
+  .card-header-right {
+    align-items: flex-end;
+    flex-direction: column;
+  }
+}

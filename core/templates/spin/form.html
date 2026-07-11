@@ -1,4 +1,4 @@
-{% load static %}
+﻿{% load static %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -8,7 +8,7 @@
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=99">
-  <link rel="stylesheet" href="{% static 'miniapp/spin_form.css' %}?v=99">
+  <link rel="stylesheet" href="{% static 'miniapp/spin_form.css' %}?v=100">
 </head>
 <body>
 <main class="spin-shell">
@@ -33,7 +33,7 @@
     </button>
   </nav>
 
-  <div id="statusBanner" class="status-banner" role="status" aria-live="polite" hidden></div>
+  <div id="statusBanner" class="status-banner" role="alert" aria-live="assertive" hidden></div>
 
   <!-- Tab Page 1: New Request Form -->
   <div id="tab-new-request" class="tab-page active">
@@ -177,7 +177,7 @@
     <div class="dashboard-filters">
       <div class="search-input-wrap">
         <i data-lucide="search" class="search-icon"></i>
-        <input type="text" id="dashboardSearch" placeholder="Search by name, ID, or phone...">
+        <input type="search" id="dashboardSearch" placeholder="Search customer name first, ID, or phone..." aria-label="Search requests by customer name, national ID, phone, or request ID">
       </div>
       <div class="filter-controls">
         <select id="statusFilter">
@@ -185,10 +185,13 @@
           <option value="review_needed">Awaiting Review</option>
           <option value="completed">Completed</option>
         </select>
-        <label id="groupFilterLabel" class="checkbox-label" style="display:none">
-          <input type="checkbox" id="groupFilterCheckbox">
-          <span>Current group only</span>
-        </label>
+        <div id="groupFilterLabel" class="group-filter-block" style="display:none">
+          <label class="checkbox-label" title="For analysts: show only requests submitted from this Telegram group instead of all SPIN/CRB groups.">
+            <input type="checkbox" id="groupFilterCheckbox">
+            <span>Current group only</span>
+          </label>
+          <small>Analysts can see all SPIN/CRB groups. Tick this to show only this Telegram group.</small>
+        </div>
       </div>
     </div>
 
@@ -230,7 +233,7 @@
           <input type="file" name="credit_analysis" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx">
         </label>
 
-        <div id="modalBanner" class="status-banner error" hidden></div>
+        <div id="modalBanner" class="status-banner error" role="alert" aria-live="assertive" hidden></div>
       </div>
       <footer class="modal-footer">
         <button type="button" id="cancelModalBtn" class="secondary">Cancel</button>
@@ -242,9 +245,11 @@
 
 <script id="spin-form-data" type="application/json">{{ form_json|safe }}</script>
 <script src="{% static 'miniapp/telegram.js' %}"></script>
-<script src="{% static 'miniapp/spin_form.js' %}?v=99"></script>
+<script src="{% static 'miniapp/spin_form.js' %}?v=100"></script>
 </body>
 </html>
+
+
 
 
 

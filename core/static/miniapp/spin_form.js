@@ -1,11 +1,21 @@
-(function () {
+﻿(function () {
   'use strict';
 
   const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+  function applyTelegramTheme() {
+    const scheme = tg && tg.colorScheme === 'dark' ? 'tg-dark' : 'tg-light';
+    document.body.classList.remove('tg-dark', 'tg-light');
+    document.body.classList.add(scheme);
+  }
+
   if (tg) {
     tg.ready();
     tg.expand();
+    applyTelegramTheme();
+    if (tg.onEvent) tg.onEvent('themeChanged', applyTelegramTheme);
     if (tg.enableClosingConfirmation) tg.enableClosingConfirmation();
+  } else {
+    document.body.classList.add('tg-light');
   }
 
   const configEl = document.getElementById('spin-form-data');
@@ -94,9 +104,16 @@
     return files;
   }
 
+  function normalizedMessages(message) {
+    if (Array.isArray(message)) return message.map(item => String(item || '').trim()).filter(Boolean);
+    const value = String(message || '').trim();
+    return value ? [value] : [];
+  }
+
   function setBanner(message, type, targetBanner) {
     const activeBanner = targetBanner || banner;
-    if (!message) {
+    const messages = normalizedMessages(message);
+    if (!messages.length) {
       activeBanner.hidden = true;
       activeBanner.style.display = 'none';
       activeBanner.textContent = '';
@@ -106,31 +123,62 @@
     activeBanner.hidden = false;
     activeBanner.style.display = 'block';
     activeBanner.className = `status-banner ${type || ''}`.trim();
-    activeBanner.textContent = message;
+    activeBanner.innerHTML = messages.length === 1
+      ? escapeHtml(messages[0])
+      : `<strong>${type === 'success' ? 'Done' : 'Fix these items'}</strong><ul>${messages.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
     if (!targetBanner) {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      activeBanner.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   }
 
-  function markInvalid(names) {
-    form.querySelectorAll('.field.invalid').forEach(el => el.classList.remove('invalid'));
-    names.forEach(name => {
+  function setFieldError(wrapper, message) {
+    let error = wrapper.querySelector('.field-error');
+    if (!error) {
+      error = document.createElement('small');
+      error.className = 'field-error';
+      wrapper.appendChild(error);
+    }
+    error.textContent = message || '';
+  }
+
+  function markInvalid(details) {
+    form.querySelectorAll('.field.invalid').forEach(el => {
+      el.classList.remove('invalid');
+      setFieldError(el, '');
+    });
+    (details || []).forEach(item => {
+      const name = typeof item === 'string' ? item : item.field;
+      const message = typeof item === 'string' ? '' : item.message;
       const input = field(name);
       const wrapper = input && input.closest ? input.closest('.field') : null;
-      if (wrapper) wrapper.classList.add('invalid');
+      if (wrapper) {
+        wrapper.classList.add('invalid');
+        setFieldError(wrapper, message);
+      }
     });
+  }
+
+  function focusFirstInvalid(details) {
+    const first = (details || []).find(item => field(typeof item === 'string' ? item : item.field));
+    if (!first) return;
+    const input = field(typeof first === 'string' ? first : first.field);
+    if (input && input.focus) input.focus({ preventScroll: true });
   }
 
   function validate(data) {
     const errors = [];
     const invalid = [];
-    if (!['spin_crb', 'spin', 'crb'].includes(data.request_type)) errors.push('Choose SPIN/CRB, SPIN, or CRB.');
-    if (!data.customer_name) { errors.push('Customer Name is required.'); invalid.push('customer_name'); }
-    if (!/^\d{7,8}$/.test(data.national_id)) { errors.push('National ID must be 7 or 8 digits.'); invalid.push('national_id'); }
-    if (!normalizePhone(data.primary_phone)) { errors.push('Primary Phone must be a valid Kenyan number.'); invalid.push('primary_phone'); }
-    if (data.secondary_phone && !normalizePhone(data.secondary_phone)) { errors.push('Secondary Phone is invalid.'); invalid.push('secondary_phone'); }
-    if (!data.requested_amount || Number(data.requested_amount) <= 0) { errors.push('Requested Amount is required.'); invalid.push('requested_amount'); }
-    if (!data.tenor) { errors.push('Tenor is required.'); invalid.push('tenor'); }
+    function add(fieldName, message) {
+      errors.push(message);
+      invalid.push({ field: fieldName, message });
+    }
+    if (!['spin_crb', 'spin', 'crb'].includes(data.request_type)) add('request_type', 'Choose SPIN/CRB, SPIN, or CRB.');
+    if (!data.customer_name) add('customer_name', 'Customer Name is required.');
+    if (!/^\d{7,8}$/.test(data.national_id)) add('national_id', 'National ID must be 7 or 8 digits.');
+    if (!normalizePhone(data.primary_phone)) add('primary_phone', 'Primary Phone must be a valid Kenyan number, for example 254712345678.');
+    if (data.secondary_phone && !normalizePhone(data.secondary_phone)) add('secondary_phone', 'Secondary Phone is invalid. Use 254 format or leave it blank.');
+    if (!data.requested_amount || Number(data.requested_amount) <= 0) add('requested_amount', 'Requested Amount is required and must be greater than 0.');
+    if (!data.tenor) add('tenor', 'Tenor is required, for example 6 weeks or 12 months.');
     return { errors, invalid };
   }
 
@@ -150,13 +198,13 @@
     form.querySelectorAll('input[type="file"]').forEach(input => {
       const maxFiles = Number(input.dataset.maxFiles || 2);
       if ((input.files || []).length > maxFiles) {
-        errors.push(`${input.closest('.field').querySelector('span').textContent} supports at most ${maxFiles} files.`);
-        invalid.push(input.name);
+        const message = `${input.closest('.field').querySelector('span').textContent} supports at most ${maxFiles} files.`;
+        errors.push(message);
+        invalid.push({ field: input.name, message });
       }
     });
     return { errors, invalid };
   }
-
   function updateSummary() {
     const data = formValues();
     const rows = [
@@ -250,9 +298,12 @@
     const data = formValues();
     const check = validate(data);
     const fileCheck = validateFiles();
-    markInvalid(check.invalid.concat(fileCheck.invalid));
-    if (check.errors.length || fileCheck.errors.length) {
-      setBanner((check.errors[0] || fileCheck.errors[0]), 'error');
+    const invalidDetails = check.invalid.concat(fileCheck.invalid);
+    const errorMessages = check.errors.concat(fileCheck.errors);
+    markInvalid(invalidDetails);
+    if (errorMessages.length) {
+      setBanner(errorMessages, 'error');
+      focusFirstInvalid(invalidDetails);
       return;
     }
 
@@ -262,8 +313,8 @@
       const response = await fetch('/api/spin/submit/', buildSubmitOptions(data));
       const result = await response.json();
       if (!response.ok || !result.success) {
-        const message = (result.errors && result.errors[0]) || result.message || 'Submission failed.';
-        setBanner(message, 'error');
+        const messages = (result.errors && result.errors.length ? result.errors : [result.message || 'Submission failed.']);
+        setBanner(messages, 'error');
         return;
       }
       localStorage.removeItem(draftKey);
@@ -329,18 +380,20 @@
     }
 
     requestsList.innerHTML = filtered.map(r => {
+      const statusClass = r.import_status === 'imported' ? 'review_needed' : r.import_status;
+      const customerName = r.customer_name || 'Unnamed customer';
       const attachments = (r.attachment_names || []).map((name, i) => {
         const url = (r.media_urls || [])[i] || '#';
-        return `<a href="${url}" target="_blank" class="card-link"><i data-lucide="file"></i> ${escapeHtml(name)}</a>`;
+        if (url === '#') return `<span class="card-link muted"><i data-lucide="file"></i> ${escapeHtml(name)}</span>`;
+        return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="card-link"><i data-lucide="file"></i> ${escapeHtml(name)}</a>`;
       }).join('');
 
       let reports = '';
       if (r.import_status === 'completed') {
         const reportLinks = [];
-        if (r.spin_report_url) reportLinks.push(`<a href="${r.spin_report_url}" target="_blank" class="card-link"><i data-lucide="shield"></i> SPIN Report</a>`);
-        if (r.crb_report_url) reportLinks.push(`<a href="${r.crb_report_url}" target="_blank" class="card-link"><i data-lucide="file-text"></i> CRB Report</a>`);
-        if (r.credit_analysis_report_url) reportLinks.push(`<a href="${r.credit_analysis_report_url}" target="_blank" class="card-link"><i data-lucide="trending-up"></i> Credit Analysis</a>`);
-        
+        if (r.spin_report_url) reportLinks.push(`<a href="${escapeHtml(r.spin_report_url)}" target="_blank" rel="noopener" class="card-link"><i data-lucide="shield"></i> SPIN Report</a>`);
+        if (r.crb_report_url) reportLinks.push(`<a href="${escapeHtml(r.crb_report_url)}" target="_blank" rel="noopener" class="card-link"><i data-lucide="file-text"></i> CRB Report</a>`);
+        if (r.credit_analysis_report_url) reportLinks.push(`<a href="${escapeHtml(r.credit_analysis_report_url)}" target="_blank" rel="noopener" class="card-link"><i data-lucide="trending-up"></i> Credit Analysis</a>`);
         if (reportLinks.length) {
           reports = `
             <div class="card-section-title">Reports Uploaded</div>
@@ -353,7 +406,7 @@
       if (isAnalyst && r.import_status !== 'completed') {
         actions = `
           <div class="card-actions">
-            <button type="button" class="primary complete-action-btn" data-id="${r.id}">
+            <button type="button" class="primary complete-action-btn" data-id="${escapeHtml(r.id)}">
               <i data-lucide="check-square" style="width:14px; height:14px; display:inline-block; vertical-align:middle; margin-right:4px;"></i>
               Complete Request
             </button>
@@ -362,30 +415,38 @@
       }
 
       return `
-        <div class="request-card" id="card-${r.id}">
-          <header class="card-header">
-            <div class="card-title-group">
-              <span class="card-id">${escapeHtml(r.request_id)}</span>
-              <span class="card-date">${escapeHtml(r.request_datetime || 'Date not set')}</span>
-            </div>
-            <span class="badge status-${r.import_status === 'imported' ? 'review_needed' : r.import_status}">${getStatusLabel(r.import_status)}</span>
-          </header>
-          <div class="card-body">
+        <article class="request-card collapsed" id="card-${escapeHtml(r.id)}">
+          <button type="button" class="card-toggle" data-id="${escapeHtml(r.id)}" aria-expanded="false">
+            <span class="card-title-group">
+              <span class="card-customer-name">${escapeHtml(customerName)}</span>
+              <span class="card-summary-meta">${escapeHtml(r.national_id || 'No ID')} · ${escapeHtml(r.primary_phone || 'No phone')} · KES ${formatAmount(r.requested_amount)}</span>
+              <span class="card-date">${escapeHtml(r.request_datetime || 'Date not set')} · ${escapeHtml(r.request_id || '')}</span>
+            </span>
+            <span class="card-header-right">
+              <span class="badge status-${statusClass}">${getStatusLabel(r.import_status)}</span>
+              <i data-lucide="chevron-down" class="card-chevron"></i>
+            </span>
+          </button>
+          <div class="card-body" hidden>
             <div class="card-field">
-              <label>Customer Name</label>
-              <span>${escapeHtml(r.customer_name)}</span>
+              <label>Request ID</label>
+              <span>${escapeHtml(r.request_id)}</span>
+            </div>
+            <div class="card-field">
+              <label>Requested By</label>
+              <span>${escapeHtml(r.requested_by || '-')}</span>
             </div>
             <div class="card-field">
               <label>National ID</label>
-              <span>${escapeHtml(r.national_id)}</span>
+              <span>${escapeHtml(r.national_id || '-')}</span>
             </div>
             <div class="card-field">
               <label>Primary Phone</label>
-              <span>${escapeHtml(r.primary_phone)}</span>
+              <span>${escapeHtml(r.primary_phone || '-')}</span>
             </div>
             <div class="card-field">
               <label>Request Type</label>
-              <span class="badge type" style="display:inline-block; width:fit-content;">${escapeHtml(r.request_type)}</span>
+              <span class="badge type" style="display:inline-block; width:fit-content;">${escapeHtml(r.request_type || '-')}</span>
             </div>
             <div class="card-field">
               <label>Amount (KES)</label>
@@ -393,8 +454,13 @@
             </div>
             <div class="card-field">
               <label>Tenor</label>
-              <span>${escapeHtml(r.tenor)}</span>
+              <span>${escapeHtml(r.tenor || '-')}</span>
             </div>
+            ${r.code ? `
+            <div class="card-field">
+              <label>MPESA Statement Code</label>
+              <span>${escapeHtml(r.code)}</span>
+            </div>` : ''}
             ${r.business_notes ? `
             <div class="card-field wide">
               <label>Business / Employment Notes</label>
@@ -406,20 +472,31 @@
             ${reports}
             ${actions}
           </div>
-        </div>
+        </article>
       `;
     }).join('');
 
     if (window.lucide) window.lucide.createIcons();
 
-    // Hook modal triggers
+    requestsList.querySelectorAll('.card-toggle').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const card = btn.closest('.request-card');
+        const body = card ? card.querySelector('.card-body') : null;
+        if (!card || !body) return;
+        const expanded = btn.getAttribute('aria-expanded') === 'true';
+        btn.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+        body.hidden = expanded;
+        card.classList.toggle('collapsed', expanded);
+        card.classList.toggle('expanded', !expanded);
+      });
+    });
+
     requestsList.querySelectorAll('.complete-action-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         openCompleteModal(btn.dataset.id);
       });
     });
   }
-
   async function fetchRequests() {
     requestsList.style.display = 'none';
     dashboardLoading.style.display = 'block';
@@ -623,4 +700,12 @@
   
   if (window.lucide) window.lucide.createIcons();
 }());
+
+
+
+
+
+
+
+
 
