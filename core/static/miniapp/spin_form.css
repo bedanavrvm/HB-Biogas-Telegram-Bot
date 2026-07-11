@@ -24,9 +24,11 @@ html, body {
 }
 
 .spin-shell {
-  width: min(100%, 880px);
+  width: 100%;
+  max-width: 880px;
   margin: 0 auto;
   padding: 12px 12px calc(20px + env(safe-area-inset-bottom));
+  overflow-x: hidden;
 }
 
 .spin-header {
@@ -34,6 +36,7 @@ html, body {
   top: 0;
   z-index: 20;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -150,7 +153,10 @@ textarea:focus {
   background: var(--spin-bg);
 }
 
-.segmented label { min-width: 0; }
+.segmented label {
+  position: relative;
+  min-width: 0;
+}
 .segmented input { position: absolute; opacity: 0; pointer-events: none; }
 .segmented span {
   display: grid;
@@ -159,6 +165,9 @@ textarea:focus {
   border-radius: 6px;
   color: var(--spin-muted);
   font-weight: 750;
+  font-size: 12px;
+  padding: 0 4px;
+  text-align: center;
 }
 .segmented input:checked + span {
   background: var(--spin-primary);
@@ -166,9 +175,9 @@ textarea:focus {
 }
 
 .review-section dl {
-  display: grid;
-  grid-template-columns: 120px minmax(0, 1fr);
-  gap: 5px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   margin: 0;
 }
 
@@ -213,6 +222,11 @@ button:disabled { opacity: 0.65; }
   .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .wide { grid-column: 1 / -1; }
   .actions { grid-template-columns: 140px 220px; justify-content: end; }
+  .review-section dl {
+    display: grid;
+    grid-template-columns: 120px minmax(0, 1fr);
+    gap: 5px 10px;
+  }
 }
 
 .file-field input[type="file"] {
