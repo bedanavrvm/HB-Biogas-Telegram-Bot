@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   --spin-bg: var(--tg-theme-bg-color, #f6f7f9);
   --spin-surface: var(--tg-theme-secondary-bg-color, #ffffff);
   --spin-text: var(--tg-theme-text-color, #18212f);
@@ -58,9 +58,6 @@ h2 { grid-column: 1 / -1; font-size: 14px; }
 }
 
 .status-banner {
-  position: sticky;
-  top: 58px;
-  z-index: 30;
   margin: 0 0 10px;
   padding: 10px 12px;
   border: 1px solid var(--spin-line);
@@ -68,6 +65,7 @@ h2 { grid-column: 1 / -1; font-size: 14px; }
   background: var(--spin-surface);
   font-weight: 650;
 }
+
 
 .status-banner.error {
   border-color: rgba(180, 35, 24, 0.25);

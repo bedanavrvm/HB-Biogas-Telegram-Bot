@@ -1,4 +1,4 @@
-﻿(function () {
+(function () {
   'use strict';
 
   const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
@@ -72,14 +72,18 @@
   function setBanner(message, type) {
     if (!message) {
       banner.hidden = true;
+      banner.style.display = 'none';
       banner.textContent = '';
       banner.className = 'status-banner';
       return;
     }
     banner.hidden = false;
+    banner.style.display = 'block';
     banner.className = `status-banner ${type || ''}`.trim();
     banner.textContent = message;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
+
 
   function markInvalid(names) {
     form.querySelectorAll('.field.invalid').forEach(el => el.classList.remove('invalid'));
