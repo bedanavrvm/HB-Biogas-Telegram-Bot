@@ -8,7 +8,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from core.models import GroupSheetConfiguration, SpinCreditRequest
-from core.services.spin_credit import parse_spin_entry, process_spin_batch_export
+from core.services.spin_credit import classify_spin_progress_event, parse_spin_entry, process_spin_batch_export
 
 
 class SpinCreditParserTestCase(TestCase):

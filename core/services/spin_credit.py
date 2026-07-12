@@ -97,6 +97,7 @@ PRODUCT_ALIASES = [
     ('msingi', 'Msingi'),
     ('digital', 'Digital'),
     ('fedha chap chap', 'Fedha Chap Chap'),
+    ('inua', 'Inua'),
     ('partnership', 'Partnership'),
     ('flex', 'Flex'),
     ('biashara', 'Biashara'),
@@ -291,6 +292,9 @@ def classify_spin_progress_event(entry: dict[str, Any]) -> SpinProgressEvent | N
         ('crb_shared', 'CRB Shared', r'\b(?:the\s+)?crb\s+has\s+been\s+shared\b'),
         ('statement_requested', 'Statement Requested', r'\bkindly\s+share\s+(?:a\s+|the\s+|his\s+|her\s+|client\'?s\s+)?(?:\d+\s*months?\s+)?(?:m-?pesa\s+|mpesa\s+)?statement\b|\bkindly\s+share\s+statement\b'),
         ('statement_shared', 'Statement Shared', r'\b(?:m-?pesa\s+|mpesa\s+)?statement\s+(?:has\s+been\s+)?shared\b|\bcode\s+[A-Za-z0-9/\-]{3,}\b'),
+        ('spin_pending', 'SPIN Pending', r'\b(?:this\s+)?spin\s+(?:is\s+)?(?:still\s+)?pending\b'),
+        ('analysis_reply_requested', 'Analysis Reply Requested', r'\b(?:reply|respond)\s+to\s+(?:the\s+)?(?:credit\s+)?analysis\b|\bawaiting\s+(?:second\s+|2nd\s+)?opinion\s+analysis\s+reply\b|\bawaiting\s+analysis\s+reply\b'),
+        ('spin_generation_requested', 'SPIN Generation Requested', r'\b(?:shared\s+statement\s+)?kindly\s+generate\s+(?:the\s+)?spin\b'),
         ('missing_info_requested', 'Missing Information Requested', r'\bkindly\s+share\s+(?:the\s+)?(?:correct\s+)?(?:code|client\'?s\s+id|id)\b|\bkindly\s+share\s+the\s+correct\s+id\b'),
         ('pending', 'Pending', r'^pending\.?$'),
         ('loan_approved', 'Approved', r'\bapproved\b|\bkindly\s+proceed\b|\bplease\s+proceed\b'),
@@ -386,19 +390,35 @@ def classify_request(text: str) -> str | None:
     low = text.lower()
     if re.search(r'\b(has been shared|analysis has been shared|crb has been shared|this analysis has been shared)\b', low):
         return None
-    if re.search(r'\bpost this payment|post this payments|reverse this transaction|create downpayment|zero rate\b', low):
+    if re.search(r'\bpost this payment|post this payments|reverse this transaction|create downpayment|zero rate|spin fee\b', low):
+        return None
+    if re.search(r'\b(?:reply|respond)\s+to\s+(?:the\s+)?(?:credit\s+)?analysis\b|\bawaiting\s+(?:second\s+|2nd\s+)?opinion\s+analysis\s+reply\b|\bawaiting\s+analysis\s+reply\b', low):
         return None
     if re.search(r'\bkindly share\s+(a\s+)?spin\s+and\s+credit\s+analysis\s+for\b', low):
         return 'spin_crb'
     if re.search(r'\b(?:kindly\s+)?share\s+(?:a\s+)?(?:spin\s*/\s*crb|spin\s+(?:and|&)\s+crb|spin\s+crb)\b', low):
         return 'spin_crb'
+    if re.search(r'\b(?:kindly\s+)?share\s+(?:the\s+)?spin\s+analysis\b', low):
+        return 'spin_crb'
     if re.search(r'\bkindly share\s+spin\s+for\b', low):
+        return 'spin'
+    if re.search(r'\b(?:kindly\s+)?share\s+(?:the\s+)?spin\s+[a-z][a-z]+', low) and has_spin_request_details(low):
         return 'spin'
     if re.search(r'\bkindly share\s+(the\s+)?analysis\s+for\b', low):
         return 'spin_crb'
     if re.search(r'\bkindly share\s+crb\s+report\b|\bshare\s+crb\s+report\b|\bpls share crb\b', low):
         return 'crb'
     return None
+
+
+def has_spin_request_details(low: str) -> bool:
+    if re.search(r'\b(?:id|id\s+no|id\s+number|phone|phn|tel|mobile|code|kes|ksh|kshs|period|requesting|client|customer|product)\b', low):
+        return True
+    if re.search(r'(?<!\d)(?:\+?254|0)?[17]\d{8}(?!\d)', low):
+        return True
+    if re.search(r'\b\d{7,8}\b', low):
+        return True
+    return False
 
 
 def normalize_text(text: str) -> str:
@@ -433,9 +453,11 @@ def extract_customer_name(text: str, request_type: str) -> str:
     if request_type == 'spin_crb':
         patterns.append(r'spin\s+and\s+credit\s+analysis\s+for\s+(?P<name>.+?)(?:\s+a\s+(?:new|existing)\s+(?:customer|client)|\s+an\s+(?:new|existing)\s+(?:customer|client)|\s+requesting|\s+id\b|\s+phone\b|$)')
         patterns.append(r'(?:spin\s*/\s*crb|spin\s+(?:and|&)\s+crb|spin\s+crb)\s+(?:request\s+)?(?:for\s+)?(?P<name>.+?)(?:\s+a\s+(?:new|existing)\s+(?:customer|client)|\s+an\s+(?:new|existing)\s+(?:customer|client)|\s+requesting|\s+id\b|\s+phone\b|$)')
+        patterns.append(r'share\s+(?:the\s+)?spin\s+analysis\s+(?P<name>.+?)(?:\s+id\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
         patterns.append(r'share\s+(?:the\s+)?analysis\s+for\s+(?P<name>.+?)(?:\s+phone\b|\s+id\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
     elif request_type == 'spin':
         patterns.append(r'share\s+spin\s+for\s+(?P<name>.+?)(?:\s+id\b|\s+phn\b|\s+phone\b|\s+new\b|\s+existing\b|$)')
+        patterns.append(r'share\s+(?:the\s+)?spin\s+(?P<name>.+?)(?:\s+id\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
     elif request_type == 'crb':
         patterns.append(r'share\s+crb\s+report\s+(?:of|for)?\s*(?P<name>.+?)(?:\s+he\s+is|\s+she\s+is|\s+they\s+are|\s+requesting|\s+id\b|\s+phone\b|$)')
     for pattern in patterns:
