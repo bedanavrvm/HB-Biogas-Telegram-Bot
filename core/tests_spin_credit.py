@@ -92,14 +92,14 @@ Code 171889/633893"""
 
     @patch('core.services.spin_credit.append_spin_requests_to_sheet')
     def test_process_batch_saves_requests_and_marks_duplicates(self, mock_append):
-        mock_append.return_value = {'success': True, 'row_numbers': [2, 3]}
+        mock_append.return_value = {'success': True, 'row_numbers': [2, 3], 'sheet_name': 'Legacy SPIN Imports'}
         config = GroupSheetConfiguration.objects.create(
             group_id='-100spin',
             display_name='JBL Thika Road Branch',
             sheet_id='sheet-id',
             sheet_name='SPIN Requests',
             enabled=True,
-            workflow={'type': 'spin_credit_analysis', 'header_row': 1},
+            workflow={'type': 'spin_credit_analysis', 'header_row': 1, 'legacy_batch_sheet_name': 'Legacy SPIN Imports'},
         )
         export = """3/16/26, 11:07 - Catherine JBL: IMG-20260316-WA0004.jpg (file attached)
 Kindly share spin for Paul Ndegwa
@@ -121,11 +121,52 @@ Code 171889/633893"""
         self.assertEqual(result['imported'], 2)
         self.assertEqual(SpinCreditRequest.objects.count(), 2)
         self.assertEqual(SpinCreditRequest.objects.filter(row_number__isnull=False).count(), 2)
+        self.assertEqual(mock_append.call_args.kwargs.get('sheet_name'), 'Legacy SPIN Imports')
+        first_record = SpinCreditRequest.objects.order_by('request_datetime').first()
+        self.assertEqual(first_record.sheet_name, 'Legacy SPIN Imports')
+        self.assertEqual(first_record.parsed_fields.get('analysis_status'), 'Credit Analysis Shared')
+        self.assertIn('This analysis has been shared', first_record.parsed_fields.get('analyst_response', ''))
+        self.assertEqual(result['progress_events'], 1)
+        self.assertEqual(result['linked_progress_events'], 1)
 
         duplicate_result = process_spin_batch_export(config, export, telegram_message_id='100', sender='Tester')
         self.assertEqual(duplicate_result['duplicates'], 2)
         self.assertEqual(SpinCreditRequest.objects.count(), 2)
 
+    @patch('core.services.spin_credit.append_spin_requests_to_sheet')
+    def test_process_batch_links_statement_and_analysis_progress_to_pending_request(self, mock_append):
+        mock_append.return_value = {'success': True, 'row_numbers': [2], 'sheet_name': 'SPIN Legacy Batch'}
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100spinprogress',
+            display_name='JBL Corporate Branch',
+            sheet_id='sheet-id',
+            sheet_name='SPIN Requests',
+            enabled=True,
+            workflow={'type': 'spin_credit_analysis', 'header_row': 1},
+        )
+        export = """3/16/26, 11:07 - Catherine JBL: Kindly share spin for Paul Ndegwa
+Id 13452329
+Phn 0724967956
+Existing client in transport business requesting for 20k to pay with 6wks.
+Code 856189
+3/16/26, 13:30 - Gladys JBL Accountant: Kindly share statement
+3/16/26, 14:00 - Catherine JBL: Mpesa statement shared. Code 142140
+3/16/26, 14:08 - Gladys JBL Accountant: This analysis has been shared"""
+
+        result = process_spin_batch_export(config, export, telegram_message_id='101', sender='Tester')
+
+        self.assertEqual(result['processed'], 1)
+        self.assertEqual(result['progress_events'], 3)
+        self.assertEqual(result['linked_progress_events'], 3)
+        record = SpinCreditRequest.objects.get(group_id='-100spinprogress')
+        self.assertEqual(record.sheet_name, 'SPIN Legacy Batch')
+        self.assertEqual(record.parsed_fields.get('analysis_status'), 'Credit Analysis Shared')
+        response = record.parsed_fields.get('analyst_response', '')
+        self.assertIn('Statement Requested', response)
+        self.assertIn('Statement Shared', response)
+        self.assertIn('Credit Analysis Shared', response)
+        mock_append.assert_called_once()
+        self.assertEqual(mock_append.call_args.kwargs.get('sheet_name'), 'SPIN Legacy Batch')
 
 
 class SpinCreditMiniAppTestCase(TestCase):
@@ -355,7 +396,3 @@ class SpinCreditPortalTestCase(TestCase):
 
             mock_update_sheet.assert_called_once()
             mock_tg_reply.assert_called_once()
-
-
-
-

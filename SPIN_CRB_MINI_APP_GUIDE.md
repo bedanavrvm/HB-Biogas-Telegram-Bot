@@ -1,4 +1,4 @@
-﻿# SPIN/CRB Mini App Guide
+# SPIN/CRB Mini App Guide
 
 This guide documents the SPIN/CRB workflow, Mini App form, media uploads, sheet requirements, and Render/BotFather configuration.
 
@@ -156,7 +156,36 @@ If media upload or sheet sync fails, the form returns an error and the bot does 
 
 ## WhatsApp Batch Import Notes
 
-For `/batch`, the bot can extract attachment filenames from WhatsApp exports, for example:
+`/batch` is for legacy WhatsApp exports only. It writes to the same configured workbook ID as the SPIN group, but to a separate worksheet tab so imported historical chats do not mix with live Mini App requests.
+
+Default legacy tab name:
+
+```text
+SPIN Legacy Batch
+```
+
+You can override it in the workflow JSON:
+
+```json
+{
+  "type": "spin_credit_analysis",
+  "header_row": 1,
+  "legacy_batch_sheet_name": "SPIN Legacy Batch"
+}
+```
+
+The legacy tab should contain the same headers as the live SPIN tab. `Analysis Status` and `Analyst Response` are optional but recommended because the batch importer can detect analyst progress replies such as:
+
+- `Kindly share statement`
+- `Mpesa statement shared. Code 142140`
+- `This analysis has been shared`
+- `The CRB has been shared`
+- `Approved / please proceed`
+- `Rejected / declined`
+
+When these replies appear after a request in the export, the importer links them to the pending request and writes the latest stage into `Analysis Status` and the reply trail into `Analyst Response`.
+
+For `/batch`, the bot can also extract attachment filenames from WhatsApp exports, for example:
 
 ```text
 IMG-20260316-WA0004.jpg (file attached)
@@ -179,10 +208,9 @@ Optional workflow setting:
 {
   "type": "spin_credit_analysis",
   "header_row": 1,
-  "media_root_folder": "SPIN CRB Media"
+  "media_root_folder": "SPIN CRB Media",
+  "legacy_batch_sheet_name": "SPIN Legacy Batch"
 }
 ```
 
 If `media_root_folder` is blank, Drive folders use the Telegram group display name.
-
-

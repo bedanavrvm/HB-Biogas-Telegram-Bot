@@ -63,6 +63,8 @@ DEFAULT_FIELD_HEADERS = {
     'analyst_response': 'Analyst Response',
 }
 
+OPTIONAL_SHEET_FIELDS = {'analysis_status', 'analyst_response'}
+
 REQUEST_TYPE_LABELS = {
     'spin_crb': 'SPIN/CRB',
     'spin': 'SPIN',
@@ -131,6 +133,15 @@ class ParsedSpinRequest:
         return not self.missing_fields
 
 
+@dataclass
+class SpinProgressEvent:
+    stage: str
+    label: str
+    received_at: Any = None
+    sender: str = ''
+    raw_message: str = ''
+
+
 def is_spin_workflow(group_config) -> bool:
     workflow = getattr(group_config, 'workflow', None) or {}
     return str(workflow.get('type') or '') == SPIN_WORKFLOW_TYPE
@@ -154,13 +165,28 @@ def process_spin_batch_export(
         }
 
     parsed = []
+    pending_progress_targets = []
     skipped = 0
+    progress_events = 0
+    linked_progress_events = 0
+    unlinked_progress_events = []
     for index, entry in enumerate(entries):
         item = parse_spin_entry(entry, index=index, source_filename=source_filename)
-        if item is None:
-            skipped += 1
+        if item is not None:
+            parsed.append(item)
+            pending_progress_targets.append(item)
             continue
-        parsed.append(item)
+
+        event = classify_spin_progress_event(entry)
+        if event is not None:
+            progress_events += 1
+            if apply_spin_progress_event(pending_progress_targets, event):
+                linked_progress_events += 1
+            else:
+                unlinked_progress_events.append(progress_event_summary(event))
+            continue
+
+        skipped += 1
 
     if not parsed:
         return {
@@ -174,6 +200,9 @@ def process_spin_batch_export(
             'rejected': 0,
             'failed': 0,
             'skipped': skipped,
+            'progress_events': progress_events,
+            'linked_progress_events': linked_progress_events,
+            'unlinked_progress_events': unlinked_progress_events[:8],
             'message': 'No SPIN, CRB, or credit-analysis request messages were found in the export.',
         }
 
@@ -208,13 +237,14 @@ def process_spin_batch_export(
 
     sync_result = None
     if records_for_sheet:
-        sync_result = append_spin_requests_to_sheet(group_config, records_for_sheet)
+        batch_sheet_name = configured_spin_batch_sheet_name(getattr(group_config, 'workflow', None) or {}, group_config.sheet_name)
+        sync_result = append_spin_requests_to_sheet(group_config, records_for_sheet, sheet_name=batch_sheet_name)
         if sync_result.get('success'):
             row_numbers = sync_result.get('row_numbers') or []
             for index, record in enumerate(records_for_sheet):
                 record.row_number = row_numbers[index] if index < len(row_numbers) else None
                 record.sheet_id = group_config.sheet_id or ''
-                record.sheet_name = group_config.sheet_name or ''
+                record.sheet_name = sync_result.get('sheet_name') or batch_sheet_name or ''
                 record.sync_error = ''
                 record.save(update_fields=['row_number', 'sheet_id', 'sheet_name', 'sync_error', 'updated_at'])
         else:
@@ -238,11 +268,81 @@ def process_spin_batch_export(
         'rejected': sum(1 for r in results if r['status'] == 'rejected'),
         'failed': sum(1 for r in results if r['status'] == 'failed'),
         'skipped': skipped,
+        'progress_events': progress_events,
+        'linked_progress_events': linked_progress_events,
+        'unlinked_progress_events': unlinked_progress_events[:8],
         'sheet_sync': sync_result,
         'review_items': [review_summary(r['parsed']) for r in results if r['status'] == 'review_needed'][:8],
         'duplicates_list': [request_summary(r.get('record'), r.get('parsed')) for r in results if r['status'] == 'duplicate'][:8],
     }
 
+
+def classify_spin_progress_event(entry: dict[str, Any]) -> SpinProgressEvent | None:
+    raw = str(entry.get('content') or '').strip()
+    if not raw:
+        return None
+    text = normalize_text(strip_attachment_lines(raw))
+    low = text.lower()
+    if not low or 'message was deleted' in low:
+        return None
+
+    patterns = [
+        ('analysis_shared', 'Credit Analysis Shared', r'\b(?:this|the)?\s*(?:credit\s+)?analysis\s+has\s+been\s+shared\b'),
+        ('crb_shared', 'CRB Shared', r'\b(?:the\s+)?crb\s+has\s+been\s+shared\b'),
+        ('statement_requested', 'Statement Requested', r'\bkindly\s+share\s+(?:a\s+|the\s+|his\s+|her\s+|client\'?s\s+)?(?:\d+\s*months?\s+)?(?:m-?pesa\s+|mpesa\s+)?statement\b|\bkindly\s+share\s+statement\b'),
+        ('statement_shared', 'Statement Shared', r'\b(?:m-?pesa\s+|mpesa\s+)?statement\s+(?:has\s+been\s+)?shared\b|\bcode\s+[A-Za-z0-9/\-]{3,}\b'),
+        ('missing_info_requested', 'Missing Information Requested', r'\bkindly\s+share\s+(?:the\s+)?(?:correct\s+)?(?:code|client\'?s\s+id|id)\b|\bkindly\s+share\s+the\s+correct\s+id\b'),
+        ('pending', 'Pending', r'^pending\.?$'),
+        ('loan_approved', 'Approved', r'\bapproved\b|\bkindly\s+proceed\b|\bplease\s+proceed\b'),
+        ('loan_rejected', 'Rejected', r'\brejected\b|\bdeclined\b'),
+    ]
+    for stage, label, pattern in patterns:
+        if re.search(pattern, low, re.I):
+            return SpinProgressEvent(
+                stage=stage,
+                label=label,
+                received_at=entry.get('received_at'),
+                sender=str(entry.get('sender') or '').strip(),
+                raw_message=text[:1000],
+            )
+    return None
+
+
+def apply_spin_progress_event(pending_targets: list[ParsedSpinRequest], event: SpinProgressEvent) -> bool:
+    if not pending_targets:
+        return False
+    target = pending_targets[0]
+    target.parsed_fields = target.parsed_fields or parsed_fields(target)
+    progress_items = target.parsed_fields.setdefault('progress_events', [])
+    progress_items.append(progress_event_summary(event))
+    target.parsed_fields['analysis_status'] = event.label
+    line = progress_response_line(event)
+    existing = str(target.parsed_fields.get('analyst_response') or '').strip()
+    target.parsed_fields['analyst_response'] = f"{existing}\n{line}".strip() if existing else line
+    if event.stage in {'analysis_shared', 'crb_shared', 'loan_approved', 'loan_rejected'}:
+        pending_targets.pop(0)
+    return True
+
+
+def progress_event_summary(event: SpinProgressEvent) -> dict[str, str]:
+    return {
+        'stage': event.stage,
+        'label': event.label,
+        'received_at': format_sheet_datetime(event.received_at),
+        'sender': event.sender,
+        'message': event.raw_message,
+    }
+
+
+def progress_response_line(event: SpinProgressEvent) -> str:
+    parts = [event.label]
+    when = format_sheet_datetime(event.received_at)
+    if when:
+        parts.append(when)
+    if event.sender:
+        parts.append(event.sender)
+    prefix = ' - '.join(parts)
+    return f"{prefix}: {event.raw_message}" if event.raw_message else prefix
 
 def parse_spin_entry(entry: dict[str, Any], index: int = 0, source_filename: str = '') -> ParsedSpinRequest | None:
     raw = str(entry.get('content') or '').strip()
@@ -558,25 +658,26 @@ def save_spin_request(group_config, parsed: ParsedSpinRequest, telegram_message_
     )
 
 
-def append_spin_requests_to_sheet(group_config, records: list[SpinCreditRequest]) -> dict[str, Any]:
+def append_spin_requests_to_sheet(group_config, records: list[SpinCreditRequest], sheet_name: str | None = None) -> dict[str, Any]:
     if not records:
         return {'success': True, 'row_numbers': []}
+    target_sheet_name = sheet_name or group_config.sheet_name
     service = get_sheets_service(
         sheet_id=group_config.sheet_id,
-        sheet_name=group_config.sheet_name,
+        sheet_name=target_sheet_name,
         sheet_schema=None,
     )
     if not service.is_available():
-        return {'success': False, 'error': 'Google Sheets service unavailable.'}
+        return {'success': False, 'error': 'Google Sheets service unavailable.', 'sheet_name': target_sheet_name}
     workflow = getattr(group_config, 'workflow', None) or {}
     try:
         header_row_number = configured_header_row(workflow)
         headers = [str(value or '').strip() for value in service._sheet.row_values(header_row_number)]
     except Exception as exc:
         logger.error('Failed to read SPIN header row: %s', exc, exc_info=True)
-        return {'success': False, 'error': str(exc)}
+        return {'success': False, 'error': str(exc), 'sheet_name': target_sheet_name}
     if not headers:
-        return {'success': False, 'error': 'Header row is empty or unavailable.'}
+        return {'success': False, 'error': 'Header row is empty or unavailable.', 'sheet_name': target_sheet_name}
     field_headers = configured_field_headers(workflow)
     rows = []
     for record in records:
@@ -584,10 +685,10 @@ def append_spin_requests_to_sheet(group_config, records: list[SpinCreditRequest]
         values = sheet_values_for(record)
         missing_headers = [
             header for field, header in field_headers.items()
-            if header and header not in headers and values.get(field, '') not in ('', None)
+            if header and header not in headers and values.get(field, '') not in ('', None) and field not in OPTIONAL_SHEET_FIELDS
         ]
         if missing_headers:
-            return {'success': False, 'error': 'Missing required column(s): ' + ', '.join(missing_headers[:8])}
+            return {'success': False, 'error': 'Missing required column(s): ' + ', '.join(missing_headers[:8]), 'sheet_name': target_sheet_name}
         for field, header in field_headers.items():
             if header in headers:
                 row[headers.index(header)] = values.get(field, '')
@@ -598,10 +699,10 @@ def append_spin_requests_to_sheet(group_config, records: list[SpinCreditRequest]
         else:
             responses = [service._sheet.append_row(row, value_input_option='USER_ENTERED') for row in rows]
             response = responses[0] if responses else {}
-        return {'success': True, 'row_numbers': row_numbers_from_append_response(response, len(rows))}
+        return {'success': True, 'row_numbers': row_numbers_from_append_response(response, len(rows)), 'sheet_name': target_sheet_name}
     except Exception as exc:
         logger.error('Failed to append SPIN request rows: %s', exc, exc_info=True)
-        return {'success': False, 'error': str(exc)}
+        return {'success': False, 'error': str(exc), 'sheet_name': target_sheet_name}
 
 
 def sheet_values_for(record: SpinCreditRequest) -> dict[str, Any]:
@@ -630,8 +731,8 @@ def sheet_values_for(record: SpinCreditRequest) -> dict[str, Any]:
         'source_message_hash': record.source_message_hash,
         'parse_status': record.import_status.replace('_', ' ').title(),
         'missing_fields': ', '.join(record.missing_fields or []),
-        'analysis_status': '',
-        'analyst_response': '',
+        'analysis_status': (record.parsed_fields or {}).get('analysis_status', ''),
+        'analyst_response': (record.parsed_fields or {}).get('analyst_response', ''),
     }
 
 
@@ -653,6 +754,14 @@ def configured_header_row(workflow: dict) -> int:
     except (TypeError, ValueError):
         return 1
 
+
+def configured_spin_batch_sheet_name(workflow: dict, fallback_sheet_name: str = '') -> str:
+    value = str(
+        (workflow or {}).get('legacy_batch_sheet_name')
+        or (workflow or {}).get('batch_sheet_name')
+        or ''
+    ).strip()
+    return value or 'SPIN Legacy Batch'
 
 def row_numbers_from_append_response(response: Any, count: int) -> list[int | None]:
     if count <= 0:
@@ -1099,9 +1208,3 @@ def update_spin_request_in_sheet(group_config, record: SpinCreditRequest, update
     except Exception as exc:
         logger.error("Failed to update SPIN request in sheet: %s", exc, exc_info=True)
         return False
-
-
-
-
-
-

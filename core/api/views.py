@@ -2,10 +2,10 @@
 API Views for the biogas telegram bot.
 
 Endpoints:
-- POST /api/webhook/telegram/  â€” Receive Telegram webhook
-- POST /api/process/messages/  â€” Manual batch processing
-- POST /api/resync/unsynced/   â€” Resync unsynced messages
-- GET  /api/health/            â€” Health check
+- POST /api/webhook/telegram/  - Receive Telegram webhook
+- POST /api/process/messages/  - Manual batch processing
+- POST /api/resync/unsynced/   - Resync unsynced messages
+- GET  /api/health/            - Health check
 
 KEY FIXES (v2):
 - process_messages() now passes group_id (from the request body or
@@ -942,7 +942,7 @@ def _process_telegram_message(message_data: dict) -> dict:
     try:
         group_id = str(message_data.get('chat', {}).get('id', ''))
         if not group_id:
-            logger.error("Message has no chat.id â€” cannot route to group")
+            logger.error("Message has no chat.id - cannot route to group")
             return {'status': 'error', 'error': 'Message missing chat information'}
 
         telegram_message_id = str(message_data.get('message_id', ''))
@@ -2112,7 +2112,7 @@ def _process_single_message(
     defer_sheet_sync: bool = False,
 ) -> dict:
     """
-    Run one message through dedup â†’ parse â†’ store â†’ sheet sync.
+    Run one message through dedup -> parse -> store -> sheet sync.
 
     Resolves the sheet_id from GroupRegistry using group_id, then passes
     both down to process_and_store_message so the correct Google Sheet
@@ -2130,7 +2130,7 @@ def _process_single_message(
         group_config = registry.get_group(group_id)
         if not group_config:
             logger.error(f"No config found for group {group_id}")
-            # Return a generic error â€” don't expose the group_id to the caller
+            # Return a generic error - don't expose the group_id to the caller
             return {
                 'status': 'error',
                 'error': 'This group is not configured to receive messages.',
@@ -2152,7 +2152,7 @@ def _process_single_message(
                 source=source,
                 source_telegram_message_id=source_telegram_message_id,
                 batch_index=batch_index,
-                sheet_id=sheet_id,       # â† forwarded to sheets service
+                sheet_id=sheet_id,       # forwarded to sheets service
                 sheet_schema=sheet_schema,
                 defer_sheet_sync=defer_sheet_sync,
             )
@@ -2422,8 +2422,15 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
         skipped = result.get('skipped', 0)
         if skipped:
             lines.append(f"Skipped other chat messages: {skipped}")
+        progress_events = result.get('progress_events', 0)
+        if progress_events:
+            lines.append(f"Progress replies detected: {progress_events}")
+            lines.append(f"Linked to requests: {result.get('linked_progress_events', 0)}")
         sheet_sync = result.get('sheet_sync') or {}
         if sheet_sync:
+            sheet_name = sheet_sync.get('sheet_name')
+            if sheet_name:
+                lines.append(f"Legacy sheet: {sheet_name}")
             if sheet_sync.get('success'):
                 lines.append(f"Sheet sync: appended {len(sheet_sync.get('row_numbers') or [])} row(s)")
             else:
@@ -2656,7 +2663,7 @@ def _post_telegram_reply(
 
 
 # ---------------------------------------------------------------------------
-# Manual batch processing endpoint
+# Manual batch processing
 # ---------------------------------------------------------------------------
 
 @csrf_exempt
@@ -2678,7 +2685,7 @@ def process_messages(request):
                 "sender": "John Doe",
                 "received_at": "2026-04-15T10:30:00Z",
                 "has_image": false,
-                "group_id": "-1001234567890"   â† optional
+                "group_id": "-1001234567890"   # optional
             }
         ]
     }
@@ -2723,7 +2730,7 @@ def process_messages(request):
         for msg in messages:
             received_at = _parse_received_at(msg.get('received_at'))
 
-            # â”€â”€ KEY FIX: pass group_id from the request (or fallback) â”€â”€
+            # KEY FIX: pass group_id from the request (or fallback)
             group_id = str(msg.get('group_id', '') or default_group_id).strip()
 
             result = _process_single_message(
@@ -3086,13 +3093,3 @@ def _process_portal_command(
             ]]
         },
     }
-
-
-
-
-
-
-
-
-
-
