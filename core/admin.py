@@ -96,6 +96,20 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
         label=get_preset('order_approval')['admin_fields']['media_root_folder']['label'],
         help_text=get_preset('order_approval')['admin_fields']['media_root_folder']['help_text'],
     )
+    spin_header_row = forms.IntegerField(
+        required=False,
+        min_value=1,
+        initial=get_preset('spin_credit_analysis')['admin_fields']['header_row']['initial'],
+        label=get_preset('spin_credit_analysis')['admin_fields']['header_row']['label'],
+        help_text=get_preset('spin_credit_analysis')['admin_fields']['header_row']['help_text'],
+    )
+    spin_legacy_batch_sheet_name = forms.CharField(
+        required=False,
+        initial=get_preset('spin_credit_analysis')['admin_fields']['legacy_batch_sheet_name']['initial'],
+        label=get_preset('spin_credit_analysis')['admin_fields']['legacy_batch_sheet_name']['label'],
+        help_text=get_preset('spin_credit_analysis')['admin_fields']['legacy_batch_sheet_name']['help_text'],
+    )
+
     jawabu_import_start_date = forms.DateField(
         required=False,
         input_formats=['%Y-%m-%d'],
@@ -214,6 +228,17 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 workflow.get('media_root_folder')
                 or defaults_for_preset('order_approval')['workflow'].get('media_root_folder', '')
             )
+        if preset_key == 'spin_credit_analysis':
+            self.fields['workflow_preset'].initial = 'spin_credit_analysis'
+            defaults = defaults_for_preset('spin_credit_analysis')['workflow']
+            self.fields['spin_header_row'].initial = (
+                workflow.get('header_row')
+                or defaults.get('header_row', 1)
+            )
+            self.fields['spin_legacy_batch_sheet_name'].initial = (
+                workflow.get('legacy_batch_sheet_name')
+                or defaults.get('legacy_batch_sheet_name', 'SPIN Legacy Batch')
+            )
         if preset_key == 'jawabu_homebiogas':
             self.fields['workflow_preset'].initial = 'jawabu_homebiogas'
             defaults = defaults_for_preset('jawabu_homebiogas')['workflow']
@@ -299,6 +324,8 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 'match_field': self.cleaned_data.get('order_approval_match_field'),
                 'media_field': self.cleaned_data.get('order_approval_media_field'),
                 'header_row': self.cleaned_data.get('order_approval_header_row'),
+                'legacy_batch_sheet_name': self.cleaned_data.get('spin_legacy_batch_sheet_name'),
+                'spin_header_row': self.cleaned_data.get('spin_header_row'),
                 'media_root_folder': self.cleaned_data.get(
                     'order_approval_media_root_folder'
                 ),
@@ -682,6 +709,14 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
             ),
             'description': 'Sheet tabs and matching config for the Order Approval (BRO) workflow.',
             'classes': ('collapse', 'preset-section', 'preset-order_approval'),
+        }),
+        ('SPIN / CRB Settings', {
+            'fields': (
+                'spin_header_row',
+                'spin_legacy_batch_sheet_name',
+            ),
+            'description': 'Header and legacy batch tab settings for the SPIN / CRB workflow.',
+            'classes': ('collapse', 'preset-section', 'preset-spin_credit_analysis'),
         }),
         ('Jawabu HomeBiogas Settings', {
             'fields': (

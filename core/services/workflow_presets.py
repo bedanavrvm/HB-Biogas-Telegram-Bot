@@ -113,7 +113,18 @@ WORKFLOW_PRESETS = {
         },
         'sheet_schema': {},
         'parser_rules': {},
-        'admin_fields': {},
+        'admin_fields': {
+            'header_row': {
+                'initial': 1,
+                'label': 'SPIN header row',
+                'help_text': 'Row number containing the SPIN/CRB sheet headers. Usually 1.',
+            },
+            'legacy_batch_sheet_name': {
+                'initial': 'SPIN Legacy Batch',
+                'label': 'Legacy batch worksheet tab',
+                'help_text': 'Worksheet tab used by /batch WhatsApp export imports. Keep separate from live Mini App requests.',
+            },
+        },
     },
     'jawabu_homebiogas': {
         'label': 'Jawabu HomeBiogas',
@@ -276,6 +287,17 @@ def build_workflow_from_preset(
                     workflow[key] = max(int(overrides[key]), 1)
                 except (TypeError, ValueError):
                     pass
+
+    if preset_key == 'spin_credit_analysis':
+        header_row = overrides.get('spin_header_row') or overrides.get('header_row')
+        if header_row:
+            try:
+                workflow['header_row'] = max(int(header_row), 1)
+            except (TypeError, ValueError):
+                pass
+        legacy_batch_sheet_name = str(overrides.get('legacy_batch_sheet_name') or '').strip()
+        if legacy_batch_sheet_name:
+            workflow['legacy_batch_sheet_name'] = legacy_batch_sheet_name
 
     if preset_key == 'order_approval':
         if overrides.get('search_sheet_names'):

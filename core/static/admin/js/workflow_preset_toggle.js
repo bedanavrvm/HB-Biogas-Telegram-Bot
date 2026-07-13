@@ -14,6 +14,7 @@
   const PRESET_SECTIONS = {
     order_approval: 'preset-order_approval',
     jawabu_homebiogas: 'preset-jawabu_homebiogas',
+    spin_credit_analysis: 'preset-spin_credit_analysis',
   };
 
   function applyToggle(selectedPreset) {

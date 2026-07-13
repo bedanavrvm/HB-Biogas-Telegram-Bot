@@ -3744,6 +3744,32 @@ class GroupConfigurationServiceTest(TestCase):
         self.assertEqual(workflow['header_row'], 1)
         self.assertEqual(workflow['import_start_date'], '2026-05-01')
 
+    def test_group_configuration_admin_form_generates_spin_workflow(self):
+        """SPIN preset should expose header row without raw JSON editing."""
+        from core.admin import GroupSheetConfigurationAdminForm
+
+        form = GroupSheetConfigurationAdminForm(data={
+            'enabled': 'on',
+            'group_id': '-100444',
+            'display_name': 'SPIN',
+            'sheet_id': 'sheet_spin_123',
+            'sheet_name': 'SPIN Requests',
+            'sheet_schema': '{}',
+            'workflow': '{}',
+            'parser_rules': '{}',
+            'metadata': '{}',
+            'workflow_preset': 'spin_credit_analysis',
+            'spin_header_row': '2',
+            'spin_legacy_batch_sheet_name': 'SPIN Imports',
+        })
+
+        self.assertTrue(form.is_valid(), form.errors)
+        workflow = form.generated_workflow()
+        self.assertEqual(workflow['type'], 'spin_credit_analysis')
+        self.assertEqual(workflow['header_row'], 2)
+        self.assertEqual(workflow['legacy_batch_sheet_name'], 'SPIN Imports')
+
+
     def test_workflow_presets_define_order_approval_defaults(self):
         """Future workflow additions should follow the shared preset contract."""
         from core.services.workflow_presets import (
@@ -3779,6 +3805,22 @@ class GroupConfigurationServiceTest(TestCase):
         self.assertEqual(workflow['header_row'], 2)
         self.assertEqual(workflow['media_root_folder'], '')
         self.assertEqual(workflow['record_id_prefix'], 'JBL')
+
+    def test_workflow_preset_overrides_spin_header_row(self):
+        """Admin can override SPIN header row and legacy batch tab."""
+        from core.services.workflow_presets import build_workflow_from_preset
+
+        workflow = build_workflow_from_preset(
+            'spin_credit_analysis',
+            overrides={
+                'spin_header_row': 3,
+                'legacy_batch_sheet_name': 'SPIN Legacy Imports',
+            },
+        )
+
+        self.assertEqual(workflow['header_row'], 3)
+        self.assertEqual(workflow['legacy_batch_sheet_name'], 'SPIN Legacy Imports')
+
 
     def test_workflow_preset_overrides_order_approval_tabs(self):
         """Admin can override preset tabs without editing raw JSON."""
