@@ -191,28 +191,86 @@ Rules:
 
 ## Sheet Requirements
 
-The workflow writes to these existing workbook tabs:
+The TAT workbook should be one Google spreadsheet with these tabs:
+
+### Product Tracker Tabs
+
+Django writes each case into the matching product tab:
 
 - `TRACKER-SME`
 - `TRACKER-LOGBOOK`
 - `TRACKER-MJENGO`
 - `TRACKER-KILIMO`
 - `TRACKER-MICRO-ASSET`
-- `CASE_INDEX`
-- `AUDIT LOG`
 
-Expected layout:
+All tracker tabs use the same top-row convention:
 
-- Header row: row `2`
-- First data row: row `5`
-- Product tracker rows are written into their matching tracker tab.
-- `CASE_INDEX` is updated as a searchable summary index.
-- `AUDIT LOG` receives stage-change events.
+- Row `1`: visual title banner, merged across the configured columns.
+- Row `2`: actual header row used by staff, filters, and the Mini App sync logic.
+- Row `3`: role/help row showing who owns each stage.
+- Row `4`: helper notes row.
+- Row `5` onward: case data.
 
-Share the Google Sheet with the same Google service account used by Render. Without this, sheet sync will fail with `403 PERMISSION_DENIED`.
+The first column must remain `Case ID`. This is the durable record key. Staff can sort/filter the sheet, but they should not edit `Case ID`.
+
+### Support Tabs
+
+The script also creates support tabs:
+
+- `CASE_INDEX`: searchable summary of cases across all product tracker tabs.
+- `AUDIT LOG`: append-only log of Mini App stage changes.
+- `DASHBOARD`: lightweight formula dashboard based on `CASE_INDEX`.
+
+`CASE_INDEX` and `AUDIT LOG` are support outputs. The main product tracker row is the critical sync target.
+
+### Product Tab Columns
+
+Common early columns:
+
+- `Case ID`
+- `Client Name`
+- `Branch`
+- `BRO Name`
+- `Amount`
+- `Case Created`
+
+Then each product has its workflow-specific stage columns. The setup script writes the correct headers for each product:
+
+- SME has the shorter SME path without TAT committee decision columns.
+- Logbook has `Valuation Ready` plus the full TAT/decision/sanctions path.
+- Mjengo, Kilimo, and Micro Asset use the no-valuation TAT/decision/sanctions path.
+
+Common ending columns:
+
+- `Status`
+- `Remarks / Delays`
+- `TAT Hours`
+- `TAT Days`
+
+Do not move or rename columns unless the Django `core/services/tat_tracker.py` product layout is updated at the same time.
+
+### What If A Sheet Row Is Deleted?
+
+The Django database is the system of record for the Mini App. The sheet is the reporting/front-office surface.
+
+If a staff member deletes a row from the Google Sheet only:
+
+- The Django case still exists.
+- The Mini App can still find the case by `Case ID`.
+- On the next update, Django verifies the stored row number before writing.
+- If the old row now contains a different `Case ID`, Django searches column A for the correct `Case ID`.
+- If the `Case ID` is no longer found in the sheet, Django appends the case again as a new row.
+
+This prevents accidental overwriting of the wrong row after sorting, row deletion, or manual edits.
+
+Best practice:
+
+- Do not delete active rows from the sheet.
+- Use `Status`, `Remarks / Delays`, and the Mini App workflow stages to close or explain a case.
+- For a mistaken test record, delete it from Django Admin first, then remove the sheet row if you also want it gone from the reporting sheet.
+- If you clear the sheet manually, expect existing Django cases to reappear when they are updated again.
 
 ## Sheet Setup Script
-
 Use this file for Google Sheet formatting and validations:
 
 ```text

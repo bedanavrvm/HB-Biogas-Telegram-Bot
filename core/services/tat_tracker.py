@@ -489,6 +489,21 @@ def sync_audit_log(group_config, case: TatTrackerCase) -> None:
         TatTrackerEvent.objects.filter(id__in=[event.id for event in unsynced]).update(synced_to_sheet=True, synced_at=timezone.now(), sync_error='')
 
 
+def resolve_case_sheet_row(sheet, case: TatTrackerCase) -> int:
+    """Return the safest row for this case, even after manual sheet edits."""
+    if case.row_number:
+        try:
+            current_id = str(sheet.cell(case.row_number, 1).value or '').strip()
+        except Exception:
+            current_id = ''
+        if current_id == case.case_id:
+            return case.row_number
+    case_ids = sheet.col_values(1)
+    for idx, value in enumerate(case_ids, start=1):
+        if idx >= 5 and str(value or '').strip() == case.case_id:
+            return idx
+    return next_sheet_row(sheet)
+
 def next_sheet_row(sheet) -> int:
     values = sheet.col_values(1)
     for idx in range(len(values), 4, -1):

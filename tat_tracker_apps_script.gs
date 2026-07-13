@@ -218,7 +218,7 @@ function setupTatSupportTabs() {
 
 function setupTrackerSheet_(sheet, layout) {
   ensureRowsAndColumns_(sheet, TAT_CONFIG.DEFAULT_MAX_ROWS, layout.headers.length);
-  sheet.getRange(1, 1, 1, layout.headers.length).merge()
+  mergedTitleRange_(sheet, layout.headers.length)
     .setValue(layout.title)
     .setFontWeight('bold')
     .setFontSize(13)
@@ -337,7 +337,7 @@ function setupDashboard_(sheet) {
 
 function setupSimpleSheet_(sheet, title, headers, color) {
   ensureRowsAndColumns_(sheet, TAT_CONFIG.DEFAULT_MAX_ROWS, headers.length);
-  sheet.getRange(1, 1, 1, headers.length).merge().setValue(title).setFontWeight('bold').setFontSize(13).setHorizontalAlignment('center').setBackground(color).setFontColor('#ffffff');
+  mergedTitleRange_(sheet, headers.length).setValue(title).setFontWeight('bold').setFontSize(13).setHorizontalAlignment('center').setBackground(color).setFontColor('#ffffff');
   sheet.getRange(2, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setWrap(true).setBackground('#eeeeee');
   sheet.setFrozenRows(2);
   applyFilter_(sheet, headers.length, 2);
@@ -398,6 +398,36 @@ function colorRule_(range, formula, color) {
     .build();
 }
 
+function mergedTitleRange_(sheet, width) {
+  unmergeIntersectingMergedRanges_(sheet, 1, 1, 1, width);
+  const range = sheet.getRange(1, 1, 1, width);
+  range.merge();
+  return range;
+}
+
+function unmergeIntersectingMergedRanges_(sheet, row, column, numRows, numColumns) {
+  const target = {
+    rowStart: row,
+    rowEnd: row + numRows - 1,
+    colStart: column,
+    colEnd: column + numColumns - 1,
+  };
+  sheet.getDataRange().getMergedRanges().forEach(function(range) {
+    const current = {
+      rowStart: range.getRow(),
+      rowEnd: range.getLastRow(),
+      colStart: range.getColumn(),
+      colEnd: range.getLastColumn(),
+    };
+    if (rangesIntersect_(target, current)) {
+      range.breakApart();
+    }
+  });
+}
+
+function rangesIntersect_(a, b) {
+  return a.rowStart <= b.rowEnd && a.rowEnd >= b.rowStart && a.colStart <= b.colEnd && a.colEnd >= b.colStart;
+}
 function getOrCreateSheet_(ss, name) {
   return ss.getSheetByName(name) || ss.insertSheet(name);
 }
