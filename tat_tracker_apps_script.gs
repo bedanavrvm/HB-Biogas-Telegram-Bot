@@ -218,6 +218,23 @@ function setupTatSupportTabs() {
 
 function setupTrackerSheet_(sheet, layout) {
   ensureRowsAndColumns_(sheet, TAT_CONFIG.DEFAULT_MAX_ROWS, layout.headers.length);
+  const initialized = ensureTrackerLayout_(sheet, layout);
+  if (initialized) safeSetFrozenRows_(sheet, 3);
+  sheet.getRange(TAT_CONFIG.DATA_START_ROW, 1, TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1, layout.headers.length).setWrap(true);
+  sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.amount, TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1, 1).setNumberFormat(TAT_CONFIG.MONEY_FORMAT);
+  layout.dateCols.forEach(function(col) {
+    sheet.getRange(TAT_CONFIG.DATA_START_ROW, col, TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1, 1).setNumberFormat(TAT_CONFIG.DATE_TIME_FORMAT);
+  });
+  applyValidations_(sheet, layout);
+  applyTatFormulas_(sheet, layout);
+  applyStatusConditionalFormattingIfEmpty_(sheet, layout);
+  applyFilter_(sheet, layout.headers.length);
+  if (initialized) autoResize_(sheet, layout.headers.length);
+}
+
+function ensureTrackerLayout_(sheet, layout) {
+  if (!isRowEmpty_(sheet, 2, layout.headers.length)) return false;
+
   mergedTitleRange_(sheet, layout.headers.length)
     .setValue(layout.title)
     .setFontWeight('bold')
@@ -239,19 +256,13 @@ function setupTrackerSheet_(sheet, layout) {
     .setWrap(true)
     .setBackground('#f3f6f4')
     .setFontColor('#555555');
-  sheet.setFrozenRows(3);
-  sheet.getRange(1, 1, Math.max(sheet.getMaxRows(), TAT_CONFIG.DEFAULT_MAX_ROWS), layout.headers.length).setVerticalAlignment('middle');
-  sheet.getRange(4, 1, 1, layout.headers.length).setValues([helperRow_(layout)]).setFontSize(9).setFontColor('#777777').setBackground('#fafafa').setWrap(true);
-  sheet.getRange(TAT_CONFIG.DATA_START_ROW, 1, TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1, layout.headers.length).setWrap(true);
-  sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.amount, TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1, 1).setNumberFormat(TAT_CONFIG.MONEY_FORMAT);
-  layout.dateCols.forEach(function(col) {
-    sheet.getRange(TAT_CONFIG.DATA_START_ROW, col, TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1, 1).setNumberFormat(TAT_CONFIG.DATE_TIME_FORMAT);
-  });
-  applyValidations_(sheet, layout);
-  applyTatFormulas_(sheet, layout);
-  applyStatusConditionalFormatting_(sheet, layout);
-  applyFilter_(sheet, layout.headers.length);
-  autoResize_(sheet, layout.headers.length);
+  sheet.getRange(4, 1, 1, layout.headers.length)
+    .setValues([helperRow_(layout)])
+    .setFontSize(9)
+    .setFontColor('#777777')
+    .setBackground('#fafafa')
+    .setWrap(true);
+  return true;
 }
 
 function applyValidations_(sheet, layout) {
@@ -311,6 +322,11 @@ function applyStatusConditionalFormatting_(sheet, layout) {
   sheet.setConditionalFormatRules(rules);
 }
 
+function applyStatusConditionalFormattingIfEmpty_(sheet, layout) {
+  if (sheet.getConditionalFormatRules().length > 0) return;
+  applyStatusConditionalFormatting_(sheet, layout);
+}
+
 function setupCaseIndex_(sheet) {
   const headers = ['Case ID', 'Tracker Sheet', 'Row Number', 'Client Name', 'Branch', 'BRO Name', 'Status', 'Created At', 'Last Updated At'];
   setupSimpleSheet_(sheet, 'TAT CASE INDEX', headers, '#274e13');
@@ -336,11 +352,14 @@ function setupDashboard_(sheet) {
 
 function setupSimpleSheet_(sheet, title, headers, color) {
   ensureRowsAndColumns_(sheet, TAT_CONFIG.DEFAULT_MAX_ROWS, headers.length);
-  mergedTitleRange_(sheet, headers.length).setValue(title).setFontWeight('bold').setFontSize(13).setHorizontalAlignment('center').setBackground(color).setFontColor('#ffffff');
-  sheet.getRange(2, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setWrap(true).setBackground('#eeeeee');
-  sheet.setFrozenRows(2);
+  const initialized = isRowEmpty_(sheet, 2, headers.length);
+  if (initialized) {
+    mergedTitleRange_(sheet, headers.length).setValue(title).setFontWeight('bold').setFontSize(13).setHorizontalAlignment('center').setBackground(color).setFontColor('#ffffff');
+    sheet.getRange(2, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setWrap(true).setBackground('#eeeeee');
+    safeSetFrozenRows_(sheet, 2);
+  }
   applyFilter_(sheet, headers.length, 2);
-  sheet.autoResizeColumns(1, headers.length);
+  if (initialized) sheet.autoResizeColumns(1, headers.length);
 }
 
 function showTatSetupNotes() {
@@ -387,6 +406,22 @@ function listRule_(values, strict) {
     .requireValueInList(values, true)
     .setAllowInvalid(!strict)
     .build();
+}
+
+function isRowEmpty_(sheet, row, width) {
+  return sheet.getRange(row, 1, 1, width)
+    .getDisplayValues()[0]
+    .every(function(value) {
+      return String(value || '').trim() === '';
+    });
+}
+
+function safeSetFrozenRows_(sheet, rows) {
+  try {
+    sheet.setFrozenRows(rows);
+  } catch (err) {
+    Logger.log('Skipped freezing rows on ' + sheet.getName() + ': ' + err.message);
+  }
 }
 
 function colorRule_(range, formula, color) {
@@ -445,9 +480,13 @@ function ensureRowsAndColumns_(sheet, rows, cols) {
 
 function applyFilter_(sheet, width, headerRow) {
   headerRow = headerRow || 2;
-  const existing = sheet.getFilter();
-  if (existing) existing.remove();
-  sheet.getRange(headerRow, 1, Math.max(sheet.getMaxRows() - headerRow + 1, 1), width).createFilter();
+  try {
+    const existing = sheet.getFilter();
+    if (existing) existing.remove();
+    sheet.getRange(headerRow, 1, Math.max(sheet.getMaxRows() - headerRow + 1, 1), width).createFilter();
+  } catch (err) {
+    Logger.log('Skipped filter refresh on ' + sheet.getName() + ': ' + err.message);
+  }
 }
 
 function autoResize_(sheet, width) {

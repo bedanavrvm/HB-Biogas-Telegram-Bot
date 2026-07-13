@@ -299,14 +299,15 @@ Install it in the TAT tracker workbook:
 The script creates/refreshes:
 
 - Tracker tabs for SME, Logbook, Mjengo, Kilimo, and Micro Asset.
-- Existing frozen panes are temporarily cleared before title merges, then the script reapplies frozen rows only. The script does not freeze columns.
 - `CASE_INDEX`, `AUDIT LOG`, and `DASHBOARD` support tabs.
-- Header row 2 and helper row 4.
-- Frozen header rows and filters. Columns are not frozen.
+- Header/helper layout only on empty newly-created tabs.
+- Existing tracker title rows, merged ranges, colors, column widths, and frozen panes are preserved.
+- Filters where Google Sheets allows them; filter errors are logged instead of stopping setup.
 - Branch, decision, sanctions, register, register approval, and status dropdowns.
 - Amount validation by product.
+- Date/time and amount number formats.
 - TAT Hours and TAT Days formulas.
-- Conditional row highlighting by `Status`.
+- Conditional row highlighting by `Status` only if the tab does not already have conditional-format rules.
 
 Do not copy old tracker trigger/webapp logic into this workbook. Django/Mini App owns case creation, case IDs, staff permissions, stage ordering, timestamp writes, sheet sync, and audit events. The Apps Script is only for sheet setup and validation guardrails.
 
