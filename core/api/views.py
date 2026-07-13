@@ -1600,9 +1600,10 @@ def _run_whatsapp_batch_import(
         results,
         group_id=group_id,
     ) if saved_count else None
+    append_status = (batch_sheet_append or {}).get('status')
     sync_after = (
         _sync_case_sheet_for_batch(group_id, delete_missing=False)
-        if saved_count else None
+        if saved_count and append_status in {'success', 'partial'} else None
     )
 
     return {
@@ -2544,6 +2545,17 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
                     f"Processed the first {result.get('max_entries')} export messages because a limit is configured. "
                     "Set WHATSAPP_BATCH_MAX_MESSAGES=0 to process the full export in one upload."
                 )
+            append_sync = result.get('batch_sheet_append') or {}
+            if append_sync:
+                append_status = append_sync.get('status', 'unknown')
+                lines.append(
+                    f"Sheet batch write: {append_status} "
+                    f"({append_sync.get('synced_count', 0)} synced, "
+                    f"{append_sync.get('failed_count', 0)} failed)"
+                )
+                append_errors = append_sync.get('errors') or []
+                if append_errors:
+                    lines.append(f"Sheet batch write warning: {append_errors[0]}")
             for label, key in (
                 ('Sheet sync before import', 'sheet_sync_before'),
                 ('Sheet sync after import', 'sheet_sync_after'),

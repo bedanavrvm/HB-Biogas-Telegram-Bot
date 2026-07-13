@@ -2935,6 +2935,40 @@ class StorageServiceTest(TestCase):
         self.assertEqual(created.sheet_id, 'sheet_123')
         self.assertEqual(created.sheet_name, 'Cases')
 
+    @override_settings(CASE_BATCH_SHEET_CHUNK_SIZE=1)
+    def test_append_rows_uses_chunked_batch_update_for_case_batch(self):
+        """Case batch writes should not call one Sheets update per row."""
+        service = GoogleSheetsService()
+        service._initialized = True
+        service._sheet = MagicMock()
+        service._sheet.row_values.return_value = service.SHEET_COLUMNS
+        service._sheet.col_values.return_value = ['message_id']
+        service._sheet.get_all_values.return_value = [service.SHEET_COLUMNS]
+        service._sheet.batch_update.return_value = None
+
+        row1 = [''] * len(service.SHEET_COLUMNS)
+        row1[1] = 'MSG_CHUNK_1'
+        row1[3] = 'JOHN DOE'
+        row2 = [''] * len(service.SHEET_COLUMNS)
+        row2[1] = 'MSG_CHUNK_2'
+        row2[3] = 'MARY DOE'
+
+        with patch.object(service, 'is_available', return_value=True):
+            result = service.append_rows(
+                [row1, row2],
+                message_ids=['MSG_CHUNK_1', 'MSG_CHUNK_2'],
+            )
+
+        self.assertEqual(result['success_count'], 2)
+        self.assertEqual(result['failed_count'], 0)
+        self.assertEqual(
+            result['synced_message_ids'],
+            ['MSG_CHUNK_1', 'MSG_CHUNK_2'],
+        )
+        self.assertGreaterEqual(service._sheet.batch_update.call_count, 1)
+        service._sheet.update.assert_not_called()
+        service._sheet.get_all_values.assert_called_once()
+
     @patch('core.services.sheet_sync.get_sheets_service')
     def test_sync_sheet_to_backend_clear_sheet_removes_group_cases_and_dedupe(self, mock_service):
         """When the sheet is cleared, backend cases and stale dedupe rows are cleared too."""

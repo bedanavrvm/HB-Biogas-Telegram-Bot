@@ -41,6 +41,7 @@ Schema (FIXED — 21 columns):
   [20] Days Open (formula — DO NOT WRITE)
 """
 import logging
+import time
 from typing import Optional
 from django.conf import settings
 from core.services.sheet_schema import SheetSchema
@@ -512,8 +513,10 @@ class GoogleSheetsService:
         """
         Append multiple rows to the sheet.
 
-        Returns a dict with success_count, failed_count, errors,
-        synced_message_ids, failure_details.
+        The case register has formula and human-owned columns, so this does not
+        use Google Sheets append semantics. It reads existing message IDs once,
+        computes the next available case row once, and writes bot-owned columns
+        in chunked batch updates with quota-safe retry.
         """
         result = {
             'success_count': 0,
@@ -531,10 +534,8 @@ class GoogleSheetsService:
             result['errors'].append("Google Sheets service unavailable")
             return result
 
-        existing = set()
-        if message_ids:
-            existing = self._get_existing_message_ids()
-
+        existing = self._get_existing_message_ids() if message_ids else set()
+        pending = []
         for i, row in enumerate(rows):
             mid = message_ids[i] if message_ids and i < len(message_ids) else None
 
@@ -552,24 +553,34 @@ class GoogleSheetsService:
                 )
                 result['failed_count'] += 1
                 result['errors'].append(f"Invalid row length for row {i + 1}")
+                if mid:
+                    result['failure_details'][mid] = 'Invalid row length'
                 continue
 
+            pending.append((i, row, mid))
+            if mid:
+                existing.add(mid)
+
+        if pending:
             try:
-                self._write_row_to_next_case_slot(row)
-                result['success_count'] += 1
-                if mid:
-                    existing.add(mid)
-                    result['synced_message_ids'].append(mid)
+                self._write_rows_to_case_slots_bulk([row for _, row, _ in pending])
+                result['success_count'] += len(pending)
+                result['synced_message_ids'].extend(
+                    mid for _, _, mid in pending if mid
+                )
             except Exception as exc:
                 err = str(exc)
                 logger.error(
-                    f"Failed to append row {i+1} to sheet {self._sheet_id}: {err}",
+                    f"Bulk append to sheet {self._sheet_id} failed: {err}",
                     exc_info=True,
                 )
-                result['failed_count'] += 1
-                result['errors'].append(f"Failed to append row {i + 1}")
-                if mid:
-                    result['failure_details'][mid] = err
+                result['failed_count'] += len(pending)
+                result['errors'].append(err)
+                for i, _, mid in pending:
+                    if mid:
+                        result['failure_details'][mid] = err
+                    else:
+                        result['errors'].append(f"Failed to append row {i + 1}")
 
         logger.info(
             f"Batch append to {self._sheet_id}: "
@@ -796,6 +807,145 @@ class GoogleSheetsService:
             values_by_header.get(self._normalize_header(header), '')
             for header in headers
         ]
+
+    def _write_rows_to_case_slots_bulk(self, rows: list[list]) -> None:
+        """Write many case rows with one sheet read and chunked batch updates."""
+        if not rows:
+            return
+        headers = self._header_values()
+        if not isinstance(headers, list) or not headers:
+            raise ValueError("Sheet headers are not available")
+
+        sheet_values = self._sheet.get_all_values()
+        target_row = self._next_case_row_from_values(headers, sheet_values)
+        writable = {
+            self._normalize_header(column)
+            for column in self.bot_writable_columns
+        }
+        date_columns = {
+            self._normalize_header(column)
+            for column in self.date_columns
+        }
+        columns = []
+        for zero_idx, header in enumerate(headers):
+            normalized = self._normalize_header(header)
+            if normalized in writable:
+                input_option = 'USER_ENTERED' if normalized in date_columns else 'RAW'
+                columns.append((zero_idx + 1, normalized, input_option))
+        column_groups = self._group_consecutive_columns(columns)
+        if not column_groups:
+            raise ValueError('No bot-writable columns found in sheet headers')
+
+        chunk_size = int(getattr(settings, 'CASE_BATCH_SHEET_CHUNK_SIZE', 100) or 100)
+        chunk_size = max(1, min(chunk_size, 300))
+        for offset in range(0, len(rows), chunk_size):
+            chunk = rows[offset:offset + chunk_size]
+            start_row = target_row + offset
+            self._write_case_slot_chunk(column_groups, chunk, start_row)
+
+    def _write_case_slot_chunk(
+        self,
+        column_groups: list,
+        rows: list[list],
+        start_row: int,
+    ) -> None:
+        values_by_row = []
+        for row in rows:
+            values_by_row.append({
+                self._normalize_header(column): row[idx]
+                for idx, column in enumerate(self.sheet_columns)
+            })
+
+        ranges_by_option = {}
+        for group in column_groups:
+            start_col = group[0][0]
+            end_col = group[-1][0]
+            input_option = group[0][2]
+            range_name = (
+                f"{self._column_letter(start_col)}{start_row}:"
+                f"{self._column_letter(end_col)}{start_row + len(rows) - 1}"
+            )
+            values = []
+            for values_by_header in values_by_row:
+                values.append([
+                    values_by_header.get(normalized_header, '')
+                    for _, normalized_header, _ in group
+                ])
+            ranges_by_option.setdefault(input_option, []).append({
+                'range': range_name,
+                'values': values,
+            })
+
+        for input_option, payload in ranges_by_option.items():
+            self._batch_update_with_retry(payload, input_option)
+
+    def _batch_update_with_retry(self, payload: list[dict], value_input_option: str) -> None:
+        max_attempts = int(getattr(settings, 'GOOGLE_SHEETS_MAX_RETRIES', 4) or 4)
+        max_attempts = max(1, max_attempts)
+        for attempt in range(1, max_attempts + 1):
+            try:
+                self._sheet.batch_update(
+                    payload,
+                    value_input_option=value_input_option,
+                )
+                return
+            except Exception as exc:
+                if not self._is_google_quota_error(exc) or attempt >= max_attempts:
+                    raise
+                delay = min(60, 2 ** attempt)
+                logger.warning(
+                    "Google Sheets quota/rate limit while writing %s ranges to %s; "
+                    "retrying in %ss (%s/%s): %s",
+                    len(payload),
+                    self._sheet_id,
+                    delay,
+                    attempt,
+                    max_attempts,
+                    exc,
+                )
+                time.sleep(delay)
+
+    def _next_case_row_from_values(self, headers: list, rows: list[list]) -> int:
+        """Return next data row from already-read sheet values."""
+        if not rows:
+            return self.data_start_row
+
+        formula_columns = {
+            self._normalize_header(column)
+            for column in self.formula_columns
+        }
+        data_indices = [
+            idx for idx, header in enumerate(headers)
+            if self._normalize_header(header) not in formula_columns
+        ]
+
+        last_data_row = self.header_row
+        for row_number, row in enumerate(
+            rows[self.header_row:],
+            start=self.data_start_row,
+        ):
+            if any(
+                idx < len(row) and str(row[idx] or '').strip()
+                for idx in data_indices
+            ):
+                last_data_row = row_number
+
+        return last_data_row + 1
+
+    @staticmethod
+    def _is_google_quota_error(exc: Exception) -> bool:
+        text = str(exc).lower()
+        return any(
+            marker in text
+            for marker in (
+                'resource_exhausted',
+                'rate_limit',
+                'quota exceeded',
+                '429',
+                'read requests per minute',
+                'write requests per minute',
+            )
+        )
 
     def _write_row_to_next_case_slot(self, row: list) -> int:
         """
