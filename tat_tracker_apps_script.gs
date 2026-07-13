@@ -256,8 +256,6 @@ function removeLegacyProtectionsFromSheet_(sheet) {
 
 function setupTrackerSheet_(sheet, layout) {
   ensureRowsAndColumns_(sheet, TAT_CONFIG.DEFAULT_MAX_ROWS, layout.headers.length);
-  const initialized = ensureTrackerLayout_(sheet, layout);
-  if (initialized) safeSetFrozenRows_(sheet, 3);
   sheet.getRange(TAT_CONFIG.DATA_START_ROW, 1, TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1, layout.headers.length).setWrap(true);
   sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.amount, TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1, 1).setNumberFormat(TAT_CONFIG.MONEY_FORMAT);
   layout.dateCols.forEach(function(col) {
@@ -266,41 +264,6 @@ function setupTrackerSheet_(sheet, layout) {
   applyValidations_(sheet, layout);
   applyTatFormulas_(sheet, layout);
   applyStatusConditionalFormattingIfEmpty_(sheet, layout);
-  applyFilter_(sheet, layout.headers.length);
-  if (initialized) autoResize_(sheet, layout.headers.length);
-}
-
-function ensureTrackerLayout_(sheet, layout) {
-  if (!isRowEmpty_(sheet, 2, layout.headers.length)) return false;
-
-  mergedTitleRange_(sheet, layout.headers.length)
-    .setValue(layout.title)
-    .setFontWeight('bold')
-    .setFontSize(13)
-    .setHorizontalAlignment('center')
-    .setBackground('#1f4e3d')
-    .setFontColor('#ffffff');
-  sheet.getRange(2, 1, 1, layout.headers.length)
-    .setValues([layout.headers])
-    .setFontWeight('bold')
-    .setWrap(true)
-    .setVerticalAlignment('middle')
-    .setBackground('#d9ead3')
-    .setFontColor('#1f1f1f');
-  sheet.getRange(3, 1, 1, layout.headers.length)
-    .setValues([roleRow_(layout.headers)])
-    .setFontStyle('italic')
-    .setFontSize(9)
-    .setWrap(true)
-    .setBackground('#f3f6f4')
-    .setFontColor('#555555');
-  sheet.getRange(4, 1, 1, layout.headers.length)
-    .setValues([helperRow_(layout)])
-    .setFontSize(9)
-    .setFontColor('#777777')
-    .setBackground('#fafafa')
-    .setWrap(true);
-  return true;
 }
 
 function applyValidations_(sheet, layout) {
@@ -410,19 +373,10 @@ function setupDashboard_(sheet) {
     ['Stalled', '=COUNTIF(CASE_INDEX!G:G,"Stalled")', ''],
     ['Pending Docs', '=COUNTIF(CASE_INDEX!G:G,"Pending Docs")', ''],
   ]);
-  sheet.autoResizeColumns(1, 3);
 }
 
 function setupSimpleSheet_(sheet, title, headers, color) {
   ensureRowsAndColumns_(sheet, TAT_CONFIG.DEFAULT_MAX_ROWS, headers.length);
-  const initialized = isRowEmpty_(sheet, 2, headers.length);
-  if (initialized) {
-    mergedTitleRange_(sheet, headers.length).setValue(title).setFontWeight('bold').setFontSize(13).setHorizontalAlignment('center').setBackground(color).setFontColor('#ffffff');
-    sheet.getRange(2, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setWrap(true).setBackground('#eeeeee');
-    safeSetFrozenRows_(sheet, 2);
-  }
-  applyFilter_(sheet, headers.length, 2);
-  if (initialized) sheet.autoResizeColumns(1, headers.length);
 }
 
 function showTatSetupNotes() {
@@ -435,34 +389,6 @@ function showTatSetupNotes() {
   );
 }
 
-function roleRow_(headers) {
-  return headers.map(function(header) {
-    if (['Case ID', 'Status', 'TAT Hours', 'TAT Days'].indexOf(header) >= 0) return 'System';
-    if (header.indexOf('MPESA Sent') >= 0 || header.indexOf('BRO') >= 0) return 'BRO';
-    if (header.indexOf('Verified') >= 0 || header.indexOf('Register') >= 0) return 'Admin';
-    if (header.indexOf('Credit Analysis') >= 0) return 'Credit Analyst';
-    if (header.indexOf('BM') >= 0 || header.indexOf('Valuation') >= 0) return 'BM';
-    if (header.indexOf('TAT Scheduled') >= 0 || header.indexOf('TAT Held') >= 0 || header.indexOf('Minutes') >= 0) return 'Secretary';
-    if (header === 'Decision') return 'Chair';
-    if (header.indexOf('Sanctions') >= 0 || header.indexOf('Approved') >= 0) return 'Loan Approver';
-    if (header.indexOf('Finance') >= 0) return 'Finance';
-    return 'Input';
-  });
-}
-
-function helperRow_(layout) {
-  return layout.headers.map(function(header, index) {
-    const col = index + 1;
-    if (col === 1) return 'Written by Django. Do not edit manually.';
-    if (col === 3) return 'Dropdown.';
-    if (col === layout.cols.amount) return 'Numeric amount.';
-    if (layout.stageCols.indexOf(col) >= 0) return 'Timestamp/stage value written by Mini App.';
-    if (col === layout.cols.status) return 'Dropdown/status from workflow.';
-    if (col === layout.cols.remarks) return 'Staff comments / delays.';
-    if (col === layout.cols.tatHours || col === layout.cols.tatDays) return 'Formula.';
-    return '';
-  });
-}
 
 function listRule_(values, strict) {
   return SpreadsheetApp.newDataValidation()
@@ -471,21 +397,6 @@ function listRule_(values, strict) {
     .build();
 }
 
-function isRowEmpty_(sheet, row, width) {
-  return sheet.getRange(row, 1, 1, width)
-    .getDisplayValues()[0]
-    .every(function(value) {
-      return String(value || '').trim() === '';
-    });
-}
-
-function safeSetFrozenRows_(sheet, rows) {
-  try {
-    sheet.setFrozenRows(rows);
-  } catch (err) {
-    Logger.log('Skipped freezing rows on ' + sheet.getName() + ': ' + err.message);
-  }
-}
 
 function colorRule_(range, formula, color) {
   return SpreadsheetApp.newConditionalFormatRule()
@@ -496,42 +407,6 @@ function colorRule_(range, formula, color) {
 }
 
 
-function mergedTitleRange_(sheet, width) {
-  clearFreezePanesForMerge_(sheet);
-  unmergeIntersectingMergedRanges_(sheet, 1, 1, 1, width);
-  const range = sheet.getRange(1, 1, 1, width);
-  range.merge();
-  return range;
-}
-
-function clearFreezePanesForMerge_(sheet) {
-  if (sheet.getFrozenRows() > 0) sheet.setFrozenRows(0);
-  if (sheet.getFrozenColumns() > 0) sheet.setFrozenColumns(0);
-}
-
-function unmergeIntersectingMergedRanges_(sheet, row, column, numRows, numColumns) {
-  const target = {
-    rowStart: row,
-    rowEnd: row + numRows - 1,
-    colStart: column,
-    colEnd: column + numColumns - 1,
-  };
-  sheet.getDataRange().getMergedRanges().forEach(function(range) {
-    const current = {
-      rowStart: range.getRow(),
-      rowEnd: range.getLastRow(),
-      colStart: range.getColumn(),
-      colEnd: range.getLastColumn(),
-    };
-    if (rangesIntersect_(target, current)) {
-      range.breakApart();
-    }
-  });
-}
-
-function rangesIntersect_(a, b) {
-  return a.rowStart <= b.rowEnd && a.rowEnd >= b.rowStart && a.colStart <= b.colEnd && a.colEnd >= b.colStart;
-}
 function getOrCreateSheet_(ss, name) {
   return ss.getSheetByName(name) || ss.insertSheet(name);
 }
@@ -541,24 +416,6 @@ function ensureRowsAndColumns_(sheet, rows, cols) {
   if (sheet.getMaxColumns() < cols) sheet.insertColumnsAfter(sheet.getMaxColumns(), cols - sheet.getMaxColumns());
 }
 
-function applyFilter_(sheet, width, headerRow) {
-  headerRow = headerRow || 2;
-  try {
-    const existing = sheet.getFilter();
-    if (existing) existing.remove();
-    sheet.getRange(headerRow, 1, Math.max(sheet.getMaxRows() - headerRow + 1, 1), width).createFilter();
-  } catch (err) {
-    Logger.log('Skipped filter refresh on ' + sheet.getName() + ': ' + err.message);
-  }
-}
-
-function autoResize_(sheet, width) {
-  for (let col = 1; col <= width; col++) {
-    sheet.autoResizeColumn(col);
-    if (sheet.getColumnWidth(col) > 220) sheet.setColumnWidth(col, 220);
-    if (sheet.getColumnWidth(col) < 90) sheet.setColumnWidth(col, 90);
-  }
-}
 
 function colLetter_(column) {
   let temp = '';

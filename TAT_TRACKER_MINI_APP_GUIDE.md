@@ -298,17 +298,16 @@ Install it in the TAT tracker workbook:
 
 The script creates/refreshes:
 
-- Tracker tabs for SME, Logbook, Mjengo, Kilimo, and Micro Asset.
-- `CASE_INDEX`, `AUDIT LOG`, and `DASHBOARD` support tabs.
-- Header/helper layout only on empty newly-created tabs.
-- Existing tracker title rows, merged ranges, colors, column widths, and frozen panes are preserved.
+- Tracker tabs for SME, Logbook, Mjengo, Kilimo, and Micro Asset if they are missing.
+- `CASE_INDEX`, `AUDIT LOG`, and `DASHBOARD` support tabs if they are missing.
 - Legacy `JBL-*` / `HOCC-*` sheet and range protections from the old tracker script are removed where the current user has permission, because Django must write `CASE_INDEX`, `AUDIT LOG`, and tracker rows.
-- Filters where Google Sheets allows them; filter errors are logged instead of stopping setup.
-- Branch, decision, sanctions, register, register approval, and status dropdowns.
-- Amount validation by product.
-- Date/time and amount number formats.
-- TAT Hours and TAT Days formulas.
+- Branch, decision, sanctions, register, register approval, and status dropdowns from row 5 downward.
+- Amount validation by product from row 5 downward.
+- Date/time and amount number formats from row 5 downward.
+- TAT Hours and TAT Days formulas from row 5 downward.
 - Conditional row highlighting by `Status` only if the tab does not already have conditional-format rules.
+
+The script does not write, format, merge, unmerge, freeze, unfreeze, filter, or resize rows 1-3. It does not standardize visual headers. Keep the tracker visual design in the workbook/template itself.
 
 Do not copy old tracker trigger/webapp logic into this workbook. Django/Mini App owns case creation, case IDs, staff permissions, stage ordering, timestamp writes, sheet sync, and audit events. The Apps Script is only for sheet setup and validation guardrails.
 
