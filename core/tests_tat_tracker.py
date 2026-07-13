@@ -74,9 +74,9 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('TAT Tracker', result['reply_text'])
         button = result['reply_markup']['inline_keyboard'][0][0]
         self.assertEqual(button['text'], 'Open TAT Tracker Mini App')
-        self.assertIn('web_app', button)
-        self.assertNotIn('url', button)
-        self.assertTrue(button['web_app']['url'].startswith('https://example.test/tat-tracker/?'))
+        self.assertIn('url', button)
+        self.assertNotIn('web_app', button)
+        self.assertTrue(button['url'].startswith('https://t.me/testbot/tattracker?startapp='))
     def test_staff_user_matches_telegram_id(self):
         user = staff_user_for_payload(self.config, {'id': 111, 'username': 'someone_else'})
         self.assertTrue(user['authorized'])

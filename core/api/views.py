@@ -1817,8 +1817,8 @@ def _process_tat_tracker_command(group_config, sender: str, telegram_message_id:
         }
 
     if mini_app_url:
-        button = {'text': 'Open TAT Tracker Mini App', 'web_app': {'url': form_url}}
-        mode = 'Opening as Telegram Mini App.'
+        button = {'text': 'Open TAT Tracker Mini App', 'url': mini_app_url}
+        mode = 'Opening through the Telegram Mini App short link.'
     else:
         button = {'text': 'Open TAT Tracker', 'url': form_url}
         mode = 'Mini App short name is not configured; this button opens the secure web tracker link.'
