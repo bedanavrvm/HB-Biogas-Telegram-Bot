@@ -299,9 +299,10 @@ Install it in the TAT tracker workbook:
 The script creates/refreshes:
 
 - Tracker tabs for SME, Logbook, Mjengo, Kilimo, and Micro Asset.
+- Existing frozen panes are temporarily cleared before title merges, then the script reapplies frozen rows only. The script does not freeze columns.
 - `CASE_INDEX`, `AUDIT LOG`, and `DASHBOARD` support tabs.
 - Header row 2 and helper row 4.
-- Freeze panes and filters.
+- Frozen header rows and filters. Columns are not frozen.
 - Branch, decision, sanctions, register, register approval, and status dropdowns.
 - Amount validation by product.
 - TAT Hours and TAT Days formulas.

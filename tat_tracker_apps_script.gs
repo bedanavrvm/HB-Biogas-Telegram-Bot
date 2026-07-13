@@ -240,7 +240,6 @@ function setupTrackerSheet_(sheet, layout) {
     .setBackground('#f3f6f4')
     .setFontColor('#555555');
   sheet.setFrozenRows(3);
-  sheet.setFrozenColumns(2);
   sheet.getRange(1, 1, Math.max(sheet.getMaxRows(), TAT_CONFIG.DEFAULT_MAX_ROWS), layout.headers.length).setVerticalAlignment('middle');
   sheet.getRange(4, 1, 1, layout.headers.length).setValues([helperRow_(layout)]).setFontSize(9).setFontColor('#777777').setBackground('#fafafa').setWrap(true);
   sheet.getRange(TAT_CONFIG.DATA_START_ROW, 1, TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1, layout.headers.length).setWrap(true);
@@ -398,11 +397,18 @@ function colorRule_(range, formula, color) {
     .build();
 }
 
+
 function mergedTitleRange_(sheet, width) {
+  clearFreezePanesForMerge_(sheet);
   unmergeIntersectingMergedRanges_(sheet, 1, 1, 1, width);
   const range = sheet.getRange(1, 1, 1, width);
   range.merge();
   return range;
+}
+
+function clearFreezePanesForMerge_(sheet) {
+  if (sheet.getFrozenRows() > 0) sheet.setFrozenRows(0);
+  if (sheet.getFrozenColumns() > 0) sheet.setFrozenColumns(0);
 }
 
 function unmergeIntersectingMergedRanges_(sheet, row, column, numRows, numColumns) {
