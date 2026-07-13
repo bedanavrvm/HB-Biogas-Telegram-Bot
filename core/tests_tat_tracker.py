@@ -180,8 +180,16 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(user['name'], 'BRO User')
         self.assertEqual(user['roles'], ['BRO'])
 
+    @staticmethod
+    def mark_case_synced(_group_config, case):
+        case.row_number = case.row_number or 5
+        case.sheet_name = case.sheet_name or 'TRACKER-SME'
+        case.sync_error = ''
+        case.save(update_fields=['row_number', 'sheet_name', 'sync_error', 'updated_at'])
+
     @patch('core.services.tat_tracker.sync_case_to_sheet')
     def test_create_case_assigns_sequential_case_id(self, sync_mock):
+        sync_mock.side_effect = self.mark_case_synced
         user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
         first = create_case(self.config, user, {
             'product_key': 'sme',
@@ -203,7 +211,45 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(sync_mock.call_count, 2)
 
     @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_create_case_retry_with_same_request_id_returns_existing_case(self, sync_mock):
+        sync_mock.side_effect = self.mark_case_synced
+        user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+        payload = {
+            'product_key': 'sme',
+            'branch': 'Nakuru',
+            'client_name': 'Test Client',
+            'bro_name': 'BRO User',
+            'amount': '10000',
+            'client_request_id': 'req-123',
+        }
+
+        first = create_case(self.config, user, payload)
+        second = create_case(self.config, user, payload)
+
+        self.assertEqual(first['summary']['case_id'], second['summary']['case_id'])
+        self.assertEqual(TatTrackerCase.objects.count(), 1)
+        self.assertEqual(sync_mock.call_count, 1)
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_create_case_rolls_back_when_primary_sheet_sync_fails(self, sync_mock):
+        sync_mock.side_effect = RuntimeError('Primary sheet write failed')
+        user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+
+        with self.assertRaises(RuntimeError):
+            create_case(self.config, user, {
+                'product_key': 'sme',
+                'branch': 'Nakuru',
+                'client_name': 'Test Client',
+                'bro_name': 'BRO User',
+                'amount': '10000',
+                'client_request_id': 'req-fail',
+            })
+
+        self.assertEqual(TatTrackerCase.objects.count(), 0)
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
     def test_stage_updates_are_role_and_sequence_controlled(self, sync_mock):
+        sync_mock.side_effect = self.mark_case_synced
         bro = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
         admin = staff_user_for_payload(self.config, {'id': 222, 'username': 'admin_user'})
         detail = create_case(self.config, bro, {

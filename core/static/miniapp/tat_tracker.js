@@ -8,10 +8,27 @@
     data: null,
     detail: null,
     currentView: 'queue',
+    pendingCreateRequestId: readPendingCreateRequestId(),
   };
 
   const $ = (id) => document.getElementById(id);
   let statusTimeout = null;
+
+  function readPendingCreateRequestId() {
+    try { return window.sessionStorage.getItem('tatPendingCreateRequestId') || ''; } catch (error) { return ''; }
+  }
+
+  function writePendingCreateRequestId(value) {
+    try {
+      if (value) window.sessionStorage.setItem('tatPendingCreateRequestId', value);
+      else window.sessionStorage.removeItem('tatPendingCreateRequestId');
+    } catch (error) {}
+  }
+
+  function newRequestId() {
+    if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+    return 'tat-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+  }
 
   function basePayload(extra) {
     return Object.assign({ group_id: state.groupId, token: state.token, init_data: state.initData }, extra || {});
@@ -407,7 +424,10 @@
       setStatus('Creating case...', 'busy');
       const form = new FormData(event.currentTarget);
       const payload = Object.fromEntries(form.entries());
+      state.pendingCreateRequestId = state.pendingCreateRequestId || newRequestId();
+      payload.client_request_id = state.pendingCreateRequestId;
       const result = await api('/api/tat-tracker/create/', payload);
+      state.pendingCreateRequestId = '';
       event.currentTarget.reset();
       document.querySelector('[name="bro_name"]').value = state.data.user.name || '';
       state.detail = result.data;

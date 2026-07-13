@@ -8,6 +8,7 @@ import hmac
 import hashlib
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -303,10 +304,21 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
     if branch not in _allowed_branches(workflow, user):
         raise ValueError('Select a valid branch.')
     validate_amount(product, amount)
+    create_request_id = normalize_create_request_id(payload.get('client_request_id') or payload.get('create_request_id') or payload.get('request_id'))
+    if create_request_id:
+        existing = TatTrackerCase.objects.select_for_update().filter(
+            group_id=str(group_config.group_id),
+            create_request_id=create_request_id,
+        ).first()
+        if existing:
+            if not existing.row_number or existing.sync_error:
+                sync_case_to_sheet(group_config, existing)
+            return serialize_case_detail(existing, user)
     case_id = next_case_id(group_config, product)
     now = timezone.now()
     case = TatTrackerCase.objects.create(
         group_id=str(group_config.group_id), sheet_id=str(group_config.sheet_id or ''), sheet_name=product.sheet_name,
+        create_request_id=create_request_id,
         case_id=case_id, product_key=product.key, product_label=product.label, client_name=client_name,
         branch=branch, bro_name=bro_name, amount=amount, stage_values={'created': now.isoformat()},
         status='Active', current_stage=(product.stages[0].key if product.stages else ''),
@@ -314,6 +326,8 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
     )
     TatTrackerEvent.objects.create(case=case, group_id=case.group_id, actor_name=user.get('name', ''), actor_telegram_id=user.get('telegram_id', ''), actor_role=','.join(user.get('roles') or []), stage_key='created', stage_label='Case Created', new_value=format_datetime(now), source='mini_app', sheet_name=case.sheet_name)
     sync_case_to_sheet(group_config, case)
+    if not case.row_number:
+        raise RuntimeError('TAT tracker sheet sync did not return a row number. Case was not saved.')
     return serialize_case_detail(case, user)
 
 
@@ -387,6 +401,11 @@ def apply_side_effects(case: TatTrackerCase, product: ProductConfig, stage: Stag
         case.remarks = f"[{format_datetime(timezone.now())}: Sanctions Not Met - conditions unfulfilled] {case.remarks}".strip()
     if stage.key == 'disbursement':
         case.status = 'Disbursed'
+
+
+def normalize_create_request_id(value: Any) -> str:
+    cleaned = re.sub(r'[^A-Za-z0-9_.:-]', '', str(value or '').strip())
+    return cleaned[:128]
 
 
 def next_case_id(group_config, product: ProductConfig) -> str:

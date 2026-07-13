@@ -463,6 +463,7 @@ class TatTrackerCase(models.Model):
     sheet_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
     sheet_name = models.CharField(max_length=255, blank=True, default='', db_index=True)
     row_number = models.PositiveIntegerField(null=True, blank=True)
+    create_request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
 
     case_id = models.CharField(max_length=128, db_index=True)
     product_key = models.CharField(max_length=80, db_index=True)
@@ -491,6 +492,11 @@ class TatTrackerCase(models.Model):
             models.UniqueConstraint(
                 fields=['group_id', 'case_id'],
                 name='unique_tat_case_id_per_group',
+            ),
+            models.UniqueConstraint(
+                fields=['group_id', 'create_request_id'],
+                condition=~models.Q(create_request_id=''),
+                name='unique_tat_create_request_per_group',
             ),
         ]
         indexes = [
