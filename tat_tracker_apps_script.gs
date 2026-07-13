@@ -173,6 +173,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('TAT Tracker')
     .addItem('Setup / refresh workbook', 'setupTatTrackerWorkbook')
+    .addItem('Remove legacy protections', 'removeLegacyTatProtectionsMenu')
     .addItem('Refresh validations only', 'refreshTatValidations')
     .addItem('Refresh formulas only', 'refreshTatFormulas')
     .addItem('Create support tabs', 'setupTatSupportTabs')
@@ -183,6 +184,7 @@ function onOpen() {
 
 function setupTatTrackerWorkbook() {
   const ss = SpreadsheetApp.getActive();
+  removeLegacyTatProtections_(ss);
   TAT_CONFIG.TRACKER_SHEETS.forEach(function(sheetName) {
     const sheet = getOrCreateSheet_(ss, sheetName);
     setupTrackerSheet_(sheet, PRODUCT_LAYOUTS[sheetName]);
@@ -193,6 +195,7 @@ function setupTatTrackerWorkbook() {
 
 function refreshTatValidations() {
   const ss = SpreadsheetApp.getActive();
+  removeLegacyTatProtections_(ss);
   TAT_CONFIG.TRACKER_SHEETS.forEach(function(sheetName) {
     const sheet = ss.getSheetByName(sheetName);
     if (sheet) applyValidations_(sheet, PRODUCT_LAYOUTS[sheetName]);
@@ -202,6 +205,7 @@ function refreshTatValidations() {
 
 function refreshTatFormulas() {
   const ss = SpreadsheetApp.getActive();
+  removeLegacyTatProtections_(ss);
   TAT_CONFIG.TRACKER_SHEETS.forEach(function(sheetName) {
     const sheet = ss.getSheetByName(sheetName);
     if (sheet) applyTatFormulas_(sheet, PRODUCT_LAYOUTS[sheetName]);
@@ -209,11 +213,45 @@ function refreshTatFormulas() {
   SpreadsheetApp.getUi().alert('TAT Tracker formulas refreshed.');
 }
 
+function removeLegacyTatProtectionsMenu() {
+  removeLegacyTatProtections_(SpreadsheetApp.getActive());
+  SpreadsheetApp.getUi().alert('Legacy JBL/HOCC protections removed where your account has permission.');
+}
+
 function setupTatSupportTabs() {
   const ss = SpreadsheetApp.getActive();
+  removeLegacyTatProtections_(ss);
   setupCaseIndex_(getOrCreateSheet_(ss, 'CASE_INDEX'));
   setupAuditLog_(getOrCreateSheet_(ss, 'AUDIT LOG'));
   setupDashboard_(getOrCreateSheet_(ss, 'DASHBOARD'));
+}
+
+function removeLegacyTatProtections_(ss) {
+  const sheetNames = TAT_CONFIG.TRACKER_SHEETS.concat(TAT_CONFIG.SUPPORT_SHEETS);
+  sheetNames.forEach(function(sheetName) {
+    const sheet = ss.getSheetByName(sheetName);
+    if (!sheet) return;
+    removeLegacyProtectionsFromSheet_(sheet);
+  });
+}
+
+function removeLegacyProtectionsFromSheet_(sheet) {
+  const legacyPrefixes = ['JBL-', 'HOCC-'];
+  [SpreadsheetApp.ProtectionType.RANGE, SpreadsheetApp.ProtectionType.SHEET].forEach(function(type) {
+    try {
+      sheet.getProtections(type).forEach(function(protection) {
+        const description = String(protection.getDescription() || '');
+        const isLegacy = legacyPrefixes.some(function(prefix) {
+          return description.indexOf(prefix) === 0;
+        });
+        if (isLegacy && protection.canEdit()) {
+          protection.remove();
+        }
+      });
+    } catch (err) {
+      Logger.log('Skipped legacy protection cleanup on ' + sheet.getName() + ': ' + err.message);
+    }
+  });
 }
 
 function setupTrackerSheet_(sheet, layout) {
@@ -303,8 +341,33 @@ function applyTatFormulas_(sheet, layout) {
     formulasHours.push([`=IF(OR($${createdCol}${row}="",$${endCol}${row}=""),"",ROUND(($${endCol}${row}-$${createdCol}${row})*24,2))`]);
     formulasDays.push([`=IF(${colLetter_(tatHoursCol)}${row}="","",ROUND(${colLetter_(tatHoursCol)}${row}/24,2))`]);
   }
-  sheet.getRange(start, tatHoursCol, rows, 1).setFormulas(formulasHours).setNumberFormat('0.00');
-  sheet.getRange(start, tatDaysCol, rows, 1).setFormulas(formulasDays).setNumberFormat('0.00');
+  const tatHoursRange = sheet.getRange(start, tatHoursCol, rows, 1);
+  const tatDaysRange = sheet.getRange(start, tatDaysCol, rows, 1);
+  removeLegacyFormulaProtections_(sheet);
+  clearStaleFormulaValidation_(tatHoursRange);
+  clearStaleFormulaValidation_(tatDaysRange);
+  tatHoursRange.setFormulas(formulasHours).setNumberFormat('0.00');
+  tatDaysRange.setFormulas(formulasDays).setNumberFormat('0.00');
+}
+
+function clearStaleFormulaValidation_(range) {
+  try {
+    range.clearDataValidations();
+  } catch (err) {
+    Logger.log('Skipped stale formula validation cleanup on ' + range.getSheet().getName() + ': ' + err.message);
+  }
+}
+
+function removeLegacyFormulaProtections_(sheet) {
+  try {
+    sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE).forEach(function(protection) {
+      if (protection.getDescription() === 'JBL-COL-FORMULAS') {
+        protection.remove();
+      }
+    });
+  } catch (err) {
+    Logger.log('Skipped legacy formula protection cleanup on ' + sheet.getName() + ': ' + err.message);
+  }
 }
 
 function applyStatusConditionalFormatting_(sheet, layout) {

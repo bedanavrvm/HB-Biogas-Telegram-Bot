@@ -302,6 +302,7 @@ The script creates/refreshes:
 - `CASE_INDEX`, `AUDIT LOG`, and `DASHBOARD` support tabs.
 - Header/helper layout only on empty newly-created tabs.
 - Existing tracker title rows, merged ranges, colors, column widths, and frozen panes are preserved.
+- Legacy `JBL-*` / `HOCC-*` sheet and range protections from the old tracker script are removed where the current user has permission, because Django must write `CASE_INDEX`, `AUDIT LOG`, and tracker rows.
 - Filters where Google Sheets allows them; filter errors are logged instead of stopping setup.
 - Branch, decision, sanctions, register, register approval, and status dropdowns.
 - Amount validation by product.
@@ -314,6 +315,7 @@ Do not copy old tracker trigger/webapp logic into this workbook. Django/Mini App
 Menu added by the script:
 
 - `TAT Tracker -> Setup / refresh workbook`
+- `TAT Tracker -> Remove legacy protections`
 - `TAT Tracker -> Refresh validations only`
 - `TAT Tracker -> Refresh formulas only`
 - `TAT Tracker -> Create support tabs`
