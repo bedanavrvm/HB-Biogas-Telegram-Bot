@@ -1,4 +1,4 @@
-﻿{% load static %}
+{% load static %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=4">
   <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=1">
 </head>
-<body data-group-id="{{ group_id|escapejs }}" data-token="{{ token|escapejs }}">
+<body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}">
   <header class="tat-header">
     <div>
       <p class="eyebrow">JBL Workflow</p>

@@ -7,6 +7,8 @@ from core.api.views import _process_telegram_message
 from core.services.group_config import GroupRegistry
 from core.services.tat_tracker import (
     build_tat_tracker_url,
+    create_tat_start_param,
+    decode_tat_start_param,
     create_case,
     is_tat_tracker_workflow,
     staff_user_for_payload,
@@ -77,6 +79,22 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('url', button)
         self.assertNotIn('web_app', button)
         self.assertTrue(button['url'].startswith('https://t.me/testbot/tattracker?startapp='))
+
+    @override_settings(STORAGES={
+        'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    })
+    def test_tat_app_preserves_signed_token_from_start_param(self):
+        start_param = create_tat_start_param(self.config.group_id)
+        token = decode_tat_start_param(start_param)['token']
+
+        response = self.client.get('/tat-tracker/', {'tgWebAppStartParam': start_param})
+
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode('utf-8')
+        self.assertIn(f'data-token="{token}"', html)
+        self.assertNotIn('\\u003A', html)
+
     def test_staff_user_matches_telegram_id(self):
         user = staff_user_for_payload(self.config, {'id': 111, 'username': 'someone_else'})
         self.assertTrue(user['authorized'])
