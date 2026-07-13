@@ -93,7 +93,7 @@ WORKFLOW_PRESETS = {
             'header_row': 2,
             'data_start_row': 5,
             'products': ['logbook', 'mjengo', 'kilimo', 'micro_asset', 'sme'],
-            'branches': ['Corporate', 'Thika Road', 'East Nairobi', 'West Nairobi', 'Nakuru', 'Embu', 'Limuru'],
+            'branches': ['Biogas Unit', 'Embu', 'Nakuru', 'West Nairobi'],
             'allow_unconfigured_users': False,
             'default_roles': ['BRO'],
             'staff': [],

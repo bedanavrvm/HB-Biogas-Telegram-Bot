@@ -1081,13 +1081,10 @@ class TatTrackerStaffMember(models.Model):
     ]
     BRANCH_CHOICES = [
         ('ALL', 'All branches'),
-        ('Corporate', 'Corporate'),
-        ('Thika Road', 'Thika Road'),
-        ('East Nairobi', 'East Nairobi'),
-        ('West Nairobi', 'West Nairobi'),
-        ('Nakuru', 'Nakuru'),
+        ('Biogas Unit', 'Biogas Unit'),
         ('Embu', 'Embu'),
-        ('Limuru', 'Limuru'),
+        ('Nakuru', 'Nakuru'),
+        ('West Nairobi', 'West Nairobi'),
     ]
 
     group_configuration = models.ForeignKey(

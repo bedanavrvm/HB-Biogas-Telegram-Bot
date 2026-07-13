@@ -127,7 +127,7 @@ The generated workflow should look like this:
   "header_row": 2,
   "data_start_row": 5,
   "products": ["logbook", "mjengo", "kilimo", "micro_asset", "sme"],
-  "branches": ["Corporate", "Thika Road", "East Nairobi", "West Nairobi", "Nakuru", "Embu", "Limuru"],
+  "branches": ["Biogas Unit", "Embu", "Nakuru", "West Nairobi"],
   "allow_unconfigured_users": false,
   "default_roles": ["BRO"],
   "staff": []
@@ -301,11 +301,15 @@ The script creates/refreshes:
 - Tracker tabs for SME, Logbook, Mjengo, Kilimo, and Micro Asset if they are missing.
 - `CASE_INDEX`, `AUDIT LOG`, and `DASHBOARD` support tabs if they are missing.
 - Legacy `JBL-*` / `HOCC-*` sheet and range protections from the old tracker script are removed where the current user has permission, because Django must write `CASE_INDEX`, `AUDIT LOG`, and tracker rows.
-- Branch, decision, sanctions, register, register approval, and status dropdowns from row 5 downward.
+- Branch, decision, sanctions, register, register approval, and status dropdowns from row 5 downward. Branch values are `Biogas Unit`, `Embu`, `Nakuru`, and `West Nairobi`.
 - Amount validation by product from row 5 downward.
 - Date/time and amount number formats from row 5 downward.
 - TAT Hours and TAT Days formulas from row 5 downward.
-- Conditional row highlighting by `Status` only if the tab does not already have conditional-format rules.
+- Conditional row highlighting by `Status` and TAT target from row 5 downward.
+- Direct conditional highlighting on the `TAT Hours` and `TAT Days` cells: near target is yellow, over target is red.
+
+Django does not write into `TAT Hours` or `TAT Days`. Those are formula-owned sheet columns. If Google Sheets shows `Invalid: ... violates data validation rule` on those columns, run `TAT Tracker -> Refresh formulas only`; this clears stale validation from the formula columns and reapplies the formulas.
+
 
 The script does not write, format, merge, unmerge, freeze, unfreeze, filter, or resize rows 1-3. It does not standardize visual headers. Keep the tracker visual design in the workbook/template itself.
 
@@ -333,7 +337,8 @@ Conditional highlighting from row 5 downward:
 
 - Near target: open case above 80% of target, highlighted light yellow.
 - Over target: open case above target, highlighted light red.
-- Completed late: `TAT Hours` above target, highlighted light purple.
+- Completed late: `TAT Hours` above target, row highlighted light purple.
+- TAT value cells: above 80% of target highlighted yellow; above target highlighted red.
 - Status highlighting still applies for `Disbursed`, `Rejected`, `Declined`, `Deferred`, `Stalled`, and `Pending Docs`.
 
 Do not copy old tracker trigger/webapp logic into this workbook. Django/Mini App owns case creation, case IDs, staff permissions, stage ordering, timestamp writes, sheet sync, and audit events. The Apps Script is only for sheet setup and validation guardrails.

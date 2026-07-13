@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from core.models import GroupSheetConfiguration, TatTrackerCase, TatTrackerStaffMember
 from core.api.views import _process_telegram_message
@@ -15,7 +16,9 @@ from core.services.tat_tracker import (
     create_case,
     is_tat_tracker_workflow,
     staff_user_for_payload,
+    sync_case_to_sheet,
     update_case,
+    workflow_branches,
 )
 
 
@@ -99,6 +102,13 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertNotIn('\\u003A', html)
 
 
+
+    def test_workflow_branches_replace_stale_default_branch_list(self):
+        stale_workflow = {
+            'branches': ['Corporate', 'Thika Road', 'East Nairobi', 'West Nairobi', 'Nakuru', 'Embu', 'Limuru'],
+        }
+
+        self.assertEqual(workflow_branches(stale_workflow), ['Biogas Unit', 'Embu', 'Nakuru', 'West Nairobi'])
 
     def test_tat_formula_helpers_match_tracker_columns(self):
         sme = product_by_key('sme')
@@ -186,6 +196,50 @@ class TatTrackerWorkflowTest(TestCase):
         case.sheet_name = case.sheet_name or 'TRACKER-SME'
         case.sync_error = ''
         case.save(update_fields=['row_number', 'sheet_name', 'sync_error', 'updated_at'])
+
+    def test_sync_case_to_sheet_does_not_write_tat_formula_columns(self):
+        class FakeSheet:
+            def __init__(self):
+                self.updates = []
+
+            def row_values(self, _row):
+                return [''] * 20
+
+            def update(self, a1_range, values, value_input_option=None):
+                self.updates.append((a1_range, values, value_input_option))
+
+        class FakeService:
+            def __init__(self, sheet):
+                self._sheet = sheet
+
+            def is_available(self):
+                return True
+
+        sheet = FakeSheet()
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-SME',
+            row_number=5,
+            case_id='JBL-SME-2026-001',
+            product_key='sme',
+            product_label='SME',
+            client_name='Test Client',
+            branch='Nakuru',
+            bro_name='BRO User',
+            amount='10000',
+            stage_values={'created': timezone.now().isoformat()},
+            status='Active',
+        )
+
+        with patch('core.services.tat_tracker.get_sheets_service', return_value=FakeService(sheet)), \
+             patch('core.services.tat_tracker.sync_case_index'), \
+             patch('core.services.tat_tracker.sync_audit_log'):
+            sync_case_to_sheet(self.config, case)
+
+        self.assertEqual(sheet.updates[0][0], 'A5:R5')
+        self.assertEqual(len(sheet.updates[0][1][0]), 18)
+        self.assertFalse(any(str(value).startswith('=IF(') for value in sheet.updates[0][1][0]))
 
     @patch('core.services.tat_tracker.sync_case_to_sheet')
     def test_create_case_assigns_sequential_case_id(self, sync_mock):

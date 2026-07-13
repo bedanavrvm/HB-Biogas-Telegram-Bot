@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 TAT_TRACKER_WORKFLOW_TYPE = 'tat_tracker'
 TAT_FORM_TOKEN_SALT = 'tat-tracker-mini-app'
 
-BRANCHES = ['Corporate', 'Thika Road', 'East Nairobi', 'West Nairobi', 'Nakuru', 'Embu', 'Limuru']
+BRANCHES = ['Biogas Unit', 'Embu', 'Nakuru', 'West Nairobi']
 DECISION_OPTIONS = ['Approved', 'Rejected', 'Deferred']
 SANCTIONS_OPTIONS = ['Pending', 'Met', 'Not Met']
 REGISTER_OPTIONS = ['10:00am', '1:00pm', '3:30pm']
@@ -132,8 +132,11 @@ def configured_products(workflow: dict | None = None) -> list[ProductConfig]:
 
 def workflow_branches(workflow: dict | None = None) -> list[str]:
     workflow = workflow or {}
-    branches = workflow.get('branches') or BRANCHES
-    return [str(item).strip() for item in branches if str(item).strip()]
+    branches = [str(item).strip() for item in (workflow.get('branches') or []) if str(item).strip()]
+    old_default = {'Corporate', 'Thika Road', 'East Nairobi', 'West Nairobi', 'Nakuru', 'Embu', 'Limuru'}
+    if not branches or set(branches).issubset(old_default):
+        return list(BRANCHES)
+    return branches
 
 
 def create_tat_form_token(group_id: str) -> str:
@@ -432,7 +435,10 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
     try:
         row = case.row_number or next_sheet_row(sheet)
         values = sheet.row_values(row)
-        width = max(product.remarks_col, len(values), product.tat_start_col + 1)
+        # TAT Hours / TAT Days are formula-owned sheet columns. Do not write
+        # them from Django, because stale sheet validations can flag formulas
+        # as invalid manual values. The Apps Script refreshes these formulas.
+        width = product.tat_start_col - 1
         row_data = [''] * width
         for idx, value in enumerate(values[:width], start=1):
             row_data[idx - 1] = value
@@ -451,8 +457,6 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
                     row_data[col - 1] = sheet_datetime(case.stage_values.get(stage.auto_timestamp_key))
         row_data[product.status_col - 1] = case.status
         row_data[product.remarks_col - 1] = case.remarks
-        row_data[product.tat_start_col - 1] = tat_hours_formula(product, row)
-        row_data[product.tat_start_col] = tat_days_formula(product, row)
         sheet.update(f'A{row}:{column_letter(width)}{row}', [row_data], value_input_option='USER_ENTERED')
         case.row_number = row
         case.sheet_name = product.sheet_name

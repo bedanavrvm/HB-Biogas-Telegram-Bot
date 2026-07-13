@@ -47,13 +47,10 @@ const TAT_CONFIG = {
   ],
   DROPDOWNS: {
     BRANCHES: [
-      'Corporate',
-      'Thika Road',
-      'East Nairobi',
-      'West Nairobi',
-      'Nakuru',
+      'Biogas Unit',
       'Embu',
-      'Limuru',
+      'Nakuru',
+      'West Nairobi',
     ],
     DECISION: ['Approved', 'Rejected', 'Deferred'],
     SANCTIONS: ['Pending', 'Met', 'Not Met'],
@@ -345,7 +342,9 @@ function removeLegacyFormulaProtections_(sheet) {
 
 function applyStatusConditionalFormatting_(sheet, layout) {
   const width = layout.headers.length;
-  const range = sheet.getRange(TAT_CONFIG.DATA_START_ROW, 1, TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1, width);
+  const dataRows = TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1;
+  const range = sheet.getRange(TAT_CONFIG.DATA_START_ROW, 1, dataRows, width);
+  const tatValueRange = sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.tatHours, dataRows, 2);
   const row = TAT_CONFIG.DATA_START_ROW;
   const status = colLetter_(layout.cols.status);
   const created = colLetter_(layout.cols.created);
@@ -363,6 +362,8 @@ function applyStatusConditionalFormatting_(sheet, layout) {
     colorRule_(range, `=AND($${created}${row}<>"",${openStatusCheck},((NOW()-$${created}${row})*24)>${nearTarget},((NOW()-$${created}${row})*24)<=${target})`, '#fff2cc'),
     colorRule_(range, `=AND($${created}${row}<>"",${openStatusCheck},((NOW()-$${created}${row})*24)>${target})`, '#f4cccc'),
     colorRule_(range, `=AND($${tatHours}${row}<>"",$${tatHours}${row}>${target})`, '#ead1dc'),
+    colorRule_(tatValueRange, `=AND($${tatHours}${row}<>"",$${tatHours}${row}>${nearTarget},$${tatHours}${row}<=${target})`, '#fff2cc'),
+    colorRule_(tatValueRange, `=AND($${tatHours}${row}<>"",$${tatHours}${row}>${target})`, '#f4cccc'),
   ];
   sheet.setConditionalFormatRules(rules);
 }
