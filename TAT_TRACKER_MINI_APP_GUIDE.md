@@ -307,6 +307,7 @@ The script creates/refreshes:
 - TAT Hours and TAT Days formulas from row 5 downward.
 - Conditional row highlighting by `Status` and TAT target from row 5 downward.
 - Direct conditional highlighting on the `TAT Hours` and `TAT Days` cells: near target is yellow, over target is red.
+- Traffic-light highlighting on every workflow stage column from row 5 downward: completed stages are green, pending stages within target are amber, and pending stages over target are red.
 
 Django does not write into `TAT Hours` or `TAT Days`. Those are formula-owned sheet columns. If Google Sheets shows `Invalid: ... violates data validation rule` on those columns, run `TAT Tracker -> Refresh formulas only`; this clears stale validation from the formula columns and reapplies the formulas.
 
@@ -339,6 +340,7 @@ Conditional highlighting from row 5 downward:
 - Over target: open case above target, highlighted light red.
 - Completed late: `TAT Hours` above target, row highlighted light purple.
 - TAT value cells: above 80% of target highlighted yellow; above target highlighted red.
+- Every stage cell: green means completed, amber means pending but still within target, red means pending and over target.
 - Status highlighting still applies for `Disbursed`, `Rejected`, `Declined`, `Deferred`, `Stalled`, and `Pending Docs`.
 
 Do not copy old tracker trigger/webapp logic into this workbook. Django/Mini App owns case creation, case IDs, staff permissions, stage ordering, timestamp writes, sheet sync, and audit events. The Apps Script is only for sheet setup and validation guardrails.

@@ -86,7 +86,7 @@ const PRODUCT_LAYOUTS = {
       tatDays: 20,
     },
     dateCols: [6, 7, 8, 9, 10, 11, 12, 14, 16],
-    stageCols: [6, 7, 8, 9, 10, 11, 12, 14, 16],
+    stageCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
   },
   'TRACKER-LOGBOOK': {
     title: 'TAT TRACKER - LOGBOOK',
@@ -119,7 +119,7 @@ const PRODUCT_LAYOUTS = {
       tatDays: 28,
     },
     dateCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 20, 22, 24],
-    stageCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 20, 22, 24],
+    stageCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24],
   },
   'TRACKER-MJENGO': null,
   'TRACKER-KILIMO': null,
@@ -162,7 +162,7 @@ function noValuationLayout(title, minAmount, maxAmount) {
       tatDays: 27,
     },
     dateCols: [6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 18, 19, 21, 23],
-    stageCols: [6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 18, 19, 21, 23],
+    stageCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
   };
 }
 
@@ -365,7 +365,20 @@ function applyStatusConditionalFormatting_(sheet, layout) {
     colorRule_(tatValueRange, `=AND($${tatHours}${row}<>"",$${tatHours}${row}>${nearTarget},$${tatHours}${row}<=${target})`, '#fff2cc'),
     colorRule_(tatValueRange, `=AND($${tatHours}${row}<>"",$${tatHours}${row}>${target})`, '#f4cccc'),
   ];
+  addStageTrafficLightRules_(rules, sheet, layout, row, openStatusCheck, target);
   sheet.setConditionalFormatRules(rules);
+}
+
+function addStageTrafficLightRules_(rules, sheet, layout, row, openStatusCheck, target) {
+  const rows = TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1;
+  const created = colLetter_(layout.cols.created);
+  (layout.stageCols || []).forEach(function(col) {
+    const stage = colLetter_(col);
+    const stageRange = sheet.getRange(TAT_CONFIG.DATA_START_ROW, col, rows, 1);
+    rules.push(colorRule_(stageRange, `=AND($${stage}${row}="",$${created}${row}<>"",${openStatusCheck},((NOW()-$${created}${row})*24)<=${target})`, '#fff2cc'));
+    rules.push(colorRule_(stageRange, `=AND($${stage}${row}="",$${created}${row}<>"",${openStatusCheck},((NOW()-$${created}${row})*24)>${target})`, '#f4cccc'));
+    rules.push(colorRule_(stageRange, `=$${stage}${row}<>""`, '#d9ead3'));
+  });
 }
 
 function applyStatusConditionalFormattingIfEmpty_(sheet, layout) {
