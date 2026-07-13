@@ -29,7 +29,42 @@
 
   function setStatus(message, tone) {
     const el = $('status');
-    el.textContent = message || '';
+    if (!message) {
+      el.innerHTML = '';
+      el.className = 'status-bar hidden';
+      return;
+    }
+    
+    let icon = '';
+    if (tone === 'busy') {
+      icon = `
+        <svg class="spinner" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="2" x2="12" y2="6"></line>
+          <line x1="12" y1="18" x2="12" y2="22"></line>
+          <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line>
+          <line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line>
+          <line x1="2" y1="12" x2="6" y2="12"></line>
+          <line x1="18" y1="12" x2="22" y2="12"></line>
+          <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line>
+          <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line>
+        </svg>
+      `;
+    } else if (tone === 'ok') {
+      icon = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"></polyline>
+        </svg>
+      `;
+    } else if (tone === 'error') {
+      icon = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="8" x2="12" y2="12"></line>
+          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+      `;
+    }
+    el.innerHTML = `${icon}<span>${escapeHtml(message)}</span>`;
     el.className = 'status-bar' + (tone ? ' ' + tone : '');
   }
 
@@ -59,11 +94,23 @@
   function setButtonLoading(button, loading, label) {
     if (!button) return;
     if (loading) {
-      button.dataset.originalText = button.textContent;
-      button.textContent = label || 'Working...';
+      button.dataset.originalText = button.innerHTML;
+      button.innerHTML = `
+        <svg class="spinner" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="2" x2="12" y2="6"></line>
+          <line x1="12" y1="18" x2="12" y2="22"></line>
+          <line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line>
+          <line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line>
+          <line x1="2" y1="12" x2="6" y2="12"></line>
+          <line x1="18" y1="12" x2="22" y2="12"></line>
+          <line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line>
+          <line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line>
+        </svg>
+        <span>${label || 'Working...'}</span>
+      `;
       button.disabled = true;
     } else {
-      button.textContent = button.dataset.originalText || button.textContent;
+      button.innerHTML = button.dataset.originalText || button.innerHTML;
       button.disabled = false;
     }
   }
@@ -74,19 +121,27 @@
     button.className = 'case-card';
     const next = item.next_stage ? `<span class="next-chip">Next: ${escapeHtml(item.next_stage)}</span>` : '';
     button.innerHTML = `
-      <div class="case-main">
-        <div class="case-title">
-          <span class="case-id">${escapeHtml(item.case_id)}</span>
-          <strong>${escapeHtml(item.client_name || 'Unnamed client')}</strong>
-        </div>
-        <span class="status-chip ${statusClass(item.status)}">${escapeHtml(item.status || 'Active')}</span>
+      <div class="case-header">
+        <strong class="case-name">${escapeHtml(item.client_name || 'Unnamed client')}</strong>
+        <span class="case-amount">KES ${escapeHtml(formatMoney(item.amount || ''))}</span>
       </div>
-      <div class="case-meta">
-        <span>${escapeHtml(item.product || '')}</span>
-        <span>${escapeHtml(item.branch || '')}</span>
-        <span>KES ${escapeHtml(formatMoney(item.amount || ''))}</span>
+      <div class="case-details">
+        <span class="case-id-badge">${escapeHtml(item.case_id)}</span>
+        <span class="case-meta-dot"></span>
+        <span class="case-meta-text">${escapeHtml(item.product || '')}</span>
+        <span class="case-meta-dot"></span>
+        <span class="case-meta-text">${escapeHtml(item.branch || '')}</span>
+      </div>
+      <div class="case-tags">
+        <span class="status-chip ${statusClass(item.status)}">${escapeHtml(item.status || 'Active')}</span>
         ${next}
-        <span>${escapeHtml(item.updated_at || '')}</span>
+        <span class="case-time">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="10" height="10">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="12 6 12 12 16 14"/>
+          </svg>
+          ${escapeHtml(item.updated_at || '')}
+        </span>
       </div>`;
     button.addEventListener('click', () => openCase(item.case_id));
     return button;
@@ -162,16 +217,36 @@
   function renderDetail(detail) {
     const summary = detail.summary;
     $('detailSummary').innerHTML = `
-      <div class="summary-title">
-        <span class="case-id">${escapeHtml(summary.case_id)}</span>
-        <strong>${escapeHtml(summary.client_name || 'Unnamed client')}</strong>
-        <span>${escapeHtml(summary.product || '')} | ${escapeHtml(summary.branch || '')} | ${escapeHtml(summary.status || '')}</span>
+      <div class="detail-header-block">
+        <div class="detail-title-row">
+          <h2 class="detail-client-name">${escapeHtml(summary.client_name || 'Unnamed client')}</h2>
+          <span class="status-chip ${statusClass(summary.status)}">${escapeHtml(summary.status || 'Active')}</span>
+        </div>
+        <div class="detail-meta-row">
+          <span class="detail-case-id">${escapeHtml(summary.case_id)}</span>
+          <span class="divider">•</span>
+          <span class="detail-product">${escapeHtml(summary.product || '')}</span>
+          <span class="divider">•</span>
+          <span class="detail-branch">${escapeHtml(summary.branch || '')}</span>
+        </div>
       </div>
       <div class="summary-facts">
-        <div class="fact"><small>Amount</small><span>KES ${escapeHtml(formatMoney(summary.amount || ''))}</span></div>
-        <div class="fact"><small>Next Action</small><span>${escapeHtml(summary.next_stage || 'No pending action')}</span></div>
-        <div class="fact"><small>Created</small><span>${escapeHtml(summary.created_at || '')}</span></div>
-        <div class="fact"><small>Updated</small><span>${escapeHtml(summary.updated_at || '')}</span></div>
+        <div class="fact">
+          <small>Amount</small>
+          <span class="highlight-val">KES ${escapeHtml(formatMoney(summary.amount || ''))}</span>
+        </div>
+        <div class="fact">
+          <small>Next Action</small>
+          <span>${escapeHtml(summary.next_stage || 'No pending action')}</span>
+        </div>
+        <div class="fact">
+          <small>Created</small>
+          <span>${escapeHtml(summary.created_at || '')}</span>
+        </div>
+        <div class="fact">
+          <small>Updated</small>
+          <span>${escapeHtml(summary.updated_at || '')}</span>
+        </div>
       </div>`;
 
     $('remarksInput').value = detail.remarks || '';
@@ -181,33 +256,59 @@
       const row = document.createElement('div');
       const hasValue = Boolean(field.value);
       row.className = 'stage-row' + (field.editable ? ' editable' : hasValue ? ' done' : ' locked');
-      const valueText = field.value || 'Not set';
+      
+      let indicatorHtml = '';
+      if (field.editable) {
+        indicatorHtml = `<span class="indicator-icon pulse-active"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg></span>`;
+      } else if (hasValue) {
+        indicatorHtml = `<span class="indicator-icon check-done"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><polyline points="20 6 9 17 4 12"/></svg></span>`;
+      } else {
+        indicatorHtml = `<span class="indicator-icon lock-locked"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>`;
+      }
+
+      const valueText = field.value || (field.locked_reason ? 'Pending previous stages' : 'Not started');
+      
       row.innerHTML = `
-        <div class="stage-top">
-          <strong>${escapeHtml(field.label)}</strong>
-          <span class="role-chip">${escapeHtml(field.role)}</span>
+        <div class="stage-left-rail">
+          ${indicatorHtml}
+          <div class="stage-connector"></div>
         </div>
-        <div class="stage-value">${escapeHtml(valueText)}</div>`;
+        <div class="stage-content">
+          <div class="stage-top">
+            <span class="stage-label">${escapeHtml(field.label)}</span>
+            <span class="role-chip">${escapeHtml(field.role)}</span>
+          </div>
+          <div class="stage-value ${hasValue ? 'value-filled' : 'value-empty'}">${escapeHtml(valueText)}</div>
+        </div>`;
 
       if (field.editable) {
+        const actionWrap = document.createElement('div');
+        actionWrap.className = 'stage-action-wrap';
         if (field.kind === 'dropdown') {
           const select = document.createElement('select');
           select.innerHTML = '<option value="">Select outcome...</option>' + (field.options || []).map((option) => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`).join('');
           select.addEventListener('change', () => { if (select.value) submitUpdate([{ field: field.key, value: select.value }]); });
-          row.appendChild(select);
+          actionWrap.appendChild(select);
         } else {
           const button = document.createElement('button');
           button.type = 'button';
-          button.className = 'primary';
-          button.textContent = 'Stamp Now';
+          button.className = 'primary compact-btn';
+          button.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+              <path d="M20 11.08V12a10 10 0 1 1-5.93-9.14"/>
+              <polyline points="22 4 12 14.01 9 11.01"/>
+            </svg>
+            <span>Stamp Approval</span>
+          `;
           button.addEventListener('click', () => submitUpdate([{ field: field.key, value: 'STAMP' }]));
-          row.appendChild(button);
+          actionWrap.appendChild(button);
         }
+        row.querySelector('.stage-content').appendChild(actionWrap);
       } else if (field.locked_reason) {
         const note = document.createElement('div');
         note.className = 'lock-note';
         note.textContent = field.locked_reason;
-        row.appendChild(note);
+        row.querySelector('.stage-content').appendChild(note);
       }
       fields.appendChild(row);
     });
@@ -219,8 +320,17 @@
     } else {
       detail.events.forEach((event) => {
         const row = document.createElement('div');
-        row.className = 'event';
-        row.innerHTML = `<strong>${escapeHtml(event.stage)}: ${escapeHtml(event.value)}</strong><span>${escapeHtml(event.actor)} | ${escapeHtml(event.at)} | ${escapeHtml(event.source)}</span>`;
+        row.className = 'event-item';
+        row.innerHTML = `
+          <div class="event-dot"></div>
+          <div class="event-body">
+            <div class="event-header">
+              <strong class="event-stage">${escapeHtml(event.stage)}</strong>
+              <span class="event-value-badge">${escapeHtml(event.value)}</span>
+            </div>
+            <div class="event-meta">${escapeHtml(event.actor)} • ${escapeHtml(event.at)}</div>
+          </div>
+        `;
         events.appendChild(row);
       });
     }

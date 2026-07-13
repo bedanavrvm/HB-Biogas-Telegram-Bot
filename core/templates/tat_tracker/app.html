@@ -6,8 +6,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>TAT Tracker</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=4">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=3">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=4">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -17,7 +20,12 @@
         <h1>TAT Tracker</h1>
         <p id="userLine" class="user-line">Opening tracker...</p>
       </div>
-      <button id="refreshBtn" type="button" class="ghost-btn refresh-btn" aria-label="Refresh tracker">Refresh</button>
+      <button id="refreshBtn" type="button" class="ghost-btn refresh-btn" aria-label="Refresh tracker">
+        <svg class="icon-refresh" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
+          <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l.73-.73"/>
+        </svg>
+        <span>Refresh</span>
+      </button>
     </header>
 
     <section class="overview-strip" aria-label="Tracker summary">
@@ -38,9 +46,28 @@
     <div id="status" class="status-bar" role="status" aria-live="polite">Loading tracker...</div>
 
     <nav class="tabs" aria-label="Tracker views">
-      <button type="button" data-view="queue" class="active">Queue</button>
-      <button type="button" data-view="new">Create</button>
-      <button type="button" data-view="search">Find</button>
+      <button type="button" data-view="queue" class="active">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+          <rect x="3" y="3" width="7" height="9" rx="1"/>
+          <rect x="14" y="3" width="7" height="5" rx="1"/>
+          <rect x="14" y="12" width="7" height="9" rx="1"/>
+          <rect x="3" y="16" width="7" height="5" rx="1"/>
+        </svg>
+        <span>Queue</span>
+      </button>
+      <button type="button" data-view="new">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+        <span>Create</span>
+      </button>
+      <button type="button" data-view="search">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+          <circle cx="11" cy="11" r="8"/>
+          <path d="m21 21-4.3-4.3"/>
+        </svg>
+        <span>Find</span>
+      </button>
     </nav>
 
     <section id="queueView" class="view active" aria-label="Queue">
@@ -76,25 +103,36 @@
         <div class="form-grid">
           <label>Product<select name="product_key" required></select></label>
           <label>Branch<select name="branch" required></select></label>
-          <label>Client Name<input name="client_name" autocomplete="off" required placeholder="Customer or business name"></label>
+          <label>Client Name<input name="client_name" autocomplete="off" required placeholder="Customer name"></label>
           <label>BRO Name<input name="bro_name" autocomplete="off" required></label>
           <label class="amount-field">Amount (KES)<input name="amount" type="number" inputmode="decimal" min="0" step="1" required placeholder="0"></label>
         </div>
         <div class="form-actions">
-          <button type="submit" class="primary">Create Case</button>
+          <button type="submit" class="primary">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+              <path d="M5 12h14M12 5l7 7-7 7"/>
+            </svg>
+            <span>Create Case</span>
+          </button>
         </div>
       </form>
     </section>
 
     <section id="searchView" class="view" aria-label="Find case">
       <section class="search-card">
-        <div>
+        <div class="search-title-block">
           <h2>Find Case</h2>
           <p>Search by case ID, client, branch, or BRO.</p>
         </div>
         <div class="search-row">
           <label class="sr-label" for="searchInput">Search case or client</label>
-          <input id="searchInput" type="search" autocomplete="off" placeholder="Type at least 2 characters">
+          <div class="search-input-wrap">
+            <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+              <circle cx="11" cy="11" r="8"/>
+              <path d="m21 21-4.3-4.3"/>
+            </svg>
+            <input id="searchInput" type="search" autocomplete="off" placeholder="Type case ID, client name...">
+          </div>
           <button id="searchBtn" type="button" class="primary">Search</button>
         </div>
       </section>
@@ -103,7 +141,12 @@
 
     <section id="detailView" class="view detail-view" aria-label="Case detail">
       <div class="detail-toolbar">
-        <button id="backBtn" type="button" class="ghost-btn">Back to Queue</button>
+        <button id="backBtn" type="button" class="ghost-btn">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+            <path d="M19 12H5M12 19l-7-7 7-7"/>
+          </svg>
+          <span>Back to Queue</span>
+        </button>
       </div>
 
       <section class="detail-shell">
@@ -140,6 +183,6 @@
   </main>
 
   <script src="{% static 'miniapp/telegram.js' %}?v=2"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=3"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=4"></script>
 </body>
 </html>
