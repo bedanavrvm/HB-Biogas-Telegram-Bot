@@ -7,73 +7,139 @@
   <title>TAT Tracker</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=4">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=1">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=2">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}">
-  <header class="tat-header">
-    <div>
-      <p class="eyebrow">JBL Workflow</p>
-      <h1>TAT Tracker</h1>
-      <p id="userLine" class="muted">Opening tracker...</p>
-    </div>
-    <button id="refreshBtn" type="button" class="icon-btn" aria-label="Refresh">↻</button>
-  </header>
+  <main class="tat-app" aria-label="TAT Tracker">
+    <header class="app-top">
+      <div class="app-title-block">
+        <p class="eyebrow">JBL Workflow</p>
+        <h1>TAT Tracker</h1>
+        <p id="userLine" class="user-line">Opening tracker...</p>
+      </div>
+      <button id="refreshBtn" type="button" class="ghost-btn refresh-btn" aria-label="Refresh tracker">Refresh</button>
+    </header>
 
-  <main class="tat-shell">
-    <div id="status" class="status-bar" role="status">Loading...</div>
+    <section class="overview-strip" aria-label="Tracker summary">
+      <div class="metric-tile priority">
+        <span id="statQueue">0</span>
+        <small>My actions</small>
+      </div>
+      <div class="metric-tile">
+        <span id="statRecent">0</span>
+        <small>Recent</small>
+      </div>
+      <div class="metric-tile wide">
+        <span id="statRole">-</span>
+        <small>Signed in as</small>
+      </div>
+    </section>
+
+    <div id="status" class="status-bar" role="status" aria-live="polite">Loading tracker...</div>
 
     <nav class="tabs" aria-label="Tracker views">
       <button type="button" data-view="queue" class="active">Queue</button>
-      <button type="button" data-view="new">New</button>
-      <button type="button" data-view="search">Search</button>
+      <button type="button" data-view="new">Create</button>
+      <button type="button" data-view="search">Find</button>
     </nav>
 
-    <section id="queueView" class="view active">
-      <section class="panel">
-        <div class="panel-head"><h2>My Queue</h2><span id="queueCount">0</span></div>
-        <div id="queueList" class="list"></div>
+    <section id="queueView" class="view active" aria-label="Queue">
+      <section class="section-block">
+        <div class="section-head">
+          <div>
+            <h2>Needs My Action</h2>
+            <p>Cases waiting for your role.</p>
+          </div>
+          <span id="queueCount" class="count-pill">0</span>
+        </div>
+        <div id="queueList" class="case-list"></div>
       </section>
-      <section class="panel">
-        <div class="panel-head"><h2>Recent</h2><span id="recentCount">0</span></div>
-        <div id="recentList" class="list"></div>
+
+      <section class="section-block">
+        <div class="section-head">
+          <div>
+            <h2>Recent Activity</h2>
+            <p>Latest cases in this workflow.</p>
+          </div>
+          <span id="recentCount" class="count-pill">0</span>
+        </div>
+        <div id="recentList" class="case-list"></div>
       </section>
     </section>
 
-    <section id="newView" class="view">
-      <form id="newCaseForm" class="panel form-grid">
-        <label>Product<select name="product_key" required></select></label>
-        <label>Branch<select name="branch" required></select></label>
-        <label>Client Name<input name="client_name" autocomplete="off" required></label>
-        <label>BRO Name<input name="bro_name" autocomplete="off" required></label>
-        <label>Amount (KES)<input name="amount" type="number" inputmode="decimal" min="0" step="1" required></label>
-        <button type="submit" class="primary">Create Case</button>
+    <section id="newView" class="view" aria-label="Create case">
+      <form id="newCaseForm" class="form-card">
+        <div class="form-heading">
+          <h2>Create Case</h2>
+          <p>Capture the base record, then continue the case from the detail screen.</p>
+        </div>
+        <div class="form-grid">
+          <label>Product<select name="product_key" required></select></label>
+          <label>Branch<select name="branch" required></select></label>
+          <label>Client Name<input name="client_name" autocomplete="off" required placeholder="Customer or business name"></label>
+          <label>BRO Name<input name="bro_name" autocomplete="off" required></label>
+          <label class="amount-field">Amount (KES)<input name="amount" type="number" inputmode="decimal" min="0" step="1" required placeholder="0"></label>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="primary">Create Case</button>
+        </div>
       </form>
     </section>
 
-    <section id="searchView" class="view">
-      <section class="panel search-panel">
-        <label>Search case or client<input id="searchInput" autocomplete="off" placeholder="Type at least 2 characters"></label>
-        <button id="searchBtn" type="button" class="primary">Search</button>
+    <section id="searchView" class="view" aria-label="Find case">
+      <section class="search-card">
+        <div>
+          <h2>Find Case</h2>
+          <p>Search by case ID, client, branch, or BRO.</p>
+        </div>
+        <div class="search-row">
+          <label class="sr-label" for="searchInput">Search case or client</label>
+          <input id="searchInput" type="search" autocomplete="off" placeholder="Type at least 2 characters">
+          <button id="searchBtn" type="button" class="primary">Search</button>
+        </div>
       </section>
-      <div id="searchList" class="list"></div>
+      <div id="searchList" class="case-list"></div>
     </section>
 
-    <section id="detailView" class="view">
-      <button id="backBtn" type="button" class="secondary">Back</button>
-      <section class="panel detail-card">
-        <div id="detailSummary"></div>
-        <div id="stageFields" class="stage-list"></div>
-        <label class="remarks-box">Remarks / Delays<textarea id="remarksInput"></textarea></label>
-        <button id="saveRemarksBtn" type="button" class="secondary">Save Remarks</button>
-      </section>
-      <section class="panel">
-        <div class="panel-head"><h2>Audit Trail</h2></div>
-        <div id="eventList" class="event-list"></div>
+    <section id="detailView" class="view detail-view" aria-label="Case detail">
+      <div class="detail-toolbar">
+        <button id="backBtn" type="button" class="ghost-btn">Back to Queue</button>
+      </div>
+
+      <section class="detail-shell">
+        <div id="detailSummary" class="detail-summary"></div>
+
+        <div class="detail-grid">
+          <section class="stage-panel">
+            <div class="section-head compact">
+              <div>
+                <h2>Workflow Stages</h2>
+                <p>Only available actions are editable.</p>
+              </div>
+            </div>
+            <div id="stageFields" class="stage-list"></div>
+          </section>
+
+          <aside class="side-panel">
+            <label class="remarks-box">Remarks / Delays<textarea id="remarksInput" placeholder="Add context for delays, missing documents, or follow-up notes."></textarea></label>
+            <button id="saveRemarksBtn" type="button" class="secondary full-width">Save Remarks</button>
+
+            <section class="audit-box">
+              <div class="section-head compact">
+                <div>
+                  <h2>Audit Trail</h2>
+                  <p>Latest updates.</p>
+                </div>
+              </div>
+              <div id="eventList" class="event-list"></div>
+            </section>
+          </aside>
+        </div>
       </section>
     </section>
   </main>
 
   <script src="{% static 'miniapp/telegram.js' %}?v=2"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=1"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=2"></script>
 </body>
 </html>
