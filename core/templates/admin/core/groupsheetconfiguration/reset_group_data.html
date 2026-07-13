@@ -41,6 +41,15 @@
       </label>
       <p class="help">Use only on test data. Google Sheets rows are still not deleted.</p>
     </div>
+    {% if is_spin_workflow %}
+    <div class="form-row">
+      <label>
+        <input type="checkbox" name="include_spin_legacy_batch" value="yes">
+        Also clear SPIN legacy batch local records from <code>{{ spin_legacy_batch_sheet_name }}</code>.
+      </label>
+      <p class="help">Default reset clears current SPIN Mini App/request records only. Check this when retesting legacy <code>/batch</code> imports. Google Sheets rows are still not deleted.</p>
+    </div>
+    {% endif %}
     <div class="form-row">
       <label>
         <input type="checkbox" name="confirm_reset" value="yes" required>

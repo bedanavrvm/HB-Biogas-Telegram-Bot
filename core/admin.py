@@ -884,17 +884,28 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
 
         from core.services.group_reset import group_data_counts, reset_group_data
 
-        counts = group_data_counts(config.group_id)
+        workflow = config.workflow or {}
+        is_spin_workflow = str(workflow.get('type') or '') == 'spin_credit_analysis'
+        spin_legacy_batch_sheet_name = str(
+            workflow.get('legacy_batch_sheet_name') or 'SPIN Legacy Batch'
+        ).strip() or 'SPIN Legacy Batch'
+        counts = group_data_counts(
+            config.group_id,
+            spin_legacy_batch_sheet_name=spin_legacy_batch_sheet_name,
+        )
         if request.method == 'POST':
             if request.POST.get('confirm_reset') != 'yes':
                 messages.error(request, 'Tick the confirmation checkbox before resetting group data.')
                 return HttpResponseRedirect(request.path)
             include_farmer_uploads = request.POST.get('include_farmer_uploads') == 'yes'
             include_all_farmer_master = request.POST.get('include_all_farmer_master') == 'yes'
+            include_spin_legacy_batch = request.POST.get('include_spin_legacy_batch') == 'yes'
             result = reset_group_data(
                 config.group_id,
                 include_farmer_uploads=include_farmer_uploads,
                 include_all_farmer_master=include_all_farmer_master,
+                include_spin_legacy_batch=include_spin_legacy_batch,
+                spin_legacy_batch_sheet_name=spin_legacy_batch_sheet_name,
             )
             deleted_total = sum(result.get('deleted', {}).values())
             self._clear_runtime_config_cache()
@@ -918,6 +929,8 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
             'config': config,
             'counts': counts,
             'total_count': sum(counts.values()),
+            'is_spin_workflow': is_spin_workflow,
+            'spin_legacy_batch_sheet_name': spin_legacy_batch_sheet_name,
             'has_change_permission': self.has_change_permission(request, config),
         }
         return TemplateResponse(

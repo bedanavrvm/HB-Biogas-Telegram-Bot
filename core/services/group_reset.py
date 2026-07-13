@@ -17,13 +17,21 @@ from core.models import (
     ParsedMessage,
     ProcessedMessage,
     RawMessage,
+    SpinCreditRequest,
     TatTrackerCase,
     TatTrackerEvent,
 )
 
+DEFAULT_SPIN_LEGACY_BATCH_SHEET_NAME = 'SPIN Legacy Batch'
 
-def group_data_counts(group_id: str) -> dict[str, int]:
+
+def group_data_counts(
+    group_id: str,
+    *,
+    spin_legacy_batch_sheet_name: str = DEFAULT_SPIN_LEGACY_BATCH_SHEET_NAME,
+) -> dict[str, int]:
     group_id = str(group_id or '')
+    spin_legacy_name = _spin_legacy_batch_name(spin_legacy_batch_sheet_name)
     processed_ids, raw_ids = _case_processing_ids(group_id)
     return {
         'parsed_messages': ParsedMessage.objects.filter(group_id=group_id).count(),
@@ -37,6 +45,8 @@ def group_data_counts(group_id: str) -> dict[str, int]:
         'linked_farmer_master_records': _linked_farmer_master_queryset(group_id).count(),
         'all_farmer_master_records': JawabuFarmerMaster.objects.count(),
         'fca_records': FcaImportRecord.objects.filter(group_id=group_id).count(),
+        'spin_requests': _spin_live_queryset(group_id, spin_legacy_name).count(),
+        'spin_legacy_batch_requests': _spin_legacy_queryset(group_id, spin_legacy_name).count(),
         'tat_tracker_cases': TatTrackerCase.objects.filter(group_id=group_id).count(),
         'tat_tracker_events': TatTrackerEvent.objects.filter(group_id=group_id).count(),
         'live_sheet_changes': LiveSheetRecordChange.objects.filter(group_id=group_id).count(),
@@ -49,6 +59,8 @@ def reset_group_data(
     *,
     include_farmer_uploads: bool = False,
     include_all_farmer_master: bool = False,
+    include_spin_legacy_batch: bool = False,
+    spin_legacy_batch_sheet_name: str = DEFAULT_SPIN_LEGACY_BATCH_SHEET_NAME,
 ) -> dict[str, Any]:
     """Delete all local DB records owned by one Telegram group.
 
@@ -57,7 +69,8 @@ def reset_group_data(
     by parsed rows after the group rows are deleted.
     """
     group_id = str(group_id or '')
-    before = group_data_counts(group_id)
+    spin_legacy_name = _spin_legacy_batch_name(spin_legacy_batch_sheet_name)
+    before = group_data_counts(group_id, spin_legacy_batch_sheet_name=spin_legacy_name)
     processed_ids, raw_ids = _case_processing_ids(group_id)
 
     MediaAttachment.objects.filter(group_id=group_id).delete()
@@ -70,6 +83,9 @@ def reset_group_data(
             _linked_farmer_master_queryset(group_id).delete()
         JawabuFarmerUploadBatch.objects.filter(group_id=group_id).delete()
     FcaImportRecord.objects.filter(group_id=group_id).delete()
+    _spin_live_queryset(group_id, spin_legacy_name).delete()
+    if include_spin_legacy_batch:
+        _spin_legacy_queryset(group_id, spin_legacy_name).delete()
     TatTrackerCase.objects.filter(group_id=group_id).delete()
     LiveSheetRecordChange.objects.filter(group_id=group_id).delete()
     CaseUpdate.objects.filter(group_id=group_id).delete()
@@ -84,7 +100,7 @@ def reset_group_data(
         processed_records__isnull=True,
     ).delete()
 
-    after = group_data_counts(group_id)
+    after = group_data_counts(group_id, spin_legacy_batch_sheet_name=spin_legacy_name)
     return {
         'group_id': group_id,
         'before': before,
@@ -94,6 +110,19 @@ def reset_group_data(
             for key in before
         },
     }
+
+
+def _spin_legacy_batch_name(value: str) -> str:
+    name = str(value or DEFAULT_SPIN_LEGACY_BATCH_SHEET_NAME).strip()
+    return name or DEFAULT_SPIN_LEGACY_BATCH_SHEET_NAME
+
+
+def _spin_live_queryset(group_id: str, legacy_sheet_name: str):
+    return SpinCreditRequest.objects.filter(group_id=str(group_id or '')).exclude(sheet_name=legacy_sheet_name)
+
+
+def _spin_legacy_queryset(group_id: str, legacy_sheet_name: str):
+    return SpinCreditRequest.objects.filter(group_id=str(group_id or ''), sheet_name=legacy_sheet_name)
 
 
 def _linked_farmer_master_queryset(group_id: str):

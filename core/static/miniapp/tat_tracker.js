@@ -119,6 +119,17 @@
     return number.toLocaleString('en-KE', { maximumFractionDigits: 0 });
   }
 
+  function currentUserName() {
+    return (state.data && state.data.user && state.data.user.name) ? state.data.user.name : '';
+  }
+
+  function requireCaseDetail(detail) {
+    if (!detail || !detail.summary) {
+      throw new Error('Case was saved, but the app could not load its detail view. Tap Refresh or search for the case to continue.');
+    }
+    return detail;
+  }
+
   function setButtonLoading(button, loading, label) {
     if (!button) return;
     if (loading) {
@@ -216,12 +227,14 @@
   function bootstrap(data) {
     state.data = data;
     if (!data.authorized) throw new Error(data.reason || 'Unauthorized.');
-    const roles = (data.user.roles || []).join(', ') || 'Staff';
-    $('userLine').textContent = `${data.user.name} | ${roles}`;
-    $('statRole').textContent = data.user.name || 'Staff';
+    const user = data.user || {};
+    const roles = (user.roles || []).join(', ') || 'Staff';
+    $('userLine').textContent = `${user.name || 'Staff'} | ${roles}`;
+    $('statRole').textContent = user.name || 'Staff';
     fillSelect(document.querySelector('[name="product_key"]'), data.products, 'key', 'label');
     fillSelect(document.querySelector('[name="branch"]'), (data.branches || []).map((value) => ({ value, label: value })), 'value', 'label');
-    document.querySelector('[name="bro_name"]').value = data.user.name || '';
+    const broInput = document.querySelector('[name="bro_name"]');
+    if (broInput) broInput.value = currentUserName();
     renderHome(data);
     setStatus('Ready.', 'ok');
   }
@@ -425,14 +438,18 @@
       const form = new FormData(event.currentTarget);
       const payload = Object.fromEntries(form.entries());
       state.pendingCreateRequestId = state.pendingCreateRequestId || newRequestId();
+      writePendingCreateRequestId(state.pendingCreateRequestId);
       payload.client_request_id = state.pendingCreateRequestId;
       const result = await api('/api/tat-tracker/create/', payload);
-      state.pendingCreateRequestId = '';
-      event.currentTarget.reset();
-      document.querySelector('[name="bro_name"]').value = state.data.user.name || '';
-      state.detail = result.data;
-      renderDetail(result.data);
+      const detail = requireCaseDetail(result.data);
+      state.detail = detail;
+      renderDetail(detail);
       show('detail');
+      state.pendingCreateRequestId = '';
+      writePendingCreateRequestId('');
+      event.currentTarget.reset();
+      const broInput = document.querySelector('[name="bro_name"]');
+      if (broInput) broInput.value = currentUserName() || payload.bro_name || '';
       setStatus('Case created. Continue from the highlighted stage.', 'ok');
       refresh().catch(() => {});
     } catch (error) {
