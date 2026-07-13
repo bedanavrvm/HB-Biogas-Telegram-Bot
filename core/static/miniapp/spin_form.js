@@ -1,4 +1,4 @@
-﻿(function () {
+(function () {
   'use strict';
 
   const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
@@ -27,6 +27,7 @@
   const draftState = document.getElementById('draftState');
   const summaryList = document.getElementById('summaryList');
   const draftKey = `spin_form_draft:${config.group_id || 'unknown'}`;
+  let bannerTimeout = null;
 
   // Dashboard & Modal Elements
   const tabDashboardBtn = document.getElementById('tab-dashboard-btn');
@@ -111,6 +112,10 @@
   }
 
   function setBanner(message, type, targetBanner) {
+    if (bannerTimeout && !targetBanner) {
+      clearTimeout(bannerTimeout);
+      bannerTimeout = null;
+    }
     const activeBanner = targetBanner || banner;
     const messages = normalizedMessages(message);
     if (!messages.length) {
@@ -128,6 +133,12 @@
       : `<strong>${type === 'success' ? 'Done' : 'Fix these items'}</strong><ul>${messages.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
     if (!targetBanner) {
       activeBanner.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      
+      if (type === 'success') {
+        bannerTimeout = setTimeout(() => {
+          setBanner('', '');
+        }, 2000);
+      }
     }
   }
 

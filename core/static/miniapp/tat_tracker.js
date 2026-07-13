@@ -11,6 +11,7 @@
   };
 
   const $ = (id) => document.getElementById(id);
+  let statusTimeout = null;
 
   function basePayload(extra) {
     return Object.assign({ group_id: state.groupId, token: state.token, init_data: state.initData }, extra || {});
@@ -28,6 +29,10 @@
   }
 
   function setStatus(message, tone) {
+    if (statusTimeout) {
+      clearTimeout(statusTimeout);
+      statusTimeout = null;
+    }
     const el = $('status');
     if (!message) {
       el.innerHTML = '';
@@ -66,6 +71,12 @@
     }
     el.innerHTML = `${icon}<span>${escapeHtml(message)}</span>`;
     el.className = 'status-bar' + (tone ? ' ' + tone : '');
+
+    if (tone === 'ok') {
+      statusTimeout = setTimeout(() => {
+        setStatus('');
+      }, 1500);
+    }
   }
 
   function show(view) {

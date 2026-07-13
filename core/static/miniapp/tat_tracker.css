@@ -93,9 +93,13 @@ button.primary {
   border-color: var(--tat-accent);
   color: var(--tat-accent-text);
 }
+::selection {
+  background: var(--tat-accent-soft);
+  color: var(--tat-text);
+}
+
 button.primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--tat-accent) 90%, black);
-  border-color: color-mix(in srgb, var(--tat-accent) 90%, black);
+  opacity: 0.9;
 }
 
 button.secondary {
