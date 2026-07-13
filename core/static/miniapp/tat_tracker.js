@@ -85,10 +85,8 @@
         <span>${escapeHtml(item.product || '')}</span>
         <span>${escapeHtml(item.branch || '')}</span>
         <span>KES ${escapeHtml(formatMoney(item.amount || ''))}</span>
-      </div>
-      <div class="case-footer">
         ${next}
-        <span>Updated ${escapeHtml(item.updated_at || '')}</span>
+        <span>${escapeHtml(item.updated_at || '')}</span>
       </div>`;
     button.addEventListener('click', () => openCase(item.case_id));
     return button;
@@ -142,7 +140,7 @@
     fillSelect(document.querySelector('[name="branch"]'), (data.branches || []).map((value) => ({ value, label: value })), 'value', 'label');
     document.querySelector('[name="bro_name"]').value = data.user.name || '';
     renderHome(data);
-    setStatus('Ready. Choose a case or create a new one.', 'ok');
+    setStatus('Ready.', 'ok');
   }
 
   async function refresh() {
@@ -158,7 +156,7 @@
     state.detail = result.data;
     renderDetail(result.data);
     show('detail');
-    setStatus('Case opened. Available actions are highlighted.', 'ok');
+    setStatus('Case opened.', 'ok');
   }
 
   function renderDetail(detail) {

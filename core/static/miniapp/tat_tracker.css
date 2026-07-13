@@ -644,3 +644,411 @@ h2 {
   .case-main { display: grid; }
   .summary-facts { grid-template-columns: 1fr; }
 }
+/* Compact operations layout: show more work rows with less chrome. */
+body {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+button {
+  min-height: 34px;
+  padding: 0 9px;
+  border-radius: 6px;
+}
+
+input,
+select,
+textarea {
+  min-height: 36px;
+  padding: 7px 9px;
+  border-radius: 6px;
+}
+
+textarea {
+  min-height: 78px;
+}
+
+label {
+  gap: 4px;
+  font-size: 11px;
+}
+
+h1 {
+  font-size: 18px;
+}
+
+h2 {
+  font-size: 13px;
+}
+
+.tat-app {
+  max-width: 980px;
+  padding: 6px 8px 18px;
+}
+
+.app-top {
+  position: static;
+  align-items: center;
+  padding: 4px 0 6px;
+}
+
+.app-title-block {
+  gap: 1px;
+}
+
+.user-line {
+  font-size: 11px;
+}
+
+.refresh-btn {
+  min-height: 32px;
+}
+
+.overview-strip {
+  grid-template-columns: .7fr .7fr 1.6fr;
+  gap: 5px;
+  margin: 0 0 6px;
+}
+
+.metric-tile,
+.metric-tile.wide {
+  grid-column: auto;
+  min-height: 40px;
+  gap: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.metric-tile span {
+  font-size: 15px;
+}
+
+.metric-tile small {
+  font-size: 9px;
+}
+
+.status-bar {
+  top: 0;
+  min-height: 30px;
+  margin-bottom: 5px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  box-shadow: none;
+}
+
+.tabs {
+  top: 35px;
+  gap: 2px;
+  margin-bottom: 6px;
+  padding: 2px;
+  border-radius: 6px;
+}
+
+.tabs button {
+  min-height: 31px;
+  border-radius: 5px;
+}
+
+.view.active {
+  gap: 6px;
+}
+
+.section-block,
+.form-card,
+.search-card,
+.detail-shell,
+.stage-panel,
+.side-panel,
+.audit-box {
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.section-block {
+  padding: 0;
+  overflow: hidden;
+}
+
+.form-card,
+.search-card,
+.detail-shell {
+  padding: 8px;
+}
+
+.section-head {
+  align-items: center;
+  margin: 0;
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--tat-line);
+}
+
+.section-head.compact {
+  margin: 0 0 6px;
+  padding: 0 0 6px;
+}
+
+.section-head p,
+.form-heading p,
+.search-card p {
+  display: none;
+}
+
+.count-pill,
+.status-chip,
+.role-chip,
+.next-chip {
+  min-height: 20px;
+  padding: 1px 6px;
+  font-size: 10px;
+}
+
+.case-list {
+  gap: 0;
+}
+
+.case-card {
+  min-height: 0;
+  gap: 4px;
+  padding: 8px;
+  border-width: 0 0 1px;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.case-card:last-child {
+  border-bottom: 0;
+}
+
+.case-card:active {
+  background: var(--tat-surface-2);
+}
+
+.case-main {
+  align-items: center;
+  gap: 8px;
+}
+
+.case-title {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.case-title strong {
+  font-size: 13px;
+}
+
+.case-id {
+  flex: 0 0 auto;
+  font-size: 10px;
+}
+
+.case-meta,
+.case-footer {
+  gap: 4px;
+  font-size: 11px;
+}
+
+.case-meta span:not(:last-child)::after,
+.case-footer span:not(:last-child)::after {
+  content: "\00a0/";
+  color: var(--tat-muted);
+  opacity: .65;
+}
+
+.empty-state {
+  margin: 8px;
+  padding: 10px 8px;
+  border-radius: 6px;
+}
+
+.form-heading,
+.search-card > div:first-child {
+  margin-bottom: 8px;
+}
+
+.form-grid {
+  gap: 8px;
+}
+
+.form-actions {
+  margin-top: 8px;
+}
+
+.search-card,
+.search-row {
+  gap: 7px;
+}
+
+.detail-toolbar {
+  margin-bottom: -2px;
+}
+
+.detail-shell {
+  gap: 8px;
+}
+
+.detail-summary {
+  gap: 7px;
+  padding-bottom: 8px;
+}
+
+.summary-title {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  column-gap: 8px;
+}
+
+.summary-title strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+}
+
+.summary-title span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.summary-facts {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.fact {
+  gap: 1px;
+  padding: 6px;
+  border-radius: 5px;
+}
+
+.fact small {
+  font-size: 9px;
+}
+
+.fact span {
+  font-size: 12px;
+}
+
+.detail-grid {
+  gap: 8px;
+}
+
+.stage-panel,
+.side-panel,
+.audit-box {
+  padding: 8px;
+}
+
+.side-panel,
+.stage-list,
+.event-list {
+  gap: 6px;
+}
+
+.stage-row {
+  gap: 6px;
+  padding: 8px;
+  border-radius: 6px;
+}
+
+.stage-top {
+  align-items: center;
+}
+
+.stage-top strong {
+  font-size: 12px;
+}
+
+.stage-value,
+.lock-note {
+  font-size: 11px;
+}
+
+.event {
+  gap: 2px;
+  padding: 6px 0;
+}
+
+.event strong {
+  font-size: 11px;
+}
+
+.event span {
+  font-size: 10px;
+}
+
+@media (min-width: 640px) {
+  .tat-app {
+    padding: 8px 10px 22px;
+  }
+
+  .overview-strip {
+    grid-template-columns: 110px 110px minmax(0, 1fr);
+  }
+
+  .form-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .amount-field {
+    grid-column: auto;
+  }
+}
+
+@media (min-width: 860px) {
+  .view.active#queueView {
+    grid-template-columns: minmax(0, 1fr) minmax(0, .95fr);
+    gap: 8px;
+  }
+
+  .detail-grid {
+    grid-template-columns: minmax(0, 1.55fr) minmax(280px, .7fr);
+  }
+}
+
+@media (max-width: 520px) {
+  .overview-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .metric-tile {
+    padding: 5px 6px;
+  }
+
+  .metric-tile span {
+    font-size: 14px;
+  }
+
+  .metric-tile small {
+    font-size: 8px;
+  }
+
+  .case-main {
+    display: flex;
+  }
+
+  .case-title {
+    display: grid;
+    gap: 1px;
+  }
+
+  .summary-title {
+    grid-template-columns: 1fr;
+    gap: 1px;
+  }
+
+  .summary-title span:last-child {
+    text-align: left;
+  }
+
+  .summary-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
