@@ -431,8 +431,8 @@
           <summary class="card-toggle">
             <span class="card-title-group">
               <span class="card-customer-name">${escapeHtml(customerName)}</span>
-              <span class="card-summary-meta">${escapeHtml(r.national_id || 'No ID')} · ${escapeHtml(r.primary_phone || 'No phone')} · KES ${formatAmount(r.requested_amount)}</span>
-              <span class="card-date">${escapeHtml(r.request_datetime || 'Date not set')} · ${escapeHtml(r.request_id || '')}</span>
+              <span class="card-summary-meta">${escapeHtml(r.national_id || 'No ID')} / ${escapeHtml(r.primary_phone || 'No phone')} / KES ${formatAmount(r.requested_amount)}</span>
+              <span class="card-date">${escapeHtml(r.request_datetime || 'Date not set')} / ${escapeHtml(r.request_id || '')}</span>
             </span>
             <span class="card-header-right">
               <span class="badge status-${statusClass}">${getStatusLabel(r.import_status)}</span>

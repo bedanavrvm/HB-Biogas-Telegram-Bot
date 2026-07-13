@@ -691,3 +691,161 @@ button.secondary {
   .card-body { grid-template-columns: 1fr; }
   .card-header-right { flex-direction: column; align-items: flex-end; gap: 2px; }
 }
+
+/* Viewport containment fixes for Telegram/browser mobile dashboards. */
+html,
+body {
+  width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+}
+
+body,
+.spin-shell,
+.tab-page,
+.spin-form,
+.dashboard-filters,
+.requests-list,
+.request-card,
+.card-toggle,
+.card-title-group,
+.card-body,
+.card-field,
+.card-links,
+.search-input-wrap,
+.filter-controls,
+.group-filter-block {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.spin-shell {
+  overflow-x: clip;
+}
+
+.search-input-wrap {
+  position: relative;
+  display: grid;
+}
+
+.search-input-wrap .search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  transform: translateY(-50%);
+  color: var(--spin-muted);
+  pointer-events: none;
+}
+
+.search-input-wrap input {
+  padding-left: 30px;
+}
+
+.card-toggle,
+.card-title-group,
+.card-summary-meta,
+.card-date,
+.card-field span,
+.card-link,
+.checkbox-label span,
+.group-filter-block small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-summary-meta,
+.card-date {
+  white-space: nowrap;
+}
+
+.card-header-right {
+  min-width: max-content;
+  max-width: 42%;
+}
+
+.card-links {
+  overflow-wrap: anywhere;
+}
+
+.card-link {
+  min-width: 0;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+.card-link svg,
+.card-link i,
+button svg,
+button i {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 540px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  .spin-shell {
+    padding-left: max(6px, env(safe-area-inset-left));
+    padding-right: max(6px, env(safe-area-inset-right));
+  }
+
+  .spin-header {
+    gap: 8px;
+  }
+
+  .spin-tab-bar .tab-btn {
+    gap: 4px;
+    padding: 0 3px;
+  }
+
+  .dashboard-filters {
+    gap: 5px;
+  }
+
+  .filter-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .count-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .count-card {
+    min-width: 0;
+  }
+
+  .count-card svg,
+  .count-card i {
+    display: none;
+  }
+
+  .count-card .count-label {
+    line-height: 1.1;
+  }
+
+  .card-toggle {
+    gap: 5px;
+  }
+
+  .card-header-right {
+    max-width: 35%;
+  }
+
+  .badge {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .modal-card {
+    width: 100%;
+    max-width: 100%;
+  }
+}
