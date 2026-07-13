@@ -413,7 +413,7 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
     try:
         row = case.row_number or next_sheet_row(sheet)
         values = sheet.row_values(row)
-        width = max(product.remarks_col, len(values), product.tat_start_col)
+        width = max(product.remarks_col, len(values), product.tat_start_col + 1)
         row_data = [''] * width
         for idx, value in enumerate(values[:width], start=1):
             row_data[idx - 1] = value
@@ -432,6 +432,8 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
                     row_data[col - 1] = sheet_datetime(case.stage_values.get(stage.auto_timestamp_key))
         row_data[product.status_col - 1] = case.status
         row_data[product.remarks_col - 1] = case.remarks
+        row_data[product.tat_start_col - 1] = tat_hours_formula(product, row)
+        row_data[product.tat_start_col] = tat_days_formula(product, row)
         sheet.update(f'A{row}:{column_letter(width)}{row}', [row_data], value_input_option='USER_ENTERED')
         case.row_number = row
         case.sheet_name = product.sheet_name
@@ -654,6 +656,18 @@ def format_datetime(value) -> str:
     return value.strftime('%d-%b-%Y %H:%M')
 
 
+def tat_hours_formula(product: ProductConfig, row: int) -> str:
+    created_col = column_letter(product.stage_columns['created'])
+    disbursement_stage = stage_by_key(product, 'disbursement')
+    if not disbursement_stage:
+        return ''
+    end_col = column_letter(disbursement_stage.column)
+    return f'=IF(OR(${created_col}{row}="",${end_col}{row}=""),"",ROUND((${end_col}{row}-${created_col}{row})*24,2))'
+
+
+def tat_days_formula(product: ProductConfig, row: int) -> str:
+    hours_col = column_letter(product.tat_start_col)
+    return f'=IF({hours_col}{row}="","",ROUND({hours_col}{row}/24,2))'
 def column_letter(index: int) -> str:
     letters = ''
     while index:

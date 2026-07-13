@@ -9,6 +9,9 @@ from core.services.tat_tracker import (
     build_tat_tracker_url,
     create_tat_start_param,
     decode_tat_start_param,
+    product_by_key,
+    tat_days_formula,
+    tat_hours_formula,
     create_case,
     is_tat_tracker_workflow,
     staff_user_for_payload,
@@ -96,6 +99,15 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertNotIn('\\u003A', html)
 
 
+
+    def test_tat_formula_helpers_match_tracker_columns(self):
+        sme = product_by_key('sme')
+        logbook = product_by_key('logbook')
+
+        self.assertEqual(tat_hours_formula(sme, 5), '=IF(OR($F5="",$P5=""),"",ROUND(($P5-$F5)*24,2))')
+        self.assertEqual(tat_days_formula(sme, 5), '=IF(S5="","",ROUND(S5/24,2))')
+        self.assertEqual(tat_hours_formula(logbook, 5), '=IF(OR($F5="",$X5=""),"",ROUND(($X5-$F5)*24,2))')
+        self.assertEqual(tat_days_formula(logbook, 5), '=IF(AA5="","",ROUND(AA5/24,2))')
     def test_group_config_merges_gui_staff_rows_into_workflow(self):
         TatTrackerStaffMember.objects.create(
             group_configuration=self.config,

@@ -211,6 +211,44 @@ Expected layout:
 
 Share the Google Sheet with the same Google service account used by Render. Without this, sheet sync will fail with `403 PERMISSION_DENIED`.
 
+## Sheet Setup Script
+
+Use this file for Google Sheet formatting and validations:
+
+```text
+tat_tracker_apps_script.gs
+```
+
+Install it in the TAT tracker workbook:
+
+1. Open the Google Sheet.
+2. Go to `Extensions -> Apps Script`.
+3. Paste `tat_tracker_apps_script.gs`.
+4. Save.
+5. Run `setupTatTrackerWorkbook()` once.
+6. Grant permissions.
+
+The script creates/refreshes:
+
+- Tracker tabs for SME, Logbook, Mjengo, Kilimo, and Micro Asset.
+- `CASE_INDEX`, `AUDIT LOG`, and `DASHBOARD` support tabs.
+- Header row 2 and helper row 4.
+- Freeze panes and filters.
+- Branch, decision, sanctions, register, register approval, and status dropdowns.
+- Amount validation by product.
+- TAT Hours and TAT Days formulas.
+- Conditional row highlighting by `Status`.
+
+Do not copy old tracker trigger/webapp logic into this workbook. Django/Mini App owns case creation, case IDs, staff permissions, stage ordering, timestamp writes, sheet sync, and audit events. The Apps Script is only for sheet setup and validation guardrails.
+
+Menu added by the script:
+
+- `TAT Tracker -> Setup / refresh workbook`
+- `TAT Tracker -> Refresh validations only`
+- `TAT Tracker -> Refresh formulas only`
+- `TAT Tracker -> Create support tabs`
+- `TAT Tracker -> Show setup notes`
+
 ## Commands In Telegram
 
 In the configured TAT tracker group, staff should tag the bot:
