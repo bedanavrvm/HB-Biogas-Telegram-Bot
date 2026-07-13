@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 
-from core.models import GroupSheetConfiguration, TatTrackerCase
+from core.models import GroupSheetConfiguration, TatTrackerCase, TatTrackerStaffMember
 from core.api.views import _process_telegram_message
 from core.services.group_config import GroupRegistry
 from core.services.tat_tracker import (
@@ -95,6 +95,73 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn(f'data-token="{token}"', html)
         self.assertNotIn('\\u003A', html)
 
+
+    def test_group_config_merges_gui_staff_rows_into_workflow(self):
+        TatTrackerStaffMember.objects.create(
+            group_configuration=self.config,
+            name='GUI Staff',
+            telegram_user_id='333',
+            telegram_username='gui_staff',
+            roles='CA,BM',
+            branches='ALL',
+            products='sme,logbook',
+        )
+        TatTrackerStaffMember.objects.create(
+            group_configuration=self.config,
+            name='Inactive Staff',
+            telegram_user_id='444',
+            roles='BRO',
+            active=False,
+        )
+
+        workflow = self.config.as_group_config_kwargs()['workflow']
+        self.assertEqual(len(workflow['staff']), 1)
+        self.assertEqual(workflow['staff'][0]['name'], 'GUI Staff')
+        self.assertEqual(workflow['staff'][0]['roles'], ['CA', 'BM'])
+        self.assertEqual(workflow['staff'][0]['branches'], ['ALL'])
+        self.assertEqual(workflow['staff'][0]['products'], ['sme', 'logbook'])
+
+
+    def test_gui_staff_rows_override_legacy_workflow_staff_even_when_inactive(self):
+        self.config.workflow['staff'] = [{
+            'telegram_user_id': '999',
+            'name': 'Legacy JSON Staff',
+            'roles': ['IT'],
+            'branches': ['ALL'],
+            'products': ['ALL'],
+            'active': True,
+        }]
+        self.config.save()
+        TatTrackerStaffMember.objects.create(
+            group_configuration=self.config,
+            name='Disabled GUI Staff',
+            telegram_user_id='555',
+            roles='BRO',
+            active=False,
+        )
+
+        workflow = self.config.as_group_config_kwargs()['workflow']
+
+        self.assertEqual(workflow['staff'], [])
+    def test_staff_user_matches_gui_staff_row(self):
+        TatTrackerStaffMember.objects.create(
+            group_configuration=self.config,
+            name='GUI Staff',
+            telegram_user_id='333',
+            telegram_username='gui_staff',
+            roles='CA',
+            branches='ALL',
+            products='ALL',
+        )
+        group_config = type('GroupConfigLike', (), self.config.as_group_config_kwargs())()
+
+        user = staff_user_for_payload(group_config, {'id': 333, 'username': 'gui_staff'})
+
+        self.assertTrue(user['authorized'])
+        self.assertEqual(user['name'], 'GUI Staff')
+        self.assertEqual(user['roles'], ['CA'])
+        self.assertEqual(user['branches'], ['ALL'])
+        self.assertEqual(user['products'], ['ALL'])
     def test_staff_user_matches_telegram_id(self):
         user = staff_user_for_payload(self.config, {'id': 111, 'username': 'someone_else'})
         self.assertTrue(user['authorized'])

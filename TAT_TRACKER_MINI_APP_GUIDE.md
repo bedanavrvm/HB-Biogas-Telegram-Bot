@@ -134,51 +134,38 @@ The generated workflow should look like this:
 }
 ```
 
-## Staff Configuration
+## Staff Configuration GUI
 
-Staff access is controlled from `workflow.staff` in the group configuration.
+Staff access is now configured through Django Admin forms, not by manually editing `workflow.staff` JSON.
 
-Example BRO:
+Open the saved TAT Tracker group configuration:
 
-```json
-{
-  "telegram_user_id": "123456789",
-  "telegram_username": "staffusername",
-  "name": "Jane Officer",
-  "roles": ["BRO"],
-  "branches": ["Nakuru"],
-  "products": ["sme", "logbook"],
-  "active": true
-}
+```text
+/admin/core/groupsheetconfiguration/
 ```
 
-Example credit analyst:
+If the group uses `Workflow preset = TAT Tracker`, the group edit page shows a section named `TAT tracker staff GUI`.
 
-```json
-{
-  "telegram_user_id": "987654321",
-  "telegram_username": "analystusername",
-  "name": "Credit Analyst",
-  "roles": ["CA"],
-  "branches": ["ALL"],
-  "products": ["ALL"],
-  "active": true
-}
+For each staff member, fill:
+
+- `Active`: uncheck to disable access without deleting the row.
+- `Name`: display name shown inside the Mini App.
+- `Telegram user ID`: preferred. Numeric Telegram user ID is stable even if username changes.
+- `Telegram username`: optional fallback, without `@`.
+- `Roles`: checkbox list of stages the person can update.
+- `Branches`: choose one or more branches, or `All branches`.
+- `Products`: choose one or more products, or `All products`.
+- `Notes`: optional admin-only note.
+
+Save the group configuration after adding/editing staff. The app automatically converts these GUI rows into the internal `workflow.staff` structure used by Mini App authorization.
+
+There is also a standalone admin list:
+
+```text
+/admin/core/tattrackerstaffmember/
 ```
 
-Example IT/admin override user:
-
-```json
-{
-  "telegram_user_id": "555555555",
-  "telegram_username": "ituser",
-  "name": "IT Admin",
-  "roles": ["IT"],
-  "branches": ["ALL"],
-  "products": ["ALL"],
-  "active": true
-}
-```
+Use it to search/edit staff across all TAT Tracker groups.
 
 Supported roles:
 
@@ -318,7 +305,7 @@ Check:
 
 ### Staff sees unauthorized error
 
-Add the staff member to `workflow.staff` using their Telegram numeric user ID or username.
+Add the staff member in the `TAT tracker staff GUI` inline on the group configuration, or in `/admin/core/tattrackerstaffmember/`. Prefer Telegram numeric user ID.
 
 ### Sheet sync fails
 
@@ -352,5 +339,5 @@ Not implemented yet:
 
 - Scheduled stalled-case reminders.
 - Weekly digest emails.
-- STAFF-sheet driven permissions.
+- STAFF-sheet driven permissions. Current TAT staff permissions are managed in Django Admin GUI rows.
 - Full correction-log parity with the old Apps Script.

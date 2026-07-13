@@ -1023,6 +1023,13 @@ class GroupSheetConfiguration(models.Model):
             raise ValidationError({'sheet_id': 'Enabled groups need a sheet ID.'})
 
     def as_group_config_kwargs(self) -> dict:
+        workflow = dict(self.workflow or {})
+        staff_rows = self.tat_tracker_staff.all()
+        if staff_rows.exists():
+            workflow['staff'] = [
+                staff.as_workflow_staff_dict()
+                for staff in staff_rows.filter(active=True).order_by('name', 'telegram_username')
+            ]
         return {
             'group_id': self.group_id,
             'display_name': self.display_name,
@@ -1031,10 +1038,9 @@ class GroupSheetConfiguration(models.Model):
             'enabled': self.enabled,
             'metadata': self.metadata or {},
             'sheet_schema': self.sheet_schema or {},
-            'workflow': self.workflow or {},
+            'workflow': workflow,
             'parser_rules': self.parser_rules or {},
         }
-
     def sheet_url(self) -> str:
         if not self.sheet_id:
             return ''
@@ -1044,6 +1050,112 @@ class GroupSheetConfiguration(models.Model):
         label = self.display_name or self.group_id
         return f"{label} -> {self.sheet_name}"
 
+class TatTrackerStaffMember(models.Model):
+    """GUI-managed staff permissions for the TAT Tracker Mini App."""
+
+    ROLE_CHOICES = [
+        ('BRO', 'BRO'),
+        ('ADMIN', 'Admin'),
+        ('CA', 'Credit Analyst'),
+        ('BM', 'Branch Manager'),
+        ('SECRETARY', 'Secretary'),
+        ('CHAIR', 'Chair'),
+        ('LOAN_APPROVER', 'Loan Approver'),
+        ('FINANCE', 'Finance'),
+        ('IT', 'IT / Override'),
+        ('MANAGEMENT', 'Management'),
+    ]
+    PRODUCT_CHOICES = [
+        ('ALL', 'All products'),
+        ('sme', 'SME'),
+        ('logbook', 'Logbook'),
+        ('mjengo', 'Mjengo'),
+        ('kilimo', 'Kilimo'),
+        ('micro_asset', 'Micro Asset'),
+    ]
+    BRANCH_CHOICES = [
+        ('ALL', 'All branches'),
+        ('Corporate', 'Corporate'),
+        ('Thika Road', 'Thika Road'),
+        ('East Nairobi', 'East Nairobi'),
+        ('West Nairobi', 'West Nairobi'),
+        ('Nakuru', 'Nakuru'),
+        ('Embu', 'Embu'),
+        ('Limuru', 'Limuru'),
+    ]
+
+    group_configuration = models.ForeignKey(
+        GroupSheetConfiguration,
+        on_delete=models.CASCADE,
+        related_name='tat_tracker_staff',
+    )
+    name = models.CharField(max_length=255)
+    telegram_user_id = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        db_index=True,
+        help_text='Numeric Telegram user ID. Preferred because usernames can change.',
+    )
+    telegram_username = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        db_index=True,
+        help_text='Telegram username without @. Used if user ID is unavailable.',
+    )
+    roles = models.CharField(max_length=255, default='BRO')
+    branches = models.CharField(max_length=500, blank=True, default='ALL')
+    products = models.CharField(max_length=500, blank=True, default='ALL')
+    active = models.BooleanField(default=True)
+    notes = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['group_configuration', 'name']
+        verbose_name = 'TAT tracker staff member'
+        verbose_name_plural = 'TAT tracker staff members'
+        indexes = [
+            models.Index(fields=['group_configuration', 'active']),
+            models.Index(fields=['telegram_user_id']),
+            models.Index(fields=['telegram_username']),
+        ]
+
+    def clean(self):
+        super().clean()
+        self.name = str(self.name or '').strip()
+        self.telegram_user_id = str(self.telegram_user_id or '').strip()
+        self.telegram_username = str(self.telegram_username or '').strip().lstrip('@')
+        self.roles = self._clean_csv(self.roles, default='BRO')
+        self.branches = self._clean_csv(self.branches, default='ALL')
+        self.products = self._clean_csv(self.products, default='ALL')
+        if not self.telegram_user_id and not self.telegram_username:
+            from django.core.exceptions import ValidationError
+            raise ValidationError('Enter either Telegram user ID or Telegram username.')
+
+    def as_workflow_staff_dict(self) -> dict:
+        return {
+            'telegram_user_id': self.telegram_user_id,
+            'telegram_username': self.telegram_username,
+            'name': self.name,
+            'roles': self._split_csv(self.roles),
+            'branches': self._split_csv(self.branches),
+            'products': self._split_csv(self.products),
+            'active': self.active,
+        }
+
+    @staticmethod
+    def _split_csv(value: str) -> list[str]:
+        return [part.strip() for part in str(value or '').split(',') if part.strip()]
+
+    @classmethod
+    def _clean_csv(cls, value: str, default: str = '') -> str:
+        parts = cls._split_csv(value)
+        return ','.join(parts or ([default] if default else []))
+
+    def __str__(self):
+        return f'{self.name} ({self.telegram_username or self.telegram_user_id})'
 
 class RequisitionBatch(models.Model):
     """Generated requisition/order batch output kept for portal reference."""

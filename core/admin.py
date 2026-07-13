@@ -34,6 +34,7 @@ from .models import (
     SpinCreditRequest,
     TatTrackerCase,
     TatTrackerEvent,
+    TatTrackerStaffMember,
 )
 
 
@@ -342,6 +343,7 @@ class TatTrackerEventAdmin(ReadOnlyAuditAdmin):
     list_filter = ['group_id', 'source', 'stage_key', 'synced_to_sheet', 'created_at']
     search_fields = ['case__case_id', 'case__client_name', 'actor_name', 'stage_label']
 
+
 @admin.register(RawMessage)
 class RawMessageAdmin(ReadOnlyAuditAdmin):
     list_display = ['sender', 'received_at', 'has_image', 'created_at']
@@ -561,9 +563,72 @@ class FcaImportRecordAdmin(ReadOnlyAuditAdmin):
     readonly_fields = ['id', 'created_at']
 
 
+class TatTrackerStaffMemberAdminForm(forms.ModelForm):
+    roles = forms.MultipleChoiceField(
+        choices=TatTrackerStaffMember.ROLE_CHOICES,
+        required=True,
+        widget=forms.CheckboxSelectMultiple,
+        help_text='Select every role this staff member can perform.',
+    )
+    branches = forms.MultipleChoiceField(
+        choices=TatTrackerStaffMember.BRANCH_CHOICES,
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text='Leave empty or choose All branches for unrestricted branch access.',
+    )
+    products = forms.MultipleChoiceField(
+        choices=TatTrackerStaffMember.PRODUCT_CHOICES,
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text='Leave empty or choose All products for unrestricted product access.',
+    )
+
+    class Meta:
+        model = TatTrackerStaffMember
+        fields = '__all__'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            self.fields['roles'].initial = self._split(self.instance.roles)
+            self.fields['branches'].initial = self._split(self.instance.branches)
+            self.fields['products'].initial = self._split(self.instance.products)
+        else:
+            self.fields['roles'].initial = ['BRO']
+            self.fields['branches'].initial = ['ALL']
+            self.fields['products'].initial = ['ALL']
+
+    def clean_roles(self):
+        return ','.join(self.cleaned_data.get('roles') or ['BRO'])
+
+    def clean_branches(self):
+        selected = self.cleaned_data.get('branches') or ['ALL']
+        return 'ALL' if 'ALL' in selected else ','.join(selected)
+
+    def clean_products(self):
+        selected = self.cleaned_data.get('products') or ['ALL']
+        return 'ALL' if 'ALL' in selected else ','.join(selected)
+
+    @staticmethod
+    def _split(value):
+        return [part.strip() for part in str(value or '').split(',') if part.strip()]
+
+
+class TatTrackerStaffMemberInline(admin.StackedInline):
+    model = TatTrackerStaffMember
+    form = TatTrackerStaffMemberAdminForm
+    extra = 1
+    fields = (
+        'active', 'name', 'telegram_user_id', 'telegram_username',
+        'roles', 'branches', 'products', 'notes',
+    )
+    verbose_name = 'TAT tracker staff member'
+    verbose_name_plural = 'TAT tracker staff GUI'
+
 @admin.register(GroupSheetConfiguration)
 class GroupSheetConfigurationAdmin(admin.ModelAdmin):
     form = GroupSheetConfigurationAdminForm
+    inlines = [TatTrackerStaffMemberInline]
     list_display = [
         'display_label', 'group_id', 'enabled', 'sheet_name',
         'sheet_link', 'live_records_link', 'data_records_link',
@@ -654,6 +719,12 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
 
     class Media:
         js = ('admin/js/workflow_preset_toggle.js',)
+
+    def get_inline_instances(self, request, obj=None):
+        workflow_type = str(((obj.workflow if obj else {}) or {}).get('type') or '')
+        if workflow_type != 'tat_tracker':
+            return []
+        return super().get_inline_instances(request, obj)
 
     @admin.display(description='Group')
     def display_label(self, obj):
@@ -1075,6 +1146,9 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
             'Configuration saved. Runtime group routing cache was refreshed.',
         )
 
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        self._clear_runtime_config_cache()
     def delete_model(self, request, obj):
         super().delete_model(request, obj)
         self._clear_runtime_config_cache()
@@ -1091,6 +1165,31 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
         GroupRegistry._instance = None
         GoogleSheetsService.clear_instances()
 
+
+@admin.register(TatTrackerStaffMember)
+class TatTrackerStaffMemberAdmin(admin.ModelAdmin):
+    form = TatTrackerStaffMemberAdminForm
+    list_display = [
+        'name', 'group_configuration', 'active', 'telegram_user_id',
+        'telegram_username', 'roles', 'branches', 'products', 'updated_at',
+    ]
+    list_filter = ['active', 'group_configuration', 'roles', 'branches', 'products']
+    search_fields = [
+        'name', 'telegram_user_id', 'telegram_username',
+        'group_configuration__group_id', 'group_configuration__display_name',
+    ]
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        GroupSheetConfigurationAdmin._clear_runtime_config_cache()
+
+    def delete_model(self, request, obj):
+        super().delete_model(request, obj)
+        GroupSheetConfigurationAdmin._clear_runtime_config_cache()
+
+    def delete_queryset(self, request, queryset):
+        super().delete_queryset(request, queryset)
+        GroupSheetConfigurationAdmin._clear_runtime_config_cache()
 
 @admin.register(RequisitionTemplate)
 class RequisitionTemplateAdmin(admin.ModelAdmin):
