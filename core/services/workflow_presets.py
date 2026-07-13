@@ -105,19 +105,19 @@ WORKFLOW_PRESETS = {
     'spin_credit_analysis': {
         'label': 'SPIN / CRB Requests',
         'description': 'Imports or captures SPIN and CRB requests. Credit analysis is tracked as the outcome/status.',
-        'sheet_name': 'SPIN Requests',
+        'sheet_name': 'Spin',
         'workflow': {
             'type': 'spin_credit_analysis',
-            'header_row': 1,
+            'header_row': 2,
             'field_headers': {},
         },
         'sheet_schema': {},
         'parser_rules': {},
         'admin_fields': {
             'header_row': {
-                'initial': 1,
+                'initial': 2,
                 'label': 'SPIN header row',
-                'help_text': 'Row number containing the SPIN/CRB sheet headers. Usually 1.',
+                'help_text': 'Row number containing the SPIN/CRB sheet headers. SPIN V_2 uses row 2.',
             },
             'legacy_batch_sheet_name': {
                 'initial': 'SPIN Legacy Batch',

@@ -306,7 +306,7 @@ class SpinCreditSheetSyncTestCase(TestCase):
         self.assertEqual(rows[0][customer_name_idx], 'TEST FARMER')
         self.assertEqual(rows[0][requested_amount_idx], 25000.50)
         self.assertIsInstance(rows[0][requested_amount_idx], float)
-        self.assertEqual(rows[0][request_month_idx], '2026-06-01')
+        self.assertEqual(rows[0][request_month_idx], 'Jun-2026')
 
 
 class SpinCreditPortalTestCase(TestCase):

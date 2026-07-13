@@ -176,6 +176,7 @@ function onOpen() {
     .addItem('Remove legacy protections', 'removeLegacyTatProtectionsMenu')
     .addItem('Refresh validations only', 'refreshTatValidations')
     .addItem('Refresh formulas only', 'refreshTatFormulas')
+    .addItem('Refresh status/TAT highlighting', 'refreshTatHighlighting')
     .addItem('Create support tabs', 'setupTatSupportTabs')
     .addSeparator()
     .addItem('Show setup notes', 'showTatSetupNotes')
@@ -211,6 +212,15 @@ function refreshTatFormulas() {
     if (sheet) applyTatFormulas_(sheet, PRODUCT_LAYOUTS[sheetName]);
   });
   SpreadsheetApp.getUi().alert('TAT Tracker formulas refreshed.');
+}
+
+function refreshTatHighlighting() {
+  const ss = SpreadsheetApp.getActive();
+  TAT_CONFIG.TRACKER_SHEETS.forEach(function(sheetName) {
+    const sheet = ss.getSheetByName(sheetName);
+    if (sheet) applyStatusConditionalFormatting_(sheet, PRODUCT_LAYOUTS[sheetName]);
+  });
+  SpreadsheetApp.getUi().alert('Status/TAT highlighting refreshed from row 5 downward. Rows 1-3 were not touched.');
 }
 
 function removeLegacyTatProtectionsMenu() {
@@ -336,14 +346,23 @@ function removeLegacyFormulaProtections_(sheet) {
 function applyStatusConditionalFormatting_(sheet, layout) {
   const width = layout.headers.length;
   const range = sheet.getRange(TAT_CONFIG.DATA_START_ROW, 1, TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1, width);
+  const row = TAT_CONFIG.DATA_START_ROW;
   const status = colLetter_(layout.cols.status);
+  const created = colLetter_(layout.cols.created);
+  const tatHours = colLetter_(layout.cols.tatHours);
+  const target = TAT_CONFIG.TAT_HOURS_TARGET;
+  const nearTarget = Math.round(target * 0.8);
+  const openStatusCheck = `AND($${status}${row}<>"Disbursed",$${status}${row}<>"Rejected",$${status}${row}<>"Declined")`;
   const rules = [
-    colorRule_(range, `=$${status}${TAT_CONFIG.DATA_START_ROW}="Disbursed"`, '#d9ead3'),
-    colorRule_(range, `=$${status}${TAT_CONFIG.DATA_START_ROW}="Rejected"`, '#f4cccc'),
-    colorRule_(range, `=$${status}${TAT_CONFIG.DATA_START_ROW}="Declined"`, '#f4cccc'),
-    colorRule_(range, `=$${status}${TAT_CONFIG.DATA_START_ROW}="Deferred"`, '#fff2cc'),
-    colorRule_(range, `=$${status}${TAT_CONFIG.DATA_START_ROW}="Stalled"`, '#fce5cd'),
-    colorRule_(range, `=$${status}${TAT_CONFIG.DATA_START_ROW}="Pending Docs"`, '#d9eaf7'),
+    colorRule_(range, `=$${status}${row}="Disbursed"`, '#d9ead3'),
+    colorRule_(range, `=$${status}${row}="Rejected"`, '#f4cccc'),
+    colorRule_(range, `=$${status}${row}="Declined"`, '#f4cccc'),
+    colorRule_(range, `=$${status}${row}="Deferred"`, '#fff2cc'),
+    colorRule_(range, `=$${status}${row}="Stalled"`, '#fce5cd'),
+    colorRule_(range, `=$${status}${row}="Pending Docs"`, '#d9eaf7'),
+    colorRule_(range, `=AND($${created}${row}<>"",${openStatusCheck},((NOW()-$${created}${row})*24)>${nearTarget},((NOW()-$${created}${row})*24)<=${target})`, '#fff2cc'),
+    colorRule_(range, `=AND($${created}${row}<>"",${openStatusCheck},((NOW()-$${created}${row})*24)>${target})`, '#f4cccc'),
+    colorRule_(range, `=AND($${tatHours}${row}<>"",$${tatHours}${row}>${target})`, '#ead1dc'),
   ];
   sheet.setConditionalFormatRules(rules);
 }

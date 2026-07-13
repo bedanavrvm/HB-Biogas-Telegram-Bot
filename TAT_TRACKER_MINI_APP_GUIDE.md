@@ -309,6 +309,33 @@ The script creates/refreshes:
 
 The script does not write, format, merge, unmerge, freeze, unfreeze, filter, or resize rows 1-3. It does not standardize visual headers. Keep the tracker visual design in the workbook/template itself.
 
+### TAT Target Setup
+
+The target is configured in `tat_tracker_apps_script.gs`:
+
+```js
+TAT_HOURS_TARGET: 336,
+```
+
+`336` means 336 hours, which is 14 days.
+
+To change the target:
+
+1. Open the Google Sheet.
+2. Go to `Extensions -> Apps Script`.
+3. Edit `TAT_HOURS_TARGET`.
+4. Save the script.
+5. Reload the Google Sheet.
+6. Run `TAT Tracker -> Refresh status/TAT highlighting`.
+7. Run `TAT Tracker -> Refresh formulas only` if formula cells need to be rebuilt.
+
+Conditional highlighting from row 5 downward:
+
+- Near target: open case above 80% of target, highlighted light yellow.
+- Over target: open case above target, highlighted light red.
+- Completed late: `TAT Hours` above target, highlighted light purple.
+- Status highlighting still applies for `Disbursed`, `Rejected`, `Declined`, `Deferred`, `Stalled`, and `Pending Docs`.
+
 Do not copy old tracker trigger/webapp logic into this workbook. Django/Mini App owns case creation, case IDs, staff permissions, stage ordering, timestamp writes, sheet sync, and audit events. The Apps Script is only for sheet setup and validation guardrails.
 
 Menu added by the script:
@@ -317,6 +344,7 @@ Menu added by the script:
 - `TAT Tracker -> Remove legacy protections`
 - `TAT Tracker -> Refresh validations only`
 - `TAT Tracker -> Refresh formulas only`
+- `TAT Tracker -> Refresh status/TAT highlighting`
 - `TAT Tracker -> Create support tabs`
 - `TAT Tracker -> Show setup notes`
 

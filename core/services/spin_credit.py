@@ -40,6 +40,7 @@ DEFAULT_FIELD_HEADERS = {
     'request_month': 'Request Month',
     'branch': 'Branch',
     'requested_by': 'Requested By',
+    'credit_analyst_name': 'Credit Analyst Name',
     'request_type': 'Request Type',
     'customer_name': 'Customer Name',
     'national_id': 'National ID',
@@ -64,7 +65,7 @@ DEFAULT_FIELD_HEADERS = {
     'analyst_response': 'Analyst Response',
 }
 
-OPTIONAL_SHEET_FIELDS = {'analysis_status', 'analyst_response'}
+OPTIONAL_SHEET_FIELDS = {'analysis_status', 'analyst_response', 'attachment_names', 'credit_analyst_name'}
 
 REQUEST_TYPE_LABELS = {
     'spin_crb': 'SPIN/CRB',
@@ -735,6 +736,7 @@ def sheet_values_for(record: SpinCreditRequest) -> dict[str, Any]:
         'request_month': format_sheet_month(record.request_datetime),
         'branch': record.source_chat,
         'requested_by': record.requested_by,
+        'credit_analyst_name': (record.parsed_fields or {}).get('credit_analyst_name', ''),
         'request_type': REQUEST_TYPE_LABELS.get(record.request_type, record.request_type),
         'customer_name': record.customer_name,
         'national_id': record.national_id,
@@ -816,7 +818,7 @@ def format_sheet_month(value) -> str:
         return ''
     try:
         local_value = timezone.localtime(value)
-        return local_value.replace(day=1, hour=0, minute=0, second=0, microsecond=0).strftime('%Y-%m-%d')
+        return local_value.strftime('%b-%Y')
     except Exception:
         return ''
 
@@ -836,6 +838,7 @@ def request_summary(record: SpinCreditRequest | None, parsed: ParsedSpinRequest 
             'customer_name': record.customer_name,
             'national_id': record.national_id,
             'primary_phone': record.primary_phone,
+            'credit_analyst_name': (record.parsed_fields or {}).get('credit_analyst_name', ''),
             'request_type': REQUEST_TYPE_LABELS.get(record.request_type, record.request_type),
         }
     if parsed:
@@ -1057,6 +1060,7 @@ def process_spin_form_submission(
         'status': 'submitted',
         'message': 'SPIN/CRB request submitted.',
         'request_id': spin_request_id(record),
+        'credit_analyst_name': (record.parsed_fields or {}).get('credit_analyst_name', ''),
         'request_type': REQUEST_TYPE_LABELS.get(record.request_type, record.request_type),
         'customer_name': record.customer_name,
         'national_id': record.national_id,
