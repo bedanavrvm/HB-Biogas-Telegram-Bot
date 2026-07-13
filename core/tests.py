@@ -27,6 +27,8 @@ from core.models import (
     RawMessage,
     ProcessedMessage,
     ParsedMessage,
+    TatTrackerCase,
+    TatTrackerEvent,
 )
 from core.services.deduplication import generate_message_hash, is_duplicate
 from core.services.parser import (
@@ -3266,6 +3268,61 @@ class GroupResetServiceTest(TestCase):
         self.assertTrue(ParsedMessage.objects.filter(pk=other.pk).exists())
         self.assertTrue(ProcessedMessage.objects.filter(pk=other.processed_message_id).exists())
         self.assertTrue(RawMessage.objects.filter(pk=other.processed_message.raw_message_id).exists())
+
+    def test_reset_group_data_deletes_tat_tracker_records_for_selected_group(self):
+        from core.services.group_reset import group_data_counts, reset_group_data
+
+        target = TatTrackerCase.objects.create(
+            group_id='-100tatreset',
+            sheet_id='sheet_tat',
+            sheet_name='TRACKER-SME',
+            case_id='JBL-SME-2026-001',
+            product_key='sme',
+            product_label='SME',
+            client_name='RESET CLIENT',
+            branch='Embu',
+            amount=Decimal('10000'),
+        )
+        TatTrackerEvent.objects.create(
+            case=target,
+            group_id='-100tatreset',
+            actor_name='Tester',
+            stage_key='created',
+            stage_label='Case Created',
+            new_value='13-Jul-2026 10:00',
+        )
+        keep = TatTrackerCase.objects.create(
+            group_id='-100tatkeep',
+            sheet_id='sheet_tat',
+            sheet_name='TRACKER-SME',
+            case_id='JBL-SME-2026-001',
+            product_key='sme',
+            product_label='SME',
+            client_name='KEEP CLIENT',
+            branch='Embu',
+            amount=Decimal('10000'),
+        )
+        TatTrackerEvent.objects.create(
+            case=keep,
+            group_id='-100tatkeep',
+            actor_name='Tester',
+            stage_key='created',
+            stage_label='Case Created',
+            new_value='13-Jul-2026 10:00',
+        )
+
+        before = group_data_counts('-100tatreset')
+        result = reset_group_data('-100tatreset')
+
+        self.assertEqual(before['tat_tracker_cases'], 1)
+        self.assertEqual(before['tat_tracker_events'], 1)
+        self.assertEqual(result['deleted']['tat_tracker_cases'], 1)
+        self.assertEqual(result['deleted']['tat_tracker_events'], 1)
+        self.assertFalse(TatTrackerCase.objects.filter(group_id='-100tatreset').exists())
+        self.assertFalse(TatTrackerEvent.objects.filter(group_id='-100tatreset').exists())
+        self.assertTrue(TatTrackerCase.objects.filter(group_id='-100tatkeep').exists())
+        self.assertTrue(TatTrackerEvent.objects.filter(group_id='-100tatkeep').exists())
+
 
     def test_reset_group_data_can_delete_farmers_uploads_and_linked_master_rows(self):
         from core.services.group_reset import reset_group_data

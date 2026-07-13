@@ -773,6 +773,13 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
                 sheet_id=obj.sheet_id,
             )
             label = 'View Jawabu import audit'
+        elif workflow_type == 'tat_tracker':
+            url = self._filtered_admin_url(
+                'admin:core_tattrackercase_changelist',
+                group_id=obj.group_id,
+                sheet_id=obj.sheet_id,
+            )
+            label = 'View TAT tracker cases'
         else:
             url = self._filtered_admin_url(
                 'admin:core_parsedmessage_changelist',

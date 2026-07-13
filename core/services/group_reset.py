@@ -17,6 +17,8 @@ from core.models import (
     ParsedMessage,
     ProcessedMessage,
     RawMessage,
+    TatTrackerCase,
+    TatTrackerEvent,
 )
 
 
@@ -35,6 +37,8 @@ def group_data_counts(group_id: str) -> dict[str, int]:
         'linked_farmer_master_records': _linked_farmer_master_queryset(group_id).count(),
         'all_farmer_master_records': JawabuFarmerMaster.objects.count(),
         'fca_records': FcaImportRecord.objects.filter(group_id=group_id).count(),
+        'tat_tracker_cases': TatTrackerCase.objects.filter(group_id=group_id).count(),
+        'tat_tracker_events': TatTrackerEvent.objects.filter(group_id=group_id).count(),
         'live_sheet_changes': LiveSheetRecordChange.objects.filter(group_id=group_id).count(),
     }
 
@@ -66,6 +70,7 @@ def reset_group_data(
             _linked_farmer_master_queryset(group_id).delete()
         JawabuFarmerUploadBatch.objects.filter(group_id=group_id).delete()
     FcaImportRecord.objects.filter(group_id=group_id).delete()
+    TatTrackerCase.objects.filter(group_id=group_id).delete()
     LiveSheetRecordChange.objects.filter(group_id=group_id).delete()
     CaseUpdate.objects.filter(group_id=group_id).delete()
     ParsedMessage.objects.filter(group_id=group_id).delete()

@@ -270,6 +270,16 @@ Best practice:
 - For a mistaken test record, delete it from Django Admin first, then remove the sheet row if you also want it gone from the reporting sheet.
 - If you clear the sheet manually, expect existing Django cases to reappear when they are updated again.
 
+### Resetting Local TAT Test Data
+
+The Django Admin `Reset local DB data` button for a TAT Tracker group clears local `TatTrackerCase` and `TatTrackerEvent` records for that Telegram group. It does not clear Google Sheet rows, filters, validations, or Drive files.
+
+For a clean test reset:
+
+1. Use `Reset local DB data` in the group configuration.
+2. Manually clear test rows from the product tracker tabs if you also want the sheet empty.
+3. Keep rows 1-4 intact because the setup script and Mini App expect data to start on row 5.
+
 ## Sheet Setup Script
 Use this file for Google Sheet formatting and validations:
 
