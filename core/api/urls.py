@@ -17,6 +17,13 @@ from .views import (
     spin_form_submit,
     spin_form_requests,
     spin_form_complete,
+    tat_tracker_app,
+    tat_tracker_bootstrap,
+    tat_tracker_home,
+    tat_tracker_search,
+    tat_tracker_create,
+    tat_tracker_detail,
+    tat_tracker_update,
     process_messages,
     resend_unsynced,
     sync_from_sheets,
@@ -58,6 +65,13 @@ urlpatterns = [
     path('spin/submit/', spin_form_submit, name='spin_form_submit'),
     path('spin/requests/', spin_form_requests, name='spin_form_requests'),
     path('spin/complete/', spin_form_complete, name='spin_form_complete'),
+    path('tat-tracker/', tat_tracker_app, name='tat_tracker_app'),
+    path('tat-tracker/bootstrap/', tat_tracker_bootstrap, name='tat_tracker_bootstrap'),
+    path('tat-tracker/home/', tat_tracker_home, name='tat_tracker_home'),
+    path('tat-tracker/search/', tat_tracker_search, name='tat_tracker_search'),
+    path('tat-tracker/create/', tat_tracker_create, name='tat_tracker_create'),
+    path('tat-tracker/detail/', tat_tracker_detail, name='tat_tracker_detail'),
+    path('tat-tracker/update/', tat_tracker_update, name='tat_tracker_update'),
     path('webhook/telegram/', telegram_webhook, name='telegram_webhook'),
     path(
         'order-approval/webapp/submit/',
@@ -78,20 +92,20 @@ urlpatterns = [
     path('resync/unsynced/', resend_unsynced, name='resend_unsynced'),
     path('sync/from-sheets/', sync_from_sheets, name='sync_from_sheets'),
 
-    # â”€â”€ JBL Pipeline Portal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # JBL Pipeline Portal
     path('portal/', portal_home, name='portal_home'),
     path('portal/dashboard/', portal_auth_required(portal_dashboard), name='portal_dashboard'),
     path('portal/meta/', portal_auth_required(portal_meta), name='portal_meta'),
-    # Stage 2 â€” JBL Visit
+    # Stage 2 - JBL Visit
     path('portal/jbl-queue/', portal_auth_required(portal_jbl_queue), name='portal_jbl_queue'),
     path('portal/jbl-queue/<str:farmer_id>/', portal_auth_required(portal_log_jbl_visit), name='portal_log_jbl_visit'),
     path('portal/jbl-queue/<str:farmer_id>/media/', portal_auth_required(portal_upload_jbl_media), name='portal_upload_jbl_media'),
-    # Stage 3 â€” Credit Decision
+    # Stage 3 - Credit Decision
     path('portal/credit-queue/', portal_auth_required(portal_credit_queue), name='portal_credit_queue'),
     path('portal/credit-queue/<str:farmer_id>/', portal_auth_required(portal_set_credit_decision), name='portal_set_credit_decision'),
     path('portal/final-review-queue/', portal_auth_required(portal_final_review_queue), name='portal_final_review_queue'),
     path('portal/final-review-queue/<str:farmer_id>/', portal_auth_required(portal_set_final_decision), name='portal_set_final_decision'),
-    # Stage 4 â€” Requisition / Order (GATED)
+    # Stage 4 - Requisition / Order (GATED)
     path('portal/requisition-queue/', portal_auth_required(portal_requisition_queue), name='portal_requisition_queue'),
     path('portal/requisition-queue/preview/', portal_auth_required(portal_requisition_preview), name='portal_requisition_preview'),
     path('portal/requisition-queue/generate/', portal_auth_required(portal_requisition_generate), name='portal_requisition_generate'),
@@ -106,5 +120,3 @@ urlpatterns = [
     path('portal/farmers/<str:farmer_id>/', portal_auth_required(portal_farmer_detail), name='portal_farmer_detail'),
     path('portal/deferred/', portal_auth_required(portal_deferred), name='portal_deferred'),
 ]
-
-

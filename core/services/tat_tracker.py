@@ -1,0 +1,677 @@
+
+"""TAT Tracker Mini App workflow."""
+from __future__ import annotations
+
+import base64
+import binascii
+import hmac
+import hashlib
+import json
+import logging
+import time
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+from urllib.parse import parse_qsl, urlencode
+from typing import Any
+
+from django.conf import settings
+from django.core import signing
+from django.db import transaction
+from django.db.models import Q
+from django.utils import timezone
+
+from core.models import TatTrackerCase, TatTrackerEvent
+from core.services.sheets import get_sheets_service
+
+logger = logging.getLogger(__name__)
+
+TAT_TRACKER_WORKFLOW_TYPE = 'tat_tracker'
+TAT_FORM_TOKEN_SALT = 'tat-tracker-mini-app'
+
+BRANCHES = ['Corporate', 'Thika Road', 'East Nairobi', 'West Nairobi', 'Nakuru', 'Embu', 'Limuru']
+DECISION_OPTIONS = ['Approved', 'Rejected', 'Deferred']
+SANCTIONS_OPTIONS = ['Pending', 'Met', 'Not Met']
+REGISTER_OPTIONS = ['10:00am', '1:00pm', '3:30pm']
+REGISTER_APPROVED_OPTIONS = ['Approved', 'Pending']
+STATUS_VALUES = ['Active', 'Disbursed', 'Rejected', 'Declined', 'Deferred', 'Stalled', 'Pending Docs']
+
+
+@dataclass(frozen=True)
+class StageConfig:
+    key: str
+    label: str
+    column: int
+    role: str
+    kind: str = 'timestamp'
+    options: tuple[str, ...] = ()
+    auto_timestamp_key: str = ''
+
+
+@dataclass(frozen=True)
+class ProductConfig:
+    key: str
+    label: str
+    sheet_name: str
+    case_prefix: str
+    min_amount: Decimal
+    max_amount: Decimal | None
+    remarks_col: int
+    status_col: int
+    tat_start_col: int
+    stage_columns: dict[str, int]
+    stages: tuple[StageConfig, ...]
+
+
+BASE_STAGES_OTHER = (
+    StageConfig('mpesa_to_admin', 'MPESA sent to Admin', 7, 'BRO'),
+    StageConfig('mpesa_verified', 'MPESA verified and sent to CA', 8, 'ADMIN'),
+    StageConfig('ca_analysis_sent', 'Credit analysis sent', 9, 'CA'),
+    StageConfig('bro_response', 'BRO response to CA', 10, 'BRO'),
+    StageConfig('bm_tat_request', 'BM TAT request sent', 11, 'BM'),
+    StageConfig('tat_scheduled', 'TAT scheduled', 12, 'SECRETARY'),
+    StageConfig('tat_held', 'TAT held', 13, 'SECRETARY'),
+    StageConfig('decision', 'Decision', 14, 'CHAIR', 'dropdown', tuple(DECISION_OPTIONS), 'decision_ts'),
+    StageConfig('minutes_shared', 'Minutes shared', 16, 'SECRETARY'),
+    StageConfig('sanctions', 'Sanctions', 17, 'LOAN_APPROVER', 'dropdown', tuple(SANCTIONS_OPTIONS), 'sanctions_ts'),
+    StageConfig('bro_applied', 'BRO applied on system', 19, 'BRO'),
+    StageConfig('disbursement_register', 'Disbursement register', 20, 'ADMIN', 'dropdown', tuple(REGISTER_OPTIONS), 'register_ts'),
+    StageConfig('register_approved', 'Register approved', 22, 'LOAN_APPROVER', 'dropdown', tuple(REGISTER_APPROVED_OPTIONS)),
+    StageConfig('disbursement', 'Finance disbursement', 23, 'FINANCE'),
+)
+
+BASE_STAGES_LOGBOOK = (
+    StageConfig('mpesa_to_admin', 'MPESA sent to Admin', 7, 'BRO'),
+    StageConfig('mpesa_verified', 'MPESA verified and sent to CA', 8, 'ADMIN'),
+    StageConfig('ca_analysis_sent', 'Credit analysis sent', 9, 'CA'),
+    StageConfig('bro_response', 'BRO response to CA', 10, 'BRO'),
+    StageConfig('valuation_ready', 'Valuation ready', 11, 'BM'),
+    StageConfig('bm_tat_request', 'BM TAT request sent', 12, 'BM'),
+    StageConfig('tat_scheduled', 'TAT scheduled', 13, 'SECRETARY'),
+    StageConfig('tat_held', 'TAT held', 14, 'SECRETARY'),
+    StageConfig('decision', 'Decision', 15, 'CHAIR', 'dropdown', tuple(DECISION_OPTIONS), 'decision_ts'),
+    StageConfig('minutes_shared', 'Minutes shared', 17, 'SECRETARY'),
+    StageConfig('sanctions', 'Sanctions', 18, 'LOAN_APPROVER', 'dropdown', tuple(SANCTIONS_OPTIONS), 'sanctions_ts'),
+    StageConfig('bro_applied', 'BRO applied on system', 20, 'BRO'),
+    StageConfig('disbursement_register', 'Disbursement register', 21, 'ADMIN', 'dropdown', tuple(REGISTER_OPTIONS), 'register_ts'),
+    StageConfig('register_approved', 'Register approved', 23, 'LOAN_APPROVER', 'dropdown', tuple(REGISTER_APPROVED_OPTIONS)),
+    StageConfig('disbursement', 'Finance disbursement', 24, 'FINANCE'),
+)
+
+BASE_STAGES_SME = (
+    StageConfig('mpesa_to_admin', 'MPESA sent to Admin', 7, 'BRO'),
+    StageConfig('mpesa_verified', 'MPESA verified and sent to CA', 8, 'ADMIN'),
+    StageConfig('ca_analysis_sent', 'Credit analysis sent', 9, 'CA'),
+    StageConfig('bro_response', 'BRO response to CA', 10, 'BRO'),
+    StageConfig('bm_response', 'BM response to CA', 11, 'BM'),
+    StageConfig('bro_applied', 'BRO applied loan on system', 12, 'BRO'),
+    StageConfig('disbursement_register', 'Disbursement register', 13, 'ADMIN', 'dropdown', tuple(REGISTER_OPTIONS), 'register_ts'),
+    StageConfig('register_approved', 'Register approved', 15, 'LOAN_APPROVER', 'dropdown', tuple(REGISTER_APPROVED_OPTIONS)),
+    StageConfig('disbursement', 'Finance disbursement', 16, 'FINANCE'),
+)
+
+PRODUCTS: dict[str, ProductConfig] = {
+    'logbook': ProductConfig('logbook', 'Logbook', 'TRACKER-LOGBOOK', 'JBL-LB', Decimal('50000'), Decimal('500000'), 26, 25, 27, {'created': 6, 'decision_ts': 16, 'sanctions_ts': 19, 'register_ts': 22}, BASE_STAGES_LOGBOOK),
+    'mjengo': ProductConfig('mjengo', 'Mjengo', 'TRACKER-MJENGO', 'JBL-MJ', Decimal('50000'), Decimal('300000'), 25, 24, 26, {'created': 6, 'decision_ts': 15, 'sanctions_ts': 18, 'register_ts': 21}, BASE_STAGES_OTHER),
+    'kilimo': ProductConfig('kilimo', 'Kilimo', 'TRACKER-KILIMO', 'JBL-KI', Decimal('50000'), Decimal('300000'), 25, 24, 26, {'created': 6, 'decision_ts': 15, 'sanctions_ts': 18, 'register_ts': 21}, BASE_STAGES_OTHER),
+    'micro_asset': ProductConfig('micro_asset', 'Micro Asset', 'TRACKER-MICRO-ASSET', 'JBL-MA', Decimal('50000'), Decimal('300000'), 25, 24, 26, {'created': 6, 'decision_ts': 15, 'sanctions_ts': 18, 'register_ts': 21}, BASE_STAGES_OTHER),
+    'sme': ProductConfig('sme', 'SME', 'TRACKER-SME', 'JBL-SME', Decimal('5000'), None, 18, 17, 19, {'created': 6, 'register_ts': 14}, BASE_STAGES_SME),
+}
+
+
+def is_tat_tracker_workflow(group_config) -> bool:
+    workflow = getattr(group_config, 'workflow', None) or {}
+    return str(workflow.get('type') or '') == TAT_TRACKER_WORKFLOW_TYPE
+
+
+def configured_products(workflow: dict | None = None) -> list[ProductConfig]:
+    workflow = workflow or {}
+    keys = workflow.get('products') or list(PRODUCTS.keys())
+    return [PRODUCTS[key] for key in keys if key in PRODUCTS]
+
+
+def workflow_branches(workflow: dict | None = None) -> list[str]:
+    workflow = workflow or {}
+    branches = workflow.get('branches') or BRANCHES
+    return [str(item).strip() for item in branches if str(item).strip()]
+
+
+def create_tat_form_token(group_id: str) -> str:
+    return signing.dumps({'group_id': str(group_id)}, salt=TAT_FORM_TOKEN_SALT)
+
+
+def validate_tat_form_token(token: str, group_id: str) -> tuple[bool, str]:
+    if not token:
+        return False, 'Form token is missing. Open the tracker again from Telegram.'
+    max_age = int(getattr(settings, 'TAT_TRACKER_WEBAPP_AUTH_MAX_AGE_SECONDS', 86400))
+    try:
+        payload = signing.loads(token, salt=TAT_FORM_TOKEN_SALT, max_age=max_age if max_age > 0 else None)
+    except signing.SignatureExpired:
+        return False, 'Form token has expired. Open the tracker again from Telegram.'
+    except signing.BadSignature:
+        return False, 'Form token is invalid. Open the tracker again from Telegram.'
+    if str(payload.get('group_id', '')) != str(group_id):
+        return False, 'Form token does not match this group.'
+    return True, ''
+
+
+def build_tat_tracker_url(group_id: str) -> str:
+    base_url = getattr(settings, 'APP_BASE_URL', '').rstrip('/')
+    if not base_url:
+        return ''
+    return f"{base_url}/tat-tracker/?" + urlencode({'group_id': str(group_id), 'token': create_tat_form_token(group_id)})
+
+
+def build_tat_tracker_mini_app_url(group_id: str) -> str:
+    bot_username = str(getattr(settings, 'TELEGRAM_BOT_USERNAME', '') or '').strip().lstrip('@')
+    short_name = str(getattr(settings, 'TAT_TRACKER_MINI_APP_SHORT_NAME', '') or '').strip().strip('/')
+    if not bot_username or not short_name:
+        return ''
+    return f"https://t.me/{bot_username}/{short_name}?startapp={create_tat_start_param(group_id)}"
+
+
+def create_tat_start_param(group_id: str) -> str:
+    payload = {'group_id': str(group_id), 'token': create_tat_form_token(group_id)}
+    encoded = base64.urlsafe_b64encode(json.dumps(payload, separators=(',', ':')).encode('utf-8')).decode('ascii')
+    return encoded.rstrip('=')
+
+
+def decode_tat_start_param(start_param: str) -> dict[str, str]:
+    value = str(start_param or '').strip()
+    if not value:
+        return {}
+    padding = '=' * (-len(value) % 4)
+    try:
+        payload = json.loads(base64.urlsafe_b64decode((value + padding).encode('ascii')).decode('utf-8'))
+    except (binascii.Error, ValueError, json.JSONDecodeError, UnicodeDecodeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    group_id = str(payload.get('group_id', '')).strip()
+    token = str(payload.get('token', '')).strip()
+    if not group_id or not token:
+        return {}
+    return {'group_id': group_id, 'token': token}
+
+
+def validate_tat_telegram_webapp_init_data(init_data: str) -> tuple[bool, str, dict]:
+    if not getattr(settings, 'TAT_TRACKER_WEBAPP_REQUIRE_TELEGRAM_AUTH', True):
+        return True, '', {}
+    bot_token = getattr(settings, 'TELEGRAM_BOT_TOKEN', '')
+    if not bot_token:
+        return False, 'TELEGRAM_BOT_TOKEN is not configured.', {}
+    if not init_data:
+        return False, 'Telegram Mini App authentication data is missing.', {}
+    pairs = dict(parse_qsl(init_data, keep_blank_values=True))
+    received_hash = pairs.pop('hash', '')
+    if not received_hash:
+        return False, 'Telegram Mini App hash is missing.', {}
+    data_check_string = "\n".join(f"{key}={value}" for key, value in sorted(pairs.items()))
+    secret_key = hmac.new(b'WebAppData', bot_token.encode('utf-8'), hashlib.sha256).digest()
+    calculated_hash = hmac.new(secret_key, data_check_string.encode('utf-8'), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(calculated_hash, received_hash):
+        return False, 'Telegram Mini App authentication failed.', {}
+    max_age = int(getattr(settings, 'TAT_TRACKER_WEBAPP_AUTH_MAX_AGE_SECONDS', 86400))
+    auth_date = pairs.get('auth_date')
+    if auth_date and max_age > 0:
+        try:
+            if time.time() - int(auth_date) > max_age:
+                return False, 'Telegram Mini App authentication expired.', {}
+        except ValueError:
+            return False, 'Telegram Mini App auth_date is invalid.', {}
+    user_payload = {}
+    if pairs.get('user'):
+        try:
+            user_payload = json.loads(pairs['user'])
+        except json.JSONDecodeError:
+            user_payload = {}
+    return True, '', user_payload if isinstance(user_payload, dict) else {}
+
+
+def staff_user_for_payload(group_config, user_payload: dict, fallback_name: str = '') -> dict:
+    workflow = getattr(group_config, 'workflow', None) or {}
+    staff = workflow.get('staff') or []
+    telegram_id = str(user_payload.get('id') or '').strip()
+    username = str(user_payload.get('username') or '').strip().lower().lstrip('@')
+    full_name = _telegram_name(user_payload) or fallback_name or username or telegram_id or 'Unknown user'
+    for row in staff:
+        if not isinstance(row, dict) or row.get('active') is False:
+            continue
+        row_id = str(row.get('telegram_user_id') or row.get('telegram_id') or '').strip()
+        row_username = str(row.get('telegram_username') or row.get('username') or '').strip().lower().lstrip('@')
+        if (telegram_id and row_id == telegram_id) or (username and row_username == username):
+            roles = _normalize_list(row.get('roles') or row.get('role'))
+            return {'authorized': True, 'telegram_id': telegram_id, 'username': username, 'name': str(row.get('name') or full_name).strip(), 'roles': roles or ['BRO'], 'branches': _normalize_list(row.get('branches') or row.get('branch')), 'products': _normalize_list(row.get('products') or row.get('sheets'))}
+    if workflow.get('allow_unconfigured_users'):
+        return {'authorized': True, 'telegram_id': telegram_id, 'username': username, 'name': full_name, 'roles': _normalize_list(workflow.get('default_roles')) or ['BRO'], 'branches': [], 'products': []}
+    return {'authorized': False, 'telegram_id': telegram_id, 'username': username, 'name': full_name, 'roles': [], 'branches': [], 'products': [], 'reason': 'Your Telegram account is not configured for the TAT Tracker. Ask admin to add you under workflow.staff.'}
+
+
+def bootstrap(group_config, user_payload: dict) -> dict:
+    user = staff_user_for_payload(group_config, user_payload)
+    workflow = getattr(group_config, 'workflow', None) or {}
+    if not user['authorized']:
+        return {'authorized': False, 'user': user, 'reason': user.get('reason', 'Unauthorized')}
+    products = [serialize_product(product) for product in _allowed_products(workflow, user)]
+    home = home_data(group_config, user)
+    return {'authorized': True, 'user': public_user(user), 'products': products, 'branches': _allowed_branches(workflow, user), 'statuses': STATUS_VALUES, 'recent': home['recent'], 'action_required': home['action_required']}
+
+
+def home_data(group_config, user: dict) -> dict:
+    queryset = TatTrackerCase.objects.filter(group_id=str(group_config.group_id))
+    allowed_keys = [p.key for p in _allowed_products(getattr(group_config, 'workflow', None) or {}, user)]
+    if allowed_keys:
+        queryset = queryset.filter(product_key__in=allowed_keys)
+    recent = [serialize_case_summary(case, user) for case in queryset.order_by('-created_at')[:20]]
+    action_required = []
+    for case in queryset.exclude(status__in=['Disbursed', 'Rejected', 'Declined']).order_by('-updated_at')[:200]:
+        next_stage = next_action(case)
+        if next_stage and can_user_edit_stage(user, case, next_stage):
+            action_required.append(serialize_case_summary(case, user, next_stage=next_stage))
+        if len(action_required) >= 20:
+            break
+    return {'recent': recent[:10], 'action_required': action_required[:10]}
+
+
+def search_cases(group_config, user: dict, query: str) -> list[dict]:
+    q = str(query or '').strip()
+    if len(q) < 2:
+        return []
+    queryset = TatTrackerCase.objects.filter(group_id=str(group_config.group_id)).filter(Q(case_id__icontains=q) | Q(client_name__icontains=q) | Q(branch__icontains=q) | Q(bro_name__icontains=q))
+    allowed_keys = [p.key for p in _allowed_products(getattr(group_config, 'workflow', None) or {}, user)]
+    if allowed_keys:
+        queryset = queryset.filter(product_key__in=allowed_keys)
+    return [serialize_case_summary(case, user) for case in queryset.order_by('-updated_at')[:25]]
+
+
+def get_case_detail(group_config, user: dict, case_id: str) -> dict:
+    case = TatTrackerCase.objects.get(group_id=str(group_config.group_id), case_id=str(case_id))
+    return serialize_case_detail(case, user)
+
+
+@transaction.atomic
+def create_case(group_config, user: dict, payload: dict) -> dict:
+    product = product_by_key(str(payload.get('product_key') or payload.get('product') or ''))
+    workflow = getattr(group_config, 'workflow', None) or {}
+    if product not in _allowed_products(workflow, user):
+        raise ValueError('You do not have access to this product.')
+    client_name = str(payload.get('client_name') or '').strip().upper()
+    branch = str(payload.get('branch') or '').strip()
+    bro_name = str(payload.get('bro_name') or user.get('name') or '').strip()
+    amount = parse_amount(payload.get('amount'))
+    if not client_name:
+        raise ValueError('Client name is required.')
+    if branch not in _allowed_branches(workflow, user):
+        raise ValueError('Select a valid branch.')
+    validate_amount(product, amount)
+    case_id = next_case_id(group_config, product)
+    now = timezone.now()
+    case = TatTrackerCase.objects.create(
+        group_id=str(group_config.group_id), sheet_id=str(group_config.sheet_id or ''), sheet_name=product.sheet_name,
+        case_id=case_id, product_key=product.key, product_label=product.label, client_name=client_name,
+        branch=branch, bro_name=bro_name, amount=amount, stage_values={'created': now.isoformat()},
+        status='Active', current_stage=(product.stages[0].key if product.stages else ''),
+        created_by=user.get('name', ''), created_by_telegram_id=user.get('telegram_id', ''), last_updated_by=user.get('name', ''),
+    )
+    TatTrackerEvent.objects.create(case=case, group_id=case.group_id, actor_name=user.get('name', ''), actor_telegram_id=user.get('telegram_id', ''), actor_role=','.join(user.get('roles') or []), stage_key='created', stage_label='Case Created', new_value=format_datetime(now), source='mini_app', sheet_name=case.sheet_name)
+    sync_case_to_sheet(group_config, case)
+    return serialize_case_detail(case, user)
+
+
+@transaction.atomic
+def update_case(group_config, user: dict, case_id: str, updates: list[dict]) -> dict:
+    case = TatTrackerCase.objects.select_for_update().get(group_id=str(group_config.group_id), case_id=str(case_id))
+    if not updates:
+        raise ValueError('No updates were submitted.')
+    for item in updates:
+        apply_update(case, user, item)
+    next_stage = next_action(case)
+    case.current_stage = next_stage.key if next_stage else ''
+    case.last_updated_by = user.get('name', '')
+    case.save()
+    sync_case_to_sheet(group_config, case)
+    return serialize_case_detail(case, user)
+
+
+def apply_update(case: TatTrackerCase, user: dict, item: dict) -> None:
+    field = str(item.get('field') or '').strip()
+    product = product_by_key(case.product_key)
+    if field == 'remarks':
+        old = case.remarks
+        case.remarks = str(item.get('value') or '').strip()
+        stage_key = 'remarks'
+        event_label = 'Remarks / Delays'
+        new = case.remarks
+    else:
+        stage = stage_by_key(product, field)
+        if not stage:
+            raise ValueError('Invalid stage submitted.')
+        if not can_user_edit_stage(user, case, stage):
+            raise ValueError(f'Your role cannot update {stage.label}.')
+        if not previous_stages_complete(case, stage):
+            raise ValueError(f'Complete the previous stage before {stage.label}.')
+        if case.stage_values.get(stage.key):
+            raise ValueError(f'{stage.label} is already completed.')
+        old = ''
+        if stage.kind == 'timestamp':
+            value = timezone.now().isoformat()
+            new = format_datetime(timezone.now())
+        elif stage.kind == 'dropdown':
+            value = str(item.get('value') or '').strip()
+            if value not in stage.options:
+                raise ValueError(f'Select a valid value for {stage.label}.')
+            new = value
+        else:
+            value = str(item.get('value') or '').strip()
+            new = value
+        case.stage_values[stage.key] = value
+        apply_side_effects(case, product, stage, value)
+        stage_key = stage.key
+        event_label = stage.label
+    TatTrackerEvent.objects.create(case=case, group_id=case.group_id, actor_name=user.get('name', ''), actor_telegram_id=user.get('telegram_id', ''), actor_role=','.join(user.get('roles') or []), stage_key=stage_key, stage_label=event_label, old_value=str(old or ''), new_value=str(new or ''), source='mini_app', sheet_name=case.sheet_name, row_number=case.row_number)
+
+
+def apply_side_effects(case: TatTrackerCase, product: ProductConfig, stage: StageConfig, value: str) -> None:
+    now = timezone.now().isoformat()
+    if stage.key == 'bro_applied' and product.stage_columns.get('sanctions_ts') and case.stage_values.get('sanctions') != 'Met':
+        raise ValueError('Sanctions must be marked Met before applying on system.')
+    if stage.key == 'disbursement' and case.stage_values.get('register_approved') != 'Approved':
+        raise ValueError('Register must be approved before disbursement.')
+    if stage.auto_timestamp_key and value:
+        case.stage_values.setdefault(stage.auto_timestamp_key, now)
+    if stage.key == 'decision':
+        if value == 'Rejected':
+            case.status = 'Rejected'
+        elif value == 'Deferred':
+            case.status = 'Deferred'
+    if stage.key == 'sanctions' and value == 'Not Met' and 'Sanctions Not Met' not in case.remarks:
+        case.remarks = f"[{format_datetime(timezone.now())}: Sanctions Not Met - conditions unfulfilled] {case.remarks}".strip()
+    if stage.key == 'disbursement':
+        case.status = 'Disbursed'
+
+
+def next_case_id(group_config, product: ProductConfig) -> str:
+    year = timezone.localdate().year
+    prefix = f'{product.case_prefix}-{year}'
+    existing = TatTrackerCase.objects.filter(group_id=str(group_config.group_id), case_id__startswith=prefix).values_list('case_id', flat=True)
+    max_num = 0
+    for case_id in existing:
+        try:
+            max_num = max(max_num, int(str(case_id).rsplit('-', 1)[-1]))
+        except (TypeError, ValueError):
+            continue
+    return f'{prefix}-{max_num + 1:03d}'
+
+
+def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
+    product = product_by_key(case.product_key)
+    service = get_sheets_service(sheet_id=group_config.sheet_id, sheet_name=product.sheet_name)
+    if not service.is_available():
+        case.sync_error = 'Google Sheets service unavailable.'
+        case.save(update_fields=['sync_error', 'updated_at'])
+        raise RuntimeError(case.sync_error)
+    sheet = service._sheet
+    try:
+        row = case.row_number or next_sheet_row(sheet)
+        values = sheet.row_values(row)
+        width = max(product.remarks_col, len(values), product.tat_start_col)
+        row_data = [''] * width
+        for idx, value in enumerate(values[:width], start=1):
+            row_data[idx - 1] = value
+        row_data[0] = case.case_id
+        row_data[1] = case.client_name
+        row_data[2] = case.branch
+        row_data[3] = case.bro_name
+        row_data[4] = float(case.amount or 0) if case.amount is not None else ''
+        row_data[product.stage_columns['created'] - 1] = sheet_datetime(case.stage_values.get('created'))
+        for stage in product.stages:
+            if stage.key in case.stage_values:
+                row_data[stage.column - 1] = sheet_value_for_stage(stage, case.stage_values.get(stage.key))
+            if stage.auto_timestamp_key and stage.auto_timestamp_key in case.stage_values:
+                col = product.stage_columns.get(stage.auto_timestamp_key)
+                if col:
+                    row_data[col - 1] = sheet_datetime(case.stage_values.get(stage.auto_timestamp_key))
+        row_data[product.status_col - 1] = case.status
+        row_data[product.remarks_col - 1] = case.remarks
+        sheet.update(f'A{row}:{column_letter(width)}{row}', [row_data], value_input_option='USER_ENTERED')
+        case.row_number = row
+        case.sheet_name = product.sheet_name
+        case.last_synced_at = timezone.now()
+        case.sync_error = ''
+        case.save(update_fields=['row_number', 'sheet_name', 'last_synced_at', 'sync_error', 'updated_at'])
+        try:
+            sync_case_index(group_config, case)
+        except Exception as exc:
+            logger.warning('TAT tracker CASE_INDEX sync failed for %s: %s', case.case_id, exc, exc_info=True)
+        try:
+            sync_audit_log(group_config, case)
+        except Exception as exc:
+            logger.warning('TAT tracker AUDIT LOG sync failed for %s: %s', case.case_id, exc, exc_info=True)
+    except Exception as exc:
+        case.sync_error = str(exc)
+        case.save(update_fields=['sync_error', 'updated_at'])
+        logger.exception('TAT tracker sheet sync failed for %s', case.case_id)
+        raise
+
+
+def sync_case_index(group_config, case: TatTrackerCase) -> None:
+    service = get_sheets_service(sheet_id=group_config.sheet_id, sheet_name='CASE_INDEX')
+    if not service.is_available():
+        return
+    sheet = service._sheet
+    rows = sheet.get_all_values()
+    target = None
+    for idx, row in enumerate(rows[1:], start=2):
+        if row and row[0] == case.case_id:
+            target = idx
+            break
+    if not target:
+        target = max(len(rows) + 1, 2)
+    sheet.update(f'A{target}:I{target}', [[case.case_id, case.sheet_name, case.row_number or '', case.client_name, case.branch, case.bro_name, case.status, sheet_datetime(case.stage_values.get('created')), timezone.localtime(timezone.now()).strftime('%d-%b-%Y %H:%M')]], value_input_option='USER_ENTERED')
+
+
+def sync_audit_log(group_config, case: TatTrackerCase) -> None:
+    unsynced = list(case.events.filter(synced_to_sheet=False).order_by('created_at'))
+    if not unsynced:
+        return
+    service = get_sheets_service(sheet_id=group_config.sheet_id, sheet_name='AUDIT LOG')
+    if not service.is_available():
+        return
+    sheet = service._sheet
+    existing_count = max(len(sheet.get_all_values()), 1)
+    rows = []
+    for event in unsynced:
+        rows.append([timezone.localtime(event.created_at).strftime('%d-%b-%Y %H:%M'), event.actor_name, case.sheet_name, case.case_id, case.row_number or '', event.stage_label or event.stage_key, event.new_value, '', event.source.upper()])
+    if rows:
+        start = existing_count + 1
+        sheet.update(f'A{start}:I{start + len(rows) - 1}', rows, value_input_option='USER_ENTERED')
+        TatTrackerEvent.objects.filter(id__in=[event.id for event in unsynced]).update(synced_to_sheet=True, synced_at=timezone.now(), sync_error='')
+
+
+def next_sheet_row(sheet) -> int:
+    values = sheet.col_values(1)
+    for idx in range(len(values), 4, -1):
+        if str(values[idx - 1] or '').strip():
+            return idx + 1
+    return 5
+
+
+def next_action(case: TatTrackerCase) -> StageConfig | None:
+    product = product_by_key(case.product_key)
+    if case.status in {'Disbursed', 'Rejected', 'Declined'}:
+        return None
+    for stage in product.stages:
+        if not case.stage_values.get(stage.key):
+            return stage
+    return None
+
+
+def previous_stages_complete(case: TatTrackerCase, stage: StageConfig) -> bool:
+    product = product_by_key(case.product_key)
+    for current in product.stages:
+        if current.key == stage.key:
+            return True
+        if not case.stage_values.get(current.key):
+            return False
+    return True
+
+
+def can_user_edit_stage(user: dict, case: TatTrackerCase, stage: StageConfig) -> bool:
+    roles = {str(role).upper() for role in user.get('roles') or []}
+    if 'IT' in roles:
+        return True
+    if stage.role.upper() not in roles:
+        return False
+    branches = user.get('branches') or []
+    if branches and case.branch not in branches:
+        return False
+    products = user.get('products') or []
+    if products and case.product_key not in products and case.sheet_name not in products:
+        return False
+    return True
+
+
+def serialize_case_summary(case: TatTrackerCase, user: dict | None = None, next_stage: StageConfig | None = None) -> dict:
+    next_stage = next_stage or next_action(case)
+    return {'case_id': case.case_id, 'product': case.product_label or product_by_key(case.product_key).label, 'product_key': case.product_key, 'client_name': case.client_name, 'branch': case.branch, 'bro_name': case.bro_name, 'amount': str(case.amount or ''), 'status': case.status, 'current_stage': case.current_stage, 'next_stage': next_stage.label if next_stage else '', 'next_stage_key': next_stage.key if next_stage else '', 'updated_at': format_datetime(case.updated_at), 'created_at': format_datetime(case.created_at)}
+
+
+def serialize_case_detail(case: TatTrackerCase, user: dict) -> dict:
+    product = product_by_key(case.product_key)
+    fields = []
+    for stage in product.stages:
+        value = case.stage_values.get(stage.key, '')
+        editable = (not value) and previous_stages_complete(case, stage) and can_user_edit_stage(user, case, stage)
+        fields.append({'key': stage.key, 'label': stage.label, 'kind': stage.kind, 'value': display_stage_value(stage, value), 'editable': editable, 'options': list(stage.options), 'role': stage.role, 'locked_reason': '' if editable else lock_reason(case, user, stage)})
+    events = [{'at': format_datetime(event.created_at), 'actor': event.actor_name, 'stage': event.stage_label, 'value': event.new_value, 'source': event.source} for event in case.events.order_by('-created_at')[:20]]
+    return {'summary': serialize_case_summary(case, user), 'fields': fields, 'remarks': case.remarks, 'events': events}
+
+
+def lock_reason(case: TatTrackerCase, user: dict, stage: StageConfig) -> str:
+    if case.stage_values.get(stage.key):
+        return 'Already completed.'
+    if not previous_stages_complete(case, stage):
+        return 'Previous stage is not complete.'
+    if not can_user_edit_stage(user, case, stage):
+        return 'Not assigned to your role.'
+    return ''
+
+
+def public_user(user: dict) -> dict:
+    return {'name': user.get('name', ''), 'roles': user.get('roles') or [], 'telegram_id': user.get('telegram_id', ''), 'username': user.get('username', '')}
+
+
+def serialize_product(product: ProductConfig) -> dict:
+    return {'key': product.key, 'label': product.label, 'sheet_name': product.sheet_name, 'min_amount': str(product.min_amount), 'max_amount': str(product.max_amount) if product.max_amount is not None else ''}
+
+
+def _allowed_products(workflow: dict, user: dict) -> list[ProductConfig]:
+    products = configured_products(workflow)
+    allowed = set(user.get('products') or [])
+    upper = {item.upper() for item in allowed}
+    if not allowed or 'ALL' in upper or '*' in allowed:
+        return products
+    return [p for p in products if p.key in allowed or p.sheet_name in allowed]
+
+
+def _allowed_branches(workflow: dict, user: dict) -> list[str]:
+    branches = workflow_branches(workflow)
+    allowed = user.get('branches') or []
+    upper = {item.upper() for item in allowed}
+    if not allowed or 'ALL' in upper or '*' in allowed:
+        return branches
+    return [branch for branch in branches if branch in allowed]
+
+
+def product_by_key(key: str) -> ProductConfig:
+    normalized = str(key or '').strip().lower().replace('-', '_')
+    if normalized not in PRODUCTS:
+        raise ValueError('Invalid product.')
+    return PRODUCTS[normalized]
+
+
+def stage_by_key(product: ProductConfig, key: str) -> StageConfig | None:
+    return next((stage for stage in product.stages if stage.key == key), None)
+
+
+def parse_amount(value) -> Decimal:
+    try:
+        return Decimal(str(value or '').replace(',', '').strip())
+    except (InvalidOperation, ValueError):
+        raise ValueError('Enter a valid amount.')
+
+
+def validate_amount(product: ProductConfig, amount: Decimal) -> None:
+    if amount < product.min_amount:
+        raise ValueError(f'{product.label} amount must be at least KES {product.min_amount:,.0f}.')
+    if product.max_amount is not None and amount > product.max_amount:
+        raise ValueError(f'{product.label} amount must be at most KES {product.max_amount:,.0f}.')
+
+
+def display_stage_value(stage: StageConfig, value: Any) -> str:
+    if not value:
+        return ''
+    if stage.kind == 'timestamp':
+        return format_datetime(parse_iso_datetime(value))
+    return str(value)
+
+
+def sheet_value_for_stage(stage: StageConfig, value: Any) -> str:
+    if not value:
+        return ''
+    if stage.kind == 'timestamp':
+        return sheet_datetime(value)
+    return str(value)
+
+
+def parse_iso_datetime(value: Any):
+    if hasattr(value, 'isoformat'):
+        return value
+    try:
+        parsed = timezone.datetime.fromisoformat(str(value))
+        if timezone.is_naive(parsed):
+            parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
+        return parsed
+    except Exception:
+        return None
+
+
+def sheet_datetime(value: Any) -> str:
+    parsed = parse_iso_datetime(value)
+    if not parsed:
+        return str(value or '')
+    return timezone.localtime(parsed).strftime('%d-%b-%Y %H:%M')
+
+
+def format_datetime(value) -> str:
+    if not value:
+        return ''
+    if isinstance(value, str):
+        value = parse_iso_datetime(value)
+    if not value:
+        return ''
+    if timezone.is_aware(value):
+        value = timezone.localtime(value)
+    return value.strftime('%d-%b-%Y %H:%M')
+
+
+def column_letter(index: int) -> str:
+    letters = ''
+    while index:
+        index, rem = divmod(index - 1, 26)
+        letters = chr(65 + rem) + letters
+    return letters
+
+
+def _telegram_name(user_payload: dict) -> str:
+    parts = [str(user_payload.get('first_name') or '').strip(), str(user_payload.get('last_name') or '').strip()]
+    return ' '.join(part for part in parts if part).strip()
+
+
+def _normalize_list(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(',') if item.strip()]
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [str(value).strip()] if str(value).strip() else []

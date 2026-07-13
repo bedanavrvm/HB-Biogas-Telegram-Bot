@@ -283,6 +283,7 @@ class SpinCreditSheetSyncTestCase(TestCase):
             request_type='spin',
             customer_name='TEST FARMER',
             requested_amount=Decimal('25000.50'),
+            request_datetime=timezone.make_aware(datetime(2026, 6, 24, 14, 35)),
         )
 
         # Call append_spin_requests_to_sheet
@@ -301,9 +302,11 @@ class SpinCreditSheetSyncTestCase(TestCase):
         self.assertEqual(len(rows), 1)
         customer_name_idx = list(DEFAULT_FIELD_HEADERS.keys()).index('customer_name')
         requested_amount_idx = list(DEFAULT_FIELD_HEADERS.keys()).index('requested_amount')
+        request_month_idx = list(DEFAULT_FIELD_HEADERS.keys()).index('request_month')
         self.assertEqual(rows[0][customer_name_idx], 'TEST FARMER')
         self.assertEqual(rows[0][requested_amount_idx], 25000.50)
         self.assertIsInstance(rows[0][requested_amount_idx], float)
+        self.assertEqual(rows[0][request_month_idx], '2026-06-01')
 
 
 class SpinCreditPortalTestCase(TestCase):

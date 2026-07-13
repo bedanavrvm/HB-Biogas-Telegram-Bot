@@ -1,0 +1,79 @@
+﻿{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TAT Tracker</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=4">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=1">
+</head>
+<body data-group-id="{{ group_id|escapejs }}" data-token="{{ token|escapejs }}">
+  <header class="tat-header">
+    <div>
+      <p class="eyebrow">JBL Workflow</p>
+      <h1>TAT Tracker</h1>
+      <p id="userLine" class="muted">Opening tracker...</p>
+    </div>
+    <button id="refreshBtn" type="button" class="icon-btn" aria-label="Refresh">↻</button>
+  </header>
+
+  <main class="tat-shell">
+    <div id="status" class="status-bar" role="status">Loading...</div>
+
+    <nav class="tabs" aria-label="Tracker views">
+      <button type="button" data-view="queue" class="active">Queue</button>
+      <button type="button" data-view="new">New</button>
+      <button type="button" data-view="search">Search</button>
+    </nav>
+
+    <section id="queueView" class="view active">
+      <section class="panel">
+        <div class="panel-head"><h2>My Queue</h2><span id="queueCount">0</span></div>
+        <div id="queueList" class="list"></div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>Recent</h2><span id="recentCount">0</span></div>
+        <div id="recentList" class="list"></div>
+      </section>
+    </section>
+
+    <section id="newView" class="view">
+      <form id="newCaseForm" class="panel form-grid">
+        <label>Product<select name="product_key" required></select></label>
+        <label>Branch<select name="branch" required></select></label>
+        <label>Client Name<input name="client_name" autocomplete="off" required></label>
+        <label>BRO Name<input name="bro_name" autocomplete="off" required></label>
+        <label>Amount (KES)<input name="amount" type="number" inputmode="decimal" min="0" step="1" required></label>
+        <button type="submit" class="primary">Create Case</button>
+      </form>
+    </section>
+
+    <section id="searchView" class="view">
+      <section class="panel search-panel">
+        <label>Search case or client<input id="searchInput" autocomplete="off" placeholder="Type at least 2 characters"></label>
+        <button id="searchBtn" type="button" class="primary">Search</button>
+      </section>
+      <div id="searchList" class="list"></div>
+    </section>
+
+    <section id="detailView" class="view">
+      <button id="backBtn" type="button" class="secondary">Back</button>
+      <section class="panel detail-card">
+        <div id="detailSummary"></div>
+        <div id="stageFields" class="stage-list"></div>
+        <label class="remarks-box">Remarks / Delays<textarea id="remarksInput"></textarea></label>
+        <button id="saveRemarksBtn" type="button" class="secondary">Save Remarks</button>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>Audit Trail</h2></div>
+        <div id="eventList" class="event-list"></div>
+      </section>
+    </section>
+  </main>
+
+  <script src="{% static 'miniapp/telegram.js' %}?v=2"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=1"></script>
+</body>
+</html>

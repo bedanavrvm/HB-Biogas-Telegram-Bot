@@ -37,6 +37,7 @@ SPIN_UPLOAD_FIELDS = [
 DEFAULT_FIELD_HEADERS = {
     'request_id': 'Request ID',
     'request_datetime': 'Request Date/Time',
+    'request_month': 'Request Month',
     'branch': 'Branch',
     'requested_by': 'Requested By',
     'request_type': 'Request Type',
@@ -731,6 +732,7 @@ def sheet_values_for(record: SpinCreditRequest) -> dict[str, Any]:
     return {
         'request_id': spin_request_id(record),
         'request_datetime': format_sheet_datetime(record.request_datetime),
+        'request_month': format_sheet_month(record.request_datetime),
         'branch': record.source_chat,
         'requested_by': record.requested_by,
         'request_type': REQUEST_TYPE_LABELS.get(record.request_type, record.request_type),
@@ -808,6 +810,15 @@ def format_sheet_datetime(value) -> str:
     except Exception:
         return str(value)
 
+
+def format_sheet_month(value) -> str:
+    if not value:
+        return ''
+    try:
+        local_value = timezone.localtime(value)
+        return local_value.replace(day=1, hour=0, minute=0, second=0, microsecond=0).strftime('%Y-%m-%d')
+    except Exception:
+        return ''
 
 def review_summary(parsed: ParsedSpinRequest) -> dict[str, Any]:
     return {

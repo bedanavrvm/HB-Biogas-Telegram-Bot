@@ -1,4 +1,4 @@
-﻿"""Telegram native command menu definitions."""
+"""Telegram native command menu definitions."""
 
 CASE_BOT_COMMANDS = [
     {'command': 'last', 'description': 'Show latest cases'},
@@ -51,6 +51,11 @@ SPIN_BOT_COMMANDS = [
     {'command': 'batch', 'description': 'Import a SPIN/CRB WhatsApp export'},
 ]
 
+TAT_TRACKER_BOT_COMMANDS = [
+    {'command': 'tat', 'description': 'Open the TAT Tracker Mini App'},
+    {'command': 'tracker', 'description': 'Open the TAT Tracker Mini App'},
+]
+
 
 def unique_commands(commands: list[dict]) -> list[dict]:
     seen = set()
@@ -68,6 +73,7 @@ PRIVATE_BOT_COMMANDS = unique_commands(
     ORDER_APPROVAL_BOT_COMMANDS
     + JAWABU_BOT_COMMANDS
     + SPIN_BOT_COMMANDS
+    + TAT_TRACKER_BOT_COMMANDS
     + CASE_BOT_COMMANDS
     + SHARED_GROUP_BOT_COMMANDS
 )
@@ -80,9 +86,10 @@ def bot_commands_for_workflow(workflow_type: str = '') -> list[dict]:
         return JAWABU_BOT_COMMANDS + SHARED_GROUP_BOT_COMMANDS
     if workflow_type == 'spin_credit_analysis':
         return SPIN_BOT_COMMANDS + SHARED_GROUP_BOT_COMMANDS
+    if workflow_type == 'tat_tracker':
+        return TAT_TRACKER_BOT_COMMANDS + SHARED_GROUP_BOT_COMMANDS
     return CASE_BOT_COMMANDS + SHARED_GROUP_BOT_COMMANDS
 
 
 def private_chat_bot_commands() -> list[dict]:
     return list(PRIVATE_BOT_COMMANDS)
-

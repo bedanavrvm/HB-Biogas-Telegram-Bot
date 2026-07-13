@@ -32,6 +32,8 @@ from .models import (
     RequisitionBatch,
     RequisitionTemplate,
     SpinCreditRequest,
+    TatTrackerCase,
+    TatTrackerEvent,
 )
 
 
@@ -326,6 +328,20 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
             obj.parser_rules = defaults['parser_rules']
 
 
+
+@admin.register(TatTrackerCase)
+class TatTrackerCaseAdmin(ReadOnlyAuditAdmin):
+    list_display = ['case_id', 'group_id', 'product_label', 'client_name', 'branch', 'status', 'current_stage', 'updated_at']
+    list_filter = ['group_id', 'product_key', 'branch', 'status', 'current_stage']
+    search_fields = ['case_id', 'client_name', 'bro_name', 'branch']
+
+
+@admin.register(TatTrackerEvent)
+class TatTrackerEventAdmin(ReadOnlyAuditAdmin):
+    list_display = ['case', 'stage_label', 'actor_name', 'source', 'synced_to_sheet', 'created_at']
+    list_filter = ['group_id', 'source', 'stage_key', 'synced_to_sheet', 'created_at']
+    search_fields = ['case__case_id', 'case__client_name', 'actor_name', 'stage_label']
+
 @admin.register(RawMessage)
 class RawMessageAdmin(ReadOnlyAuditAdmin):
     list_display = ['sender', 'received_at', 'has_image', 'created_at']
@@ -488,14 +504,14 @@ class JawabuFarmerMasterAdmin(admin.ModelAdmin):
                 'created_date', 'comments',
             ),
         }),
-        ('Stage 2 — JBL Visit', {
+        ('Stage 2 â€” JBL Visit', {
             'fields': (
                 'jbl_visit_date', 'jbl_officer',
                 'jbl_visit_status', 'jbl_visit_comment',
             ),
             'description': 'Logged by the JBL BRO after visiting the farmer.',
         }),
-        ('Stage 3 — Credit Decision', {
+        ('Stage 3 â€” Credit Decision', {
             'fields': (
                 'credit_decision', 'credit_decided_by', 'credit_decided_at',
             ),
@@ -504,11 +520,11 @@ class JawabuFarmerMasterAdmin(admin.ModelAdmin):
                 'can a requisition date and order number be assigned.'
             ),
         }),
-        ('Stage 4 — Requisition', {
+        ('Stage 4 â€” Requisition', {
             'fields': ('requisition_date', 'order_number'),
             'description': 'Filled by admin once credit is approved. Gate enforced by the portal.',
         }),
-        ('Stage 7 — Invoice', {
+        ('Stage 7 â€” Invoice', {
             'fields': (
                 'invoice_number', 'invoice_date',
                 'invoice_amount', 'discount', 'payment', 'balance_due',

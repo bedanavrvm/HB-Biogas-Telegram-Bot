@@ -66,6 +66,121 @@ def health_check(request):
     )
 
 
+
+@require_http_methods(["GET"])
+def tat_tracker_app(request):
+    """Render the TAT Tracker Telegram Mini App."""
+    from core.services.tat_tracker import decode_tat_start_param
+    start_payload = decode_tat_start_param(request.GET.get('tgWebAppStartParam') or request.GET.get('startapp') or '')
+    group_id = request.GET.get('group_id') or start_payload.get('group_id', '')
+    token = request.GET.get('token') or start_payload.get('token', '')
+    return render(request, 'tat_tracker/app.html', {'group_id': group_id, 'token': token})
+
+
+def _tat_json_body(request) -> dict:
+    try:
+        return json.loads(request.body.decode('utf-8') or '{}')
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+
+
+def _tat_context(payload: dict):
+    from core.services.group_config import GroupRegistry
+    from core.services.tat_tracker import is_tat_tracker_workflow, staff_user_for_payload, validate_tat_form_token, validate_tat_telegram_webapp_init_data
+    group_id = str(payload.get('group_id') or '').strip()
+    token = str(payload.get('token') or '').strip()
+    init_data = str(payload.get('init_data') or '').strip()
+    auth_valid, auth_error, user_payload = validate_tat_telegram_webapp_init_data(init_data)
+    if not auth_valid and not token:
+        return '', None, {}, {}, JsonResponse({'ok': False, 'error': auth_error}, status=403)
+    if token:
+        token_valid, token_error = validate_tat_form_token(token, group_id)
+        if not token_valid:
+            return group_id, None, {}, {}, JsonResponse({'ok': False, 'error': token_error}, status=403)
+    group_config = GroupRegistry.get_instance().get_group(group_id)
+    if not group_config or not is_tat_tracker_workflow(group_config):
+        return group_id, None, {}, {}, JsonResponse({'ok': False, 'error': 'TAT Tracker is not configured for this group.'}, status=403)
+    user = staff_user_for_payload(group_config, user_payload)
+    if not user.get('authorized'):
+        return group_id, group_config, user_payload, user, JsonResponse({'ok': False, 'error': user.get('reason') or 'Unauthorized.'}, status=403)
+    return group_id, group_config, user_payload, user, None
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def tat_tracker_bootstrap(request):
+    payload = _tat_json_body(request)
+    group_id, group_config, user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    from core.services.tat_tracker import bootstrap
+    return JsonResponse({'ok': True, 'data': bootstrap(group_config, user_payload)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def tat_tracker_home(request):
+    payload = _tat_json_body(request)
+    group_id, group_config, user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    from core.services.tat_tracker import home_data
+    return JsonResponse({'ok': True, 'data': home_data(group_config, user)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def tat_tracker_search(request):
+    payload = _tat_json_body(request)
+    group_id, group_config, user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    from core.services.tat_tracker import search_cases
+    return JsonResponse({'ok': True, 'results': search_cases(group_config, user, payload.get('query', ''))})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def tat_tracker_create(request):
+    payload = _tat_json_body(request)
+    group_id, group_config, user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    from core.services.tat_tracker import create_case
+    try:
+        return JsonResponse({'ok': True, 'data': create_case(group_config, user, payload)})
+    except Exception as exc:
+        logger.warning('TAT Tracker create failed: %s', exc, exc_info=True)
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def tat_tracker_detail(request):
+    payload = _tat_json_body(request)
+    group_id, group_config, user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    from core.services.tat_tracker import get_case_detail
+    try:
+        return JsonResponse({'ok': True, 'data': get_case_detail(group_config, user, payload.get('case_id', ''))})
+    except Exception as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=404)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def tat_tracker_update(request):
+    payload = _tat_json_body(request)
+    group_id, group_config, user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    from core.services.tat_tracker import update_case
+    try:
+        return JsonResponse({'ok': True, 'data': update_case(group_config, user, payload.get('case_id', ''), payload.get('updates') or [])})
+    except Exception as exc:
+        logger.warning('TAT Tracker update failed: %s', exc, exc_info=True)
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 # ---------------------------------------------------------------------------
 # Telegram webhook
 # ---------------------------------------------------------------------------
@@ -980,6 +1095,7 @@ def _process_telegram_message(message_data: dict) -> dict:
         if group_config:
             from core.services.jawabu import is_jawabu_workflow
             from core.services.spin_credit import is_spin_workflow
+            from core.services.tat_tracker import is_tat_tracker_workflow
             from core.services.order_approval import (
                 handle_order_approval_message,
                 is_order_approval_workflow,
@@ -1084,6 +1200,38 @@ def _process_telegram_message(message_data: dict) -> dict:
                     'reply_text': (
                         "This group is configured for Jawabu HomeBiogas imports.\n"
                         "Send @bot /spin to open the request form, or @bot /batch with a WhatsApp .txt/.zip export."
+                    ),
+                }
+            if is_tat_tracker_workflow(group_config):
+                if content is None:
+                    logger.debug(
+                        f"Ignoring TAT Tracker message {telegram_message_id}: bot was not tagged"
+                    )
+                    return {
+                        'status': 'ignored',
+                        'reason': 'Bot was not tagged',
+                        'message_id': telegram_message_id,
+                    }
+                if _looks_like_tat_tracker_command(content):
+                    return _process_tat_tracker_command(
+                        group_config=group_config,
+                        sender=sender,
+                        telegram_message_id=telegram_message_id,
+                    )
+                from core.services.commands import handle_bot_command
+                command_result = handle_bot_command(
+                    content,
+                    group_id,
+                    sender=sender,
+                    telegram_message_id=telegram_message_id,
+                )
+                if command_result:
+                    return command_result
+                return {
+                    'status': 'command',
+                    'reply_text': (
+                        "This group is configured for the TAT Tracker.\n"
+                        "Send @bot /tat to open the tracker Mini App."
                     ),
                 }
             if is_order_approval_workflow(group_config):
@@ -1268,6 +1416,9 @@ def _looks_like_farmup_command(content: str) -> bool:
 
 def _looks_like_spin_form_command(content: str) -> bool:
     return bool(re.match(r'^/(?:spin|form)(?:@\w+)?(?:\s|$)', str(content or '').strip(), re.IGNORECASE))
+
+def _looks_like_tat_tracker_command(content: str) -> bool:
+    return bool(re.match(r'^/(?:tat|tracker)(?:@\w+)?(?:\s|$)', str(content or '').strip(), re.IGNORECASE))
 
 
 def _process_whatsapp_batch_command(
@@ -1653,6 +1804,34 @@ def _process_jawabu_farmup_command(
         },
     }
 
+
+def _process_tat_tracker_command(group_config, sender: str, telegram_message_id: str) -> dict:
+    from core.services.tat_tracker import build_tat_tracker_mini_app_url, build_tat_tracker_url
+
+    form_url = build_tat_tracker_url(group_config.group_id)
+    mini_app_url = build_tat_tracker_mini_app_url(group_config.group_id)
+    if not form_url:
+        return {
+            'status': 'command',
+            'reply_text': 'TAT Tracker URL is not configured. Set APP_BASE_URL and redeploy.',
+        }
+
+    if mini_app_url:
+        button = {'text': 'Open TAT Tracker Mini App', 'web_app': {'url': form_url}}
+        mode = 'Opening as Telegram Mini App.'
+    else:
+        button = {'text': 'Open TAT Tracker', 'url': form_url}
+        mode = 'Mini App short name is not configured; this button opens the secure web tracker link.'
+
+    return {
+        'status': 'command',
+        'reply_text': (
+            'TAT Tracker\n'
+            'Use this to create cases, search cases, and update your assigned workflow stage.\n\n'
+            f'{mode}'
+        ),
+        'reply_markup': {'inline_keyboard': [[button]]},
+    }
 def _process_spin_form_command(
     group_config,
     sender: str,

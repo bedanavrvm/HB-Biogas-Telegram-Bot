@@ -1,4 +1,4 @@
-﻿"""Workflow presets for simple group configuration.
+"""Workflow presets for simple group configuration.
 
 Adding a new group workflow should usually mean adding one entry here, then
 letting Django admin generate the JSON fields from the selected preset.
@@ -83,6 +83,24 @@ WORKFLOW_PRESETS = {
                 ),
             },
         },
+    },
+    'tat_tracker': {
+        'label': 'TAT Tracker',
+        'description': 'Role-based TAT case tracker with Mini App queues and Google Sheet mirroring.',
+        'sheet_name': 'TRACKER-SME',
+        'workflow': {
+            'type': 'tat_tracker',
+            'header_row': 2,
+            'data_start_row': 5,
+            'products': ['logbook', 'mjengo', 'kilimo', 'micro_asset', 'sme'],
+            'branches': ['Corporate', 'Thika Road', 'East Nairobi', 'West Nairobi', 'Nakuru', 'Embu', 'Limuru'],
+            'allow_unconfigured_users': False,
+            'default_roles': ['BRO'],
+            'staff': [],
+        },
+        'sheet_schema': {},
+        'parser_rules': {},
+        'admin_fields': {},
     },
     'spin_credit_analysis': {
         'label': 'SPIN / CRB Requests',
@@ -288,4 +306,3 @@ def defaults_for_preset(preset_key: str) -> dict:
         'sheet_schema': deepcopy(preset.get('sheet_schema')),
         'parser_rules': deepcopy(preset.get('parser_rules')),
     }
-

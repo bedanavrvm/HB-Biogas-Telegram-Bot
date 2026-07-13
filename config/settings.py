@@ -199,6 +199,9 @@ FARMUP_MINI_APP_SHORT_NAME = config('FARMUP_MINI_APP_SHORT_NAME', default='').st
 FCAUP_MINI_APP_SHORT_NAME = config('FCAUP_MINI_APP_SHORT_NAME', default='').strip().strip('/')
 PORTAL_MINI_APP_SHORT_NAME = config('PORTAL_MINI_APP_SHORT_NAME', default='').strip().strip('/')
 SPIN_MINI_APP_SHORT_NAME = config('SPIN_MINI_APP_SHORT_NAME', default='').strip().strip('/')
+TAT_TRACKER_MINI_APP_SHORT_NAME = config('TAT_TRACKER_MINI_APP_SHORT_NAME', default='').strip().strip('/')
+TAT_TRACKER_WEBAPP_REQUIRE_TELEGRAM_AUTH = config('TAT_TRACKER_WEBAPP_REQUIRE_TELEGRAM_AUTH', default=True, cast=bool)
+TAT_TRACKER_WEBAPP_AUTH_MAX_AGE_SECONDS = config('TAT_TRACKER_WEBAPP_AUTH_MAX_AGE_SECONDS', default=86400, cast=int)
 PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH = config(
     'PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH',
     default=True,
@@ -325,5 +328,3 @@ REQUIRED_MESSAGE_FIELDS = ['message_id', 'chat', 'date']
 # Rate Limiting (if enabled with django-ratelimit)
 RATELIMIT_ENABLE = config('RATELIMIT_ENABLE', default=False, cast=bool)
 RATELIMIT_PER_IP = '100/h'  # 100 requests per hour per IP
-
-

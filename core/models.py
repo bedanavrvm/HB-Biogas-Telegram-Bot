@@ -445,6 +445,111 @@ class SpinCreditRequest(models.Model):
     def __str__(self):
         return f"{self.get_request_type_display()} {self.customer_name or self.national_id or self.primary_phone}".strip()
 
+class TatTrackerCase(models.Model):
+    """Django-owned TAT tracker case mirrored to the live Google workbook."""
+
+    STATUS_CHOICES = [
+        ('Active', 'Active'),
+        ('Disbursed', 'Disbursed'),
+        ('Rejected', 'Rejected'),
+        ('Declined', 'Declined'),
+        ('Deferred', 'Deferred'),
+        ('Stalled', 'Stalled'),
+        ('Pending Docs', 'Pending Docs'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    group_id = models.CharField(max_length=100, db_index=True)
+    sheet_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    sheet_name = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    row_number = models.PositiveIntegerField(null=True, blank=True)
+
+    case_id = models.CharField(max_length=128, db_index=True)
+    product_key = models.CharField(max_length=80, db_index=True)
+    product_label = models.CharField(max_length=120, blank=True, default='')
+    client_name = models.CharField(max_length=255, db_index=True)
+    branch = models.CharField(max_length=120, blank=True, default='', db_index=True)
+    bro_name = models.CharField(max_length=255, blank=True, default='')
+    amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+
+    stage_values = models.JSONField(blank=True, default=dict)
+    status = models.CharField(max_length=40, choices=STATUS_CHOICES, default='Active', db_index=True)
+    remarks = models.TextField(blank=True, default='')
+    current_stage = models.CharField(max_length=120, blank=True, default='', db_index=True)
+
+    created_by = models.CharField(max_length=255, blank=True, default='')
+    created_by_telegram_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
+    last_updated_by = models.CharField(max_length=255, blank=True, default='')
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    sync_error = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['group_id', 'case_id'],
+                name='unique_tat_case_id_per_group',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['group_id', 'status']),
+            models.Index(fields=['group_id', 'product_key', 'status']),
+            models.Index(fields=['group_id', 'client_name']),
+            models.Index(fields=['group_id', 'current_stage']),
+        ]
+        verbose_name = 'TAT tracker case'
+        verbose_name_plural = 'TAT tracker cases'
+
+    def __str__(self):
+        return f"{self.case_id} - {self.client_name}"
+
+
+class TatTrackerEvent(models.Model):
+    """Append-only audit event for TAT tracker case creation and stage updates."""
+
+    SOURCE_CHOICES = [
+        ('mini_app', 'Mini App'),
+        ('telegram', 'Telegram'),
+        ('sheet_sync', 'Sheet Sync'),
+        ('admin_correction', 'Admin Correction'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    case = models.ForeignKey(
+        TatTrackerCase,
+        on_delete=models.CASCADE,
+        related_name='events',
+    )
+    group_id = models.CharField(max_length=100, db_index=True)
+    actor_name = models.CharField(max_length=255, blank=True, default='')
+    actor_telegram_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
+    actor_role = models.CharField(max_length=80, blank=True, default='')
+    stage_key = models.CharField(max_length=120, blank=True, default='', db_index=True)
+    stage_label = models.CharField(max_length=160, blank=True, default='')
+    old_value = models.TextField(blank=True, default='')
+    new_value = models.TextField(blank=True, default='')
+    source = models.CharField(max_length=40, choices=SOURCE_CHOICES, default='mini_app', db_index=True)
+    sheet_name = models.CharField(max_length=255, blank=True, default='')
+    row_number = models.PositiveIntegerField(null=True, blank=True)
+    sync_error = models.TextField(blank=True, default='')
+    synced_to_sheet = models.BooleanField(default=False, db_index=True)
+    synced_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['group_id', 'created_at']),
+            models.Index(fields=['group_id', 'stage_key']),
+            models.Index(fields=['case', 'created_at']),
+        ]
+        verbose_name = 'TAT tracker event'
+        verbose_name_plural = 'TAT tracker events'
+
+    def __str__(self):
+        return f"{self.case.case_id} {self.stage_label or self.stage_key}"
 
 class LiveSheetRecordChange(models.Model):
     """Audit trail for Django admin edits and deletes applied to live sheet rows."""
@@ -570,7 +675,7 @@ class JawabuFarmerMaster(models.Model):
         ('inactive', 'Inactive'),
     ]
 
-    # Stage 2 â€” JBL visit status dropdown (aligns with FCAUP_STATUS_VALUES in fca.py)
+    # Stage 2 Ã¢â‚¬â€ JBL visit status dropdown (aligns with FCAUP_STATUS_VALUES in fca.py)
     JBL_VISIT_STATUS_CHOICES = [
         ('Approved', 'Approved'),
         ('Awaiting Analysis', 'Awaiting Analysis'),
@@ -582,7 +687,7 @@ class JawabuFarmerMaster(models.Model):
         ('Opted for other Partner', 'Opted for other Partner'),
     ]
 
-    # Stage 3 â€” Credit Decision values (master data dropdown)
+    # Stage 3 Ã¢â‚¬â€ Credit Decision values (master data dropdown)
     CREDIT_DECISION_CHOICES = [
         ('Approved', 'Approved'),
         ('Rejected', 'Rejected'),
@@ -632,7 +737,7 @@ class JawabuFarmerMaster(models.Model):
     latitude = models.CharField(max_length=64, blank=True, default='')
     longitude = models.CharField(max_length=64, blank=True, default='')
 
-    # â”€â”€ Stage 2: JBL visit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # Ã¢â€â‚¬Ã¢â€â‚¬ Stage 2: JBL visit Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     jbl_visit_date = models.DateField(
         null=True, blank=True, db_index=True,
         help_text='Date the JBL officer visited this farmer.',
@@ -644,14 +749,14 @@ class JawabuFarmerMaster(models.Model):
     jbl_visit_status = models.CharField(
         max_length=80, blank=True, default='',
         choices=JBL_VISIT_STATUS_CHOICES, db_index=True,
-        help_text='Jawabu Comment After Visit â€” 12-option dropdown set by JBL officer.',
+        help_text='Jawabu Comment After Visit Ã¢â‚¬â€ 12-option dropdown set by JBL officer.',
     )
     jbl_visit_comment = models.TextField(
         blank=True, default='',
         help_text='Optional free-text comment from the JBL officer.',
     )
 
-    # â”€â”€ Stage 3: Credit decision â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # Ã¢â€â‚¬Ã¢â€â‚¬ Stage 3: Credit decision Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     credit_decision = models.CharField(
         max_length=80, blank=True, default='',
         choices=CREDIT_DECISION_CHOICES, db_index=True,
@@ -699,17 +804,17 @@ class JawabuFarmerMaster(models.Model):
         help_text='Drive links for documents/images uploaded during the JBL visit stage.',
     )
 
-    # â”€â”€ Stage 4: Requisition / order â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # Ã¢â€â‚¬Ã¢â€â‚¬ Stage 4: Requisition / order Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     requisition_date = models.DateField(
         null=True, blank=True,
-        help_text='Jawabu Requisition Date â€” only set after Credit Decision = Approved.',
+        help_text='Jawabu Requisition Date Ã¢â‚¬â€ only set after Credit Decision = Approved.',
     )
     order_number = models.CharField(
         max_length=128, blank=True, default='', db_index=True,
         help_text='Order No. assigned by admin after credit approval.',
     )
 
-    # â”€â”€ Stage 7: Invoice generation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # Ã¢â€â‚¬Ã¢â€â‚¬ Stage 7: Invoice generation Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     invoice_number = models.CharField(max_length=128, blank=True, default='')
     invoice_date = models.DateField(null=True, blank=True)
     invoice_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
@@ -999,5 +1104,3 @@ class RequisitionTemplate(models.Model):
 
     def __str__(self):
         return f"{self.name} ({'Active' if self.is_active else 'Inactive'})"
-
-
