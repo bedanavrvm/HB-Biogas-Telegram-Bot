@@ -63,6 +63,20 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
             'Choose Manual JSON for custom workflows.'
         ),
     )
+    case_header_row = forms.IntegerField(
+        required=False,
+        min_value=1,
+        initial=get_preset('case')['admin_fields']['header_row']['initial'],
+        label=get_preset('case')['admin_fields']['header_row']['label'],
+        help_text=get_preset('case')['admin_fields']['header_row']['help_text'],
+    )
+    case_field_headers = forms.JSONField(
+        required=False,
+        initial=get_preset('case')['admin_fields']['field_headers']['initial'],
+        label=get_preset('case')['admin_fields']['field_headers']['label'],
+        help_text=get_preset('case')['admin_fields']['field_headers']['help_text'],
+        widget=forms.Textarea(attrs={'rows': 6, 'cols': 80}),
+    )
     order_approval_search_tabs = forms.CharField(
         required=False,
         initial=get_preset('order_approval')['admin_fields']['search_tabs']['initial'],
@@ -206,6 +220,20 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
         workflow = getattr(self.instance, 'workflow', None) or {}
         preset_key = preset_for_workflow(workflow)
         self.fields['workflow_preset'].initial = preset_key
+        if preset_key == 'case':
+            self.fields['workflow_preset'].initial = 'case'
+            defaults = defaults_for_preset('case')
+            sheet_schema = getattr(self.instance, 'sheet_schema', None) or {}
+            self.fields['case_header_row'].initial = (
+                sheet_schema.get('header_row')
+                or workflow.get('header_row')
+                or defaults['workflow'].get('header_row', 1)
+            )
+            self.fields['case_field_headers'].initial = (
+                sheet_schema.get('field_headers')
+                or sheet_schema.get('headers')
+                or defaults['sheet_schema'].get('field_headers', {})
+            )
         if preset_key == 'order_approval':
             self.fields['workflow_preset'].initial = 'order_approval'
             self.fields['order_approval_search_tabs'].initial = ', '.join(
@@ -320,6 +348,7 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
         return build_workflow_from_preset(
             preset_key,
             overrides={
+                'case_header_row': self.cleaned_data.get('case_header_row'),
                 'search_sheet_names': self.order_approval_tabs(),
                 'match_field': self.cleaned_data.get('order_approval_match_field'),
                 'media_field': self.cleaned_data.get('order_approval_media_field'),
@@ -344,6 +373,22 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 'internal_order_record_id_prefix': self.cleaned_data.get('jawabu_internal_order_record_id_prefix'),
             },
         )
+
+    def generated_sheet_schema(self) -> dict | None:
+        preset_key = self.cleaned_data.get('workflow_preset') or MANUAL_PRESET
+        if preset_key != 'case':
+            return None
+        defaults = defaults_for_preset('case').get('sheet_schema') or {}
+        schema = dict(defaults)
+        header_row = self.cleaned_data.get('case_header_row')
+        if header_row:
+            schema['header_row'] = max(int(header_row), 1)
+        field_headers = self.cleaned_data.get('case_field_headers') or {}
+        if field_headers:
+            schema['field_headers'] = dict(field_headers)
+        else:
+            schema['field_headers'] = {}
+        return schema
 
     def apply_preset_defaults(self, obj):
         preset_key = self.cleaned_data.get('workflow_preset') or MANUAL_PRESET
@@ -698,6 +743,17 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
                 'automatically where a preset applies. '
                 'Only the relevant settings section will expand below.'
             ),
+        }),
+        ('Case / Complaints Settings', {
+            'fields': (
+                'case_header_row',
+                'case_field_headers',
+            ),
+            'description': (
+                'Header row and optional canonical-field header mappings for '
+                'the complaint register workflow.'
+            ),
+            'classes': ('collapse', 'preset-section', 'preset-case'),
         }),
         ('Order Approval Settings', {
             'fields': (
@@ -1194,6 +1250,9 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
         generated_workflow = getattr(form, 'generated_workflow', lambda: None)()
         if generated_workflow:
             obj.workflow = generated_workflow
+        generated_sheet_schema = getattr(form, 'generated_sheet_schema', lambda: None)()
+        if generated_sheet_schema is not None:
+            obj.sheet_schema = generated_sheet_schema
         super().save_model(request, obj, form, change)
         self._clear_runtime_config_cache()
         self.message_user(

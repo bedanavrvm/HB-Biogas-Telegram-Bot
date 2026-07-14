@@ -12,6 +12,7 @@
 
   /** Map preset value → CSS class suffix applied to the fieldset module. */
   const PRESET_SECTIONS = {
+    case: 'preset-case',
     order_approval: 'preset-order_approval',
     jawabu_homebiogas: 'preset-jawabu_homebiogas',
     spin_credit_analysis: 'preset-spin_credit_analysis',

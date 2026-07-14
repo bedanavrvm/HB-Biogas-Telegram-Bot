@@ -25,11 +25,28 @@ WORKFLOW_PRESETS = {
         'sheet_name': 'Complaints Register',
         'workflow': {
             'type': 'case',
-            'header_row': 2,
+            'header_row': 1,
         },
-        'sheet_schema': {},
+        'sheet_schema': {
+            'header_row': 1,
+            'field_headers': {},
+        },
         'parser_rules': {},
-        'admin_fields': {},
+        'admin_fields': {
+            'header_row': {
+                'initial': 1,
+                'label': 'Complaint header row',
+                'help_text': '1-based row number containing complaint register headers. Use 1 for TEST COMPLAINT MANAGEMENT REGISTER.xlsx.',
+            },
+            'field_headers': {
+                'initial': {},
+                'label': 'Complaint header mappings',
+                'help_text': (
+                    'Optional JSON mapping from canonical complaint fields to sheet headers, '
+                    'for example {"complaint_id": "Complaint ID", "message_id": "message_id"}.'
+                ),
+            },
+        },
     },
     'order_approval': {
         'label': 'Order Approval',
@@ -267,6 +284,14 @@ def build_workflow_from_preset(
 
     workflow = deepcopy(workflow)
     overrides = overrides or {}
+
+    if preset_key == 'case':
+        header_row = overrides.get('case_header_row') or overrides.get('header_row')
+        if header_row:
+            try:
+                workflow['header_row'] = max(int(header_row), 1)
+            except (TypeError, ValueError):
+                pass
 
     if preset_key == 'jawabu_homebiogas':
         if 'import_start_date' in overrides:

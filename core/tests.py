@@ -3789,10 +3789,22 @@ class GroupConfigurationServiceTest(TestCase):
             'parser_rules': '{}',
             'metadata': '{}',
             'workflow_preset': 'case',
+            'case_header_row': '1',
+            'case_field_headers': '{"complaint_id": "Complaint ID", "message_id": "message_id"}',
         })
 
         self.assertTrue(form.is_valid(), form.errors)
-        self.assertEqual(form.generated_workflow(), {'type': 'case', 'header_row': 2})
+        self.assertEqual(form.generated_workflow(), {'type': 'case', 'header_row': 1})
+        self.assertEqual(
+            form.generated_sheet_schema(),
+            {
+                'header_row': 1,
+                'field_headers': {
+                    'complaint_id': 'Complaint ID',
+                    'message_id': 'message_id',
+                },
+            },
+        )
 
     def test_group_configuration_admin_form_generates_jawabu_workflow(self):
         """Jawabu preset should expose the configurable import start date."""
@@ -3861,8 +3873,13 @@ class GroupConfigurationServiceTest(TestCase):
 
         case_defaults = defaults_for_preset('case')
         self.assertEqual(case_defaults['sheet_name'], 'Complaints Register')
-        self.assertEqual(case_defaults['workflow'], {'type': 'case', 'header_row': 2})
-        self.assertEqual(build_workflow_from_preset('case'), {'type': 'case', 'header_row': 2})
+        self.assertEqual(case_defaults['workflow'], {'type': 'case', 'header_row': 1})
+        self.assertEqual(case_defaults['sheet_schema'], {'header_row': 1, 'field_headers': {}})
+        self.assertEqual(build_workflow_from_preset('case'), {'type': 'case', 'header_row': 1})
+        self.assertEqual(
+            build_workflow_from_preset('case', overrides={'case_header_row': 3}),
+            {'type': 'case', 'header_row': 3},
+        )
         self.assertEqual(preset_for_workflow({}), 'case')
 
         defaults = defaults_for_preset('order_approval')
