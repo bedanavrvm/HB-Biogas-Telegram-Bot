@@ -202,6 +202,7 @@ class TatTrackerWorkflowTest(TestCase):
         case.sync_error = ''
         case.save(update_fields=['row_number', 'sheet_name', 'sync_error', 'updated_at'])
 
+    @override_settings(TAT_TRACKER_SYNC_SECONDARY_SHEETS=True)
     def test_sync_case_to_sheet_writes_django_calculated_tat_values(self):
         class FakeSheet:
             def __init__(self):
@@ -250,6 +251,134 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(sheet.updates[0][1][0][18], 30.0)
         self.assertEqual(sheet.updates[0][1][0][19], 1.25)
         self.assertFalse(any(str(value).startswith('=IF(') for value in sheet.updates[0][1][0]))
+
+    def test_sync_case_to_sheet_skips_secondary_sheets_by_default(self):
+        class FakeSheet:
+            def row_values(self, _row):
+                return [''] * 20
+
+            def update(self, *_args, **_kwargs):
+                return None
+
+        class FakeService:
+            _sheet = FakeSheet()
+
+            def is_available(self):
+                return True
+
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-SME',
+            row_number=5,
+            case_id='JBL-SME-2026-003',
+            product_key='sme',
+            product_label='SME',
+            client_name='Test Client',
+            branch='Nakuru',
+            bro_name='BRO User',
+            amount='10000',
+            stage_values={'created': timezone.now().isoformat()},
+            status='Active',
+        )
+
+        with patch('core.services.tat_tracker.get_sheets_service', return_value=FakeService()), \
+             patch('core.services.tat_tracker.sync_case_index') as index_mock, \
+             patch('core.services.tat_tracker.sync_audit_log') as audit_mock:
+            sync_case_to_sheet(self.config, case)
+
+        index_mock.assert_not_called()
+        audit_mock.assert_not_called()
+
+    def test_sync_case_to_sheet_appends_new_rows_without_scanning_existing_ids(self):
+        class FakeSheet:
+            def __init__(self):
+                self.appended = []
+                self.row_values_called = False
+                self.col_values_called = False
+
+            def row_values(self, _row):
+                self.row_values_called = True
+                return [''] * 20
+
+            def col_values(self, _col):
+                self.col_values_called = True
+                return ['Case ID']
+
+            def append_row(self, row, value_input_option=None):
+                self.appended.append((row, value_input_option))
+                return {'updates': {'updatedRange': 'TRACKER-SME!A6:T6'}}
+
+        class FakeService:
+            def __init__(self, sheet):
+                self._sheet = sheet
+
+            def is_available(self):
+                return True
+
+        sheet = FakeSheet()
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-SME',
+            case_id='JBL-SME-2026-005',
+            product_key='sme',
+            product_label='SME',
+            client_name='Test Client',
+            branch='Nakuru',
+            bro_name='BRO User',
+            amount='10000',
+            stage_values={'created': timezone.now().isoformat()},
+            status='Active',
+        )
+
+        with patch('core.services.tat_tracker.get_sheets_service', return_value=FakeService(sheet)):
+            sync_case_to_sheet(self.config, case)
+
+        self.assertEqual(case.row_number, 6)
+        self.assertEqual(len(sheet.appended), 1)
+        self.assertFalse(sheet.row_values_called)
+        self.assertFalse(sheet.col_values_called)
+
+    @override_settings(TAT_TRACKER_SYNC_SECONDARY_SHEETS=False)
+    def test_sync_case_to_sheet_allows_workflow_secondary_sheet_override(self):
+        class FakeSheet:
+            def row_values(self, _row):
+                return [''] * 20
+
+            def update(self, *_args, **_kwargs):
+                return None
+
+        class FakeService:
+            _sheet = FakeSheet()
+
+            def is_available(self):
+                return True
+
+        self.config.workflow['sync_secondary_sheets'] = True
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-SME',
+            row_number=5,
+            case_id='JBL-SME-2026-004',
+            product_key='sme',
+            product_label='SME',
+            client_name='Test Client',
+            branch='Nakuru',
+            bro_name='BRO User',
+            amount='10000',
+            stage_values={'created': timezone.now().isoformat()},
+            status='Active',
+        )
+
+        with patch('core.services.tat_tracker.get_sheets_service', return_value=FakeService()), \
+             patch('core.services.tat_tracker.sync_case_index') as index_mock, \
+             patch('core.services.tat_tracker.sync_audit_log') as audit_mock:
+            sync_case_to_sheet(self.config, case)
+
+        index_mock.assert_called_once_with(self.config, case)
+        audit_mock.assert_called_once_with(self.config, case)
 
     def test_calculated_tat_values_use_aware_datetimes_and_ongoing_now(self):
         case = TatTrackerCase(

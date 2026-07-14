@@ -429,11 +429,11 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
         raise RuntimeError(case.sync_error)
     sheet = service._sheet
     try:
-        row = case.row_number or next_sheet_row(sheet)
-        values = sheet.row_values(row)
         # TAT Hours / TAT Days are Django-calculated display columns. Keeping
         # them out of sheet formulas avoids delayed spreadsheet recalculation.
         width = product.tat_start_col + 1
+        row = case.row_number
+        values = sheet.row_values(row) if row else []
         row_data = [''] * width
         for idx, value in enumerate(values[:width], start=1):
             row_data[idx - 1] = value
@@ -456,25 +456,62 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
         tat_days = calculated_tat_days(case) if tat_hours is not None else None
         row_data[product.tat_start_col - 1] = float(tat_hours) if tat_hours is not None else ''
         row_data[product.tat_start_col] = float(tat_days) if tat_days is not None else ''
-        sheet.update(f'A{row}:{column_letter(width)}{row}', [row_data], value_input_option='USER_ENTERED')
+        if row:
+            sheet.update(f'A{row}:{column_letter(width)}{row}', [row_data], value_input_option='USER_ENTERED')
+        else:
+            row = append_case_row(sheet, row_data)
         case.row_number = row
         case.sheet_name = product.sheet_name
         case.last_synced_at = timezone.now()
         case.sync_error = ''
         case.save(update_fields=['row_number', 'sheet_name', 'last_synced_at', 'sync_error', 'updated_at'])
-        try:
-            sync_case_index(group_config, case)
-        except Exception as exc:
-            logger.warning('TAT tracker CASE_INDEX sync failed for %s: %s', case.case_id, exc, exc_info=True)
-        try:
-            sync_audit_log(group_config, case)
-        except Exception as exc:
-            logger.warning('TAT tracker AUDIT LOG sync failed for %s: %s', case.case_id, exc, exc_info=True)
+        if should_sync_secondary_sheets(group_config):
+            try:
+                sync_case_index(group_config, case)
+            except Exception as exc:
+                logger.warning('TAT tracker CASE_INDEX sync failed for %s: %s', case.case_id, exc, exc_info=True)
+            try:
+                sync_audit_log(group_config, case)
+            except Exception as exc:
+                logger.warning('TAT tracker AUDIT LOG sync failed for %s: %s', case.case_id, exc, exc_info=True)
     except Exception as exc:
         case.sync_error = str(exc)
         case.save(update_fields=['sync_error', 'updated_at'])
         logger.exception('TAT tracker sheet sync failed for %s', case.case_id)
         raise
+
+
+def append_case_row(sheet, row_data: list[Any]) -> int:
+    result = None
+    if hasattr(sheet, 'append_row'):
+        result = sheet.append_row(row_data, value_input_option='USER_ENTERED')
+    elif hasattr(sheet, 'append_rows'):
+        result = sheet.append_rows([row_data], value_input_option='USER_ENTERED')
+    else:
+        row = next_sheet_row(sheet)
+        sheet.update(f'A{row}:{column_letter(len(row_data))}{row}', [row_data], value_input_option='USER_ENTERED')
+        return row
+    row = row_number_from_update_result(result)
+    if row:
+        return row
+    return next_sheet_row(sheet) - 1
+
+
+def row_number_from_update_result(result: Any) -> int | None:
+    if not isinstance(result, dict):
+        return None
+    updated_range = str((result.get('updates') or {}).get('updatedRange') or result.get('updatedRange') or '')
+    match = re.search(r'![A-Z]+(\d+)(?::[A-Z]+(\d+))?$', updated_range)
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def should_sync_secondary_sheets(group_config) -> bool:
+    workflow = getattr(group_config, 'workflow', None) or {}
+    if 'sync_secondary_sheets' in workflow:
+        return bool(workflow.get('sync_secondary_sheets'))
+    return bool(getattr(settings, 'TAT_TRACKER_SYNC_SECONDARY_SHEETS', False))
 
 
 def sync_case_index(group_config, case: TatTrackerCase) -> None:
