@@ -674,13 +674,13 @@ class TatTrackerStaffMemberAdminForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.instance and self.instance.pk:
-            self.fields['roles'].initial = self._split(self.instance.roles)
-            self.fields['branches'].initial = self._split(self.instance.branches)
-            self.fields['products'].initial = self._split(self.instance.products)
+            self._set_multi_initial('roles', self._split(self.instance.roles))
+            self._set_multi_initial('branches', self._split(self.instance.branches))
+            self._set_multi_initial('products', self._split(self.instance.products))
         else:
-            self.fields['roles'].initial = ['BRO']
-            self.fields['branches'].initial = ['ALL']
-            self.fields['products'].initial = ['ALL']
+            self._set_multi_initial('roles', ['BRO'])
+            self._set_multi_initial('branches', ['ALL'])
+            self._set_multi_initial('products', ['ALL'])
 
     def clean_roles(self):
         return ','.join(self.cleaned_data.get('roles') or ['BRO'])
@@ -696,6 +696,11 @@ class TatTrackerStaffMemberAdminForm(forms.ModelForm):
     @staticmethod
     def _split(value):
         return [part.strip() for part in str(value or '').split(',') if part.strip()]
+
+    def _set_multi_initial(self, field_name, values):
+        values = list(values or [])
+        self.initial[field_name] = values
+        self.fields[field_name].initial = values
 
 
 class TatTrackerStaffMemberInline(admin.StackedInline):

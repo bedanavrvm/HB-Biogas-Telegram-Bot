@@ -5,6 +5,7 @@ import json
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
+from core.admin import TatTrackerStaffMemberAdminForm
 from core.models import GroupSheetConfiguration, TatTrackerCase, TatTrackerStaffMember
 from core.api.views import _process_telegram_message
 from core.services.group_config import GroupRegistry
@@ -172,6 +173,48 @@ class TatTrackerWorkflowTest(TestCase):
         workflow = self.config.as_group_config_kwargs()['workflow']
 
         self.assertEqual(workflow['staff'], [])
+
+    def test_staff_admin_form_renders_saved_checkbox_values(self):
+        staff = TatTrackerStaffMember.objects.create(
+            group_configuration=self.config,
+            name='GUI Staff',
+            telegram_user_id='333',
+            roles='CA,BM',
+            branches='Nakuru,Embu',
+            products='sme,logbook',
+        )
+
+        form = TatTrackerStaffMemberAdminForm(instance=staff)
+
+        self.assertEqual(form['roles'].value(), ['CA', 'BM'])
+        self.assertEqual(form['branches'].value(), ['Nakuru', 'Embu'])
+        self.assertEqual(form['products'].value(), ['sme', 'logbook'])
+        html = form.as_p()
+        self.assertIn('name="roles" value="CA"', html)
+        self.assertIn('name="roles" value="BM"', html)
+        self.assertIn('value="CA" id="id_roles_2" checked', html)
+        self.assertIn('value="BM" id="id_roles_3" checked', html)
+
+    def test_staff_admin_form_saves_checkbox_values_as_csv(self):
+        data = {
+            'group_configuration': str(self.config.pk),
+            'name': 'GUI Staff',
+            'telegram_user_id': '333',
+            'telegram_username': '',
+            'roles': ['CA', 'BM'],
+            'branches': ['Nakuru', 'Embu'],
+            'products': ['sme', 'logbook'],
+            'active': 'on',
+            'notes': '',
+        }
+
+        form = TatTrackerStaffMemberAdminForm(data=data)
+
+        self.assertTrue(form.is_valid(), form.errors)
+        staff = form.save()
+        self.assertEqual(staff.roles, 'CA,BM')
+        self.assertEqual(staff.branches, 'Nakuru,Embu')
+        self.assertEqual(staff.products, 'sme,logbook')
     def test_staff_user_matches_gui_staff_row(self):
         TatTrackerStaffMember.objects.create(
             group_configuration=self.config,
