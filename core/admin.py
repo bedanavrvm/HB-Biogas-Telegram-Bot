@@ -1,6 +1,7 @@
 from django import forms
 from django.contrib import admin
 from django.contrib import messages
+from django.conf import settings
 from django.http import HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
@@ -49,6 +50,17 @@ class ReadOnlyAuditAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+class TestDataDeleteAdmin(ReadOnlyAuditAdmin):
+    """Allow scoped cleanup of test records without enabling production deletes."""
+
+    def has_delete_permission(self, request, obj=None):
+        delete_enabled = bool(
+            getattr(settings, 'DEBUG', False)
+            or getattr(settings, 'ALLOW_ADMIN_AUDIT_DELETE', False)
+        )
+        return delete_enabled and bool(request.user and request.user.is_superuser)
 
 
 class GroupSheetConfigurationAdminForm(forms.ModelForm):
@@ -403,7 +415,7 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
 
 
 @admin.register(TatTrackerCase)
-class TatTrackerCaseAdmin(ReadOnlyAuditAdmin):
+class TatTrackerCaseAdmin(TestDataDeleteAdmin):
     list_display = ['case_id', 'group_id', 'product_label', 'client_name', 'branch', 'status', 'current_stage', 'updated_at']
     list_filter = ['group_id', 'product_key', 'branch', 'status', 'current_stage']
     search_fields = ['case_id', 'client_name', 'bro_name', 'branch']
@@ -1322,7 +1334,7 @@ class RequisitionBatchAdmin(ReadOnlyAuditAdmin):
     search_fields = ('order_number', 'generated_by', 'filename')
 
 @admin.register(SpinCreditRequest)
-class SpinCreditRequestAdmin(ReadOnlyAuditAdmin):
+class SpinCreditRequestAdmin(TestDataDeleteAdmin):
     list_display = (
         'request_datetime', 'request_type', 'customer_name', 'national_id',
         'primary_phone', 'requested_amount', 'import_status', 'requested_by',

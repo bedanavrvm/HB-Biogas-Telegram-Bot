@@ -531,6 +531,68 @@ class SpinCreditSheetSyncTestCase(TestCase):
         mock_sheet.format.assert_called()
         mock_sheet.conditional_format.assert_called()
 
+    def test_media_url_text_format_runs_link_each_url(self):
+        from core.services.spin_credit import media_url_text_format_runs
+
+        urls = ['https://example.test/one', 'https://example.test/two']
+        runs = media_url_text_format_runs(urls)
+
+        self.assertEqual(runs[0], {'startIndex': 0, 'format': {'link': {'uri': urls[0]}}})
+        self.assertEqual(runs[1], {'startIndex': len(urls[0]), 'format': {}})
+        self.assertEqual(runs[2], {'startIndex': len(urls[0]) + 1, 'format': {'link': {'uri': urls[1]}}})
+
+    @patch('core.services.spin_credit.get_sheets_service')
+    def test_append_spin_requests_to_sheet_applies_rich_links_to_each_media_url(self, mock_get_sheets_service):
+        from decimal import Decimal
+        from unittest.mock import MagicMock
+        from core.services.spin_credit import append_spin_requests_to_sheet, DEFAULT_FIELD_HEADERS
+
+        execute = MagicMock()
+        batch_update = MagicMock(return_value=SimpleNamespace(execute=execute))
+        spreadsheets = MagicMock(return_value=SimpleNamespace(batchUpdate=batch_update))
+        mock_api = SimpleNamespace(spreadsheets=spreadsheets)
+        mock_sheet = MagicMock()
+        mock_sheet.id = 123
+        mock_sheet.row_values.return_value = list(DEFAULT_FIELD_HEADERS.values())
+        mock_sheet.append_rows.return_value = {'updates': {'updatedRange': 'Spin!A6:AB6'}}
+        mock_service = SimpleNamespace(
+            _sheet=mock_sheet,
+            _sheets_api_service=mock_api,
+            _api_initialized=True,
+            _sheet_id='sheet-id',
+            is_available=lambda: True,
+        )
+        mock_get_sheets_service.return_value = mock_service
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100spin_links',
+            display_name='Nakuru SPIN Requests',
+            sheet_id='sheet-id',
+            sheet_name='Spin',
+            enabled=True,
+            workflow={'type': 'spin_credit_analysis', 'header_row': 1},
+        )
+        record = SpinCreditRequest.objects.create(
+            group_id=config.group_id,
+            request_type='spin',
+            customer_name='Linked Customer',
+            requested_amount=Decimal('10000'),
+            parsed_fields={'media_urls': 'https://example.test/one\nhttps://example.test/two'},
+        )
+
+        result = append_spin_requests_to_sheet(config, [record])
+
+        self.assertTrue(result['success'])
+        media_requests = [
+            req for call in batch_update.call_args_list
+            for req in call.kwargs['body']['requests']
+            if 'updateCells' in req
+        ]
+        self.assertEqual(len(media_requests), 1)
+        cell = media_requests[0]['updateCells']['rows'][0]['values'][0]
+        self.assertEqual(cell['userEnteredValue']['stringValue'], 'https://example.test/one\nhttps://example.test/two')
+        self.assertEqual(cell['textFormatRuns'][0]['format']['link']['uri'], 'https://example.test/one')
+        self.assertEqual(cell['textFormatRuns'][2]['format']['link']['uri'], 'https://example.test/two')
+
 
 class SpinCreditPortalTestCase(TestCase):
     def setUp(self):

@@ -947,8 +947,9 @@ def append_spin_requests_to_sheet(group_config, records: list[SpinCreditRequest]
         else:
             responses = [service._sheet.append_row(row, value_input_option='USER_ENTERED') for row in rows]
             response = responses[0] if responses else {}
-        apply_spin_sheet_formatting(service, headers, field_headers)
-        return {'success': True, 'row_numbers': row_numbers_from_append_response(response, len(rows)), 'sheet_name': target_sheet_name}
+        row_numbers = row_numbers_from_append_response(response, len(rows))
+        apply_spin_sheet_formatting(service, headers, field_headers, records, row_numbers)
+        return {'success': True, 'row_numbers': row_numbers, 'sheet_name': target_sheet_name}
     except Exception as exc:
         logger.error('Failed to append SPIN request rows: %s', exc, exc_info=True)
         return {'success': False, 'error': str(exc), 'sheet_name': target_sheet_name}
@@ -1002,14 +1003,16 @@ def sheet_text(value: Any) -> str:
 
 
 def sheet_media_urls(value: Any) -> str:
-    if isinstance(value, (list, tuple)):
-        urls = [str(item or '').strip() for item in value]
-    else:
-        urls = [str(item or '').strip() for item in str(value or '').replace(',', '\n').splitlines()]
-    return '\n'.join(url for url in urls if url)
+    return '\n'.join(media_url_list(value))
 
 
-def apply_spin_sheet_formatting(service, headers: list[str], field_headers: dict[str, str]) -> None:
+def apply_spin_sheet_formatting(
+    service,
+    headers: list[str],
+    field_headers: dict[str, str],
+    records: list[SpinCreditRequest] | None = None,
+    row_numbers: list[int | None] | None = None,
+) -> None:
     sheet = service._sheet
     try:
         code_header = field_headers.get('code')
@@ -1017,11 +1020,78 @@ def apply_spin_sheet_formatting(service, headers: list[str], field_headers: dict
             col = headers.index(code_header) + 1
             if hasattr(sheet, 'format'):
                 sheet.format(f'{column_letter(col)}:{column_letter(col)}', {'numberFormat': {'type': 'TEXT'}})
+        media_header = field_headers.get('media_urls')
+        if media_header in headers and records and row_numbers:
+            apply_media_url_rich_links(service, headers.index(media_header) + 1, records, row_numbers)
         analysis_header = field_headers.get('analysis_status')
         if analysis_header in headers:
             apply_analysis_status_conditional_formatting(service, headers.index(analysis_header) + 1, len(headers))
     except Exception as exc:
         logger.warning('Failed to apply SPIN sheet formatting: %s', exc, exc_info=True)
+
+
+def apply_media_url_rich_links(
+    service,
+    media_col: int,
+    records: list[SpinCreditRequest],
+    row_numbers: list[int | None],
+) -> None:
+    sheet = service._sheet
+    api = getattr(service, '_sheets_api_service', None)
+    if not (api and getattr(service, '_api_initialized', False) is True and isinstance(getattr(sheet, 'id', None), int)):
+        return
+    requests = []
+    for index, record in enumerate(records):
+        row_number = row_numbers[index] if index < len(row_numbers) else None
+        if not row_number:
+            continue
+        urls = media_url_list((record.parsed_fields or {}).get('media_urls', ''))
+        if not urls:
+            continue
+        text = '\n'.join(urls)
+        requests.append({
+            'updateCells': {
+                'range': {
+                    'sheetId': sheet.id,
+                    'startRowIndex': row_number - 1,
+                    'endRowIndex': row_number,
+                    'startColumnIndex': media_col - 1,
+                    'endColumnIndex': media_col,
+                },
+                'rows': [{
+                    'values': [{
+                        'userEnteredValue': {'stringValue': text},
+                        'textFormatRuns': media_url_text_format_runs(urls),
+                    }],
+                }],
+                'fields': 'userEnteredValue,textFormatRuns',
+            },
+        })
+    if requests:
+        api.spreadsheets().batchUpdate(
+            spreadsheetId=getattr(service, '_sheet_id', ''),
+            body={'requests': requests},
+        ).execute()
+
+
+def media_url_list(value: Any) -> list[str]:
+    if isinstance(value, (list, tuple)):
+        candidates = [str(item or '').strip() for item in value]
+    else:
+        candidates = [str(item or '').strip() for item in str(value or '').replace(',', '\n').splitlines()]
+    return [url for url in candidates if url]
+
+
+def media_url_text_format_runs(urls: list[str]) -> list[dict[str, Any]]:
+    runs: list[dict[str, Any]] = []
+    offset = 0
+    for index, url in enumerate(urls):
+        runs.append({'startIndex': offset, 'format': {'link': {'uri': url}}})
+        offset += len(url)
+        if index < len(urls) - 1:
+            runs.append({'startIndex': offset, 'format': {}})
+            offset += 1
+    return runs
 
 
 def apply_analysis_status_conditional_formatting(service, status_col: int, width: int) -> None:
