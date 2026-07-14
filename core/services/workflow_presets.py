@@ -350,6 +350,11 @@ def build_workflow_from_preset(
         if media_root_folder:
             workflow['media_root_folder'] = media_root_folder
 
+    if preset_key == 'tat_tracker':
+        tat_targets_minutes = overrides.get('tat_targets_minutes')
+        if tat_targets_minutes:
+            workflow['tat_targets_minutes'] = tat_targets_minutes
+
     return workflow
 
 

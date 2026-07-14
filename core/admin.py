@@ -16,6 +16,7 @@ from core.services.workflow_presets import (
     preset_choices,
     preset_for_workflow,
 )
+from core.services.tat_tracker import PRODUCTS
 
 from .models import (
     CaseUpdate,
@@ -37,6 +38,21 @@ from .models import (
     TatTrackerEvent,
     TatTrackerStaffMember,
 )
+
+
+def _tat_target_field_name(product_key: str, target_key: str) -> str:
+    safe_key = str(target_key).replace('-', '_')
+    return f'tat_target_{product_key}_{safe_key}'
+
+
+TAT_TARGET_FIELD_GROUPS = []
+for _product_key, _product in PRODUCTS.items():
+    _fields = [_tat_target_field_name(_product_key, 'total')]
+    _fields.extend(
+        _tat_target_field_name(_product_key, stage.key)
+        for stage in _product.stages
+    )
+    TAT_TARGET_FIELD_GROUPS.append((_product_key, _product.label, tuple(_fields)))
 
 
 class ReadOnlyAuditAdmin(admin.ModelAdmin):
@@ -232,6 +248,7 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
         workflow = getattr(self.instance, 'workflow', None) or {}
         preset_key = preset_for_workflow(workflow)
         self.fields['workflow_preset'].initial = preset_key
+        self._add_tat_target_fields(workflow)
         if preset_key == 'case':
             self.fields['workflow_preset'].initial = 'case'
             defaults = defaults_for_preset('case')
@@ -279,6 +296,9 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 workflow.get('legacy_batch_sheet_name')
                 or defaults.get('legacy_batch_sheet_name', 'SPIN Legacy Batch')
             )
+        if preset_key == 'tat_tracker':
+            self.fields['workflow_preset'].initial = 'tat_tracker'
+            self._populate_tat_target_initials(workflow)
         if preset_key == 'jawabu_homebiogas':
             self.fields['workflow_preset'].initial = 'jawabu_homebiogas'
             defaults = defaults_for_preset('jawabu_homebiogas')['workflow']
@@ -383,8 +403,63 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 'internal_order_header_row': self.cleaned_data.get('jawabu_internal_order_header_row'),
                 'internal_order_data_start_row': self.cleaned_data.get('jawabu_internal_order_data_start_row'),
                 'internal_order_record_id_prefix': self.cleaned_data.get('jawabu_internal_order_record_id_prefix'),
+                'tat_targets_minutes': self.tat_targets_minutes(),
             },
         )
+
+    def tat_targets_minutes(self) -> dict:
+        targets = {}
+        for product_key, _label, field_names in TAT_TARGET_FIELD_GROUPS:
+            product_targets = {'stages': {}}
+            total = self.cleaned_data.get(_tat_target_field_name(product_key, 'total'))
+            if total is not None:
+                product_targets['total'] = int(total)
+            for field_name in field_names:
+                stage_key = field_name.replace(f'tat_target_{product_key}_', '', 1)
+                if stage_key == 'total':
+                    continue
+                value = self.cleaned_data.get(field_name)
+                if value is not None:
+                    product_targets['stages'][stage_key] = int(value)
+            if product_targets.get('total') is not None or product_targets['stages']:
+                targets[product_key] = product_targets
+        return targets
+
+    def _add_tat_target_fields(self, workflow: dict):
+        del workflow
+        for product_key, product_label, field_names in TAT_TARGET_FIELD_GROUPS:
+            for field_name in field_names:
+                stage_key = field_name.replace(f'tat_target_{product_key}_', '', 1)
+                if stage_key == 'total':
+                    label = f'{product_label} total target minutes'
+                    help_text = 'Overall case SLA target in minutes.'
+                else:
+                    stage = next(stage for stage in PRODUCTS[product_key].stages if stage.key == stage_key)
+                    label = f'{product_label}: {stage.label} target minutes'
+                    help_text = 'Leave blank to show TAT without SLA status for this stage.'
+                self.fields[field_name] = forms.IntegerField(
+                    required=False,
+                    min_value=0,
+                    label=label,
+                    help_text=help_text,
+                )
+
+    def _populate_tat_target_initials(self, workflow: dict):
+        targets = workflow.get('tat_targets_minutes') or {}
+        defaults = defaults_for_preset('tat_tracker')['workflow'].get('tat_targets_minutes') or {}
+        for product_key, _product_label, field_names in TAT_TARGET_FIELD_GROUPS:
+            product_targets = targets.get(product_key) or defaults.get(product_key) or {}
+            stage_targets = product_targets.get('stages') or {}
+            total_field = _tat_target_field_name(product_key, 'total')
+            self.fields[total_field].initial = product_targets.get('total')
+            self.initial[total_field] = product_targets.get('total')
+            for field_name in field_names:
+                stage_key = field_name.replace(f'tat_target_{product_key}_', '', 1)
+                if stage_key == 'total':
+                    continue
+                value = stage_targets.get(stage_key)
+                self.fields[field_name].initial = value
+                self.initial[field_name] = value
 
     def generated_sheet_schema(self) -> dict | None:
         preset_key = self.cleaned_data.get('workflow_preset') or MANUAL_PRESET
@@ -790,6 +865,19 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
             ),
             'description': 'Header and legacy batch tab settings for the SPIN / CRB workflow.',
             'classes': ('collapse', 'preset-section', 'preset-spin_credit_analysis'),
+        }),
+        ('TAT Tracker Targets', {
+            'fields': tuple(
+                field_name
+                for _product_key, _product_label, field_names in TAT_TARGET_FIELD_GROUPS
+                for field_name in field_names
+            ),
+            'description': (
+                'SLA targets in minutes. Total target controls overall case SLA; '
+                'stage targets control each stage badge/status in the Mini App. '
+                'Leave a stage blank to show minutes without SLA status.'
+            ),
+            'classes': ('collapse', 'preset-section', 'preset-tat_tracker'),
         }),
         ('Jawabu HomeBiogas Settings', {
             'fields': (

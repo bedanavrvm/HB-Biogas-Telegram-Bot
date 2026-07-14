@@ -10,6 +10,7 @@ from core.models import GroupSheetConfiguration, TatTrackerCase, TatTrackerStaff
 from core.api.views import _process_telegram_message
 from core.services.group_config import GroupRegistry
 from core.services.tat_tracker import (
+    bootstrap,
     build_tat_tracker_url,
     calculated_tat_days,
     calculated_tat_hours,
@@ -118,6 +119,20 @@ class TatTrackerWorkflowTest(TestCase):
 
         self.assertEqual(workflow_branches(stale_workflow), ['Biogas Unit', 'Embu', 'Nakuru', 'West Nairobi'])
 
+    @override_settings(TAT_TRACKER_BRANCH_CHOICES='Biogas Unit, Muranga, Thika Road')
+    def test_workflow_branches_use_tat_env_override(self):
+        workflow = {
+            'branches': ['Nakuru', 'Embu'],
+        }
+
+        self.assertEqual(workflow_branches(workflow), ['Biogas Unit', 'Muranga', 'Thika Road'])
+
+    @override_settings(TAT_TRACKER_BRANCH_CHOICES='Biogas Unit,Nakuru,Muranga')
+    def test_bootstrap_filters_tat_env_branches_by_staff_access(self):
+        data = bootstrap(self.config, {'id': 111, 'username': 'bro_user'})
+
+        self.assertEqual(data['branches'], ['Nakuru'])
+
     def test_tat_formula_helpers_match_tracker_columns(self):
         sme = product_by_key('sme')
         logbook = product_by_key('logbook')
@@ -215,6 +230,59 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(staff.roles, 'CA,BM')
         self.assertEqual(staff.branches, 'Nakuru,Embu')
         self.assertEqual(staff.products, 'sme,logbook')
+
+    def test_group_admin_form_exposes_tat_targets_from_workflow(self):
+        self.config.workflow.setdefault('tat_targets_minutes', {}).setdefault(
+            'sme',
+            {'total': 20160, 'stages': {}},
+        )['stages'] = {
+            'mpesa_to_admin': 45,
+            'ca_analysis_sent': 180,
+        }
+        self.config.save()
+
+        from core.admin import GroupSheetConfigurationAdminForm
+
+        form = GroupSheetConfigurationAdminForm(instance=self.config)
+
+        self.assertIn('tat_target_sme_total', form.fields)
+        self.assertIn('tat_target_sme_mpesa_to_admin', form.fields)
+        self.assertEqual(form['tat_target_sme_total'].value(), 20160)
+        self.assertEqual(form['tat_target_sme_mpesa_to_admin'].value(), 45)
+        self.assertEqual(form['tat_target_sme_ca_analysis_sent'].value(), 180)
+
+    def test_group_admin_form_saves_tat_targets_into_generated_workflow(self):
+        from core.admin import GroupSheetConfigurationAdminForm
+
+        data = {
+            'workflow_preset': 'tat_tracker',
+            'group_id': self.config.group_id,
+            'display_name': self.config.display_name,
+            'enabled': 'on',
+            'sheet_id': self.config.sheet_id,
+            'sheet_name': self.config.sheet_name,
+            'sheet_schema': '{}',
+            'workflow': json.dumps(self.config.workflow),
+            'parser_rules': '{}',
+            'metadata': '{}',
+            'tat_target_sme_total': '1440',
+            'tat_target_sme_mpesa_to_admin': '30',
+            'tat_target_sme_ca_analysis_sent': '120',
+        }
+
+        form = GroupSheetConfigurationAdminForm(data=data, instance=self.config)
+
+        self.assertTrue(form.is_valid(), form.errors)
+        workflow = form.generated_workflow()
+        self.assertEqual(workflow['tat_targets_minutes']['sme']['total'], 1440)
+        self.assertEqual(
+            workflow['tat_targets_minutes']['sme']['stages']['mpesa_to_admin'],
+            30,
+        )
+        self.assertEqual(
+            workflow['tat_targets_minutes']['sme']['stages']['ca_analysis_sent'],
+            120,
+        )
     def test_staff_user_matches_gui_staff_row(self):
         TatTrackerStaffMember.objects.create(
             group_configuration=self.config,

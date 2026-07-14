@@ -16,6 +16,7 @@
     order_approval: 'preset-order_approval',
     jawabu_homebiogas: 'preset-jawabu_homebiogas',
     spin_credit_analysis: 'preset-spin_credit_analysis',
+    tat_tracker: 'preset-tat_tracker',
   };
 
   function applyToggle(selectedPreset) {

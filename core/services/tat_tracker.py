@@ -182,6 +182,9 @@ def configured_products(workflow: dict | None = None) -> list[ProductConfig]:
 
 
 def workflow_branches(workflow: dict | None = None) -> list[str]:
+    env_branches = str(getattr(settings, 'TAT_TRACKER_BRANCH_CHOICES', '') or '').strip()
+    if env_branches:
+        return configured_workflow_branches({'branches': env_branches}, default=list(BRANCHES), replace_stale_defaults=True)
     return configured_workflow_branches(workflow, default=list(BRANCHES), replace_stale_defaults=True)
 
 

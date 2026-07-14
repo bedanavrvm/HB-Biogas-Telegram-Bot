@@ -1353,6 +1353,15 @@ class OrderApprovalWebAppTest(TestCase):
         self.assertContains(response, 'id="browser-fallback"')
         self.assertContains(response, 'class="form-section"')
         self.assertContains(response, 'class="section-toggle"')
+
+    @override_settings(ORDER_APPROVAL_BRANCH_CHOICES='Biogas Unit, Muranga, Thika Road')
+    def test_order_approval_form_uses_configured_branch_choices(self):
+        response = self.client.get('/api/order-approval/?group_id=-100222')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '<option value="BIOGAS UNIT">BIOGAS UNIT</option>', html=True)
+        self.assertContains(response, '<option value="MURANGA">MURANGA</option>', html=True)
+        self.assertContains(response, '<option value="THIKA ROAD">THIKA ROAD</option>', html=True)
         self.assertContains(response, 'id="draft-banner"')
         self.assertContains(response, 'id="entry-mode-panel"')
         self.assertContains(response, 'id="start-new-entry"')

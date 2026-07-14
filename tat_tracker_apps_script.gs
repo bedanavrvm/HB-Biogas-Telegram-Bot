@@ -29,7 +29,7 @@
 
 const TAT_CONFIG = {
   DATA_START_ROW: 5,
-  DEFAULT_MAX_ROWS: 2000,
+  DEFAULT_MAX_ROWS: 500,
   DATE_TIME_FORMAT: 'dd-mmm-yyyy hh:mm',
   MONEY_FORMAT: '#,##0',
   TAT_HOURS_TARGET: 336,
@@ -223,6 +223,12 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('TAT Tracker')
     .addItem('Setup / refresh workbook', 'setupTatTrackerWorkbook')
+    .addItem('Setup current tracker tab only', 'setupCurrentTatTrackerSheet')
+    .addItem('Setup SME tab', 'setupTatSmeSheet')
+    .addItem('Setup Logbook tab', 'setupTatLogbookSheet')
+    .addItem('Setup Mjengo tab', 'setupTatMjengoSheet')
+    .addItem('Setup Kilimo tab', 'setupTatKilimoSheet')
+    .addItem('Setup Micro Asset tab', 'setupTatMicroAssetSheet')
     .addItem('Remove legacy protections', 'removeLegacyTatProtectionsMenu')
     .addItem('Refresh validations only', 'refreshTatValidations')
     .addItem('Refresh TAT value formatting', 'refreshTatFormulas')
@@ -242,6 +248,43 @@ function setupTatTrackerWorkbook() {
   });
   setupTatSupportTabs();
   SpreadsheetApp.getUi().alert('TAT Tracker setup complete. Django/Mini App remains the source of workflow writes.');
+}
+
+function setupCurrentTatTrackerSheet() {
+  const sheet = SpreadsheetApp.getActiveSheet();
+  setupSingleTatTrackerSheet_(sheet.getName());
+}
+
+function setupTatSmeSheet() {
+  setupSingleTatTrackerSheet_('TRACKER-SME');
+}
+
+function setupTatLogbookSheet() {
+  setupSingleTatTrackerSheet_('TRACKER-LOGBOOK');
+}
+
+function setupTatMjengoSheet() {
+  setupSingleTatTrackerSheet_('TRACKER-MJENGO');
+}
+
+function setupTatKilimoSheet() {
+  setupSingleTatTrackerSheet_('TRACKER-KILIMO');
+}
+
+function setupTatMicroAssetSheet() {
+  setupSingleTatTrackerSheet_('TRACKER-MICRO-ASSET');
+}
+
+function setupSingleTatTrackerSheet_(sheetName) {
+  const layout = PRODUCT_LAYOUTS[sheetName];
+  if (!layout) {
+    SpreadsheetApp.getUi().alert('The active sheet is not a configured TAT tracker tab.');
+    return;
+  }
+  const ss = SpreadsheetApp.getActive();
+  const sheet = getOrCreateSheet_(ss, sheetName);
+  setupTrackerSheet_(sheet, layout);
+  SpreadsheetApp.getUi().alert(sheetName + ' setup complete.');
 }
 
 function refreshTatValidations() {
