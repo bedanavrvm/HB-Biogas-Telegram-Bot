@@ -310,8 +310,6 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
             create_request_id=create_request_id,
         ).first()
         if existing:
-            if not existing.row_number or existing.sync_error:
-                sync_case_to_sheet(group_config, existing)
             return serialize_case_detail(existing, user)
     case_id = next_case_id(group_config, product)
     now = timezone.now()

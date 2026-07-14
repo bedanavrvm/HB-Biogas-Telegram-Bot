@@ -486,6 +486,31 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(sync_mock.call_count, 1)
 
     @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_create_case_retry_does_not_resync_existing_unsynced_case(self, sync_mock):
+        sync_mock.side_effect = self.mark_case_synced
+        user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+        payload = {
+            'product_key': 'sme',
+            'branch': 'Nakuru',
+            'client_name': 'Test Client',
+            'bro_name': 'BRO User',
+            'amount': '10000',
+            'client_request_id': 'req-unsynced-retry',
+        }
+
+        first = create_case(self.config, user, payload)
+        case = TatTrackerCase.objects.get(case_id=first['summary']['case_id'])
+        case.row_number = None
+        case.sync_error = 'response lost after sheet append'
+        case.save(update_fields=['row_number', 'sync_error', 'updated_at'])
+
+        second = create_case(self.config, user, payload)
+
+        self.assertEqual(first['summary']['case_id'], second['summary']['case_id'])
+        self.assertEqual(TatTrackerCase.objects.count(), 1)
+        self.assertEqual(sync_mock.call_count, 1)
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
     def test_create_case_rolls_back_when_primary_sheet_sync_fails(self, sync_mock):
         sync_mock.side_effect = RuntimeError('Primary sheet write failed')
         user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})

@@ -9,6 +9,7 @@
     detail: null,
     currentView: 'queue',
     pendingCreateRequestId: readPendingCreateRequestId(),
+    creatingCase: false,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -431,11 +432,14 @@
 
   $('newCaseForm').addEventListener('submit', async (event) => {
     event.preventDefault();
-    const submitButton = event.currentTarget.querySelector('button[type="submit"]');
+    if (state.creatingCase) return;
+    const formElement = event.currentTarget;
+    const submitButton = formElement ? formElement.querySelector('button[type="submit"]') : null;
     try {
+      state.creatingCase = true;
       setButtonLoading(submitButton, true, 'Creating');
       setStatus('Creating case...', 'busy');
-      const form = new FormData(event.currentTarget);
+      const form = new FormData(formElement);
       const payload = Object.fromEntries(form.entries());
       state.pendingCreateRequestId = state.pendingCreateRequestId || newRequestId();
       writePendingCreateRequestId(state.pendingCreateRequestId);
@@ -447,7 +451,7 @@
       show('detail');
       state.pendingCreateRequestId = '';
       writePendingCreateRequestId('');
-      event.currentTarget.reset();
+      if (formElement && typeof formElement.reset === 'function') formElement.reset();
       const broInput = document.querySelector('[name="bro_name"]');
       if (broInput) broInput.value = currentUserName() || payload.bro_name || '';
       setStatus('Case created. Continue from the highlighted stage.', 'ok');
@@ -455,6 +459,7 @@
     } catch (error) {
       setStatus(error.message, 'error');
     } finally {
+      state.creatingCase = false;
       setButtonLoading(submitButton, false);
     }
   });
