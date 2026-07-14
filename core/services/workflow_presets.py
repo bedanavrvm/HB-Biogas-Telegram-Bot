@@ -113,6 +113,13 @@ WORKFLOW_PRESETS = {
             'branches': ['Biogas Unit', 'Embu', 'Nakuru', 'West Nairobi'],
             'allow_unconfigured_users': False,
             'default_roles': ['BRO'],
+            'tat_targets_minutes': {
+                'sme': {'total': 20160, 'stages': {}},
+                'logbook': {'total': 20160, 'stages': {}},
+                'mjengo': {'total': 20160, 'stages': {}},
+                'kilimo': {'total': 20160, 'stages': {}},
+                'micro_asset': {'total': 20160, 'stages': {}},
+            },
             'staff': [],
         },
         'sheet_schema': {},

@@ -72,7 +72,7 @@ const PRODUCT_LAYOUTS = {
       'BRO Applied Loan on System', 'Disbursement Register', 'Register Timestamp',
       'Register Approved', 'Finance Disbursement', 'Status', 'Remarks / Delays',
       'TAT Hours', 'TAT Days'
-    ],
+    ].concat(smeStageTatHeaders_()),
     cols: {
       amount: 5,
       created: 6,
@@ -101,7 +101,7 @@ const PRODUCT_LAYOUTS = {
       'BRO Applied on System', 'Disbursement Register', 'Register Timestamp',
       'Register Approved', 'Finance Disbursement', 'Status', 'Remarks / Delays',
       'TAT Hours', 'TAT Days'
-    ],
+    ].concat(logbookStageTatHeaders_()),
     cols: {
       amount: 5,
       created: 6,
@@ -144,7 +144,7 @@ function noValuationLayout(title, minAmount, maxAmount) {
       'BRO Applied on System', 'Disbursement Register', 'Register Timestamp',
       'Register Approved', 'Finance Disbursement', 'Status', 'Remarks / Delays',
       'TAT Hours', 'TAT Days'
-    ],
+    ].concat(noValuationStageTatHeaders_()),
     cols: {
       amount: 5,
       created: 6,
@@ -164,6 +164,59 @@ function noValuationLayout(title, minAmount, maxAmount) {
     dateCols: [6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 18, 19, 21, 23],
     stageCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
   };
+}
+
+function smeStageTatHeaders_() {
+  return [
+    'MPESA sent to Admin TAT Minutes',
+    'MPESA verified and sent to CA TAT Minutes',
+    'Credit analysis sent TAT Minutes',
+    'BRO response to CA TAT Minutes',
+    'BM response to CA TAT Minutes',
+    'BRO applied loan on system TAT Minutes',
+    'Disbursement register TAT Minutes',
+    'Register approved TAT Minutes',
+    'Finance disbursement TAT Minutes',
+  ];
+}
+
+function noValuationStageTatHeaders_() {
+  return [
+    'MPESA sent to Admin TAT Minutes',
+    'MPESA verified and sent to CA TAT Minutes',
+    'Credit analysis sent TAT Minutes',
+    'BRO response to CA TAT Minutes',
+    'BM TAT request sent TAT Minutes',
+    'HOCC scheduled TAT Minutes',
+    'HOCC held TAT Minutes',
+    'Decision TAT Minutes',
+    'Minutes shared TAT Minutes',
+    'Sanctions TAT Minutes',
+    'BRO applied on system TAT Minutes',
+    'Disbursement register TAT Minutes',
+    'Register approved TAT Minutes',
+    'Finance disbursement TAT Minutes',
+  ];
+}
+
+function logbookStageTatHeaders_() {
+  return [
+    'MPESA sent to Admin TAT Minutes',
+    'MPESA verified and sent to CA TAT Minutes',
+    'Credit analysis sent TAT Minutes',
+    'BRO response to CA TAT Minutes',
+    'Valuation ready TAT Minutes',
+    'BM TAT request sent TAT Minutes',
+    'HOCC scheduled TAT Minutes',
+    'HOCC held TAT Minutes',
+    'Decision TAT Minutes',
+    'Minutes shared TAT Minutes',
+    'Sanctions TAT Minutes',
+    'BRO applied on system TAT Minutes',
+    'Disbursement register TAT Minutes',
+    'Register approved TAT Minutes',
+    'Finance disbursement TAT Minutes',
+  ];
 }
 
 function onOpen() {
@@ -309,6 +362,9 @@ function applyTatFormulas_(sheet, layout) {
   clearStaleFormulaValidation_(tatDaysRange);
   tatHoursRange.setNumberFormat('0.00');
   tatDaysRange.setNumberFormat('0.00');
+  if (layout.headers.length > tatDaysCol) {
+    sheet.getRange(start, tatDaysCol + 1, rows, layout.headers.length - tatDaysCol).setNumberFormat('0');
+  }
 }
 
 function clearStaleFormulaValidation_(range) {

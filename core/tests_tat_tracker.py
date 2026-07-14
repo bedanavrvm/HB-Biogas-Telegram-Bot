@@ -12,9 +12,11 @@ from core.services.tat_tracker import (
     build_tat_tracker_url,
     calculated_tat_days,
     calculated_tat_hours,
+    calculated_tat_minutes,
     create_tat_start_param,
     decode_tat_start_param,
     product_by_key,
+    stage_tat_minutes,
     tat_days_formula,
     tat_hours_formula,
     create_case,
@@ -246,8 +248,8 @@ class TatTrackerWorkflowTest(TestCase):
              patch('core.services.tat_tracker.sync_audit_log'):
             sync_case_to_sheet(self.config, case)
 
-        self.assertEqual(sheet.updates[0][0], 'A5:T5')
-        self.assertEqual(len(sheet.updates[0][1][0]), 20)
+        self.assertEqual(sheet.updates[0][0], 'A5:AC5')
+        self.assertEqual(len(sheet.updates[0][1][0]), 29)
         self.assertEqual(sheet.updates[0][1][0][18], 30.0)
         self.assertEqual(sheet.updates[0][1][0][19], 1.25)
         self.assertFalse(any(str(value).startswith('=IF(') for value in sheet.updates[0][1][0]))
@@ -294,11 +296,11 @@ class TatTrackerWorkflowTest(TestCase):
         class FakeSheet:
             def __init__(self):
                 self.appended = []
-                self.row_values_called = False
+                self.row_values_calls = []
                 self.col_values_called = False
 
-            def row_values(self, _row):
-                self.row_values_called = True
+            def row_values(self, row):
+                self.row_values_calls.append(row)
                 return [''] * 20
 
             def col_values(self, _col):
@@ -307,7 +309,7 @@ class TatTrackerWorkflowTest(TestCase):
 
             def append_row(self, row, value_input_option=None):
                 self.appended.append((row, value_input_option))
-                return {'updates': {'updatedRange': 'TRACKER-SME!A6:T6'}}
+                return {'updates': {'updatedRange': 'TRACKER-SME!A6:AC6'}}
 
         class FakeService:
             def __init__(self, sheet):
@@ -337,8 +339,56 @@ class TatTrackerWorkflowTest(TestCase):
 
         self.assertEqual(case.row_number, 6)
         self.assertEqual(len(sheet.appended), 1)
-        self.assertFalse(sheet.row_values_called)
+        self.assertEqual(sheet.row_values_calls, [4])
         self.assertFalse(sheet.col_values_called)
+
+    def test_sync_case_to_sheet_prefers_stage_tat_headers_over_fixed_lag_columns(self):
+        class FakeSheet:
+            def __init__(self):
+                self.updates = []
+
+            def row_values(self, row):
+                if row == 4:
+                    headers = [''] * 34
+                    headers[33] = 'MPESA sent to Admin TAT Minutes'
+                    return headers
+                return [''] * 34
+
+            def update(self, a1_range, values, value_input_option=None):
+                self.updates.append((a1_range, values, value_input_option))
+
+        class FakeService:
+            def __init__(self, sheet):
+                self._sheet = sheet
+
+            def is_available(self):
+                return True
+
+        sheet = FakeSheet()
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-SME',
+            row_number=5,
+            case_id='JBL-SME-2026-009',
+            product_key='sme',
+            product_label='SME',
+            client_name='Header Client',
+            branch='Nakuru',
+            bro_name='BRO User',
+            amount='10000',
+            stage_values={
+                'created': timezone.make_aware(timezone.datetime(2026, 7, 14, 8, 0)).isoformat(),
+                'mpesa_to_admin': timezone.make_aware(timezone.datetime(2026, 7, 14, 8, 25)).isoformat(),
+            },
+            status='Active',
+        )
+
+        with patch('core.services.tat_tracker.get_sheets_service', return_value=FakeService(sheet)):
+            sync_case_to_sheet(self.config, case)
+
+        self.assertEqual(sheet.updates[0][0], 'A5:AH5')
+        self.assertEqual(sheet.updates[0][1][0][33], 25.0)
 
     @override_settings(TAT_TRACKER_SYNC_SECONDARY_SHEETS=False)
     def test_sync_case_to_sheet_allows_workflow_secondary_sheet_override(self):
@@ -390,8 +440,75 @@ class TatTrackerWorkflowTest(TestCase):
         )
         now = timezone.make_aware(timezone.datetime(2026, 7, 14, 20, 0))
 
+        self.assertEqual(calculated_tat_minutes(case, now=now), Decimal('720.00'))
         self.assertEqual(calculated_tat_hours(case, now=now), Decimal('12.00'))
         self.assertEqual(calculated_tat_days(case, now=now), Decimal('0.50'))
+
+    def test_rejected_tat_ends_at_decision_timestamp(self):
+        case = TatTrackerCase(
+            group_id=self.config.group_id,
+            case_id='JBL-SME-2026-006',
+            product_key='sme',
+            client_name='Rejected Client',
+            status='Rejected',
+            stage_values={
+                'created': timezone.make_aware(timezone.datetime(2026, 7, 14, 8, 0)).isoformat(),
+                'decision': 'Rejected',
+                'decision_ts': timezone.make_aware(timezone.datetime(2026, 7, 14, 10, 30)).isoformat(),
+            },
+        )
+        now = timezone.make_aware(timezone.datetime(2026, 7, 15, 8, 0))
+
+        self.assertEqual(calculated_tat_minutes(case, now=now), Decimal('150.00'))
+
+    def test_stage_tat_minutes_use_previous_stage_and_current_pending_stage(self):
+        product = product_by_key('sme')
+        case = TatTrackerCase(
+            group_id=self.config.group_id,
+            case_id='JBL-SME-2026-007',
+            product_key='sme',
+            client_name='Stage Client',
+            stage_values={
+                'created': timezone.make_aware(timezone.datetime(2026, 7, 14, 8, 0)).isoformat(),
+                'mpesa_to_admin': timezone.make_aware(timezone.datetime(2026, 7, 14, 8, 45)).isoformat(),
+            },
+        )
+        pending_now = timezone.make_aware(timezone.datetime(2026, 7, 14, 9, 30))
+
+        self.assertEqual(stage_tat_minutes(case, product.stages[0]), Decimal('45.00'))
+        self.assertEqual(stage_tat_minutes(case, product.stages[1], now=pending_now), Decimal('45.00'))
+
+    def test_detail_payload_includes_stage_tat_and_sla_status(self):
+        self.config.workflow['tat_targets_minutes'] = {
+            'sme': {'total': 120, 'stages': {'mpesa_to_admin': 60, 'mpesa_verified': 30}}
+        }
+        user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-SME',
+            case_id='JBL-SME-2026-008',
+            product_key='sme',
+            product_label='SME',
+            client_name='Target Client',
+            branch='Nakuru',
+            bro_name='BRO User',
+            amount='10000',
+            stage_values={
+                'created': timezone.make_aware(timezone.datetime(2026, 7, 14, 8, 0)).isoformat(),
+                'mpesa_to_admin': timezone.make_aware(timezone.datetime(2026, 7, 14, 8, 50)).isoformat(),
+            },
+            status='Active',
+        )
+
+        from core.services.tat_tracker import serialize_case_detail
+        detail = serialize_case_detail(case, user, workflow=self.config.workflow)
+
+        self.assertEqual(detail['summary']['target_minutes'], '120')
+        self.assertEqual(detail['fields'][0]['tat_minutes'], '50.00')
+        self.assertEqual(detail['fields'][0]['target_minutes'], '60')
+        self.assertEqual(detail['fields'][0]['sla_status'], 'near')
+        self.assertEqual(detail['fields'][1]['target_minutes'], '30')
 
     def test_next_role_alert_targets_pending_stage_role(self):
         data = {

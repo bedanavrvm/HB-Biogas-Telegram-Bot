@@ -121,6 +121,19 @@
     return number.toLocaleString('en-KE', { maximumFractionDigits: 0 });
   }
 
+  function formatMinutes(value) {
+    const number = Number(String(value || '').replace(/,/g, '').trim());
+    if (!Number.isFinite(number)) return '';
+    return `${Math.round(number).toLocaleString('en-KE')} min`;
+  }
+
+  function slaLabel(status) {
+    if (status === 'within') return 'Within target';
+    if (status === 'near') return 'Near target';
+    if (status === 'over') return 'Over target';
+    return '';
+  }
+
   function currentUserName() {
     return (state.data && state.data.user && state.data.user.name) ? state.data.user.name : '';
   }
@@ -291,6 +304,10 @@
           <span>${escapeHtml(summary.next_stage || 'No pending action')}</span>
         </div>
         <div class="fact">
+          <small>Total TAT</small>
+          <span class="tat-badge ${escapeHtml(summary.sla_status || '')}">${escapeHtml(formatMinutes(summary.tat_minutes) || 'Not started')}</span>
+        </div>
+        <div class="fact">
           <small>Created</small>
           <span>${escapeHtml(summary.created_at || '')}</span>
         </div>
@@ -318,6 +335,16 @@
       }
 
       const valueText = field.value || (field.locked_reason ? 'Pending previous stages' : 'Not started');
+      const tatText = formatMinutes(field.tat_minutes);
+      const targetText = formatMinutes(field.target_minutes);
+      const slaText = slaLabel(field.sla_status);
+      const tatMeta = tatText ? `
+        <div class="stage-tat-row">
+          <span class="tat-badge ${escapeHtml(field.sla_status || '')}">${escapeHtml(tatText)}</span>
+          ${targetText ? `<span class="tat-target">Target ${escapeHtml(targetText)}</span>` : ''}
+          ${slaText ? `<span class="tat-target">${escapeHtml(slaText)}</span>` : ''}
+        </div>
+      ` : '';
       
       row.innerHTML = `
         <div class="stage-left-rail">
@@ -330,6 +357,7 @@
             <span class="role-chip">${escapeHtml(field.role)}</span>
           </div>
           <div class="stage-value ${hasValue ? 'value-filled' : 'value-empty'}">${escapeHtml(valueText)}</div>
+          ${tatMeta}
         </div>`;
 
       if (field.editable) {
