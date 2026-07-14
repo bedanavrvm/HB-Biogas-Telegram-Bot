@@ -110,6 +110,7 @@ WORKFLOW_PRESETS = {
             'type': 'spin_credit_analysis',
             'header_row': 2,
             'field_headers': {},
+            'branches': ['Biogas Unit', 'Embu', 'Nakuru', 'West Nairobi'],
         },
         'sheet_schema': {},
         'parser_rules': {},

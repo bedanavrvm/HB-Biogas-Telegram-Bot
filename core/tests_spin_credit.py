@@ -226,22 +226,24 @@ class SpinCreditMiniAppTestCase(TestCase):
     @patch('core.services.spin_credit.append_spin_requests_to_sheet')
     def test_form_submission_uploads_laf_docs_and_writes_media_urls(self, mock_append, mock_store, mock_reply):
         mock_append.return_value = {'success': True, 'row_numbers': [6]}
-        mock_store.return_value = SimpleNamespace(links=['https://drive.google.com/file/d/laf-doc/view'], stored_count=1, skipped_count=0, warnings=[])
-        GroupSheetConfiguration.objects.create(group_id='-100spinmedia', display_name='Nakuru SPIN Requests', sheet_id='sheet-id', sheet_name='SPIN Requests', enabled=True, workflow={'type': 'spin_credit_analysis', 'header_row': 1})
+        mock_store.return_value = SimpleNamespace(links=['https://drive.google.com/file/d/laf-doc/view', 'https://drive.google.com/file/d/id-photo/view'], stored_count=2, skipped_count=0, warnings=[])
+        GroupSheetConfiguration.objects.create(group_id='-100spinmedia', display_name='Nakuru SPIN Requests', sheet_id='sheet-id', sheet_name='SPIN Requests', enabled=True, workflow={'type': 'spin_credit_analysis', 'header_row': 1, 'branches': ['Nakuru', 'Embu']})
         from core.services.group_config import GroupRegistry
         GroupRegistry._instance = None
         response = self.client.post('/api/spin/submit/', data={
             'group_id': '-100spinmedia', 'request_type': 'spin_crb', 'customer_name': 'Peter Mwangi', 'national_id': '12345678',
-            'primary_phone': '0712345678', 'requested_amount': '54000', 'tenor': '12 months',
+            'primary_phone': '0712345678', 'requested_amount': '54000', 'tenor': '12 months', 'branch': 'Nakuru',
             'supporting_docs': SimpleUploadedFile('laf.pdf', b'%PDF-1.4 test', content_type='application/pdf'),
         })
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['files_stored'], 1)
+        self.assertEqual(response.json()['files_stored'], 2)
+        self.assertEqual(response.json()['request_id'], 'SPIN-2026-0001')
         uploaded_files = mock_store.call_args.kwargs['uploaded_files']
         self.assertEqual(uploaded_files[0].file_type, 'laf_doc')
         record = SpinCreditRequest.objects.get(group_id='-100spinmedia')
         self.assertEqual(record.attachment_names, ['laf.pdf'])
-        self.assertEqual(record.parsed_fields['media_urls'], 'https://drive.google.com/file/d/laf-doc/view')
+        self.assertEqual(record.parsed_fields['branch'], 'Nakuru')
+        self.assertEqual(record.parsed_fields['media_urls'], 'https://drive.google.com/file/d/laf-doc/view\nhttps://drive.google.com/file/d/id-photo/view')
         mock_append.assert_called_once()
         mock_reply.assert_called_once()
 
@@ -284,6 +286,8 @@ class SpinCreditSheetSyncTestCase(TestCase):
             customer_name='TEST FARMER',
             requested_amount=Decimal('25000.50'),
             request_datetime=timezone.make_aware(datetime(2026, 6, 24, 14, 35)),
+            code='012340',
+            parsed_fields={'media_urls': 'https://example.test/one\nhttps://example.test/two', 'branch': 'Nakuru'},
         )
 
         # Call append_spin_requests_to_sheet
@@ -303,10 +307,18 @@ class SpinCreditSheetSyncTestCase(TestCase):
         customer_name_idx = list(DEFAULT_FIELD_HEADERS.keys()).index('customer_name')
         requested_amount_idx = list(DEFAULT_FIELD_HEADERS.keys()).index('requested_amount')
         request_month_idx = list(DEFAULT_FIELD_HEADERS.keys()).index('request_month')
+        code_idx = list(DEFAULT_FIELD_HEADERS.keys()).index('code')
+        media_idx = list(DEFAULT_FIELD_HEADERS.keys()).index('media_urls')
+        branch_idx = list(DEFAULT_FIELD_HEADERS.keys()).index('branch')
         self.assertEqual(rows[0][customer_name_idx], 'TEST FARMER')
         self.assertEqual(rows[0][requested_amount_idx], 25000.50)
         self.assertIsInstance(rows[0][requested_amount_idx], float)
         self.assertEqual(rows[0][request_month_idx], 'Jun-2026')
+        self.assertEqual(rows[0][code_idx], "'012340")
+        self.assertEqual(rows[0][media_idx], 'https://example.test/one\nhttps://example.test/two')
+        self.assertEqual(rows[0][branch_idx], 'Nakuru')
+        mock_sheet.format.assert_called()
+        mock_sheet.conditional_format.assert_called()
 
 
 class SpinCreditPortalTestCase(TestCase):

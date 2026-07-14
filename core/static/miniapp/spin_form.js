@@ -56,6 +56,18 @@
 
   document.getElementById('groupId').value = config.group_id || '';
   document.getElementById('formToken').value = config.form_token || '';
+  const branchField = document.getElementById('branchField');
+  const branchSelect = document.getElementById('branchSelect');
+  const defaultBranch = document.getElementById('defaultBranch');
+  if (defaultBranch) defaultBranch.value = config.default_branch || '';
+  if (branchSelect && Array.isArray(config.branch_choices) && config.branch_choices.length) {
+    branchSelect.innerHTML = '<option value="">Select branch</option>' + config.branch_choices.map(branch => `<option value="${escapeHtml(branch)}">${escapeHtml(branch)}</option>`).join('');
+    branchSelect.value = config.default_branch || '';
+    if (branchField) branchField.hidden = false;
+  } else if (branchSelect && branchField) {
+    branchSelect.removeAttribute('name');
+    branchField.hidden = true;
+  }
 
   function field(name) { return form.elements[name]; }
 
@@ -82,6 +94,7 @@
     const selectedType = form.querySelector('input[name="request_type"]:checked');
     return {
       request_type: selectedType ? selectedType.value : '',
+      branch: field('branch') ? field('branch').value.trim() : (config.default_branch || ''),
       customer_name: field('customer_name').value.trim(),
       national_id: field('national_id').value.replace(/\D/g, ''),
       customer_type: field('customer_type').value,
@@ -184,6 +197,7 @@
       invalid.push({ field: fieldName, message });
     }
     if (!['spin_crb', 'spin', 'crb'].includes(data.request_type)) add('request_type', 'Choose SPIN/CRB, SPIN, or CRB.');
+    if (Array.isArray(config.branch_choices) && config.branch_choices.length && !data.branch) add('branch', 'Select a valid branch.');
     if (!data.customer_name) add('customer_name', 'Customer Name is required.');
     if (!/^\d{7,8}$/.test(data.national_id)) add('national_id', 'National ID must be 7 or 8 digits.');
     if (!normalizePhone(data.primary_phone)) add('primary_phone', 'Primary Phone must be a valid Kenyan number, for example 254712345678.');
@@ -221,6 +235,7 @@
     const data = formValues();
     const rows = [
       ['Type', requestTypeLabel(data.request_type)],
+      ['Branch', data.branch || '-'],
       ['Name', data.customer_name || '-'],
       ['National ID', data.national_id || '-'],
       ['Phone', normalizePhone(data.primary_phone) || data.primary_phone || '-'],
@@ -265,6 +280,7 @@
   function clearDraft() {
     localStorage.removeItem(draftKey);
     form.reset();
+    if (branchSelect && branchSelect.name) branchSelect.value = config.default_branch || '';
     field('primary_phone').value = '';
     field('secondary_phone').value = '';
     markInvalid([]);

@@ -322,6 +322,7 @@ class GoogleSheetsService:
                 error = (
                     "Missing required sheet column(s): "
                     + ", ".join(missing[:5])
+                    + self._sheet_diagnostics(actual_header, missing)
                 )
                 logger.error(f"Sheet structure validation failed: {error}")
                 return False, error
@@ -757,6 +758,28 @@ class GoogleSheetsService:
     @staticmethod
     def _normalize_header(header: str) -> str:
         return " ".join(str(header or "").strip().lower().split())
+
+    def _sheet_diagnostics(self, headers: list, missing: list = None) -> str:
+        found = [str(header or '').strip() for header in (headers or []) if str(header or '').strip()]
+        configured = [
+            f"{field}={header}"
+            for field, header in sorted((self.schema.field_headers or {}).items())
+        ]
+        sheet_id = str(self._sheet_id or '')
+        sanitized_id = (
+            f"{sheet_id[:6]}...{sheet_id[-4:]}"
+            if len(sheet_id) > 12 else sheet_id
+        )
+        parts = [
+            f"; spreadsheet={sanitized_id or 'not configured'}",
+            f" worksheet={self._sheet_name or 'default'}",
+            f" header_row={self.header_row}",
+            f" headers_found={found[:30]}",
+        ]
+        if missing:
+            parts.append(f" missing={missing[:30]}")
+        parts.append(f" configured_mappings={configured[:30]}")
+        return ''.join(parts)
 
     def _header_values(self) -> list:
         return self._sheet.row_values(self.header_row)

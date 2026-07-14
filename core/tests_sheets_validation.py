@@ -57,6 +57,10 @@ class GoogleSheetsValidationTests(TestCase):
         self.assertFalse(is_valid, "Expected validation to fail with wrong column count")
         self.assertIn("Missing required sheet column", error_msg)
         self.assertIn("Days Open", error_msg)
+        self.assertIn("worksheet=", error_msg)
+        self.assertIn("header_row=", error_msg)
+        self.assertIn("headers_found=", error_msg)
+        self.assertIn("configured_mappings=", error_msg)
     
     def test_validate_sheet_structure_wrong_column_name(self):
         """Test validation fails with wrong column name."""

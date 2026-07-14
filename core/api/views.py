@@ -634,7 +634,8 @@ def fca_review_commit(request):
 def spin_form(request):
     """Render the SPIN/CRB request Mini App form."""
     from django.utils.safestring import mark_safe
-    from core.services.spin_credit import decode_spin_start_param
+    from core.services.group_config import GroupRegistry
+    from core.services.spin_credit import decode_spin_start_param, is_spin_workflow, spin_branch_choices, spin_default_branch
 
     group_id = str(request.GET.get('group_id', '')).strip()
     form_token = str(request.GET.get('token', '')).strip()
@@ -648,7 +649,19 @@ def spin_form(request):
         group_id = group_id or start_payload.get('group_id', '')
         form_token = form_token or start_payload.get('token', '')
 
-    payload = {'group_id': group_id, 'form_token': form_token}
+    branch_choices = []
+    default_branch = ''
+    if group_id:
+        group_config = GroupRegistry.get().get_group(group_id)
+        if group_config and is_spin_workflow(group_config):
+            branch_choices = spin_branch_choices(group_config)
+            default_branch = spin_default_branch(group_config)
+    payload = {
+        'group_id': group_id,
+        'form_token': form_token,
+        'branch_choices': branch_choices,
+        'default_branch': default_branch,
+    }
     return render(
         request,
         'spin/form.html',
@@ -777,6 +790,7 @@ def spin_form_requests(request):
             'request_datetime': format_sheet_datetime(r.request_datetime) if r.request_datetime else '',
             'requested_by': r.requested_by,
             'request_type': REQUEST_TYPE_LABELS.get(r.request_type, r.request_type),
+            'branch': parsed_f.get('branch') or r.source_chat,
             'customer_name': r.customer_name,
             'national_id': r.national_id,
             'primary_phone': r.primary_phone,
@@ -1562,6 +1576,8 @@ def _run_whatsapp_batch_import(
     telegram_message_id: str,
 ) -> dict:
     from core.services.parser import MessageIntent, detect_message_intent
+    from core.services.group_config import GroupRegistry
+    from core.services.storage import duplicate_case_for_message, repair_case_sheet_sync
 
     entries = analysis.get('entries') or []
     configured_max = int(getattr(settings, 'WHATSAPP_BATCH_MAX_MESSAGES', 0) or 0)
@@ -1569,6 +1585,7 @@ def _run_whatsapp_batch_import(
     truncated = configured_max > 0 and len(entries) > max_entries
     entries_to_process = entries[:max_entries] if truncated else entries
     sync_before = _sync_case_sheet_for_batch(group_id, delete_missing=True)
+    group_config = GroupRegistry.get_instance().get_group(group_id)
     results = []
     skipped_non_complaint = 0
     processed_entries = 0
@@ -1593,9 +1610,36 @@ def _run_whatsapp_batch_import(
             sync_after_success=False,
             defer_sheet_sync=True,
         )
+        if result.get('status') == 'duplicate':
+            existing_case, duplicate_hash = duplicate_case_for_message(
+                sender=entry.get('sender') or sender,
+                content=content,
+                received_at=entry.get('received_at') or received_at,
+            )
+            if existing_case:
+                repair_result = repair_case_sheet_sync(existing_case, group_config=group_config)
+                result.update({
+                    'status': 'existing_matched',
+                    'duplicate_reason': 'message_hash',
+                    'message_hash': duplicate_hash,
+                    'message_id': existing_case.message_id,
+                    'parsed_message_id': existing_case.pk,
+                    'sync_repair': repair_result,
+                })
+            else:
+                result.update({
+                    'duplicate_reason': 'message_hash',
+                    'message_hash': duplicate_hash,
+                    'sync_repair': {'status': 'missing_case', 'synced': False},
+                })
         results.append(result)
 
     saved_count = sum(1 for r in results if r.get('status') in {'success', 'partial'})
+    existing_count = sum(1 for r in results if r.get('status') == 'existing_matched')
+    sync_repairs = [r.get('sync_repair') or {} for r in results if r.get('status') == 'existing_matched']
+    already_synced = sum(1 for r in sync_repairs if r.get('status') == 'already_synced')
+    sync_retried = sum(1 for r in sync_repairs if r.get('status') == 'sync_retried')
+    sync_retry_failed = sum(1 for r in sync_repairs if r.get('status') == 'sync_failed')
     batch_sheet_append = _batch_append_case_results(
         results,
         group_id=group_id,
@@ -1619,6 +1663,12 @@ def _run_whatsapp_batch_import(
         'max_entries': max_entries,
         'success': sum(1 for r in results if r.get('status') == 'success'),
         'partial': sum(1 for r in results if r.get('status') == 'partial'),
+        'new_cases_created': saved_count,
+        'existing_cases_matched': existing_count,
+        'already_synchronized': already_synced,
+        'synchronization_retried': sync_retried + sync_retry_failed,
+        'synchronization_succeeded': sync_retried,
+        'synchronization_failed': sync_retry_failed,
         'review_needed': sum(
             1 for r in results
             if (r.get('captured_fields') or {}).get('Status') == 'Review Needed'
@@ -1715,12 +1765,12 @@ def _sync_case_sheet_for_batch(group_id: str, delete_missing: bool) -> dict:
         )
         return {
             'status': result.get('status', 'unknown'),
-            'row_count': result.get('row_count', 0),
+            'row_count': result.get('row_count'),
             'created_count': result.get('created_count', 0),
             'updated_count': result.get('updated_count', 0),
             'deleted_count': result.get('deleted_count', 0),
             'skipped_count': result.get('skipped_count', 0),
-            'backend_count': result.get('backend_count', 0),
+            'backend_count': result.get('backend_count'),
             'errors': (result.get('errors') or [])[:3],
         }
     except Exception as exc:
@@ -1732,12 +1782,12 @@ def _sync_case_sheet_for_batch(group_id: str, delete_missing: bool) -> dict:
         )
         return {
             'status': 'error',
-            'row_count': 0,
+            'row_count': None,
             'created_count': 0,
             'updated_count': 0,
             'deleted_count': 0,
             'skipped_count': 0,
-            'backend_count': 0,
+            'backend_count': None,
             'errors': [str(exc)],
         }
 
@@ -2528,9 +2578,16 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
             lines = [
                 'WhatsApp batch processed',
                 f"Export messages found: {result.get('export_messages', total)}",
-                f"Complaint entries processed: {total}",
-                f"Saved: {saved}",
+                f"Complaint entries identified: {total}",
+                f"New cases created: {result.get('new_cases_created', saved)}",
             ]
+            existing_matched = result.get('existing_cases_matched', 0)
+            if existing_matched:
+                lines.append(f"Existing cases matched: {existing_matched}")
+                lines.append(f"Already synchronized: {result.get('already_synchronized', 0)}")
+                lines.append(f"Synchronization retried: {result.get('synchronization_retried', 0)}")
+                lines.append(f"Synchronization succeeded: {result.get('synchronization_succeeded', 0)}")
+                lines.append(f"Synchronization failed: {result.get('synchronization_failed', 0)}")
             skipped = result.get('skipped_non_complaint', 0)
             if skipped:
                 lines.append(f"Skipped non-complaint chat messages: {skipped}")
@@ -2564,10 +2621,14 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
                 if not sync:
                     continue
                 status_text = sync.get('status', 'unknown')
+                row_count = sync.get('row_count')
+                backend_count = sync.get('backend_count')
+                row_text = 'not read' if row_count is None else str(row_count)
+                backend_text = 'not evaluated' if backend_count is None else str(backend_count)
                 lines.append(
                     f"{label}: {status_text} "
-                    f"({sync.get('row_count', 0)} sheet rows, "
-                    f"{sync.get('backend_count', 0)} backend cases)"
+                    f"({row_text} sheet rows, "
+                    f"{backend_text} backend cases)"
                 )
                 sync_errors = sync.get('errors') or []
                 if sync_errors:

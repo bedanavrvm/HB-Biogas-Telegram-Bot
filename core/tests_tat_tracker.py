@@ -1,4 +1,5 @@
 from unittest.mock import patch
+from decimal import Decimal
 
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -8,6 +9,8 @@ from core.api.views import _process_telegram_message
 from core.services.group_config import GroupRegistry
 from core.services.tat_tracker import (
     build_tat_tracker_url,
+    calculated_tat_days,
+    calculated_tat_hours,
     create_tat_start_param,
     decode_tat_start_param,
     product_by_key,
@@ -197,7 +200,7 @@ class TatTrackerWorkflowTest(TestCase):
         case.sync_error = ''
         case.save(update_fields=['row_number', 'sheet_name', 'sync_error', 'updated_at'])
 
-    def test_sync_case_to_sheet_does_not_write_tat_formula_columns(self):
+    def test_sync_case_to_sheet_writes_django_calculated_tat_values(self):
         class FakeSheet:
             def __init__(self):
                 self.updates = []
@@ -228,7 +231,10 @@ class TatTrackerWorkflowTest(TestCase):
             branch='Nakuru',
             bro_name='BRO User',
             amount='10000',
-            stage_values={'created': timezone.now().isoformat()},
+            stage_values={
+                'created': timezone.make_aware(timezone.datetime(2026, 7, 14, 8, 0)).isoformat(),
+                'disbursement': timezone.make_aware(timezone.datetime(2026, 7, 15, 14, 0)).isoformat(),
+            },
             status='Active',
         )
 
@@ -237,9 +243,24 @@ class TatTrackerWorkflowTest(TestCase):
              patch('core.services.tat_tracker.sync_audit_log'):
             sync_case_to_sheet(self.config, case)
 
-        self.assertEqual(sheet.updates[0][0], 'A5:R5')
-        self.assertEqual(len(sheet.updates[0][1][0]), 18)
+        self.assertEqual(sheet.updates[0][0], 'A5:T5')
+        self.assertEqual(len(sheet.updates[0][1][0]), 20)
+        self.assertEqual(sheet.updates[0][1][0][18], 30.0)
+        self.assertEqual(sheet.updates[0][1][0][19], 1.25)
         self.assertFalse(any(str(value).startswith('=IF(') for value in sheet.updates[0][1][0]))
+
+    def test_calculated_tat_values_use_aware_datetimes_and_ongoing_now(self):
+        case = TatTrackerCase(
+            group_id=self.config.group_id,
+            case_id='JBL-SME-2026-002',
+            product_key='sme',
+            client_name='Ongoing Client',
+            stage_values={'created': timezone.make_aware(timezone.datetime(2026, 7, 14, 8, 0)).isoformat()},
+        )
+        now = timezone.make_aware(timezone.datetime(2026, 7, 14, 20, 0))
+
+        self.assertEqual(calculated_tat_hours(case, now=now), Decimal('12.00'))
+        self.assertEqual(calculated_tat_days(case, now=now), Decimal('0.50'))
 
     @patch('core.services.tat_tracker.sync_case_to_sheet')
     def test_create_case_assigns_sequential_case_id(self, sync_mock):

@@ -394,6 +394,8 @@ class SpinCreditRequest(models.Model):
     sheet_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
     sheet_name = models.CharField(max_length=255, blank=True, default='')
     row_number = models.PositiveIntegerField(null=True, blank=True)
+    public_sequence_year = models.PositiveIntegerField(null=True, blank=True, db_index=True)
+    public_sequence_number = models.PositiveIntegerField(null=True, blank=True, db_index=True)
 
     telegram_message_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
     source_message_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
@@ -429,6 +431,7 @@ class SpinCreditRequest(models.Model):
         ordering = ['-request_datetime', '-created_at']
         indexes = [
             models.Index(fields=['group_id', 'request_datetime']),
+            models.Index(fields=['group_id', 'public_sequence_year', 'public_sequence_number']),
             models.Index(fields=['group_id', 'national_id', 'primary_phone']),
             models.Index(fields=['group_id', 'import_status']),
             models.Index(fields=['source_message_hash']),
@@ -438,12 +441,36 @@ class SpinCreditRequest(models.Model):
                 fields=['group_id', 'source_message_hash'],
                 name='unique_spin_request_source_per_group',
             ),
+            models.UniqueConstraint(
+                fields=['group_id', 'public_sequence_year', 'public_sequence_number'],
+                condition=models.Q(public_sequence_number__isnull=False),
+                name='unique_spin_public_sequence_per_group_year',
+            ),
         ]
         verbose_name = 'SPIN / CRB request'
         verbose_name_plural = 'SPIN / CRB requests'
 
     def __str__(self):
         return f"{self.get_request_type_display()} {self.customer_name or self.national_id or self.primary_phone}".strip()
+
+
+class SpinRequestSequence(models.Model):
+    """Durable per-group/year sequence for staff-facing SPIN references."""
+
+    group_id = models.CharField(max_length=100, db_index=True)
+    year = models.PositiveIntegerField(db_index=True)
+    next_number = models.PositiveIntegerField(default=1)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['group_id', 'year'], name='unique_spin_sequence_group_year'),
+        ]
+        verbose_name = 'SPIN request sequence'
+        verbose_name_plural = 'SPIN request sequences'
+
+    def __str__(self):
+        return f"{self.group_id} {self.year}: next {self.next_number}"
 
 class TatTrackerCase(models.Model):
     """Django-owned TAT tracker case mirrored to the live Google workbook."""

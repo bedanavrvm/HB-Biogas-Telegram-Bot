@@ -22,6 +22,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from core.models import TatTrackerCase, TatTrackerEvent
+from core.services.branches import DEFAULT_WORKFLOW_BRANCHES, workflow_branches as configured_workflow_branches
 from core.services.sheets import get_sheets_service
 
 logger = logging.getLogger(__name__)
@@ -29,7 +30,7 @@ logger = logging.getLogger(__name__)
 TAT_TRACKER_WORKFLOW_TYPE = 'tat_tracker'
 TAT_FORM_TOKEN_SALT = 'tat-tracker-mini-app'
 
-BRANCHES = ['Biogas Unit', 'Embu', 'Nakuru', 'West Nairobi']
+BRANCHES = DEFAULT_WORKFLOW_BRANCHES
 DECISION_OPTIONS = ['Approved', 'Rejected', 'Deferred']
 SANCTIONS_OPTIONS = ['Pending', 'Met', 'Not Met']
 REGISTER_OPTIONS = ['10:00am', '1:00pm', '3:30pm']
@@ -69,8 +70,8 @@ BASE_STAGES_OTHER = (
     StageConfig('ca_analysis_sent', 'Credit analysis sent', 9, 'CA'),
     StageConfig('bro_response', 'BRO response to CA', 10, 'BRO'),
     StageConfig('bm_tat_request', 'BM TAT request sent', 11, 'BM'),
-    StageConfig('tat_scheduled', 'TAT scheduled', 12, 'SECRETARY'),
-    StageConfig('tat_held', 'TAT held', 13, 'SECRETARY'),
+    StageConfig('tat_scheduled', 'HOCC scheduled', 12, 'SECRETARY'),
+    StageConfig('tat_held', 'HOCC held', 13, 'SECRETARY'),
     StageConfig('decision', 'Decision', 14, 'CHAIR', 'dropdown', tuple(DECISION_OPTIONS), 'decision_ts'),
     StageConfig('minutes_shared', 'Minutes shared', 16, 'SECRETARY'),
     StageConfig('sanctions', 'Sanctions', 17, 'LOAN_APPROVER', 'dropdown', tuple(SANCTIONS_OPTIONS), 'sanctions_ts'),
@@ -87,8 +88,8 @@ BASE_STAGES_LOGBOOK = (
     StageConfig('bro_response', 'BRO response to CA', 10, 'BRO'),
     StageConfig('valuation_ready', 'Valuation ready', 11, 'BM'),
     StageConfig('bm_tat_request', 'BM TAT request sent', 12, 'BM'),
-    StageConfig('tat_scheduled', 'TAT scheduled', 13, 'SECRETARY'),
-    StageConfig('tat_held', 'TAT held', 14, 'SECRETARY'),
+    StageConfig('tat_scheduled', 'HOCC scheduled', 13, 'SECRETARY'),
+    StageConfig('tat_held', 'HOCC held', 14, 'SECRETARY'),
     StageConfig('decision', 'Decision', 15, 'CHAIR', 'dropdown', tuple(DECISION_OPTIONS), 'decision_ts'),
     StageConfig('minutes_shared', 'Minutes shared', 17, 'SECRETARY'),
     StageConfig('sanctions', 'Sanctions', 18, 'LOAN_APPROVER', 'dropdown', tuple(SANCTIONS_OPTIONS), 'sanctions_ts'),
@@ -131,12 +132,7 @@ def configured_products(workflow: dict | None = None) -> list[ProductConfig]:
 
 
 def workflow_branches(workflow: dict | None = None) -> list[str]:
-    workflow = workflow or {}
-    branches = [str(item).strip() for item in (workflow.get('branches') or []) if str(item).strip()]
-    old_default = {'Corporate', 'Thika Road', 'East Nairobi', 'West Nairobi', 'Nakuru', 'Embu', 'Limuru'}
-    if not branches or set(branches).issubset(old_default):
-        return list(BRANCHES)
-    return branches
+    return configured_workflow_branches(workflow, default=list(BRANCHES), replace_stale_defaults=True)
 
 
 def create_tat_form_token(group_id: str) -> str:
@@ -435,10 +431,9 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
     try:
         row = case.row_number or next_sheet_row(sheet)
         values = sheet.row_values(row)
-        # TAT Hours / TAT Days are formula-owned sheet columns. Do not write
-        # them from Django, because stale sheet validations can flag formulas
-        # as invalid manual values. The Apps Script refreshes these formulas.
-        width = product.tat_start_col - 1
+        # TAT Hours / TAT Days are Django-calculated display columns. Keeping
+        # them out of sheet formulas avoids delayed spreadsheet recalculation.
+        width = product.tat_start_col + 1
         row_data = [''] * width
         for idx, value in enumerate(values[:width], start=1):
             row_data[idx - 1] = value
@@ -457,6 +452,10 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
                     row_data[col - 1] = sheet_datetime(case.stage_values.get(stage.auto_timestamp_key))
         row_data[product.status_col - 1] = case.status
         row_data[product.remarks_col - 1] = case.remarks
+        tat_hours = calculated_tat_hours(case)
+        tat_days = calculated_tat_days(case) if tat_hours is not None else None
+        row_data[product.tat_start_col - 1] = float(tat_hours) if tat_hours is not None else ''
+        row_data[product.tat_start_col] = float(tat_days) if tat_days is not None else ''
         sheet.update(f'A{row}:{column_letter(width)}{row}', [row_data], value_input_option='USER_ENTERED')
         case.row_number = row
         case.sheet_name = product.sheet_name
@@ -510,6 +509,23 @@ def sync_audit_log(group_config, case: TatTrackerCase) -> None:
         start = existing_count + 1
         sheet.update(f'A{start}:I{start + len(rows) - 1}', rows, value_input_option='USER_ENTERED')
         TatTrackerEvent.objects.filter(id__in=[event.id for event in unsynced]).update(synced_to_sheet=True, synced_at=timezone.now(), sync_error='')
+
+
+def calculated_tat_hours(case: TatTrackerCase, now=None) -> Decimal | None:
+    created = parse_iso_datetime((case.stage_values or {}).get('created'))
+    if not created:
+        return None
+    end = parse_iso_datetime((case.stage_values or {}).get('disbursement')) or now or timezone.now()
+    delta = end - created
+    seconds = max(Decimal(str(delta.total_seconds())), Decimal('0'))
+    return (seconds / Decimal('3600')).quantize(Decimal('0.01'))
+
+
+def calculated_tat_days(case: TatTrackerCase, now=None) -> Decimal | None:
+    hours = calculated_tat_hours(case, now=now)
+    if hours is None:
+        return None
+    return (hours / Decimal('24')).quantize(Decimal('0.01'))
 
 
 def resolve_case_sheet_row(sheet, case: TatTrackerCase) -> int:
@@ -572,7 +588,10 @@ def can_user_edit_stage(user: dict, case: TatTrackerCase, stage: StageConfig) ->
 
 def serialize_case_summary(case: TatTrackerCase, user: dict | None = None, next_stage: StageConfig | None = None) -> dict:
     next_stage = next_stage or next_action(case)
-    return {'case_id': case.case_id, 'product': case.product_label or product_by_key(case.product_key).label, 'product_key': case.product_key, 'client_name': case.client_name, 'branch': case.branch, 'bro_name': case.bro_name, 'amount': str(case.amount or ''), 'status': case.status, 'current_stage': case.current_stage, 'next_stage': next_stage.label if next_stage else '', 'next_stage_key': next_stage.key if next_stage else '', 'updated_at': format_datetime(case.updated_at), 'created_at': format_datetime(case.created_at)}
+    product = product_by_key(case.product_key)
+    tat_hours = calculated_tat_hours(case)
+    tat_days = calculated_tat_days(case) if tat_hours is not None else None
+    return {'case_id': case.case_id, 'product': case.product_label or product.label, 'product_key': case.product_key, 'client_name': case.client_name, 'branch': case.branch, 'bro_name': case.bro_name, 'amount': str(case.amount or ''), 'status': case.status, 'current_stage': case.current_stage, 'next_stage': next_stage.label if next_stage else '', 'next_stage_key': next_stage.key if next_stage else '', 'tat_hours': str(tat_hours) if tat_hours is not None else '', 'tat_days': str(tat_days) if tat_days is not None else '', 'updated_at': format_datetime(case.updated_at), 'created_at': format_datetime(case.created_at)}
 
 
 def serialize_case_detail(case: TatTrackerCase, user: dict) -> dict:

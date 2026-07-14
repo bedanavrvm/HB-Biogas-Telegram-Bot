@@ -2588,6 +2588,80 @@ class StorageServiceTest(TestCase):
         self.assertEqual(getattr(parsed, '_processing_status'), 'success')
         mock_sheet.assert_not_called()
 
+    @patch('core.services.storage.append_parsed_message_to_sheet')
+    def test_duplicate_case_with_failed_sync_can_be_repaired(self, mock_sheet):
+        """A duplicate import should be able to retry sync for the existing case."""
+        from core.services.storage import duplicate_case_for_message, repair_case_sheet_sync
+
+        mock_sheet.return_value = True
+        received_at = timezone.now()
+        content = (
+            'CUSTOMER COMPLAINT\n'
+            'NAME: Jane Doe\n'
+            'TEL: 0712345678\n'
+            'ID: 12345678\n'
+            'NATURE OF THE PROBLEM: No gas supply'
+        )
+        parsed = process_and_store_message(
+            telegram_message_id='failed_sync_case',
+            content=content,
+            sender='Agent',
+            received_at=received_at,
+            group_id='-100123',
+            sheet_id='sheet_123',
+            sheet_name='Complaints Register',
+            defer_sheet_sync=True,
+        )
+        self.assertFalse(parsed.synced_to_sheets)
+
+        existing, reason_hash = duplicate_case_for_message('Agent', content, received_at)
+
+        self.assertEqual(existing.pk, parsed.pk)
+        self.assertTrue(reason_hash)
+
+        result = repair_case_sheet_sync(existing)
+        existing.refresh_from_db()
+
+        self.assertEqual(result['status'], 'sync_retried')
+        self.assertTrue(existing.synced_to_sheets)
+        self.assertEqual(existing.last_sync_error, '')
+
+    @patch('core.services.storage.append_parsed_message_to_sheet')
+    @patch('core.services.sheets.get_sheets_service')
+    def test_synced_duplicate_with_missing_sheet_row_is_recreated(self, mock_service_factory, mock_sheet):
+        """A stale synced flag should not prevent recreating a missing sheet row."""
+        from core.services.storage import repair_case_sheet_sync
+
+        parsed = ParsedMessage.objects.create(
+            processed_message=ProcessedMessage.objects.create(
+                raw_message=RawMessage.objects.create(
+                    telegram_message_id='raw_missing_row',
+                    sender='Agent',
+                    content='CUSTOMER COMPLAINT NAME Jane Doe',
+                    received_at=timezone.now(),
+                ),
+                message_hash='missing-row-hash',
+                status='success',
+            ),
+            message_id='MSG_MISSING_ROW',
+            raw_message='CUSTOMER COMPLAINT NAME Jane Doe',
+            group_id='-100123',
+            sheet_id='sheet_123',
+            sheet_name='Complaints Register',
+            synced_to_sheets=True,
+            synced_at=timezone.now(),
+        )
+        service = MagicMock()
+        service.is_available.return_value = True
+        service._message_exists.return_value = False
+        mock_service_factory.return_value = service
+        mock_sheet.return_value = True
+
+        result = repair_case_sheet_sync(parsed)
+
+        self.assertEqual(result['status'], 'sync_retried')
+        mock_sheet.assert_called_once()
+
     @patch('core.services.sheets.append_parsed_message_to_sheet')
     def test_process_and_store_missing_id_sets_review_needed_status(self, mock_sheet):
         """Phone-only complaints should be saved for manual ID review."""

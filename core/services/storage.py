@@ -337,6 +337,100 @@ def get_unsynced_messages(limit: int = 100, max_attempts: int = 5) -> list:
     )
 
 
+def existing_parsed_message_for_hash(message_hash: str):
+    """Return the parsed complaint previously created for a dedupe hash."""
+    from core.models import ProcessedMessage
+
+    processed = (
+        ProcessedMessage.objects
+        .filter(message_hash=message_hash)
+        .exclude(status='failed')
+        .prefetch_related('parsed_records')
+        .first()
+    )
+    if not processed:
+        return None
+    return processed.parsed_records.order_by('created_at').first()
+
+
+def duplicate_case_for_message(sender: str, content: str, received_at=None):
+    """Resolve an incoming complaint message to an existing parsed case, if any."""
+    msg_hash = generate_message_hash(
+        sender=sender,
+        content=content,
+        timestamp=str(received_at or timezone.now()),
+    )
+    return existing_parsed_message_for_hash(msg_hash), msg_hash
+
+
+def repair_case_sheet_sync(parsed_message, group_config=None) -> dict:
+    """
+    Idempotently retry Google Sheets sync for an existing complaint case.
+
+    The underlying sheet service checks for message_id before appending, so
+    this is safe for repeated duplicate imports and failed-sync retries.
+    """
+    if parsed_message is None:
+        return {'status': 'missing_case', 'synced': False, 'error': 'Existing case was not found.'}
+
+    if group_config is None and parsed_message.group_id:
+        from core.services.group_config import GroupRegistry
+
+        group_config = GroupRegistry.get_instance().get_group(parsed_message.group_id)
+
+    sheet_id = getattr(group_config, 'sheet_id', '') or parsed_message.sheet_id or ''
+    sheet_name = getattr(group_config, 'sheet_name', '') or parsed_message.sheet_name or ''
+    sheet_schema = getattr(group_config, 'sheet_schema_config', None) if group_config else None
+
+    if parsed_message.synced_to_sheets and not parsed_message.last_sync_error:
+        try:
+            from core.services.sheets import get_sheets_service
+
+            service = get_sheets_service(
+                sheet_id=sheet_id,
+                sheet_name=sheet_name,
+                sheet_schema=sheet_schema,
+            )
+            if service.is_available() and service._message_exists(parsed_message.message_id):
+                return {'status': 'already_synced', 'synced': True, 'message_id': parsed_message.message_id}
+        except Exception as exc:
+            logger.warning(
+                "Could not verify existing sheet row for %s before repair: %s",
+                parsed_message.message_id,
+                exc,
+                exc_info=True,
+            )
+
+    try:
+        success = append_parsed_message_to_sheet(
+            parsed_message,
+            sheet_id=sheet_id,
+            sheet_name=sheet_name,
+            sheet_schema=sheet_schema,
+        )
+    except Exception as exc:
+        parsed_message.sync_attempts += 1
+        parsed_message.last_sync_error = str(exc)
+        parsed_message.save(update_fields=['sync_attempts', 'last_sync_error'])
+        logger.error(
+            "Repair sync failed for duplicate case %s: %s",
+            parsed_message.message_id,
+            exc,
+            exc_info=True,
+        )
+        return {'status': 'sync_failed', 'synced': False, 'message_id': parsed_message.message_id, 'error': str(exc)}
+
+    parsed_message.refresh_from_db(fields=['synced_to_sheets', 'synced_at', 'sync_attempts', 'last_sync_error', 'sheet_id', 'sheet_name'])
+    if success:
+        return {'status': 'sync_retried', 'synced': True, 'message_id': parsed_message.message_id}
+    return {
+        'status': 'sync_failed',
+        'synced': False,
+        'message_id': parsed_message.message_id,
+        'error': parsed_message.last_sync_error or 'Google Sheets sync failed',
+    }
+
+
 def bulk_resync_to_sheets(limit: int = 100, max_attempts: int = 5) -> dict:
     """
     Resync failed/unsynced messages to Google Sheets.

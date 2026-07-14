@@ -16,10 +16,11 @@ from typing import Any
 
 from django.conf import settings
 from django.core import signing
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from core.models import GroupSheetConfiguration, SpinCreditRequest
+from core.models import GroupSheetConfiguration, SpinCreditRequest, SpinRequestSequence
+from core.services.branches import validate_workflow_branch, workflow_branches, workflow_default_branch
 from core.services.parser import analyze_whatsapp_export
 from core.services.sheets import get_sheets_service
 
@@ -66,6 +67,13 @@ DEFAULT_FIELD_HEADERS = {
 }
 
 OPTIONAL_SHEET_FIELDS = {'analysis_status', 'analyst_response', 'attachment_names', 'credit_analyst_name'}
+SPIN_ANALYSIS_STATUS_COLOURS = {
+    'completed': '#d9ead3',
+    'pending': '#fff2cc',
+    'in progress': '#cfe2f3',
+    'failed': '#f4cccc',
+    'rejected': '#ead1dc',
+}
 
 REQUEST_TYPE_LABELS = {
     'spin_crb': 'SPIN/CRB',
@@ -651,35 +659,50 @@ def parsed_fields(parsed: ParsedSpinRequest) -> dict[str, Any]:
 
 
 def save_spin_request(group_config, parsed: ParsedSpinRequest, telegram_message_id: str, import_status: str) -> SpinCreditRequest:
-    return SpinCreditRequest.objects.create(
-        group_id=group_config.group_id,
-        sheet_id=getattr(group_config, 'sheet_id', '') or '',
-        sheet_name=getattr(group_config, 'sheet_name', '') or '',
-        telegram_message_id=telegram_message_id,
-        source_message_hash=parsed.source_message_hash,
-        source_chat=getattr(group_config, 'display_name', '') or '',
-        source_filename=parsed.source_filename,
-        source_message_index=parsed.source_message_index,
-        request_datetime=parsed.request_datetime,
-        requested_by=parsed.requested_by,
-        request_type=parsed.request_type,
-        customer_name=parsed.customer_name,
-        national_id=parsed.national_id,
-        raw_id_text=parsed.raw_id_text,
-        primary_phone=parsed.primary_phone,
-        secondary_phone=parsed.secondary_phone,
-        customer_type=parsed.customer_type,
-        loan_product=parsed.loan_product,
-        requested_amount=parsed.requested_amount,
-        tenor=parsed.tenor,
-        business_notes=parsed.business_notes,
-        code=parsed.code,
-        attachment_names=parsed.attachment_names,
-        raw_message=parsed.raw_message,
-        parsed_fields=parsed.parsed_fields,
-        missing_fields=parsed.missing_fields,
-        import_status=import_status,
-    )
+    request_dt = parsed.request_datetime or timezone.now()
+    year = timezone.localtime(request_dt).year if timezone.is_aware(request_dt) else request_dt.year
+    parsed_fields_value = dict(parsed.parsed_fields or {})
+    parsed_fields_value['branch'] = parsed_fields_value.get('branch') or spin_default_branch(group_config)
+    with transaction.atomic():
+        sequence, _ = SpinRequestSequence.objects.select_for_update().get_or_create(
+            group_id=str(group_config.group_id),
+            year=year,
+            defaults={'next_number': 1},
+        )
+        number = sequence.next_number
+        sequence.next_number = number + 1
+        sequence.save(update_fields=['next_number', 'updated_at'])
+        return SpinCreditRequest.objects.create(
+            group_id=group_config.group_id,
+            sheet_id=getattr(group_config, 'sheet_id', '') or '',
+            sheet_name=getattr(group_config, 'sheet_name', '') or '',
+            public_sequence_year=year,
+            public_sequence_number=number,
+            telegram_message_id=telegram_message_id,
+            source_message_hash=parsed.source_message_hash,
+            source_chat=getattr(group_config, 'display_name', '') or '',
+            source_filename=parsed.source_filename,
+            source_message_index=parsed.source_message_index,
+            request_datetime=parsed.request_datetime,
+            requested_by=parsed.requested_by,
+            request_type=parsed.request_type,
+            customer_name=parsed.customer_name,
+            national_id=parsed.national_id,
+            raw_id_text=parsed.raw_id_text,
+            primary_phone=parsed.primary_phone,
+            secondary_phone=parsed.secondary_phone,
+            customer_type=parsed.customer_type,
+            loan_product=parsed.loan_product,
+            requested_amount=parsed.requested_amount,
+            tenor=parsed.tenor,
+            business_notes=parsed.business_notes,
+            code=parsed.code,
+            attachment_names=parsed.attachment_names,
+            raw_message=parsed.raw_message,
+            parsed_fields=parsed_fields_value,
+            missing_fields=parsed.missing_fields,
+            import_status=import_status,
+        )
 
 
 def append_spin_requests_to_sheet(group_config, records: list[SpinCreditRequest], sheet_name: str | None = None) -> dict[str, Any]:
@@ -723,6 +746,7 @@ def append_spin_requests_to_sheet(group_config, records: list[SpinCreditRequest]
         else:
             responses = [service._sheet.append_row(row, value_input_option='USER_ENTERED') for row in rows]
             response = responses[0] if responses else {}
+        apply_spin_sheet_formatting(service, headers, field_headers)
         return {'success': True, 'row_numbers': row_numbers_from_append_response(response, len(rows)), 'sheet_name': target_sheet_name}
     except Exception as exc:
         logger.error('Failed to append SPIN request rows: %s', exc, exc_info=True)
@@ -730,11 +754,12 @@ def append_spin_requests_to_sheet(group_config, records: list[SpinCreditRequest]
 
 
 def sheet_values_for(record: SpinCreditRequest) -> dict[str, Any]:
+    parsed = record.parsed_fields or {}
     return {
         'request_id': spin_request_id(record),
         'request_datetime': format_sheet_datetime(record.request_datetime),
         'request_month': format_sheet_month(record.request_datetime),
-        'branch': record.source_chat,
+        'branch': parsed.get('branch') or record.source_chat,
         'requested_by': record.requested_by,
         'credit_analyst_name': (record.parsed_fields or {}).get('credit_analyst_name', ''),
         'request_type': REQUEST_TYPE_LABELS.get(record.request_type, record.request_type),
@@ -748,24 +773,138 @@ def sheet_values_for(record: SpinCreditRequest) -> dict[str, Any]:
         'requested_amount': float(record.requested_amount) if record.requested_amount is not None else '',
         'tenor': record.tenor,
         'business_notes': record.business_notes,
-        'code': record.code,
+        'code': sheet_text(record.code),
         'attachment_names': '\n'.join(record.attachment_names or []),
-        'media_urls': (record.parsed_fields or {}).get('media_urls', ''),
+        'media_urls': sheet_media_urls(parsed.get('media_urls', '')),
         'raw_message': record.raw_message,
         'source_chat': record.source_chat,
         'source_filename': record.source_filename,
         'source_message_hash': record.source_message_hash,
         'parse_status': record.import_status.replace('_', ' ').title(),
         'missing_fields': ', '.join(record.missing_fields or []),
-        'analysis_status': (record.parsed_fields or {}).get('analysis_status', ''),
-        'analyst_response': (record.parsed_fields or {}).get('analyst_response', ''),
+        'analysis_status': parsed.get('analysis_status', ''),
+        'analyst_response': parsed.get('analyst_response', ''),
     }
 
 
 def spin_request_id(record: SpinCreditRequest) -> str:
+    if record.public_sequence_year and record.public_sequence_number:
+        return f"SPIN-{record.public_sequence_year}-{record.public_sequence_number:04d}"
     if record.pk:
         return f"SPIN-{str(record.pk).split('-')[0].upper()}"
     return 'SPIN'
+
+
+def sheet_text(value: Any) -> str:
+    text = str(value or '').strip()
+    return f"'{text}" if text else ''
+
+
+def sheet_media_urls(value: Any) -> str:
+    if isinstance(value, (list, tuple)):
+        urls = [str(item or '').strip() for item in value]
+    else:
+        urls = [str(item or '').strip() for item in str(value or '').replace(',', '\n').splitlines()]
+    return '\n'.join(url for url in urls if url)
+
+
+def apply_spin_sheet_formatting(service, headers: list[str], field_headers: dict[str, str]) -> None:
+    sheet = service._sheet
+    try:
+        code_header = field_headers.get('code')
+        if code_header in headers:
+            col = headers.index(code_header) + 1
+            if hasattr(sheet, 'format'):
+                sheet.format(f'{column_letter(col)}:{column_letter(col)}', {'numberFormat': {'type': 'TEXT'}})
+        analysis_header = field_headers.get('analysis_status')
+        if analysis_header in headers:
+            apply_analysis_status_conditional_formatting(service, headers.index(analysis_header) + 1, len(headers))
+    except Exception as exc:
+        logger.warning('Failed to apply SPIN sheet formatting: %s', exc, exc_info=True)
+
+
+def apply_analysis_status_conditional_formatting(service, status_col: int, width: int) -> None:
+    sheet = service._sheet
+    api = getattr(service, '_sheets_api_service', None)
+    if api and getattr(service, '_api_initialized', False) is True and isinstance(getattr(sheet, 'id', None), int):
+        requests = []
+        for status, colour in SPIN_ANALYSIS_STATUS_COLOURS.items():
+            requests.append({
+                'addConditionalFormatRule': {
+                    'rule': {
+                        'ranges': [{
+                            'sheetId': sheet.id,
+                            'startRowIndex': 1,
+                            'startColumnIndex': 0,
+                            'endColumnIndex': width,
+                        }],
+                        'booleanRule': {
+                            'condition': {
+                                'type': 'CUSTOM_FORMULA',
+                                'values': [{'userEnteredValue': f'=LOWER(${column_letter(status_col)}2)="{status}"'}],
+                            },
+                            'format': {'backgroundColor': hex_to_rgb(status_colours_to_hex(status))},
+                        },
+                    },
+                    'index': 0,
+                },
+            })
+        api.spreadsheets().batchUpdate(
+            spreadsheetId=getattr(service, '_sheet_id', ''),
+            body={'requests': requests},
+        ).execute()
+        return
+    if not hasattr(sheet, 'conditional_format'):
+        return
+    status_letter = column_letter(status_col)
+    row_range = f'A2:{column_letter(width)}'
+    for status, colour in SPIN_ANALYSIS_STATUS_COLOURS.items():
+        sheet.conditional_format(
+            row_range,
+            {
+                'type': 'CUSTOM_FORMULA',
+                'formula': [f'=LOWER(${status_letter}2)="{status}"'],
+                'format': {'backgroundColor': hex_to_rgb(colour)},
+            },
+        )
+
+
+def status_colours_to_hex(status: str) -> str:
+    return SPIN_ANALYSIS_STATUS_COLOURS.get(status, '#ffffff')
+
+
+def hex_to_rgb(value: str) -> dict[str, float]:
+    text = value.strip().lstrip('#')
+    return {
+        'red': int(text[0:2], 16) / 255,
+        'green': int(text[2:4], 16) / 255,
+        'blue': int(text[4:6], 16) / 255,
+    }
+
+
+def spin_branch_choices(group_config) -> list[str]:
+    workflow = getattr(group_config, 'workflow', None) or {}
+    return workflow_branches(workflow, default=[])
+
+
+def spin_default_branch(group_config) -> str:
+    workflow = getattr(group_config, 'workflow', None) or {}
+    return workflow_default_branch(workflow, fallback=getattr(group_config, 'display_name', '') or '')
+
+
+def validate_spin_branch(group_config, branch: str) -> str:
+    workflow = getattr(group_config, 'workflow', None) or {}
+    if not workflow_branches(workflow, default=[]):
+        return str(branch or spin_default_branch(group_config)).strip()
+    return validate_workflow_branch(branch, workflow)
+
+
+def column_letter(index: int) -> str:
+    result = ''
+    while index:
+        index, remainder = divmod(index - 1, 26)
+        result = chr(65 + remainder) + result
+    return result or 'A'
 
 
 def configured_field_headers(workflow: dict) -> dict[str, str]:
@@ -954,6 +1093,11 @@ def process_spin_form_submission(
     uploaded_files: list | None = None,
 ) -> dict[str, Any]:
     cleaned, errors = validate_spin_form_fields(fields)
+    if not errors:
+        try:
+            cleaned['branch'] = validate_spin_branch(group_config, cleaned.get('branch', ''))
+        except ValueError as exc:
+            errors.append(str(exc))
     if errors:
         return {
             'success': False,
@@ -1017,6 +1161,7 @@ def process_spin_form_submission(
     )
     parsed.missing_fields = missing_fields_for(parsed)
     parsed.parsed_fields = parsed_fields(parsed)
+    parsed.parsed_fields['branch'] = cleaned.get('branch', '')
     if media_links:
         parsed.parsed_fields['media_urls'] = '\n'.join(media_links)
 
@@ -1125,6 +1270,7 @@ def validate_spin_form_fields(fields: dict[str, Any]) -> tuple[dict[str, Any], l
         'secondary_phone': secondary_phone,
         'customer_type': customer_type,
         'loan_product': data.get('loan_product', '').strip().title(),
+        'branch': data.get('branch', ''),
         'requested_amount': amount,
         'tenor': tenor,
         'business_notes': data.get('business_notes', '')[:1000],
