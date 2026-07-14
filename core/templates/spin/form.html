@@ -251,9 +251,87 @@
   </div>
 </div>
 
+<!-- Review Correction Modal -->
+<div id="reviewModal" class="modal-overlay hidden" hidden>
+  <div class="modal-card">
+    <header class="modal-header">
+      <h3>Review Request</h3>
+      <button type="button" id="closeReviewModalBtn" class="close-modal-btn">
+        <i data-lucide="x"></i>
+      </button>
+    </header>
+    <form id="reviewForm">
+      <input type="hidden" id="reviewRequestId" name="request_id">
+      <div class="modal-body grid-2">
+        <label class="field wide">
+          <span>Request Type</span>
+          <select name="request_type">
+            <option value="spin_crb">SPIN/CRB</option>
+            <option value="spin">SPIN</option>
+            <option value="crb">CRB</option>
+          </select>
+        </label>
+        <label class="field wide" id="reviewBranchField" hidden>
+          <span>Branch</span>
+          <select name="branch" id="reviewBranchSelect"></select>
+        </label>
+        <label class="field wide">
+          <span>Customer Name</span>
+          <input name="customer_name" autocomplete="name">
+        </label>
+        <label class="field">
+          <span>National ID</span>
+          <input name="national_id" inputmode="numeric">
+        </label>
+        <label class="field">
+          <span>Primary Phone</span>
+          <input name="primary_phone" type="tel" inputmode="tel">
+        </label>
+        <label class="field">
+          <span>Requested Amount</span>
+          <input name="requested_amount" inputmode="decimal">
+        </label>
+        <label class="field">
+          <span>Tenor</span>
+          <input name="tenor">
+        </label>
+        <label class="field">
+          <span>Customer Type</span>
+          <select name="customer_type">
+            <option value="">Not specified</option>
+            <option value="New">New</option>
+            <option value="Existing">Existing</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Secondary Phone</span>
+          <input name="secondary_phone" type="tel" inputmode="tel">
+        </label>
+        <label class="field">
+          <span>Loan Product</span>
+          <input name="loan_product">
+        </label>
+        <label class="field">
+          <span>MPESA Statement Code</span>
+          <input name="code">
+        </label>
+        <label class="field wide">
+          <span>Business / Employment Notes</span>
+          <textarea name="business_notes" rows="3"></textarea>
+        </label>
+        <div id="reviewModalBanner" class="status-banner error wide" role="alert" aria-live="assertive" hidden></div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" id="cancelReviewModalBtn" class="secondary">Cancel</button>
+        <button type="submit" id="submitReviewBtn" class="primary">Save Review</button>
+      </footer>
+    </form>
+  </div>
+</div>
+
 <script id="spin-form-data" type="application/json">{{ form_json|safe }}</script>
 <script src="{% static 'miniapp/telegram.js' %}"></script>
-<script src="{% static 'miniapp/spin_form.js' %}?v=101"></script>
+<script src="{% static 'miniapp/spin_form.js' %}?v=102"></script>
 </body>
 </html>
 

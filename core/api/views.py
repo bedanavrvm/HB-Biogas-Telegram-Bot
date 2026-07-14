@@ -652,7 +652,7 @@ def spin_form(request):
     branch_choices = []
     default_branch = ''
     if group_id:
-        group_config = GroupRegistry.get().get_group(group_id)
+        group_config = GroupRegistry.get_instance().get_group(group_id)
         if group_config and is_spin_workflow(group_config):
             branch_choices = spin_branch_choices(group_config)
             default_branch = spin_default_branch(group_config)
@@ -902,6 +902,42 @@ def spin_form_complete(request):
         'credit_analysis_report_url': analysis_url,
         'sheet_synced': sheet_synced
     })
+
+
+@csrf_exempt
+@require_http_methods(["POST", "PATCH"])
+def spin_form_review_update(request):
+    """Apply corrections for a SPIN/CRB request that needs import review."""
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'message': 'Invalid request body.'}, status=400)
+
+    group_id, group_config, _auth_payload, error_response = _spin_webapp_context(payload)
+    if error_response:
+        return error_response
+
+    request_id = str(payload.get('request_id') or '').strip()
+    if not request_id:
+        return JsonResponse({'success': False, 'message': 'Request ID is required.'}, status=400)
+
+    from core.models import SpinCreditRequest
+    from core.services.spin_credit import update_spin_review_request
+
+    try:
+        record = SpinCreditRequest.objects.get(id=request_id, group_id=group_id)
+    except (SpinCreditRequest.DoesNotExist, ValueError):
+        return JsonResponse({'success': False, 'message': 'Request not found.'}, status=404)
+
+    result = update_spin_review_request(
+        group_config=group_config,
+        record=record,
+        fields=payload.get('fields') or payload,
+    )
+    status = 200 if result.get('success') else 400
+    if result.get('status') == 'not_found':
+        status = 404
+    return JsonResponse(result, status=status)
 
 
 

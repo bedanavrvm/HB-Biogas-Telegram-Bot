@@ -67,6 +67,37 @@ DEFAULT_FIELD_HEADERS = {
 }
 
 OPTIONAL_SHEET_FIELDS = {'analysis_status', 'analyst_response', 'attachment_names', 'credit_analyst_name'}
+SPIN_REVIEW_EDITABLE_FIELDS = {
+    'request_type',
+    'branch',
+    'customer_name',
+    'national_id',
+    'primary_phone',
+    'secondary_phone',
+    'customer_type',
+    'loan_product',
+    'requested_amount',
+    'tenor',
+    'business_notes',
+    'code',
+}
+SPIN_REVIEW_SHEET_FIELDS = [
+    'branch',
+    'request_type',
+    'customer_name',
+    'national_id',
+    'raw_id_text',
+    'primary_phone',
+    'secondary_phone',
+    'customer_type',
+    'loan_product',
+    'requested_amount',
+    'tenor',
+    'business_notes',
+    'code',
+    'parse_status',
+    'missing_fields',
+]
 SPIN_ANALYSIS_STATUS_COLOURS = {
     'completed': '#d9ead3',
     'pending': '#fff2cc',
@@ -1382,6 +1413,203 @@ def process_spin_form_submission(
         'primary_phone': record.primary_phone,
         'files_stored': len(media_links),
         'media_urls': media_links,
+    }
+
+
+def spin_review_fields_for(record: SpinCreditRequest) -> dict[str, Any]:
+    parsed = record.parsed_fields or {}
+    return {
+        'request_type': record.request_type,
+        'branch': parsed.get('branch') or '',
+        'customer_name': record.customer_name,
+        'national_id': record.national_id,
+        'primary_phone': record.primary_phone,
+        'secondary_phone': record.secondary_phone,
+        'customer_type': record.customer_type,
+        'loan_product': record.loan_product,
+        'requested_amount': str(record.requested_amount or ''),
+        'tenor': record.tenor,
+        'business_notes': record.business_notes,
+        'code': record.code,
+    }
+
+
+def normalize_spin_review_fields(group_config, record: SpinCreditRequest, fields: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    merged = spin_review_fields_for(record)
+    incoming = fields or {}
+    for key in SPIN_REVIEW_EDITABLE_FIELDS:
+        if key in incoming:
+            merged[key] = incoming.get(key)
+
+    errors: list[str] = []
+    request_type = normalize_spin_request_type(str(merged.get('request_type') or ''))
+    if request_type not in SPIN_FORM_REQUEST_TYPES:
+        errors.append('Request Type must be SPIN/CRB, SPIN, or CRB.')
+
+    national_id = re.sub(r'\D', '', str(merged.get('national_id') or ''))
+    if national_id and not re.fullmatch(r'\d{7,8}', national_id):
+        errors.append('National ID must be 7 or 8 digits.')
+
+    primary_phone_source = str(merged.get('primary_phone') or '').strip()
+    primary_phone = normalize_phone(primary_phone_source) if primary_phone_source else ''
+    if primary_phone_source and not primary_phone:
+        errors.append('Primary Phone must be a valid Kenyan number, for example 254712345678.')
+
+    secondary_phone_source = str(merged.get('secondary_phone') or '').strip()
+    secondary_phone = normalize_phone(secondary_phone_source) if secondary_phone_source else ''
+    if secondary_phone_source and not secondary_phone:
+        errors.append('Secondary Phone must be a valid Kenyan number or left blank.')
+
+    amount_source = str(merged.get('requested_amount') or '').strip()
+    requested_amount = parse_amount(amount_source) if amount_source else None
+    if amount_source and (requested_amount is None or requested_amount <= Decimal('0')):
+        errors.append('Requested Amount must be a number greater than 0.')
+
+    customer_type = str(merged.get('customer_type') or '').strip().title()
+    if customer_type and customer_type not in {'New', 'Existing'}:
+        errors.append('Customer Type must be New, Existing, or blank.')
+
+    branch = str(merged.get('branch') or '').strip()
+    try:
+        branch = validate_spin_branch(group_config, branch) if branch else spin_default_branch(group_config)
+    except ValueError as exc:
+        errors.append(str(exc))
+
+    return {
+        'request_type': request_type,
+        'branch': branch,
+        'customer_name': clean_name(str(merged.get('customer_name') or '')),
+        'national_id': national_id,
+        'raw_id_text': national_id,
+        'primary_phone': primary_phone,
+        'secondary_phone': secondary_phone,
+        'customer_type': customer_type,
+        'loan_product': str(merged.get('loan_product') or '').strip().title(),
+        'requested_amount': requested_amount,
+        'tenor': re.sub(r'\s+', ' ', str(merged.get('tenor') or '')).strip(),
+        'business_notes': str(merged.get('business_notes') or '')[:1000],
+        'code': str(merged.get('code') or '')[:255],
+    }, errors
+
+
+def update_spin_review_request(group_config, record: SpinCreditRequest, fields: dict[str, Any]) -> dict[str, Any]:
+    if str(record.group_id) != str(group_config.group_id):
+        return {'success': False, 'status': 'not_found', 'message': 'Request not found.'}
+    if record.import_status == 'completed':
+        return {
+            'success': False,
+            'status': 'completed',
+            'message': 'Completed requests cannot be edited from the review workflow.',
+        }
+
+    cleaned, errors = normalize_spin_review_fields(group_config, record, fields)
+    if errors:
+        return {
+            'success': False,
+            'status': 'validation_error',
+            'message': 'Fix the highlighted fields and try again.',
+            'errors': errors,
+        }
+
+    parsed = ParsedSpinRequest(
+        request_type=cleaned['request_type'],
+        customer_name=cleaned['customer_name'],
+        national_id=cleaned['national_id'],
+        raw_id_text=cleaned['raw_id_text'],
+        primary_phone=cleaned['primary_phone'],
+        secondary_phone=cleaned['secondary_phone'],
+        customer_type=cleaned['customer_type'],
+        loan_product=cleaned['loan_product'],
+        requested_amount=cleaned['requested_amount'],
+        tenor=cleaned['tenor'],
+        business_notes=cleaned['business_notes'],
+        code=cleaned['code'],
+    )
+    missing_fields = missing_fields_for(parsed)
+
+    existing_parsed = dict(record.parsed_fields or {})
+    existing_parsed.update({
+        'request_type': cleaned['request_type'],
+        'branch': cleaned['branch'],
+        'customer_name': cleaned['customer_name'],
+        'national_id': cleaned['national_id'],
+        'raw_id_text': cleaned['raw_id_text'],
+        'primary_phone': cleaned['primary_phone'],
+        'secondary_phone': cleaned['secondary_phone'],
+        'customer_type': cleaned['customer_type'],
+        'loan_product': cleaned['loan_product'],
+        'requested_amount': str(cleaned['requested_amount'] or ''),
+        'tenor': cleaned['tenor'],
+        'business_notes': cleaned['business_notes'],
+        'code': cleaned['code'],
+    })
+
+    record.request_type = cleaned['request_type']
+    record.customer_name = cleaned['customer_name']
+    record.national_id = cleaned['national_id']
+    record.raw_id_text = cleaned['raw_id_text']
+    record.primary_phone = cleaned['primary_phone']
+    record.secondary_phone = cleaned['secondary_phone']
+    record.customer_type = cleaned['customer_type']
+    record.loan_product = cleaned['loan_product']
+    record.requested_amount = cleaned['requested_amount']
+    record.tenor = cleaned['tenor']
+    record.business_notes = cleaned['business_notes']
+    record.code = cleaned['code']
+    record.parsed_fields = existing_parsed
+    record.missing_fields = missing_fields
+    record.import_status = 'imported' if not missing_fields else 'review_needed'
+    record.sync_error = ''
+    record.save(update_fields=[
+        'request_type',
+        'customer_name',
+        'national_id',
+        'raw_id_text',
+        'primary_phone',
+        'secondary_phone',
+        'customer_type',
+        'loan_product',
+        'requested_amount',
+        'tenor',
+        'business_notes',
+        'code',
+        'parsed_fields',
+        'missing_fields',
+        'import_status',
+        'sync_error',
+        'updated_at',
+    ])
+
+    sheet_synced = False
+    if record.row_number:
+        values = sheet_values_for(record)
+        sheet_synced = update_spin_request_in_sheet(
+            group_config,
+            record,
+            {field: values.get(field, '') for field in SPIN_REVIEW_SHEET_FIELDS},
+        )
+    else:
+        sync_result = append_spin_requests_to_sheet(group_config, [record])
+        sheet_synced = bool(sync_result.get('success'))
+        if sheet_synced:
+            row_numbers = sync_result.get('row_numbers') or []
+            record.row_number = row_numbers[0] if row_numbers else None
+            record.sheet_id = group_config.sheet_id or ''
+            record.sheet_name = sync_result.get('sheet_name') or group_config.sheet_name or ''
+            record.save(update_fields=['row_number', 'sheet_id', 'sheet_name', 'updated_at'])
+
+    if not sheet_synced:
+        record.sync_error = 'Review saved in Django, but Google Sheets could not be updated.'
+        record.save(update_fields=['sync_error', 'updated_at'])
+
+    return {
+        'success': True,
+        'status': record.import_status,
+        'message': 'SPIN request review saved.',
+        'request_id': spin_request_id(record),
+        'record_id': str(record.id),
+        'missing_fields': record.missing_fields,
+        'sheet_synced': sheet_synced,
     }
 
 

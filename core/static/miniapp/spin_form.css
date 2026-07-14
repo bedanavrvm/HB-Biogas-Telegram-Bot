@@ -599,6 +599,8 @@ button.secondary {
   grid-column: 1 / -1;
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-top: 6px;
   border-top: 1px solid var(--spin-line);
   padding-top: 6px;

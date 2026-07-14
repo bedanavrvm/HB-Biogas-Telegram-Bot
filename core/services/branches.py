@@ -31,7 +31,7 @@ def workflow_branches(
 ) -> list[str]:
     workflow = workflow or {}
     branches = normalize_branch_list(workflow.get('branches'))
-    fallback = list(default or DEFAULT_WORKFLOW_BRANCHES)
+    fallback = list(DEFAULT_WORKFLOW_BRANCHES if default is None else default)
     if replace_stale_defaults and branches and set(branches).issubset(STALE_BRANCH_DEFAULTS):
         return fallback
     return branches or fallback

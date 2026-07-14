@@ -377,7 +377,7 @@ Code 856189
 
 
 class SpinCreditMiniAppTestCase(TestCase):
-    @override_settings(SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
+    @override_settings(SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, ALLOWED_HOSTS=['testserver'])
     @patch('core.api.views._post_telegram_reply')
     @patch('core.services.spin_credit.append_spin_requests_to_sheet')
     def test_form_submission_normalizes_phone_and_syncs_sheet(self, mock_append, mock_reply):
@@ -427,7 +427,7 @@ class SpinCreditMiniAppTestCase(TestCase):
 
 
 
-    @override_settings(SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
+    @override_settings(SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, ALLOWED_HOSTS=['testserver'])
     @patch('core.api.views._post_telegram_reply')
     @patch('core.services.order_approval.store_uploaded_files_for_order')
     @patch('core.services.spin_credit.append_spin_requests_to_sheet')
@@ -580,6 +580,102 @@ class SpinCreditPortalTestCase(TestCase):
             self.assertTrue(res_data['is_analyst'])
             self.assertEqual(len(res_data['requests']), 1)
             self.assertEqual(res_data['requests'][0]['customer_name'], 'JOHN DOE')
+
+    def test_spin_form_renders_from_start_param(self):
+        from core.services.spin_credit import create_spin_start_param
+
+        start_param = create_spin_start_param(self.config.group_id)
+        response = self.client.get(f'/api/spin/?tgWebAppStartParam={start_param}')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'spin-form-data')
+
+    @patch('core.services.spin_credit.validate_spin_telegram_webapp_init_data')
+    @patch('core.services.spin_credit.update_spin_request_in_sheet')
+    def test_spin_review_update_saves_django_and_updates_existing_sheet_row(self, mock_update_sheet, mock_validate):
+        mock_validate.return_value = (True, None, {'user': json.dumps({'username': 'officer1', 'id': '12345'})})
+        mock_update_sheet.return_value = True
+        self.record.import_status = 'review_needed'
+        self.record.customer_name = ''
+        self.record.national_id = ''
+        self.record.primary_phone = ''
+        self.record.requested_amount = None
+        self.record.tenor = ''
+        self.record.missing_fields = ['Customer Name', 'National ID', 'Primary Phone', 'Requested Amount', 'Tenor']
+        self.record.parsed_fields = {'branch': 'Nakuru'}
+        self.record.save()
+
+        payload = {
+            'request_id': str(self.record.id),
+            'group_id': self.config.group_id,
+            'init_data': 'mock_data',
+            'fields': {
+                'customer_name': 'Jane Wanjiku',
+                'national_id': '23456789',
+                'primary_phone': '0712345678',
+                'requested_amount': '20k',
+                'tenor': '8 weeks',
+                'branch': 'Nakuru',
+                'code': '0655290',
+            },
+        }
+        response = self.client.post(
+            '/api/spin/review/update/',
+            data=json.dumps(payload),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertTrue(result['success'])
+        self.assertEqual(result['status'], 'imported')
+        self.assertTrue(result['sheet_synced'])
+        self.record.refresh_from_db()
+        self.assertEqual(self.record.import_status, 'imported')
+        self.assertEqual(self.record.customer_name, 'JANE WANJIKU')
+        self.assertEqual(self.record.primary_phone, '254712345678')
+        self.assertEqual(str(self.record.requested_amount), '20000.00')
+        self.assertEqual(self.record.code, '0655290')
+        self.assertEqual(self.record.missing_fields, [])
+        mock_update_sheet.assert_called_once()
+        sheet_updates = mock_update_sheet.call_args.args[2]
+        self.assertEqual(sheet_updates['parse_status'], 'Imported')
+        self.assertEqual(sheet_updates['missing_fields'], '')
+        self.assertEqual(sheet_updates['code'], "'0655290")
+
+    @patch('core.services.spin_credit.validate_spin_telegram_webapp_init_data')
+    @patch('core.services.spin_credit.update_spin_request_in_sheet')
+    def test_spin_review_update_keeps_review_needed_when_required_fields_missing(self, mock_update_sheet, mock_validate):
+        mock_validate.return_value = (True, None, {'user': json.dumps({'username': 'officer1', 'id': '12345'})})
+        mock_update_sheet.return_value = True
+        self.record.import_status = 'review_needed'
+        self.record.national_id = ''
+        self.record.primary_phone = ''
+        self.record.missing_fields = ['National ID', 'Primary Phone']
+        self.record.parsed_fields = {'branch': 'Nakuru'}
+        self.record.save()
+
+        payload = {
+            'request_id': str(self.record.id),
+            'group_id': self.config.group_id,
+            'init_data': 'mock_data',
+            'fields': {
+                'customer_name': 'John Doe',
+                'requested_amount': '15000',
+                'tenor': '6 weeks',
+            },
+        }
+        response = self.client.post(
+            '/api/spin/review/update/',
+            data=json.dumps(payload),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.record.refresh_from_db()
+        self.assertEqual(self.record.import_status, 'review_needed')
+        self.assertEqual(self.record.missing_fields, ['National ID', 'Primary Phone'])
+        mock_update_sheet.assert_called_once()
 
     @patch('core.services.spin_credit.validate_spin_telegram_webapp_init_data')
     @patch('core.api.views._post_telegram_reply')

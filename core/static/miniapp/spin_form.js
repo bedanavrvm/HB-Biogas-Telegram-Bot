@@ -50,6 +50,14 @@
   const cancelModalBtn = document.getElementById('cancelModalBtn');
   const submitCompleteBtn = document.getElementById('submitCompleteBtn');
   const modalBanner = document.getElementById('modalBanner');
+  const reviewModal = document.getElementById('reviewModal');
+  const reviewForm = document.getElementById('reviewForm');
+  const closeReviewModalBtn = document.getElementById('closeReviewModalBtn');
+  const cancelReviewModalBtn = document.getElementById('cancelReviewModalBtn');
+  const submitReviewBtn = document.getElementById('submitReviewBtn');
+  const reviewModalBanner = document.getElementById('reviewModalBanner');
+  const reviewBranchField = document.getElementById('reviewBranchField');
+  const reviewBranchSelect = document.getElementById('reviewBranchSelect');
 
   let requests = [];
   let isAnalyst = false;
@@ -67,6 +75,13 @@
   } else if (branchSelect && branchField) {
     branchSelect.removeAttribute('name');
     branchField.hidden = true;
+  }
+  if (reviewBranchSelect && Array.isArray(config.branch_choices) && config.branch_choices.length) {
+    reviewBranchSelect.innerHTML = '<option value="">Select branch</option>' + config.branch_choices.map(branch => `<option value="${escapeHtml(branch)}">${escapeHtml(branch)}</option>`).join('');
+    if (reviewBranchField) reviewBranchField.hidden = false;
+  } else if (reviewBranchSelect && reviewBranchField) {
+    reviewBranchSelect.removeAttribute('name');
+    reviewBranchField.hidden = true;
   }
 
   function field(name) { return form.elements[name]; }
@@ -431,13 +446,27 @@
       }
 
       let actions = '';
+      const actionButtons = [];
+      if (r.import_status === 'review_needed') {
+        actionButtons.push(`
+            <button type="button" class="secondary review-action-btn" data-id="${escapeHtml(r.id)}">
+              <i data-lucide="edit-3" style="width:14px; height:14px; display:inline-block; vertical-align:middle; margin-right:4px;"></i>
+              Review Details
+            </button>
+        `);
+      }
       if (isAnalyst && r.import_status !== 'completed') {
-        actions = `
-          <div class="card-actions">
+        actionButtons.push(`
             <button type="button" class="primary complete-action-btn" data-id="${escapeHtml(r.id)}">
               <i data-lucide="check-square" style="width:14px; height:14px; display:inline-block; vertical-align:middle; margin-right:4px;"></i>
               Complete Request
             </button>
+        `);
+      }
+      if (actionButtons.length) {
+        actions = `
+          <div class="card-actions">
+            ${actionButtons.join('')}
           </div>
         `;
       }
@@ -509,6 +538,11 @@
     requestsList.querySelectorAll('.complete-action-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         openCompleteModal(btn.dataset.id);
+      });
+    });
+    requestsList.querySelectorAll('.review-action-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        openReviewModal(btn.dataset.id);
       });
     });
   }
@@ -625,6 +659,93 @@
     setBanner('', '', modalBanner);
   }
 
+  function reviewFormValues() {
+    return {
+      request_type: reviewForm.elements['request_type'].value,
+      branch: reviewForm.elements['branch'] ? reviewForm.elements['branch'].value : (config.default_branch || ''),
+      customer_name: reviewForm.elements['customer_name'].value.trim(),
+      national_id: reviewForm.elements['national_id'].value.replace(/\D/g, ''),
+      primary_phone: normalizePhone(reviewForm.elements['primary_phone'].value) || reviewForm.elements['primary_phone'].value.trim(),
+      secondary_phone: normalizePhone(reviewForm.elements['secondary_phone'].value) || reviewForm.elements['secondary_phone'].value.trim(),
+      requested_amount: cleanAmount(reviewForm.elements['requested_amount'].value),
+      tenor: reviewForm.elements['tenor'].value.trim(),
+      customer_type: reviewForm.elements['customer_type'].value,
+      loan_product: reviewForm.elements['loan_product'].value.trim(),
+      code: reviewForm.elements['code'].value.trim(),
+      business_notes: reviewForm.elements['business_notes'].value.trim()
+    };
+  }
+
+  function openReviewModal(reqId) {
+    const record = requests.find(r => r.id === reqId);
+    if (!record) return;
+    reviewForm.reset();
+    setBanner('', '', reviewModalBanner);
+    document.getElementById('reviewRequestId').value = record.id;
+    reviewForm.elements['request_type'].value = record.request_type === 'SPIN/CRB' ? 'spin_crb' : String(record.request_type || '').toLowerCase();
+    if (!['spin_crb', 'spin', 'crb'].includes(reviewForm.elements['request_type'].value)) {
+      reviewForm.elements['request_type'].value = 'spin_crb';
+    }
+    if (reviewForm.elements['branch']) reviewForm.elements['branch'].value = record.branch || config.default_branch || '';
+    reviewForm.elements['customer_name'].value = record.customer_name || '';
+    reviewForm.elements['national_id'].value = record.national_id || '';
+    reviewForm.elements['primary_phone'].value = record.primary_phone || '';
+    reviewForm.elements['secondary_phone'].value = record.secondary_phone || '';
+    reviewForm.elements['requested_amount'].value = record.requested_amount ? String(record.requested_amount) : '';
+    reviewForm.elements['tenor'].value = record.tenor || '';
+    reviewForm.elements['customer_type'].value = record.customer_type || '';
+    reviewForm.elements['loan_product'].value = record.loan_product || '';
+    reviewForm.elements['code'].value = record.code || '';
+    reviewForm.elements['business_notes'].value = record.business_notes || '';
+    reviewModal.hidden = false;
+    reviewModal.classList.remove('hidden');
+    if (window.lucide) window.lucide.createIcons();
+  }
+
+  function closeReviewModal() {
+    reviewModal.hidden = true;
+    reviewModal.classList.add('hidden');
+    reviewForm.reset();
+    setBanner('', '', reviewModalBanner);
+  }
+
+  async function submitReview(event) {
+    event.preventDefault();
+    setBanner('', '', reviewModalBanner);
+    submitReviewBtn.disabled = true;
+    submitReviewBtn.textContent = 'Saving...';
+
+    const payload = {
+      request_id: document.getElementById('reviewRequestId').value,
+      group_id: config.group_id || '',
+      form_token: config.form_token || '',
+      init_data: tg ? tg.initData || '' : '',
+      fields: reviewFormValues()
+    };
+
+    try {
+      const response = await fetch('/api/spin/review/update/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        setBanner(result.errors || result.message || 'Review could not be saved.', 'error', reviewModalBanner);
+        return;
+      }
+      closeReviewModal();
+      setBanner(result.sheet_synced ? 'Review saved and sheet updated.' : 'Review saved. Sheet update needs retry.', result.sheet_synced ? 'success' : 'warning');
+      fetchRequests();
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+    } catch (_) {
+      setBanner('Network error saving review.', 'error', reviewModalBanner);
+    } finally {
+      submitReviewBtn.disabled = false;
+      submitReviewBtn.textContent = 'Save Review';
+    }
+  }
+
   async function submitComplete(event) {
     event.preventDefault();
     setBanner('', '', modalBanner);
@@ -673,6 +794,9 @@
   closeModalBtn.addEventListener('click', closeCompleteModal);
   cancelModalBtn.addEventListener('click', closeCompleteModal);
   completeForm.addEventListener('submit', submitComplete);
+  closeReviewModalBtn.addEventListener('click', closeReviewModal);
+  cancelReviewModalBtn.addEventListener('click', closeReviewModal);
+  reviewForm.addEventListener('submit', submitReview);
 
   // Hook search & filters events
   dashboardSearch.addEventListener('input', renderRequests);
