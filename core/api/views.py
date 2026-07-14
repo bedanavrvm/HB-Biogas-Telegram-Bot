@@ -870,10 +870,12 @@ def spin_form_complete(request):
         record.parsed_fields['credit_analysis_report_url'] = analysis_url
     record.parsed_fields['analysis_completed_at'] = timezone.now().isoformat()
     record.parsed_fields['analysis_completed_by'] = sender_name
+    record.parsed_fields['credit_analyst_name'] = sender_name
     record.import_status = 'completed'
     record.save(update_fields=['parsed_fields', 'import_status', 'updated_at'])
     sheet_updates = {
-        'analysis_status': 'Completed'
+        'analysis_status': 'Completed',
+        'credit_analyst_name': sender_name,
     }
     url_lines = []
     if spin_url:
@@ -882,8 +884,8 @@ def spin_form_complete(request):
         url_lines.append(f"CRB: {crb_url}")
     if analysis_url:
         url_lines.append(f"Analysis: {analysis_url}")
-    new_response = '\n'.join(url_lines)
-    sheet_updates['analyst_response'] = new_response
+    if url_lines:
+        sheet_updates['analyst_response'] = '\n'.join(url_lines)
     sheet_synced = update_spin_request_in_sheet(group_config, record, sheet_updates)
     tg_lines = [
         'SPIN/CRB ANALYSIS COMPLETED',

@@ -1074,6 +1074,38 @@ def apply_media_url_rich_links(
         ).execute()
 
 
+def apply_rich_links_to_cell(service, col_index: int, row_number: int, value: Any) -> None:
+    sheet = service._sheet
+    api = getattr(service, '_sheets_api_service', None)
+    if not (api and getattr(service, '_api_initialized', False) is True and isinstance(getattr(sheet, 'id', None), int)):
+        return
+    text = str(value or '')
+    runs = hyperlink_text_format_runs(text)
+    if not runs:
+        return
+    api.spreadsheets().batchUpdate(
+        spreadsheetId=getattr(service, '_sheet_id', ''),
+        body={'requests': [{
+            'updateCells': {
+                'range': {
+                    'sheetId': sheet.id,
+                    'startRowIndex': row_number - 1,
+                    'endRowIndex': row_number,
+                    'startColumnIndex': col_index - 1,
+                    'endColumnIndex': col_index,
+                },
+                'rows': [{
+                    'values': [{
+                        'userEnteredValue': {'stringValue': text},
+                        'textFormatRuns': runs,
+                    }],
+                }],
+                'fields': 'userEnteredValue,textFormatRuns',
+            },
+        }]},
+    ).execute()
+
+
 def media_url_list(value: Any) -> list[str]:
     if isinstance(value, (list, tuple)):
         candidates = [str(item or '').strip() for item in value]
@@ -1091,6 +1123,15 @@ def media_url_text_format_runs(urls: list[str]) -> list[dict[str, Any]]:
         if index < len(urls) - 1:
             runs.append({'startIndex': offset, 'format': {}})
             offset += 1
+    return runs
+
+
+def hyperlink_text_format_runs(text: str) -> list[dict[str, Any]]:
+    runs: list[dict[str, Any]] = []
+    for match in re.finditer(r'https?://[^\s,]+', text or ''):
+        runs.append({'startIndex': match.start(), 'format': {'link': {'uri': match.group(0)}}})
+        if match.end() < len(text or ''):
+            runs.append({'startIndex': match.end(), 'format': {}})
     return runs
 
 
@@ -1854,7 +1895,11 @@ def update_spin_request_in_sheet(group_config, record: SpinCreditRequest, update
             header = field_headers.get(field)
             if header in headers:
                 col_index = headers.index(header) + 1
+                if field == 'media_urls':
+                    value = sheet_media_urls(value)
                 service._sheet.update_cell(record.row_number, col_index, value)
+                if field in {'media_urls', 'analyst_response'}:
+                    apply_rich_links_to_cell(service, col_index, record.row_number, value)
         return True
     except Exception as exc:
         logger.error("Failed to update SPIN request in sheet: %s", exc, exc_info=True)

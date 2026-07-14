@@ -541,6 +541,16 @@ class SpinCreditSheetSyncTestCase(TestCase):
         self.assertEqual(runs[1], {'startIndex': len(urls[0]), 'format': {}})
         self.assertEqual(runs[2], {'startIndex': len(urls[0]) + 1, 'format': {'link': {'uri': urls[1]}}})
 
+    def test_hyperlink_text_format_runs_link_labelled_urls(self):
+        from core.services.spin_credit import hyperlink_text_format_runs
+
+        text = 'SPIN: https://example.test/spin\nCRB: https://example.test/crb'
+        runs = hyperlink_text_format_runs(text)
+
+        self.assertEqual(runs[0], {'startIndex': 6, 'format': {'link': {'uri': 'https://example.test/spin'}}})
+        self.assertEqual(runs[1], {'startIndex': 31, 'format': {}})
+        self.assertEqual(runs[2], {'startIndex': 37, 'format': {'link': {'uri': 'https://example.test/crb'}}})
+
     @patch('core.services.spin_credit.get_sheets_service')
     def test_append_spin_requests_to_sheet_applies_rich_links_to_each_media_url(self, mock_get_sheets_service):
         from decimal import Decimal
@@ -667,9 +677,6 @@ class SpinCreditPortalTestCase(TestCase):
         names = [item['customer_name'] for item in response.json()['requests']]
         self.assertIn('JOHN DOE', names)
         self.assertNotIn('OTHER GROUP', names)
-            self.assertTrue(res_data['is_analyst'])
-            self.assertEqual(len(res_data['requests']), 1)
-            self.assertEqual(res_data['requests'][0]['customer_name'], 'JOHN DOE')
 
     def test_spin_form_renders_from_start_param(self):
         from core.services.spin_credit import create_spin_start_param
@@ -782,6 +789,8 @@ class SpinCreditPortalTestCase(TestCase):
             from django.core.files.uploadedfile import SimpleUploadedFile
             spin_file = SimpleUploadedFile("spin.pdf", b"spin_data", content_type="application/pdf")
             crb_file = SimpleUploadedFile("crb.pdf", b"crb_data", content_type="application/pdf")
+            self.record.parsed_fields = {'media_urls': 'https://drive.google.com/original_doc'}
+            self.record.save(update_fields=['parsed_fields'])
             
             payload = {
                 'request_id': str(self.record.id),
@@ -801,6 +810,16 @@ class SpinCreditPortalTestCase(TestCase):
             self.assertEqual(self.record.parsed_fields['spin_report_url'], 'https://drive.google.com/spin_report')
             self.assertEqual(self.record.parsed_fields['crb_report_url'], 'https://drive.google.com/crb_report')
             self.assertIn('analysis_completed_at', self.record.parsed_fields)
+            self.assertEqual(self.record.parsed_fields['credit_analyst_name'], 'analyst1')
+            self.assertEqual(self.record.parsed_fields['media_urls'], 'https://drive.google.com/original_doc')
 
             mock_update_sheet.assert_called_once()
+            sheet_updates = mock_update_sheet.call_args.args[2]
+            self.assertEqual(sheet_updates['analysis_status'], 'Completed')
+            self.assertEqual(sheet_updates['credit_analyst_name'], 'analyst1')
+            self.assertEqual(
+                sheet_updates['analyst_response'],
+                'SPIN: https://drive.google.com/spin_report\nCRB: https://drive.google.com/crb_report',
+            )
+            self.assertNotIn('media_urls', sheet_updates)
             mock_tg_reply.assert_called_once()

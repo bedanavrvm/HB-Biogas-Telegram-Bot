@@ -137,6 +137,17 @@
     return value ? [value] : [];
   }
 
+  function setButtonLoading(button, isLoading, label) {
+    if (!button) return;
+    if (!button.dataset.idleText) button.dataset.idleText = button.textContent.trim();
+    button.disabled = !!isLoading;
+    if (isLoading) {
+      button.innerHTML = `<span class="button-spinner" aria-hidden="true"></span><span>${escapeHtml(label || 'Working...')}</span>`;
+    } else {
+      button.textContent = button.dataset.idleText || label || '';
+    }
+  }
+
   function setBanner(message, type, targetBanner) {
     if (bannerTimeout && !targetBanner) {
       clearTimeout(bannerTimeout);
@@ -348,8 +359,7 @@
       return;
     }
 
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Submitting...';
+    setButtonLoading(submitBtn, true, 'Submitting');
     try {
       const response = await fetch('/api/spin/submit/', buildSubmitOptions(data));
       const result = await response.json();
@@ -362,14 +372,14 @@
       markInvalid([]);
       setBanner(`Submitted ${result.request_id || ''} for ${result.customer_name || 'customer'}.`, 'success');
       form.reset();
+      if (branchSelect && branchSelect.name) branchSelect.value = config.default_branch || '';
       updateSummary();
       updateFileSummaries();
       if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
     } catch (_) {
       setBanner('Network error. Check your connection and submit again.', 'error');
     } finally {
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Submit Request';
+      setButtonLoading(submitBtn, false);
     }
   }
 
@@ -562,6 +572,7 @@
           </div>
         `;
         if (window.lucide) window.lucide.createIcons();
+        requestsList.style.display = 'block';
         return;
       }
       requests = (result.requests || []).filter(r => r.import_status !== 'failed');
@@ -595,6 +606,7 @@
         </div>
       `;
       if (window.lucide) window.lucide.createIcons();
+      requestsList.style.display = 'block';
     } finally {
       dashboardLoading.style.display = 'none';
     }
@@ -639,6 +651,7 @@
     setBanner('', '', modalBanner);
     completeModal.hidden = false;
     completeModal.classList.remove('hidden');
+    setButtonLoading(submitCompleteBtn, false);
     if (window.lucide) window.lucide.createIcons();
   }
 
@@ -647,6 +660,7 @@
     completeModal.classList.add('hidden');
     completeForm.reset();
     setBanner('', '', modalBanner);
+    setButtonLoading(submitCompleteBtn, false);
   }
 
   function reviewFormValues() {
@@ -689,6 +703,7 @@
     reviewForm.elements['business_notes'].value = record.business_notes || '';
     reviewModal.hidden = false;
     reviewModal.classList.remove('hidden');
+    setButtonLoading(submitReviewBtn, false);
     if (window.lucide) window.lucide.createIcons();
   }
 
@@ -697,13 +712,13 @@
     reviewModal.classList.add('hidden');
     reviewForm.reset();
     setBanner('', '', reviewModalBanner);
+    setButtonLoading(submitReviewBtn, false);
   }
 
   async function submitReview(event) {
     event.preventDefault();
     setBanner('', '', reviewModalBanner);
-    submitReviewBtn.disabled = true;
-    submitReviewBtn.textContent = 'Saving...';
+    setButtonLoading(submitReviewBtn, true, 'Saving');
 
     const payload = {
       request_id: document.getElementById('reviewRequestId').value,
@@ -731,8 +746,7 @@
     } catch (_) {
       setBanner('Network error saving review.', 'error', reviewModalBanner);
     } finally {
-      submitReviewBtn.disabled = false;
-      submitReviewBtn.textContent = 'Save Review';
+      setButtonLoading(submitReviewBtn, false);
     }
   }
 
@@ -750,7 +764,7 @@
     }
 
     submitCompleteBtn.disabled = true;
-    submitCompleteBtn.textContent = 'Uploading...';
+    setButtonLoading(submitCompleteBtn, true, 'Uploading');
 
     const formData = new FormData(completeForm);
     formData.append('group_id', config.group_id || '');
@@ -775,8 +789,7 @@
     } catch (_) {
       setBanner('Network error submitting reports.', 'error', modalBanner);
     } finally {
-      submitCompleteBtn.disabled = false;
-      submitCompleteBtn.textContent = 'Submit Reports';
+      setButtonLoading(submitCompleteBtn, false);
     }
   }
 
