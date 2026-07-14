@@ -113,6 +113,33 @@ PRODUCT_ALIASES = [
     ('biashara', 'Biashara'),
 ]
 
+SPIN_KEYWORD_PATTERNS = {
+    'spin': [r'\bspin\b'],
+    'crb': [r'\bcrb\b', r'\bcredit\s+reference\s+bureau\b'],
+    'credit_analysis': [
+        r'\bcredit[\s\-/]*analysis\b',
+        r'\bcredit[\s\-/]*assessment\b',
+        r'\bcredit[\s\-/]*check\b',
+        r'\bcredit[\s\-/]*review\b',
+        r'\bcredit[\s\-/]*request\b',
+    ],
+    'loan_analysis': [
+        r'\bloan[\s\-/]*analysis\b',
+        r'\bloan[\s\-/]*assessment\b',
+        r'\bloan[\s\-/]*check\b',
+        r'\bloan[\s\-/]*request\b',
+        r'\bcustomer[\s\-/]*analysis\b',
+    ],
+}
+
+SPIN_EXCLUSION_PATTERNS = [
+    r'\b(has been shared|analysis has been shared|crb has been shared|this analysis has been shared)\b',
+    r'\bpost this payment|post this payments|reverse this transaction|create downpayment|zero rate|spin fee\b',
+    r'\b(?:reply|respond)\s+to\s+(?:the\s+)?(?:credit\s+)?analysis\b',
+    r'\bawaiting\s+(?:second\s+|2nd\s+)?opinion\s+analysis\s+reply\b',
+    r'\bawaiting\s+analysis\s+reply\b',
+]
+
 
 @dataclass
 class ParsedSpinRequest:
@@ -153,6 +180,16 @@ class SpinProgressEvent:
     raw_message: str = ''
 
 
+@dataclass
+class SpinMessageClassification:
+    category: str
+    request_type: str | None = None
+    keywords: list[str] = field(default_factory=list)
+    identifier_fields: list[str] = field(default_factory=list)
+    loan_detail_fields: list[str] = field(default_factory=list)
+    reason: str = ''
+
+
 def is_spin_workflow(group_config) -> bool:
     workflow = getattr(group_config, 'workflow', None) or {}
     return str(workflow.get('type') or '') == SPIN_WORKFLOW_TYPE
@@ -178,6 +215,9 @@ def process_spin_batch_export(
     parsed = []
     pending_progress_targets = []
     skipped = 0
+    spin_candidates = 0
+    incomplete_candidates = []
+    ambiguous_messages = []
     progress_events = 0
     linked_progress_events = 0
     unlinked_progress_events = []
@@ -197,14 +237,29 @@ def process_spin_batch_export(
                 unlinked_progress_events.append(progress_event_summary(event))
             continue
 
+        classification = classify_spin_message(str(entry.get('content') or ''))
+        if classification.category == 'incomplete':
+            spin_candidates += 1
+            incomplete_candidates.append(classification_summary(entry, classification, index))
+            continue
+        if classification.category == 'ambiguous':
+            ambiguous_messages.append(classification_summary(entry, classification, index))
+            continue
+
         skipped += 1
+
+    spin_candidates += len(parsed)
 
     if not parsed:
         return {
             'status': 'spin_batch_processed',
             'source': SPIN_WORKFLOW_TYPE,
             'export_messages': len(entries),
+            'spin_candidates': spin_candidates,
             'processed': 0,
+            'valid_requests': 0,
+            'incomplete_requests': len(incomplete_candidates),
+            'ambiguous_messages': len(ambiguous_messages),
             'imported': 0,
             'review_needed': 0,
             'duplicates': 0,
@@ -214,6 +269,8 @@ def process_spin_batch_export(
             'progress_events': progress_events,
             'linked_progress_events': linked_progress_events,
             'unlinked_progress_events': unlinked_progress_events[:8],
+            'incomplete_items': incomplete_candidates[:8],
+            'ambiguous_items': ambiguous_messages[:8],
             'message': 'No SPIN, CRB, or credit-analysis request messages were found in the export.',
         }
 
@@ -272,7 +329,11 @@ def process_spin_batch_export(
         'status': 'spin_batch_processed',
         'source': SPIN_WORKFLOW_TYPE,
         'export_messages': len(entries),
+        'spin_candidates': spin_candidates,
         'processed': len(parsed),
+        'valid_requests': len(parsed),
+        'incomplete_requests': len(incomplete_candidates),
+        'ambiguous_messages': len(ambiguous_messages),
         'imported': sum(1 for r in results if r['status'] == 'imported'),
         'review_needed': sum(1 for r in results if r['status'] == 'review_needed'),
         'duplicates': sum(1 for r in results if r['status'] == 'duplicate'),
@@ -282,6 +343,8 @@ def process_spin_batch_export(
         'progress_events': progress_events,
         'linked_progress_events': linked_progress_events,
         'unlinked_progress_events': unlinked_progress_events[:8],
+        'incomplete_items': incomplete_candidates[:8],
+        'ambiguous_items': ambiguous_messages[:8],
         'sheet_sync': sync_result,
         'review_items': [review_summary(r['parsed']) for r in results if r['status'] == 'review_needed'][:8],
         'duplicates_list': [request_summary(r.get('record'), r.get('parsed')) for r in results if r['status'] == 'duplicate'][:8],
@@ -397,28 +460,110 @@ def parse_spin_entry(entry: dict[str, Any], index: int = 0, source_filename: str
 
 
 def classify_request(text: str) -> str | None:
-    low = text.lower()
-    if re.search(r'\b(has been shared|analysis has been shared|crb has been shared|this analysis has been shared)\b', low):
-        return None
-    if re.search(r'\bpost this payment|post this payments|reverse this transaction|create downpayment|zero rate|spin fee\b', low):
-        return None
-    if re.search(r'\b(?:reply|respond)\s+to\s+(?:the\s+)?(?:credit\s+)?analysis\b|\bawaiting\s+(?:second\s+|2nd\s+)?opinion\s+analysis\s+reply\b|\bawaiting\s+analysis\s+reply\b', low):
-        return None
-    if re.search(r'\bkindly share\s+(a\s+)?spin\s+and\s+credit\s+analysis\s+for\b', low):
-        return 'spin_crb'
-    if re.search(r'\b(?:kindly\s+)?share\s+(?:a\s+)?(?:spin\s*/\s*crb|spin\s+(?:and|&)\s+crb|spin\s+crb)\b', low):
-        return 'spin_crb'
-    if re.search(r'\b(?:kindly\s+)?share\s+(?:the\s+)?spin\s+analysis\b', low):
-        return 'spin_crb'
-    if re.search(r'\bkindly share\s+spin\s+for\b', low):
+    classification = classify_spin_message(text)
+    return classification.request_type if classification.category == 'valid' else None
+
+
+def classify_spin_message(text: str) -> SpinMessageClassification:
+    clean = normalize_text(strip_attachment_lines(text))
+    low = clean.lower()
+    if not low or 'message was deleted' in low:
+        return SpinMessageClassification(category='non_spin', reason='Empty or deleted message.')
+    if any(re.search(pattern, low, re.I) for pattern in SPIN_EXCLUSION_PATTERNS):
+        return SpinMessageClassification(category='non_spin', reason='Matched a progress or exclusion phrase.')
+
+    keywords = matched_spin_keywords(low)
+    request_type = request_type_from_keywords(keywords, low)
+    if not keywords:
+        identifiers, loan_details = detect_spin_candidate_details(clean, request_type='spin_crb')
+        if identifiers or loan_details:
+            return SpinMessageClassification(
+                category='ambiguous',
+                identifier_fields=identifiers,
+                loan_detail_fields=loan_details,
+                reason='Customer or loan details found, but no SPIN/CRB/credit-analysis keyword was present.',
+            )
+        return SpinMessageClassification(category='non_spin', reason='No SPIN-related keyword found.')
+
+    identifiers, loan_details = detect_spin_candidate_details(clean, request_type=request_type or 'spin_crb')
+    if identifiers or loan_details:
+        return SpinMessageClassification(
+            category='valid',
+            request_type=request_type or 'spin_crb',
+            keywords=keywords,
+            identifier_fields=identifiers,
+            loan_detail_fields=loan_details,
+            reason='SPIN-related keyword and customer/loan details found.',
+        )
+    return SpinMessageClassification(
+        category='incomplete',
+        request_type=request_type or 'spin_crb',
+        keywords=keywords,
+        reason='SPIN-related message detected, but no customer identifier or loan details were found.',
+    )
+
+
+def matched_spin_keywords(low: str) -> list[str]:
+    matches = []
+    for label, patterns in SPIN_KEYWORD_PATTERNS.items():
+        if any(re.search(pattern, low, re.I) for pattern in patterns):
+            matches.append(label)
+    # Preserve compatibility with common request-only phrasing.
+    if re.search(r'\bkindly\s+share\s+(?:the\s+)?analysis\b', low) and 'credit_analysis' not in matches:
+        matches.append('credit_analysis')
+    return matches
+
+
+def request_type_from_keywords(keywords: list[str], low: str) -> str | None:
+    keyword_set = set(keywords)
+    if 'crb' in keyword_set and not ({'spin', 'credit_analysis', 'loan_analysis'} & keyword_set):
+        return 'crb'
+    if 'spin' in keyword_set and not ({'crb', 'credit_analysis', 'loan_analysis'} & keyword_set):
         return 'spin'
-    if re.search(r'\b(?:kindly\s+)?share\s+(?:the\s+)?spin\s+[a-z][a-z]+', low) and has_spin_request_details(low):
-        return 'spin'
-    if re.search(r'\bkindly share\s+(the\s+)?analysis\s+for\b', low):
+    if keywords:
         return 'spin_crb'
-    if re.search(r'\bkindly share\s+crb\s+report\b|\bshare\s+crb\s+report\b|\bpls share crb\b', low):
+    if re.search(r'\bcrb\b', low):
         return 'crb'
     return None
+
+
+def detect_spin_candidate_details(text: str, request_type: str) -> tuple[list[str], list[str]]:
+    identifiers = []
+    loan_details = []
+    raw_id, national_id = extract_id(text)
+    if national_id:
+        identifiers.append('national_id')
+    if extract_phones(text):
+        identifiers.append('phone_number')
+    if re.search(r'\b(?:customer|client|account|acct|imab)\s*(?:id|no|number|#)?\s*[:#-]?\s*[A-Za-z0-9/-]{4,}\b', text, re.I):
+        identifiers.append('customer_reference')
+    if extract_customer_name(text, request_type):
+        identifiers.append('customer_name')
+
+    if extract_amount(text) is not None:
+        loan_details.append('loan_amount')
+    if extract_loan_product(text):
+        loan_details.append('loan_product')
+    if extract_tenor(text):
+        loan_details.append('tenor')
+    if extract_code(text):
+        loan_details.append('mpesa_code')
+    if re.search(r'\b(?:loan\s+balance|balance|deposit|monthly\s+repayment|repayment|purpose)\b', text, re.I):
+        loan_details.append('loan_detail')
+    return sorted(set(identifiers)), sorted(set(loan_details))
+
+
+def classification_summary(entry: dict[str, Any], classification: SpinMessageClassification, index: int) -> dict[str, Any]:
+    return {
+        'index': index,
+        'sender': str(entry.get('sender') or '').strip(),
+        'received_at': format_sheet_datetime(entry.get('received_at')),
+        'category': classification.category,
+        'keywords': classification.keywords,
+        'identifier_fields': classification.identifier_fields,
+        'loan_detail_fields': classification.loan_detail_fields,
+        'reason': classification.reason,
+    }
 
 
 def has_spin_request_details(low: str) -> bool:
@@ -465,11 +610,16 @@ def extract_customer_name(text: str, request_type: str) -> str:
         patterns.append(r'(?:spin\s*/\s*crb|spin\s+(?:and|&)\s+crb|spin\s+crb)\s+(?:request\s+)?(?:for\s+)?(?P<name>.+?)(?:\s+a\s+(?:new|existing)\s+(?:customer|client)|\s+an\s+(?:new|existing)\s+(?:customer|client)|\s+requesting|\s+id\b|\s+phone\b|$)')
         patterns.append(r'share\s+(?:the\s+)?spin\s+analysis\s+(?P<name>.+?)(?:\s+id\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
         patterns.append(r'share\s+(?:the\s+)?analysis\s+for\s+(?P<name>.+?)(?:\s+phone\b|\s+id\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
+        patterns.append(r'(?:assist|help|do|run|check|process|send|share|need|request(?:ing)?)\s+(?:with\s+|for\s+)?(?:a\s+|the\s+)?(?:spin\s*(?:/|and|&)?\s*)?(?:credit\s+)?analysis\s+(?:for|of)?\s*(?P<name>.+?)(?:\s+a\s+(?:new|existing)\s+(?:customer|client)|\s+an\s+(?:new|existing)\s+(?:customer|client)|\s+id\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
+        patterns.append(r'(?:spin|credit\s+analysis|analysis)\s+(?:request\s+)?(?:for|of)\s+(?P<name>.+?)(?:\s+a\s+(?:new|existing)\s+(?:customer|client)|\s+an\s+(?:new|existing)\s+(?:customer|client)|\s+id\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
     elif request_type == 'spin':
         patterns.append(r'share\s+spin\s+for\s+(?P<name>.+?)(?:\s+id\b|\s+phn\b|\s+phone\b|\s+new\b|\s+existing\b|$)')
         patterns.append(r'share\s+(?:the\s+)?spin\s+(?P<name>.+?)(?:\s+id\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
+        patterns.append(r'(?:assist|help|do|run|check|process|send|share|need|request(?:ing)?)\s+(?:with\s+|for\s+)?(?:a\s+|the\s+)?spin\s+(?:for|of)?\s*(?P<name>.+?)(?:\s+id\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
+        patterns.append(r'spin\s+(?:request\s+)?(?:for|of)\s+(?P<name>.+?)(?:\s+id\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
     elif request_type == 'crb':
         patterns.append(r'share\s+crb\s+report\s+(?:of|for)?\s*(?P<name>.+?)(?:\s+he\s+is|\s+she\s+is|\s+they\s+are|\s+requesting|\s+id\b|\s+phone\b|$)')
+        patterns.append(r'(?:assist|help|do|run|check|process|send|share|need|request(?:ing)?)\s+(?:with\s+|for\s+)?(?:a\s+|the\s+)?crb(?:\s+report)?\s+(?:for|of)?\s*(?P<name>.+?)(?:\s+he\s+is|\s+she\s+is|\s+they\s+are|\s+requesting|\s+id\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+kes\b|\s+ksh\b|$)')
     for pattern in patterns:
         match = re.search(pattern, single, re.I)
         if match:

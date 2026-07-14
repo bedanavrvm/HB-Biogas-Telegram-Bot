@@ -2665,6 +2665,10 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
         lines = [
             "SPIN / Credit Analysis import processed",
             f"Export messages found: {result.get('export_messages', 0)}",
+            f"SPIN-related candidates: {result.get('spin_candidates', 0)}",
+            f"Valid SPIN requests: {result.get('valid_requests', result.get('processed', 0))}",
+            f"Incomplete SPIN requests: {result.get('incomplete_requests', 0)}",
+            f"Ambiguous messages: {result.get('ambiguous_messages', 0)}",
             f"Request messages processed: {result.get('processed', 0)}",
             f"Imported: {result.get('imported', 0)}",
             f"Needs review: {result.get('review_needed', 0)}",
@@ -2694,6 +2698,19 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
                 missing = ', '.join(item.get('missing_fields') or [])
                 label = item.get('customer_name') or item.get('national_id') or item.get('primary_phone') or 'Unknown customer'
                 lines.append(f"{index}. {label} - missing {missing or 'required fields'}")
+        incomplete_items = result.get('incomplete_items') or []
+        if incomplete_items:
+            lines.extend(['', 'Incomplete SPIN-related messages'])
+            for index, item in enumerate(incomplete_items[:5], start=1):
+                keywords = ', '.join(item.get('keywords') or [])
+                reason = item.get('reason') or 'Missing customer or loan details'
+                lines.append(f"{index}. {reason} ({keywords or 'keyword matched'})")
+        ambiguous_items = result.get('ambiguous_items') or []
+        if ambiguous_items:
+            lines.extend(['', 'Ambiguous customer/loan messages'])
+            for index, item in enumerate(ambiguous_items[:5], start=1):
+                fields = ', '.join((item.get('identifier_fields') or []) + (item.get('loan_detail_fields') or []))
+                lines.append(f"{index}. Details found without SPIN keyword: {fields or 'unknown details'}")
         duplicates = result.get('duplicates_list') or []
         if duplicates:
             lines.extend(['', 'Duplicate source messages skipped'])

@@ -8,7 +8,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from core.models import GroupSheetConfiguration, SpinCreditRequest
-from core.services.spin_credit import classify_spin_progress_event, parse_spin_entry, process_spin_batch_export
+from core.services.spin_credit import classify_spin_message, classify_spin_progress_event, parse_spin_entry, process_spin_batch_export
 
 
 class SpinCreditParserTestCase(TestCase):
@@ -90,6 +90,76 @@ Code 171889/633893"""
         self.assertEqual(parsed.tenor.lower(), '12 months')
         self.assertEqual(parsed.loan_product, 'Kilimo Biashara')
 
+    def test_parse_credit_analysis_assist_request(self):
+        text = """Please assist with credit analysis for Mary Wambui
+ID 22334455
+Phone 0712345678
+New customer requesting Ksh 45,000 to repay in 8 weeks
+Code 001230"""
+        parsed = parse_spin_entry(self.entry(text))
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.request_type, 'spin_crb')
+        self.assertEqual(parsed.customer_name, 'MARY WAMBUI')
+        self.assertEqual(parsed.national_id, '22334455')
+        self.assertEqual(parsed.primary_phone, '254712345678')
+        self.assertEqual(str(parsed.requested_amount), '45000')
+        self.assertEqual(parsed.tenor.lower(), '8 weeks')
+        self.assertEqual(parsed.code, '001230')
+
+    def test_parse_do_spin_request(self):
+        text = """Do spin for Peter Mwangi
+ID 33445566
+Phone no 0798765432
+Existing client requesting 20k to repay with 6wks"""
+        parsed = parse_spin_entry(self.entry(text))
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.request_type, 'spin')
+        self.assertEqual(parsed.customer_name, 'PETER MWANGI')
+        self.assertEqual(parsed.national_id, '33445566')
+        self.assertEqual(parsed.primary_phone, '254798765432')
+        self.assertEqual(str(parsed.requested_amount), '20000')
+
+    def test_parse_need_crb_request(self):
+        text = """Need CRB report for James Kariuki
+ID 44556677
+Phone 0722000000
+Requesting 30,000 for 1 month"""
+        parsed = parse_spin_entry(self.entry(text))
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.request_type, 'crb')
+        self.assertEqual(parsed.customer_name, 'JAMES KARIUKI')
+        self.assertEqual(parsed.national_id, '44556677')
+        self.assertEqual(parsed.primary_phone, '254722000000')
+
+    def test_classifies_keyword_only_message_as_incomplete(self):
+        classification = classify_spin_message('Please send this to SPIN.')
+
+        self.assertEqual(classification.category, 'incomplete')
+        self.assertIn('spin', classification.keywords)
+        self.assertIn('no customer identifier or loan details', classification.reason.lower())
+
+    def test_classifies_customer_details_without_keyword_as_ambiguous(self):
+        classification = classify_spin_message('Mary Wambui ID 22334455 phone 0712345678 requesting Ksh 45,000')
+
+        self.assertEqual(classification.category, 'ambiguous')
+        self.assertIn('national_id', classification.identifier_fields)
+        self.assertIn('loan_amount', classification.loan_detail_fields)
+
+    def test_classifies_unrelated_message_as_non_spin(self):
+        classification = classify_spin_message('The team meeting has moved to 3pm.')
+
+        self.assertEqual(classification.category, 'non_spin')
+
+    def test_keyword_matching_allows_case_and_punctuation_variants(self):
+        parsed = parse_spin_entry(self.entry('CREDIT-CHECK request for Alice Njeri ID 55667788 phone 0711000000'))
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.request_type, 'spin_crb')
+        self.assertEqual(parsed.national_id, '55667788')
+
     @patch('core.services.spin_credit.append_spin_requests_to_sheet')
     def test_process_batch_saves_requests_and_marks_duplicates(self, mock_append):
         mock_append.return_value = {'success': True, 'row_numbers': [2, 3], 'sheet_name': 'Legacy SPIN Imports'}
@@ -132,6 +202,34 @@ Code 171889/633893"""
         duplicate_result = process_spin_batch_export(config, export, telegram_message_id='100', sender='Tester')
         self.assertEqual(duplicate_result['duplicates'], 2)
         self.assertEqual(SpinCreditRequest.objects.count(), 2)
+
+    @patch('core.services.spin_credit.append_spin_requests_to_sheet')
+    def test_process_batch_reports_candidate_categories(self, mock_append):
+        mock_append.return_value = {'success': True, 'row_numbers': [2], 'sheet_name': 'SPIN Legacy Batch'}
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100spincategories',
+            display_name='JBL Branch',
+            sheet_id='sheet-id',
+            sheet_name='SPIN Requests',
+            enabled=True,
+            workflow={'type': 'spin_credit_analysis', 'header_row': 1},
+        )
+        export = """7/1/26, 09:00 - Catherine JBL: Please assist with credit analysis for Mary Wambui
+ID 22334455
+Phone 0712345678
+Requesting Ksh 45,000 to repay in 8 weeks
+7/1/26, 09:05 - Catherine JBL: Please send this to SPIN.
+7/1/26, 09:07 - Catherine JBL: John Kamau ID 33445566 phone 0798765432 requesting Ksh 20,000
+7/1/26, 09:10 - Catherine JBL: Good morning team"""
+
+        result = process_spin_batch_export(config, export, telegram_message_id='102', sender='Tester')
+
+        self.assertEqual(result['processed'], 1)
+        self.assertEqual(result['spin_candidates'], 2)
+        self.assertEqual(result['valid_requests'], 1)
+        self.assertEqual(result['incomplete_requests'], 1)
+        self.assertEqual(result['ambiguous_messages'], 1)
+        self.assertEqual(result['skipped'], 1)
 
     @patch('core.services.spin_credit.append_spin_requests_to_sheet')
     def test_process_batch_links_statement_and_analysis_progress_to_pending_request(self, mock_append):
