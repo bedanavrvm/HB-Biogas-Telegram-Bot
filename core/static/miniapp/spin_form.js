@@ -41,8 +41,6 @@
   const dashboardLoading = document.getElementById('dashboardLoading');
   const dashboardSearch = document.getElementById('dashboardSearch');
   const statusFilter = document.getElementById('statusFilter');
-  const groupFilterLabel = document.getElementById('groupFilterLabel');
-  const groupFilterCheckbox = document.getElementById('groupFilterCheckbox');
 
   const completeModal = document.getElementById('completeModal');
   const completeForm = document.getElementById('completeForm');
@@ -550,9 +548,8 @@
     requestsList.style.display = 'none';
     dashboardLoading.style.display = 'block';
     
-    const filterGroup = groupFilterCheckbox.checked ? 'true' : 'false';
     const initDataEnc = encodeURIComponent(tg ? tg.initData || '' : '');
-    const url = `/api/spin/requests/?group_id=${config.group_id || ''}&form_token=${config.form_token || ''}&init_data=${initDataEnc}&filter_group=${filterGroup}`;
+    const url = `/api/spin/requests/?group_id=${config.group_id || ''}&form_token=${config.form_token || ''}&init_data=${initDataEnc}`;
 
     try {
       const response = await fetch(url);
@@ -586,13 +583,6 @@
         dashboardTabBadge.style.display = 'inline-flex';
       } else {
         dashboardTabBadge.style.display = 'none';
-      }
-
-      // Show/hide analyst group filters
-      if (isAnalyst) {
-        groupFilterLabel.style.display = 'inline-flex';
-      } else {
-        groupFilterLabel.style.display = 'none';
       }
 
       renderRequests();
@@ -824,7 +814,6 @@
     });
   });
 
-  groupFilterCheckbox.addEventListener('change', fetchRequests);
 
   // --- Initial Setup ---
 

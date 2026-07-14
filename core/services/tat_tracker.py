@@ -605,6 +605,53 @@ def serialize_case_detail(case: TatTrackerCase, user: dict) -> dict:
     return {'summary': serialize_case_summary(case, user), 'fields': fields, 'remarks': case.remarks, 'events': events}
 
 
+def next_role_alert(group_config, case_data: dict | None) -> dict[str, str]:
+    if not case_data:
+        return {}
+    workflow = getattr(group_config, 'workflow', None) or {}
+    if workflow.get('stage_alerts_enabled') is False:
+        return {}
+    summary = case_data.get('summary') or {}
+    next_stage_key = summary.get('next_stage_key') or ''
+    if not next_stage_key:
+        return {}
+    try:
+        product = product_by_key(summary.get('product_key') or '')
+    except ValueError:
+        return {}
+    stage = stage_by_key(product, next_stage_key)
+    if not stage:
+        return {}
+    role_label = role_display_name(stage.role)
+    return {
+        'role': stage.role,
+        'role_label': role_label,
+        'stage': stage.label,
+        'text': (
+            f"TAT action needed: {role_label}\n\n"
+            f"Case: {summary.get('case_id', '')}\n"
+            f"Client: {summary.get('client_name', '')}\n"
+            f"Branch: {summary.get('branch', '')}\n"
+            f"Next step: {stage.label}\n\n"
+            "Please open the TAT Tracker and update this stage when done."
+        ),
+    }
+
+
+def role_display_name(role: str) -> str:
+    labels = {
+        'BRO': 'BRO',
+        'ADMIN': 'Admin',
+        'CA': 'Credit Analyst',
+        'BM': 'Branch Manager',
+        'SECRETARY': 'Secretary',
+        'CHAIR': 'Chair',
+        'LOAN_APPROVER': 'Loan Approver',
+        'FINANCE': 'Finance',
+    }
+    return labels.get(str(role or '').strip().upper(), str(role or '').strip() or 'Responsible team')
+
+
 def lock_reason(case: TatTrackerCase, user: dict, stage: StageConfig) -> str:
     if case.stage_values.get(stage.key):
         return 'Already completed.'

@@ -1,5 +1,6 @@
 from unittest.mock import patch
 from decimal import Decimal
+import json
 
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -18,6 +19,7 @@ from core.services.tat_tracker import (
     tat_hours_formula,
     create_case,
     is_tat_tracker_workflow,
+    next_role_alert,
     staff_user_for_payload,
     sync_case_to_sheet,
     update_case,
@@ -261,6 +263,55 @@ class TatTrackerWorkflowTest(TestCase):
 
         self.assertEqual(calculated_tat_hours(case, now=now), Decimal('12.00'))
         self.assertEqual(calculated_tat_days(case, now=now), Decimal('0.50'))
+
+    def test_next_role_alert_targets_pending_stage_role(self):
+        data = {
+            'summary': {
+                'case_id': 'JBL-SME-2026-001',
+                'product_key': 'sme',
+                'client_name': 'Test Client',
+                'branch': 'Nakuru',
+                'next_stage_key': 'mpesa_to_admin',
+            }
+        }
+
+        alert = next_role_alert(self.config, data)
+
+        self.assertEqual(alert['role'], 'BRO')
+        self.assertIn('TAT action needed: BRO', alert['text'])
+        self.assertIn('Next step: MPESA sent to Admin', alert['text'])
+
+    def test_next_role_alert_can_be_disabled_in_workflow(self):
+        self.config.workflow['stage_alerts_enabled'] = False
+        data = {'summary': {'product_key': 'sme', 'next_stage_key': 'mpesa_to_admin'}}
+
+        self.assertEqual(next_role_alert(self.config, data), {})
+
+    @patch('core.api.views._post_telegram_reply')
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    @patch('core.services.tat_tracker.validate_tat_telegram_webapp_init_data')
+    def test_create_endpoint_alerts_next_stage_role(self, mock_auth, sync_mock, mock_reply):
+        mock_auth.return_value = (True, '', {'id': 111, 'username': 'bro_user'})
+        sync_mock.side_effect = self.mark_case_synced
+        GroupRegistry._instance = None
+
+        response = self.client.post(
+            '/api/tat-tracker/create/',
+            data=json.dumps({
+                'group_id': self.config.group_id,
+                'init_data': 'mock',
+                'product_key': 'sme',
+                'branch': 'Nakuru',
+                'client_name': 'Test Client',
+                'bro_name': 'BRO User',
+                'amount': '10000',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        mock_reply.assert_called_once()
+        self.assertIn('TAT action needed: BRO', mock_reply.call_args.kwargs['text'])
 
     @patch('core.services.tat_tracker.sync_case_to_sheet')
     def test_create_case_assigns_sequential_case_id(self, sync_mock):

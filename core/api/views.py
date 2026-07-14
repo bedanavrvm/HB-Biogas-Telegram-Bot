@@ -148,7 +148,9 @@ def tat_tracker_create(request):
         return error
     from core.services.tat_tracker import create_case
     try:
-        return JsonResponse({'ok': True, 'data': create_case(group_config, user, payload)})
+        data = create_case(group_config, user, payload)
+        _send_tat_next_role_alert(group_config, data)
+        return JsonResponse({'ok': True, 'data': data})
     except Exception as exc:
         logger.warning('TAT Tracker create failed: %s', exc, exc_info=True)
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
@@ -177,10 +179,21 @@ def tat_tracker_update(request):
         return error
     from core.services.tat_tracker import update_case
     try:
-        return JsonResponse({'ok': True, 'data': update_case(group_config, user, payload.get('case_id', ''), payload.get('updates') or [])})
+        data = update_case(group_config, user, payload.get('case_id', ''), payload.get('updates') or [])
+        _send_tat_next_role_alert(group_config, data)
+        return JsonResponse({'ok': True, 'data': data})
     except Exception as exc:
         logger.warning('TAT Tracker update failed: %s', exc, exc_info=True)
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+
+
+def _send_tat_next_role_alert(group_config, case_data: dict) -> None:
+    from core.services.tat_tracker import next_role_alert
+
+    alert = next_role_alert(group_config, case_data)
+    if not alert:
+        return
+    _post_telegram_reply(chat_id=group_config.group_id, message_data={}, text=alert['text'])
 # ---------------------------------------------------------------------------
 # Telegram webhook
 # ---------------------------------------------------------------------------
@@ -773,13 +786,7 @@ def spin_form_requests(request):
     from core.services.spin_credit import is_user_spin_analyst, spin_request_id, format_sheet_datetime, REQUEST_TYPE_LABELS
     is_analyst = is_user_spin_analyst(user_payload)
     from core.models import SpinCreditRequest
-    if is_analyst:
-        if request.GET.get('filter_group') == 'true' and group_id:
-            queryset = SpinCreditRequest.objects.filter(group_id=group_id)
-        else:
-            queryset = SpinCreditRequest.objects.all()
-    else:
-        queryset = SpinCreditRequest.objects.filter(group_id=group_id)
+    queryset = SpinCreditRequest.objects.filter(group_id=group_id)
     queryset = queryset.order_by('-request_datetime', '-created_at')
     data = []
     for r in queryset:
@@ -986,24 +993,27 @@ def _send_spin_webapp_chat_reply(group_id: str, result: dict) -> None:
         return
     if result.get('success'):
         lines = [
-            'SPIN/CRB REQUEST SUBMITTED',
+            'SPIN request received',
             '',
             f"Request ID: {result.get('request_id', '')}",
             f"Type: {result.get('request_type', '')}",
             f"Customer: {result.get('customer_name', '')}",
             f"National ID: {result.get('national_id', '')}",
             f"Phone: {result.get('primary_phone', '')}",
-            f"Files stored: {result.get('files_stored', 0)}",
         ]
+        files_stored = result.get('files_stored', 0)
+        if files_stored:
+            lines.append(f"Documents attached: {files_stored}")
+        lines.extend(['', 'The credit team can now review it in the SPIN dashboard.'])
     else:
         lines = [
-            'SPIN/CRB REQUEST NOT SUBMITTED',
+            'SPIN request needs attention',
             '',
             result.get('message') or 'Please check the form and try again.',
         ]
         errors = [str(error) for error in (result.get('errors') or []) if str(error).strip()]
         if errors:
-            lines.extend(['', 'Fix'])
+            lines.extend(['', 'Please update:'])
             lines.extend(f'- {error}' for error in errors[:6])
     _post_telegram_reply(chat_id=group_id, message_data={}, text='\n'.join(lines))
 

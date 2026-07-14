@@ -453,6 +453,10 @@ class SpinCreditMiniAppTestCase(TestCase):
         self.assertEqual(record.parsed_fields['media_urls'], 'https://drive.google.com/file/d/laf-doc/view\nhttps://drive.google.com/file/d/id-photo/view')
         mock_append.assert_called_once()
         mock_reply.assert_called_once()
+        reply_text = mock_reply.call_args.kwargs['text']
+        self.assertIn('SPIN request received', reply_text)
+        self.assertIn('The credit team can now review it', reply_text)
+        self.assertNotIn('REQUEST SUBMITTED', reply_text)
 
 
 class SpinCreditSheetSyncTestCase(TestCase):
@@ -577,6 +581,30 @@ class SpinCreditPortalTestCase(TestCase):
             self.assertEqual(response.status_code, 200)
             res_data = response.json()
             self.assertTrue(res_data['success'])
+            self.assertEqual(len(res_data['requests']), 1)
+
+    @patch('core.services.spin_credit.validate_spin_telegram_webapp_init_data')
+    def test_spin_form_requests_stays_in_current_group_for_analyst(self, mock_validate):
+        import json
+        mock_validate.return_value = (True, None, {'user': json.dumps({'username': 'analyst1', 'id': '12345'})})
+        SpinCreditRequest.objects.create(
+            group_id='-100other_spin',
+            request_type='spin',
+            customer_name='OTHER GROUP',
+            national_id='99999999',
+            primary_phone='254700000000',
+            requested_amount=10000,
+            tenor='6 weeks',
+        )
+
+        from django.test import override_settings
+        with override_settings(SPIN_ANALYSTS=['analyst1']):
+            response = self.client.get(f"/api/spin/requests/?group_id={self.config.group_id}&init_data=mock_data")
+
+        self.assertEqual(response.status_code, 200)
+        names = [item['customer_name'] for item in response.json()['requests']]
+        self.assertIn('JOHN DOE', names)
+        self.assertNotIn('OTHER GROUP', names)
             self.assertTrue(res_data['is_analyst'])
             self.assertEqual(len(res_data['requests']), 1)
             self.assertEqual(res_data['requests'][0]['customer_name'], 'JOHN DOE')
