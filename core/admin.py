@@ -314,6 +314,7 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
             )
         if preset_key == 'tat_tracker':
             self.fields['workflow_preset'].initial = 'tat_tracker'
+        if preset_key == 'tat_tracker' or workflow.get('tat_targets_minutes'):
             self._populate_tat_target_initials(workflow)
         if preset_key == 'jawabu_homebiogas':
             self.fields['workflow_preset'].initial = 'jawabu_homebiogas'
@@ -393,6 +394,18 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
 
     def generated_workflow(self) -> dict | None:
         preset_key = self.cleaned_data.get('workflow_preset') or MANUAL_PRESET
+        if preset_key == MANUAL_PRESET:
+            workflow = dict(self.cleaned_data.get('workflow') or {})
+            existing_workflow = getattr(self.instance, 'workflow', None) or {}
+            if (
+                workflow.get('type') == 'tat_tracker'
+                or existing_workflow.get('type') == 'tat_tracker'
+                or workflow.get('tat_targets_minutes')
+                or existing_workflow.get('tat_targets_minutes')
+            ):
+                workflow['tat_targets_minutes'] = self.tat_targets_minutes()
+                return workflow
+            return None
         return build_workflow_from_preset(
             preset_key,
             overrides={
@@ -425,7 +438,11 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
         )
 
     def tat_targets_minutes(self) -> dict:
-        existing_workflow = getattr(self.instance, 'workflow', None) or {}
+        existing_workflow = (
+            self.cleaned_data.get('workflow')
+            or getattr(self.instance, 'workflow', None)
+            or {}
+        )
         current_targets = existing_workflow.get('tat_targets_minutes') or {}
         targets = {
             product_key: {
