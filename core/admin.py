@@ -45,6 +45,23 @@ def _tat_target_field_name(product_key: str, target_key: str) -> str:
     return f'tat_target_{product_key}_{safe_key}'
 
 
+def _tat_target_form_field(product_key: str, target_key: str) -> forms.IntegerField:
+    product = PRODUCTS[product_key]
+    if target_key == 'total':
+        label = f'{product.label} total target minutes'
+        help_text = 'Overall case SLA target in minutes.'
+    else:
+        stage = next(stage for stage in product.stages if stage.key == target_key)
+        label = f'{product.label}: {stage.label} target minutes'
+        help_text = 'Leave blank to show TAT without SLA status for this stage.'
+    return forms.IntegerField(
+        required=False,
+        min_value=0,
+        label=label,
+        help_text=help_text,
+    )
+
+
 TAT_TARGET_FIELD_GROUPS = []
 for _product_key, _product in PRODUCTS.items():
     _fields = [_tat_target_field_name(_product_key, 'total')]
@@ -248,7 +265,6 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
         workflow = getattr(self.instance, 'workflow', None) or {}
         preset_key = preset_for_workflow(workflow)
         self.fields['workflow_preset'].initial = preset_key
-        self._add_tat_target_fields(workflow)
         if preset_key == 'case':
             self.fields['workflow_preset'].initial = 'case'
             defaults = defaults_for_preset('case')
@@ -425,25 +441,6 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 targets[product_key] = product_targets
         return targets
 
-    def _add_tat_target_fields(self, workflow: dict):
-        del workflow
-        for product_key, product_label, field_names in TAT_TARGET_FIELD_GROUPS:
-            for field_name in field_names:
-                stage_key = field_name.replace(f'tat_target_{product_key}_', '', 1)
-                if stage_key == 'total':
-                    label = f'{product_label} total target minutes'
-                    help_text = 'Overall case SLA target in minutes.'
-                else:
-                    stage = next(stage for stage in PRODUCTS[product_key].stages if stage.key == stage_key)
-                    label = f'{product_label}: {stage.label} target minutes'
-                    help_text = 'Leave blank to show TAT without SLA status for this stage.'
-                self.fields[field_name] = forms.IntegerField(
-                    required=False,
-                    min_value=0,
-                    label=label,
-                    help_text=help_text,
-                )
-
     def _populate_tat_target_initials(self, workflow: dict):
         targets = workflow.get('tat_targets_minutes') or {}
         defaults = defaults_for_preset('tat_tracker')['workflow'].get('tat_targets_minutes') or {}
@@ -487,6 +484,13 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
         if defaults.get('parser_rules') is not None and not obj.parser_rules:
             obj.parser_rules = defaults['parser_rules']
 
+
+for _product_key, _product_label, _field_names in TAT_TARGET_FIELD_GROUPS:
+    for _field_name in _field_names:
+        _target_key = _field_name.replace(f'tat_target_{_product_key}_', '', 1)
+        _field = _tat_target_form_field(_product_key, _target_key)
+        GroupSheetConfigurationAdminForm.base_fields[_field_name] = _field
+        GroupSheetConfigurationAdminForm.declared_fields[_field_name] = _field
 
 
 @admin.register(TatTrackerCase)

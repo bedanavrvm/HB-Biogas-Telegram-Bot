@@ -2,7 +2,9 @@ from unittest.mock import patch
 from decimal import Decimal
 import json
 
-from django.test import TestCase, override_settings
+from django.contrib import admin
+from django.contrib.auth import get_user_model
+from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 
 from core.admin import TatTrackerStaffMemberAdminForm
@@ -283,6 +285,20 @@ class TatTrackerWorkflowTest(TestCase):
             workflow['tat_targets_minutes']['sme']['stages']['ca_analysis_sent'],
             120,
         )
+
+    def test_group_admin_change_form_accepts_tat_target_fieldset_fields(self):
+        request = RequestFactory().get('/admin/core/groupsheetconfiguration/2/change/')
+        request.user = get_user_model().objects.create_superuser(
+            username='admin',
+            email='admin@example.test',
+            password='password',
+        )
+
+        model_admin = admin.site._registry[GroupSheetConfiguration]
+        form_class = model_admin.get_form(request, self.config)
+
+        self.assertIn('tat_target_sme_total', form_class.base_fields)
+        self.assertIn('tat_target_logbook_ca_analysis_sent', form_class.base_fields)
     def test_staff_user_matches_gui_staff_row(self):
         TatTrackerStaffMember.objects.create(
             group_configuration=self.config,
