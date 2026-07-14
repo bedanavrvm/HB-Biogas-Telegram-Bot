@@ -422,6 +422,13 @@ def repair_case_sheet_sync(parsed_message, group_config=None) -> dict:
 
     parsed_message.refresh_from_db(fields=['synced_to_sheets', 'synced_at', 'sync_attempts', 'last_sync_error', 'sheet_id', 'sheet_name'])
     if success:
+        if not parsed_message.synced_to_sheets:
+            parsed_message.synced_to_sheets = True
+            parsed_message.synced_at = timezone.now()
+            parsed_message.last_sync_error = ''
+            parsed_message.sheet_id = sheet_id
+            parsed_message.sheet_name = sheet_name
+            parsed_message.save(update_fields=['synced_to_sheets', 'synced_at', 'last_sync_error', 'sheet_id', 'sheet_name'])
         return {'status': 'sync_retried', 'synced': True, 'message_id': parsed_message.message_id}
     return {
         'status': 'sync_failed',

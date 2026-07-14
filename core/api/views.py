@@ -1695,7 +1695,7 @@ def _run_whatsapp_batch_import(
     append_status = (batch_sheet_append or {}).get('status')
     sync_after = (
         _sync_case_sheet_for_batch(group_id, delete_missing=False)
-        if saved_count and append_status in {'success', 'partial'} else None
+        if saved_count and append_status in {'success', 'partial', 'skipped'} else None
     )
 
     return {
@@ -2626,7 +2626,8 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
             lines = [
                 'WhatsApp batch processed',
                 f"Export messages found: {result.get('export_messages', total)}",
-                f"Complaint entries identified: {total}",
+                f"Complaint entries processed: {total}",
+                f"Saved: {saved}",
                 f"New cases created: {result.get('new_cases_created', saved)}",
             ]
             existing_matched = result.get('existing_cases_matched', 0)
