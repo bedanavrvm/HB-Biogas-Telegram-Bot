@@ -10,6 +10,7 @@
     currentView: 'queue',
     pendingCreateRequestId: readPendingCreateRequestId(),
     creatingCase: false,
+    refreshing: false,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -134,7 +135,7 @@
   function setButtonLoading(button, loading, label) {
     if (!button) return;
     if (loading) {
-      button.dataset.originalText = button.innerHTML;
+      if (!button.dataset.originalText) button.dataset.originalText = button.innerHTML;
       button.innerHTML = `
         <svg class="spinner" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
           <line x1="12" y1="2" x2="12" y2="6"></line>
@@ -151,6 +152,7 @@
       button.disabled = true;
     } else {
       button.innerHTML = button.dataset.originalText || button.innerHTML;
+      delete button.dataset.originalText;
       button.disabled = false;
     }
   }
@@ -240,11 +242,18 @@
     setStatus('Ready.', 'ok');
   }
 
-  async function refresh() {
-    setStatus('Refreshing queue...', 'busy');
-    const result = await api('/api/tat-tracker/home/', {});
-    renderHome(result.data);
-    setStatus('Queue updated.', 'ok');
+  async function refresh(options) {
+    const background = Boolean(options && options.background);
+    if (!background) setStatus('Refreshing queue...', 'busy');
+    try {
+      const result = await api('/api/tat-tracker/home/', {});
+      renderHome(result.data);
+      if (!background) setStatus('Queue updated.', 'ok');
+      return result;
+    } catch (error) {
+      if (!background) setStatus(error.message, 'error');
+      throw error;
+    }
   }
 
   async function openCase(caseId) {
@@ -389,13 +398,17 @@
 
   document.querySelectorAll('.tabs button').forEach((button) => button.addEventListener('click', () => show(button.dataset.view)));
   $('refreshBtn').addEventListener('click', async (event) => {
+    if (state.refreshing) return;
+    const button = event.currentTarget;
     try {
-      setButtonLoading(event.currentTarget, true, 'Refreshing');
+      state.refreshing = true;
+      setButtonLoading(button, true, 'Refreshing');
       await refresh();
     } catch (error) {
       setStatus(error.message, 'error');
     } finally {
-      setButtonLoading(event.currentTarget, false);
+      state.refreshing = false;
+      setButtonLoading(button, false);
     }
   });
   $('backBtn').addEventListener('click', () => { show('queue'); refresh().catch(() => {}); });
@@ -455,7 +468,7 @@
       const broInput = document.querySelector('[name="bro_name"]');
       if (broInput) broInput.value = currentUserName() || payload.bro_name || '';
       setStatus('Case created. Continue from the highlighted stage.', 'ok');
-      refresh().catch(() => {});
+      refresh({ background: true }).catch(() => {});
     } catch (error) {
       setStatus(error.message, 'error');
     } finally {
