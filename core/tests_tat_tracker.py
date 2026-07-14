@@ -286,6 +286,77 @@ class TatTrackerWorkflowTest(TestCase):
             120,
         )
 
+    def test_group_admin_form_preserves_existing_tat_targets_when_fields_blank(self):
+        self.config.workflow.setdefault('tat_targets_minutes', {}).setdefault(
+            'sme',
+            {'total': 20160, 'stages': {}},
+        )['stages'] = {
+            'mpesa_to_admin': 45,
+            'ca_analysis_sent': 180,
+        }
+        self.config.save()
+
+        from core.admin import GroupSheetConfigurationAdminForm
+
+        data = {
+            'workflow_preset': 'tat_tracker',
+            'group_id': self.config.group_id,
+            'display_name': self.config.display_name,
+            'enabled': 'on',
+            'sheet_id': self.config.sheet_id,
+            'sheet_name': self.config.sheet_name,
+            'sheet_schema': '{}',
+            'workflow': json.dumps(self.config.workflow),
+            'parser_rules': '{}',
+            'metadata': '{}',
+        }
+
+        form = GroupSheetConfigurationAdminForm(data=data, instance=self.config)
+
+        self.assertTrue(form.is_valid(), form.errors)
+        workflow = form.generated_workflow()
+        self.assertEqual(
+            workflow['tat_targets_minutes']['sme']['stages']['mpesa_to_admin'],
+            45,
+        )
+        self.assertEqual(
+            workflow['tat_targets_minutes']['sme']['stages']['ca_analysis_sent'],
+            180,
+        )
+
+    def test_group_admin_form_preserves_existing_tat_workflow_settings(self):
+        self.config.workflow.update({
+            'products': ['sme'],
+            'branches': ['Muranga', 'Thika Road'],
+            'alert_next_role': False,
+        })
+        self.config.save()
+
+        from core.admin import GroupSheetConfigurationAdminForm
+
+        data = {
+            'workflow_preset': 'tat_tracker',
+            'group_id': self.config.group_id,
+            'display_name': self.config.display_name,
+            'enabled': 'on',
+            'sheet_id': self.config.sheet_id,
+            'sheet_name': self.config.sheet_name,
+            'sheet_schema': '{}',
+            'workflow': json.dumps(self.config.workflow),
+            'parser_rules': '{}',
+            'metadata': '{}',
+            'tat_target_sme_total': '1440',
+        }
+
+        form = GroupSheetConfigurationAdminForm(data=data, instance=self.config)
+
+        self.assertTrue(form.is_valid(), form.errors)
+        workflow = form.generated_workflow()
+        self.assertEqual(workflow['products'], ['sme'])
+        self.assertEqual(workflow['branches'], ['Muranga', 'Thika Road'])
+        self.assertIs(workflow['alert_next_role'], False)
+        self.assertEqual(workflow['tat_targets_minutes']['sme']['total'], 1440)
+
     def test_group_admin_change_form_accepts_tat_target_fieldset_fields(self):
         request = RequestFactory().get('/admin/core/groupsheetconfiguration/2/change/')
         request.user = get_user_model().objects.create_superuser(

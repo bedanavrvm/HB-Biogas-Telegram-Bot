@@ -419,15 +419,27 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 'internal_order_header_row': self.cleaned_data.get('jawabu_internal_order_header_row'),
                 'internal_order_data_start_row': self.cleaned_data.get('jawabu_internal_order_data_start_row'),
                 'internal_order_record_id_prefix': self.cleaned_data.get('jawabu_internal_order_record_id_prefix'),
+                'existing_workflow': getattr(self.instance, 'workflow', None) or {},
                 'tat_targets_minutes': self.tat_targets_minutes(),
             },
         )
 
     def tat_targets_minutes(self) -> dict:
-        targets = {}
+        existing_workflow = getattr(self.instance, 'workflow', None) or {}
+        current_targets = existing_workflow.get('tat_targets_minutes') or {}
+        targets = {
+            product_key: {
+                'total': product_targets.get('total'),
+                'stages': dict(product_targets.get('stages') or {}),
+            }
+            for product_key, product_targets in current_targets.items()
+            if isinstance(product_targets, dict)
+        }
         for product_key, _label, field_names in TAT_TARGET_FIELD_GROUPS:
-            product_targets = {'stages': {}}
-            total = self.cleaned_data.get(_tat_target_field_name(product_key, 'total'))
+            product_targets = targets.setdefault(product_key, {'stages': {}})
+            product_targets.setdefault('stages', {})
+            total_field = _tat_target_field_name(product_key, 'total')
+            total = self.cleaned_data.get(total_field)
             if total is not None:
                 product_targets['total'] = int(total)
             for field_name in field_names:
@@ -437,9 +449,15 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 value = self.cleaned_data.get(field_name)
                 if value is not None:
                     product_targets['stages'][stage_key] = int(value)
-            if product_targets.get('total') is not None or product_targets['stages']:
-                targets[product_key] = product_targets
-        return targets
+        return {
+            product_key: {
+                key: value
+                for key, value in product_targets.items()
+                if key != 'stages' or value
+            }
+            for product_key, product_targets in targets.items()
+            if product_targets.get('total') is not None or product_targets.get('stages')
+        }
 
     def _populate_tat_target_initials(self, workflow: dict):
         targets = workflow.get('tat_targets_minutes') or {}
