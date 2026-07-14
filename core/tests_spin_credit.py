@@ -160,6 +160,115 @@ Requesting 30,000 for 1 month"""
         self.assertEqual(parsed.request_type, 'spin_crb')
         self.assertEqual(parsed.national_id, '55667788')
 
+    def test_parse_nakuru_above_client_labelled_spin_request(self):
+        text = """Morning, kindly assist me with the spin and credit analysis for the above client. A new client sells clothes at market
+Code -654321
+Name - Mary Wambui
+ID-22334455
+No-0712345678
+Product-msingi
+Amount-20k
+Duration-8weeks"""
+        parsed = parse_spin_entry(self.entry(text))
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.request_type, 'spin_crb')
+        self.assertEqual(parsed.customer_name, 'MARY WAMBUI')
+        self.assertEqual(parsed.national_id, '22334455')
+        self.assertEqual(parsed.primary_phone, '254712345678')
+        self.assertEqual(parsed.loan_product, 'Msingi')
+        self.assertEqual(str(parsed.requested_amount), '20000')
+        self.assertEqual(parsed.tenor.lower(), '8weeks')
+        self.assertEqual(parsed.code, '654321')
+
+    def test_parse_single_sentence_labelled_spin_request(self):
+        text = (
+            'Morning, kindly assist me with the spin and credit analysis for the above client. '
+            'A new client sells clothes at market Code -654321 Name - Mary Wambui '
+            'ID-22334455 No-0712345678 Product-msingi Amount-20k Duration-8weeks'
+        )
+        parsed = parse_spin_entry(self.entry(text))
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.request_type, 'spin_crb')
+        self.assertEqual(parsed.customer_name, 'MARY WAMBUI')
+        self.assertEqual(parsed.national_id, '22334455')
+        self.assertEqual(parsed.primary_phone, '254712345678')
+        self.assertEqual(parsed.loan_product, 'Msingi')
+        self.assertEqual(str(parsed.requested_amount), '20000')
+        self.assertEqual(parsed.tenor.lower(), '8weeks')
+        self.assertEqual(parsed.code, '654321')
+
+    def test_parse_east_multiline_share_spin_for_request(self):
+        text = """Kindly share spin for
+Duncan Wambugu
+I'd no 27698225
+Phone 0726843280/0740279575
+He is a repeat client requesting for 20,000 in 8 weeks.
+Code 877467"""
+        parsed = parse_spin_entry(self.entry(text))
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.request_type, 'spin')
+        self.assertEqual(parsed.customer_name, 'DUNCAN WAMBUGU')
+        self.assertEqual(parsed.national_id, '27698225')
+        self.assertEqual(parsed.primary_phone, '254726843280')
+        self.assertEqual(parsed.secondary_phone, '254740279575')
+        self.assertEqual(str(parsed.requested_amount), '20000')
+        self.assertEqual(parsed.tenor.lower(), '8 weeks')
+        self.assertEqual(parsed.code, '877467')
+
+    def test_parse_limuru_spin_analysis_of_request(self):
+        text = """Kindly share spin analysis of Paul Babu new customer mechanic based in Limuru, seeking msingi loan of ksh 20000 with a tenor of 12weeks, ID no 28400542
+Ph no : 0712572050
+Code 851904"""
+        parsed = parse_spin_entry(self.entry(text))
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.request_type, 'spin_crb')
+        self.assertEqual(parsed.customer_name, 'PAUL BABU')
+        self.assertEqual(parsed.loan_product, 'Msingi')
+        self.assertEqual(str(parsed.requested_amount), '20000')
+        self.assertEqual(parsed.tenor.lower(), '12weeks')
+        self.assertEqual(parsed.national_id, '28400542')
+        self.assertEqual(parsed.primary_phone, '254712572050')
+        self.assertEqual(parsed.code, '851904')
+
+    def test_parse_west_compact_comma_separated_request(self):
+        text = "kindly share spin for Mary Auma, she is a new customer requesting for micro-asset loan of 45,000 to be repaid in 6 months, id-27388611, p/no 0727458350, code-331507"
+        parsed = parse_spin_entry(self.entry(text))
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.request_type, 'spin')
+        self.assertEqual(parsed.customer_name, 'MARY AUMA')
+        self.assertEqual(parsed.loan_product, 'Micro Asset')
+        self.assertEqual(str(parsed.requested_amount), '45000')
+        self.assertEqual(parsed.tenor.lower(), '6 months')
+        self.assertEqual(parsed.national_id, '27388611')
+        self.assertEqual(parsed.primary_phone, '254727458350')
+        self.assertEqual(parsed.code, '331507')
+
+    def test_parse_thika_compact_id_phn_request(self):
+        text = "Kindly share spin for Selina Luta Id 11060375.phn 0722600894.New client located at Kayole requesting for a logbook loan of 150k to pay with 4months. Code 126572"
+        parsed = parse_spin_entry(self.entry(text))
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.request_type, 'spin')
+        self.assertEqual(parsed.customer_name, 'SELINA LUTA')
+        self.assertEqual(parsed.loan_product, 'Logbook')
+        self.assertEqual(str(parsed.requested_amount), '150000')
+        self.assertEqual(parsed.tenor.lower(), '4months')
+        self.assertEqual(parsed.national_id, '11060375')
+        self.assertEqual(parsed.primary_phone, '254722600894')
+        self.assertEqual(parsed.code, '126572')
+
+    def test_payment_admin_message_is_not_spin_candidate(self):
+        classification = classify_spin_message(
+            'Kindly post this payment to Mary Wambui digital loan Id 22334455 phone number 0712345678'
+        )
+
+        self.assertEqual(classification.category, 'non_spin')
+
     @patch('core.services.spin_credit.append_spin_requests_to_sheet')
     def test_process_batch_saves_requests_and_marks_duplicates(self, mock_append):
         mock_append.return_value = {'success': True, 'row_numbers': [2, 3], 'sheet_name': 'Legacy SPIN Imports'}

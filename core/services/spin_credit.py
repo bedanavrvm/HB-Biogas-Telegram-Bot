@@ -102,6 +102,9 @@ PRODUCT_ALIASES = [
     ('logbook', 'Logbook'),
     ('maendeleo', 'Maendeleo'),
     ('mjengo', 'Mjengo'),
+    ('micro-asset', 'Micro Asset'),
+    ('micro asset', 'Micro Asset'),
+    ('microasset', 'Micro Asset'),
     ('daranja', 'Daraja'),
     ('daraja', 'Daraja'),
     ('msingi', 'Msingi'),
@@ -112,6 +115,8 @@ PRODUCT_ALIASES = [
     ('flex', 'Flex'),
     ('biashara', 'Biashara'),
 ]
+
+FIELD_LABEL_PATTERN = r"(?:name|id(?:\s+number|\s+no)?|i'?d(?:\s+no)?|phone(?:\s+number|\s+no)?|phn(?:\s+no)?|phno(?:\s+no)?|p/no|p\s*no|tel|mobile|no|number|product|amount|duration|duaration|period|code)"
 
 SPIN_KEYWORD_PATTERNS = {
     'spin': [r'\bspin\b'],
@@ -425,13 +430,13 @@ def parse_spin_entry(entry: dict[str, Any], index: int = 0, source_filename: str
     raw = str(entry.get('content') or '').strip()
     if not raw:
         return None
-    normalized = normalize_text(raw)
+    text = strip_attachment_lines(raw)
+    normalized = normalize_text(text)
     request_type = classify_request(normalized)
     if not request_type:
         return None
 
     attachment_names = extract_attachment_names(raw)
-    text = strip_attachment_lines(raw)
     parsed = ParsedSpinRequest(
         request_type=request_type,
         request_datetime=entry.get('received_at'),
@@ -518,6 +523,8 @@ def request_type_from_keywords(keywords: list[str], low: str) -> str | None:
     keyword_set = set(keywords)
     if 'crb' in keyword_set and not ({'spin', 'credit_analysis', 'loan_analysis'} & keyword_set):
         return 'crb'
+    if re.search(r'\bspin\s+analysis\b|\bspin\s+(?:and|&)\s+credit\s+analysis\b|\bcredit\s+analysis\b', low):
+        return 'spin_crb'
     if 'spin' in keyword_set and not ({'crb', 'credit_analysis', 'loan_analysis'} & keyword_set):
         return 'spin'
     if keywords:
@@ -606,20 +613,27 @@ def extract_customer_name(text: str, request_type: str) -> str:
     single = normalize_text(strip_attachment_lines(text))
     patterns = []
     if request_type == 'spin_crb':
+        patterns.append(r'(?:crb\s+(?:and|&)\s+spin|spin\s+(?:and|&)\s+crb)\s+report\s+for\s+(?P<name>.+?)(?:\s+who\b|\s+a\s+(?:new|existing)\s+(?:customer|client)|\s+an\s+(?:new|existing)\s+(?:customer|client)|\s+requesting|\s+id\b|\s+phone\b|$)')
         patterns.append(r'spin\s+and\s+credit\s+analysis\s+for\s+(?P<name>.+?)(?:\s+a\s+(?:new|existing)\s+(?:customer|client)|\s+an\s+(?:new|existing)\s+(?:customer|client)|\s+requesting|\s+id\b|\s+phone\b|$)')
         patterns.append(r'(?:spin\s*/\s*crb|spin\s+(?:and|&)\s+crb|spin\s+crb)\s+(?:request\s+)?(?:for\s+)?(?P<name>.+?)(?:\s+a\s+(?:new|existing)\s+(?:customer|client)|\s+an\s+(?:new|existing)\s+(?:customer|client)|\s+requesting|\s+id\b|\s+phone\b|$)')
-        patterns.append(r'share\s+(?:the\s+)?spin\s+analysis\s+(?P<name>.+?)(?:\s+id\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
-        patterns.append(r'share\s+(?:the\s+)?analysis\s+for\s+(?P<name>.+?)(?:\s+phone\b|\s+id\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
-        patterns.append(r'(?:assist|help|do|run|check|process|send|share|need|request(?:ing)?)\s+(?:with\s+|for\s+)?(?:a\s+|the\s+)?(?:spin\s*(?:/|and|&)?\s*)?(?:credit\s+)?analysis\s+(?:for|of)?\s*(?P<name>.+?)(?:\s+a\s+(?:new|existing)\s+(?:customer|client)|\s+an\s+(?:new|existing)\s+(?:customer|client)|\s+id\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
-        patterns.append(r'(?:spin|credit\s+analysis|analysis)\s+(?:request\s+)?(?:for|of)\s+(?P<name>.+?)(?:\s+a\s+(?:new|existing)\s+(?:customer|client)|\s+an\s+(?:new|existing)\s+(?:customer|client)|\s+id\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
+        patterns.append(r'share\s+(?:the\s+)?spin\s+analysis\s+(?:of|for)?\s*(?P<name>.+?)(?:\s+who\b|\s+applying\b|\s+seeking\b|\s+taking\b|\s+id\b|\s+i\'?d\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+p/no\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
+        patterns.append(r'share\s+(?:the\s+)?analysis\s+for\s+(?P<name>.+?)(?:\s+who\b|\s+phone\b|\s+id\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
+        patterns.append(r'(?:assist|help|do|run|check|process|send|share|need|request(?:ing)?)\s+(?:me\s+)?(?:with\s+|for\s+)?(?:a\s+|the\s+)?(?:client\s+)?(?:spin\s*(?:/|and|&)?\s*)?(?:credit\s+)?analysis\s+(?:for|of)?\s*(?P<name>.+?)(?:\s+who\b|\s+applying\b|\s+seeking\b|\s+taking\b|\s+a\s+(?:new|existing)\s+(?:customer|client)|\s+an\s+(?:new|existing)\s+(?:customer|client)|\s+id\b|\s+i\'?d\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+p/no\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
+        patterns.append(r'(?:spin|credit\s+analysis|analysis)\s+(?:request\s+)?(?:for|of)\s+(?P<name>.+?)(?:\s+who\b|\s+applying\b|\s+seeking\b|\s+taking\b|\s+a\s+(?:new|existing)\s+(?:customer|client)|\s+an\s+(?:new|existing)\s+(?:customer|client)|\s+id\b|\s+i\'?d\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+p/no\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
     elif request_type == 'spin':
-        patterns.append(r'share\s+spin\s+for\s+(?P<name>.+?)(?:\s+id\b|\s+phn\b|\s+phone\b|\s+new\b|\s+existing\b|$)')
-        patterns.append(r'share\s+(?:the\s+)?spin\s+(?P<name>.+?)(?:\s+id\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
-        patterns.append(r'(?:assist|help|do|run|check|process|send|share|need|request(?:ing)?)\s+(?:with\s+|for\s+)?(?:a\s+|the\s+)?spin\s+(?:for|of)?\s*(?P<name>.+?)(?:\s+id\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
-        patterns.append(r'spin\s+(?:request\s+)?(?:for|of)\s+(?P<name>.+?)(?:\s+id\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
+        patterns.append(r'share\s+spin\s+for\s*(?P<name>.+?)(?:\s+he\b|\s+she\b|\s+they\b|\s+id\b|\s+i\'?d\b|\s+phn\b|\s+p/no\b|\s+phone\b|\s+requesting\b|\s+new\b|\s+existing\b|$)')
+        patterns.append(r'share\s+(?:the\s+)?spin\s+(?P<name>.+?)(?:\s+id\b|\s+i\'?d\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+p/no\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
+        patterns.append(r'(?:assist|help|do|run|check|process|send|share|need|request(?:ing)?)\s+(?:with\s+|for\s+)?(?:a\s+|the\s+)?spin\s+(?:for|of)?\s*(?P<name>.+?)(?:\s+id\b|\s+i\'?d\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+p/no\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
+        patterns.append(r'spin\s+(?:request\s+)?(?:for|of)\s+(?P<name>.+?)(?:\s+id\b|\s+i\'?d\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+p/no\b|\s+kes\b|\s+ksh\b|\s+new\b|\s+existing\b|$)')
     elif request_type == 'crb':
         patterns.append(r'share\s+crb\s+report\s+(?:of|for)?\s*(?P<name>.+?)(?:\s+he\s+is|\s+she\s+is|\s+they\s+are|\s+requesting|\s+id\b|\s+phone\b|$)')
         patterns.append(r'(?:assist|help|do|run|check|process|send|share|need|request(?:ing)?)\s+(?:with\s+|for\s+)?(?:a\s+|the\s+)?crb(?:\s+report)?\s+(?:for|of)?\s*(?P<name>.+?)(?:\s+he\s+is|\s+she\s+is|\s+they\s+are|\s+requesting|\s+id\b|\s+\d{7,8}\b|\s+phone\b|\s+phn\b|\s+kes\b|\s+ksh\b|$)')
+    label_match = re.search(
+        rf'(?is)(?:^|\b)name\s*[-:;]\s*(?P<name>.+?)(?=\s+\b{FIELD_LABEL_PATTERN}\s*[-:;]|\n|$)',
+        text,
+    )
+    if label_match:
+        return clean_name(label_match.group('name'))
     for pattern in patterns:
         match = re.search(pattern, single, re.I)
         if match:
@@ -642,7 +656,7 @@ def clean_name(value: str) -> str:
 
 def extract_id(text: str) -> tuple[str, str]:
     candidates = []
-    for match in re.finditer(r'(?i)\b(?:id|id number|i\.?d|i?d|i\'d)\s*(?:number)?\s*[:.]?\s*([0-9][0-9\-\s]{5,20})', text):
+    for match in re.finditer(r'(?i)\b(?:id|id\s+number|id\s+no|i\.?d|i?d|i\'d|i\'d\s+no)\s*(?:number|no)?\s*[-:.]?\s*([0-9][0-9\-\s]{5,20})', text):
         raw = re.sub(r'\s+', '', match.group(1)).strip('.,;:/')
         candidates.append(raw)
     if not candidates:
@@ -662,7 +676,10 @@ def extract_id(text: str) -> tuple[str, str]:
 
 def extract_phones(text: str) -> list[str]:
     found = []
-    phone_contexts = re.finditer(r'(?i)\b(?:phone(?: number)?|phn|tel|mobile|phone no)\s*[:.]?\s*([+\d][\d\s/\-]{6,40})', text)
+    phone_contexts = re.finditer(
+        rf'(?is)\b(?:phone(?: number| no)?|phn(?:\s+no)?|phno(?:\s+no)?|p/no|p\s*no|tel|mobile|no|number)\s*[-:.]?\s*([+\d][\d\s/\-]{{6,40}}?)(?=\s+\b{FIELD_LABEL_PATTERN}\s*[-:;]|\n|$)',
+        text,
+    )
     for match in phone_contexts:
         found.extend(split_phone_blob(match.group(1)))
     for match in re.finditer(r'(?<!\d)(?:\+?254|0)?[17]\d{8}(?!\d)', text):
@@ -710,7 +727,7 @@ def extract_loan_product(text: str) -> str:
     for needle, label in PRODUCT_ALIASES:
         if needle in low:
             return label
-    match = re.search(r'requesting\s+(?:for\s+)?(?:a\s+)?(?P<product>[A-Za-z ]{2,40}?)\s+loan\b', text, re.I)
+    match = re.search(r'(?:requesting|seeking|applying|taking)\s+(?:for\s+)?(?:a\s+)?(?P<product>[A-Za-z ]{2,40}?)\s+loan\b', text, re.I)
     if match:
         return match.group('product').strip().title()
     return ''
@@ -718,7 +735,10 @@ def extract_loan_product(text: str) -> str:
 
 def extract_amount(text: str) -> Decimal | None:
     patterns = [
+        r'(?i)\bamount\s*[-:.]?\s*(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?k?)\b',
         r'(?i)(?:kshs?|kes)\s*\.?\s*(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)',
+        r'(?i)requesting\s+(?:for\s+)?(?:a\s+)?(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?k?)\b',
+        r'(?i)(?:loan\s+of|amount\s+of)\s+(?:kshs?|kes)?\s*\.?\s*(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?k?)\b',
         r'(?i)(?:loan|limit|of|for)\s+(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?k?)\b',
     ]
     candidates = []
@@ -741,14 +761,14 @@ def parse_amount(value: str) -> Decimal | None:
 
 
 def extract_tenor(text: str) -> str:
-    match = re.search(r'(?i)\b(?:to\s+pay\s+(?:with\s+)?|repay\s+in\s+|in\s+|for\s+|period\s*)?(\d+\s*(?:weeks?|wks?|months?|yrs?|years?))\b', text)
+    match = re.search(r'(?i)\b(?:to\s+pay\s+(?:with\s+)?|repay\s+in\s+|with\s+a\s+tenor\s+of\s+|tenor\s+of\s+|in\s+|for\s+|period\s*[-:.]?|du?aration\s*[-:.]?|duration\s*[-:.]?)?(\d+\s*(?:weeks?|wks?|months?|yrs?|years?))\b', text)
     if match:
         return re.sub(r'\s+', ' ', match.group(1)).strip()
     return ''
 
 
 def extract_code(text: str) -> str:
-    match = re.search(r'(?i)\bcode\s*[:.]?\s*([A-Za-z0-9/\-]+)', text)
+    match = re.search(r'(?i)\bcode\s*[-:.]?\s*([A-Za-z0-9/\-]+)', text)
     return match.group(1).strip('.,;') if match else ''
 
 
