@@ -22,7 +22,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from core.models import TatTrackerCase, TatTrackerEvent
-from core.services.branches import DEFAULT_WORKFLOW_BRANCHES, workflow_branches as configured_workflow_branches
+from core.services.branches import DEFAULT_WORKFLOW_BRANCHES, global_branch_choices, workflow_branches as configured_workflow_branches
 from core.services.sheets import get_sheets_service
 
 logger = logging.getLogger(__name__)
@@ -184,8 +184,8 @@ def configured_products(workflow: dict | None = None) -> list[ProductConfig]:
 def workflow_branches(workflow: dict | None = None) -> list[str]:
     env_branches = str(getattr(settings, 'TAT_TRACKER_BRANCH_CHOICES', '') or '').strip()
     if env_branches:
-        return configured_workflow_branches({'branches': env_branches}, default=list(BRANCHES), replace_stale_defaults=True)
-    return configured_workflow_branches(workflow, default=list(BRANCHES), replace_stale_defaults=True)
+        return configured_workflow_branches({'branches': env_branches}, default=global_branch_choices(), replace_stale_defaults=True)
+    return configured_workflow_branches(workflow, default=global_branch_choices(), replace_stale_defaults=True)
 
 
 def create_tat_form_token(group_id: str) -> str:

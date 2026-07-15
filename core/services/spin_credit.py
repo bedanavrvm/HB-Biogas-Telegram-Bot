@@ -20,7 +20,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from core.models import GroupSheetConfiguration, SpinCreditRequest, SpinRequestSequence
-from core.services.branches import validate_workflow_branch, workflow_branches, workflow_default_branch
+from core.services.branches import global_branch_choices, validate_workflow_branch, workflow_branches, workflow_default_branch
 from core.services.parser import analyze_whatsapp_export
 from core.services.sheets import get_sheets_service
 
@@ -1196,7 +1196,7 @@ def hex_to_rgb(value: str) -> dict[str, float]:
 
 def spin_branch_choices(group_config) -> list[str]:
     workflow = getattr(group_config, 'workflow', None) or {}
-    return workflow_branches(workflow, default=[])
+    return workflow_branches(workflow, default=global_branch_choices())
 
 
 def spin_default_branch(group_config) -> str:

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.conf import settings
+
 
 DEFAULT_WORKFLOW_BRANCHES = ['Biogas Unit', 'Embu', 'Nakuru', 'West Nairobi']
 STALE_BRANCH_DEFAULTS = {'Corporate', 'Thika Road', 'East Nairobi', 'West Nairobi', 'Nakuru', 'Embu', 'Limuru'}
@@ -23,6 +25,10 @@ def normalize_branch_list(value: Any) -> list[str]:
     return branches
 
 
+def global_branch_choices() -> list[str]:
+    return normalize_branch_list(getattr(settings, 'WORKFLOW_BRANCH_CHOICES', '')) or list(DEFAULT_WORKFLOW_BRANCHES)
+
+
 def workflow_branches(
     workflow: dict | None = None,
     *,
@@ -31,7 +37,7 @@ def workflow_branches(
 ) -> list[str]:
     workflow = workflow or {}
     branches = normalize_branch_list(workflow.get('branches'))
-    fallback = list(DEFAULT_WORKFLOW_BRANCHES if default is None else default)
+    fallback = list(global_branch_choices() if default is None else default)
     if replace_stale_defaults and branches and set(branches).issubset(STALE_BRANCH_DEFAULTS):
         return fallback
     return branches or fallback
