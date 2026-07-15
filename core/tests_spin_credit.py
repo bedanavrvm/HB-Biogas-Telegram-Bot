@@ -678,6 +678,10 @@ class SpinCreditPortalTestCase(TestCase):
         self.assertIn('JOHN DOE', names)
         self.assertNotIn('OTHER GROUP', names)
 
+    @override_settings(STORAGES={
+        'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    })
     def test_spin_form_renders_from_start_param(self):
         from core.services.spin_credit import create_spin_start_param
 
