@@ -8,7 +8,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from core.models import GroupSheetConfiguration, SpinCreditRequest
-from core.services.spin_credit import classify_spin_progress_event, parse_spin_entry, process_spin_batch_export
+from core.services.spin_credit import classify_spin_message, classify_spin_progress_event, parse_spin_entry, process_spin_batch_export
 
 
 class SpinCreditParserTestCase(TestCase):
@@ -90,6 +90,185 @@ Code 171889/633893"""
         self.assertEqual(parsed.tenor.lower(), '12 months')
         self.assertEqual(parsed.loan_product, 'Kilimo Biashara')
 
+    def test_parse_credit_analysis_assist_request(self):
+        text = """Please assist with credit analysis for Mary Wambui
+ID 22334455
+Phone 0712345678
+New customer requesting Ksh 45,000 to repay in 8 weeks
+Code 001230"""
+        parsed = parse_spin_entry(self.entry(text))
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.request_type, 'spin_crb')
+        self.assertEqual(parsed.customer_name, 'MARY WAMBUI')
+        self.assertEqual(parsed.national_id, '22334455')
+        self.assertEqual(parsed.primary_phone, '254712345678')
+        self.assertEqual(str(parsed.requested_amount), '45000')
+        self.assertEqual(parsed.tenor.lower(), '8 weeks')
+        self.assertEqual(parsed.code, '001230')
+
+    def test_parse_do_spin_request(self):
+        text = """Do spin for Peter Mwangi
+ID 33445566
+Phone no 0798765432
+Existing client requesting 20k to repay with 6wks"""
+        parsed = parse_spin_entry(self.entry(text))
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.request_type, 'spin')
+        self.assertEqual(parsed.customer_name, 'PETER MWANGI')
+        self.assertEqual(parsed.national_id, '33445566')
+        self.assertEqual(parsed.primary_phone, '254798765432')
+        self.assertEqual(str(parsed.requested_amount), '20000')
+
+    def test_parse_need_crb_request(self):
+        text = """Need CRB report for James Kariuki
+ID 44556677
+Phone 0722000000
+Requesting 30,000 for 1 month"""
+        parsed = parse_spin_entry(self.entry(text))
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.request_type, 'crb')
+        self.assertEqual(parsed.customer_name, 'JAMES KARIUKI')
+        self.assertEqual(parsed.national_id, '44556677')
+        self.assertEqual(parsed.primary_phone, '254722000000')
+
+    def test_classifies_keyword_only_message_as_incomplete(self):
+        classification = classify_spin_message('Please send this to SPIN.')
+
+        self.assertEqual(classification.category, 'incomplete')
+        self.assertIn('spin', classification.keywords)
+        self.assertIn('no customer identifier or loan details', classification.reason.lower())
+
+    def test_classifies_customer_details_without_keyword_as_ambiguous(self):
+        classification = classify_spin_message('Mary Wambui ID 22334455 phone 0712345678 requesting Ksh 45,000')
+
+        self.assertEqual(classification.category, 'ambiguous')
+        self.assertIn('national_id', classification.identifier_fields)
+        self.assertIn('loan_amount', classification.loan_detail_fields)
+
+    def test_classifies_unrelated_message_as_non_spin(self):
+        classification = classify_spin_message('The team meeting has moved to 3pm.')
+
+        self.assertEqual(classification.category, 'non_spin')
+
+    def test_keyword_matching_allows_case_and_punctuation_variants(self):
+        parsed = parse_spin_entry(self.entry('CREDIT-CHECK request for Alice Njeri ID 55667788 phone 0711000000'))
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.request_type, 'spin_crb')
+        self.assertEqual(parsed.national_id, '55667788')
+
+    def test_parse_nakuru_above_client_labelled_spin_request(self):
+        text = """Morning, kindly assist me with the spin and credit analysis for the above client. A new client sells clothes at market
+Code -654321
+Name - Mary Wambui
+ID-22334455
+No-0712345678
+Product-msingi
+Amount-20k
+Duration-8weeks"""
+        parsed = parse_spin_entry(self.entry(text))
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.request_type, 'spin_crb')
+        self.assertEqual(parsed.customer_name, 'MARY WAMBUI')
+        self.assertEqual(parsed.national_id, '22334455')
+        self.assertEqual(parsed.primary_phone, '254712345678')
+        self.assertEqual(parsed.loan_product, 'Msingi')
+        self.assertEqual(str(parsed.requested_amount), '20000')
+        self.assertEqual(parsed.tenor.lower(), '8weeks')
+        self.assertEqual(parsed.code, '654321')
+
+    def test_parse_single_sentence_labelled_spin_request(self):
+        text = (
+            'Morning, kindly assist me with the spin and credit analysis for the above client. '
+            'A new client sells clothes at market Code -654321 Name - Mary Wambui '
+            'ID-22334455 No-0712345678 Product-msingi Amount-20k Duration-8weeks'
+        )
+        parsed = parse_spin_entry(self.entry(text))
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.request_type, 'spin_crb')
+        self.assertEqual(parsed.customer_name, 'MARY WAMBUI')
+        self.assertEqual(parsed.national_id, '22334455')
+        self.assertEqual(parsed.primary_phone, '254712345678')
+        self.assertEqual(parsed.loan_product, 'Msingi')
+        self.assertEqual(str(parsed.requested_amount), '20000')
+        self.assertEqual(parsed.tenor.lower(), '8weeks')
+        self.assertEqual(parsed.code, '654321')
+
+    def test_parse_east_multiline_share_spin_for_request(self):
+        text = """Kindly share spin for
+Duncan Wambugu
+I'd no 27698225
+Phone 0726843280/0740279575
+He is a repeat client requesting for 20,000 in 8 weeks.
+Code 877467"""
+        parsed = parse_spin_entry(self.entry(text))
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.request_type, 'spin')
+        self.assertEqual(parsed.customer_name, 'DUNCAN WAMBUGU')
+        self.assertEqual(parsed.national_id, '27698225')
+        self.assertEqual(parsed.primary_phone, '254726843280')
+        self.assertEqual(parsed.secondary_phone, '254740279575')
+        self.assertEqual(str(parsed.requested_amount), '20000')
+        self.assertEqual(parsed.tenor.lower(), '8 weeks')
+        self.assertEqual(parsed.code, '877467')
+
+    def test_parse_limuru_spin_analysis_of_request(self):
+        text = """Kindly share spin analysis of Paul Babu new customer mechanic based in Limuru, seeking msingi loan of ksh 20000 with a tenor of 12weeks, ID no 28400542
+Ph no : 0712572050
+Code 851904"""
+        parsed = parse_spin_entry(self.entry(text))
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.request_type, 'spin_crb')
+        self.assertEqual(parsed.customer_name, 'PAUL BABU')
+        self.assertEqual(parsed.loan_product, 'Msingi')
+        self.assertEqual(str(parsed.requested_amount), '20000')
+        self.assertEqual(parsed.tenor.lower(), '12weeks')
+        self.assertEqual(parsed.national_id, '28400542')
+        self.assertEqual(parsed.primary_phone, '254712572050')
+        self.assertEqual(parsed.code, '851904')
+
+    def test_parse_west_compact_comma_separated_request(self):
+        text = "kindly share spin for Mary Auma, she is a new customer requesting for micro-asset loan of 45,000 to be repaid in 6 months, id-27388611, p/no 0727458350, code-331507"
+        parsed = parse_spin_entry(self.entry(text))
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.request_type, 'spin')
+        self.assertEqual(parsed.customer_name, 'MARY AUMA')
+        self.assertEqual(parsed.loan_product, 'Micro Asset')
+        self.assertEqual(str(parsed.requested_amount), '45000')
+        self.assertEqual(parsed.tenor.lower(), '6 months')
+        self.assertEqual(parsed.national_id, '27388611')
+        self.assertEqual(parsed.primary_phone, '254727458350')
+        self.assertEqual(parsed.code, '331507')
+
+    def test_parse_thika_compact_id_phn_request(self):
+        text = "Kindly share spin for Selina Luta Id 11060375.phn 0722600894.New client located at Kayole requesting for a logbook loan of 150k to pay with 4months. Code 126572"
+        parsed = parse_spin_entry(self.entry(text))
+
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.request_type, 'spin')
+        self.assertEqual(parsed.customer_name, 'SELINA LUTA')
+        self.assertEqual(parsed.loan_product, 'Logbook')
+        self.assertEqual(str(parsed.requested_amount), '150000')
+        self.assertEqual(parsed.tenor.lower(), '4months')
+        self.assertEqual(parsed.national_id, '11060375')
+        self.assertEqual(parsed.primary_phone, '254722600894')
+        self.assertEqual(parsed.code, '126572')
+
+    def test_payment_admin_message_is_not_spin_candidate(self):
+        classification = classify_spin_message(
+            'Kindly post this payment to Mary Wambui digital loan Id 22334455 phone number 0712345678'
+        )
+
+        self.assertEqual(classification.category, 'non_spin')
+
     @patch('core.services.spin_credit.append_spin_requests_to_sheet')
     def test_process_batch_saves_requests_and_marks_duplicates(self, mock_append):
         mock_append.return_value = {'success': True, 'row_numbers': [2, 3], 'sheet_name': 'Legacy SPIN Imports'}
@@ -134,6 +313,34 @@ Code 171889/633893"""
         self.assertEqual(SpinCreditRequest.objects.count(), 2)
 
     @patch('core.services.spin_credit.append_spin_requests_to_sheet')
+    def test_process_batch_reports_candidate_categories(self, mock_append):
+        mock_append.return_value = {'success': True, 'row_numbers': [2], 'sheet_name': 'SPIN Legacy Batch'}
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100spincategories',
+            display_name='JBL Branch',
+            sheet_id='sheet-id',
+            sheet_name='SPIN Requests',
+            enabled=True,
+            workflow={'type': 'spin_credit_analysis', 'header_row': 1},
+        )
+        export = """7/1/26, 09:00 - Catherine JBL: Please assist with credit analysis for Mary Wambui
+ID 22334455
+Phone 0712345678
+Requesting Ksh 45,000 to repay in 8 weeks
+7/1/26, 09:05 - Catherine JBL: Please send this to SPIN.
+7/1/26, 09:07 - Catherine JBL: John Kamau ID 33445566 phone 0798765432 requesting Ksh 20,000
+7/1/26, 09:10 - Catherine JBL: Good morning team"""
+
+        result = process_spin_batch_export(config, export, telegram_message_id='102', sender='Tester')
+
+        self.assertEqual(result['processed'], 1)
+        self.assertEqual(result['spin_candidates'], 2)
+        self.assertEqual(result['valid_requests'], 1)
+        self.assertEqual(result['incomplete_requests'], 1)
+        self.assertEqual(result['ambiguous_messages'], 1)
+        self.assertEqual(result['skipped'], 1)
+
+    @patch('core.services.spin_credit.append_spin_requests_to_sheet')
     def test_process_batch_links_statement_and_analysis_progress_to_pending_request(self, mock_append):
         mock_append.return_value = {'success': True, 'row_numbers': [2], 'sheet_name': 'SPIN Legacy Batch'}
         config = GroupSheetConfiguration.objects.create(
@@ -170,7 +377,7 @@ Code 856189
 
 
 class SpinCreditMiniAppTestCase(TestCase):
-    @override_settings(SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
+    @override_settings(SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, ALLOWED_HOSTS=['testserver'])
     @patch('core.api.views._post_telegram_reply')
     @patch('core.services.spin_credit.append_spin_requests_to_sheet')
     def test_form_submission_normalizes_phone_and_syncs_sheet(self, mock_append, mock_reply):
@@ -220,30 +427,36 @@ class SpinCreditMiniAppTestCase(TestCase):
 
 
 
-    @override_settings(SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
+    @override_settings(SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, ALLOWED_HOSTS=['testserver'])
     @patch('core.api.views._post_telegram_reply')
     @patch('core.services.order_approval.store_uploaded_files_for_order')
     @patch('core.services.spin_credit.append_spin_requests_to_sheet')
     def test_form_submission_uploads_laf_docs_and_writes_media_urls(self, mock_append, mock_store, mock_reply):
         mock_append.return_value = {'success': True, 'row_numbers': [6]}
-        mock_store.return_value = SimpleNamespace(links=['https://drive.google.com/file/d/laf-doc/view'], stored_count=1, skipped_count=0, warnings=[])
-        GroupSheetConfiguration.objects.create(group_id='-100spinmedia', display_name='Nakuru SPIN Requests', sheet_id='sheet-id', sheet_name='SPIN Requests', enabled=True, workflow={'type': 'spin_credit_analysis', 'header_row': 1})
+        mock_store.return_value = SimpleNamespace(links=['https://drive.google.com/file/d/laf-doc/view', 'https://drive.google.com/file/d/id-photo/view'], stored_count=2, skipped_count=0, warnings=[])
+        GroupSheetConfiguration.objects.create(group_id='-100spinmedia', display_name='Nakuru SPIN Requests', sheet_id='sheet-id', sheet_name='SPIN Requests', enabled=True, workflow={'type': 'spin_credit_analysis', 'header_row': 1, 'branches': ['Nakuru', 'Embu']})
         from core.services.group_config import GroupRegistry
         GroupRegistry._instance = None
         response = self.client.post('/api/spin/submit/', data={
             'group_id': '-100spinmedia', 'request_type': 'spin_crb', 'customer_name': 'Peter Mwangi', 'national_id': '12345678',
-            'primary_phone': '0712345678', 'requested_amount': '54000', 'tenor': '12 months',
+            'primary_phone': '0712345678', 'requested_amount': '54000', 'tenor': '12 months', 'branch': 'Nakuru',
             'supporting_docs': SimpleUploadedFile('laf.pdf', b'%PDF-1.4 test', content_type='application/pdf'),
         })
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['files_stored'], 1)
+        self.assertEqual(response.json()['files_stored'], 2)
+        self.assertEqual(response.json()['request_id'], 'SPIN-2026-0001')
         uploaded_files = mock_store.call_args.kwargs['uploaded_files']
         self.assertEqual(uploaded_files[0].file_type, 'laf_doc')
         record = SpinCreditRequest.objects.get(group_id='-100spinmedia')
         self.assertEqual(record.attachment_names, ['laf.pdf'])
-        self.assertEqual(record.parsed_fields['media_urls'], 'https://drive.google.com/file/d/laf-doc/view')
+        self.assertEqual(record.parsed_fields['branch'], 'Nakuru')
+        self.assertEqual(record.parsed_fields['media_urls'], 'https://drive.google.com/file/d/laf-doc/view\nhttps://drive.google.com/file/d/id-photo/view')
         mock_append.assert_called_once()
         mock_reply.assert_called_once()
+        reply_text = mock_reply.call_args.kwargs['text']
+        self.assertIn('SPIN request received', reply_text)
+        self.assertIn('The credit team can now review it', reply_text)
+        self.assertNotIn('REQUEST SUBMITTED', reply_text)
 
 
 class SpinCreditSheetSyncTestCase(TestCase):
@@ -284,6 +497,8 @@ class SpinCreditSheetSyncTestCase(TestCase):
             customer_name='TEST FARMER',
             requested_amount=Decimal('25000.50'),
             request_datetime=timezone.make_aware(datetime(2026, 6, 24, 14, 35)),
+            code='012340',
+            parsed_fields={'media_urls': 'https://example.test/one\nhttps://example.test/two', 'branch': 'Nakuru'},
         )
 
         # Call append_spin_requests_to_sheet
@@ -303,10 +518,90 @@ class SpinCreditSheetSyncTestCase(TestCase):
         customer_name_idx = list(DEFAULT_FIELD_HEADERS.keys()).index('customer_name')
         requested_amount_idx = list(DEFAULT_FIELD_HEADERS.keys()).index('requested_amount')
         request_month_idx = list(DEFAULT_FIELD_HEADERS.keys()).index('request_month')
+        code_idx = list(DEFAULT_FIELD_HEADERS.keys()).index('code')
+        media_idx = list(DEFAULT_FIELD_HEADERS.keys()).index('media_urls')
+        branch_idx = list(DEFAULT_FIELD_HEADERS.keys()).index('branch')
         self.assertEqual(rows[0][customer_name_idx], 'TEST FARMER')
         self.assertEqual(rows[0][requested_amount_idx], 25000.50)
         self.assertIsInstance(rows[0][requested_amount_idx], float)
         self.assertEqual(rows[0][request_month_idx], 'Jun-2026')
+        self.assertEqual(rows[0][code_idx], "'012340")
+        self.assertEqual(rows[0][media_idx], 'https://example.test/one\nhttps://example.test/two')
+        self.assertEqual(rows[0][branch_idx], 'Nakuru')
+        mock_sheet.format.assert_called()
+        mock_sheet.conditional_format.assert_called()
+
+    def test_media_url_text_format_runs_link_each_url(self):
+        from core.services.spin_credit import media_url_text_format_runs
+
+        urls = ['https://example.test/one', 'https://example.test/two']
+        runs = media_url_text_format_runs(urls)
+
+        self.assertEqual(runs[0], {'startIndex': 0, 'format': {'link': {'uri': urls[0]}}})
+        self.assertEqual(runs[1], {'startIndex': len(urls[0]), 'format': {}})
+        self.assertEqual(runs[2], {'startIndex': len(urls[0]) + 1, 'format': {'link': {'uri': urls[1]}}})
+
+    def test_hyperlink_text_format_runs_link_labelled_urls(self):
+        from core.services.spin_credit import hyperlink_text_format_runs
+
+        text = 'SPIN: https://example.test/spin\nCRB: https://example.test/crb'
+        runs = hyperlink_text_format_runs(text)
+
+        self.assertEqual(runs[0], {'startIndex': 6, 'format': {'link': {'uri': 'https://example.test/spin'}}})
+        self.assertEqual(runs[1], {'startIndex': 31, 'format': {}})
+        self.assertEqual(runs[2], {'startIndex': 37, 'format': {'link': {'uri': 'https://example.test/crb'}}})
+
+    @patch('core.services.spin_credit.get_sheets_service')
+    def test_append_spin_requests_to_sheet_applies_rich_links_to_each_media_url(self, mock_get_sheets_service):
+        from decimal import Decimal
+        from unittest.mock import MagicMock
+        from core.services.spin_credit import append_spin_requests_to_sheet, DEFAULT_FIELD_HEADERS
+
+        execute = MagicMock()
+        batch_update = MagicMock(return_value=SimpleNamespace(execute=execute))
+        spreadsheets = MagicMock(return_value=SimpleNamespace(batchUpdate=batch_update))
+        mock_api = SimpleNamespace(spreadsheets=spreadsheets)
+        mock_sheet = MagicMock()
+        mock_sheet.id = 123
+        mock_sheet.row_values.return_value = list(DEFAULT_FIELD_HEADERS.values())
+        mock_sheet.append_rows.return_value = {'updates': {'updatedRange': 'Spin!A6:AB6'}}
+        mock_service = SimpleNamespace(
+            _sheet=mock_sheet,
+            _sheets_api_service=mock_api,
+            _api_initialized=True,
+            _sheet_id='sheet-id',
+            is_available=lambda: True,
+        )
+        mock_get_sheets_service.return_value = mock_service
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100spin_links',
+            display_name='Nakuru SPIN Requests',
+            sheet_id='sheet-id',
+            sheet_name='Spin',
+            enabled=True,
+            workflow={'type': 'spin_credit_analysis', 'header_row': 1},
+        )
+        record = SpinCreditRequest.objects.create(
+            group_id=config.group_id,
+            request_type='spin',
+            customer_name='Linked Customer',
+            requested_amount=Decimal('10000'),
+            parsed_fields={'media_urls': 'https://example.test/one\nhttps://example.test/two'},
+        )
+
+        result = append_spin_requests_to_sheet(config, [record])
+
+        self.assertTrue(result['success'])
+        media_requests = [
+            req for call in batch_update.call_args_list
+            for req in call.kwargs['body']['requests']
+            if 'updateCells' in req
+        ]
+        self.assertEqual(len(media_requests), 1)
+        cell = media_requests[0]['updateCells']['rows'][0]['values'][0]
+        self.assertEqual(cell['userEnteredValue']['stringValue'], 'https://example.test/one\nhttps://example.test/two')
+        self.assertEqual(cell['textFormatRuns'][0]['format']['link']['uri'], 'https://example.test/one')
+        self.assertEqual(cell['textFormatRuns'][2]['format']['link']['uri'], 'https://example.test/two')
 
 
 class SpinCreditPortalTestCase(TestCase):
@@ -358,9 +653,126 @@ class SpinCreditPortalTestCase(TestCase):
             self.assertEqual(response.status_code, 200)
             res_data = response.json()
             self.assertTrue(res_data['success'])
-            self.assertTrue(res_data['is_analyst'])
             self.assertEqual(len(res_data['requests']), 1)
-            self.assertEqual(res_data['requests'][0]['customer_name'], 'JOHN DOE')
+
+    @patch('core.services.spin_credit.validate_spin_telegram_webapp_init_data')
+    def test_spin_form_requests_stays_in_current_group_for_analyst(self, mock_validate):
+        import json
+        mock_validate.return_value = (True, None, {'user': json.dumps({'username': 'analyst1', 'id': '12345'})})
+        SpinCreditRequest.objects.create(
+            group_id='-100other_spin',
+            request_type='spin',
+            customer_name='OTHER GROUP',
+            national_id='99999999',
+            primary_phone='254700000000',
+            requested_amount=10000,
+            tenor='6 weeks',
+        )
+
+        from django.test import override_settings
+        with override_settings(SPIN_ANALYSTS=['analyst1']):
+            response = self.client.get(f"/api/spin/requests/?group_id={self.config.group_id}&init_data=mock_data")
+
+        self.assertEqual(response.status_code, 200)
+        names = [item['customer_name'] for item in response.json()['requests']]
+        self.assertIn('JOHN DOE', names)
+        self.assertNotIn('OTHER GROUP', names)
+
+    def test_spin_form_renders_from_start_param(self):
+        from core.services.spin_credit import create_spin_start_param
+
+        start_param = create_spin_start_param(self.config.group_id)
+        response = self.client.get(f'/api/spin/?tgWebAppStartParam={start_param}')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'spin-form-data')
+
+    @patch('core.services.spin_credit.validate_spin_telegram_webapp_init_data')
+    @patch('core.services.spin_credit.update_spin_request_in_sheet')
+    def test_spin_review_update_saves_django_and_updates_existing_sheet_row(self, mock_update_sheet, mock_validate):
+        mock_validate.return_value = (True, None, {'user': json.dumps({'username': 'officer1', 'id': '12345'})})
+        mock_update_sheet.return_value = True
+        self.record.import_status = 'review_needed'
+        self.record.customer_name = ''
+        self.record.national_id = ''
+        self.record.primary_phone = ''
+        self.record.requested_amount = None
+        self.record.tenor = ''
+        self.record.missing_fields = ['Customer Name', 'National ID', 'Primary Phone', 'Requested Amount', 'Tenor']
+        self.record.parsed_fields = {'branch': 'Nakuru'}
+        self.record.save()
+
+        payload = {
+            'request_id': str(self.record.id),
+            'group_id': self.config.group_id,
+            'init_data': 'mock_data',
+            'fields': {
+                'customer_name': 'Jane Wanjiku',
+                'national_id': '23456789',
+                'primary_phone': '0712345678',
+                'requested_amount': '20k',
+                'tenor': '8 weeks',
+                'branch': 'Nakuru',
+                'code': '0655290',
+            },
+        }
+        response = self.client.post(
+            '/api/spin/review/update/',
+            data=json.dumps(payload),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertTrue(result['success'])
+        self.assertEqual(result['status'], 'imported')
+        self.assertTrue(result['sheet_synced'])
+        self.record.refresh_from_db()
+        self.assertEqual(self.record.import_status, 'imported')
+        self.assertEqual(self.record.customer_name, 'JANE WANJIKU')
+        self.assertEqual(self.record.primary_phone, '254712345678')
+        self.assertEqual(str(self.record.requested_amount), '20000.00')
+        self.assertEqual(self.record.code, '0655290')
+        self.assertEqual(self.record.missing_fields, [])
+        mock_update_sheet.assert_called_once()
+        sheet_updates = mock_update_sheet.call_args.args[2]
+        self.assertEqual(sheet_updates['parse_status'], 'Imported')
+        self.assertEqual(sheet_updates['missing_fields'], '')
+        self.assertEqual(sheet_updates['code'], "'0655290")
+
+    @patch('core.services.spin_credit.validate_spin_telegram_webapp_init_data')
+    @patch('core.services.spin_credit.update_spin_request_in_sheet')
+    def test_spin_review_update_keeps_review_needed_when_required_fields_missing(self, mock_update_sheet, mock_validate):
+        mock_validate.return_value = (True, None, {'user': json.dumps({'username': 'officer1', 'id': '12345'})})
+        mock_update_sheet.return_value = True
+        self.record.import_status = 'review_needed'
+        self.record.national_id = ''
+        self.record.primary_phone = ''
+        self.record.missing_fields = ['National ID', 'Primary Phone']
+        self.record.parsed_fields = {'branch': 'Nakuru'}
+        self.record.save()
+
+        payload = {
+            'request_id': str(self.record.id),
+            'group_id': self.config.group_id,
+            'init_data': 'mock_data',
+            'fields': {
+                'customer_name': 'John Doe',
+                'requested_amount': '15000',
+                'tenor': '6 weeks',
+            },
+        }
+        response = self.client.post(
+            '/api/spin/review/update/',
+            data=json.dumps(payload),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.record.refresh_from_db()
+        self.assertEqual(self.record.import_status, 'review_needed')
+        self.assertEqual(self.record.missing_fields, ['National ID', 'Primary Phone'])
+        mock_update_sheet.assert_called_once()
 
     @patch('core.services.spin_credit.validate_spin_telegram_webapp_init_data')
     @patch('core.api.views._post_telegram_reply')
@@ -377,6 +789,8 @@ class SpinCreditPortalTestCase(TestCase):
             from django.core.files.uploadedfile import SimpleUploadedFile
             spin_file = SimpleUploadedFile("spin.pdf", b"spin_data", content_type="application/pdf")
             crb_file = SimpleUploadedFile("crb.pdf", b"crb_data", content_type="application/pdf")
+            self.record.parsed_fields = {'media_urls': 'https://drive.google.com/original_doc'}
+            self.record.save(update_fields=['parsed_fields'])
             
             payload = {
                 'request_id': str(self.record.id),
@@ -396,6 +810,16 @@ class SpinCreditPortalTestCase(TestCase):
             self.assertEqual(self.record.parsed_fields['spin_report_url'], 'https://drive.google.com/spin_report')
             self.assertEqual(self.record.parsed_fields['crb_report_url'], 'https://drive.google.com/crb_report')
             self.assertIn('analysis_completed_at', self.record.parsed_fields)
+            self.assertEqual(self.record.parsed_fields['credit_analyst_name'], 'analyst1')
+            self.assertEqual(self.record.parsed_fields['media_urls'], 'https://drive.google.com/original_doc')
 
             mock_update_sheet.assert_called_once()
+            sheet_updates = mock_update_sheet.call_args.args[2]
+            self.assertEqual(sheet_updates['analysis_status'], 'Completed')
+            self.assertEqual(sheet_updates['credit_analyst_name'], 'analyst1')
+            self.assertEqual(
+                sheet_updates['analyst_response'],
+                'SPIN: https://drive.google.com/spin_report\nCRB: https://drive.google.com/crb_report',
+            )
+            self.assertNotIn('media_urls', sheet_updates)
             mock_tg_reply.assert_called_once()

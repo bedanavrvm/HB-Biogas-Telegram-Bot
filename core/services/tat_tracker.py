@@ -22,6 +22,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from core.models import TatTrackerCase, TatTrackerEvent
+from core.services.branches import DEFAULT_WORKFLOW_BRANCHES, workflow_branches as configured_workflow_branches
 from core.services.sheets import get_sheets_service
 
 logger = logging.getLogger(__name__)
@@ -29,12 +30,20 @@ logger = logging.getLogger(__name__)
 TAT_TRACKER_WORKFLOW_TYPE = 'tat_tracker'
 TAT_FORM_TOKEN_SALT = 'tat-tracker-mini-app'
 
-BRANCHES = ['Biogas Unit', 'Embu', 'Nakuru', 'West Nairobi']
+BRANCHES = DEFAULT_WORKFLOW_BRANCHES
 DECISION_OPTIONS = ['Approved', 'Rejected', 'Deferred']
 SANCTIONS_OPTIONS = ['Pending', 'Met', 'Not Met']
 REGISTER_OPTIONS = ['10:00am', '1:00pm', '3:30pm']
 REGISTER_APPROVED_OPTIONS = ['Approved', 'Pending']
 STATUS_VALUES = ['Active', 'Disbursed', 'Rejected', 'Declined', 'Deferred', 'Stalled', 'Pending Docs']
+DEFAULT_TAT_TARGETS_MINUTES = {
+    'sme': {'total': 20160, 'stages': {}},
+    'logbook': {'total': 20160, 'stages': {}},
+    'mjengo': {'total': 20160, 'stages': {}},
+    'kilimo': {'total': 20160, 'stages': {}},
+    'micro_asset': {'total': 20160, 'stages': {}},
+}
+NEAR_SLA_RATIO = Decimal('0.8')
 
 
 @dataclass(frozen=True)
@@ -63,14 +72,21 @@ class ProductConfig:
     stages: tuple[StageConfig, ...]
 
 
+@dataclass(frozen=True)
+class StageTatColumn:
+    stage_key: str
+    fallback_col: int
+    aliases: tuple[str, ...]
+
+
 BASE_STAGES_OTHER = (
     StageConfig('mpesa_to_admin', 'MPESA sent to Admin', 7, 'BRO'),
     StageConfig('mpesa_verified', 'MPESA verified and sent to CA', 8, 'ADMIN'),
     StageConfig('ca_analysis_sent', 'Credit analysis sent', 9, 'CA'),
     StageConfig('bro_response', 'BRO response to CA', 10, 'BRO'),
     StageConfig('bm_tat_request', 'BM TAT request sent', 11, 'BM'),
-    StageConfig('tat_scheduled', 'TAT scheduled', 12, 'SECRETARY'),
-    StageConfig('tat_held', 'TAT held', 13, 'SECRETARY'),
+    StageConfig('tat_scheduled', 'HOCC scheduled', 12, 'SECRETARY'),
+    StageConfig('tat_held', 'HOCC held', 13, 'SECRETARY'),
     StageConfig('decision', 'Decision', 14, 'CHAIR', 'dropdown', tuple(DECISION_OPTIONS), 'decision_ts'),
     StageConfig('minutes_shared', 'Minutes shared', 16, 'SECRETARY'),
     StageConfig('sanctions', 'Sanctions', 17, 'LOAN_APPROVER', 'dropdown', tuple(SANCTIONS_OPTIONS), 'sanctions_ts'),
@@ -87,8 +103,8 @@ BASE_STAGES_LOGBOOK = (
     StageConfig('bro_response', 'BRO response to CA', 10, 'BRO'),
     StageConfig('valuation_ready', 'Valuation ready', 11, 'BM'),
     StageConfig('bm_tat_request', 'BM TAT request sent', 12, 'BM'),
-    StageConfig('tat_scheduled', 'TAT scheduled', 13, 'SECRETARY'),
-    StageConfig('tat_held', 'TAT held', 14, 'SECRETARY'),
+    StageConfig('tat_scheduled', 'HOCC scheduled', 13, 'SECRETARY'),
+    StageConfig('tat_held', 'HOCC held', 14, 'SECRETARY'),
     StageConfig('decision', 'Decision', 15, 'CHAIR', 'dropdown', tuple(DECISION_OPTIONS), 'decision_ts'),
     StageConfig('minutes_shared', 'Minutes shared', 17, 'SECRETARY'),
     StageConfig('sanctions', 'Sanctions', 18, 'LOAN_APPROVER', 'dropdown', tuple(SANCTIONS_OPTIONS), 'sanctions_ts'),
@@ -119,6 +135,41 @@ PRODUCTS: dict[str, ProductConfig] = {
 }
 
 
+def _stage_tat_aliases(stage: StageConfig) -> tuple[str, ...]:
+    label = stage.label
+    return (
+        f'{label} TAT Minutes',
+        f'{label} TAT',
+        f'{label} Lag',
+        f'{label} Lag Minutes',
+        f'{stage.key} TAT Minutes',
+    )
+
+
+STAGE_TAT_COLUMNS: dict[str, tuple[StageTatColumn, ...]] = {
+    'logbook': tuple(
+        StageTatColumn(stage.key, 29 + index, _stage_tat_aliases(stage))
+        for index, stage in enumerate(BASE_STAGES_LOGBOOK)
+    ),
+    'mjengo': tuple(
+        StageTatColumn(stage.key, 28 + index, _stage_tat_aliases(stage))
+        for index, stage in enumerate(BASE_STAGES_OTHER)
+    ),
+    'kilimo': tuple(
+        StageTatColumn(stage.key, 28 + index, _stage_tat_aliases(stage))
+        for index, stage in enumerate(BASE_STAGES_OTHER)
+    ),
+    'micro_asset': tuple(
+        StageTatColumn(stage.key, 28 + index, _stage_tat_aliases(stage))
+        for index, stage in enumerate(BASE_STAGES_OTHER)
+    ),
+    'sme': tuple(
+        StageTatColumn(stage.key, 21 + index, _stage_tat_aliases(stage))
+        for index, stage in enumerate(BASE_STAGES_SME)
+    ),
+}
+
+
 def is_tat_tracker_workflow(group_config) -> bool:
     workflow = getattr(group_config, 'workflow', None) or {}
     return str(workflow.get('type') or '') == TAT_TRACKER_WORKFLOW_TYPE
@@ -131,12 +182,10 @@ def configured_products(workflow: dict | None = None) -> list[ProductConfig]:
 
 
 def workflow_branches(workflow: dict | None = None) -> list[str]:
-    workflow = workflow or {}
-    branches = [str(item).strip() for item in (workflow.get('branches') or []) if str(item).strip()]
-    old_default = {'Corporate', 'Thika Road', 'East Nairobi', 'West Nairobi', 'Nakuru', 'Embu', 'Limuru'}
-    if not branches or set(branches).issubset(old_default):
-        return list(BRANCHES)
-    return branches
+    env_branches = str(getattr(settings, 'TAT_TRACKER_BRANCH_CHOICES', '') or '').strip()
+    if env_branches:
+        return configured_workflow_branches({'branches': env_branches}, default=list(BRANCHES), replace_stale_defaults=True)
+    return configured_workflow_branches(workflow, default=list(BRANCHES), replace_stale_defaults=True)
 
 
 def create_tat_form_token(group_id: str) -> str:
@@ -261,16 +310,17 @@ def bootstrap(group_config, user_payload: dict) -> dict:
 
 
 def home_data(group_config, user: dict) -> dict:
+    workflow = getattr(group_config, 'workflow', None) or {}
     queryset = TatTrackerCase.objects.filter(group_id=str(group_config.group_id))
-    allowed_keys = [p.key for p in _allowed_products(getattr(group_config, 'workflow', None) or {}, user)]
+    allowed_keys = [p.key for p in _allowed_products(workflow, user)]
     if allowed_keys:
         queryset = queryset.filter(product_key__in=allowed_keys)
-    recent = [serialize_case_summary(case, user) for case in queryset.order_by('-created_at')[:20]]
+    recent = [serialize_case_summary(case, user, workflow=workflow) for case in queryset.order_by('-created_at')[:20]]
     action_required = []
     for case in queryset.exclude(status__in=['Disbursed', 'Rejected', 'Declined']).order_by('-updated_at')[:200]:
         next_stage = next_action(case)
         if next_stage and can_user_edit_stage(user, case, next_stage):
-            action_required.append(serialize_case_summary(case, user, next_stage=next_stage))
+            action_required.append(serialize_case_summary(case, user, next_stage=next_stage, workflow=workflow))
         if len(action_required) >= 20:
             break
     return {'recent': recent[:10], 'action_required': action_required[:10]}
@@ -280,16 +330,17 @@ def search_cases(group_config, user: dict, query: str) -> list[dict]:
     q = str(query or '').strip()
     if len(q) < 2:
         return []
+    workflow = getattr(group_config, 'workflow', None) or {}
     queryset = TatTrackerCase.objects.filter(group_id=str(group_config.group_id)).filter(Q(case_id__icontains=q) | Q(client_name__icontains=q) | Q(branch__icontains=q) | Q(bro_name__icontains=q))
-    allowed_keys = [p.key for p in _allowed_products(getattr(group_config, 'workflow', None) or {}, user)]
+    allowed_keys = [p.key for p in _allowed_products(workflow, user)]
     if allowed_keys:
         queryset = queryset.filter(product_key__in=allowed_keys)
-    return [serialize_case_summary(case, user) for case in queryset.order_by('-updated_at')[:25]]
+    return [serialize_case_summary(case, user, workflow=workflow) for case in queryset.order_by('-updated_at')[:25]]
 
 
 def get_case_detail(group_config, user: dict, case_id: str) -> dict:
     case = TatTrackerCase.objects.get(group_id=str(group_config.group_id), case_id=str(case_id))
-    return serialize_case_detail(case, user)
+    return serialize_case_detail(case, user, workflow=getattr(group_config, 'workflow', None) or {})
 
 
 @transaction.atomic
@@ -314,9 +365,7 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
             create_request_id=create_request_id,
         ).first()
         if existing:
-            if not existing.row_number or existing.sync_error:
-                sync_case_to_sheet(group_config, existing)
-            return serialize_case_detail(existing, user)
+            return serialize_case_detail(existing, user, workflow=workflow)
     case_id = next_case_id(group_config, product)
     now = timezone.now()
     case = TatTrackerCase.objects.create(
@@ -331,11 +380,12 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
     sync_case_to_sheet(group_config, case)
     if not case.row_number:
         raise RuntimeError('TAT tracker sheet sync did not return a row number. Case was not saved.')
-    return serialize_case_detail(case, user)
+    return serialize_case_detail(case, user, workflow=workflow)
 
 
 @transaction.atomic
 def update_case(group_config, user: dict, case_id: str, updates: list[dict]) -> dict:
+    workflow = getattr(group_config, 'workflow', None) or {}
     case = TatTrackerCase.objects.select_for_update().get(group_id=str(group_config.group_id), case_id=str(case_id))
     if not updates:
         raise ValueError('No updates were submitted.')
@@ -346,7 +396,7 @@ def update_case(group_config, user: dict, case_id: str, updates: list[dict]) -> 
     case.last_updated_by = user.get('name', '')
     case.save()
     sync_case_to_sheet(group_config, case)
-    return serialize_case_detail(case, user)
+    return serialize_case_detail(case, user, workflow=workflow)
 
 
 def apply_update(case: TatTrackerCase, user: dict, item: dict) -> None:
@@ -433,12 +483,13 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
         raise RuntimeError(case.sync_error)
     sheet = service._sheet
     try:
-        row = case.row_number or next_sheet_row(sheet)
-        values = sheet.row_values(row)
-        # TAT Hours / TAT Days are formula-owned sheet columns. Do not write
-        # them from Django, because stale sheet validations can flag formulas
-        # as invalid manual values. The Apps Script refreshes these formulas.
-        width = product.tat_start_col - 1
+        # TAT values are Django-calculated display columns. Keeping them out
+        # of sheet formulas avoids delayed spreadsheet recalculation.
+        headers = sheet.row_values(4) if hasattr(sheet, 'row_values') else []
+        tat_columns = resolve_tat_sheet_columns(product, headers)
+        width = max([product.tat_start_col + 1, *tat_columns.values()])
+        row = case.row_number
+        values = sheet.row_values(row) if row else []
         row_data = [''] * width
         for idx, value in enumerate(values[:width], start=1):
             row_data[idx - 1] = value
@@ -457,25 +508,101 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
                     row_data[col - 1] = sheet_datetime(case.stage_values.get(stage.auto_timestamp_key))
         row_data[product.status_col - 1] = case.status
         row_data[product.remarks_col - 1] = case.remarks
-        sheet.update(f'A{row}:{column_letter(width)}{row}', [row_data], value_input_option='USER_ENTERED')
+        tat_minutes = calculated_tat_minutes(case)
+        tat_hours = calculated_tat_hours(case) if tat_minutes is not None else None
+        tat_days = calculated_tat_days(case) if tat_minutes is not None else None
+        row_data[product.tat_start_col - 1] = float(tat_hours) if tat_hours is not None else ''
+        row_data[product.tat_start_col] = float(tat_days) if tat_days is not None else ''
+        if tat_columns.get('total_minutes'):
+            row_data[tat_columns['total_minutes'] - 1] = float(tat_minutes) if tat_minutes is not None else ''
+        for stage in product.stages:
+            col = tat_columns.get(stage.key)
+            if col:
+                minutes = stage_tat_minutes(case, stage)
+                row_data[col - 1] = float(minutes) if minutes is not None else ''
+        if row:
+            sheet.update(f'A{row}:{column_letter(width)}{row}', [row_data], value_input_option='USER_ENTERED')
+        else:
+            row = append_case_row(sheet, row_data)
         case.row_number = row
         case.sheet_name = product.sheet_name
         case.last_synced_at = timezone.now()
         case.sync_error = ''
         case.save(update_fields=['row_number', 'sheet_name', 'last_synced_at', 'sync_error', 'updated_at'])
-        try:
-            sync_case_index(group_config, case)
-        except Exception as exc:
-            logger.warning('TAT tracker CASE_INDEX sync failed for %s: %s', case.case_id, exc, exc_info=True)
-        try:
-            sync_audit_log(group_config, case)
-        except Exception as exc:
-            logger.warning('TAT tracker AUDIT LOG sync failed for %s: %s', case.case_id, exc, exc_info=True)
+        if should_sync_secondary_sheets(group_config):
+            try:
+                sync_case_index(group_config, case)
+            except Exception as exc:
+                logger.warning('TAT tracker CASE_INDEX sync failed for %s: %s', case.case_id, exc, exc_info=True)
+            try:
+                sync_audit_log(group_config, case)
+            except Exception as exc:
+                logger.warning('TAT tracker AUDIT LOG sync failed for %s: %s', case.case_id, exc, exc_info=True)
     except Exception as exc:
         case.sync_error = str(exc)
         case.save(update_fields=['sync_error', 'updated_at'])
         logger.exception('TAT tracker sheet sync failed for %s', case.case_id)
         raise
+
+
+def resolve_tat_sheet_columns(product: ProductConfig, headers: list[Any]) -> dict[str, int]:
+    normalized_headers = {
+        normalize_header(header): index
+        for index, header in enumerate(headers, start=1)
+        if str(header or '').strip()
+    }
+    columns: dict[str, int] = {}
+    total_col = first_matching_header(normalized_headers, ('TAT Minutes', 'Total TAT Minutes', 'Case TAT Minutes'))
+    if total_col:
+        columns['total_minutes'] = total_col
+    for config in STAGE_TAT_COLUMNS.get(product.key, ()):
+        columns[config.stage_key] = first_matching_header(normalized_headers, config.aliases) or config.fallback_col
+    return columns
+
+
+def first_matching_header(headers: dict[str, int], candidates: tuple[str, ...]) -> int | None:
+    for candidate in candidates:
+        col = headers.get(normalize_header(candidate))
+        if col:
+            return col
+    return None
+
+
+def normalize_header(value: Any) -> str:
+    return re.sub(r'[^a-z0-9]+', '', str(value or '').strip().lower())
+
+
+def append_case_row(sheet, row_data: list[Any]) -> int:
+    result = None
+    if hasattr(sheet, 'append_row'):
+        result = sheet.append_row(row_data, value_input_option='USER_ENTERED')
+    elif hasattr(sheet, 'append_rows'):
+        result = sheet.append_rows([row_data], value_input_option='USER_ENTERED')
+    else:
+        row = next_sheet_row(sheet)
+        sheet.update(f'A{row}:{column_letter(len(row_data))}{row}', [row_data], value_input_option='USER_ENTERED')
+        return row
+    row = row_number_from_update_result(result)
+    if row:
+        return row
+    return next_sheet_row(sheet) - 1
+
+
+def row_number_from_update_result(result: Any) -> int | None:
+    if not isinstance(result, dict):
+        return None
+    updated_range = str((result.get('updates') or {}).get('updatedRange') or result.get('updatedRange') or '')
+    match = re.search(r'![A-Z]+(\d+)(?::[A-Z]+(\d+))?$', updated_range)
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def should_sync_secondary_sheets(group_config) -> bool:
+    workflow = getattr(group_config, 'workflow', None) or {}
+    if 'sync_secondary_sheets' in workflow:
+        return bool(workflow.get('sync_secondary_sheets'))
+    return bool(getattr(settings, 'TAT_TRACKER_SYNC_SECONDARY_SHEETS', False))
 
 
 def sync_case_index(group_config, case: TatTrackerCase) -> None:
@@ -510,6 +637,111 @@ def sync_audit_log(group_config, case: TatTrackerCase) -> None:
         start = existing_count + 1
         sheet.update(f'A{start}:I{start + len(rows) - 1}', rows, value_input_option='USER_ENTERED')
         TatTrackerEvent.objects.filter(id__in=[event.id for event in unsynced]).update(synced_to_sheet=True, synced_at=timezone.now(), sync_error='')
+
+
+def calculated_tat_minutes(case: TatTrackerCase, now=None) -> Decimal | None:
+    created = parse_iso_datetime((case.stage_values or {}).get('created'))
+    if not created:
+        return None
+    end = overall_tat_end(case, now=now)
+    return minutes_between(created, end)
+
+
+def calculated_tat_hours(case: TatTrackerCase, now=None) -> Decimal | None:
+    minutes = calculated_tat_minutes(case, now=now)
+    if minutes is None:
+        return None
+    return (minutes / Decimal('60')).quantize(Decimal('0.01'))
+
+
+def calculated_tat_days(case: TatTrackerCase, now=None) -> Decimal | None:
+    minutes = calculated_tat_minutes(case, now=now)
+    if minutes is None:
+        return None
+    return (minutes / Decimal('1440')).quantize(Decimal('0.01'))
+
+
+def overall_tat_end(case: TatTrackerCase, now=None):
+    values = case.stage_values or {}
+    if case.status in {'Rejected', 'Declined'}:
+        return parse_iso_datetime(values.get('decision_ts')) or parse_iso_datetime(values.get('decision')) or now or timezone.now()
+    return parse_iso_datetime(values.get('disbursement')) or now or timezone.now()
+
+
+def minutes_between(start, end) -> Decimal | None:
+    if not start or not end:
+        return None
+    delta = end - start
+    seconds = max(Decimal(str(delta.total_seconds())), Decimal('0'))
+    return (seconds / Decimal('60')).quantize(Decimal('0.01'))
+
+
+def stage_tat_minutes(case: TatTrackerCase, stage: StageConfig, now=None) -> Decimal | None:
+    product = product_by_key(case.product_key)
+    previous = previous_stage_timestamp(case, product, stage)
+    if not previous:
+        return None
+    current = stage_completed_at(case, stage)
+    if not current and next_action(case) and next_action(case).key == stage.key:
+        current = now or timezone.now()
+    return minutes_between(previous, current)
+
+
+def previous_stage_timestamp(case: TatTrackerCase, product: ProductConfig, stage: StageConfig):
+    previous = parse_iso_datetime((case.stage_values or {}).get('created'))
+    for current in product.stages:
+        if current.key == stage.key:
+            return previous
+        value = stage_completed_at(case, current)
+        if value:
+            previous = value
+    return previous
+
+
+def stage_completed_at(case: TatTrackerCase, stage: StageConfig):
+    values = case.stage_values or {}
+    return parse_iso_datetime(values.get(stage.auto_timestamp_key)) or parse_iso_datetime(values.get(stage.key))
+
+
+def tat_targets_for_product(workflow: dict | None, product: ProductConfig) -> dict:
+    workflow = workflow or {}
+    configured = workflow.get('tat_targets_minutes') or {}
+    product_targets = configured.get(product.key) or configured.get(product.sheet_name) or {}
+    defaults = DEFAULT_TAT_TARGETS_MINUTES.get(product.key, {})
+    return {
+        'total': product_targets.get('total', defaults.get('total')),
+        'stages': product_targets.get('stages') or defaults.get('stages') or {},
+    }
+
+
+def stage_target_minutes(workflow: dict | None, product: ProductConfig, stage: StageConfig) -> Decimal | None:
+    value = (tat_targets_for_product(workflow, product).get('stages') or {}).get(stage.key)
+    if value in (None, ''):
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def total_target_minutes(workflow: dict | None, product: ProductConfig) -> Decimal | None:
+    value = tat_targets_for_product(workflow, product).get('total')
+    if value in (None, ''):
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def sla_status(minutes: Decimal | None, target: Decimal | None) -> str:
+    if minutes is None or target is None or target <= 0:
+        return ''
+    if minutes > target:
+        return 'over'
+    if minutes >= (target * NEAR_SLA_RATIO):
+        return 'near'
+    return 'within'
 
 
 def resolve_case_sheet_row(sheet, case: TatTrackerCase) -> int:
@@ -570,20 +802,74 @@ def can_user_edit_stage(user: dict, case: TatTrackerCase, stage: StageConfig) ->
     return True
 
 
-def serialize_case_summary(case: TatTrackerCase, user: dict | None = None, next_stage: StageConfig | None = None) -> dict:
+def serialize_case_summary(case: TatTrackerCase, user: dict | None = None, next_stage: StageConfig | None = None, workflow: dict | None = None) -> dict:
     next_stage = next_stage or next_action(case)
-    return {'case_id': case.case_id, 'product': case.product_label or product_by_key(case.product_key).label, 'product_key': case.product_key, 'client_name': case.client_name, 'branch': case.branch, 'bro_name': case.bro_name, 'amount': str(case.amount or ''), 'status': case.status, 'current_stage': case.current_stage, 'next_stage': next_stage.label if next_stage else '', 'next_stage_key': next_stage.key if next_stage else '', 'updated_at': format_datetime(case.updated_at), 'created_at': format_datetime(case.created_at)}
+    product = product_by_key(case.product_key)
+    tat_minutes = calculated_tat_minutes(case)
+    tat_hours = calculated_tat_hours(case) if tat_minutes is not None else None
+    tat_days = calculated_tat_days(case) if tat_minutes is not None else None
+    total_target = total_target_minutes(workflow, product)
+    return {'case_id': case.case_id, 'product': case.product_label or product.label, 'product_key': case.product_key, 'client_name': case.client_name, 'branch': case.branch, 'bro_name': case.bro_name, 'amount': str(case.amount or ''), 'status': case.status, 'current_stage': case.current_stage, 'next_stage': next_stage.label if next_stage else '', 'next_stage_key': next_stage.key if next_stage else '', 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'tat_hours': str(tat_hours) if tat_hours is not None else '', 'tat_days': str(tat_days) if tat_days is not None else '', 'target_minutes': str(total_target) if total_target is not None else '', 'sla_status': sla_status(tat_minutes, total_target), 'updated_at': format_datetime(case.updated_at), 'created_at': format_datetime(case.created_at)}
 
 
-def serialize_case_detail(case: TatTrackerCase, user: dict) -> dict:
+def serialize_case_detail(case: TatTrackerCase, user: dict, workflow: dict | None = None) -> dict:
     product = product_by_key(case.product_key)
     fields = []
     for stage in product.stages:
         value = case.stage_values.get(stage.key, '')
         editable = (not value) and previous_stages_complete(case, stage) and can_user_edit_stage(user, case, stage)
-        fields.append({'key': stage.key, 'label': stage.label, 'kind': stage.kind, 'value': display_stage_value(stage, value), 'editable': editable, 'options': list(stage.options), 'role': stage.role, 'locked_reason': '' if editable else lock_reason(case, user, stage)})
+        tat_minutes = stage_tat_minutes(case, stage)
+        target = stage_target_minutes(workflow, product, stage)
+        fields.append({'key': stage.key, 'label': stage.label, 'kind': stage.kind, 'value': display_stage_value(stage, value), 'editable': editable, 'options': list(stage.options), 'role': stage.role, 'locked_reason': '' if editable else lock_reason(case, user, stage), 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'target_minutes': str(target) if target is not None else '', 'sla_status': sla_status(tat_minutes, target)})
     events = [{'at': format_datetime(event.created_at), 'actor': event.actor_name, 'stage': event.stage_label, 'value': event.new_value, 'source': event.source} for event in case.events.order_by('-created_at')[:20]]
-    return {'summary': serialize_case_summary(case, user), 'fields': fields, 'remarks': case.remarks, 'events': events}
+    return {'summary': serialize_case_summary(case, user, workflow=workflow), 'fields': fields, 'remarks': case.remarks, 'events': events}
+
+
+def next_role_alert(group_config, case_data: dict | None) -> dict[str, str]:
+    if not case_data:
+        return {}
+    workflow = getattr(group_config, 'workflow', None) or {}
+    if workflow.get('stage_alerts_enabled') is False:
+        return {}
+    summary = case_data.get('summary') or {}
+    next_stage_key = summary.get('next_stage_key') or ''
+    if not next_stage_key:
+        return {}
+    try:
+        product = product_by_key(summary.get('product_key') or '')
+    except ValueError:
+        return {}
+    stage = stage_by_key(product, next_stage_key)
+    if not stage:
+        return {}
+    role_label = role_display_name(stage.role)
+    return {
+        'role': stage.role,
+        'role_label': role_label,
+        'stage': stage.label,
+        'text': (
+            f"TAT action needed: {role_label}\n\n"
+            f"Case: {summary.get('case_id', '')}\n"
+            f"Client: {summary.get('client_name', '')}\n"
+            f"Branch: {summary.get('branch', '')}\n"
+            f"Next step: {stage.label}\n\n"
+            "Please open the TAT Tracker and update this stage when done."
+        ),
+    }
+
+
+def role_display_name(role: str) -> str:
+    labels = {
+        'BRO': 'BRO',
+        'ADMIN': 'Admin',
+        'CA': 'Credit Analyst',
+        'BM': 'Branch Manager',
+        'SECRETARY': 'Secretary',
+        'CHAIR': 'Chair',
+        'LOAN_APPROVER': 'Loan Approver',
+        'FINANCE': 'Finance',
+    }
+    return labels.get(str(role or '').strip().upper(), str(role or '').strip() or 'Responsible team')
 
 
 def lock_reason(case: TatTrackerCase, user: dict, stage: StageConfig) -> str:

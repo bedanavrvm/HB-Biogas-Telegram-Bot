@@ -1,6 +1,7 @@
 from django import forms
 from django.contrib import admin
 from django.contrib import messages
+from django.conf import settings
 from django.http import HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
@@ -15,6 +16,7 @@ from core.services.workflow_presets import (
     preset_choices,
     preset_for_workflow,
 )
+from core.services.tat_tracker import PRODUCTS
 
 from .models import (
     CaseUpdate,
@@ -38,6 +40,38 @@ from .models import (
 )
 
 
+def _tat_target_field_name(product_key: str, target_key: str) -> str:
+    safe_key = str(target_key).replace('-', '_')
+    return f'tat_target_{product_key}_{safe_key}'
+
+
+def _tat_target_form_field(product_key: str, target_key: str) -> forms.IntegerField:
+    product = PRODUCTS[product_key]
+    if target_key == 'total':
+        label = f'{product.label} total target minutes'
+        help_text = 'Overall case SLA target in minutes.'
+    else:
+        stage = next(stage for stage in product.stages if stage.key == target_key)
+        label = f'{product.label}: {stage.label} target minutes'
+        help_text = 'Leave blank to show TAT without SLA status for this stage.'
+    return forms.IntegerField(
+        required=False,
+        min_value=0,
+        label=label,
+        help_text=help_text,
+    )
+
+
+TAT_TARGET_FIELD_GROUPS = []
+for _product_key, _product in PRODUCTS.items():
+    _fields = [_tat_target_field_name(_product_key, 'total')]
+    _fields.extend(
+        _tat_target_field_name(_product_key, stage.key)
+        for stage in _product.stages
+    )
+    TAT_TARGET_FIELD_GROUPS.append((_product_key, _product.label, tuple(_fields)))
+
+
 class ReadOnlyAuditAdmin(admin.ModelAdmin):
     """Prevent admin edits that would not be written back to the live sheet."""
 
@@ -51,6 +85,17 @@ class ReadOnlyAuditAdmin(admin.ModelAdmin):
         return False
 
 
+class TestDataDeleteAdmin(ReadOnlyAuditAdmin):
+    """Allow scoped cleanup of test records without enabling production deletes."""
+
+    def has_delete_permission(self, request, obj=None):
+        delete_enabled = bool(
+            getattr(settings, 'DEBUG', False)
+            or getattr(settings, 'ALLOW_ADMIN_AUDIT_DELETE', False)
+        )
+        return delete_enabled and bool(request.user and request.user.is_superuser)
+
+
 class GroupSheetConfigurationAdminForm(forms.ModelForm):
     """Admin helper that can generate workflow JSON from a simple preset."""
 
@@ -62,6 +107,20 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
             'Select a preset to generate workflow JSON automatically. '
             'Choose Manual JSON for custom workflows.'
         ),
+    )
+    case_header_row = forms.IntegerField(
+        required=False,
+        min_value=1,
+        initial=get_preset('case')['admin_fields']['header_row']['initial'],
+        label=get_preset('case')['admin_fields']['header_row']['label'],
+        help_text=get_preset('case')['admin_fields']['header_row']['help_text'],
+    )
+    case_field_headers = forms.JSONField(
+        required=False,
+        initial=get_preset('case')['admin_fields']['field_headers']['initial'],
+        label=get_preset('case')['admin_fields']['field_headers']['label'],
+        help_text=get_preset('case')['admin_fields']['field_headers']['help_text'],
+        widget=forms.Textarea(attrs={'rows': 6, 'cols': 80}),
     )
     order_approval_search_tabs = forms.CharField(
         required=False,
@@ -206,6 +265,20 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
         workflow = getattr(self.instance, 'workflow', None) or {}
         preset_key = preset_for_workflow(workflow)
         self.fields['workflow_preset'].initial = preset_key
+        if preset_key == 'case':
+            self.fields['workflow_preset'].initial = 'case'
+            defaults = defaults_for_preset('case')
+            sheet_schema = getattr(self.instance, 'sheet_schema', None) or {}
+            self.fields['case_header_row'].initial = (
+                sheet_schema.get('header_row')
+                or workflow.get('header_row')
+                or defaults['workflow'].get('header_row', 1)
+            )
+            self.fields['case_field_headers'].initial = (
+                sheet_schema.get('field_headers')
+                or sheet_schema.get('headers')
+                or defaults['sheet_schema'].get('field_headers', {})
+            )
         if preset_key == 'order_approval':
             self.fields['workflow_preset'].initial = 'order_approval'
             self.fields['order_approval_search_tabs'].initial = ', '.join(
@@ -239,6 +312,10 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 workflow.get('legacy_batch_sheet_name')
                 or defaults.get('legacy_batch_sheet_name', 'SPIN Legacy Batch')
             )
+        if preset_key == 'tat_tracker':
+            self.fields['workflow_preset'].initial = 'tat_tracker'
+        if preset_key == 'tat_tracker' or workflow.get('tat_targets_minutes'):
+            self._populate_tat_target_initials(workflow)
         if preset_key == 'jawabu_homebiogas':
             self.fields['workflow_preset'].initial = 'jawabu_homebiogas'
             defaults = defaults_for_preset('jawabu_homebiogas')['workflow']
@@ -317,9 +394,22 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
 
     def generated_workflow(self) -> dict | None:
         preset_key = self.cleaned_data.get('workflow_preset') or MANUAL_PRESET
+        if preset_key == MANUAL_PRESET:
+            workflow = dict(self.cleaned_data.get('workflow') or {})
+            existing_workflow = getattr(self.instance, 'workflow', None) or {}
+            if (
+                workflow.get('type') == 'tat_tracker'
+                or existing_workflow.get('type') == 'tat_tracker'
+                or workflow.get('tat_targets_minutes')
+                or existing_workflow.get('tat_targets_minutes')
+            ):
+                workflow['tat_targets_minutes'] = self.tat_targets_minutes()
+                return workflow
+            return None
         return build_workflow_from_preset(
             preset_key,
             overrides={
+                'case_header_row': self.cleaned_data.get('case_header_row'),
                 'search_sheet_names': self.order_approval_tabs(),
                 'match_field': self.cleaned_data.get('order_approval_match_field'),
                 'media_field': self.cleaned_data.get('order_approval_media_field'),
@@ -342,8 +432,82 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 'internal_order_header_row': self.cleaned_data.get('jawabu_internal_order_header_row'),
                 'internal_order_data_start_row': self.cleaned_data.get('jawabu_internal_order_data_start_row'),
                 'internal_order_record_id_prefix': self.cleaned_data.get('jawabu_internal_order_record_id_prefix'),
+                'existing_workflow': getattr(self.instance, 'workflow', None) or {},
+                'tat_targets_minutes': self.tat_targets_minutes(),
             },
         )
+
+    def tat_targets_minutes(self) -> dict:
+        existing_workflow = (
+            self.cleaned_data.get('workflow')
+            or getattr(self.instance, 'workflow', None)
+            or {}
+        )
+        current_targets = existing_workflow.get('tat_targets_minutes') or {}
+        targets = {
+            product_key: {
+                'total': product_targets.get('total'),
+                'stages': dict(product_targets.get('stages') or {}),
+            }
+            for product_key, product_targets in current_targets.items()
+            if isinstance(product_targets, dict)
+        }
+        for product_key, _label, field_names in TAT_TARGET_FIELD_GROUPS:
+            product_targets = targets.setdefault(product_key, {'stages': {}})
+            product_targets.setdefault('stages', {})
+            total_field = _tat_target_field_name(product_key, 'total')
+            total = self.cleaned_data.get(total_field)
+            if total is not None:
+                product_targets['total'] = int(total)
+            for field_name in field_names:
+                stage_key = field_name.replace(f'tat_target_{product_key}_', '', 1)
+                if stage_key == 'total':
+                    continue
+                value = self.cleaned_data.get(field_name)
+                if value is not None:
+                    product_targets['stages'][stage_key] = int(value)
+        return {
+            product_key: {
+                key: value
+                for key, value in product_targets.items()
+                if key != 'stages' or value
+            }
+            for product_key, product_targets in targets.items()
+            if product_targets.get('total') is not None or product_targets.get('stages')
+        }
+
+    def _populate_tat_target_initials(self, workflow: dict):
+        targets = workflow.get('tat_targets_minutes') or {}
+        defaults = defaults_for_preset('tat_tracker')['workflow'].get('tat_targets_minutes') or {}
+        for product_key, _product_label, field_names in TAT_TARGET_FIELD_GROUPS:
+            product_targets = targets.get(product_key) or defaults.get(product_key) or {}
+            stage_targets = product_targets.get('stages') or {}
+            total_field = _tat_target_field_name(product_key, 'total')
+            self.fields[total_field].initial = product_targets.get('total')
+            self.initial[total_field] = product_targets.get('total')
+            for field_name in field_names:
+                stage_key = field_name.replace(f'tat_target_{product_key}_', '', 1)
+                if stage_key == 'total':
+                    continue
+                value = stage_targets.get(stage_key)
+                self.fields[field_name].initial = value
+                self.initial[field_name] = value
+
+    def generated_sheet_schema(self) -> dict | None:
+        preset_key = self.cleaned_data.get('workflow_preset') or MANUAL_PRESET
+        if preset_key != 'case':
+            return None
+        defaults = defaults_for_preset('case').get('sheet_schema') or {}
+        schema = dict(defaults)
+        header_row = self.cleaned_data.get('case_header_row')
+        if header_row:
+            schema['header_row'] = max(int(header_row), 1)
+        field_headers = self.cleaned_data.get('case_field_headers') or {}
+        if field_headers:
+            schema['field_headers'] = dict(field_headers)
+        else:
+            schema['field_headers'] = {}
+        return schema
 
     def apply_preset_defaults(self, obj):
         preset_key = self.cleaned_data.get('workflow_preset') or MANUAL_PRESET
@@ -356,9 +520,16 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
             obj.parser_rules = defaults['parser_rules']
 
 
+for _product_key, _product_label, _field_names in TAT_TARGET_FIELD_GROUPS:
+    for _field_name in _field_names:
+        _target_key = _field_name.replace(f'tat_target_{_product_key}_', '', 1)
+        _field = _tat_target_form_field(_product_key, _target_key)
+        GroupSheetConfigurationAdminForm.base_fields[_field_name] = _field
+        GroupSheetConfigurationAdminForm.declared_fields[_field_name] = _field
+
 
 @admin.register(TatTrackerCase)
-class TatTrackerCaseAdmin(ReadOnlyAuditAdmin):
+class TatTrackerCaseAdmin(TestDataDeleteAdmin):
     list_display = ['case_id', 'group_id', 'product_label', 'client_name', 'branch', 'status', 'current_stage', 'updated_at']
     list_filter = ['group_id', 'product_key', 'branch', 'status', 'current_stage']
     search_fields = ['case_id', 'client_name', 'bro_name', 'branch']
@@ -617,13 +788,13 @@ class TatTrackerStaffMemberAdminForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.instance and self.instance.pk:
-            self.fields['roles'].initial = self._split(self.instance.roles)
-            self.fields['branches'].initial = self._split(self.instance.branches)
-            self.fields['products'].initial = self._split(self.instance.products)
+            self._set_multi_initial('roles', self._split(self.instance.roles))
+            self._set_multi_initial('branches', self._split(self.instance.branches))
+            self._set_multi_initial('products', self._split(self.instance.products))
         else:
-            self.fields['roles'].initial = ['BRO']
-            self.fields['branches'].initial = ['ALL']
-            self.fields['products'].initial = ['ALL']
+            self._set_multi_initial('roles', ['BRO'])
+            self._set_multi_initial('branches', ['ALL'])
+            self._set_multi_initial('products', ['ALL'])
 
     def clean_roles(self):
         return ','.join(self.cleaned_data.get('roles') or ['BRO'])
@@ -639,6 +810,11 @@ class TatTrackerStaffMemberAdminForm(forms.ModelForm):
     @staticmethod
     def _split(value):
         return [part.strip() for part in str(value or '').split(',') if part.strip()]
+
+    def _set_multi_initial(self, field_name, values):
+        values = list(values or [])
+        self.initial[field_name] = values
+        self.fields[field_name].initial = values
 
 
 class TatTrackerStaffMemberInline(admin.StackedInline):
@@ -699,6 +875,17 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
                 'Only the relevant settings section will expand below.'
             ),
         }),
+        ('Case / Complaints Settings', {
+            'fields': (
+                'case_header_row',
+                'case_field_headers',
+            ),
+            'description': (
+                'Header row and optional canonical-field header mappings for '
+                'the complaint register workflow.'
+            ),
+            'classes': ('collapse', 'preset-section', 'preset-case'),
+        }),
         ('Order Approval Settings', {
             'fields': (
                 'order_approval_search_tabs',
@@ -717,6 +904,19 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
             ),
             'description': 'Header and legacy batch tab settings for the SPIN / CRB workflow.',
             'classes': ('collapse', 'preset-section', 'preset-spin_credit_analysis'),
+        }),
+        ('TAT Tracker Targets', {
+            'fields': tuple(
+                field_name
+                for _product_key, _product_label, field_names in TAT_TARGET_FIELD_GROUPS
+                for field_name in field_names
+            ),
+            'description': (
+                'SLA targets in minutes. Total target controls overall case SLA; '
+                'stage targets control each stage badge/status in the Mini App. '
+                'Leave a stage blank to show minutes without SLA status.'
+            ),
+            'classes': ('collapse', 'preset-section', 'preset-tat_tracker'),
         }),
         ('Jawabu HomeBiogas Settings', {
             'fields': (
@@ -1194,6 +1394,9 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
         generated_workflow = getattr(form, 'generated_workflow', lambda: None)()
         if generated_workflow:
             obj.workflow = generated_workflow
+        generated_sheet_schema = getattr(form, 'generated_sheet_schema', lambda: None)()
+        if generated_sheet_schema is not None:
+            obj.sheet_schema = generated_sheet_schema
         super().save_model(request, obj, form, change)
         self._clear_runtime_config_cache()
         self.message_user(
@@ -1263,7 +1466,7 @@ class RequisitionBatchAdmin(ReadOnlyAuditAdmin):
     search_fields = ('order_number', 'generated_by', 'filename')
 
 @admin.register(SpinCreditRequest)
-class SpinCreditRequestAdmin(ReadOnlyAuditAdmin):
+class SpinCreditRequestAdmin(TestDataDeleteAdmin):
     list_display = (
         'request_datetime', 'request_type', 'customer_name', 'national_id',
         'primary_phone', 'requested_amount', 'import_status', 'requested_by',

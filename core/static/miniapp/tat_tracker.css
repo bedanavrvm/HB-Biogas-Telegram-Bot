@@ -675,6 +675,46 @@ h2 { font-size: 13px; font-weight: 750; }
 .stage-value.value-filled { color: var(--tat-text); font-weight: 600; }
 .stage-value.value-empty { color: var(--tat-muted); opacity: 0.65; }
 
+.stage-tat-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+.tat-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  border-radius: var(--radius-sm);
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: 800;
+  background: var(--tat-surface-2);
+  color: var(--tat-muted);
+  border: 1px solid var(--tat-line);
+}
+.tat-badge.within {
+  background: var(--tat-ok-soft);
+  color: var(--tat-ok);
+  border-color: transparent;
+}
+.tat-badge.near {
+  background: var(--tat-warn-soft);
+  color: var(--tat-warn);
+  border-color: transparent;
+}
+.tat-badge.over {
+  background: var(--tat-danger-soft);
+  color: var(--tat-danger);
+  border-color: transparent;
+}
+.tat-target {
+  color: var(--tat-muted);
+  font-size: 10px;
+  font-weight: 650;
+}
+
 .stage-action-wrap {
   margin-top: 4px;
   display: grid;

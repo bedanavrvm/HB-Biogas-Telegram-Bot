@@ -9,6 +9,8 @@
     detail: null,
     currentView: 'queue',
     pendingCreateRequestId: readPendingCreateRequestId(),
+    creatingCase: false,
+    refreshing: false,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -119,6 +121,19 @@
     return number.toLocaleString('en-KE', { maximumFractionDigits: 0 });
   }
 
+  function formatMinutes(value) {
+    const number = Number(String(value || '').replace(/,/g, '').trim());
+    if (!Number.isFinite(number)) return '';
+    return `${Math.round(number).toLocaleString('en-KE')} min`;
+  }
+
+  function slaLabel(status) {
+    if (status === 'within') return 'Within target';
+    if (status === 'near') return 'Near target';
+    if (status === 'over') return 'Over target';
+    return '';
+  }
+
   function currentUserName() {
     return (state.data && state.data.user && state.data.user.name) ? state.data.user.name : '';
   }
@@ -133,7 +148,7 @@
   function setButtonLoading(button, loading, label) {
     if (!button) return;
     if (loading) {
-      button.dataset.originalText = button.innerHTML;
+      if (!button.dataset.originalText) button.dataset.originalText = button.innerHTML;
       button.innerHTML = `
         <svg class="spinner" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
           <line x1="12" y1="2" x2="12" y2="6"></line>
@@ -150,6 +165,7 @@
       button.disabled = true;
     } else {
       button.innerHTML = button.dataset.originalText || button.innerHTML;
+      delete button.dataset.originalText;
       button.disabled = false;
     }
   }
@@ -239,11 +255,18 @@
     setStatus('Ready.', 'ok');
   }
 
-  async function refresh() {
-    setStatus('Refreshing queue...', 'busy');
-    const result = await api('/api/tat-tracker/home/', {});
-    renderHome(result.data);
-    setStatus('Queue updated.', 'ok');
+  async function refresh(options) {
+    const background = Boolean(options && options.background);
+    if (!background) setStatus('Refreshing queue...', 'busy');
+    try {
+      const result = await api('/api/tat-tracker/home/', {});
+      renderHome(result.data);
+      if (!background) setStatus('Queue updated.', 'ok');
+      return result;
+    } catch (error) {
+      if (!background) setStatus(error.message, 'error');
+      throw error;
+    }
   }
 
   async function openCase(caseId) {
@@ -281,6 +304,10 @@
           <span>${escapeHtml(summary.next_stage || 'No pending action')}</span>
         </div>
         <div class="fact">
+          <small>Total TAT</small>
+          <span class="tat-badge ${escapeHtml(summary.sla_status || '')}">${escapeHtml(formatMinutes(summary.tat_minutes) || 'Not started')}</span>
+        </div>
+        <div class="fact">
           <small>Created</small>
           <span>${escapeHtml(summary.created_at || '')}</span>
         </div>
@@ -308,6 +335,16 @@
       }
 
       const valueText = field.value || (field.locked_reason ? 'Pending previous stages' : 'Not started');
+      const tatText = formatMinutes(field.tat_minutes);
+      const targetText = formatMinutes(field.target_minutes);
+      const slaText = slaLabel(field.sla_status);
+      const tatMeta = tatText ? `
+        <div class="stage-tat-row">
+          <span class="tat-badge ${escapeHtml(field.sla_status || '')}">${escapeHtml(tatText)}</span>
+          ${targetText ? `<span class="tat-target">Target ${escapeHtml(targetText)}</span>` : ''}
+          ${slaText ? `<span class="tat-target">${escapeHtml(slaText)}</span>` : ''}
+        </div>
+      ` : '';
       
       row.innerHTML = `
         <div class="stage-left-rail">
@@ -320,6 +357,7 @@
             <span class="role-chip">${escapeHtml(field.role)}</span>
           </div>
           <div class="stage-value ${hasValue ? 'value-filled' : 'value-empty'}">${escapeHtml(valueText)}</div>
+          ${tatMeta}
         </div>`;
 
       if (field.editable) {
@@ -388,13 +426,17 @@
 
   document.querySelectorAll('.tabs button').forEach((button) => button.addEventListener('click', () => show(button.dataset.view)));
   $('refreshBtn').addEventListener('click', async (event) => {
+    if (state.refreshing) return;
+    const button = event.currentTarget;
     try {
-      setButtonLoading(event.currentTarget, true, 'Refreshing');
+      state.refreshing = true;
+      setButtonLoading(button, true, 'Refreshing');
       await refresh();
     } catch (error) {
       setStatus(error.message, 'error');
     } finally {
-      setButtonLoading(event.currentTarget, false);
+      state.refreshing = false;
+      setButtonLoading(button, false);
     }
   });
   $('backBtn').addEventListener('click', () => { show('queue'); refresh().catch(() => {}); });
@@ -431,11 +473,14 @@
 
   $('newCaseForm').addEventListener('submit', async (event) => {
     event.preventDefault();
-    const submitButton = event.currentTarget.querySelector('button[type="submit"]');
+    if (state.creatingCase) return;
+    const formElement = event.currentTarget;
+    const submitButton = formElement ? formElement.querySelector('button[type="submit"]') : null;
     try {
+      state.creatingCase = true;
       setButtonLoading(submitButton, true, 'Creating');
       setStatus('Creating case...', 'busy');
-      const form = new FormData(event.currentTarget);
+      const form = new FormData(formElement);
       const payload = Object.fromEntries(form.entries());
       state.pendingCreateRequestId = state.pendingCreateRequestId || newRequestId();
       writePendingCreateRequestId(state.pendingCreateRequestId);
@@ -447,14 +492,15 @@
       show('detail');
       state.pendingCreateRequestId = '';
       writePendingCreateRequestId('');
-      event.currentTarget.reset();
+      if (formElement && typeof formElement.reset === 'function') formElement.reset();
       const broInput = document.querySelector('[name="bro_name"]');
       if (broInput) broInput.value = currentUserName() || payload.bro_name || '';
       setStatus('Case created. Continue from the highlighted stage.', 'ok');
-      refresh().catch(() => {});
+      refresh({ background: true }).catch(() => {});
     } catch (error) {
       setStatus(error.message, 'error');
     } finally {
+      state.creatingCase = false;
       setButtonLoading(submitButton, false);
     }
   });

@@ -69,11 +69,12 @@ def sync_sheet_to_backend(
         return _result(
             status='error',
             errors=['Google Sheets service unavailable'],
+            counts_read=False,
         )
 
     valid, error = service.validate_sheet_structure()
     if not valid:
-        return _result(status='error', errors=[error])
+        return _result(status='error', errors=[error], counts_read=False)
 
     rows = service.fetch_rows()
     seen_message_ids = set()
@@ -376,14 +377,14 @@ def _parse_int(value: str):
         return None
 
 
-def _result(status: str, errors: list = None) -> dict:
+def _result(status: str, errors: list = None, counts_read: bool = True) -> dict:
     return {
         'status': status,
-        'row_count': 0,
+        'row_count': 0 if counts_read else None,
         'created_count': 0,
         'updated_count': 0,
         'deleted_count': 0,
         'skipped_count': 0,
-        'backend_count': 0,
+        'backend_count': 0 if counts_read else None,
         'errors': errors or [],
     }

@@ -41,8 +41,6 @@
   const dashboardLoading = document.getElementById('dashboardLoading');
   const dashboardSearch = document.getElementById('dashboardSearch');
   const statusFilter = document.getElementById('statusFilter');
-  const groupFilterLabel = document.getElementById('groupFilterLabel');
-  const groupFilterCheckbox = document.getElementById('groupFilterCheckbox');
 
   const completeModal = document.getElementById('completeModal');
   const completeForm = document.getElementById('completeForm');
@@ -50,12 +48,39 @@
   const cancelModalBtn = document.getElementById('cancelModalBtn');
   const submitCompleteBtn = document.getElementById('submitCompleteBtn');
   const modalBanner = document.getElementById('modalBanner');
+  const reviewModal = document.getElementById('reviewModal');
+  const reviewForm = document.getElementById('reviewForm');
+  const closeReviewModalBtn = document.getElementById('closeReviewModalBtn');
+  const cancelReviewModalBtn = document.getElementById('cancelReviewModalBtn');
+  const submitReviewBtn = document.getElementById('submitReviewBtn');
+  const reviewModalBanner = document.getElementById('reviewModalBanner');
+  const reviewBranchField = document.getElementById('reviewBranchField');
+  const reviewBranchSelect = document.getElementById('reviewBranchSelect');
 
   let requests = [];
   let isAnalyst = false;
 
   document.getElementById('groupId').value = config.group_id || '';
   document.getElementById('formToken').value = config.form_token || '';
+  const branchField = document.getElementById('branchField');
+  const branchSelect = document.getElementById('branchSelect');
+  const defaultBranch = document.getElementById('defaultBranch');
+  if (defaultBranch) defaultBranch.value = config.default_branch || '';
+  if (branchSelect && Array.isArray(config.branch_choices) && config.branch_choices.length) {
+    branchSelect.innerHTML = '<option value="">Select branch</option>' + config.branch_choices.map(branch => `<option value="${escapeHtml(branch)}">${escapeHtml(branch)}</option>`).join('');
+    branchSelect.value = config.default_branch || '';
+    if (branchField) branchField.hidden = false;
+  } else if (branchSelect && branchField) {
+    branchSelect.removeAttribute('name');
+    branchField.hidden = true;
+  }
+  if (reviewBranchSelect && Array.isArray(config.branch_choices) && config.branch_choices.length) {
+    reviewBranchSelect.innerHTML = '<option value="">Select branch</option>' + config.branch_choices.map(branch => `<option value="${escapeHtml(branch)}">${escapeHtml(branch)}</option>`).join('');
+    if (reviewBranchField) reviewBranchField.hidden = false;
+  } else if (reviewBranchSelect && reviewBranchField) {
+    reviewBranchSelect.removeAttribute('name');
+    reviewBranchField.hidden = true;
+  }
 
   function field(name) { return form.elements[name]; }
 
@@ -82,6 +107,7 @@
     const selectedType = form.querySelector('input[name="request_type"]:checked');
     return {
       request_type: selectedType ? selectedType.value : '',
+      branch: field('branch') ? field('branch').value.trim() : (config.default_branch || ''),
       customer_name: field('customer_name').value.trim(),
       national_id: field('national_id').value.replace(/\D/g, ''),
       customer_type: field('customer_type').value,
@@ -109,6 +135,17 @@
     if (Array.isArray(message)) return message.map(item => String(item || '').trim()).filter(Boolean);
     const value = String(message || '').trim();
     return value ? [value] : [];
+  }
+
+  function setButtonLoading(button, isLoading, label) {
+    if (!button) return;
+    if (!button.dataset.idleText) button.dataset.idleText = button.textContent.trim();
+    button.disabled = !!isLoading;
+    if (isLoading) {
+      button.innerHTML = `<span class="button-spinner" aria-hidden="true"></span><span>${escapeHtml(label || 'Working...')}</span>`;
+    } else {
+      button.textContent = button.dataset.idleText || label || '';
+    }
   }
 
   function setBanner(message, type, targetBanner) {
@@ -184,6 +221,7 @@
       invalid.push({ field: fieldName, message });
     }
     if (!['spin_crb', 'spin', 'crb'].includes(data.request_type)) add('request_type', 'Choose SPIN/CRB, SPIN, or CRB.');
+    if (Array.isArray(config.branch_choices) && config.branch_choices.length && !data.branch) add('branch', 'Select a valid branch.');
     if (!data.customer_name) add('customer_name', 'Customer Name is required.');
     if (!/^\d{7,8}$/.test(data.national_id)) add('national_id', 'National ID must be 7 or 8 digits.');
     if (!normalizePhone(data.primary_phone)) add('primary_phone', 'Primary Phone must be a valid Kenyan number, for example 254712345678.');
@@ -221,6 +259,7 @@
     const data = formValues();
     const rows = [
       ['Type', requestTypeLabel(data.request_type)],
+      ['Branch', data.branch || '-'],
       ['Name', data.customer_name || '-'],
       ['National ID', data.national_id || '-'],
       ['Phone', normalizePhone(data.primary_phone) || data.primary_phone || '-'],
@@ -265,6 +304,7 @@
   function clearDraft() {
     localStorage.removeItem(draftKey);
     form.reset();
+    if (branchSelect && branchSelect.name) branchSelect.value = config.default_branch || '';
     field('primary_phone').value = '';
     field('secondary_phone').value = '';
     markInvalid([]);
@@ -319,8 +359,7 @@
       return;
     }
 
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Submitting...';
+    setButtonLoading(submitBtn, true, 'Submitting');
     try {
       const response = await fetch('/api/spin/submit/', buildSubmitOptions(data));
       const result = await response.json();
@@ -333,14 +372,14 @@
       markInvalid([]);
       setBanner(`Submitted ${result.request_id || ''} for ${result.customer_name || 'customer'}.`, 'success');
       form.reset();
+      if (branchSelect && branchSelect.name) branchSelect.value = config.default_branch || '';
       updateSummary();
       updateFileSummaries();
       if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
     } catch (_) {
       setBanner('Network error. Check your connection and submit again.', 'error');
     } finally {
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Submit Request';
+      setButtonLoading(submitBtn, false);
     }
   }
 
@@ -415,13 +454,27 @@
       }
 
       let actions = '';
+      const actionButtons = [];
+      if (r.import_status === 'review_needed') {
+        actionButtons.push(`
+            <button type="button" class="secondary review-action-btn" data-id="${escapeHtml(r.id)}">
+              <i data-lucide="edit-3" style="width:14px; height:14px; display:inline-block; vertical-align:middle; margin-right:4px;"></i>
+              Review Details
+            </button>
+        `);
+      }
       if (isAnalyst && r.import_status !== 'completed') {
-        actions = `
-          <div class="card-actions">
+        actionButtons.push(`
             <button type="button" class="primary complete-action-btn" data-id="${escapeHtml(r.id)}">
               <i data-lucide="check-square" style="width:14px; height:14px; display:inline-block; vertical-align:middle; margin-right:4px;"></i>
               Complete Request
             </button>
+        `);
+      }
+      if (actionButtons.length) {
+        actions = `
+          <div class="card-actions">
+            ${actionButtons.join('')}
           </div>
         `;
       }
@@ -495,14 +548,18 @@
         openCompleteModal(btn.dataset.id);
       });
     });
+    requestsList.querySelectorAll('.review-action-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        openReviewModal(btn.dataset.id);
+      });
+    });
   }
   async function fetchRequests() {
     requestsList.style.display = 'none';
     dashboardLoading.style.display = 'block';
     
-    const filterGroup = groupFilterCheckbox.checked ? 'true' : 'false';
     const initDataEnc = encodeURIComponent(tg ? tg.initData || '' : '');
-    const url = `/api/spin/requests/?group_id=${config.group_id || ''}&form_token=${config.form_token || ''}&init_data=${initDataEnc}&filter_group=${filterGroup}`;
+    const url = `/api/spin/requests/?group_id=${config.group_id || ''}&form_token=${config.form_token || ''}&init_data=${initDataEnc}`;
 
     try {
       const response = await fetch(url);
@@ -515,6 +572,7 @@
           </div>
         `;
         if (window.lucide) window.lucide.createIcons();
+        requestsList.style.display = 'block';
         return;
       }
       requests = (result.requests || []).filter(r => r.import_status !== 'failed');
@@ -538,13 +596,6 @@
         dashboardTabBadge.style.display = 'none';
       }
 
-      // Show/hide analyst group filters
-      if (isAnalyst) {
-        groupFilterLabel.style.display = 'inline-flex';
-      } else {
-        groupFilterLabel.style.display = 'none';
-      }
-
       renderRequests();
       requestsList.style.display = 'block';
     } catch (_) {
@@ -555,6 +606,7 @@
         </div>
       `;
       if (window.lucide) window.lucide.createIcons();
+      requestsList.style.display = 'block';
     } finally {
       dashboardLoading.style.display = 'none';
     }
@@ -599,6 +651,7 @@
     setBanner('', '', modalBanner);
     completeModal.hidden = false;
     completeModal.classList.remove('hidden');
+    setButtonLoading(submitCompleteBtn, false);
     if (window.lucide) window.lucide.createIcons();
   }
 
@@ -607,6 +660,94 @@
     completeModal.classList.add('hidden');
     completeForm.reset();
     setBanner('', '', modalBanner);
+    setButtonLoading(submitCompleteBtn, false);
+  }
+
+  function reviewFormValues() {
+    return {
+      request_type: reviewForm.elements['request_type'].value,
+      branch: reviewForm.elements['branch'] ? reviewForm.elements['branch'].value : (config.default_branch || ''),
+      customer_name: reviewForm.elements['customer_name'].value.trim(),
+      national_id: reviewForm.elements['national_id'].value.replace(/\D/g, ''),
+      primary_phone: normalizePhone(reviewForm.elements['primary_phone'].value) || reviewForm.elements['primary_phone'].value.trim(),
+      secondary_phone: normalizePhone(reviewForm.elements['secondary_phone'].value) || reviewForm.elements['secondary_phone'].value.trim(),
+      requested_amount: cleanAmount(reviewForm.elements['requested_amount'].value),
+      tenor: reviewForm.elements['tenor'].value.trim(),
+      customer_type: reviewForm.elements['customer_type'].value,
+      loan_product: reviewForm.elements['loan_product'].value.trim(),
+      code: reviewForm.elements['code'].value.trim(),
+      business_notes: reviewForm.elements['business_notes'].value.trim()
+    };
+  }
+
+  function openReviewModal(reqId) {
+    const record = requests.find(r => r.id === reqId);
+    if (!record) return;
+    reviewForm.reset();
+    setBanner('', '', reviewModalBanner);
+    document.getElementById('reviewRequestId').value = record.id;
+    reviewForm.elements['request_type'].value = record.request_type === 'SPIN/CRB' ? 'spin_crb' : String(record.request_type || '').toLowerCase();
+    if (!['spin_crb', 'spin', 'crb'].includes(reviewForm.elements['request_type'].value)) {
+      reviewForm.elements['request_type'].value = 'spin_crb';
+    }
+    if (reviewForm.elements['branch']) reviewForm.elements['branch'].value = record.branch || config.default_branch || '';
+    reviewForm.elements['customer_name'].value = record.customer_name || '';
+    reviewForm.elements['national_id'].value = record.national_id || '';
+    reviewForm.elements['primary_phone'].value = record.primary_phone || '';
+    reviewForm.elements['secondary_phone'].value = record.secondary_phone || '';
+    reviewForm.elements['requested_amount'].value = record.requested_amount ? String(record.requested_amount) : '';
+    reviewForm.elements['tenor'].value = record.tenor || '';
+    reviewForm.elements['customer_type'].value = record.customer_type || '';
+    reviewForm.elements['loan_product'].value = record.loan_product || '';
+    reviewForm.elements['code'].value = record.code || '';
+    reviewForm.elements['business_notes'].value = record.business_notes || '';
+    reviewModal.hidden = false;
+    reviewModal.classList.remove('hidden');
+    setButtonLoading(submitReviewBtn, false);
+    if (window.lucide) window.lucide.createIcons();
+  }
+
+  function closeReviewModal() {
+    reviewModal.hidden = true;
+    reviewModal.classList.add('hidden');
+    reviewForm.reset();
+    setBanner('', '', reviewModalBanner);
+    setButtonLoading(submitReviewBtn, false);
+  }
+
+  async function submitReview(event) {
+    event.preventDefault();
+    setBanner('', '', reviewModalBanner);
+    setButtonLoading(submitReviewBtn, true, 'Saving');
+
+    const payload = {
+      request_id: document.getElementById('reviewRequestId').value,
+      group_id: config.group_id || '',
+      form_token: config.form_token || '',
+      init_data: tg ? tg.initData || '' : '',
+      fields: reviewFormValues()
+    };
+
+    try {
+      const response = await fetch('/api/spin/review/update/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        setBanner(result.errors || result.message || 'Review could not be saved.', 'error', reviewModalBanner);
+        return;
+      }
+      closeReviewModal();
+      setBanner(result.sheet_synced ? 'Review saved and sheet updated.' : 'Review saved. Sheet update needs retry.', result.sheet_synced ? 'success' : 'warning');
+      fetchRequests();
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+    } catch (_) {
+      setBanner('Network error saving review.', 'error', reviewModalBanner);
+    } finally {
+      setButtonLoading(submitReviewBtn, false);
+    }
   }
 
   async function submitComplete(event) {
@@ -623,7 +764,7 @@
     }
 
     submitCompleteBtn.disabled = true;
-    submitCompleteBtn.textContent = 'Uploading...';
+    setButtonLoading(submitCompleteBtn, true, 'Uploading');
 
     const formData = new FormData(completeForm);
     formData.append('group_id', config.group_id || '');
@@ -648,8 +789,7 @@
     } catch (_) {
       setBanner('Network error submitting reports.', 'error', modalBanner);
     } finally {
-      submitCompleteBtn.disabled = false;
-      submitCompleteBtn.textContent = 'Submit Reports';
+      setButtonLoading(submitCompleteBtn, false);
     }
   }
 
@@ -657,6 +797,9 @@
   closeModalBtn.addEventListener('click', closeCompleteModal);
   cancelModalBtn.addEventListener('click', closeCompleteModal);
   completeForm.addEventListener('submit', submitComplete);
+  closeReviewModalBtn.addEventListener('click', closeReviewModal);
+  cancelReviewModalBtn.addEventListener('click', closeReviewModal);
+  reviewForm.addEventListener('submit', submitReview);
 
   // Hook search & filters events
   dashboardSearch.addEventListener('input', renderRequests);
@@ -684,7 +827,6 @@
     });
   });
 
-  groupFilterCheckbox.addEventListener('change', fetchRequests);
 
   // --- Initial Setup ---
 

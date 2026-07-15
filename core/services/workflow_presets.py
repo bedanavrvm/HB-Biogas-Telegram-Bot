@@ -25,11 +25,28 @@ WORKFLOW_PRESETS = {
         'sheet_name': 'Complaints Register',
         'workflow': {
             'type': 'case',
-            'header_row': 2,
+            'header_row': 1,
         },
-        'sheet_schema': {},
+        'sheet_schema': {
+            'header_row': 1,
+            'field_headers': {},
+        },
         'parser_rules': {},
-        'admin_fields': {},
+        'admin_fields': {
+            'header_row': {
+                'initial': 1,
+                'label': 'Complaint header row',
+                'help_text': '1-based row number containing complaint register headers. Use 1 for TEST COMPLAINT MANAGEMENT REGISTER.xlsx.',
+            },
+            'field_headers': {
+                'initial': {},
+                'label': 'Complaint header mappings',
+                'help_text': (
+                    'Optional JSON mapping from canonical complaint fields to sheet headers, '
+                    'for example {"complaint_id": "Complaint ID", "message_id": "message_id"}.'
+                ),
+            },
+        },
     },
     'order_approval': {
         'label': 'Order Approval',
@@ -96,6 +113,13 @@ WORKFLOW_PRESETS = {
             'branches': ['Biogas Unit', 'Embu', 'Nakuru', 'West Nairobi'],
             'allow_unconfigured_users': False,
             'default_roles': ['BRO'],
+            'tat_targets_minutes': {
+                'sme': {'total': 20160, 'stages': {}},
+                'logbook': {'total': 20160, 'stages': {}},
+                'mjengo': {'total': 20160, 'stages': {}},
+                'kilimo': {'total': 20160, 'stages': {}},
+                'micro_asset': {'total': 20160, 'stages': {}},
+            },
             'staff': [],
         },
         'sheet_schema': {},
@@ -110,6 +134,7 @@ WORKFLOW_PRESETS = {
             'type': 'spin_credit_analysis',
             'header_row': 2,
             'field_headers': {},
+            'branches': ['Biogas Unit', 'Embu', 'Nakuru', 'West Nairobi'],
         },
         'sheet_schema': {},
         'parser_rules': {},
@@ -267,6 +292,14 @@ def build_workflow_from_preset(
     workflow = deepcopy(workflow)
     overrides = overrides or {}
 
+    if preset_key == 'case':
+        header_row = overrides.get('case_header_row') or overrides.get('header_row')
+        if header_row:
+            try:
+                workflow['header_row'] = max(int(header_row), 1)
+            except (TypeError, ValueError):
+                pass
+
     if preset_key == 'jawabu_homebiogas':
         if 'import_start_date' in overrides:
             value = overrides.get('import_start_date')
@@ -316,6 +349,14 @@ def build_workflow_from_preset(
         media_root_folder = str(overrides.get('media_root_folder') or '').strip()
         if media_root_folder:
             workflow['media_root_folder'] = media_root_folder
+
+    if preset_key == 'tat_tracker':
+        existing_workflow = overrides.get('existing_workflow')
+        if isinstance(existing_workflow, dict) and existing_workflow.get('type') == 'tat_tracker':
+            workflow.update(deepcopy(existing_workflow))
+        tat_targets_minutes = overrides.get('tat_targets_minutes')
+        if tat_targets_minutes:
+            workflow['tat_targets_minutes'] = tat_targets_minutes
 
     return workflow
 

@@ -11,7 +11,7 @@
  * Use this script for workbook hygiene only:
  * - create/format expected tracker tabs
  * - set dropdown validations
- * - set TAT formulas
+ * - format Django-calculated TAT values
  * - freeze header rows
  * - add filters and notes
  * - hide/protect support areas lightly
@@ -29,7 +29,7 @@
 
 const TAT_CONFIG = {
   DATA_START_ROW: 5,
-  DEFAULT_MAX_ROWS: 2000,
+  DEFAULT_MAX_ROWS: 500,
   DATE_TIME_FORMAT: 'dd-mmm-yyyy hh:mm',
   MONEY_FORMAT: '#,##0',
   TAT_HOURS_TARGET: 336,
@@ -72,7 +72,7 @@ const PRODUCT_LAYOUTS = {
       'BRO Applied Loan on System', 'Disbursement Register', 'Register Timestamp',
       'Register Approved', 'Finance Disbursement', 'Status', 'Remarks / Delays',
       'TAT Hours', 'TAT Days'
-    ],
+    ].concat(smeStageTatHeaders_()),
     cols: {
       amount: 5,
       created: 6,
@@ -96,12 +96,12 @@ const PRODUCT_LAYOUTS = {
       'Case ID', 'Client Name', 'Branch', 'BRO Name', 'Amount',
       'Case Created', 'MPESA Sent to Admin', 'MPESA Verified and Sent to CA',
       'Credit Analysis Sent', 'BRO Response to CA', 'Valuation Ready',
-      'BM TAT Request Sent', 'TAT Scheduled', 'TAT Held', 'Decision',
+      'BM TAT Request Sent', 'HOCC Scheduled', 'HOCC Held', 'Decision',
       'Decision Timestamp', 'Minutes Shared', 'Sanctions', 'Sanctions Timestamp',
       'BRO Applied on System', 'Disbursement Register', 'Register Timestamp',
       'Register Approved', 'Finance Disbursement', 'Status', 'Remarks / Delays',
       'TAT Hours', 'TAT Days'
-    ],
+    ].concat(logbookStageTatHeaders_()),
     cols: {
       amount: 5,
       created: 6,
@@ -139,12 +139,12 @@ function noValuationLayout(title, minAmount, maxAmount) {
       'Case ID', 'Client Name', 'Branch', 'BRO Name', 'Amount',
       'Case Created', 'MPESA Sent to Admin', 'MPESA Verified and Sent to CA',
       'Credit Analysis Sent', 'BRO Response to CA', 'BM TAT Request Sent',
-      'TAT Scheduled', 'TAT Held', 'Decision', 'Decision Timestamp',
+      'HOCC Scheduled', 'HOCC Held', 'Decision', 'Decision Timestamp',
       'Minutes Shared', 'Sanctions', 'Sanctions Timestamp',
       'BRO Applied on System', 'Disbursement Register', 'Register Timestamp',
       'Register Approved', 'Finance Disbursement', 'Status', 'Remarks / Delays',
       'TAT Hours', 'TAT Days'
-    ],
+    ].concat(noValuationStageTatHeaders_()),
     cols: {
       amount: 5,
       created: 6,
@@ -166,14 +166,73 @@ function noValuationLayout(title, minAmount, maxAmount) {
   };
 }
 
+function smeStageTatHeaders_() {
+  return [
+    'MPESA sent to Admin TAT Minutes',
+    'MPESA verified and sent to CA TAT Minutes',
+    'Credit analysis sent TAT Minutes',
+    'BRO response to CA TAT Minutes',
+    'BM response to CA TAT Minutes',
+    'BRO applied loan on system TAT Minutes',
+    'Disbursement register TAT Minutes',
+    'Register approved TAT Minutes',
+    'Finance disbursement TAT Minutes',
+  ];
+}
+
+function noValuationStageTatHeaders_() {
+  return [
+    'MPESA sent to Admin TAT Minutes',
+    'MPESA verified and sent to CA TAT Minutes',
+    'Credit analysis sent TAT Minutes',
+    'BRO response to CA TAT Minutes',
+    'BM TAT request sent TAT Minutes',
+    'HOCC scheduled TAT Minutes',
+    'HOCC held TAT Minutes',
+    'Decision TAT Minutes',
+    'Minutes shared TAT Minutes',
+    'Sanctions TAT Minutes',
+    'BRO applied on system TAT Minutes',
+    'Disbursement register TAT Minutes',
+    'Register approved TAT Minutes',
+    'Finance disbursement TAT Minutes',
+  ];
+}
+
+function logbookStageTatHeaders_() {
+  return [
+    'MPESA sent to Admin TAT Minutes',
+    'MPESA verified and sent to CA TAT Minutes',
+    'Credit analysis sent TAT Minutes',
+    'BRO response to CA TAT Minutes',
+    'Valuation ready TAT Minutes',
+    'BM TAT request sent TAT Minutes',
+    'HOCC scheduled TAT Minutes',
+    'HOCC held TAT Minutes',
+    'Decision TAT Minutes',
+    'Minutes shared TAT Minutes',
+    'Sanctions TAT Minutes',
+    'BRO applied on system TAT Minutes',
+    'Disbursement register TAT Minutes',
+    'Register approved TAT Minutes',
+    'Finance disbursement TAT Minutes',
+  ];
+}
+
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('TAT Tracker')
     .addItem('Setup / refresh workbook', 'setupTatTrackerWorkbook')
+    .addItem('Setup current tracker tab only', 'setupCurrentTatTrackerSheet')
+    .addItem('Setup SME tab', 'setupTatSmeSheet')
+    .addItem('Setup Logbook tab', 'setupTatLogbookSheet')
+    .addItem('Setup Mjengo tab', 'setupTatMjengoSheet')
+    .addItem('Setup Kilimo tab', 'setupTatKilimoSheet')
+    .addItem('Setup Micro Asset tab', 'setupTatMicroAssetSheet')
     .addItem('Remove legacy protections', 'removeLegacyTatProtectionsMenu')
     .addItem('Refresh validations only', 'refreshTatValidations')
-    .addItem('Refresh formulas only', 'refreshTatFormulas')
-    .addItem('Refresh status/TAT highlighting', 'refreshTatHighlighting')
+    .addItem('Refresh TAT value formatting', 'refreshTatFormulas')
+    .addItem('Refresh TAT highlighting', 'refreshTatHighlighting')
     .addItem('Create support tabs', 'setupTatSupportTabs')
     .addSeparator()
     .addItem('Show setup notes', 'showTatSetupNotes')
@@ -189,6 +248,43 @@ function setupTatTrackerWorkbook() {
   });
   setupTatSupportTabs();
   SpreadsheetApp.getUi().alert('TAT Tracker setup complete. Django/Mini App remains the source of workflow writes.');
+}
+
+function setupCurrentTatTrackerSheet() {
+  const sheet = SpreadsheetApp.getActiveSheet();
+  setupSingleTatTrackerSheet_(sheet.getName());
+}
+
+function setupTatSmeSheet() {
+  setupSingleTatTrackerSheet_('TRACKER-SME');
+}
+
+function setupTatLogbookSheet() {
+  setupSingleTatTrackerSheet_('TRACKER-LOGBOOK');
+}
+
+function setupTatMjengoSheet() {
+  setupSingleTatTrackerSheet_('TRACKER-MJENGO');
+}
+
+function setupTatKilimoSheet() {
+  setupSingleTatTrackerSheet_('TRACKER-KILIMO');
+}
+
+function setupTatMicroAssetSheet() {
+  setupSingleTatTrackerSheet_('TRACKER-MICRO-ASSET');
+}
+
+function setupSingleTatTrackerSheet_(sheetName) {
+  const layout = PRODUCT_LAYOUTS[sheetName];
+  if (!layout) {
+    SpreadsheetApp.getUi().alert('The active sheet is not a configured TAT tracker tab.');
+    return;
+  }
+  const ss = SpreadsheetApp.getActive();
+  const sheet = getOrCreateSheet_(ss, sheetName);
+  setupTrackerSheet_(sheet, layout);
+  SpreadsheetApp.getUi().alert(sheetName + ' setup complete.');
 }
 
 function refreshTatValidations() {
@@ -208,7 +304,7 @@ function refreshTatFormulas() {
     const sheet = ss.getSheetByName(sheetName);
     if (sheet) applyTatFormulas_(sheet, PRODUCT_LAYOUTS[sheetName]);
   });
-  SpreadsheetApp.getUi().alert('TAT Tracker formulas refreshed.');
+  SpreadsheetApp.getUi().alert('TAT value formatting refreshed. Django writes calculated TAT values.');
 }
 
 function refreshTatHighlighting() {
@@ -217,7 +313,7 @@ function refreshTatHighlighting() {
     const sheet = ss.getSheetByName(sheetName);
     if (sheet) applyStatusConditionalFormatting_(sheet, PRODUCT_LAYOUTS[sheetName]);
   });
-  SpreadsheetApp.getUi().alert('Status/TAT highlighting refreshed from row 5 downward. Rows 1-3 were not touched.');
+  SpreadsheetApp.getUi().alert('TAT value highlighting refreshed from row 5 downward. Rows 1-3 were not touched.');
 }
 
 function removeLegacyTatProtectionsMenu() {
@@ -300,24 +396,18 @@ function applyValidations_(sheet, layout) {
 function applyTatFormulas_(sheet, layout) {
   const start = TAT_CONFIG.DATA_START_ROW;
   const rows = TAT_CONFIG.DEFAULT_MAX_ROWS - start + 1;
-  const createdCol = colLetter_(layout.cols.created);
-  const endCol = colLetter_(layout.cols.disbursement);
   const tatHoursCol = layout.cols.tatHours;
   const tatDaysCol = layout.cols.tatDays;
-  const formulasHours = [];
-  const formulasDays = [];
-  for (let i = 0; i < rows; i++) {
-    const row = start + i;
-    formulasHours.push([`=IF(OR($${createdCol}${row}="",$${endCol}${row}=""),"",ROUND(($${endCol}${row}-$${createdCol}${row})*24,2))`]);
-    formulasDays.push([`=IF(${colLetter_(tatHoursCol)}${row}="","",ROUND(${colLetter_(tatHoursCol)}${row}/24,2))`]);
-  }
   const tatHoursRange = sheet.getRange(start, tatHoursCol, rows, 1);
   const tatDaysRange = sheet.getRange(start, tatDaysCol, rows, 1);
   removeLegacyFormulaProtections_(sheet);
   clearStaleFormulaValidation_(tatHoursRange);
   clearStaleFormulaValidation_(tatDaysRange);
-  tatHoursRange.setFormulas(formulasHours).setNumberFormat('0.00');
-  tatDaysRange.setFormulas(formulasDays).setNumberFormat('0.00');
+  tatHoursRange.setNumberFormat('0.00');
+  tatDaysRange.setNumberFormat('0.00');
+  if (layout.headers.length > tatDaysCol) {
+    sheet.getRange(start, tatDaysCol + 1, rows, layout.headers.length - tatDaysCol).setNumberFormat('0');
+  }
 }
 
 function clearStaleFormulaValidation_(range) {
@@ -343,29 +433,16 @@ function removeLegacyFormulaProtections_(sheet) {
 function applyStatusConditionalFormatting_(sheet, layout) {
   const width = layout.headers.length;
   const dataRows = TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1;
-  const range = sheet.getRange(TAT_CONFIG.DATA_START_ROW, 1, dataRows, width);
   const tatValueRange = sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.tatHours, dataRows, 2);
   const row = TAT_CONFIG.DATA_START_ROW;
   const status = colLetter_(layout.cols.status);
-  const created = colLetter_(layout.cols.created);
   const tatHours = colLetter_(layout.cols.tatHours);
-  const target = TAT_CONFIG.TAT_HOURS_TARGET;
+  const target = layout.tatHoursTarget || TAT_CONFIG.TAT_HOURS_TARGET;
   const nearTarget = Math.round(target * 0.8);
-  const openStatusCheck = `AND($${status}${row}<>"Disbursed",$${status}${row}<>"Rejected",$${status}${row}<>"Declined")`;
   const rules = [
-    colorRule_(range, `=$${status}${row}="Disbursed"`, '#d9ead3'),
-    colorRule_(range, `=$${status}${row}="Rejected"`, '#f4cccc'),
-    colorRule_(range, `=$${status}${row}="Declined"`, '#f4cccc'),
-    colorRule_(range, `=$${status}${row}="Deferred"`, '#fff2cc'),
-    colorRule_(range, `=$${status}${row}="Stalled"`, '#fce5cd'),
-    colorRule_(range, `=$${status}${row}="Pending Docs"`, '#d9eaf7'),
-    colorRule_(range, `=AND($${created}${row}<>"",${openStatusCheck},((NOW()-$${created}${row})*24)>${nearTarget},((NOW()-$${created}${row})*24)<=${target})`, '#fff2cc'),
-    colorRule_(range, `=AND($${created}${row}<>"",${openStatusCheck},((NOW()-$${created}${row})*24)>${target})`, '#f4cccc'),
-    colorRule_(range, `=AND($${tatHours}${row}<>"",$${tatHours}${row}>${target})`, '#ead1dc'),
     colorRule_(tatValueRange, `=AND($${tatHours}${row}<>"",$${tatHours}${row}>${nearTarget},$${tatHours}${row}<=${target})`, '#fff2cc'),
     colorRule_(tatValueRange, `=AND($${tatHours}${row}<>"",$${tatHours}${row}>${target})`, '#f4cccc'),
   ];
-  addStageTrafficLightRules_(rules, sheet, layout, row, openStatusCheck, target);
   sheet.setConditionalFormatRules(rules);
 }
 

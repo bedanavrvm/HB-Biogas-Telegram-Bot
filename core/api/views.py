@@ -148,7 +148,9 @@ def tat_tracker_create(request):
         return error
     from core.services.tat_tracker import create_case
     try:
-        return JsonResponse({'ok': True, 'data': create_case(group_config, user, payload)})
+        data = create_case(group_config, user, payload)
+        _send_tat_next_role_alert(group_config, data)
+        return JsonResponse({'ok': True, 'data': data})
     except Exception as exc:
         logger.warning('TAT Tracker create failed: %s', exc, exc_info=True)
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
@@ -177,10 +179,21 @@ def tat_tracker_update(request):
         return error
     from core.services.tat_tracker import update_case
     try:
-        return JsonResponse({'ok': True, 'data': update_case(group_config, user, payload.get('case_id', ''), payload.get('updates') or [])})
+        data = update_case(group_config, user, payload.get('case_id', ''), payload.get('updates') or [])
+        _send_tat_next_role_alert(group_config, data)
+        return JsonResponse({'ok': True, 'data': data})
     except Exception as exc:
         logger.warning('TAT Tracker update failed: %s', exc, exc_info=True)
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+
+
+def _send_tat_next_role_alert(group_config, case_data: dict) -> None:
+    from core.services.tat_tracker import next_role_alert
+
+    alert = next_role_alert(group_config, case_data)
+    if not alert:
+        return
+    _post_telegram_reply(chat_id=group_config.group_id, message_data={}, text=alert['text'])
 # ---------------------------------------------------------------------------
 # Telegram webhook
 # ---------------------------------------------------------------------------
@@ -634,7 +647,8 @@ def fca_review_commit(request):
 def spin_form(request):
     """Render the SPIN/CRB request Mini App form."""
     from django.utils.safestring import mark_safe
-    from core.services.spin_credit import decode_spin_start_param
+    from core.services.group_config import GroupRegistry
+    from core.services.spin_credit import decode_spin_start_param, is_spin_workflow, spin_branch_choices, spin_default_branch
 
     group_id = str(request.GET.get('group_id', '')).strip()
     form_token = str(request.GET.get('token', '')).strip()
@@ -648,7 +662,19 @@ def spin_form(request):
         group_id = group_id or start_payload.get('group_id', '')
         form_token = form_token or start_payload.get('token', '')
 
-    payload = {'group_id': group_id, 'form_token': form_token}
+    branch_choices = []
+    default_branch = ''
+    if group_id:
+        group_config = GroupRegistry.get_instance().get_group(group_id)
+        if group_config and is_spin_workflow(group_config):
+            branch_choices = spin_branch_choices(group_config)
+            default_branch = spin_default_branch(group_config)
+    payload = {
+        'group_id': group_id,
+        'form_token': form_token,
+        'branch_choices': branch_choices,
+        'default_branch': default_branch,
+    }
     return render(
         request,
         'spin/form.html',
@@ -760,13 +786,7 @@ def spin_form_requests(request):
     from core.services.spin_credit import is_user_spin_analyst, spin_request_id, format_sheet_datetime, REQUEST_TYPE_LABELS
     is_analyst = is_user_spin_analyst(user_payload)
     from core.models import SpinCreditRequest
-    if is_analyst:
-        if request.GET.get('filter_group') == 'true' and group_id:
-            queryset = SpinCreditRequest.objects.filter(group_id=group_id)
-        else:
-            queryset = SpinCreditRequest.objects.all()
-    else:
-        queryset = SpinCreditRequest.objects.filter(group_id=group_id)
+    queryset = SpinCreditRequest.objects.filter(group_id=group_id)
     queryset = queryset.order_by('-request_datetime', '-created_at')
     data = []
     for r in queryset:
@@ -777,6 +797,7 @@ def spin_form_requests(request):
             'request_datetime': format_sheet_datetime(r.request_datetime) if r.request_datetime else '',
             'requested_by': r.requested_by,
             'request_type': REQUEST_TYPE_LABELS.get(r.request_type, r.request_type),
+            'branch': parsed_f.get('branch') or r.source_chat,
             'customer_name': r.customer_name,
             'national_id': r.national_id,
             'primary_phone': r.primary_phone,
@@ -849,10 +870,12 @@ def spin_form_complete(request):
         record.parsed_fields['credit_analysis_report_url'] = analysis_url
     record.parsed_fields['analysis_completed_at'] = timezone.now().isoformat()
     record.parsed_fields['analysis_completed_by'] = sender_name
+    record.parsed_fields['credit_analyst_name'] = sender_name
     record.import_status = 'completed'
     record.save(update_fields=['parsed_fields', 'import_status', 'updated_at'])
     sheet_updates = {
-        'analysis_status': 'Completed'
+        'analysis_status': 'Completed',
+        'credit_analyst_name': sender_name,
     }
     url_lines = []
     if spin_url:
@@ -861,8 +884,8 @@ def spin_form_complete(request):
         url_lines.append(f"CRB: {crb_url}")
     if analysis_url:
         url_lines.append(f"Analysis: {analysis_url}")
-    new_response = '\n'.join(url_lines)
-    sheet_updates['analyst_response'] = new_response
+    if url_lines:
+        sheet_updates['analyst_response'] = '\n'.join(url_lines)
     sheet_synced = update_spin_request_in_sheet(group_config, record, sheet_updates)
     tg_lines = [
         'SPIN/CRB ANALYSIS COMPLETED',
@@ -888,6 +911,42 @@ def spin_form_complete(request):
         'credit_analysis_report_url': analysis_url,
         'sheet_synced': sheet_synced
     })
+
+
+@csrf_exempt
+@require_http_methods(["POST", "PATCH"])
+def spin_form_review_update(request):
+    """Apply corrections for a SPIN/CRB request that needs import review."""
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'message': 'Invalid request body.'}, status=400)
+
+    group_id, group_config, _auth_payload, error_response = _spin_webapp_context(payload)
+    if error_response:
+        return error_response
+
+    request_id = str(payload.get('request_id') or '').strip()
+    if not request_id:
+        return JsonResponse({'success': False, 'message': 'Request ID is required.'}, status=400)
+
+    from core.models import SpinCreditRequest
+    from core.services.spin_credit import update_spin_review_request
+
+    try:
+        record = SpinCreditRequest.objects.get(id=request_id, group_id=group_id)
+    except (SpinCreditRequest.DoesNotExist, ValueError):
+        return JsonResponse({'success': False, 'message': 'Request not found.'}, status=404)
+
+    result = update_spin_review_request(
+        group_config=group_config,
+        record=record,
+        fields=payload.get('fields') or payload,
+    )
+    status = 200 if result.get('success') else 400
+    if result.get('status') == 'not_found':
+        status = 404
+    return JsonResponse(result, status=status)
 
 
 
@@ -936,24 +995,27 @@ def _send_spin_webapp_chat_reply(group_id: str, result: dict) -> None:
         return
     if result.get('success'):
         lines = [
-            'SPIN/CRB REQUEST SUBMITTED',
+            'SPIN request received',
             '',
             f"Request ID: {result.get('request_id', '')}",
             f"Type: {result.get('request_type', '')}",
             f"Customer: {result.get('customer_name', '')}",
             f"National ID: {result.get('national_id', '')}",
             f"Phone: {result.get('primary_phone', '')}",
-            f"Files stored: {result.get('files_stored', 0)}",
         ]
+        files_stored = result.get('files_stored', 0)
+        if files_stored:
+            lines.append(f"Documents attached: {files_stored}")
+        lines.extend(['', 'The credit team can now review it in the SPIN dashboard.'])
     else:
         lines = [
-            'SPIN/CRB REQUEST NOT SUBMITTED',
+            'SPIN request needs attention',
             '',
             result.get('message') or 'Please check the form and try again.',
         ]
         errors = [str(error) for error in (result.get('errors') or []) if str(error).strip()]
         if errors:
-            lines.extend(['', 'Fix'])
+            lines.extend(['', 'Please update:'])
             lines.extend(f'- {error}' for error in errors[:6])
     _post_telegram_reply(chat_id=group_id, message_data={}, text='\n'.join(lines))
 
@@ -1562,6 +1624,8 @@ def _run_whatsapp_batch_import(
     telegram_message_id: str,
 ) -> dict:
     from core.services.parser import MessageIntent, detect_message_intent
+    from core.services.group_config import GroupRegistry
+    from core.services.storage import duplicate_case_for_message, repair_case_sheet_sync
 
     entries = analysis.get('entries') or []
     configured_max = int(getattr(settings, 'WHATSAPP_BATCH_MAX_MESSAGES', 0) or 0)
@@ -1569,6 +1633,7 @@ def _run_whatsapp_batch_import(
     truncated = configured_max > 0 and len(entries) > max_entries
     entries_to_process = entries[:max_entries] if truncated else entries
     sync_before = _sync_case_sheet_for_batch(group_id, delete_missing=True)
+    group_config = GroupRegistry.get_instance().get_group(group_id)
     results = []
     skipped_non_complaint = 0
     processed_entries = 0
@@ -1593,9 +1658,36 @@ def _run_whatsapp_batch_import(
             sync_after_success=False,
             defer_sheet_sync=True,
         )
+        if result.get('status') == 'duplicate':
+            existing_case, duplicate_hash = duplicate_case_for_message(
+                sender=entry.get('sender') or sender,
+                content=content,
+                received_at=entry.get('received_at') or received_at,
+            )
+            if existing_case:
+                repair_result = repair_case_sheet_sync(existing_case, group_config=group_config)
+                result.update({
+                    'status': 'existing_matched',
+                    'duplicate_reason': 'message_hash',
+                    'message_hash': duplicate_hash,
+                    'message_id': existing_case.message_id,
+                    'parsed_message_id': existing_case.pk,
+                    'sync_repair': repair_result,
+                })
+            else:
+                result.update({
+                    'duplicate_reason': 'message_hash',
+                    'message_hash': duplicate_hash,
+                    'sync_repair': {'status': 'missing_case', 'synced': False},
+                })
         results.append(result)
 
     saved_count = sum(1 for r in results if r.get('status') in {'success', 'partial'})
+    existing_count = sum(1 for r in results if r.get('status') == 'existing_matched')
+    sync_repairs = [r.get('sync_repair') or {} for r in results if r.get('status') == 'existing_matched']
+    already_synced = sum(1 for r in sync_repairs if r.get('status') == 'already_synced')
+    sync_retried = sum(1 for r in sync_repairs if r.get('status') == 'sync_retried')
+    sync_retry_failed = sum(1 for r in sync_repairs if r.get('status') == 'sync_failed')
     batch_sheet_append = _batch_append_case_results(
         results,
         group_id=group_id,
@@ -1603,7 +1695,7 @@ def _run_whatsapp_batch_import(
     append_status = (batch_sheet_append or {}).get('status')
     sync_after = (
         _sync_case_sheet_for_batch(group_id, delete_missing=False)
-        if saved_count and append_status in {'success', 'partial'} else None
+        if saved_count and append_status in {'success', 'partial', 'skipped'} else None
     )
 
     return {
@@ -1619,6 +1711,12 @@ def _run_whatsapp_batch_import(
         'max_entries': max_entries,
         'success': sum(1 for r in results if r.get('status') == 'success'),
         'partial': sum(1 for r in results if r.get('status') == 'partial'),
+        'new_cases_created': saved_count,
+        'existing_cases_matched': existing_count,
+        'already_synchronized': already_synced,
+        'synchronization_retried': sync_retried + sync_retry_failed,
+        'synchronization_succeeded': sync_retried,
+        'synchronization_failed': sync_retry_failed,
         'review_needed': sum(
             1 for r in results
             if (r.get('captured_fields') or {}).get('Status') == 'Review Needed'
@@ -1715,12 +1813,12 @@ def _sync_case_sheet_for_batch(group_id: str, delete_missing: bool) -> dict:
         )
         return {
             'status': result.get('status', 'unknown'),
-            'row_count': result.get('row_count', 0),
+            'row_count': result.get('row_count'),
             'created_count': result.get('created_count', 0),
             'updated_count': result.get('updated_count', 0),
             'deleted_count': result.get('deleted_count', 0),
             'skipped_count': result.get('skipped_count', 0),
-            'backend_count': result.get('backend_count', 0),
+            'backend_count': result.get('backend_count'),
             'errors': (result.get('errors') or [])[:3],
         }
     except Exception as exc:
@@ -1732,12 +1830,12 @@ def _sync_case_sheet_for_batch(group_id: str, delete_missing: bool) -> dict:
         )
         return {
             'status': 'error',
-            'row_count': 0,
+            'row_count': None,
             'created_count': 0,
             'updated_count': 0,
             'deleted_count': 0,
             'skipped_count': 0,
-            'backend_count': 0,
+            'backend_count': None,
             'errors': [str(exc)],
         }
 
@@ -2530,7 +2628,15 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
                 f"Export messages found: {result.get('export_messages', total)}",
                 f"Complaint entries processed: {total}",
                 f"Saved: {saved}",
+                f"New cases created: {result.get('new_cases_created', saved)}",
             ]
+            existing_matched = result.get('existing_cases_matched', 0)
+            if existing_matched:
+                lines.append(f"Existing cases matched: {existing_matched}")
+                lines.append(f"Already synchronized: {result.get('already_synchronized', 0)}")
+                lines.append(f"Synchronization retried: {result.get('synchronization_retried', 0)}")
+                lines.append(f"Synchronization succeeded: {result.get('synchronization_succeeded', 0)}")
+                lines.append(f"Synchronization failed: {result.get('synchronization_failed', 0)}")
             skipped = result.get('skipped_non_complaint', 0)
             if skipped:
                 lines.append(f"Skipped non-complaint chat messages: {skipped}")
@@ -2564,10 +2670,14 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
                 if not sync:
                     continue
                 status_text = sync.get('status', 'unknown')
+                row_count = sync.get('row_count')
+                backend_count = sync.get('backend_count')
+                row_text = 'not read' if row_count is None else str(row_count)
+                backend_text = 'not evaluated' if backend_count is None else str(backend_count)
                 lines.append(
                     f"{label}: {status_text} "
-                    f"({sync.get('row_count', 0)} sheet rows, "
-                    f"{sync.get('backend_count', 0)} backend cases)"
+                    f"({row_text} sheet rows, "
+                    f"{backend_text} backend cases)"
                 )
                 sync_errors = sync.get('errors') or []
                 if sync_errors:
@@ -2604,6 +2714,10 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
         lines = [
             "SPIN / Credit Analysis import processed",
             f"Export messages found: {result.get('export_messages', 0)}",
+            f"SPIN-related candidates: {result.get('spin_candidates', 0)}",
+            f"Valid SPIN requests: {result.get('valid_requests', result.get('processed', 0))}",
+            f"Incomplete SPIN requests: {result.get('incomplete_requests', 0)}",
+            f"Ambiguous messages: {result.get('ambiguous_messages', 0)}",
             f"Request messages processed: {result.get('processed', 0)}",
             f"Imported: {result.get('imported', 0)}",
             f"Needs review: {result.get('review_needed', 0)}",
@@ -2633,6 +2747,19 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
                 missing = ', '.join(item.get('missing_fields') or [])
                 label = item.get('customer_name') or item.get('national_id') or item.get('primary_phone') or 'Unknown customer'
                 lines.append(f"{index}. {label} - missing {missing or 'required fields'}")
+        incomplete_items = result.get('incomplete_items') or []
+        if incomplete_items:
+            lines.extend(['', 'Incomplete SPIN-related messages'])
+            for index, item in enumerate(incomplete_items[:5], start=1):
+                keywords = ', '.join(item.get('keywords') or [])
+                reason = item.get('reason') or 'Missing customer or loan details'
+                lines.append(f"{index}. {reason} ({keywords or 'keyword matched'})")
+        ambiguous_items = result.get('ambiguous_items') or []
+        if ambiguous_items:
+            lines.extend(['', 'Ambiguous customer/loan messages'])
+            for index, item in enumerate(ambiguous_items[:5], start=1):
+                fields = ', '.join((item.get('identifier_fields') or []) + (item.get('loan_detail_fields') or []))
+                lines.append(f"{index}. Details found without SPIN keyword: {fields or 'unknown details'}")
         duplicates = result.get('duplicates_list') or []
         if duplicates:
             lines.extend(['', 'Duplicate source messages skipped'])

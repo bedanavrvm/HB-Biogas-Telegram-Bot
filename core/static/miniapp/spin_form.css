@@ -129,6 +129,12 @@ h2 { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacin
   border-left: 4px solid var(--spin-ok);
   color: var(--spin-ok);
 }
+.status-banner.warning {
+  background: var(--spin-warning-bg);
+  border-color: color-mix(in srgb, var(--spin-warning) 25%, transparent);
+  border-left: 4px solid var(--spin-warning);
+  color: var(--spin-warning);
+}
 .status-banner strong { display: block; margin-bottom: 4px; color: inherit; }
 .status-banner ul { margin: 4px 0 0 16px; padding: 0; }
 .status-banner li + li { margin-top: 3px; }
@@ -266,6 +272,17 @@ button {
 }
 button:active:not(:disabled) { transform: scale(0.98); }
 button:disabled { cursor: not-allowed; opacity: .55; }
+
+.button-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  display: inline-block;
+  flex: 0 0 auto;
+}
 
 button.primary {
   background: var(--spin-primary);
@@ -599,6 +616,8 @@ button.secondary {
   grid-column: 1 / -1;
   display: flex;
   justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
   margin-top: 6px;
   border-top: 1px solid var(--spin-line);
   padding-top: 6px;
