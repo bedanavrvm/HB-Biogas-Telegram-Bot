@@ -4,6 +4,8 @@
 
 The TAT Tracker workflow replaces the old Apps Script web form with a Django-backed Telegram Mini App. The Google workbook remains the reporting/output surface, while Django owns permissions, stage validation, audit history, and command routing.
 
+For detailed TAT calculation, status, and highlighting rules, see [TAT_TRACKER_TAT_LOGIC.md](TAT_TRACKER_TAT_LOGIC.md).
+
 Use this workflow for the TAT tracker group only. The workflow name in Django is `tat_tracker`, and the visible label is `TAT Tracker`.
 
 ## Mini App URLs
