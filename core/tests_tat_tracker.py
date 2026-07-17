@@ -696,7 +696,7 @@ class TatTrackerWorkflowTest(TestCase):
 
         self.assertEqual(case.row_number, 6)
         self.assertEqual(len(sheet.appended), 1)
-        self.assertEqual(sheet.row_values_calls, [4])
+        self.assertEqual(sheet.row_values_calls, [2])
         self.assertFalse(sheet.col_values_called)
 
     def test_sync_case_to_sheet_prefers_stage_tat_headers_over_fixed_lag_columns(self):
@@ -705,7 +705,7 @@ class TatTrackerWorkflowTest(TestCase):
                 self.updates = []
 
             def row_values(self, row):
-                if row == 4:
+                if row == 2:
                     headers = [''] * 34
                     headers[2] = 'ID NUMBER'
                     headers[3] = 'PHONE NUMBER'

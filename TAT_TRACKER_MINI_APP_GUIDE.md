@@ -208,9 +208,9 @@ Django writes each case into the matching product tab:
 All tracker tabs use the same top-row convention:
 
 - Row `1`: visual title banner, merged across the configured columns.
-- Rows `2-3`: reserved for the visual title and role/help information.
+- Row `2`: actual header row used by staff, filters, and the Mini App sync logic.
 - Row `3`: role/help row showing who owns each stage.
-- Row `4`: actual header row used by staff, filters, and the Mini App sync logic.
+- Row `4`: helper notes row.
 - Row `5` onward: case data.
 
 The first column must remain `Case ID`. This is the durable record key. Staff can sort/filter the sheet, but they should not edit `Case ID`.

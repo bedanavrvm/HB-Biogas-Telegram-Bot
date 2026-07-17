@@ -29,6 +29,7 @@ from core.services.sheets import get_sheets_service
 logger = logging.getLogger(__name__)
 
 TAT_TRACKER_WORKFLOW_TYPE = 'tat_tracker'
+TAT_TRACKER_HEADER_ROW = 2
 TAT_FORM_TOKEN_SALT = 'tat-tracker-mini-app'
 
 BRANCHES = DEFAULT_WORKFLOW_BRANCHES
@@ -522,7 +523,7 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
     try:
         # TAT values are Django-calculated display columns. Keeping them out
         # of sheet formulas avoids delayed spreadsheet recalculation.
-        headers = sheet.row_values(4) if hasattr(sheet, 'row_values') else []
+        headers = sheet.row_values(TAT_TRACKER_HEADER_ROW) if hasattr(sheet, 'row_values') else []
         validate_tracker_identity_headers(headers)
         tat_columns = resolve_tat_sheet_columns(product, headers)
         width = max([product.tat_start_col + 1, *tat_columns.values()])
@@ -618,7 +619,7 @@ def validate_tracker_identity_headers(headers: list[Any]) -> None:
     expected = ('idnumber', 'phonenumber')
     actual = tuple(normalize_header(headers[index]) if len(headers) > index else '' for index in (2, 3))
     if actual != expected:
-        raise ValueError('Tracker sheet row 4 must have ID NUMBER in column C and PHONE NUMBER in column D before cases can be synced.')
+        raise ValueError('Tracker sheet row 2 must have ID NUMBER in column C and PHONE NUMBER in column D before cases can be synced.')
 
 
 def append_case_row(sheet, row_data: list[Any]) -> int:
