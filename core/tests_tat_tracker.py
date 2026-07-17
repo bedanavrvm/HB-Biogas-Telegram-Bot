@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from core.admin import TatTrackerStaffMemberAdminForm
 from core.models import GroupSheetConfiguration, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, TatTrackerStaffMember
-from core.api.views import _process_telegram_message
+from core.api.views import _dispatch_tat_approval_certificate, _process_telegram_message
 from core.services.group_config import GroupRegistry
 from core.services.tat_tracker import (
     bootstrap,
@@ -74,6 +74,7 @@ class TatTrackerWorkflowTest(TestCase):
     def test_detects_tat_tracker_workflow(self):
         self.assertTrue(is_tat_tracker_workflow(self.config))
 
+    @override_settings(TAT_TRACKER_SIGNATURES_ENABLED=True)
     def test_sme_bm_certificate_blocks_the_next_stage_until_signed(self):
         staff_member = TatTrackerStaffMember.objects.create(
             group_configuration=self.config,
@@ -122,6 +123,35 @@ class TatTrackerWorkflowTest(TestCase):
 
         self.assertTrue(previous_stages_complete(case, next_stage))
 
+    @override_settings(TAT_TRACKER_SIGNATURES_ENABLED=False)
+    @patch('core.models.TatTrackerApprovalCertificate.objects.filter')
+    def test_signature_dispatch_is_disabled_by_default(self, certificate_filter):
+        _dispatch_tat_approval_certificate('JBL-SME-2026-001', {'telegram_id': '333'})
+
+        certificate_filter.assert_not_called()
+    def test_sme_bm_certificate_does_not_block_when_signatures_are_disabled(self):
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-SME',
+            case_id='JBL-SME-2026-SIGNATURES-OFF',
+            product_key='sme',
+            product_label='SME',
+            client_name='Approval Client',
+            branch='Nakuru',
+            bro_name='BRO User',
+            amount='10000',
+            stage_values={
+                'created': timezone.now().isoformat(),
+                'mpesa_to_admin': timezone.now().isoformat(),
+                'mpesa_verified': timezone.now().isoformat(),
+                'ca_analysis_sent': timezone.now().isoformat(),
+                'bro_response': timezone.now().isoformat(),
+                'bm_response': timezone.now().isoformat(),
+            },
+        )
+
+        self.assertTrue(previous_stages_complete(case, stage_by_key(product_by_key('sme'), 'bro_applied')))
     @override_settings(APP_BASE_URL='https://example.test')
     def test_builds_secure_tracker_url(self):
         url = build_tat_tracker_url(self.config.group_id)

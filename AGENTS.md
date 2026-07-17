@@ -170,6 +170,7 @@ This is a template of variables this class of system typically needs. Treat it a
 | `API_AUTH_TOKEN` | Token protecting manual/admin/script-facing endpoints | Yes |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` / `GOOGLE_APPLICATION_CREDENTIALS` | Service-account credentials for Sheets/Drive API access | Yes |
 | Sheet/Drive IDs (e.g. `*_SHEET_ID`, `*_FOLDER_ID`) | Identify target spreadsheets/folders per workflow | Treat as sensitive unless confirmed non-sensitive |
+| `TAT_TRACKER_SIGNATURES_ENABLED` | Enables external TAT e-signature dispatch and stage gating | No |
 
 When adding a new configuration value, add it to `.env.example` with a placeholder (never a real value) in the same change, and add it to this table.
 

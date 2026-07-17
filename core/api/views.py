@@ -190,6 +190,8 @@ def tat_tracker_update(request):
 
 
 def _dispatch_tat_approval_certificate(case_id: str, user: dict) -> None:
+    if not getattr(settings, 'TAT_TRACKER_SIGNATURES_ENABLED', False):
+        return
     from core.models import TatTrackerApprovalCertificate
     from core.services.tat_signature import dispatch_certificate
 

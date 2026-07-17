@@ -451,7 +451,7 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict) -> None:
         stage_key = stage.key
         event_label = stage.label
     event = TatTrackerEvent.objects.create(case=case, group_id=case.group_id, actor_name=user.get('name', ''), actor_telegram_id=user.get('telegram_id', ''), actor_role=','.join(user.get('roles') or []), stage_key=stage_key, stage_label=event_label, old_value=str(old or ''), new_value=str(new or ''), source='mini_app', sheet_name=case.sheet_name, row_number=case.row_number)
-    if field != 'remarks' and stage.requires_signature_certificate:
+    if signatures_enabled() and field != 'remarks' and stage.requires_signature_certificate:
         create_approval_certificate(case, event, user, stage)
 
 
@@ -647,6 +647,10 @@ def row_number_from_update_result(result: Any) -> int | None:
     return int(match.group(1))
 
 
+def signatures_enabled() -> bool:
+    return bool(getattr(settings, 'TAT_TRACKER_SIGNATURES_ENABLED', False))
+
+
 def should_sync_secondary_sheets(group_config) -> bool:
     workflow = getattr(group_config, 'workflow', None) or {}
     if 'sync_secondary_sheets' in workflow:
@@ -833,7 +837,7 @@ def previous_stages_complete(case: TatTrackerCase, stage: StageConfig) -> bool:
             return True
         if not case.stage_values.get(current.key):
             return False
-        if current.requires_signature_certificate and not case.approval_certificates.filter(stage_key=current.key, status='signed').exists():
+        if signatures_enabled() and current.requires_signature_certificate and not case.approval_certificates.filter(stage_key=current.key, status='signed').exists():
             return False
     return True
 
