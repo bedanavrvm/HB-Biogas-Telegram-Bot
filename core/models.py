@@ -496,6 +496,8 @@ class TatTrackerCase(models.Model):
     product_key = models.CharField(max_length=80, db_index=True)
     product_label = models.CharField(max_length=120, blank=True, default='')
     client_name = models.CharField(max_length=255, db_index=True)
+    national_id = models.CharField(max_length=32, blank=True, default='', db_index=True)
+    primary_phone = models.CharField(max_length=32, blank=True, default='', db_index=True)
     branch = models.CharField(max_length=120, blank=True, default='', db_index=True)
     bro_name = models.CharField(max_length=255, blank=True, default='')
     amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
@@ -1139,6 +1141,9 @@ class TatTrackerStaffMember(models.Model):
     products = models.CharField(max_length=500, blank=True, default='ALL')
     active = models.BooleanField(default=True)
     notes = models.TextField(blank=True, default='')
+    signing_national_id = models.CharField(max_length=40, blank=True, default='')
+    signing_phone_number = models.CharField(max_length=20, blank=True, default='')
+    signing_email = models.EmailField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1186,6 +1191,32 @@ class TatTrackerStaffMember(models.Model):
 
     def __str__(self):
         return f'{self.name} ({self.telegram_username or self.telegram_user_id})'
+
+
+class TatTrackerApprovalCertificate(models.Model):
+    """External e-signature evidence for a completed TAT approval stage."""
+
+    STATUS_CHOICES = [('awaiting_signature', 'Awaiting signature'), ('signed', 'Signed'), ('declined', 'Declined'), ('expired', 'Expired'), ('delivery_failed', 'Delivery failed'), ('failed', 'Failed')]
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    case = models.ForeignKey(TatTrackerCase, on_delete=models.CASCADE, related_name='approval_certificates')
+    event = models.OneToOneField(TatTrackerEvent, on_delete=models.PROTECT, related_name='approval_certificate')
+    staff_member = models.ForeignKey(TatTrackerStaffMember, on_delete=models.PROTECT, related_name='approval_certificates')
+    stage_key = models.CharField(max_length=120, db_index=True)
+    external_reference = models.CharField(max_length=80, unique=True)
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='awaiting_signature', db_index=True)
+    signed_document_hash = models.CharField(max_length=64, blank=True, default='')
+    signed_document_path = models.TextField(blank=True, default='')
+    webhook_delivery_id = models.CharField(max_length=64, blank=True, default='', unique=True, null=True)
+    error = models.TextField(blank=True, default='')
+    signed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['case', 'stage_key'], name='core_tattra_case_id_61a8f6_idx'),
+            models.Index(fields=['status', 'updated_at'], name='core_tattra_status_a6367e_idx'),
+        ]
 
 class RequisitionBatch(models.Model):
     """Generated requisition/order batch output kept for portal reference."""

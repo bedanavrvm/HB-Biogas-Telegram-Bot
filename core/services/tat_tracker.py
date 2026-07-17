@@ -21,8 +21,9 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from core.models import TatTrackerCase, TatTrackerEvent
+from core.models import TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, TatTrackerStaffMember
 from core.services.branches import DEFAULT_WORKFLOW_BRANCHES, global_branch_choices, workflow_branches as configured_workflow_branches
+from core.services.identifiers import normalize_kenyan_phone, normalize_national_id
 from core.services.sheets import get_sheets_service
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,7 @@ class StageConfig:
     kind: str = 'timestamp'
     options: tuple[str, ...] = ()
     auto_timestamp_key: str = ''
+    requires_signature_certificate: bool = False
 
 
 @dataclass(frozen=True)
@@ -80,58 +82,58 @@ class StageTatColumn:
 
 
 BASE_STAGES_OTHER = (
-    StageConfig('mpesa_to_admin', 'MPESA sent to Admin', 7, 'BRO'),
-    StageConfig('mpesa_verified', 'MPESA verified and sent to CA', 8, 'ADMIN'),
-    StageConfig('ca_analysis_sent', 'Credit analysis sent', 9, 'CA'),
-    StageConfig('bro_response', 'BRO response to CA', 10, 'BRO'),
-    StageConfig('bm_tat_request', 'BM TAT request sent', 11, 'BM'),
-    StageConfig('tat_scheduled', 'HOCC scheduled', 12, 'SECRETARY'),
-    StageConfig('tat_held', 'HOCC held', 13, 'SECRETARY'),
-    StageConfig('decision', 'Decision', 14, 'CHAIR', 'dropdown', tuple(DECISION_OPTIONS), 'decision_ts'),
-    StageConfig('minutes_shared', 'Minutes shared', 16, 'SECRETARY'),
-    StageConfig('sanctions', 'Sanctions', 17, 'LOAN_APPROVER', 'dropdown', tuple(SANCTIONS_OPTIONS), 'sanctions_ts'),
-    StageConfig('bro_applied', 'BRO applied on system', 19, 'BRO'),
-    StageConfig('disbursement_register', 'Disbursement register', 20, 'ADMIN', 'dropdown', tuple(REGISTER_OPTIONS), 'register_ts'),
-    StageConfig('register_approved', 'Register approved', 22, 'LOAN_APPROVER', 'dropdown', tuple(REGISTER_APPROVED_OPTIONS)),
-    StageConfig('disbursement', 'Finance disbursement', 23, 'FINANCE'),
+    StageConfig('mpesa_to_admin', 'MPESA sent to Admin', 9, 'BRO'),
+    StageConfig('mpesa_verified', 'MPESA verified and sent to CA', 10, 'ADMIN'),
+    StageConfig('ca_analysis_sent', 'Credit analysis sent', 11, 'CA'),
+    StageConfig('bro_response', 'BRO response to CA', 12, 'BRO'),
+    StageConfig('bm_tat_request', 'BM TAT request sent', 13, 'BM'),
+    StageConfig('tat_scheduled', 'HOCC scheduled', 14, 'SECRETARY'),
+    StageConfig('tat_held', 'HOCC held', 15, 'SECRETARY'),
+    StageConfig('decision', 'Decision', 16, 'CHAIR', 'dropdown', tuple(DECISION_OPTIONS), 'decision_ts'),
+    StageConfig('minutes_shared', 'Minutes shared', 18, 'SECRETARY'),
+    StageConfig('sanctions', 'Sanctions', 19, 'LOAN_APPROVER', 'dropdown', tuple(SANCTIONS_OPTIONS), 'sanctions_ts'),
+    StageConfig('bro_applied', 'BRO applied on system', 21, 'BRO'),
+    StageConfig('disbursement_register', 'Disbursement register', 22, 'ADMIN', 'dropdown', tuple(REGISTER_OPTIONS), 'register_ts'),
+    StageConfig('register_approved', 'Register approved', 24, 'LOAN_APPROVER', 'dropdown', tuple(REGISTER_APPROVED_OPTIONS)),
+    StageConfig('disbursement', 'Finance disbursement', 25, 'FINANCE'),
 )
 
 BASE_STAGES_LOGBOOK = (
-    StageConfig('mpesa_to_admin', 'MPESA sent to Admin', 7, 'BRO'),
-    StageConfig('mpesa_verified', 'MPESA verified and sent to CA', 8, 'ADMIN'),
-    StageConfig('ca_analysis_sent', 'Credit analysis sent', 9, 'CA'),
-    StageConfig('bro_response', 'BRO response to CA', 10, 'BRO'),
-    StageConfig('valuation_ready', 'Valuation ready', 11, 'BM'),
-    StageConfig('bm_tat_request', 'BM TAT request sent', 12, 'BM'),
-    StageConfig('tat_scheduled', 'HOCC scheduled', 13, 'SECRETARY'),
-    StageConfig('tat_held', 'HOCC held', 14, 'SECRETARY'),
-    StageConfig('decision', 'Decision', 15, 'CHAIR', 'dropdown', tuple(DECISION_OPTIONS), 'decision_ts'),
-    StageConfig('minutes_shared', 'Minutes shared', 17, 'SECRETARY'),
-    StageConfig('sanctions', 'Sanctions', 18, 'LOAN_APPROVER', 'dropdown', tuple(SANCTIONS_OPTIONS), 'sanctions_ts'),
-    StageConfig('bro_applied', 'BRO applied on system', 20, 'BRO'),
-    StageConfig('disbursement_register', 'Disbursement register', 21, 'ADMIN', 'dropdown', tuple(REGISTER_OPTIONS), 'register_ts'),
-    StageConfig('register_approved', 'Register approved', 23, 'LOAN_APPROVER', 'dropdown', tuple(REGISTER_APPROVED_OPTIONS)),
-    StageConfig('disbursement', 'Finance disbursement', 24, 'FINANCE'),
+    StageConfig('mpesa_to_admin', 'MPESA sent to Admin', 9, 'BRO'),
+    StageConfig('mpesa_verified', 'MPESA verified and sent to CA', 10, 'ADMIN'),
+    StageConfig('ca_analysis_sent', 'Credit analysis sent', 11, 'CA'),
+    StageConfig('bro_response', 'BRO response to CA', 12, 'BRO'),
+    StageConfig('valuation_ready', 'Valuation ready', 13, 'BM'),
+    StageConfig('bm_tat_request', 'BM TAT request sent', 14, 'BM'),
+    StageConfig('tat_scheduled', 'HOCC scheduled', 15, 'SECRETARY'),
+    StageConfig('tat_held', 'HOCC held', 16, 'SECRETARY'),
+    StageConfig('decision', 'Decision', 17, 'CHAIR', 'dropdown', tuple(DECISION_OPTIONS), 'decision_ts'),
+    StageConfig('minutes_shared', 'Minutes shared', 19, 'SECRETARY'),
+    StageConfig('sanctions', 'Sanctions', 20, 'LOAN_APPROVER', 'dropdown', tuple(SANCTIONS_OPTIONS), 'sanctions_ts'),
+    StageConfig('bro_applied', 'BRO applied on system', 22, 'BRO'),
+    StageConfig('disbursement_register', 'Disbursement register', 23, 'ADMIN', 'dropdown', tuple(REGISTER_OPTIONS), 'register_ts'),
+    StageConfig('register_approved', 'Register approved', 25, 'LOAN_APPROVER', 'dropdown', tuple(REGISTER_APPROVED_OPTIONS)),
+    StageConfig('disbursement', 'Finance disbursement', 26, 'FINANCE'),
 )
 
 BASE_STAGES_SME = (
-    StageConfig('mpesa_to_admin', 'MPESA sent to Admin', 7, 'BRO'),
-    StageConfig('mpesa_verified', 'MPESA verified and sent to CA', 8, 'ADMIN'),
-    StageConfig('ca_analysis_sent', 'Credit analysis sent', 9, 'CA'),
-    StageConfig('bro_response', 'BRO response to CA', 10, 'BRO'),
-    StageConfig('bm_response', 'BM response to CA', 11, 'BM'),
-    StageConfig('bro_applied', 'BRO applied loan on system', 12, 'BRO'),
-    StageConfig('disbursement_register', 'Disbursement register', 13, 'ADMIN', 'dropdown', tuple(REGISTER_OPTIONS), 'register_ts'),
-    StageConfig('register_approved', 'Register approved', 15, 'LOAN_APPROVER', 'dropdown', tuple(REGISTER_APPROVED_OPTIONS)),
-    StageConfig('disbursement', 'Finance disbursement', 16, 'FINANCE'),
+    StageConfig('mpesa_to_admin', 'MPESA sent to Admin', 9, 'BRO'),
+    StageConfig('mpesa_verified', 'MPESA verified and sent to CA', 10, 'ADMIN'),
+    StageConfig('ca_analysis_sent', 'Credit analysis sent', 11, 'CA'),
+    StageConfig('bro_response', 'BRO response to CA', 12, 'BRO'),
+    StageConfig('bm_response', 'BM response to CA', 13, 'BM', requires_signature_certificate=True),
+    StageConfig('bro_applied', 'BRO applied loan on system', 14, 'BRO'),
+    StageConfig('disbursement_register', 'Disbursement register', 15, 'ADMIN', 'dropdown', tuple(REGISTER_OPTIONS), 'register_ts'),
+    StageConfig('register_approved', 'Register approved', 17, 'LOAN_APPROVER', 'dropdown', tuple(REGISTER_APPROVED_OPTIONS)),
+    StageConfig('disbursement', 'Finance disbursement', 18, 'FINANCE'),
 )
 
 PRODUCTS: dict[str, ProductConfig] = {
-    'logbook': ProductConfig('logbook', 'Logbook', 'TRACKER-LOGBOOK', 'JBL-LB', Decimal('50000'), Decimal('500000'), 26, 25, 27, {'created': 6, 'decision_ts': 16, 'sanctions_ts': 19, 'register_ts': 22}, BASE_STAGES_LOGBOOK),
-    'mjengo': ProductConfig('mjengo', 'Mjengo', 'TRACKER-MJENGO', 'JBL-MJ', Decimal('50000'), Decimal('300000'), 25, 24, 26, {'created': 6, 'decision_ts': 15, 'sanctions_ts': 18, 'register_ts': 21}, BASE_STAGES_OTHER),
-    'kilimo': ProductConfig('kilimo', 'Kilimo', 'TRACKER-KILIMO', 'JBL-KI', Decimal('50000'), Decimal('300000'), 25, 24, 26, {'created': 6, 'decision_ts': 15, 'sanctions_ts': 18, 'register_ts': 21}, BASE_STAGES_OTHER),
-    'micro_asset': ProductConfig('micro_asset', 'Micro Asset', 'TRACKER-MICRO-ASSET', 'JBL-MA', Decimal('50000'), Decimal('300000'), 25, 24, 26, {'created': 6, 'decision_ts': 15, 'sanctions_ts': 18, 'register_ts': 21}, BASE_STAGES_OTHER),
-    'sme': ProductConfig('sme', 'SME', 'TRACKER-SME', 'JBL-SME', Decimal('5000'), None, 18, 17, 19, {'created': 6, 'register_ts': 14}, BASE_STAGES_SME),
+    'logbook': ProductConfig('logbook', 'Logbook', 'TRACKER-LOGBOOK', 'JBL-LB', Decimal('50000'), Decimal('500000'), 28, 27, 29, {'created': 8, 'decision_ts': 18, 'sanctions_ts': 21, 'register_ts': 24}, BASE_STAGES_LOGBOOK),
+    'mjengo': ProductConfig('mjengo', 'Mjengo', 'TRACKER-MJENGO', 'JBL-MJ', Decimal('50000'), Decimal('300000'), 27, 26, 28, {'created': 8, 'decision_ts': 17, 'sanctions_ts': 20, 'register_ts': 23}, BASE_STAGES_OTHER),
+    'kilimo': ProductConfig('kilimo', 'Kilimo', 'TRACKER-KILIMO', 'JBL-KI', Decimal('50000'), Decimal('300000'), 27, 26, 28, {'created': 8, 'decision_ts': 17, 'sanctions_ts': 20, 'register_ts': 23}, BASE_STAGES_OTHER),
+    'micro_asset': ProductConfig('micro_asset', 'Micro Asset', 'TRACKER-MICRO-ASSET', 'JBL-MA', Decimal('50000'), Decimal('300000'), 27, 26, 28, {'created': 8, 'decision_ts': 17, 'sanctions_ts': 20, 'register_ts': 23}, BASE_STAGES_OTHER),
+    'sme': ProductConfig('sme', 'SME', 'TRACKER-SME', 'JBL-SME', Decimal('5000'), None, 20, 19, 21, {'created': 8, 'register_ts': 16}, BASE_STAGES_SME),
 }
 
 
@@ -148,23 +150,23 @@ def _stage_tat_aliases(stage: StageConfig) -> tuple[str, ...]:
 
 STAGE_TAT_COLUMNS: dict[str, tuple[StageTatColumn, ...]] = {
     'logbook': tuple(
-        StageTatColumn(stage.key, 29 + index, _stage_tat_aliases(stage))
+        StageTatColumn(stage.key, 31 + index, _stage_tat_aliases(stage))
         for index, stage in enumerate(BASE_STAGES_LOGBOOK)
     ),
     'mjengo': tuple(
-        StageTatColumn(stage.key, 28 + index, _stage_tat_aliases(stage))
+        StageTatColumn(stage.key, 30 + index, _stage_tat_aliases(stage))
         for index, stage in enumerate(BASE_STAGES_OTHER)
     ),
     'kilimo': tuple(
-        StageTatColumn(stage.key, 28 + index, _stage_tat_aliases(stage))
+        StageTatColumn(stage.key, 30 + index, _stage_tat_aliases(stage))
         for index, stage in enumerate(BASE_STAGES_OTHER)
     ),
     'micro_asset': tuple(
-        StageTatColumn(stage.key, 28 + index, _stage_tat_aliases(stage))
+        StageTatColumn(stage.key, 30 + index, _stage_tat_aliases(stage))
         for index, stage in enumerate(BASE_STAGES_OTHER)
     ),
     'sme': tuple(
-        StageTatColumn(stage.key, 21 + index, _stage_tat_aliases(stage))
+        StageTatColumn(stage.key, 23 + index, _stage_tat_aliases(stage))
         for index, stage in enumerate(BASE_STAGES_SME)
     ),
 }
@@ -331,7 +333,14 @@ def search_cases(group_config, user: dict, query: str) -> list[dict]:
     if len(q) < 2:
         return []
     workflow = getattr(group_config, 'workflow', None) or {}
-    queryset = TatTrackerCase.objects.filter(group_id=str(group_config.group_id)).filter(Q(case_id__icontains=q) | Q(client_name__icontains=q) | Q(branch__icontains=q) | Q(bro_name__icontains=q))
+    normalized_id = normalize_national_id(q)
+    normalized_phone = normalize_kenyan_phone(q)
+    query = Q(case_id__icontains=q) | Q(client_name__icontains=q) | Q(branch__icontains=q) | Q(bro_name__icontains=q)
+    if normalized_id:
+        query |= Q(national_id=normalized_id)
+    if normalized_phone:
+        query |= Q(primary_phone=normalized_phone)
+    queryset = TatTrackerCase.objects.filter(group_id=str(group_config.group_id)).filter(query)
     allowed_keys = [p.key for p in _allowed_products(workflow, user)]
     if allowed_keys:
         queryset = queryset.filter(product_key__in=allowed_keys)
@@ -350,11 +359,17 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
     if product not in _allowed_products(workflow, user):
         raise ValueError('You do not have access to this product.')
     client_name = str(payload.get('client_name') or '').strip().upper()
+    national_id = normalize_national_id(payload.get('national_id'))
+    primary_phone = normalize_kenyan_phone(payload.get('primary_phone'))
     branch = str(payload.get('branch') or '').strip()
     bro_name = str(payload.get('bro_name') or user.get('name') or '').strip()
     amount = parse_amount(payload.get('amount'))
     if not client_name:
         raise ValueError('Client name is required.')
+    if not re.fullmatch(r'\d{7,8}', national_id):
+        raise ValueError('ID number must be 7 or 8 digits.')
+    if not primary_phone:
+        raise ValueError('Enter a valid Kenyan phone number.')
     if branch not in _allowed_branches(workflow, user):
         raise ValueError('Select a valid branch.')
     validate_amount(product, amount)
@@ -372,6 +387,7 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
         group_id=str(group_config.group_id), sheet_id=str(group_config.sheet_id or ''), sheet_name=product.sheet_name,
         create_request_id=create_request_id,
         case_id=case_id, product_key=product.key, product_label=product.label, client_name=client_name,
+        national_id=national_id, primary_phone=primary_phone,
         branch=branch, bro_name=bro_name, amount=amount, stage_values={'created': now.isoformat()},
         status='Active', current_stage=(product.stages[0].key if product.stages else ''),
         created_by=user.get('name', ''), created_by_telegram_id=user.get('telegram_id', ''), last_updated_by=user.get('name', ''),
@@ -434,7 +450,28 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict) -> None:
         apply_side_effects(case, product, stage, value)
         stage_key = stage.key
         event_label = stage.label
-    TatTrackerEvent.objects.create(case=case, group_id=case.group_id, actor_name=user.get('name', ''), actor_telegram_id=user.get('telegram_id', ''), actor_role=','.join(user.get('roles') or []), stage_key=stage_key, stage_label=event_label, old_value=str(old or ''), new_value=str(new or ''), source='mini_app', sheet_name=case.sheet_name, row_number=case.row_number)
+    event = TatTrackerEvent.objects.create(case=case, group_id=case.group_id, actor_name=user.get('name', ''), actor_telegram_id=user.get('telegram_id', ''), actor_role=','.join(user.get('roles') or []), stage_key=stage_key, stage_label=event_label, old_value=str(old or ''), new_value=str(new or ''), source='mini_app', sheet_name=case.sheet_name, row_number=case.row_number)
+    if field != 'remarks' and stage.requires_signature_certificate:
+        create_approval_certificate(case, event, user, stage)
+
+
+def create_approval_certificate(case: TatTrackerCase, event: TatTrackerEvent, user: dict, stage: StageConfig) -> None:
+    staff_member = TatTrackerStaffMember.objects.filter(
+        group_configuration__group_id=case.group_id,
+        telegram_user_id=str(user.get('telegram_id') or ''),
+        active=True,
+    ).first()
+    if not staff_member or not staff_member.signing_national_id or not staff_member.signing_phone_number:
+        raise ValueError('Your Branch Manager signing identity is incomplete. Ask an administrator to add your national ID and phone number.')
+    TatTrackerApprovalCertificate.objects.get_or_create(
+        event=event,
+        defaults={
+            'case': case,
+            'staff_member': staff_member,
+            'stage_key': stage.key,
+            'external_reference': f'TAT-{case.id}-{stage.key}-v1',
+        },
+    )
 
 
 def apply_side_effects(case: TatTrackerCase, product: ProductConfig, stage: StageConfig, value: str) -> None:
@@ -486,6 +523,7 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
         # TAT values are Django-calculated display columns. Keeping them out
         # of sheet formulas avoids delayed spreadsheet recalculation.
         headers = sheet.row_values(4) if hasattr(sheet, 'row_values') else []
+        validate_tracker_identity_headers(headers)
         tat_columns = resolve_tat_sheet_columns(product, headers)
         width = max([product.tat_start_col + 1, *tat_columns.values()])
         row = case.row_number
@@ -495,9 +533,11 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
             row_data[idx - 1] = value
         row_data[0] = case.case_id
         row_data[1] = case.client_name
-        row_data[2] = case.branch
-        row_data[3] = case.bro_name
-        row_data[4] = float(case.amount or 0) if case.amount is not None else ''
+        row_data[2] = case.national_id
+        row_data[3] = case.primary_phone
+        row_data[4] = case.branch
+        row_data[5] = case.bro_name
+        row_data[6] = float(case.amount or 0) if case.amount is not None else ''
         row_data[product.stage_columns['created'] - 1] = sheet_datetime(case.stage_values.get('created'))
         for stage in product.stages:
             if stage.key in case.stage_values:
@@ -572,6 +612,15 @@ def normalize_header(value: Any) -> str:
     return re.sub(r'[^a-z0-9]+', '', str(value or '').strip().lower())
 
 
+def validate_tracker_identity_headers(headers: list[Any]) -> None:
+    if not any(str(header or '').strip() for header in headers):
+        return
+    expected = ('idnumber', 'phonenumber')
+    actual = tuple(normalize_header(headers[index]) if len(headers) > index else '' for index in (2, 3))
+    if actual != expected:
+        raise ValueError('Tracker sheet row 4 must have ID NUMBER in column C and PHONE NUMBER in column D before cases can be synced.')
+
+
 def append_case_row(sheet, row_data: list[Any]) -> int:
     result = None
     if hasattr(sheet, 'append_row'):
@@ -618,7 +667,7 @@ def sync_case_index(group_config, case: TatTrackerCase) -> None:
             break
     if not target:
         target = max(len(rows) + 1, 2)
-    sheet.update(f'A{target}:I{target}', [[case.case_id, case.sheet_name, case.row_number or '', case.client_name, case.branch, case.bro_name, case.status, sheet_datetime(case.stage_values.get('created')), timezone.localtime(timezone.now()).strftime('%d-%b-%Y %H:%M')]], value_input_option='USER_ENTERED')
+    sheet.update(f'A{target}:K{target}', [[case.case_id, case.sheet_name, case.row_number or '', case.client_name, case.national_id, case.primary_phone, case.branch, case.bro_name, case.status, sheet_datetime(case.stage_values.get('created')), timezone.localtime(timezone.now()).strftime('%d-%b-%Y %H:%M')]], value_input_option='USER_ENTERED')
 
 
 def sync_audit_log(group_config, case: TatTrackerCase) -> None:
@@ -784,6 +833,8 @@ def previous_stages_complete(case: TatTrackerCase, stage: StageConfig) -> bool:
             return True
         if not case.stage_values.get(current.key):
             return False
+        if current.requires_signature_certificate and not case.approval_certificates.filter(stage_key=current.key, status='signed').exists():
+            return False
     return True
 
 
@@ -809,7 +860,8 @@ def serialize_case_summary(case: TatTrackerCase, user: dict | None = None, next_
     tat_hours = calculated_tat_hours(case) if tat_minutes is not None else None
     tat_days = calculated_tat_days(case) if tat_minutes is not None else None
     total_target = total_target_minutes(workflow, product)
-    return {'case_id': case.case_id, 'product': case.product_label or product.label, 'product_key': case.product_key, 'client_name': case.client_name, 'branch': case.branch, 'bro_name': case.bro_name, 'amount': str(case.amount or ''), 'status': case.status, 'current_stage': case.current_stage, 'next_stage': next_stage.label if next_stage else '', 'next_stage_key': next_stage.key if next_stage else '', 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'tat_hours': str(tat_hours) if tat_hours is not None else '', 'tat_days': str(tat_days) if tat_days is not None else '', 'target_minutes': str(total_target) if total_target is not None else '', 'sla_status': sla_status(tat_minutes, total_target), 'updated_at': format_datetime(case.updated_at), 'created_at': format_datetime(case.created_at)}
+    certificates = {certificate.stage_key: certificate.status for certificate in case.approval_certificates.all()}
+    return {'case_id': case.case_id, 'product': case.product_label or product.label, 'product_key': case.product_key, 'client_name': case.client_name, 'national_id': case.national_id, 'primary_phone': case.primary_phone, 'branch': case.branch, 'bro_name': case.bro_name, 'amount': str(case.amount or ''), 'status': case.status, 'current_stage': case.current_stage, 'next_stage': next_stage.label if next_stage else '', 'next_stage_key': next_stage.key if next_stage else '', 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'tat_hours': str(tat_hours) if tat_hours is not None else '', 'tat_days': str(tat_days) if tat_days is not None else '', 'target_minutes': str(total_target) if total_target is not None else '', 'sla_status': sla_status(tat_minutes, total_target), 'certificate_statuses': certificates, 'updated_at': format_datetime(case.updated_at), 'created_at': format_datetime(case.created_at)}
 
 
 def serialize_case_detail(case: TatTrackerCase, user: dict, workflow: dict | None = None) -> dict:
@@ -820,7 +872,8 @@ def serialize_case_detail(case: TatTrackerCase, user: dict, workflow: dict | Non
         editable = (not value) and previous_stages_complete(case, stage) and can_user_edit_stage(user, case, stage)
         tat_minutes = stage_tat_minutes(case, stage)
         target = stage_target_minutes(workflow, product, stage)
-        fields.append({'key': stage.key, 'label': stage.label, 'kind': stage.kind, 'value': display_stage_value(stage, value), 'editable': editable, 'options': list(stage.options), 'role': stage.role, 'locked_reason': '' if editable else lock_reason(case, user, stage), 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'target_minutes': str(target) if target is not None else '', 'sla_status': sla_status(tat_minutes, target)})
+        certificate = case.approval_certificates.filter(stage_key=stage.key).first() if stage.requires_signature_certificate else None
+        fields.append({'key': stage.key, 'label': stage.label, 'kind': stage.kind, 'value': display_stage_value(stage, value), 'editable': editable, 'options': list(stage.options), 'role': stage.role, 'locked_reason': '' if editable else lock_reason(case, user, stage), 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'target_minutes': str(target) if target is not None else '', 'sla_status': sla_status(tat_minutes, target), 'certificate_status': certificate.status if certificate else ''})
     events = [{'at': format_datetime(event.created_at), 'actor': event.actor_name, 'stage': event.stage_label, 'value': event.new_value, 'source': event.source} for event in case.events.order_by('-created_at')[:20]]
     return {'summary': serialize_case_summary(case, user, workflow=workflow), 'fields': fields, 'remarks': case.remarks, 'events': events}
 

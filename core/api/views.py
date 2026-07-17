@@ -28,6 +28,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.conf import settings
 import hmac
+import hashlib
 import json
 import re
 import requests
@@ -180,11 +181,71 @@ def tat_tracker_update(request):
     from core.services.tat_tracker import update_case
     try:
         data = update_case(group_config, user, payload.get('case_id', ''), payload.get('updates') or [])
+        _dispatch_tat_approval_certificate(payload.get('case_id', ''), user)
         _send_tat_next_role_alert(group_config, data)
         return JsonResponse({'ok': True, 'data': data})
     except Exception as exc:
         logger.warning('TAT Tracker update failed: %s', exc, exc_info=True)
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+
+
+def _dispatch_tat_approval_certificate(case_id: str, user: dict) -> None:
+    from core.models import TatTrackerApprovalCertificate
+    from core.services.tat_signature import dispatch_certificate
+
+    certificate = TatTrackerApprovalCertificate.objects.filter(
+        case__case_id=str(case_id),
+        status='awaiting_signature',
+        staff_member__telegram_user_id=str(user.get('telegram_id') or ''),
+    ).order_by('-created_at').first()
+    if not certificate:
+        return
+    try:
+        signed_session = dispatch_certificate(certificate)
+        certificate.status = 'signed'
+        certificate.signed_document_hash = str(signed_session.get('signed_doc_hash') or '')
+        certificate.signed_at = timezone.now()
+        certificate.save(update_fields=['status', 'signed_document_hash', 'signed_at', 'updated_at'])
+    except Exception as exc:
+        certificate.status = 'delivery_failed'
+        certificate.error = str(exc)
+        certificate.save(update_fields=['status', 'error', 'updated_at'])
+        logger.warning('TAT certificate delivery failed for %s: %s', certificate.external_reference, exc)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def tat_signature_webhook(request):
+    secret = str(getattr(settings, 'ESIGNATURES_WEBHOOK_SECRET', ''))
+    signature = request.headers.get('X-ESignature-Signature', '')
+    timestamp = request.headers.get('X-ESignature-Timestamp', '')
+    if not secret or not timestamp or not signature.startswith('v1='):
+        return JsonResponse({'ok': False, 'error': 'Unauthorized.'}, status=401)
+    expected = hmac.new(secret.encode('utf-8'), f'{timestamp}.'.encode('utf-8') + request.body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature[3:], expected):
+        return JsonResponse({'ok': False, 'error': 'Unauthorized.'}, status=401)
+    try:
+        payload = json.loads(request.body.decode('utf-8'))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return JsonResponse({'ok': False, 'error': 'Invalid JSON.'}, status=400)
+    reference = str((payload.get('session') or {}).get('reference_number') or payload.get('reference_number') or '')
+    delivery_id = str(request.headers.get('X-ESignature-Delivery') or '')
+    event_type = str(request.headers.get('X-ESignature-Event') or payload.get('event_type') or '')
+    from core.models import TatTrackerApprovalCertificate
+    certificate = TatTrackerApprovalCertificate.objects.filter(external_reference=reference).first()
+    if not certificate or (delivery_id and certificate.webhook_delivery_id == delivery_id):
+        return JsonResponse({'ok': True})
+    if event_type == 'session.fully_signed':
+        document = (payload.get('document') or {})
+        certificate.status = 'signed'
+        certificate.signed_document_hash = str(document.get('sha256_hash') or (payload.get('session') or {}).get('signed_doc_hash') or '')
+        certificate.signed_at = timezone.now()
+    elif event_type == 'session.declined':
+        certificate.status = 'declined'
+    if delivery_id:
+        certificate.webhook_delivery_id = delivery_id
+    certificate.save()
+    return JsonResponse({'ok': True})
 
 
 def _send_tat_next_role_alert(group_config, case_data: dict) -> None:

@@ -25,6 +25,7 @@ from .views import (
     tat_tracker_create,
     tat_tracker_detail,
     tat_tracker_update,
+    tat_signature_webhook,
     process_messages,
     resend_unsynced,
     sync_from_sheets,
@@ -74,6 +75,7 @@ urlpatterns = [
     path('tat-tracker/create/', tat_tracker_create, name='tat_tracker_create'),
     path('tat-tracker/detail/', tat_tracker_detail, name='tat_tracker_detail'),
     path('tat-tracker/update/', tat_tracker_update, name='tat_tracker_update'),
+    path('webhook/e-signatures/tat/', tat_signature_webhook, name='tat_signature_webhook'),
     path('webhook/telegram/', telegram_webhook, name='telegram_webhook'),
     path(
         'order-approval/webapp/submit/',

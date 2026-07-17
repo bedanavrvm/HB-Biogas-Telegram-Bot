@@ -104,6 +104,8 @@
           <label>Product<select name="product_key" required></select></label>
           <label>Branch<select name="branch" required></select></label>
           <label>Client Name<input name="client_name" autocomplete="off" required placeholder="Customer name"></label>
+          <label>ID Number<input name="national_id" inputmode="numeric" autocomplete="off" required pattern="[0-9]{7,8}" placeholder="7 or 8 digits"></label>
+          <label>Phone Number<input name="primary_phone" type="tel" inputmode="tel" autocomplete="tel" required placeholder="0712 345 678"></label>
           <label>BRO Name<input name="bro_name" autocomplete="off" required></label>
           <label class="amount-field">Amount (KES)<input name="amount" type="number" inputmode="decimal" min="0" step="1" required placeholder="0"></label>
         </div>

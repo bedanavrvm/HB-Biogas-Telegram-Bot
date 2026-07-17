@@ -345,6 +345,7 @@
           ${slaText ? `<span class="tat-target">${escapeHtml(slaText)}</span>` : ''}
         </div>
       ` : '';
+      const certificateMeta = field.certificate_status ? `<div class="stage-tat-row"><span class="tat-target">Certificate: ${escapeHtml(field.certificate_status.replace(/_/g, ' '))}</span></div>` : '';
       
       row.innerHTML = `
         <div class="stage-left-rail">
@@ -358,6 +359,7 @@
           </div>
           <div class="stage-value ${hasValue ? 'value-filled' : 'value-empty'}">${escapeHtml(valueText)}</div>
           ${tatMeta}
+          ${certificateMeta}
         </div>`;
 
       if (field.editable) {

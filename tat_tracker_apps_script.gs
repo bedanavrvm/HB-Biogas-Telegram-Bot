@@ -28,6 +28,7 @@
  */
 
 const TAT_CONFIG = {
+  HEADER_ROW: 4,
   DATA_START_ROW: 5,
   DEFAULT_MAX_ROWS: 500,
   DATE_TIME_FORMAT: 'dd-mmm-yyyy hh:mm',
@@ -66,7 +67,7 @@ const PRODUCT_LAYOUTS = {
     maxAmount: null,
     minAmount: 5000,
     headers: [
-      'Case ID', 'Client Name', 'Branch', 'BRO Name', 'Amount',
+      'Case ID', 'Client Name', 'ID NUMBER', 'PHONE NUMBER', 'Branch', 'BRO Name', 'Amount',
       'Case Created', 'MPESA Sent to Admin', 'MPESA Verified and Sent to CA',
       'Credit Analysis Sent', 'BRO Response to CA', 'BM Response to CA',
       'BRO Applied Loan on System', 'Disbursement Register', 'Register Timestamp',
@@ -74,26 +75,26 @@ const PRODUCT_LAYOUTS = {
       'TAT Hours', 'TAT Days'
     ].concat(smeStageTatHeaders_()),
     cols: {
-      amount: 5,
-      created: 6,
-      register: 13,
-      registerTs: 14,
-      registerApproved: 15,
-      disbursement: 16,
-      status: 17,
-      remarks: 18,
-      tatHours: 19,
-      tatDays: 20,
+      amount: 7,
+      created: 8,
+      register: 15,
+      registerTs: 16,
+      registerApproved: 17,
+      disbursement: 18,
+      status: 19,
+      remarks: 20,
+      tatHours: 21,
+      tatDays: 22,
     },
-    dateCols: [6, 7, 8, 9, 10, 11, 12, 14, 16],
-    stageCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+    dateCols: [8, 9, 10, 11, 12, 13, 14, 16, 18],
+    stageCols: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
   },
   'TRACKER-LOGBOOK': {
     title: 'TAT TRACKER - LOGBOOK',
     maxAmount: 500000,
     minAmount: 50000,
     headers: [
-      'Case ID', 'Client Name', 'Branch', 'BRO Name', 'Amount',
+      'Case ID', 'Client Name', 'ID NUMBER', 'PHONE NUMBER', 'Branch', 'BRO Name', 'Amount',
       'Case Created', 'MPESA Sent to Admin', 'MPESA Verified and Sent to CA',
       'Credit Analysis Sent', 'BRO Response to CA', 'Valuation Ready',
       'BM TAT Request Sent', 'HOCC Scheduled', 'HOCC Held', 'Decision',
@@ -103,23 +104,23 @@ const PRODUCT_LAYOUTS = {
       'TAT Hours', 'TAT Days'
     ].concat(logbookStageTatHeaders_()),
     cols: {
-      amount: 5,
-      created: 6,
-      decision: 15,
-      decisionTs: 16,
-      sanctions: 18,
-      sanctionsTs: 19,
-      register: 21,
-      registerTs: 22,
-      registerApproved: 23,
-      disbursement: 24,
-      status: 25,
-      remarks: 26,
-      tatHours: 27,
-      tatDays: 28,
+      amount: 7,
+      created: 8,
+      decision: 17,
+      decisionTs: 18,
+      sanctions: 20,
+      sanctionsTs: 21,
+      register: 23,
+      registerTs: 24,
+      registerApproved: 25,
+      disbursement: 26,
+      status: 27,
+      remarks: 28,
+      tatHours: 29,
+      tatDays: 30,
     },
-    dateCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 20, 22, 24],
-    stageCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24],
+    dateCols: [8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 21, 22, 24, 26],
+    stageCols: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
   },
   'TRACKER-MJENGO': null,
   'TRACKER-KILIMO': null,
@@ -136,7 +137,7 @@ function noValuationLayout(title, minAmount, maxAmount) {
     minAmount: minAmount,
     maxAmount: maxAmount,
     headers: [
-      'Case ID', 'Client Name', 'Branch', 'BRO Name', 'Amount',
+      'Case ID', 'Client Name', 'ID NUMBER', 'PHONE NUMBER', 'Branch', 'BRO Name', 'Amount',
       'Case Created', 'MPESA Sent to Admin', 'MPESA Verified and Sent to CA',
       'Credit Analysis Sent', 'BRO Response to CA', 'BM TAT Request Sent',
       'HOCC Scheduled', 'HOCC Held', 'Decision', 'Decision Timestamp',
@@ -146,23 +147,23 @@ function noValuationLayout(title, minAmount, maxAmount) {
       'TAT Hours', 'TAT Days'
     ].concat(noValuationStageTatHeaders_()),
     cols: {
-      amount: 5,
-      created: 6,
-      decision: 14,
-      decisionTs: 15,
-      sanctions: 17,
-      sanctionsTs: 18,
-      register: 20,
-      registerTs: 21,
-      registerApproved: 22,
-      disbursement: 23,
-      status: 24,
-      remarks: 25,
-      tatHours: 26,
-      tatDays: 27,
+      amount: 7,
+      created: 8,
+      decision: 16,
+      decisionTs: 17,
+      sanctions: 19,
+      sanctionsTs: 20,
+      register: 22,
+      registerTs: 23,
+      registerApproved: 24,
+      disbursement: 25,
+      status: 26,
+      remarks: 27,
+      tatHours: 28,
+      tatDays: 29,
     },
-    dateCols: [6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 18, 19, 21, 23],
-    stageCols: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
+    dateCols: [8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 20, 21, 23, 25],
+    stageCols: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25],
   };
 }
 
@@ -359,6 +360,7 @@ function removeLegacyProtectionsFromSheet_(sheet) {
 
 function setupTrackerSheet_(sheet, layout) {
   ensureRowsAndColumns_(sheet, TAT_CONFIG.DEFAULT_MAX_ROWS, layout.headers.length);
+  sheet.getRange(TAT_CONFIG.HEADER_ROW, 1, 1, layout.headers.length).setValues([layout.headers]);
   sheet.getRange(TAT_CONFIG.DATA_START_ROW, 1, TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1, layout.headers.length).setWrap(true);
   sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.amount, TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1, 1).setNumberFormat(TAT_CONFIG.MONEY_FORMAT);
   layout.dateCols.forEach(function(col) {
@@ -373,7 +375,7 @@ function applyValidations_(sheet, layout) {
   const rows = TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1;
   const branchRule = listRule_(TAT_CONFIG.DROPDOWNS.BRANCHES, true);
   const statusRule = listRule_(TAT_CONFIG.DROPDOWNS.STATUS, true);
-  sheet.getRange(TAT_CONFIG.DATA_START_ROW, 3, rows, 1).setDataValidation(branchRule);
+  sheet.getRange(TAT_CONFIG.DATA_START_ROW, 5, rows, 1).setDataValidation(branchRule);
   sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.status, rows, 1).setDataValidation(statusRule);
   if (layout.cols.decision) sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.decision, rows, 1).setDataValidation(listRule_(TAT_CONFIG.DROPDOWNS.DECISION, true));
   if (layout.cols.sanctions) sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.sanctions, rows, 1).setDataValidation(listRule_(TAT_CONFIG.DROPDOWNS.SANCTIONS, true));
@@ -464,7 +466,7 @@ function applyStatusConditionalFormattingIfEmpty_(sheet, layout) {
 }
 
 function setupCaseIndex_(sheet) {
-  const headers = ['Case ID', 'Tracker Sheet', 'Row Number', 'Client Name', 'Branch', 'BRO Name', 'Status', 'Created At', 'Last Updated At'];
+  const headers = ['Case ID', 'Tracker Sheet', 'Row Number', 'Client Name', 'ID NUMBER', 'PHONE NUMBER', 'Branch', 'BRO Name', 'Status', 'Created At', 'Last Updated At'];
   setupSimpleSheet_(sheet, 'TAT CASE INDEX', headers, '#274e13');
 }
 
@@ -476,12 +478,12 @@ function setupAuditLog_(sheet) {
 function setupDashboard_(sheet) {
   setupSimpleSheet_(sheet, 'TAT DASHBOARD', ['Metric', 'Value', 'Notes'], '#1c4587');
   sheet.getRange(5, 1, 6, 3).setValues([
-    ['Open cases', '=COUNTIF(CASE_INDEX!G:G,"Active")', 'Synced by Django into CASE_INDEX'],
-    ['Disbursed', '=COUNTIF(CASE_INDEX!G:G,"Disbursed")', ''],
-    ['Rejected / Declined', '=COUNTIF(CASE_INDEX!G:G,"Rejected")+COUNTIF(CASE_INDEX!G:G,"Declined")', ''],
-    ['Deferred', '=COUNTIF(CASE_INDEX!G:G,"Deferred")', ''],
-    ['Stalled', '=COUNTIF(CASE_INDEX!G:G,"Stalled")', ''],
-    ['Pending Docs', '=COUNTIF(CASE_INDEX!G:G,"Pending Docs")', ''],
+    ['Open cases', '=COUNTIF(CASE_INDEX!I:I,"Active")', 'Synced by Django into CASE_INDEX'],
+    ['Disbursed', '=COUNTIF(CASE_INDEX!I:I,"Disbursed")', ''],
+    ['Rejected / Declined', '=COUNTIF(CASE_INDEX!I:I,"Rejected")+COUNTIF(CASE_INDEX!I:I,"Declined")', ''],
+    ['Deferred', '=COUNTIF(CASE_INDEX!I:I,"Deferred")', ''],
+    ['Stalled', '=COUNTIF(CASE_INDEX!I:I,"Stalled")', ''],
+    ['Pending Docs', '=COUNTIF(CASE_INDEX!I:I,"Pending Docs")', ''],
   ]);
 }
 

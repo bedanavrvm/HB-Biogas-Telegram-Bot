@@ -155,6 +155,9 @@ SPIN_ANALYSTS = [
 
 # API protection for manual endpoints
 API_AUTH_TOKEN = config('API_AUTH_TOKEN', default='')
+ESIGNATURES_BASE_URL = config('ESIGNATURES_BASE_URL', default='')
+ESIGNATURES_API_KEY = config('ESIGNATURES_API_KEY', default='')
+ESIGNATURES_WEBHOOK_SECRET = config('ESIGNATURES_WEBHOOK_SECRET', default='')
 
 # Google Sheets Configuration
 GOOGLE_SHEET_ID = config('GOOGLE_SHEET_ID', default='')

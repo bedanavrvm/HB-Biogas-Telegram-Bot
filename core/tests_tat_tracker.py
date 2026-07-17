@@ -8,7 +8,7 @@ from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 
 from core.admin import TatTrackerStaffMemberAdminForm
-from core.models import GroupSheetConfiguration, TatTrackerCase, TatTrackerStaffMember
+from core.models import GroupSheetConfiguration, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, TatTrackerStaffMember
 from core.api.views import _process_telegram_message
 from core.services.group_config import GroupRegistry
 from core.services.tat_tracker import (
@@ -20,6 +20,8 @@ from core.services.tat_tracker import (
     create_tat_start_param,
     decode_tat_start_param,
     product_by_key,
+    previous_stages_complete,
+    stage_by_key,
     stage_tat_minutes,
     tat_days_formula,
     tat_hours_formula,
@@ -28,6 +30,8 @@ from core.services.tat_tracker import (
     next_role_alert,
     staff_user_for_payload,
     sync_case_to_sheet,
+    search_cases,
+    validate_tracker_identity_headers,
     update_case,
     workflow_branches,
 )
@@ -69,6 +73,54 @@ class TatTrackerWorkflowTest(TestCase):
 
     def test_detects_tat_tracker_workflow(self):
         self.assertTrue(is_tat_tracker_workflow(self.config))
+
+    def test_sme_bm_certificate_blocks_the_next_stage_until_signed(self):
+        staff_member = TatTrackerStaffMember.objects.create(
+            group_configuration=self.config,
+            name='BM User',
+            telegram_user_id='333',
+            roles='BM',
+            branches='Nakuru',
+            products='sme',
+            signing_national_id='12345678',
+            signing_phone_number='+254700000001',
+        )
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-SME',
+            case_id='JBL-SME-2026-APPROVAL',
+            product_key='sme',
+            product_label='SME',
+            client_name='Approval Client',
+            branch='Nakuru',
+            bro_name='BRO User',
+            amount='10000',
+            stage_values={
+                'created': timezone.now().isoformat(),
+                'mpesa_to_admin': timezone.now().isoformat(),
+                'mpesa_verified': timezone.now().isoformat(),
+                'ca_analysis_sent': timezone.now().isoformat(),
+                'bro_response': timezone.now().isoformat(),
+                'bm_response': timezone.now().isoformat(),
+            },
+        )
+        event = TatTrackerEvent.objects.create(case=case, group_id=case.group_id, stage_key='bm_response')
+        certificate = TatTrackerApprovalCertificate.objects.create(
+            case=case,
+            event=event,
+            staff_member=staff_member,
+            stage_key='bm_response',
+            external_reference='TAT-test-bm-response-v1',
+        )
+        next_stage = stage_by_key(product_by_key('sme'), 'bro_applied')
+
+        self.assertFalse(previous_stages_complete(case, next_stage))
+
+        certificate.status = 'signed'
+        certificate.save(update_fields=['status'])
+
+        self.assertTrue(previous_stages_complete(case, next_stage))
 
     @override_settings(APP_BASE_URL='https://example.test')
     def test_builds_secure_tracker_url(self):
@@ -138,11 +190,14 @@ class TatTrackerWorkflowTest(TestCase):
     def test_tat_formula_helpers_match_tracker_columns(self):
         sme = product_by_key('sme')
         logbook = product_by_key('logbook')
+        mjengo = product_by_key('mjengo')
 
-        self.assertEqual(tat_hours_formula(sme, 5), '=IF(OR($F5="",$P5=""),"",ROUND(($P5-$F5)*24,2))')
-        self.assertEqual(tat_days_formula(sme, 5), '=IF(S5="","",ROUND(S5/24,2))')
-        self.assertEqual(tat_hours_formula(logbook, 5), '=IF(OR($F5="",$X5=""),"",ROUND(($X5-$F5)*24,2))')
-        self.assertEqual(tat_days_formula(logbook, 5), '=IF(AA5="","",ROUND(AA5/24,2))')
+        self.assertEqual(tat_hours_formula(sme, 5), '=IF(OR($H5="",$R5=""),"",ROUND(($R5-$H5)*24,2))')
+        self.assertEqual(tat_days_formula(sme, 5), '=IF(U5="","",ROUND(U5/24,2))')
+        self.assertEqual(tat_hours_formula(logbook, 5), '=IF(OR($H5="",$Z5=""),"",ROUND(($Z5-$H5)*24,2))')
+        self.assertEqual(tat_days_formula(logbook, 5), '=IF(AC5="","",ROUND(AC5/24,2))')
+        self.assertEqual(tat_hours_formula(mjengo, 5), '=IF(OR($H5="",$Y5=""),"",ROUND(($Y5-$H5)*24,2))')
+        self.assertEqual(tat_days_formula(mjengo, 5), '=IF(AB5="","",ROUND(AB5/24,2))')
     def test_group_config_merges_gui_staff_rows_into_workflow(self):
         TatTrackerStaffMember.objects.create(
             group_configuration=self.config,
@@ -497,6 +552,8 @@ class TatTrackerWorkflowTest(TestCase):
             product_key='sme',
             product_label='SME',
             client_name='Test Client',
+            national_id='12345678',
+            primary_phone='254712345678',
             branch='Nakuru',
             bro_name='BRO User',
             amount='10000',
@@ -512,10 +569,12 @@ class TatTrackerWorkflowTest(TestCase):
              patch('core.services.tat_tracker.sync_audit_log'):
             sync_case_to_sheet(self.config, case)
 
-        self.assertEqual(sheet.updates[0][0], 'A5:AC5')
-        self.assertEqual(len(sheet.updates[0][1][0]), 29)
-        self.assertEqual(sheet.updates[0][1][0][18], 30.0)
-        self.assertEqual(sheet.updates[0][1][0][19], 1.25)
+        self.assertEqual(sheet.updates[0][0], 'A5:AE5')
+        self.assertEqual(len(sheet.updates[0][1][0]), 31)
+        self.assertEqual(sheet.updates[0][1][0][2], '12345678')
+        self.assertEqual(sheet.updates[0][1][0][3], '254712345678')
+        self.assertEqual(sheet.updates[0][1][0][20], 30.0)
+        self.assertEqual(sheet.updates[0][1][0][21], 1.25)
         self.assertFalse(any(str(value).startswith('=IF(') for value in sheet.updates[0][1][0]))
 
     def test_sync_case_to_sheet_skips_secondary_sheets_by_default(self):
@@ -541,6 +600,8 @@ class TatTrackerWorkflowTest(TestCase):
             product_key='sme',
             product_label='SME',
             client_name='Test Client',
+            national_id='12345678',
+            primary_phone='254712345678',
             branch='Nakuru',
             bro_name='BRO User',
             amount='10000',
@@ -591,6 +652,8 @@ class TatTrackerWorkflowTest(TestCase):
             product_key='sme',
             product_label='SME',
             client_name='Test Client',
+            national_id='12345678',
+            primary_phone='254712345678',
             branch='Nakuru',
             bro_name='BRO User',
             amount='10000',
@@ -614,6 +677,8 @@ class TatTrackerWorkflowTest(TestCase):
             def row_values(self, row):
                 if row == 4:
                     headers = [''] * 34
+                    headers[2] = 'ID NUMBER'
+                    headers[3] = 'PHONE NUMBER'
                     headers[33] = 'MPESA sent to Admin TAT Minutes'
                     return headers
                 return [''] * 34
@@ -638,6 +703,8 @@ class TatTrackerWorkflowTest(TestCase):
             product_key='sme',
             product_label='SME',
             client_name='Header Client',
+            national_id='12345678',
+            primary_phone='254712345678',
             branch='Nakuru',
             bro_name='BRO User',
             amount='10000',
@@ -679,6 +746,8 @@ class TatTrackerWorkflowTest(TestCase):
             product_key='sme',
             product_label='SME',
             client_name='Test Client',
+            national_id='12345678',
+            primary_phone='254712345678',
             branch='Nakuru',
             bro_name='BRO User',
             amount='10000',
@@ -780,6 +849,8 @@ class TatTrackerWorkflowTest(TestCase):
                 'case_id': 'JBL-SME-2026-001',
                 'product_key': 'sme',
                 'client_name': 'Test Client',
+                'national_id': '12345678',
+                'primary_phone': '0712345678',
                 'branch': 'Nakuru',
                 'next_stage_key': 'mpesa_to_admin',
             }
@@ -813,6 +884,8 @@ class TatTrackerWorkflowTest(TestCase):
                 'product_key': 'sme',
                 'branch': 'Nakuru',
                 'client_name': 'Test Client',
+            'national_id': '12345678',
+            'primary_phone': '0712345678',
                 'bro_name': 'BRO User',
                 'amount': '10000',
             }),
@@ -823,6 +896,48 @@ class TatTrackerWorkflowTest(TestCase):
         mock_reply.assert_called_once()
         self.assertIn('TAT action needed: BRO', mock_reply.call_args.kwargs['text'])
 
+    def test_tracker_identifier_headers_are_required_when_headers_exist(self):
+        with self.assertRaisesRegex(ValueError, 'ID NUMBER'):
+            validate_tracker_identity_headers(['Case ID', 'Client Name', 'Branch', 'BRO Name'])
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_create_case_normalizes_and_stores_customer_identifiers(self, sync_mock):
+        sync_mock.side_effect = self.mark_case_synced
+        user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+
+        detail = create_case(self.config, user, {
+            'product_key': 'sme',
+            'branch': 'Nakuru',
+            'client_name': 'Test Client',
+            'national_id': '12 345 678',
+            'primary_phone': '+254 712 345 678',
+            'bro_name': 'BRO User',
+            'amount': '10000',
+        })
+
+        case = TatTrackerCase.objects.get(case_id=detail['summary']['case_id'])
+        self.assertEqual(case.national_id, '12345678')
+        self.assertEqual(case.primary_phone, '254712345678')
+        self.assertEqual(detail['summary']['national_id'], '12345678')
+        self.assertEqual(detail['summary']['primary_phone'], '254712345678')
+        self.assertEqual(search_cases(self.config, user, '0712345678')[0]['case_id'], case.case_id)
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_create_case_rejects_invalid_customer_identifiers(self, sync_mock):
+        user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+        payload = {
+            'product_key': 'sme',
+            'branch': 'Nakuru',
+            'client_name': 'Test Client',
+            'national_id': '1234',
+            'primary_phone': '0712345678',
+            'bro_name': 'BRO User',
+            'amount': '10000',
+        }
+
+        with self.assertRaisesRegex(ValueError, 'ID number'):
+            create_case(self.config, user, payload)
+        self.assertFalse(sync_mock.called)
     @patch('core.services.tat_tracker.sync_case_to_sheet')
     def test_create_case_assigns_sequential_case_id(self, sync_mock):
         sync_mock.side_effect = self.mark_case_synced
@@ -831,6 +946,8 @@ class TatTrackerWorkflowTest(TestCase):
             'product_key': 'sme',
             'branch': 'Nakuru',
             'client_name': 'Test Client',
+            'national_id': '12345678',
+            'primary_phone': '0712345678',
             'bro_name': 'BRO User',
             'amount': '10000',
         })
@@ -838,6 +955,8 @@ class TatTrackerWorkflowTest(TestCase):
             'product_key': 'sme',
             'branch': 'Nakuru',
             'client_name': 'Second Client',
+            'national_id': '87654321',
+            'primary_phone': '0712345679',
             'bro_name': 'BRO User',
             'amount': '10000',
         })
@@ -854,6 +973,8 @@ class TatTrackerWorkflowTest(TestCase):
             'product_key': 'sme',
             'branch': 'Nakuru',
             'client_name': 'Test Client',
+            'national_id': '12345678',
+            'primary_phone': '0712345678',
             'bro_name': 'BRO User',
             'amount': '10000',
             'client_request_id': 'req-123',
@@ -874,6 +995,8 @@ class TatTrackerWorkflowTest(TestCase):
             'product_key': 'sme',
             'branch': 'Nakuru',
             'client_name': 'Test Client',
+            'national_id': '12345678',
+            'primary_phone': '0712345678',
             'bro_name': 'BRO User',
             'amount': '10000',
             'client_request_id': 'req-unsynced-retry',
@@ -901,6 +1024,8 @@ class TatTrackerWorkflowTest(TestCase):
                 'product_key': 'sme',
                 'branch': 'Nakuru',
                 'client_name': 'Test Client',
+            'national_id': '12345678',
+            'primary_phone': '0712345678',
                 'bro_name': 'BRO User',
                 'amount': '10000',
                 'client_request_id': 'req-fail',
@@ -917,6 +1042,8 @@ class TatTrackerWorkflowTest(TestCase):
             'product_key': 'sme',
             'branch': 'Nakuru',
             'client_name': 'Test Client',
+            'national_id': '12345678',
+            'primary_phone': '0712345678',
             'bro_name': 'BRO User',
             'amount': '10000',
         })

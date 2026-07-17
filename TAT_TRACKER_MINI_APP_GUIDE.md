@@ -208,9 +208,9 @@ Django writes each case into the matching product tab:
 All tracker tabs use the same top-row convention:
 
 - Row `1`: visual title banner, merged across the configured columns.
-- Row `2`: actual header row used by staff, filters, and the Mini App sync logic.
+- Rows `2-3`: reserved for the visual title and role/help information.
 - Row `3`: role/help row showing who owns each stage.
-- Row `4`: helper notes row.
+- Row `4`: actual header row used by staff, filters, and the Mini App sync logic.
 - Row `5` onward: case data.
 
 The first column must remain `Case ID`. This is the durable record key. Staff can sort/filter the sheet, but they should not edit `Case ID`.
@@ -231,12 +231,14 @@ Common early columns:
 
 - `Case ID`
 - `Client Name`
+- `ID NUMBER`
+- `PHONE NUMBER`
 - `Branch`
 - `BRO Name`
 - `Amount`
 - `Case Created`
 
-Then each product has its workflow-specific stage columns. The setup script writes the correct headers for each product:
+The `ID NUMBER` and `PHONE NUMBER` headers must remain in columns C and D. Then each product has its workflow-specific stage columns. The setup script writes the correct headers for each product:
 
 - SME has the shorter SME path without TAT committee decision columns.
 - Logbook has `Valuation Ready` plus the full TAT/decision/sanctions path.
@@ -380,10 +382,10 @@ The Mini App supports:
 - Create a new TAT case.
 - Select product: `SME`, `Logbook`, `Mjengo`, `Kilimo`, `Micro Asset`.
 - Select branch.
-- Enter client name, BRO name, and amount.
+- Enter client name, ID number, phone number, BRO name, and amount.
 - View recent cases.
 - View action-required cases for the staff member's role.
-- Search by case ID, client name, branch, or BRO name.
+- Search by case ID, client name, ID number, phone number, branch, or BRO name.
 - Open a case and update only the stage assigned to the staff member's role.
 - View audit history for a case.
 

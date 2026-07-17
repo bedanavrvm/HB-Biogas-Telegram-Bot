@@ -23,6 +23,8 @@ At creation, Django stores:
 - `case_id`, for example `JBL-SME-2026-001`
 - product type, for example `sme`, `logbook`, `mjengo`, `kilimo`, or `micro_asset`
 - client name
+- national ID number
+- primary phone number
 - branch
 - BRO name
 - amount

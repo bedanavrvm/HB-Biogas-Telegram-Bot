@@ -532,7 +532,7 @@ for _product_key, _product_label, _field_names in TAT_TARGET_FIELD_GROUPS:
 class TatTrackerCaseAdmin(TestDataDeleteAdmin):
     list_display = ['case_id', 'group_id', 'product_label', 'client_name', 'branch', 'status', 'current_stage', 'updated_at']
     list_filter = ['group_id', 'product_key', 'branch', 'status', 'current_stage']
-    search_fields = ['case_id', 'client_name', 'bro_name', 'branch']
+    search_fields = ['case_id', 'client_name', 'national_id', 'primary_phone', 'bro_name', 'branch']
 
 
 @admin.register(TatTrackerEvent)
