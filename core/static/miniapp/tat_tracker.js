@@ -254,7 +254,7 @@
 
   function isTargetManager() {
     const roles = ((state.data || {}).user || {}).roles || [];
-    return roles.some((role) => ['ADMIN', 'IT'].includes(String(role).toUpperCase()));
+    return roles.some((role) => String(role).toUpperCase() === 'IT');
   }
 
   function targetHours(minutes) {
@@ -290,6 +290,7 @@
       section.appendChild(heading);
       const grid = document.createElement('div');
       grid.className = 'form-grid target-input-grid';
+      if ((1 + (product.stages || []).length) % 2) grid.classList.add('target-input-grid--odd');
       appendTargetInput(grid, 'Overall target (hours)', product.key, '', product.total_minutes);
       (product.stages || []).forEach((stage) => appendTargetInput(grid, stage.label + ' (hours)', product.key, stage.key, stage.target_minutes));
       section.appendChild(grid);
@@ -337,7 +338,10 @@
     fillSelect(broInput, broOptions, 'value', 'label');
     if ((data.bro_names || []).includes(currentUserName())) broInput.value = currentUserName();
     renderHome(data);
-    if (isTargetManager()) $('targetSettingsTab').classList.remove('hidden');
+    if (isTargetManager()) {
+      $('targetSettingsTab').classList.remove('hidden');
+      $('trackerTabs').classList.add('has-settings');
+    }
     setStatus('Ready.', 'ok');
   }
 

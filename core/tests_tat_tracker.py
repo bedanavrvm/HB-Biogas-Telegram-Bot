@@ -78,8 +78,8 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertTrue(is_tat_tracker_workflow(self.config))
 
     @patch('core.services.tat_tracker.sync_tat_target_settings_to_sheet', return_value={'status': 'unavailable'})
-    def test_admin_can_save_stage_targets_in_hours(self, sync_targets):
-        user = staff_user_for_payload(self.config, {'id': 222, 'username': 'admin_user'})
+    def test_it_can_save_stage_targets_in_hours(self, sync_targets):
+        user = {'roles': ['IT'], 'name': 'IT User'}
 
         result = update_tat_target_settings(self.config, user, {
             'sme': {
@@ -96,11 +96,11 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(targets['stages']['mpesa_to_admin'], 30)
         sync_targets.assert_called_once()
 
-    def test_non_manager_cannot_save_tat_targets(self):
-        user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+    def test_admin_cannot_save_tat_targets(self):
+        user = staff_user_for_payload(self.config, {'id': 222, 'username': 'admin_user'})
 
         self.assertFalse(can_manage_tat_targets(user))
-        with self.assertRaisesRegex(ValueError, 'administrators'):
+        with self.assertRaisesRegex(ValueError, 'Only IT'):
             update_tat_target_settings(self.config, user, {})
 
     def test_target_hours_must_resolve_to_whole_minutes(self):

@@ -150,7 +150,7 @@ def tat_tracker_target_settings(request):
         return error
     from core.services.tat_tracker import can_manage_tat_targets, tat_target_settings, update_tat_target_settings
     if not can_manage_tat_targets(user):
-        return JsonResponse({'ok': False, 'error': 'Only TAT administrators or IT staff can change SLA targets.'}, status=403)
+        return JsonResponse({'ok': False, 'error': 'Only IT staff can change SLA targets.'}, status=403)
     if 'targets' not in payload:
         return JsonResponse({'ok': True, 'data': {'targets': tat_target_settings(group_config.workflow)}})
     try:

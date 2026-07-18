@@ -299,7 +299,7 @@ h2 { font-size: 13px; font-weight: 750; }
 /* Segmented Tabs */
 .tabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 2px;
   margin-bottom: 8px;
   padding: 2px;
@@ -307,6 +307,7 @@ h2 { font-size: 13px; font-weight: 750; }
   border-radius: var(--radius-sm);
   background: var(--tat-surface-2);
 }
+.tabs.has-settings { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .tabs button {
   min-height: 30px;
   border: none;
@@ -518,7 +519,7 @@ h2 { font-size: 13px; font-weight: 750; }
   text-transform: uppercase;
 }
 .target-input-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
 }
 .search-row {
   display: grid;
@@ -585,6 +586,7 @@ h2 { font-size: 13px; font-weight: 750; }
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 4px;
 }
+.summary-facts .fact:last-child { grid-column: 1 / -1; }
 .fact {
   display: grid;
   gap: 1px;
@@ -835,6 +837,7 @@ h2 { font-size: 13px; font-weight: 750; }
   .summary-facts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .detail-grid { grid-template-columns: 1.3fr 1fr; align-items: start; }
   .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .target-input-grid--odd label:last-child { grid-column: 1 / -1; }
   .amount-field { grid-column: span 2; }
 }
 

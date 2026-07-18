@@ -320,7 +320,7 @@ The script does not write, format, merge, unmerge, freeze, unfreeze, filter, or 
 
 ### TAT Target Setup
 
-TAT targets are configured in the Mini App by staff with the `ADMIN` or `IT` TAT role. Open the **Targets** tab, enter the overall and optional stage targets in hours, then save. Django stores the canonical values in minutes and applies the same targets to Mini App SLA badges.
+TAT targets are configured in the Mini App by staff with the `IT` TAT role. Open the **Targets** tab, enter the overall and optional stage targets in hours, then save. Django stores the canonical values in minutes and applies the same targets to Mini App SLA badges.
 
 The first workbook setup creates a `TAT TARGETS` support tab. Each Mini App save synchronizes the configured targets to that tab. The Apps Script conditional-format rules reference it directly, so total and stage lag values update without editing script constants.
 

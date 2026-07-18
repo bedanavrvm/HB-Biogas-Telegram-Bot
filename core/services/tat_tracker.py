@@ -46,7 +46,7 @@ DEFAULT_TAT_TARGETS_MINUTES = {
     'micro_asset': {'total': 20160, 'stages': {}},
 }
 NEAR_SLA_RATIO = Decimal('0.8')
-TAT_TARGET_MANAGER_ROLES = frozenset({'ADMIN', 'IT'})
+TAT_TARGET_MANAGER_ROLES = frozenset({'IT'})
 
 
 @dataclass(frozen=True)
@@ -881,7 +881,7 @@ def sync_tat_target_settings_to_sheet(group_config, workflow: dict | None) -> di
 def update_tat_target_settings(group_config, user: dict, payload: object) -> dict:
     """Persist administrator-managed SLA targets and refresh the group registry."""
     if not can_manage_tat_targets(user):
-        raise ValueError('Only TAT administrators or IT staff can change SLA targets.')
+        raise ValueError('Only IT staff can change SLA targets.')
     from core.models import GroupSheetConfiguration
     from core.services.group_config import GroupRegistry
 

@@ -439,6 +439,6 @@ Do not manually edit stage timestamps unless you are deliberately correcting a r
 
 ## Target Administration
 
-Staff with the TAT `ADMIN` or `IT` role configure total and stage targets in the Mini App. Django stores them in the group workflow under `tat_targets_minutes`, using minutes as the canonical unit.
+Staff with the TAT `IT` role configure total and stage targets in the Mini App. Django stores them in the group workflow under `tat_targets_minutes`, using minutes as the canonical unit.
 
 On save, Django synchronizes the targets to the Apps Script-owned `TAT TARGETS` support tab. Conditional-format formulas for total and stage lag columns read that tab directly. This keeps the Mini App badges and sheet traffic lights aligned without treating Google Sheets as the workflow source of truth.
