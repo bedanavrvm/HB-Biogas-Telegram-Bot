@@ -423,9 +423,21 @@ h2 { font-size: 13px; font-weight: 750; }
 }
 
 /* Case List & Cards */
-.case-list { display: grid; gap: 0; }
+.case-list {
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  justify-items: stretch;
+}
 
 .case-card {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  max-width: none;
+  justify-self: stretch;
+  align-self: stretch;
+  flex: none;
   width: 100%;
   display: grid;
   gap: 3px;
@@ -444,12 +456,16 @@ h2 { font-size: 13px; font-weight: 750; }
 .case-card:focus-visible { outline: 2px solid var(--tat-accent); }
 
 .case-header {
+  width: 100%;
+  min-width: 0;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
 }
 .case-name {
+  min-width: 0;
+  flex: 1 1 auto;
   font-size: 13px;
   font-weight: 700;
   overflow: hidden;
@@ -464,6 +480,9 @@ h2 { font-size: 13px; font-weight: 750; }
 }
 
 .case-details {
+  width: 100%;
+  min-width: 0;
+  flex-wrap: wrap;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -486,6 +505,7 @@ h2 { font-size: 13px; font-weight: 750; }
 }
 
 .case-tags {
+  width: 100%;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -494,6 +514,7 @@ h2 { font-size: 13px; font-weight: 750; }
 }
 
 .case-identifiers {
+  width: 100%;
   display: flex;
   flex-wrap: wrap;
   gap: 4px 10px;
