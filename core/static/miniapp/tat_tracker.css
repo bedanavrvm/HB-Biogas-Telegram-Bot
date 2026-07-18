@@ -402,7 +402,7 @@ h2 { font-size: 13px; font-weight: 750; }
   width: 100%;
   display: grid;
   gap: 3px;
-  padding: 8px 10px;
+  padding: 6px 8px;
   text-align: left;
   border: none;
   border-bottom: 1px solid var(--tat-line);
@@ -466,6 +466,27 @@ h2 { font-size: 13px; font-weight: 750; }
   margin-top: 2px;
 }
 
+.case-identifiers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  color: var(--tat-text);
+  font-size: 11px;
+  font-weight: 650;
+}
+.case-identifier {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  min-width: 0;
+}
+.case-identifier small {
+  color: var(--tat-muted);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
 /* Status & Tags */
 .status-chip, .next-chip {
   display: inline-flex;

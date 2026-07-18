@@ -206,6 +206,7 @@
         <span class="case-meta-dot"></span>
         <span class="case-meta-text">${escapeHtml(item.branch || '')}</span>
       </div>
+      ${caseIdentifierMarkup(item)}
       <div class="case-tags">
         <span class="status-chip ${statusClass(item.status)}">${escapeHtml(item.status || 'Active')}</span>
         ${next}
@@ -221,6 +222,12 @@
     return button;
   }
 
+  function caseIdentifierMarkup(item) {
+    const identifiers = [];
+    if (item.national_id) identifiers.push(`<span class="case-identifier"><small>ID</small>${escapeHtml(item.national_id)}</span>`);
+    if (item.primary_phone) identifiers.push(`<span class="case-identifier"><small>Phone</small>${escapeHtml(item.primary_phone)}</span>`);
+    return identifiers.length ? `<div class="case-identifiers">${identifiers.join('')}</div>` : '';
+  }
   function renderEmpty(title, detail) {
     const empty = document.createElement('div');
     empty.className = 'empty-state';
@@ -395,6 +402,14 @@
         <div class="fact">
           <small>Amount</small>
           <span class="highlight-val">KES ${escapeHtml(formatMoney(summary.amount || ''))}</span>
+        </div>
+        <div class="fact">
+          <small>ID Number</small>
+          <span>${escapeHtml(summary.national_id || 'Not recorded')}</span>
+        </div>
+        <div class="fact">
+          <small>Phone Number</small>
+          <span>${escapeHtml(summary.primary_phone || 'Not recorded')}</span>
         </div>
         <div class="fact">
           <small>Next Action</small>
