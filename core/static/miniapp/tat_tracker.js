@@ -473,8 +473,10 @@
         actionWrap.className = 'stage-action-wrap';
         if (field.kind === 'dropdown') {
           const select = document.createElement('select');
+          select.setAttribute('aria-label', 'Update ' + field.label);
           select.innerHTML = '<option value="">Select outcome...</option>' + (field.options || []).map((option) => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`).join('');
-          select.addEventListener('change', () => { if (select.value) submitUpdate([{ field: field.key, value: select.value }]); });
+          select.value = field.value || '';
+          select.addEventListener('change', () => saveDropdownStageUpdate(select, field));
           actionWrap.appendChild(select);
         } else {
           const button = document.createElement('button');
@@ -530,6 +532,20 @@
     state.detail = result.data;
     renderDetail(result.data);
     setStatus('Saved.', 'ok');
+  }
+
+  async function saveDropdownStageUpdate(select, field) {
+    const previousValue = field.value || '';
+    if (!select.value || select.value === previousValue) return;
+    select.disabled = true;
+    try {
+      await submitUpdate([{ field: field.key, value: select.value }]);
+    } catch (error) {
+      select.value = previousValue;
+      setStatus(error.message, 'error');
+    } finally {
+      select.disabled = false;
+    }
   }
 
   document.querySelectorAll('.tabs button').forEach((button) => button.addEventListener('click', () => {

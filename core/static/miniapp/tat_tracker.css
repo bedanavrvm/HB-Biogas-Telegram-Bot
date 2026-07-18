@@ -175,8 +175,8 @@ h2 { font-size: 13px; font-weight: 750; }
   min-width: 0;
 }
 .app-logo {
-  width: 64px;
-  height: 33px;
+  width: 80px;
+  height: 41px;
   flex: 0 0 auto;
   object-fit: contain;
 }
@@ -191,8 +191,8 @@ h2 { font-size: 13px; font-weight: 750; }
   font-weight: 700;
 }
 .loading-brand img {
-  width: 124px;
-  height: 64px;
+  width: 148px;
+  height: 76px;
   object-fit: contain;
 }
 .app-title-block {

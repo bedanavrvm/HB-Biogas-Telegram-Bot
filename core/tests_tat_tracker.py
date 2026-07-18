@@ -1123,3 +1123,102 @@ class TatTrackerWorkflowTest(TestCase):
         update_case(self.config, bro, case_id, [{'field': 'mpesa_to_admin', 'value': 'STAMP'}])
         updated = update_case(self.config, admin, case_id, [{'field': 'mpesa_verified', 'value': 'STAMP'}])
         self.assertEqual(updated['summary']['next_stage_key'], 'ca_analysis_sent')
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_assigned_role_can_change_a_dropdown_value_and_audit_the_change(self, sync_mock):
+        sync_mock.side_effect = self.mark_case_synced
+        sanctions_timestamp = timezone.make_aware(timezone.datetime(2026, 7, 18, 10, 0)).isoformat()
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-MJENGO',
+            row_number=5,
+            case_id='JBL-MJ-2026-EDIT-DROPDOWN',
+            product_key='mjengo',
+            product_label='Mjengo',
+            client_name='Dropdown Client',
+            branch='Nakuru',
+            bro_name='BRO User',
+            amount='100000',
+            stage_values={
+                'created': timezone.now().isoformat(),
+                'mpesa_to_admin': timezone.now().isoformat(),
+                'mpesa_verified': timezone.now().isoformat(),
+                'ca_analysis_sent': timezone.now().isoformat(),
+                'bro_response': timezone.now().isoformat(),
+                'bm_tat_request': timezone.now().isoformat(),
+                'tat_scheduled': timezone.now().isoformat(),
+                'tat_held': timezone.now().isoformat(),
+                'decision': 'Approved',
+                'decision_ts': timezone.now().isoformat(),
+                'minutes_shared': timezone.now().isoformat(),
+                'sanctions': 'Pending',
+                'sanctions_ts': sanctions_timestamp,
+            },
+        )
+        loan_approver = {
+            'name': 'Loan Approver',
+            'telegram_id': '444',
+            'roles': ['LOAN_APPROVER'],
+            'branches': ['Nakuru'],
+            'products': ['mjengo'],
+        }
+
+        detail = update_case(
+            self.config,
+            loan_approver,
+            case.case_id,
+            [{'field': 'sanctions', 'value': 'Met'}],
+        )
+
+        case.refresh_from_db()
+        sanctions_field = next(field for field in detail['fields'] if field['key'] == 'sanctions')
+        event = case.events.get(stage_key='sanctions')
+        self.assertTrue(sanctions_field['editable'])
+        self.assertEqual(case.stage_values['sanctions'], 'Met')
+        self.assertEqual(case.stage_values['sanctions_ts'], sanctions_timestamp)
+        self.assertEqual(event.old_value, 'Pending')
+        self.assertEqual(event.new_value, 'Met')
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_changing_a_decision_dropdown_reopens_a_rejected_case(self, sync_mock):
+        sync_mock.side_effect = self.mark_case_synced
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-MJENGO',
+            row_number=5,
+            case_id='JBL-MJ-2026-REOPEN-DROPDOWN',
+            product_key='mjengo',
+            product_label='Mjengo',
+            client_name='Decision Client',
+            branch='Nakuru',
+            bro_name='BRO User',
+            amount='100000',
+            status='Rejected',
+            stage_values={
+                'created': timezone.now().isoformat(),
+                'mpesa_to_admin': timezone.now().isoformat(),
+                'mpesa_verified': timezone.now().isoformat(),
+                'ca_analysis_sent': timezone.now().isoformat(),
+                'bro_response': timezone.now().isoformat(),
+                'bm_tat_request': timezone.now().isoformat(),
+                'tat_scheduled': timezone.now().isoformat(),
+                'tat_held': timezone.now().isoformat(),
+                'decision': 'Rejected',
+                'decision_ts': timezone.now().isoformat(),
+            },
+        )
+        chair = {
+            'name': 'Chair User',
+            'telegram_id': '555',
+            'roles': ['CHAIR'],
+            'branches': ['Nakuru'],
+            'products': ['mjengo'],
+        }
+
+        detail = update_case(self.config, chair, case.case_id, [{'field': 'decision', 'value': 'Approved'}])
+
+        case.refresh_from_db()
+        self.assertEqual(case.status, 'Active')
+        self.assertEqual(detail['summary']['next_stage_key'], 'minutes_shared')
+        self.assertEqual(case.events.get(stage_key='decision').old_value, 'Rejected')

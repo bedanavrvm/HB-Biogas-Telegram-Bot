@@ -445,9 +445,9 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict) -> None:
             raise ValueError(f'Your role cannot update {stage.label}.')
         if not previous_stages_complete(case, stage):
             raise ValueError(f'Complete the previous stage before {stage.label}.')
-        if case.stage_values.get(stage.key):
+        old = case.stage_values.get(stage.key, '')
+        if old and stage.kind != 'dropdown':
             raise ValueError(f'{stage.label} is already completed.')
-        old = ''
         if stage.kind == 'timestamp':
             value = timezone.now().isoformat()
             new = format_datetime(timezone.now())
@@ -455,6 +455,8 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict) -> None:
             value = str(item.get('value') or '').strip()
             if value not in stage.options:
                 raise ValueError(f'Select a valid value for {stage.label}.')
+            if value == old:
+                raise ValueError(f'{stage.label} is already set to {value}.')
             new = value
         else:
             value = str(item.get('value') or '').strip()
@@ -500,6 +502,8 @@ def apply_side_effects(case: TatTrackerCase, product: ProductConfig, stage: Stag
             case.status = 'Rejected'
         elif value == 'Deferred':
             case.status = 'Deferred'
+        elif value == 'Approved' and case.status in {'Rejected', 'Deferred'}:
+            case.status = 'Active'
     if stage.key == 'sanctions' and value == 'Not Met' and 'Sanctions Not Met' not in case.remarks:
         case.remarks = f"[{format_datetime(timezone.now())}: Sanctions Not Met - conditions unfulfilled] {case.remarks}".strip()
     if stage.key == 'disbursement':
@@ -1004,7 +1008,7 @@ def serialize_case_detail(case: TatTrackerCase, user: dict, workflow: dict | Non
     fields = []
     for stage in product.stages:
         value = case.stage_values.get(stage.key, '')
-        editable = (not value) and previous_stages_complete(case, stage) and can_user_edit_stage(user, case, stage)
+        editable = previous_stages_complete(case, stage) and can_user_edit_stage(user, case, stage) and (not value or stage.kind == 'dropdown')
         tat_minutes = stage_tat_minutes(case, stage)
         target = stage_target_minutes(workflow, product, stage)
         certificate = case.approval_certificates.filter(stage_key=stage.key).first() if stage.requires_signature_certificate else None
@@ -1061,12 +1065,12 @@ def role_display_name(role: str) -> str:
 
 
 def lock_reason(case: TatTrackerCase, user: dict, stage: StageConfig) -> str:
-    if case.stage_values.get(stage.key):
-        return 'Already completed.'
     if not previous_stages_complete(case, stage):
         return 'Previous stage is not complete.'
     if not can_user_edit_stage(user, case, stage):
         return 'Not assigned to your role.'
+    if case.stage_values.get(stage.key) and stage.kind != 'dropdown':
+        return 'Already completed.'
     return ''
 
 

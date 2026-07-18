@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=4">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=13">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=14">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -185,7 +185,7 @@
             <div class="section-head compact">
               <div>
                 <h2>Workflow Stages</h2>
-                <p>Only available actions are editable.</p>
+                <p>Available actions and assigned dropdowns are editable.</p>
               </div>
             </div>
             <div id="stageFields" class="stage-list"></div>
@@ -221,6 +221,6 @@
   </main>
 
   <script src="{% static 'miniapp/telegram.js' %}?v=2"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=16"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=17"></script>
 </body>
 </html>
