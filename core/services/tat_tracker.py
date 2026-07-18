@@ -808,23 +808,21 @@ def tat_target_settings(workflow: dict | None) -> list[dict]:
     return settings
 
 
-def _target_minutes_from_hours(value: object, label: str) -> int | None:
+def _target_minutes_from_value(value: object, label: str) -> int | None:
     if value in (None, ''):
         return None
     try:
-        hours = Decimal(str(value))
+        minutes = Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError) as exc:
-        raise ValueError(f'{label} must be a number of hours.') from exc
-    if hours < 0 or hours > Decimal('87600'):
-        raise ValueError(f'{label} must be between 0 and 87,600 hours.')
-    minutes = hours * Decimal('60')
+        raise ValueError(f'{label} must be a number of minutes.') from exc
+    if minutes < 0 or minutes > Decimal('5256000'):
+        raise ValueError(f'{label} must be between 0 and 5,256,000 minutes.')
     if minutes != minutes.to_integral_value():
         raise ValueError(f'{label} must use whole minutes.')
     return int(minutes)
 
-
 def normalize_tat_target_settings(workflow: dict | None, payload: object) -> dict:
-    """Validate Mini App target hours and store the canonical minute values."""
+    """Validate Mini App target minutes and store canonical minute values."""
     submitted = payload if isinstance(payload, dict) else {}
     targets: dict[str, dict] = {}
     for product in configured_products(workflow):
@@ -832,14 +830,14 @@ def normalize_tat_target_settings(workflow: dict | None, payload: object) -> dic
         if not isinstance(row, dict):
             raise ValueError(f'{product.label} targets are invalid.')
         product_targets: dict[str, object] = {'stages': {}}
-        total = _target_minutes_from_hours(row.get('total_hours'), f'{product.label} total target')
+        total = _target_minutes_from_value(row.get('total_minutes'), f'{product.label} total target')
         if total is not None:
             product_targets['total'] = total
         submitted_stages = row.get('stages') or {}
         if not isinstance(submitted_stages, dict):
             raise ValueError(f'{product.label} stage targets are invalid.')
         for stage in product.stages:
-            minutes = _target_minutes_from_hours(
+            minutes = _target_minutes_from_value(
                 submitted_stages.get(stage.key),
                 f'{product.label}: {stage.label} target',
             )

@@ -10,15 +10,18 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=4">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=9">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=12">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
     <header class="app-top">
-      <div class="app-title-block">
-        <p class="eyebrow">JBL Workflow</p>
-        <h1>TAT Tracker</h1>
-        <p id="userLine" class="user-line">Opening tracker...</p>
+      <div class="app-brand">
+        <img class="app-logo" src="{% static 'miniapp/jawabu-logo.png' %}" alt="Jawabu">
+        <div class="app-title-block">
+          <p class="eyebrow">JBL Workflow</p>
+          <h1>TAT Tracker</h1>
+          <p id="userLine" class="user-line">Opening tracker...</p>
+        </div>
       </div>
       <button id="refreshBtn" type="button" class="ghost-btn refresh-btn" aria-label="Refresh tracker">
         <svg class="icon-refresh" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="14" height="14">
@@ -27,6 +30,10 @@
         <span>Refresh</span>
       </button>
     </header>
+    <div id="loadingBrand" class="loading-brand" role="status" aria-live="polite">
+      <img src="{% static 'miniapp/jawabu-logo.png' %}" alt="Jawabu">
+      <span>Loading tracker...</span>
+    </div>
 
     <section class="overview-strip" aria-label="Tracker summary">
       <div class="metric-tile priority">
@@ -152,7 +159,7 @@
       <form id="targetSettingsForm" class="form-card">
         <div class="form-heading">
           <h2>TAT Targets</h2>
-          <p>Set the overall and per-stage target in hours. Green is within 80%, amber is near target, and red is overdue.</p>
+          <p>Set the overall and per-stage target in minutes. Green is within 80%, amber is near target, and red is overdue.</p>
         </div>
         <div id="targetSettingsList" class="target-settings-list" aria-live="polite"></div>
         <div class="form-actions">
@@ -214,6 +221,6 @@
   </main>
 
   <script src="{% static 'miniapp/telegram.js' %}?v=2"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=12"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=16"></script>
 </body>
 </html>

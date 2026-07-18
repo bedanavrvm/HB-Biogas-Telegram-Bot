@@ -78,15 +78,15 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertTrue(is_tat_tracker_workflow(self.config))
 
     @patch('core.services.tat_tracker.sync_tat_target_settings_to_sheet', return_value={'status': 'unavailable'})
-    def test_it_can_save_stage_targets_in_hours(self, sync_targets):
+    def test_it_can_save_stage_targets_in_minutes(self, sync_targets):
         user = {'roles': ['IT'], 'name': 'IT User'}
 
         result = update_tat_target_settings(self.config, user, {
             'sme': {
-                'total_hours': '24',
-                'stages': {'mpesa_to_admin': '0.5'},
+                'total_minutes': '1440',
+                'stages': {'mpesa_to_admin': '30'},
             },
-            'logbook': {'total_hours': '', 'stages': {}},
+            'logbook': {'total_minutes': '', 'stages': {}},
         })
 
         self.config.refresh_from_db()
@@ -103,11 +103,11 @@ class TatTrackerWorkflowTest(TestCase):
         with self.assertRaisesRegex(ValueError, 'Only IT'):
             update_tat_target_settings(self.config, user, {})
 
-    def test_target_hours_must_resolve_to_whole_minutes(self):
+    def test_target_minutes_must_be_whole_number(self):
         with self.assertRaisesRegex(ValueError, 'whole minutes'):
             normalize_tat_target_settings(self.config.workflow, {
-                'sme': {'total_hours': '0.01', 'stages': {}},
-                'logbook': {'total_hours': '', 'stages': {}},
+                'sme': {'total_minutes': '0.01', 'stages': {}},
+                'logbook': {'total_minutes': '', 'stages': {}},
             })
 
     @override_settings(TAT_TRACKER_SIGNATURES_ENABLED=True)

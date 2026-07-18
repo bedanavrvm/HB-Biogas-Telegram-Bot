@@ -271,22 +271,16 @@
     return roles.some((role) => String(role).toUpperCase() === 'IT');
   }
 
-  function targetHours(minutes) {
-    const value = Number(minutes);
-    if (!Number.isFinite(value) || value === 0) return '';
-    return String(value / 60);
-  }
-
   function appendTargetInput(container, label, productKey, stageKey, minutes) {
     const field = document.createElement('label');
     field.textContent = label;
     const input = document.createElement('input');
     input.type = 'number';
-    input.inputMode = 'decimal';
+    input.inputMode = 'numeric';
     input.min = '0';
-    input.step = '0.1';
+    input.step = '1';
     input.placeholder = 'Not set';
-    input.value = targetHours(minutes);
+    input.value = minutes || '';
     input.dataset.productKey = productKey;
     input.dataset.stageKey = stageKey || '';
     field.appendChild(input);
@@ -305,8 +299,8 @@
       const grid = document.createElement('div');
       grid.className = 'form-grid target-input-grid';
       if ((1 + (product.stages || []).length) % 2) grid.classList.add('target-input-grid--odd');
-      appendTargetInput(grid, 'Overall target (hours)', product.key, '', product.total_minutes);
-      (product.stages || []).forEach((stage) => appendTargetInput(grid, stage.label + ' (hours)', product.key, stage.key, stage.target_minutes));
+      appendTargetInput(grid, 'Overall target (minutes)', product.key, '', product.total_minutes);
+      (product.stages || []).forEach((stage) => appendTargetInput(grid, stage.label + ' (minutes)', product.key, stage.key, stage.target_minutes));
       section.appendChild(grid);
       list.appendChild(section);
     });
@@ -317,9 +311,9 @@
     document.querySelectorAll('#targetSettingsList input[data-product-key]').forEach((input) => {
       const productKey = input.dataset.productKey;
       const stageKey = input.dataset.stageKey;
-      if (!targets[productKey]) targets[productKey] = { total_hours: '', stages: {} };
+      if (!targets[productKey]) targets[productKey] = { total_minutes: '', stages: {} };
       if (stageKey) targets[productKey].stages[stageKey] = input.value.trim();
-      else targets[productKey].total_hours = input.value.trim();
+      else targets[productKey].total_minutes = input.value.trim();
     });
     return targets;
   }
@@ -341,6 +335,7 @@
   function bootstrap(data) {
     state.data = data;
     if (!data.authorized) throw new Error(data.reason || 'Unauthorized.');
+    $('loadingBrand').classList.add('hidden');
     const user = data.user || {};
     const roles = (user.roles || []).join(', ') || 'Staff';
     $('userLine').textContent = `${user.name || 'Staff'} | ${roles}`;
@@ -392,9 +387,9 @@
         </div>
         <div class="detail-meta-row">
           <span class="detail-case-id">${escapeHtml(summary.case_id)}</span>
-          <span class="divider">�</span>
+          <span class="divider">&middot;</span>
           <span class="detail-product">${escapeHtml(summary.product || '')}</span>
-          <span class="divider">�</span>
+          <span class="divider">&middot;</span>
           <span class="detail-branch">${escapeHtml(summary.branch || '')}</span>
         </div>
       </div>
@@ -419,13 +414,12 @@
           <small>Total TAT</small>
           <span class="tat-badge ${escapeHtml(summary.sla_status || '')}">${escapeHtml(formatMinutes(summary.tat_minutes) || 'Not started')}</span>
         </div>
-        <div class="fact">
-          <small>Created</small>
-          <span>${escapeHtml(summary.created_at || '')}</span>
-        </div>
-        <div class="fact">
-          <small>Updated</small>
-          <span>${escapeHtml(summary.updated_at || '')}</span>
+        <div class="fact fact-activity">
+          <small>Activity</small>
+          <div class="activity-times">
+            <div><small>Created</small><span>${escapeHtml(summary.created_at || '')}</span></div>
+            <div><small>Updated</small><span>${escapeHtml(summary.updated_at || '')}</span></div>
+          </div>
         </div>
       </div>`;
 
@@ -521,7 +515,7 @@
               <strong class="event-stage">${escapeHtml(event.stage)}</strong>
               <span class="event-value-badge">${escapeHtml(event.value)}</span>
             </div>
-            <div class="event-meta">${escapeHtml(event.actor)} � ${escapeHtml(event.at)}</div>
+            <div class="event-meta">${escapeHtml(event.actor)} &middot; ${escapeHtml(event.at)}</div>
           </div>
         `;
         events.appendChild(row);
