@@ -88,6 +88,7 @@ const PRODUCT_LAYOUTS = {
     },
     dateCols: [8, 9, 10, 11, 12, 13, 14, 16, 18],
     stageCols: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
+    stageTatKeys: smeStageTatKeys_(),
   },
   'TRACKER-LOGBOOK': {
     title: 'TAT TRACKER - LOGBOOK',
@@ -121,17 +122,18 @@ const PRODUCT_LAYOUTS = {
     },
     dateCols: [8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 21, 22, 24, 26],
     stageCols: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
+    stageTatKeys: logbookStageTatKeys_(),
   },
   'TRACKER-MJENGO': null,
   'TRACKER-KILIMO': null,
   'TRACKER-MICRO-ASSET': null,
 };
 
-PRODUCT_LAYOUTS['TRACKER-MJENGO'] = noValuationLayout('TAT TRACKER - MJENGO', 50000, 300000);
-PRODUCT_LAYOUTS['TRACKER-KILIMO'] = noValuationLayout('TAT TRACKER - KILIMO', 50000, 300000);
-PRODUCT_LAYOUTS['TRACKER-MICRO-ASSET'] = noValuationLayout('TAT TRACKER - MICRO-ASSET', 50000, 300000);
+PRODUCT_LAYOUTS['TRACKER-MJENGO'] = noValuationLayout('mjengo', 'TAT TRACKER - MJENGO', 50000, 300000);
+PRODUCT_LAYOUTS['TRACKER-KILIMO'] = noValuationLayout('kilimo', 'TAT TRACKER - KILIMO', 50000, 300000);
+PRODUCT_LAYOUTS['TRACKER-MICRO-ASSET'] = noValuationLayout('micro_asset', 'TAT TRACKER - MICRO-ASSET', 50000, 300000);
 
-function noValuationLayout(title, minAmount, maxAmount) {
+function noValuationLayout(productKey, title, minAmount, maxAmount) {
   return {
     title: title,
     minAmount: minAmount,
@@ -164,9 +166,21 @@ function noValuationLayout(title, minAmount, maxAmount) {
     },
     dateCols: [8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 20, 21, 23, 25],
     stageCols: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25],
+    stageTatKeys: noValuationStageTatKeys_(),
   };
 }
 
+function smeStageTatKeys_() {
+  return ['mpesa_to_admin', 'mpesa_verified', 'ca_analysis_sent', 'bro_response', 'bm_response', 'bro_applied', 'disbursement_register', 'register_approved', 'disbursement'];
+}
+
+function noValuationStageTatKeys_() {
+  return ['mpesa_to_admin', 'mpesa_verified', 'ca_analysis_sent', 'bro_response', 'bm_tat_request', 'tat_scheduled', 'tat_held', 'decision', 'minutes_shared', 'sanctions', 'bro_applied', 'disbursement_register', 'register_approved', 'disbursement'];
+}
+
+function logbookStageTatKeys_() {
+  return ['mpesa_to_admin', 'mpesa_verified', 'ca_analysis_sent', 'bro_response', 'valuation_ready', 'bm_tat_request', 'tat_scheduled', 'tat_held', 'decision', 'minutes_shared', 'sanctions', 'bro_applied', 'disbursement_register', 'register_approved', 'disbursement'];
+}
 function smeStageTatHeaders_() {
   return [
     'MPESA sent to Admin TAT Minutes',
@@ -433,21 +447,42 @@ function removeLegacyFormulaProtections_(sheet) {
 }
 
 function applyStatusConditionalFormatting_(sheet, layout) {
-  const width = layout.headers.length;
   const dataRows = TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1;
-  const tatValueRange = sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.tatHours, dataRows, 2);
   const row = TAT_CONFIG.DATA_START_ROW;
-  const status = colLetter_(layout.cols.status);
   const tatHours = colLetter_(layout.cols.tatHours);
-  const target = layout.tatHoursTarget || TAT_CONFIG.TAT_HOURS_TARGET;
-  const nearTarget = Math.round(target * 0.8);
-  const rules = [
-    colorRule_(tatValueRange, `=AND($${tatHours}${row}<>"",$${tatHours}${row}>${nearTarget},$${tatHours}${row}<=${target})`, '#fff2cc'),
-    colorRule_(tatValueRange, `=AND($${tatHours}${row}<>"",$${tatHours}${row}>${target})`, '#f4cccc'),
-  ];
+  const totalTarget = tatTargetFormula_(layout.productKey, '__total__');
+  const rules = trafficLightRules_(
+    sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.tatHours, dataRows, 2),
+    tatHours,
+    row,
+    totalTarget
+  );
+  (layout.stageTatKeys || []).forEach(function(stageKey, index) {
+    const column = layout.cols.tatDays + 1 + index;
+    const stage = colLetter_(column);
+    trafficLightRules_(
+      sheet.getRange(TAT_CONFIG.DATA_START_ROW, column, dataRows, 1),
+      stage,
+      row,
+      tatTargetFormula_(layout.productKey, stageKey)
+    ).forEach(function(rule) { rules.push(rule); });
+  });
   sheet.setConditionalFormatRules(rules);
 }
 
+function tatTargetFormula_(productKey, stageKey) {
+  return `SUMIFS('TAT TARGETS'!$C:$C,'TAT TARGETS'!$A:$A,"${productKey}",'TAT TARGETS'!$B:$B,"${stageKey}")`;
+}
+
+function trafficLightRules_(range, column, row, targetFormula) {
+  const value = `${column}${row}`;
+  const target = `(${targetFormula})`;
+  return [
+    colorRule_(range, `=AND(${value}<>"",${target}>0,${value}<=${target}*0.8)`, '#d9ead3'),
+    colorRule_(range, `=AND(${value}<>"",${target}>0,${value}>${target}*0.8,${value}<=${target})`, '#fff2cc'),
+    colorRule_(range, `=AND(${value}<>"",${target}>0,${value}>${target})`, '#f4cccc'),
+  ];
+}
 function addStageTrafficLightRules_(rules, sheet, layout, row, openStatusCheck, target) {
   const rows = TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1;
   const created = colLetter_(layout.cols.created);
@@ -475,6 +510,18 @@ function setupAuditLog_(sheet) {
   setupSimpleSheet_(sheet, 'TAT AUDIT LOG', headers, '#4c1130');
 }
 
+function setupTatTargets_(sheet) {
+  ensureRowsAndColumns_(sheet, 50, 4);
+  sheet.getRange(1, 1, 1, 4).setValues([['Product Key', 'Stage Key', 'Target Minutes', 'Near Ratio']]);
+  sheet.getRange(1, 1, 1, 4).setFontWeight('bold').setBackground('#1c4587').setFontColor('#ffffff');
+  sheet.setFrozenRows(1);
+  if (sheet.getLastRow() < 2) {
+    const rows = Object.keys(PRODUCT_LAYOUTS).map(function(sheetName) {
+      return [PRODUCT_LAYOUTS[sheetName].productKey, '__total__', TAT_CONFIG.TAT_HOURS_TARGET * 60, 0.8];
+    });
+    sheet.getRange(2, 1, rows.length, 4).setValues(rows);
+  }
+}
 function setupDashboard_(sheet) {
   setupSimpleSheet_(sheet, 'TAT DASHBOARD', ['Metric', 'Value', 'Notes'], '#1c4587');
   sheet.getRange(5, 1, 6, 3).setValues([

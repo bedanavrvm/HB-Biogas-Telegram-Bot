@@ -46,6 +46,7 @@ DEFAULT_TAT_TARGETS_MINUTES = {
     'micro_asset': {'total': 20160, 'stages': {}},
 }
 NEAR_SLA_RATIO = Decimal('0.8')
+TAT_TARGET_MANAGER_ROLES = frozenset({'ADMIN', 'IT'})
 
 
 @dataclass(frozen=True)
@@ -302,6 +303,17 @@ def staff_user_for_payload(group_config, user_payload: dict, fallback_name: str 
     return {'authorized': False, 'telegram_id': telegram_id, 'username': username, 'name': full_name, 'roles': [], 'branches': [], 'products': [], 'reason': 'Your Telegram account is not configured for the TAT Tracker. Ask admin to add you under workflow.staff.'}
 
 
+def configured_bro_names(workflow: dict | None) -> list[str]:
+    """Return active BRO names configured for the tracker group."""
+    names = {
+        str(row.get('name') or '').strip()
+        for row in (workflow or {}).get('staff') or []
+        if isinstance(row, dict)
+        and row.get('active') is not False
+        and 'BRO' in _normalize_list(row.get('roles') or row.get('role'))
+        and str(row.get('name') or '').strip()
+    }
+    return sorted(names, key=str.casefold)
 def bootstrap(group_config, user_payload: dict) -> dict:
     user = staff_user_for_payload(group_config, user_payload)
     workflow = getattr(group_config, 'workflow', None) or {}
@@ -309,7 +321,7 @@ def bootstrap(group_config, user_payload: dict) -> dict:
         return {'authorized': False, 'user': user, 'reason': user.get('reason', 'Unauthorized')}
     products = [serialize_product(product) for product in _allowed_products(workflow, user)]
     home = home_data(group_config, user)
-    return {'authorized': True, 'user': public_user(user), 'products': products, 'branches': _allowed_branches(workflow, user), 'statuses': STATUS_VALUES, 'recent': home['recent'], 'action_required': home['action_required']}
+    return {'authorized': True, 'user': public_user(user), 'products': products, 'branches': _allowed_branches(workflow, user), 'bro_names': configured_bro_names(workflow), 'statuses': STATUS_VALUES, 'recent': home['recent'], 'action_required': home['action_required']}
 
 
 def home_data(group_config, user: dict) -> dict:
@@ -768,6 +780,126 @@ def tat_targets_for_product(workflow: dict | None, product: ProductConfig) -> di
     }
 
 
+
+def can_manage_tat_targets(user: dict | None) -> bool:
+    """Return whether the staff member may change workflow-wide SLA targets."""
+    roles = {str(role).strip().upper() for role in (user or {}).get('roles') or []}
+    return bool(roles & TAT_TARGET_MANAGER_ROLES)
+
+
+def tat_target_settings(workflow: dict | None) -> list[dict]:
+    """Serialize the configured targets for the administrator Mini App form."""
+    settings = []
+    for product in configured_products(workflow):
+        targets = tat_targets_for_product(workflow, product)
+        settings.append({
+            'key': product.key,
+            'label': product.label,
+            'total_minutes': targets.get('total') or '',
+            'stages': [
+                {
+                    'key': stage.key,
+                    'label': stage.label,
+                    'target_minutes': (targets.get('stages') or {}).get(stage.key) or '',
+                }
+                for stage in product.stages
+            ],
+        })
+    return settings
+
+
+def _target_minutes_from_hours(value: object, label: str) -> int | None:
+    if value in (None, ''):
+        return None
+    try:
+        hours = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError(f'{label} must be a number of hours.') from exc
+    if hours < 0 or hours > Decimal('87600'):
+        raise ValueError(f'{label} must be between 0 and 87,600 hours.')
+    minutes = hours * Decimal('60')
+    if minutes != minutes.to_integral_value():
+        raise ValueError(f'{label} must use whole minutes.')
+    return int(minutes)
+
+
+def normalize_tat_target_settings(workflow: dict | None, payload: object) -> dict:
+    """Validate Mini App target hours and store the canonical minute values."""
+    submitted = payload if isinstance(payload, dict) else {}
+    targets: dict[str, dict] = {}
+    for product in configured_products(workflow):
+        row = submitted.get(product.key) or {}
+        if not isinstance(row, dict):
+            raise ValueError(f'{product.label} targets are invalid.')
+        product_targets: dict[str, object] = {'stages': {}}
+        total = _target_minutes_from_hours(row.get('total_hours'), f'{product.label} total target')
+        if total is not None:
+            product_targets['total'] = total
+        submitted_stages = row.get('stages') or {}
+        if not isinstance(submitted_stages, dict):
+            raise ValueError(f'{product.label} stage targets are invalid.')
+        for stage in product.stages:
+            minutes = _target_minutes_from_hours(
+                submitted_stages.get(stage.key),
+                f'{product.label}: {stage.label} target',
+            )
+            if minutes is not None:
+                product_targets['stages'][stage.key] = minutes
+        if product_targets.get('total') is not None or product_targets['stages']:
+            targets[product.key] = {
+                key: value for key, value in product_targets.items()
+                if key != 'stages' or value
+            }
+    return targets
+
+
+def sync_tat_target_settings_to_sheet(group_config, workflow: dict | None) -> dict:
+    """Write configured SLA targets to the Apps Script-owned support tab."""
+    if not getattr(group_config, 'sheet_id', ''):
+        return {'status': 'not_configured'}
+    service = get_sheets_service(sheet_id=group_config.sheet_id, sheet_name='TAT TARGETS')
+    if not service.is_available():
+        return {'status': 'unavailable'}
+    rows = []
+    for product in tat_target_settings(workflow):
+        if product['total_minutes']:
+            rows.append([product['key'], '__total__', product['total_minutes'], str(NEAR_SLA_RATIO)])
+        for stage in product['stages']:
+            if stage['target_minutes']:
+                rows.append([product['key'], stage['key'], stage['target_minutes'], str(NEAR_SLA_RATIO)])
+    try:
+        sheet = service._sheet
+        sheet.update('A1:D1', [['Product Key', 'Stage Key', 'Target Minutes', 'Near Ratio']], value_input_option='USER_ENTERED')
+        sheet.batch_clear(['A2:D500'])
+        if rows:
+            sheet.update(f'A2:D{len(rows) + 1}', rows, value_input_option='USER_ENTERED')
+        return {'status': 'synced'}
+    except Exception as exc:
+        logger.warning('TAT target sheet sync failed for group %s: %s', group_config.group_id, exc)
+        return {'status': 'failed'}
+@transaction.atomic
+def update_tat_target_settings(group_config, user: dict, payload: object) -> dict:
+    """Persist administrator-managed SLA targets and refresh the group registry."""
+    if not can_manage_tat_targets(user):
+        raise ValueError('Only TAT administrators or IT staff can change SLA targets.')
+    from core.models import GroupSheetConfiguration
+    from core.services.group_config import GroupRegistry
+
+    config = GroupSheetConfiguration.objects.select_for_update().get(group_id=str(group_config.group_id))
+    workflow = dict(config.workflow or {})
+    targets = normalize_tat_target_settings(workflow, payload)
+    changed = workflow.get('tat_targets_minutes') != targets
+    if changed:
+        workflow['tat_targets_minutes'] = targets
+        config.workflow = workflow
+        config.save(update_fields=['workflow', 'updated_at'])
+        GroupRegistry.get_instance().reload()
+    active_workflow = workflow if changed else config.workflow
+    return {
+        'changed': changed,
+        'targets': tat_target_settings(active_workflow),
+        'sheet_sync': sync_tat_target_settings_to_sheet(group_config, active_workflow),
+    }
 def stage_target_minutes(workflow: dict | None, product: ProductConfig, stage: StageConfig) -> Decimal | None:
     value = (tat_targets_for_product(workflow, product).get('stages') or {}).get(stage.key)
     if value in (None, ''):

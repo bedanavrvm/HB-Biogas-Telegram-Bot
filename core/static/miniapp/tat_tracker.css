@@ -87,6 +87,7 @@ button {
 }
 button:active:not(:disabled) { transform: scale(0.98); }
 button:disabled { cursor: not-allowed; opacity: .55; }
+.hidden { display: none !important; }
 
 button.primary {
   background: var(--tat-accent);
@@ -268,10 +269,37 @@ h2 { font-size: 13px; font-weight: 750; }
   color: var(--tat-info);
 }
 
+.notice-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.48);
+}
+.notice-dialog {
+  width: min(100%, 360px);
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--tat-line);
+  border-radius: var(--radius);
+  background: var(--tat-surface);
+  box-shadow: 0 16px 48px rgba(15, 23, 42, 0.28);
+}
+.notice-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.notice-heading h2 { font-size: 14px; }
+.notice-dialog p { color: var(--tat-text); font-size: 13px; }
 /* Segmented Tabs */
 .tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 2px;
   margin-bottom: 8px;
   padding: 2px;
@@ -470,6 +498,28 @@ h2 { font-size: 13px; font-weight: 750; }
 .form-actions { display: flex; margin-top: 4px; }
 .form-actions button { width: 100%; }
 
+.target-settings-list {
+  display: grid;
+  gap: 8px;
+}
+.target-product-card {
+  display: grid;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--tat-line);
+  border-radius: var(--radius-sm);
+  background: var(--tat-surface-2);
+}
+.target-product-card h3 {
+  margin: 0;
+  color: var(--tat-text);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.target-input-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
 .search-row {
   display: grid;
   grid-template-columns: 1fr auto;

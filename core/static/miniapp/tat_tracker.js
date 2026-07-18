@@ -1,3 +1,4 @@
+    if (event.key === 'Enter') event.preventDefault();
 (function () {
   const tg = window.MiniAppTelegram ? window.MiniAppTelegram.init() : null;
   const body = document.body;
@@ -47,6 +48,17 @@
     return data;
   }
 
+  function closeNotice() {
+    $('noticeModal').classList.add('hidden');
+  }
+
+  function showNotice(message, tone) {
+    $('noticeTitle').textContent = tone === 'error' ? 'Action needed' : 'Success';
+    $('noticeMessage').textContent = message;
+    $('noticeModal').classList.remove('hidden');
+    $('closeNoticeBtn').focus();
+  }
+
   function setStatus(message, tone) {
     if (statusTimeout) {
       clearTimeout(statusTimeout);
@@ -90,6 +102,7 @@
     }
     el.innerHTML = `${icon}<span>${escapeHtml(message)}</span>`;
     el.className = 'status-bar' + (tone ? ' ' + tone : '');
+    if (tone === 'ok' || tone === 'error') showNotice(message, tone);
 
     if (tone === 'ok') {
       statusTimeout = setTimeout(() => {
@@ -102,8 +115,8 @@
     state.currentView = view;
     document.querySelectorAll('.view').forEach((node) => node.classList.remove('active'));
     document.querySelectorAll('.tabs button').forEach((node) => node.classList.toggle('active', node.dataset.view === view));
-    const target = view === 'queue' ? 'queueView' : view === 'new' ? 'newView' : view === 'search' ? 'searchView' : 'detailView';
-    $(target).classList.add('active');
+    const target = $(view + 'View');
+    if (target) target.classList.add('active');
   }
 
   function escapeHtml(value) {
@@ -240,6 +253,77 @@
     });
   }
 
+  function isTargetManager() {
+    const roles = ((state.data || {}).user || {}).roles || [];
+    return roles.some((role) => ['ADMIN', 'IT'].includes(String(role).toUpperCase()));
+  }
+
+  function targetHours(minutes) {
+    const value = Number(minutes);
+    if (!Number.isFinite(value) || value === 0) return '';
+    return String(value / 60);
+  }
+
+  function appendTargetInput(container, label, productKey, stageKey, minutes) {
+    const field = document.createElement('label');
+    field.textContent = label;
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.inputMode = 'decimal';
+    input.min = '0';
+    input.step = '0.1';
+    input.placeholder = 'Not set';
+    input.value = targetHours(minutes);
+    input.dataset.productKey = productKey;
+    input.dataset.stageKey = stageKey || '';
+    field.appendChild(input);
+    container.appendChild(field);
+  }
+
+  function renderTargetSettings(targets) {
+    const list = $('targetSettingsList');
+    list.innerHTML = '';
+    (targets || []).forEach((product) => {
+      const section = document.createElement('section');
+      section.className = 'target-product-card';
+      const heading = document.createElement('h3');
+      heading.textContent = product.label;
+      section.appendChild(heading);
+      const grid = document.createElement('div');
+      grid.className = 'form-grid target-input-grid';
+      appendTargetInput(grid, 'Overall target (hours)', product.key, '', product.total_minutes);
+      (product.stages || []).forEach((stage) => appendTargetInput(grid, stage.label + ' (hours)', product.key, stage.key, stage.target_minutes));
+      section.appendChild(grid);
+      list.appendChild(section);
+    });
+  }
+
+  function targetSettingsPayload() {
+    const targets = {};
+    document.querySelectorAll('#targetSettingsList input[data-product-key]').forEach((input) => {
+      const productKey = input.dataset.productKey;
+      const stageKey = input.dataset.stageKey;
+      if (!targets[productKey]) targets[productKey] = { total_hours: '', stages: {} };
+      if (stageKey) targets[productKey].stages[stageKey] = input.value.trim();
+      else targets[productKey].total_hours = input.value.trim();
+    });
+    return targets;
+  }
+
+  async function loadTargetSettings() {
+    if (!isTargetManager()) return;
+    const result = await api('/api/tat-tracker/target-settings/', {});
+    renderTargetSettings(result.data.targets);
+  }
+
+  async function saveTargetSettings() {
+    const result = await api('/api/tat-tracker/target-settings/', { targets: targetSettingsPayload() });
+    renderTargetSettings(result.data.targets);
+    const savedMessage = result.data.changed ? 'TAT targets saved.' : 'No target changes to save.';
+    const sheetSync = (result.data.sheet_sync || {}).status;
+    setStatus(sheetSync === 'synced' ? savedMessage : savedMessage + ' Set up the TAT TARGETS support tab to update sheet colours.', sheetSync === 'synced' ? 'ok' : 'busy');
+  }
+
   function bootstrap(data) {
     state.data = data;
     if (!data.authorized) throw new Error(data.reason || 'Unauthorized.');
@@ -250,8 +334,11 @@
     fillSelect(document.querySelector('[name="product_key"]'), data.products, 'key', 'label');
     fillSelect(document.querySelector('[name="branch"]'), (data.branches || []).map((value) => ({ value, label: value })), 'value', 'label');
     const broInput = document.querySelector('[name="bro_name"]');
-    if (broInput) broInput.value = currentUserName();
+    const broOptions = [{ value: '', label: 'Select BRO' }].concat((data.bro_names || []).map((name) => ({ value: name, label: name })));
+    fillSelect(broInput, broOptions, 'value', 'label');
+    if ((data.bro_names || []).includes(currentUserName())) broInput.value = currentUserName();
     renderHome(data);
+    if (isTargetManager()) $('targetSettingsTab').classList.remove('hidden');
     setStatus('Ready.', 'ok');
   }
 
@@ -288,9 +375,9 @@
         </div>
         <div class="detail-meta-row">
           <span class="detail-case-id">${escapeHtml(summary.case_id)}</span>
-          <span class="divider">â€¢</span>
+          <span class="divider">•</span>
           <span class="detail-product">${escapeHtml(summary.product || '')}</span>
-          <span class="divider">â€¢</span>
+          <span class="divider">•</span>
           <span class="detail-branch">${escapeHtml(summary.branch || '')}</span>
         </div>
       </div>
@@ -409,7 +496,7 @@
               <strong class="event-stage">${escapeHtml(event.stage)}</strong>
               <span class="event-value-badge">${escapeHtml(event.value)}</span>
             </div>
-            <div class="event-meta">${escapeHtml(event.actor)} â€¢ ${escapeHtml(event.at)}</div>
+            <div class="event-meta">${escapeHtml(event.actor)} • ${escapeHtml(event.at)}</div>
           </div>
         `;
         events.appendChild(row);
@@ -426,20 +513,14 @@
     setStatus('Saved.', 'ok');
   }
 
-  document.querySelectorAll('.tabs button').forEach((button) => button.addEventListener('click', () => show(button.dataset.view)));
-  $('refreshBtn').addEventListener('click', async (event) => {
+  document.querySelectorAll('.tabs button').forEach((button) => button.addEventListener('click', () => {
+    show(button.dataset.view);
+    if (button.dataset.view === 'settings') loadTargetSettings().catch((error) => setStatus(error.message, 'error'));
+  }));
+  $('refreshBtn').addEventListener('click', () => {
     if (state.refreshing) return;
-    const button = event.currentTarget;
-    try {
-      state.refreshing = true;
-      setButtonLoading(button, true, 'Refreshing');
-      await refresh();
-    } catch (error) {
-      setStatus(error.message, 'error');
-    } finally {
-      state.refreshing = false;
-      setButtonLoading(button, false);
-    }
+    state.refreshing = true;
+    window.location.reload();
   });
   $('backBtn').addEventListener('click', () => { show('queue'); refresh().catch(() => {}); });
   $('saveRemarksBtn').addEventListener('click', async (event) => {
@@ -452,24 +533,54 @@
       setButtonLoading(event.currentTarget, false);
     }
   });
+  $('targetSettingsForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (state.savingTargets) return;
+    try {
+      state.savingTargets = true;
+      setButtonLoading($('saveTargetSettingsBtn'), true, 'Saving');
+      setStatus('Saving TAT targets...', 'busy');
+      await saveTargetSettings();
+    } catch (error) {
+      setStatus(error.message, 'error');
+    } finally {
+      state.savingTargets = false;
+      setButtonLoading($('saveTargetSettingsBtn'), false);
+    }
+  });
+
+  $('closeNoticeBtn').addEventListener('click', closeNotice);
+  $('noticeModal').addEventListener('click', (event) => {
+    if (event.target === $('noticeModal')) closeNotice();
+  });
+
   $('searchBtn').addEventListener('click', runSearch);
+  $('searchInput').addEventListener('input', scheduleSearch);
   $('searchInput').addEventListener('keydown', (event) => {
     if (event.key === 'Enter') runSearch();
   });
 
+  function scheduleSearch() {
+    clearTimeout(state.searchTimer);
+    const query = $('searchInput').value.trim();
+    if (query.length < 2) {
+      $('searchList').innerHTML = '';
+      return;
+    }
+    state.searchTimer = setTimeout(runSearch, 220);
+  }
+
   async function runSearch() {
+    const query = $('searchInput').value.trim();
+    if (query.length < 2) return;
+    const requestNumber = (state.searchRequestNumber || 0) + 1;
+    state.searchRequestNumber = requestNumber;
     try {
-      const query = $('searchInput').value.trim();
-      if (query.length < 2) {
-        setStatus('Type at least 2 characters to search.', 'error');
-        return;
-      }
-      setStatus('Searching...', 'busy');
       const result = await api('/api/tat-tracker/search/', { query });
-      renderList('searchList', result.results, 'No matching cases', 'Try a case ID, client name, branch, or BRO name.');
-      setStatus('Search complete.', 'ok');
+      if (requestNumber !== state.searchRequestNumber) return;
+      renderList('searchList', result.results, 'No matching cases', 'Try a client name, ID number, phone, case ID, branch, or BRO.');
     } catch (error) {
-      setStatus(error.message, 'error');
+      if (requestNumber === state.searchRequestNumber) setStatus(error.message, 'error');
     }
   }
 
@@ -496,7 +607,7 @@
       writePendingCreateRequestId('');
       if (formElement && typeof formElement.reset === 'function') formElement.reset();
       const broInput = document.querySelector('[name="bro_name"]');
-      if (broInput) broInput.value = currentUserName() || payload.bro_name || '';
+      if (broInput) broInput.value = payload.bro_name || '';
       setStatus('Case created. Continue from the highlighted stage.', 'ok');
       refresh({ background: true }).catch(() => {});
     } catch (error) {

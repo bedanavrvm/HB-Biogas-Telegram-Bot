@@ -24,6 +24,9 @@ from core.services.tat_tracker import (
     stage_by_key,
     stage_tat_minutes,
     tat_days_formula,
+    can_manage_tat_targets,
+    normalize_tat_target_settings,
+    update_tat_target_settings,
     tat_hours_formula,
     create_case,
     is_tat_tracker_workflow,
@@ -73,6 +76,39 @@ class TatTrackerWorkflowTest(TestCase):
 
     def test_detects_tat_tracker_workflow(self):
         self.assertTrue(is_tat_tracker_workflow(self.config))
+
+    @patch('core.services.tat_tracker.sync_tat_target_settings_to_sheet', return_value={'status': 'unavailable'})
+    def test_admin_can_save_stage_targets_in_hours(self, sync_targets):
+        user = staff_user_for_payload(self.config, {'id': 222, 'username': 'admin_user'})
+
+        result = update_tat_target_settings(self.config, user, {
+            'sme': {
+                'total_hours': '24',
+                'stages': {'mpesa_to_admin': '0.5'},
+            },
+            'logbook': {'total_hours': '', 'stages': {}},
+        })
+
+        self.config.refresh_from_db()
+        targets = self.config.workflow['tat_targets_minutes']['sme']
+        self.assertTrue(result['changed'])
+        self.assertEqual(targets['total'], 1440)
+        self.assertEqual(targets['stages']['mpesa_to_admin'], 30)
+        sync_targets.assert_called_once()
+
+    def test_non_manager_cannot_save_tat_targets(self):
+        user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+
+        self.assertFalse(can_manage_tat_targets(user))
+        with self.assertRaisesRegex(ValueError, 'administrators'):
+            update_tat_target_settings(self.config, user, {})
+
+    def test_target_hours_must_resolve_to_whole_minutes(self):
+        with self.assertRaisesRegex(ValueError, 'whole minutes'):
+            normalize_tat_target_settings(self.config.workflow, {
+                'sme': {'total_hours': '0.01', 'stages': {}},
+                'logbook': {'total_hours': '', 'stages': {}},
+            })
 
     @override_settings(TAT_TRACKER_SIGNATURES_ENABLED=True)
     def test_sme_bm_certificate_blocks_the_next_stage_until_signed(self):
@@ -216,6 +252,8 @@ class TatTrackerWorkflowTest(TestCase):
         data = bootstrap(self.config, {'id': 111, 'username': 'bro_user'})
 
         self.assertEqual(data['branches'], ['Nakuru'])
+        self.assertEqual(data['bro_names'], ['BRO User'])
+        self.assertEqual(data['bro_names'], ['BRO User'])
 
     def test_tat_formula_helpers_match_tracker_columns(self):
         sme = product_by_key('sme')

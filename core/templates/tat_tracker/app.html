@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=4">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=5">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=6">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -61,6 +61,9 @@
         </svg>
         <span>Create</span>
       </button>
+      <button id="targetSettingsTab" type="button" data-view="settings" class="hidden">
+        <span>Targets</span>
+      </button>
       <button type="button" data-view="search">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
           <circle cx="11" cy="11" r="8"/>
@@ -106,7 +109,7 @@
           <label>Client Name<input name="client_name" autocomplete="off" required placeholder="Customer name"></label>
           <label>ID Number<input name="national_id" inputmode="numeric" autocomplete="off" required pattern="[0-9]{7,8}" placeholder="7 or 8 digits"></label>
           <label>Phone Number<input name="primary_phone" type="tel" inputmode="tel" autocomplete="tel" required placeholder="0712 345 678"></label>
-          <label>BRO Name<input name="bro_name" autocomplete="off" required></label>
+          <label>BRO Name<select name="bro_name" required></select></label>
           <label class="amount-field">Amount (KES)<input name="amount" type="number" inputmode="decimal" min="0" step="1" required placeholder="0"></label>
         </div>
         <div class="form-actions">
@@ -124,7 +127,7 @@
       <section class="search-card">
         <div class="search-title-block">
           <h2>Find Case</h2>
-          <p>Search by case ID, client, branch, or BRO.</p>
+          <p>Search by case ID, client, ID number, phone, branch, or BRO.</p>
         </div>
         <div class="search-row">
           <label class="sr-label" for="searchInput">Search case or client</label>
@@ -133,7 +136,7 @@
               <circle cx="11" cy="11" r="8"/>
               <path d="m21 21-4.3-4.3"/>
             </svg>
-            <input id="searchInput" type="search" autocomplete="off" placeholder="Type case ID, client name...">
+            <input id="searchInput" type="search" autocomplete="off" placeholder="Type client, ID number, phone...">
           </div>
           <button id="searchBtn" type="button" class="primary">Search</button>
         </div>
@@ -141,6 +144,18 @@
       <div id="searchList" class="case-list"></div>
     </section>
 
+    <section id="settingsView" class="view" aria-label="TAT targets">
+      <form id="targetSettingsForm" class="form-card">
+        <div class="form-heading">
+          <h2>TAT Targets</h2>
+          <p>Set the overall and per-stage target in hours. Green is within 80%, amber is near target, and red is overdue.</p>
+        </div>
+        <div id="targetSettingsList" class="target-settings-list" aria-live="polite"></div>
+        <div class="form-actions">
+          <button id="saveTargetSettingsBtn" type="submit" class="primary">Save targets</button>
+        </div>
+      </form>
+    </section>
     <section id="detailView" class="view detail-view" aria-label="Case detail">
       <div class="detail-toolbar">
         <button id="backBtn" type="button" class="ghost-btn">
@@ -182,9 +197,18 @@
         </div>
       </section>
     </section>
+    <div id="noticeModal" class="notice-modal hidden" role="alertdialog" aria-modal="true" aria-labelledby="noticeTitle" aria-describedby="noticeMessage">
+      <div class="notice-dialog">
+        <div class="notice-heading">
+          <h2 id="noticeTitle">Update</h2>
+          <button id="closeNoticeBtn" type="button" class="ghost-btn" aria-label="Close message">Close</button>
+        </div>
+        <p id="noticeMessage"></p>
+      </div>
+    </div>
   </main>
 
   <script src="{% static 'miniapp/telegram.js' %}?v=2"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=7"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=8"></script>
 </body>
 </html>

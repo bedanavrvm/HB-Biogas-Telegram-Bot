@@ -320,33 +320,18 @@ The script does not write, format, merge, unmerge, freeze, unfreeze, filter, or 
 
 ### TAT Target Setup
 
-The target is configured in `tat_tracker_apps_script.gs`:
+TAT targets are configured in the Mini App by staff with the `ADMIN` or `IT` TAT role. Open the **Targets** tab, enter the overall and optional stage targets in hours, then save. Django stores the canonical values in minutes and applies the same targets to Mini App SLA badges.
 
-```js
-TAT_HOURS_TARGET: 336,
-```
+The first workbook setup creates a `TAT TARGETS` support tab. Each Mini App save synchronizes the configured targets to that tab. The Apps Script conditional-format rules reference it directly, so total and stage lag values update without editing script constants.
 
-`336` means 336 hours, which is 14 days.
+Traffic-light rules from row 5 downward:
 
-To change the target:
+- Green: at or below 80% of the configured target.
+- Amber: above 80% and at or below the target.
+- Red: over the target.
+- No colour: no target configured for that total or stage.
 
-1. Open the Google Sheet.
-2. Go to `Extensions -> Apps Script`.
-3. Edit `TAT_HOURS_TARGET`.
-4. Save the script.
-5. Reload the Google Sheet.
-6. Run `TAT Tracker -> Refresh status/TAT highlighting`.
-7. Run `TAT Tracker -> Refresh formulas only` if formula cells need to be rebuilt.
-
-Conditional highlighting from row 5 downward:
-
-- Near target: open case above 80% of target, highlighted light yellow.
-- Over target: open case above target, highlighted light red.
-- Completed late: `TAT Hours` above target, row highlighted light purple.
-- TAT value cells: above 80% of target highlighted yellow; above target highlighted red.
-- Every stage cell: green means completed, amber means pending but still within target, red means pending and over target.
-- Status highlighting still applies for `Disbursed`, `Rejected`, `Declined`, `Deferred`, `Stalled`, and `Pending Docs`.
-
+After deploying the updated Apps Script, run `TAT Tracker -> Create support tabs` once on the tracker workbook to create `TAT TARGETS`. Do not edit that support tab manually; the Mini App owns its values.
 Do not copy old tracker trigger/webapp logic into this workbook. Django/Mini App owns case creation, case IDs, staff permissions, stage ordering, timestamp writes, sheet sync, and audit events. The Apps Script is only for sheet setup and validation guardrails.
 
 Menu added by the script:

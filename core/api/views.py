@@ -140,6 +140,23 @@ def tat_tracker_search(request):
     return JsonResponse({'ok': True, 'results': search_cases(group_config, user, payload.get('query', ''))})
 
 
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def tat_tracker_target_settings(request):
+    payload = _tat_json_body(request)
+    group_id, group_config, user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    from core.services.tat_tracker import can_manage_tat_targets, tat_target_settings, update_tat_target_settings
+    if not can_manage_tat_targets(user):
+        return JsonResponse({'ok': False, 'error': 'Only TAT administrators or IT staff can change SLA targets.'}, status=403)
+    if 'targets' not in payload:
+        return JsonResponse({'ok': True, 'data': {'targets': tat_target_settings(group_config.workflow)}})
+    try:
+        return JsonResponse({'ok': True, 'data': update_tat_target_settings(group_config, user, payload.get('targets'))})
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 @csrf_exempt
 @require_http_methods(["POST"])
 def tat_tracker_create(request):
