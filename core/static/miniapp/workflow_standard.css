@@ -87,3 +87,106 @@
   .workflow-standard .workflow-brand { width: 64px; height: 33px; }
   .workflow-standard .toolbar { gap: 6px; }
 }
+
+/* Shared TAT Tracker mobile scale */
+.workflow-standard {
+  font-size: 14px;
+  line-height: 1.4;
+}
+.workflow-standard header h1 { font-size: 18px; line-height: 1.2; }
+.workflow-standard h2 { font-size: 15px; line-height: 1.3; }
+.workflow-standard h3 { font-size: 13px; line-height: 1.3; }
+.workflow-standard button,
+.workflow-standard .primary,
+.workflow-standard input,
+.workflow-standard select,
+.workflow-standard textarea {
+  font: inherit;
+  font-size: 14px;
+}
+.workflow-standard button,
+.workflow-standard .primary {
+  min-height: 40px;
+  padding: 8px 12px;
+}
+.workflow-standard label,
+.workflow-standard .status,
+.workflow-standard .filter-item { font-size: 12px; }
+.workflow-standard .metric strong,
+.workflow-standard .count-card strong { font-size: 20px; line-height: 1.1; }
+.workflow-standard .metric span,
+.workflow-standard .count-card span,
+.workflow-standard th { font-size: 10px; }
+.workflow-standard td { font-size: 12px; }
+/* Shared shell completion for form, bootstrap, and unavailable screens */
+.workflow-standard > main > section,
+.workflow-standard .spin-form,
+.workflow-standard .form-section {
+  border-radius: 8px;
+  box-shadow: none;
+}
+.workflow-standard .spin-header,
+.workflow-standard .spin-tab-bar {
+  margin-bottom: 10px;
+}
+.workflow-standard .spin-tab-bar .tab-btn {
+  min-height: 40px;
+  font-size: 12px;
+}
+.workflow-standard .empty-state,
+.workflow-standard .status-banner {
+  font-size: 12px;
+  border-radius: 8px;
+}
+.workflow-standard .table-wrap { border-radius: 8px; }
+/* Authoritative shared component language */
+.workflow-standard .form-section,
+.workflow-standard .spin-form,
+.workflow-standard .table-wrap,
+.workflow-standard .count-card,
+.workflow-standard .metric,
+.workflow-standard .status-banner,
+.workflow-standard .draft-banner,
+.workflow-standard .empty-state {
+  background: var(--workflow-surface) !important;
+  border: 1px solid var(--workflow-line) !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+.workflow-standard input:not([type="radio"]):not([type="checkbox"]),
+.workflow-standard select,
+.workflow-standard textarea {
+  min-height: 40px;
+  border: 1px solid var(--workflow-line) !important;
+  border-radius: 8px !important;
+  background: var(--workflow-surface) !important;
+  color: var(--workflow-text) !important;
+}
+.workflow-standard textarea { min-height: 96px; }
+.workflow-standard button:not(.tab-btn),
+.workflow-standard .btn,
+.workflow-standard .primary {
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+.workflow-standard button.primary,
+.workflow-standard .primary,
+.workflow-standard .btn-primary {
+  background: var(--workflow-accent) !important;
+  color: #fff !important;
+}
+.workflow-standard .tab-bar,
+.workflow-standard .spin-tab-bar {
+  border: 1px solid var(--workflow-line);
+  border-radius: 8px;
+  background: var(--workflow-surface);
+}
+.workflow-standard .tab-btn.active,
+.workflow-standard .spin-tab-bar .tab-btn.active {
+  color: var(--workflow-accent) !important;
+  background: var(--workflow-accent-soft) !important;
+}
+.workflow-standard .hint,
+.workflow-standard .record-meta,
+.workflow-standard .count-label { color: var(--workflow-muted) !important; }
+.workflow-standard .workflow-brand + div { min-width: 0; }
