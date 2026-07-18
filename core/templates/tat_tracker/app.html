@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=4">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=7">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=8">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -201,18 +201,19 @@
         </div>
       </section>
     </section>
-    <div id="noticeModal" class="notice-modal hidden" role="alertdialog" aria-modal="true" aria-labelledby="noticeTitle" aria-describedby="noticeMessage">
+    <div id="noticeModal" class="notice-toast hidden" role="status" aria-live="polite" aria-labelledby="noticeTitle" aria-describedby="noticeMessage">
       <div class="notice-dialog">
-        <div class="notice-heading">
+        <span class="notice-icon" aria-hidden="true"></span>
+        <div class="notice-copy">
           <h2 id="noticeTitle">Update</h2>
-          <button id="closeNoticeBtn" type="button" class="ghost-btn" aria-label="Close message">Close</button>
+          <p id="noticeMessage"></p>
         </div>
-        <p id="noticeMessage"></p>
+        <button id="closeNoticeBtn" type="button" class="notice-close" aria-label="Close message">×</button>
       </div>
     </div>
   </main>
 
   <script src="{% static 'miniapp/telegram.js' %}?v=2"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=10"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=11"></script>
 </body>
 </html>

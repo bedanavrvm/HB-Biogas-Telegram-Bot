@@ -15,6 +15,7 @@
 
   const $ = (id) => document.getElementById(id);
   let statusTimeout = null;
+  let noticeTimeout = null;
 
   function readPendingCreateRequestId() {
     try { return window.sessionStorage.getItem('tatPendingCreateRequestId') || ''; } catch (error) { return ''; }
@@ -48,16 +49,22 @@
   }
 
   function closeNotice() {
+    if (noticeTimeout) {
+      clearTimeout(noticeTimeout);
+      noticeTimeout = null;
+    }
     $('noticeModal').classList.add('hidden');
   }
 
   function showNotice(message, tone) {
+    if (noticeTimeout) clearTimeout(noticeTimeout);
     $('noticeTitle').textContent = tone === 'error' ? 'Action needed' : 'Success';
     $('noticeMessage').textContent = message;
-    $('noticeModal').classList.remove('hidden');
-    $('closeNoticeBtn').focus();
+    const toast = $('noticeModal');
+    toast.dataset.tone = tone || 'ok';
+    toast.classList.remove('hidden');
+    noticeTimeout = setTimeout(closeNotice, 5000);
   }
-
   function setStatus(message, tone) {
     if (statusTimeout) {
       clearTimeout(statusTimeout);
@@ -378,9 +385,9 @@
         </div>
         <div class="detail-meta-row">
           <span class="detail-case-id">${escapeHtml(summary.case_id)}</span>
-          <span class="divider">•</span>
+          <span class="divider">ï¿½</span>
           <span class="detail-product">${escapeHtml(summary.product || '')}</span>
-          <span class="divider">•</span>
+          <span class="divider">ï¿½</span>
           <span class="detail-branch">${escapeHtml(summary.branch || '')}</span>
         </div>
       </div>
@@ -499,7 +506,7 @@
               <strong class="event-stage">${escapeHtml(event.stage)}</strong>
               <span class="event-value-badge">${escapeHtml(event.value)}</span>
             </div>
-            <div class="event-meta">${escapeHtml(event.actor)} • ${escapeHtml(event.at)}</div>
+            <div class="event-meta">${escapeHtml(event.actor)} ï¿½ ${escapeHtml(event.at)}</div>
           </div>
         `;
         events.appendChild(row);
@@ -553,9 +560,6 @@
   });
 
   $('closeNoticeBtn').addEventListener('click', closeNotice);
-  $('noticeModal').addEventListener('click', (event) => {
-    if (event.target === $('noticeModal')) closeNotice();
-  });
 
   $('searchBtn').addEventListener('click', runSearch);
   $('searchInput').addEventListener('input', scheduleSearch);

@@ -269,33 +269,60 @@ h2 { font-size: 13px; font-weight: 750; }
   color: var(--tat-info);
 }
 
-.notice-modal {
+.notice-toast {
   position: fixed;
-  inset: 0;
+  top: max(12px, env(safe-area-inset-top));
+  right: 12px;
+  left: 12px;
   z-index: 1000;
-  display: grid;
-  place-items: center;
-  padding: 20px;
-  background: rgba(15, 23, 42, 0.48);
+  pointer-events: none;
 }
 .notice-dialog {
-  width: min(100%, 360px);
+  width: min(100%, 440px);
+  margin: 0 auto;
   display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
   gap: 10px;
-  padding: 14px;
-  border: 1px solid var(--tat-line);
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--tat-info) 24%, var(--tat-line));
   border-radius: var(--radius);
   background: var(--tat-surface);
-  box-shadow: 0 16px 48px rgba(15, 23, 42, 0.28);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.18);
+  pointer-events: auto;
 }
-.notice-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+.notice-icon {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--tat-ok-soft);
+  color: var(--tat-ok);
 }
-.notice-heading h2 { font-size: 14px; }
-.notice-dialog p { color: var(--tat-text); font-size: 13px; }
+.notice-icon::before { content: '\2713'; font-size: 14px; font-weight: 900; }
+.notice-toast[data-tone="error"] .notice-dialog { border-color: color-mix(in srgb, var(--tat-danger) 30%, var(--tat-line)); }
+.notice-toast[data-tone="error"] .notice-icon { background: var(--tat-danger-soft); color: var(--tat-danger); }
+.notice-toast[data-tone="error"] .notice-icon::before { content: '!'; }
+.notice-copy { min-width: 0; display: grid; gap: 2px; }
+.notice-copy h2 { font-size: 13px; line-height: 1.25; }
+.notice-copy p { color: var(--tat-muted); font-size: 12px; line-height: 1.35; }
+.notice-close {
+  display: grid;
+  width: 28px;
+  min-height: 28px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+  color: var(--tat-muted);
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1;
+}
+.notice-close:hover, .notice-close:focus-visible { background: var(--tat-surface-2); color: var(--tat-text); }
 /* Segmented Tabs */
 .tabs {
   display: grid;
