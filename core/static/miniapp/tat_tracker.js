@@ -1,4 +1,3 @@
-    if (event.key === 'Enter') event.preventDefault();
 (function () {
   const tg = window.MiniAppTelegram ? window.MiniAppTelegram.init() : null;
   const body = document.body;
