@@ -356,6 +356,27 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(staff.branches, 'Nakuru,Embu')
         self.assertEqual(staff.products, 'sme,logbook')
 
+    def test_staff_admin_form_limits_branches_to_the_group_configuration(self):
+        self.config.workflow['branches'] = ['Muranga', 'Thika Road']
+        self.config.save(update_fields=['workflow'])
+        data = {
+            'group_configuration': str(self.config.pk),
+            'name': 'Configured Branch Staff',
+            'telegram_user_id': '334',
+            'roles': ['BRO'],
+            'branches': ['Nakuru'],
+            'products': ['sme'],
+            'active': 'on',
+        }
+
+        form = TatTrackerStaffMemberAdminForm(data=data)
+
+        self.assertEqual(
+            list(form.fields['branches'].choices),
+            [('ALL', 'All branches'), ('Muranga', 'Muranga'), ('Thika Road', 'Thika Road')],
+        )
+        self.assertFalse(form.is_valid())
+
     def test_group_admin_form_exposes_tat_targets_from_workflow(self):
         self.config.workflow.setdefault('tat_targets_minutes', {}).setdefault(
             'sme',

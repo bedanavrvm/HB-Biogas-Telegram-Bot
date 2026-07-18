@@ -16,6 +16,7 @@ from core.services.workflow_presets import (
     preset_choices,
     preset_for_workflow,
 )
+from core.services.branches import global_branch_choices, workflow_branches as configured_workflow_branches
 from core.services.tat_tracker import PRODUCTS
 
 from .models import (
@@ -787,6 +788,7 @@ class TatTrackerStaffMemberAdminForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._set_configured_branch_choices()
         if self.instance and self.instance.pk:
             self._set_multi_initial('roles', self._split(self.instance.roles))
             self._set_multi_initial('branches', self._split(self.instance.branches))
@@ -806,6 +808,22 @@ class TatTrackerStaffMemberAdminForm(forms.ModelForm):
     def clean_products(self):
         selected = self.cleaned_data.get('products') or ['ALL']
         return 'ALL' if 'ALL' in selected else ','.join(selected)
+
+    def _set_configured_branch_choices(self):
+        group_configuration = self._selected_group_configuration()
+        workflow = getattr(group_configuration, 'workflow', None) or {}
+        branches = configured_workflow_branches(workflow, default=global_branch_choices())
+        self.fields['branches'].choices = [('ALL', 'All branches')] + [
+            (branch, branch) for branch in branches
+        ]
+
+    def _selected_group_configuration(self):
+        if self.instance and self.instance.group_configuration_id:
+            return self.instance.group_configuration
+        group_id = self.data.get(self.add_prefix('group_configuration')) or self.initial.get('group_configuration')
+        if not group_id:
+            return None
+        return GroupSheetConfiguration.objects.filter(pk=group_id).first()
 
     @staticmethod
     def _split(value):

@@ -559,13 +559,14 @@
   });
   $('backBtn').addEventListener('click', () => { show('queue'); refresh().catch(() => {}); });
   $('saveRemarksBtn').addEventListener('click', async (event) => {
+    const button = event.currentTarget;
     try {
-      setButtonLoading(event.currentTarget, true, 'Saving');
+      setButtonLoading(button, true, 'Saving');
       await submitUpdate([{ field: 'remarks', value: $('remarksInput').value }]);
     } catch (error) {
       setStatus(error.message, 'error');
     } finally {
-      setButtonLoading(event.currentTarget, false);
+      setButtonLoading(button, false);
     }
   });
   $('targetSettingsForm').addEventListener('submit', async (event) => {
