@@ -1,0 +1,87 @@
+:root {
+  --workflow-accent: #1685d1;
+  --workflow-accent-soft: #e8f5fc;
+  --workflow-surface: var(--tg-theme-secondary-bg-color, #ffffff);
+  --workflow-page: var(--tg-theme-bg-color, #f5f7f8);
+  --workflow-text: var(--tg-theme-text-color, #17212b);
+  --workflow-muted: var(--tg-theme-hint-color, #6d7a86);
+  --workflow-line: color-mix(in srgb, var(--workflow-text) 12%, transparent);
+}
+
+.workflow-standard {
+  background: var(--workflow-page);
+  color: var(--workflow-text);
+  font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.workflow-standard main {
+  width: min(100%, 960px);
+  margin: 0 auto;
+  padding: 12px;
+}
+
+.workflow-standard header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding: 8px 0;
+}
+
+.workflow-standard .workflow-brand {
+  width: 80px;
+  height: 41px;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.workflow-standard header h1 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.workflow-standard .meta,
+.workflow-standard header p {
+  margin: 3px 0 0;
+  color: var(--workflow-muted);
+  font-size: 12px;
+}
+
+.workflow-standard .toolbar,
+.workflow-standard .filter-bar,
+.workflow-standard .status {
+  border: 1px solid var(--workflow-line);
+  border-radius: 8px;
+  background: var(--workflow-surface);
+}
+
+.workflow-standard button,
+.workflow-standard .primary {
+  min-height: 36px;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 700;
+}
+
+.workflow-standard button.primary,
+.workflow-standard .primary {
+  background: var(--workflow-accent);
+}
+
+.workflow-standard .summary,
+.workflow-standard .count-grid {
+  gap: 8px;
+}
+
+.workflow-standard .metric,
+.workflow-standard .count-card {
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+@media (max-width: 520px) {
+  .workflow-standard main { padding: 8px; }
+  .workflow-standard .workflow-brand { width: 64px; height: 33px; }
+  .workflow-standard .toolbar { gap: 6px; }
+}

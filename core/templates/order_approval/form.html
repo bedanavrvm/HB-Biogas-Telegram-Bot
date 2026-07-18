@@ -1,3 +1,4 @@
+{% load static %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -795,8 +796,9 @@
       }
     }
   </style>
+<link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=1">
 </head>
-<body>
+<body class="workflow-standard">
   <main>
     <header>
       <div>

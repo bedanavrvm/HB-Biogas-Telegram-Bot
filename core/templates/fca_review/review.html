@@ -8,10 +8,12 @@
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/fca_review.css' %}">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=1">
 </head>
-<body>
+<body class="workflow-standard">
 <main>
   <header>
+<img class="workflow-brand" src="{% static 'miniapp/jawabu-logo.png' %}" alt="Jawabu">
     <div>
       <h1>Review FCA Upload</h1>
       <p class="meta">Batch {{ batch_id }}</p>

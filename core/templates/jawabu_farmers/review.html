@@ -8,10 +8,12 @@
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}">
   <link rel="stylesheet" href="{% static 'miniapp/farmup_review.css' %}">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=1">
 </head>
-<body>
+<body class="workflow-standard">
 <main>
   <header>
+<img class="workflow-brand" src="{% static 'miniapp/jawabu-logo.png' %}" alt="Jawabu">
     <div>
       <h1>Review Farmers Upload</h1>
       <p class="meta">{{ batch.source_filename }} &middot; {{ batch.total_rows }} row{{ batch.total_rows|pluralize }}</p>
