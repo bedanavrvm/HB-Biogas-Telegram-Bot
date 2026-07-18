@@ -471,7 +471,9 @@ function applyStatusConditionalFormatting_(sheet, layout) {
 }
 
 function tatTargetFormula_(productKey, stageKey) {
-  return `SUMIFS('TAT TARGETS'!$C:$C,'TAT TARGETS'!$A:$A,"${productKey}",'TAT TARGETS'!$B:$B,"${stageKey}")`;
+  // Conditional-format rules cannot directly reference another tab. INDIRECT keeps
+  // the cross-tab ranges inside a string while still recalculating from TAT TARGETS.
+  return `SUMIFS(INDIRECT("'TAT TARGETS'!C:C"),INDIRECT("'TAT TARGETS'!A:A"),"${productKey}",INDIRECT("'TAT TARGETS'!B:B"),"${stageKey}")`;
 }
 
 function trafficLightRules_(range, column, row, targetFormula) {
