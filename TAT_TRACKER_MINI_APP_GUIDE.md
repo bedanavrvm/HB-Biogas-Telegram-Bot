@@ -308,12 +308,12 @@ The script creates/refreshes:
 - Branch, decision, sanctions, register, register approval, and status dropdowns from row 5 downward. Branch values are `Biogas Unit`, `Embu`, `Nakuru`, and `West Nairobi`.
 - Amount validation by product from row 5 downward.
 - Date/time and amount number formats from row 5 downward.
-- TAT Hours and TAT Days formulas from row 5 downward.
+- Numeric formatting for Django-calculated TAT Hours, TAT Days, and stage-lag values from row 5 downward.
 - Conditional row highlighting by `Status` and TAT target from row 5 downward.
 - Direct conditional highlighting on the `TAT Hours` and `TAT Days` cells: near target is yellow, over target is red.
 - Traffic-light highlighting on every workflow stage column from row 5 downward: completed stages are green, pending stages within target are amber, and pending stages over target are red.
 
-Django does not write into `TAT Hours` or `TAT Days`. Those are formula-owned sheet columns. If Google Sheets shows `Invalid: ... violates data validation rule` on those columns, run `TAT Tracker -> Refresh formulas only`; this clears stale validation from the formula columns and reapplies the formulas.
+Django writes calculated values into `TAT Hours`, `TAT Days`, and configured stage-lag columns. If Google Sheets shows `Invalid: ... violates data validation rule` on those columns, run `TAT Tracker -> Refresh formulas only`; this clears stale validation and reapplies the display formatting.
 
 
 The script does not write, format, merge, unmerge, freeze, unfreeze, filter, or resize rows 1-3. It does not standardize visual headers. Keep the tracker visual design in the workbook/template itself.
@@ -322,7 +322,7 @@ The script does not write, format, merge, unmerge, freeze, unfreeze, filter, or 
 
 TAT targets are configured in the Mini App by staff with the `IT` TAT role. Open the **Targets** tab, enter the overall and optional stage targets in whole minutes, then save. Django stores the canonical values in minutes and applies the same targets to Mini App SLA badges.
 
-The first workbook setup creates a `TAT TARGETS` support tab. Each Mini App save synchronizes the configured targets to that tab. The Apps Script conditional-format rules reference it directly, so total and stage lag values update without editing script constants.
+The first IT target save creates `TAT TARGETS` automatically if it is missing, then synchronizes the configured targets to that tab. The Apps Script uses hidden same-sheet helper cells sourced from that tab, so conditional formatting does not rely on unsupported cross-sheet rules.
 
 Traffic-light rules from row 5 downward:
 
@@ -331,7 +331,7 @@ Traffic-light rules from row 5 downward:
 - Red: over the target.
 - No colour: no target configured for that total or stage.
 
-After deploying the updated Apps Script, run `TAT Tracker -> Create support tabs` once on the tracker workbook to create `TAT TARGETS`. Do not edit that support tab manually; the Mini App owns its values.
+After deploying the updated Apps Script, run `TAT Tracker -> Refresh TAT highlighting` once on the tracker workbook. Do not edit that support tab manually; the Mini App owns its values.
 Do not copy old tracker trigger/webapp logic into this workbook. Django/Mini App owns case creation, case IDs, staff permissions, stage ordering, timestamp writes, sheet sync, and audit events. The Apps Script is only for sheet setup and validation guardrails.
 
 Menu added by the script:

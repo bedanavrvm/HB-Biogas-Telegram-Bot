@@ -2,6 +2,144 @@
 
 This document explains how the TAT Tracker calculates turnaround time, how case status changes, and how the sheet/mini app should interpret the values.
 
+> **Current implementation note (July 2026):** The sections below describe the business rules. The definitive implementation is Django-calculated TAT values, IT-managed minute targets, and sheet-local helper cells for conditional formatting. The `TAT TARGETS` support tab is created automatically on the first successful IT target save; it is not expected to exist before that action.
+
+## Current Target and Highlighting Implementation
+
+### Data ownership and flow
+
+Django owns workflow timestamps, calculations, targets, and SLA classification. The Google workbook is the operational display; Apps Script only sets up workbook formatting and conditional rules.
+
+```text
+Telegram Mini App stage update
+  -> Django stores case state and append-only audit event
+  -> Django calculates total and per-stage elapsed values
+  -> Django writes numeric display values to the tracker tab
+
+IT saves Targets in the Mini App
+  -> Django stores tat_targets_minutes in the group workflow
+  -> Django creates/synchronizes the TAT TARGETS support tab
+  -> Apps Script copies target lookups into hidden same-sheet helper cells
+  -> Google Sheets conditional formatting colours visible TAT cells
+```
+
+Saving source files in this repository does **not** update the live Google Apps Script. The latest `tat_tracker_apps_script.gs` must be pasted/saved in the workbook’s Apps Script project.
+
+### Canonical unit: minutes
+
+All targets are whole **minutes**. Hours and days are display conversions only.
+
+| Value | Unit | Calculation |
+|---|---:|---|
+| Overall TAT | minutes | `end - created` |
+| TAT Hours | hours | `overall minutes / 60` |
+| TAT Days | days | `overall minutes / 1440` |
+| Stage TAT / lag | minutes | `stage end - previous completed stage` |
+
+The hour and day values are rounded to two decimal places. Target inputs must be whole minutes between `0` and `5,256,000`.
+
+### Overall TAT end point
+
+The start is always the case creation timestamp. The end is selected by state:
+
+| Status | Overall TAT end |
+|---|---|
+| `Rejected` / `Declined` | Decision timestamp |
+| `Disbursed` | Finance disbursement timestamp |
+| Any non-terminal status | Current Kenya time, so the value continues running |
+
+Negative differences are clamped to zero. Timestamps are timezone-aware and displayed in `Africa/Nairobi`.
+
+### Stage lag calculation
+
+The first stage starts at case creation. Every later stage starts when the immediately preceding completed stage ended. The current next actionable stage is live-calculated to the present time; later unreachable stages remain blank.
+
+```text
+MPESA sent to Admin lag = MPESA sent timestamp - case created timestamp
+MPESA verified lag      = MPESA verified timestamp - MPESA sent timestamp
+```
+
+Dropdown stages use their automatic timestamps for the calculation where available:
+
+- Decision → `decision_ts`
+- Sanctions → `sanctions_ts`
+- Disbursement register → `register_ts`
+
+### Target storage and lookup
+
+IT staff configure targets in the Mini App. Django stores them under `tat_targets_minutes` by product and stage key:
+
+```json
+{
+  "tat_targets_minutes": {
+    "sme": {
+      "total": 20160,
+      "stages": {
+        "mpesa_to_admin": 60,
+        "mpesa_verified": 120
+      }
+    }
+  }
+}
+```
+
+On save, the same values are written to `TAT TARGETS`:
+
+| Column | Contents |
+|---|---|
+| A | Product key: `sme`, `logbook`, `mjengo`, `kilimo`, or `micro_asset` |
+| B | `__total__` or the exact stage key |
+| C | Target minutes |
+| D | Near ratio (`0.8`) |
+
+The total target defaults to `20,160` minutes (336 hours / 14 days) per product. Stage targets are optional and blank by default. Without a positive target, the elapsed value remains visible but correctly receives no SLA colour.
+
+### Near ratio and traffic lights
+
+The near ratio is `0.8`, meaning 80% of the target.
+
+```text
+near threshold = target × 0.8
+```
+
+| Elapsed value | SLA state | Sheet colour |
+|---|---|---|
+| Blank, or no positive target | blank | No colour |
+| Less than 80% of target | `within` | Green |
+| At least 80% and at most 100% | `near` | Amber |
+| More than 100% | `over` | Red |
+
+Boundary examples for a 60-minute target:
+
+| Elapsed | Result |
+|---:|---|
+| 47 minutes | Green |
+| 48 minutes (80%) | Amber |
+| 60 minutes (100%) | Amber |
+| 61 minutes | Red |
+
+For the overall totals, Apps Script converts the minute target before comparison:
+
+- `TAT Hours` compares against `target minutes / 60`.
+- `TAT Days` compares against `target minutes / 1440`.
+- Stage-lag columns compare directly in minutes.
+
+### Why the support tab and helper cells matter
+
+Google conditional formatting cannot reliably evaluate a formula that directly reads a different tab. The script therefore reads `TAT TARGETS` into hidden cells on each tracker tab and has the visible conditional rules reference only those same-sheet cells. This prevents the “conditional format rule cannot reference a different sheet” failure.
+
+### Required setup and recovery checklist
+
+1. Deploy Django so the automatic `TAT TARGETS` creation code is live.
+2. Confirm the Google service account is an Editor on the tracker workbook.
+3. As an IT user, save the total and stage targets once in the Mini App.
+4. Confirm `TAT TARGETS` now exists and contains rows such as `sme | __total__ | 20160 | 0.8`.
+5. Update and save `tat_tracker_apps_script.gs` in **Extensions → Apps Script**.
+6. Reload the workbook and run **TAT Tracker → Refresh TAT highlighting**.
+7. Test a value below 80%, at 80–100%, and above 100%.
+
+If the cell still has no colour after these steps, verify the product key and stage key exactly match the rows in `TAT TARGETS`; a missing or zero target intentionally produces no colour.
+
 ## Source Of Truth
 
 Django is the source of truth for TAT cases.
@@ -441,4 +579,4 @@ Do not manually edit stage timestamps unless you are deliberately correcting a r
 
 Staff with the TAT `IT` role configure total and stage targets in the Mini App. Django stores them in the group workflow under `tat_targets_minutes`, using minutes as the canonical unit.
 
-On save, Django synchronizes the targets to the Apps Script-owned `TAT TARGETS` support tab. Conditional-format formulas for total and stage lag columns read that tab directly. This keeps the Mini App badges and sheet traffic lights aligned without treating Google Sheets as the workflow source of truth.
+On save, Django synchronizes the targets to the `TAT TARGETS` support tab. Apps Script mirrors those values into hidden helper cells on each tracker tab, and the visible conditional-format rules read only those local cells. This keeps the Mini App badges and sheet traffic lights aligned without treating Google Sheets as the workflow source of truth.
