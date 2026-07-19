@@ -1,9 +1,12 @@
 from unittest.mock import MagicMock, patch
 from decimal import Decimal
+from io import StringIO
 import json
+from pathlib import Path
 
 from django.contrib import admin
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 
@@ -34,6 +37,7 @@ from core.services.tat_tracker import (
     next_role_alert,
     staff_user_for_payload,
     sync_case_to_sheet,
+    resync_tat_tracker_cases,
     search_cases,
     sync_tat_target_settings_to_sheet,
     validate_tracker_identity_headers,
@@ -1284,3 +1288,99 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(case.status, 'Active')
         self.assertEqual(detail['summary']['next_stage_key'], 'minutes_shared')
         self.assertEqual(case.events.get(stage_key='decision').old_value, 'Rejected')
+
+
+class TatTrackerRepairTest(TestCase):
+    def setUp(self):
+        self.config = GroupSheetConfiguration.objects.create(
+            group_id='-100tat-repair',
+            display_name='TAT Repair Test',
+            sheet_id='sheet-repair',
+            sheet_name='TRACKER-SME',
+            workflow={'type': 'tat_tracker', 'products': ['sme', 'logbook']},
+        )
+        self.repairable_case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-SME',
+            row_number=5,
+            case_id='JBL-SME-2026-REPAIR',
+            product_key='sme',
+            product_label='SME',
+            client_name='Repairable Client',
+            branch='Nakuru',
+            status='Active',
+            stage_values={'created': timezone.now().isoformat()},
+        )
+        TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-LOGBOOK',
+            row_number=6,
+            case_id='JBL-LB-2026-REPAIR',
+            product_key='logbook',
+            product_label='Logbook',
+            client_name='Other Product',
+            branch='Nakuru',
+            status='Active',
+            stage_values={'created': timezone.now().isoformat()},
+        )
+        TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-SME',
+            case_id='JBL-SME-2026-UNLINKED',
+            product_key='sme',
+            product_label='SME',
+            client_name='Unlinked Client',
+            branch='Nakuru',
+            status='Active',
+            stage_values={'created': timezone.now().isoformat()},
+        )
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_repair_resync_limits_to_linked_cases_and_selected_product(self, sync_case):
+        result = resync_tat_tracker_cases(self.config, product_key='sme')
+
+        self.assertEqual(result, {'candidates': 1, 'synced': 1, 'skipped_unlinked': 1, 'failed': []})
+        sync_case.assert_called_once_with(self.config, self.repairable_case)
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_repair_dry_run_does_not_write_to_google_sheets(self, sync_case):
+        result = resync_tat_tracker_cases(self.config, dry_run=True)
+
+        self.assertEqual(result['candidates'], 2)
+        self.assertEqual(result['synced'], 0)
+        self.assertEqual(result['skipped_unlinked'], 1)
+        sync_case.assert_not_called()
+
+    def test_apps_script_contains_an_explicit_formula_only_repair(self):
+        source = (Path(__file__).resolve().parent.parent / 'tat_tracker_apps_script.gs').read_text(encoding='utf-8')
+
+        self.assertIn("'Remove legacy TAT formulas (safe)'", source)
+        self.assertIn('function clearLegacyTatFormulas()', source)
+        self.assertIn('range.getFormulas()', source)
+        self.assertIn('getRangeList(formulaCells).clearContent()', source)
+
+    @patch('core.management.commands.resync_tat_tracker_cases.resync_tat_tracker_cases')
+    def test_repair_command_passes_dry_run_without_writing(self, resync):
+        resync.return_value = {'candidates': 2, 'synced': 0, 'skipped_unlinked': 1, 'failed': []}
+        output = StringIO()
+
+        call_command(
+            'resync_tat_tracker_cases',
+            f'--group-id={self.config.group_id}',
+            '--product',
+            'sme',
+            '--dry-run',
+            stdout=output,
+        )
+
+        resync.assert_called_once_with(
+            self.config,
+            product_key='sme',
+            case_ids=[],
+            dry_run=True,
+            limit=None,
+        )
+        self.assertIn("'synced': 0", output.getvalue())

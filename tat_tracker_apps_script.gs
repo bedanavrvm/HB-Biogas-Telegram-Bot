@@ -249,6 +249,7 @@ function onOpen() {
     .addItem('Remove legacy protections', 'removeLegacyTatProtectionsMenu')
     .addItem('Refresh validations only', 'refreshTatValidations')
     .addItem('Refresh TAT value formatting', 'refreshTatFormulas')
+    .addItem('Remove legacy TAT formulas (safe)', 'clearLegacyTatFormulas')
     .addItem('Refresh TAT highlighting', 'refreshTatHighlighting')
     .addItem('Create support tabs', 'setupTatSupportTabs')
     .addSeparator()
@@ -322,6 +323,43 @@ function refreshTatFormulas() {
     if (sheet) applyTatFormulas_(sheet, PRODUCT_LAYOUTS[sheetName]);
   });
   SpreadsheetApp.getUi().alert('TAT value formatting refreshed. Django writes calculated TAT values.');
+}
+
+function clearLegacyTatFormulas() {
+  const ui = SpreadsheetApp.getUi();
+  const choice = ui.alert(
+    'Remove legacy TAT formulas',
+    'This clears formulas only in TAT Hours, TAT Days, and stage-TAT cells. It does not clear normal numeric values, case details, or workflow timestamps. Re-sync linked cases from Django immediately afterwards.',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (choice !== ui.Button.OK) return;
+
+  const ss = SpreadsheetApp.getActive();
+  let removed = 0;
+  TAT_CONFIG.TRACKER_SHEETS.forEach(function(sheetName) {
+    const sheet = ss.getSheetByName(sheetName);
+    if (sheet) removed += clearLegacyTatFormulasFromSheet_(sheet, PRODUCT_LAYOUTS[sheetName]);
+  });
+  ui.alert('Removed ' + removed + ' legacy TAT formula cell(s). Now run the Django TAT re-sync command, starting with --dry-run.');
+}
+
+function clearLegacyTatFormulasFromSheet_(sheet, layout) {
+  const startRow = TAT_CONFIG.DATA_START_ROW;
+  const rowCount = Math.max(sheet.getLastRow() - startRow + 1, 0);
+  if (!rowCount) return 0;
+  const startColumn = layout.cols.tatHours;
+  const columnCount = layout.headers.length - startColumn + 1;
+  const range = sheet.getRange(startRow, startColumn, rowCount, columnCount);
+  const formulas = range.getFormulas();
+  const formulaCells = [];
+
+  formulas.forEach(function(row, rowIndex) {
+    row.forEach(function(formula, columnIndex) {
+      if (formula) formulaCells.push(colLetter_(startColumn + columnIndex) + (startRow + rowIndex));
+    });
+  });
+  if (formulaCells.length) sheet.getRangeList(formulaCells).clearContent();
+  return formulaCells.length;
 }
 
 function refreshTatHighlighting() {

@@ -665,6 +665,55 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
         raise
 
 
+def resync_tat_tracker_cases(
+    group_config,
+    *,
+    product_key: str = '',
+    case_ids: list[str] | None = None,
+    dry_run: bool = False,
+    limit: int | None = None,
+) -> dict[str, object]:
+    """Re-write linked TAT cases from Django without creating unknown rows.
+
+    This is intentionally an explicit repair operation. Cases that do not have
+    a stored tracker row are skipped, rather than appended, so an operator
+    cannot accidentally duplicate a manually maintained spreadsheet row.
+    """
+    selected_product = str(product_key or '').strip()
+    if selected_product and selected_product not in PRODUCTS:
+        raise ValueError(f'Unknown TAT product: {selected_product}.')
+
+    selected_case_ids = [str(case_id).strip() for case_id in (case_ids or []) if str(case_id).strip()]
+    queryset = TatTrackerCase.objects.filter(group_id=str(group_config.group_id))
+    if selected_product:
+        queryset = queryset.filter(product_key=selected_product)
+    if selected_case_ids:
+        queryset = queryset.filter(case_id__in=selected_case_ids)
+
+    linked_cases = queryset.filter(row_number__gt=0).order_by('product_key', 'case_id')
+    skipped_unlinked = queryset.exclude(row_number__gt=0).count()
+    if limit is not None:
+        linked_cases = linked_cases[:max(0, int(limit))]
+    candidates = list(linked_cases)
+    result: dict[str, object] = {
+        'candidates': len(candidates),
+        'synced': 0,
+        'skipped_unlinked': skipped_unlinked,
+        'failed': [],
+    }
+    if dry_run:
+        return result
+
+    for case in candidates:
+        try:
+            sync_case_to_sheet(group_config, case)
+            result['synced'] = int(result['synced']) + 1
+        except Exception as exc:
+            logger.exception('TAT repair re-sync failed for %s', case.case_id)
+            result['failed'].append({'case_id': case.case_id, 'error': str(exc)})
+    return result
+
+
 def resolve_tat_sheet_columns(product: ProductConfig, headers: list[Any]) -> dict[str, int]:
     normalized_headers = {
         normalize_header(header): index

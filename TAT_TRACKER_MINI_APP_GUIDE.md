@@ -315,6 +315,17 @@ The script creates/refreshes:
 
 Django writes calculated values into `TAT Hours`, `TAT Days`, and configured stage-lag columns. If Google Sheets shows `Invalid: ... violates data validation rule` on those columns, run `TAT Tracker -> Refresh formulas only`; this clears stale validation and reapplies the display formatting.
 
+### One-time repair for old TAT formulas
+
+Older workbook versions may still contain formulas in cells that Django now owns. Do not manually clear the TAT columns: that can erase valid numeric values. First make a Sheet copy, then run `TAT Tracker -> Remove legacy TAT formulas (safe)`. It removes formulas only from TAT Hours, TAT Days, and stage-TAT cells while preserving non-formula values and all case data. Immediately re-sync linked rows from Django using the repair command below, starting with `--dry-run`.
+
+```bash
+python manage.py resync_tat_tracker_cases --group-id=-100YOUR_GROUP_ID --dry-run
+python manage.py resync_tat_tracker_cases --group-id=-100YOUR_GROUP_ID
+```
+
+The command skips cases with no stored Sheet row number to avoid creating a duplicate row. Resolve those separately before using `--case-id` or normal Mini App updates.
+
 
 The script does not write, format, merge, unmerge, freeze, unfreeze, filter, or resize rows 1-3. It does not standardize visual headers. Keep the tracker visual design in the workbook/template itself.
 
