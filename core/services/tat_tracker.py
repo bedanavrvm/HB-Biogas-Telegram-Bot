@@ -226,8 +226,24 @@ def build_tat_tracker_mini_app_url(group_id: str) -> str:
     return f"https://t.me/{bot_username}/{short_name}?startapp={create_tat_start_param(group_id)}"
 
 
+def build_tat_tracker_launcher_url(group_id: str) -> str:
+    """Return a durable group launcher URL for a pinned Telegram message."""
+    bot_username = str(getattr(settings, 'TELEGRAM_BOT_USERNAME', '') or '').strip().lstrip('@')
+    short_name = str(getattr(settings, 'TAT_TRACKER_MINI_APP_SHORT_NAME', '') or '').strip().strip('/')
+    if not bot_username or not short_name:
+        return ''
+    return f"https://t.me/{bot_username}/{short_name}?startapp={create_tat_launcher_start_param(group_id)}"
+
+
 def create_tat_start_param(group_id: str) -> str:
     payload = {'group_id': str(group_id), 'token': create_tat_form_token(group_id)}
+    encoded = base64.urlsafe_b64encode(json.dumps(payload, separators=(',', ':')).encode('utf-8')).decode('ascii')
+    return encoded.rstrip('=')
+
+
+def create_tat_launcher_start_param(group_id: str) -> str:
+    """Create the non-expiring locator used only by the pinned JBL Apps message."""
+    payload = {'group_id': str(group_id), 'launcher': 'jbl_apps'}
     encoded = base64.urlsafe_b64encode(json.dumps(payload, separators=(',', ':')).encode('utf-8')).decode('ascii')
     return encoded.rstrip('=')
 
@@ -245,6 +261,8 @@ def decode_tat_start_param(start_param: str) -> dict[str, str]:
         return {}
     group_id = str(payload.get('group_id', '')).strip()
     token = str(payload.get('token', '')).strip()
+    if str(payload.get('launcher', '')).strip() == 'jbl_apps' and group_id:
+        return {'group_id': group_id, 'token': ''}
     if not group_id or not token:
         return {}
     return {'group_id': group_id, 'token': token}

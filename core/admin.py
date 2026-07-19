@@ -18,6 +18,7 @@ from core.services.workflow_presets import (
 )
 from core.services.branches import global_branch_choices, workflow_branches as configured_workflow_branches
 from core.services.tat_tracker import PRODUCTS
+from core.services.telegram_launchers import MINI_APP_LAUNCHER_CHOICES, default_launcher_keys
 
 from .models import (
     CaseUpdate,
@@ -257,6 +258,13 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
         help_text=get_preset('jawabu_homebiogas')['admin_fields']['internal_order_record_id_prefix']['help_text'],
     )
 
+    mini_app_launchers = forms.MultipleChoiceField(
+        choices=MINI_APP_LAUNCHER_CHOICES,
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        label='Pinned JBL Apps',
+        help_text='Choose the generic Mini Apps available from this group\'s pinned JBL Apps message.',
+    )
     class Meta:
         model = GroupSheetConfiguration
         fields = '__all__'
@@ -264,6 +272,14 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         workflow = getattr(self.instance, 'workflow', None) or {}
+        configured_launchers = workflow.get('mini_app_launchers')
+        selected_launchers = (
+            configured_launchers
+            if isinstance(configured_launchers, list)
+            else default_launcher_keys(workflow)
+        )
+        self.fields['mini_app_launchers'].initial = selected_launchers
+        self.initial['mini_app_launchers'] = selected_launchers
         preset_key = preset_for_workflow(workflow)
         self.fields['workflow_preset'].initial = preset_key
         if preset_key == 'case':
@@ -398,6 +414,7 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
         if preset_key == MANUAL_PRESET:
             workflow = dict(self.cleaned_data.get('workflow') or {})
             existing_workflow = getattr(self.instance, 'workflow', None) or {}
+            workflow['mini_app_launchers'] = list(self.cleaned_data.get('mini_app_launchers') or [])
             if (
                 workflow.get('type') == 'tat_tracker'
                 or existing_workflow.get('type') == 'tat_tracker'
@@ -406,8 +423,8 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
             ):
                 workflow['tat_targets_minutes'] = self.tat_targets_minutes()
                 return workflow
-            return None
-        return build_workflow_from_preset(
+            return workflow
+        workflow = build_workflow_from_preset(
             preset_key,
             overrides={
                 'case_header_row': self.cleaned_data.get('case_header_row'),
@@ -437,6 +454,8 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 'tat_targets_minutes': self.tat_targets_minutes(),
             },
         )
+        workflow['mini_app_launchers'] = list(self.cleaned_data.get('mini_app_launchers') or [])
+        return workflow
 
     def tat_targets_minutes(self) -> dict:
         existing_workflow = (
@@ -850,6 +869,7 @@ class TatTrackerStaffMemberInline(admin.StackedInline):
 class GroupSheetConfigurationAdmin(admin.ModelAdmin):
     form = GroupSheetConfigurationAdminForm
     inlines = [TatTrackerStaffMemberInline]
+    actions = ['publish_jbl_apps_launchers', 'preview_jbl_apps_launchers']
     list_display = [
         'display_label', 'group_id', 'enabled', 'sheet_name',
         'sheet_link', 'live_records_link', 'data_records_link',
@@ -891,6 +911,13 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
                 'workflow. The workflow JSON below will be generated '
                 'automatically where a preset applies. '
                 'Only the relevant settings section will expand below.'
+            ),
+        }),
+        ('Pinned JBL Apps Launcher', {
+            'fields': ('mini_app_launchers',),
+            'description': (
+                'Select the generic Mini Apps available in this Telegram group. '
+                'Use the Publish JBL Apps launcher action after saving; saving alone never sends Telegram messages.'
             ),
         }),
         ('Case / Complaints Settings', {
@@ -973,6 +1000,66 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
     class Media:
         js = ('admin/js/workflow_preset_toggle.js',)
 
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if not request.user.is_superuser:
+            actions.pop('publish_jbl_apps_launchers', None)
+        return actions
+
+    @admin.action(description='Publish / refresh JBL Apps launcher')
+    def publish_jbl_apps_launchers(self, request, queryset):
+        if not request.user.is_superuser:
+            self.message_user(
+                request,
+                'Only superusers can publish Telegram launcher messages.',
+                level=messages.ERROR,
+            )
+            return
+        from core.services.telegram_launchers import TelegramLauncherError, publish_group_launcher
+
+        published = 0
+        for config in queryset:
+            try:
+                result = publish_group_launcher(config)
+            except TelegramLauncherError as exc:
+                self.message_user(
+                    request,
+                    f'{config.display_name or config.group_id}: {exc}',
+                    level=messages.ERROR,
+                )
+                continue
+            published += 1
+            self.message_user(
+                request,
+                f"{config.display_name or config.group_id}: {result['action']} launcher message {result['message_id']}.",
+                level=messages.SUCCESS,
+            )
+        if published:
+            self._clear_runtime_config_cache()
+
+    @admin.action(description='Preview JBL Apps launcher')
+    def preview_jbl_apps_launchers(self, request, queryset):
+        from core.services.telegram_launchers import TelegramLauncherError, preview_group_launcher
+
+        for config in queryset:
+            try:
+                preview = preview_group_launcher(config)
+                labels = ', '.join(
+                    button['text']
+                    for row in preview['reply_markup']['inline_keyboard']
+                    for button in row
+                )
+                self.message_user(
+                    request,
+                    f'{config.display_name or config.group_id}: JBL Apps - {labels}.',
+                    level=messages.INFO,
+                )
+            except TelegramLauncherError as exc:
+                self.message_user(
+                    request,
+                    f'{config.display_name or config.group_id}: {exc}',
+                    level=messages.ERROR,
+                )
     def get_inline_instances(self, request, obj=None):
         workflow_type = str(((obj.workflow if obj else {}) or {}).get('type') or '')
         if workflow_type != 'tat_tracker':

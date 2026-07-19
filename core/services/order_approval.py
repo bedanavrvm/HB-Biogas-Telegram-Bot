@@ -1,4 +1,4 @@
-﻿"""Order approval Telegram workflow.
+"""Order approval Telegram workflow.
 
 This module is intentionally separate from the complaint parser. It handles a
 structured BRO update format, finds an existing approval row by ID NUMBER, and
@@ -2588,6 +2588,8 @@ def decode_order_approval_start_param(start_param: str) -> dict[str, str]:
         return {}
     group_id = str(payload.get('group_id', '')).strip()
     token = str(payload.get('token', '')).strip()
+    if str(payload.get('launcher', '')).strip() == 'jbl_apps' and group_id:
+        return {'group_id': group_id, 'token': ''}
     if not group_id or not token:
         return {}
     return {'group_id': group_id, 'token': token}
@@ -2699,3 +2701,16 @@ def _order_reply(text: str, warnings: list[str] | None = None, status: str = 'su
         'order_status': status,
         'reply_text': text,
     }
+
+
+def build_order_approval_launcher_url(group_id: str) -> str:
+    """Return a durable group launcher URL for a pinned Telegram message."""
+    bot_username = str(getattr(settings, 'TELEGRAM_BOT_USERNAME', '') or '').strip().lstrip('@')
+    short_name = str(getattr(settings, 'ORDER_APPROVAL_MINI_APP_SHORT_NAME', '') or '').strip().strip('/')
+    if not bot_username or not short_name:
+        return ''
+    payload = {'group_id': str(group_id), 'launcher': 'jbl_apps'}
+    encoded = base64.urlsafe_b64encode(
+        json.dumps(payload, separators=(',', ':')).encode('utf-8')
+    ).decode('ascii').rstrip('=')
+    return f"https://t.me/{bot_username}/{short_name}?startapp={encoded}"
