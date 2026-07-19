@@ -63,6 +63,7 @@ const TAT_CONFIG = {
 
 const PRODUCT_LAYOUTS = {
   'TRACKER-SME': {
+    productKey: 'sme',
     title: 'TAT TRACKER - SME',
     maxAmount: null,
     minAmount: 5000,
@@ -91,6 +92,7 @@ const PRODUCT_LAYOUTS = {
     stageTatKeys: smeStageTatKeys_(),
   },
   'TRACKER-LOGBOOK': {
+    productKey: 'logbook',
     title: 'TAT TRACKER - LOGBOOK',
     maxAmount: 500000,
     minAmount: 50000,
