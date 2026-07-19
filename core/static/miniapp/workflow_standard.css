@@ -190,3 +190,122 @@
 .workflow-standard .record-meta,
 .workflow-standard .count-label { color: var(--workflow-muted) !important; }
 .workflow-standard .workflow-brand + div { min-width: 0; }
+
+/* Shared application shell refinements: align the remaining workflow apps to TAT. */
+.workflow-standard.order-approval-app main,
+.workflow-standard.portal-app main {
+  width: min(100%, 760px);
+}
+
+.workflow-standard.order-approval-app header {
+  justify-content: flex-start;
+  padding: 12px 0 14px;
+  margin-bottom: 4px;
+}
+
+.workflow-standard.order-approval-app .workflow-brand {
+  width: 88px;
+  height: 44px;
+}
+
+.workflow-standard.order-approval-app .browser-fallback {
+  margin-left: auto;
+}
+
+.workflow-standard.order-approval-app form {
+  gap: 12px;
+}
+
+.workflow-standard.order-approval-app .section-toggle {
+  min-height: 44px;
+  padding: 0 14px;
+  font-size: 14px;
+}
+
+.workflow-standard.order-approval-app .section-body > label {
+  min-height: 44px;
+  padding: 8px 14px;
+}
+
+.workflow-standard.portal-app .tab-bar {
+  width: min(100% - 16px, 760px);
+  margin: 8px auto 0;
+  border: 1px solid var(--workflow-line);
+  border-radius: 8px;
+  background: var(--workflow-surface);
+}
+
+.workflow-standard.portal-app main {
+  padding-top: 10px;
+}
+
+.workflow-standard.portal-app #page-dashboard > header {
+  justify-content: center;
+  text-align: center;
+  padding: 12px 0 16px;
+}
+
+.workflow-standard.portal-app #page-dashboard > header .workflow-brand {
+  width: 88px;
+  height: 44px;
+}
+
+.workflow-standard.empty-workflow {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.workflow-standard.empty-workflow main {
+  width: min(100%, 560px);
+  padding: 0;
+}
+
+.workflow-standard.empty-workflow > main > section {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+  padding: 20px;
+  text-align: left;
+}
+
+.workflow-standard.empty-workflow .workflow-brand {
+  width: 88px;
+  height: 44px;
+}
+
+.workflow-standard.empty-workflow h1 {
+  color: var(--workflow-text) !important;
+  font-family: inherit !important;
+  font-size: 18px !important;
+  letter-spacing: 0 !important;
+  text-align: left !important;
+}
+
+.workflow-standard.empty-workflow .error,
+.workflow-standard.empty-workflow section > p {
+  width: 100%;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, #e5484d 28%, transparent) !important;
+  border-radius: 8px !important;
+  background: color-mix(in srgb, #e5484d 8%, var(--workflow-surface)) !important;
+  color: #b42318 !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  line-height: 1.45;
+}
+
+@media (max-width: 520px) {
+  .workflow-standard.order-approval-app .workflow-brand,
+  .workflow-standard.portal-app #page-dashboard > header .workflow-brand,
+  .workflow-standard.empty-workflow .workflow-brand {
+    width: 80px;
+    height: 40px;
+  }
+
+  .workflow-standard.portal-app .tab-bar {
+    width: calc(100% - 16px);
+  }
+}
