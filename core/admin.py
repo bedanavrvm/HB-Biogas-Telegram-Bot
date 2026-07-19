@@ -170,6 +170,25 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
         label=get_preset('spin_credit_analysis')['admin_fields']['legacy_batch_sheet_name']['label'],
         help_text=get_preset('spin_credit_analysis')['admin_fields']['legacy_batch_sheet_name']['help_text'],
     )
+    spin_branches = forms.MultipleChoiceField(
+        choices=(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        label='SPIN group branches',
+        help_text=(
+            'Branches this Telegram group may submit or edit. Choices come from '
+            'the global WORKFLOW_BRANCH_CHOICES setting.'
+        ),
+    )
+    spin_default_branch = forms.ChoiceField(
+        choices=(),
+        required=False,
+        label='Default SPIN branch',
+        help_text=(
+            'Preselect a branch for new SPIN requests. Leave blank when staff '
+            'must select a branch each time.'
+        ),
+    )
 
     jawabu_import_start_date = forms.DateField(
         required=False,
@@ -272,6 +291,7 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         workflow = getattr(self.instance, 'workflow', None) or {}
+        self._set_spin_branch_choices(workflow)
         configured_launchers = workflow.get('mini_app_launchers')
         selected_launchers = (
             configured_launchers
@@ -387,6 +407,32 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 or defaults.get('internal_order_record_id_prefix', 'JBL')
             )
 
+    def _set_spin_branch_choices(self, workflow: dict) -> None:
+        configured = configured_workflow_branches(
+            workflow,
+            default=global_branch_choices(),
+        )
+        available = list(dict.fromkeys([
+            *global_branch_choices(),
+            *configured,
+            str(workflow.get('default_branch') or '').strip(),
+        ]))
+        available = [branch for branch in available if branch]
+        self.fields['spin_branches'].choices = [
+            (branch, branch) for branch in available
+        ]
+        self.fields['spin_default_branch'].choices = [
+            ('', 'No default — staff select a branch'),
+            *[(branch, branch) for branch in configured],
+        ]
+        default_branch = str(workflow.get('default_branch') or '').strip()
+        if default_branch not in configured:
+            default_branch = ''
+        self.fields['spin_branches'].initial = configured
+        self.initial['spin_branches'] = configured
+        self.fields['spin_default_branch'].initial = default_branch
+        self.initial['spin_default_branch'] = default_branch
+
     def clean(self):
         cleaned = super().clean()
         if cleaned.get('workflow_preset') == MANUAL_PRESET:
@@ -400,6 +446,15 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                     'Enter at least one worksheet tab.',
                 )
         return cleaned
+
+    def clean_spin_default_branch(self):
+        default_branch = str(self.cleaned_data.get('spin_default_branch') or '').strip()
+        selected_branches = self.cleaned_data.get('spin_branches') or []
+        if default_branch and default_branch not in selected_branches:
+            raise forms.ValidationError(
+                'The default SPIN branch must be one of the selected group branches.'
+            )
+        return default_branch
 
     def order_approval_tabs(self) -> list[str]:
         raw = self.cleaned_data.get('order_approval_search_tabs', '')
@@ -434,6 +489,8 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 'header_row': self.cleaned_data.get('order_approval_header_row'),
                 'legacy_batch_sheet_name': self.cleaned_data.get('spin_legacy_batch_sheet_name'),
                 'spin_header_row': self.cleaned_data.get('spin_header_row'),
+                'spin_branches': self.cleaned_data.get('spin_branches'),
+                'spin_default_branch': self.cleaned_data.get('spin_default_branch'),
                 'media_root_folder': self.cleaned_data.get(
                     'order_approval_media_root_folder'
                 ),
@@ -946,8 +1003,10 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
             'fields': (
                 'spin_header_row',
                 'spin_legacy_batch_sheet_name',
+                'spin_branches',
+                'spin_default_branch',
             ),
-            'description': 'Header and legacy batch tab settings for the SPIN / CRB workflow.',
+            'description': 'Header, import tab, and per-group branch settings for the SPIN / CRB workflow.',
             'classes': ('collapse', 'preset-section', 'preset-spin_credit_analysis'),
         }),
         ('TAT Tracker Targets', {

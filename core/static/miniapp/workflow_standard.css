@@ -659,25 +659,148 @@
 
 .workflow-standard.portal-app .count-grid {
   gap: 8px;
-  margin: 0 0 12px;
+  margin: 0;
 }
 
 .workflow-standard.portal-app .count-card {
-  min-height: 112px;
+  min-height: 92px;
   padding: 12px;
-  gap: 5px;
   border: 1px solid var(--workflow-line);
   border-radius: 8px;
   box-shadow: none;
+  color: var(--workflow-text);
+  text-align: left;
+  align-items: stretch;
+  justify-content: space-between;
 }
 
-.workflow-standard.portal-app .count-card .count-num {
-  font-size: 24px;
+.workflow-standard.portal-app .dashboard-intro {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 2px 0 12px;
 }
 
-.workflow-standard.portal-app .count-card .count-label {
+.workflow-standard.portal-app .dashboard-intro h2,
+.workflow-standard.portal-app .stage-summary-heading h2 {
+  margin: 0;
+  color: var(--workflow-text);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.workflow-standard.portal-app .dashboard-intro > p,
+.workflow-standard.portal-app .stage-summary-heading > span {
+  margin: 0;
+  color: var(--workflow-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.workflow-standard.portal-app .eyebrow {
+  margin: 0 0 3px;
+  color: var(--workflow-accent);
   font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.workflow-standard.portal-app .queue-card-icon {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--workflow-accent-soft);
+  color: var(--workflow-accent);
+}
+
+.workflow-standard.portal-app .queue-card-icon svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+}
+
+.workflow-standard.portal-app .count-card .queue-card-body,
+.workflow-standard.portal-app .dashboard-total .queue-card-body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.workflow-standard.portal-app .count-card .count-num,
+.workflow-standard.portal-app .dashboard-total .count-num {
+  color: var(--workflow-text);
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.workflow-standard.portal-app .count-card .count-label,
+.workflow-standard.portal-app .dashboard-total .count-label {
+  color: var(--workflow-muted);
+  font-size: 10px;
+  font-weight: 700;
   letter-spacing: .03em;
+  text-transform: uppercase;
+}
+
+.workflow-standard.portal-app .queue-card-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--workflow-muted);
+  font-size: 10px;
+  font-weight: 700;
+  justify-self: end;
+}
+
+.workflow-standard.portal-app .queue-card-action svg {
+  width: 12px;
+  height: 12px;
+  stroke: currentColor;
+}
+
+.workflow-standard.portal-app .count-card.priority-queue {
+  background: var(--workflow-accent-soft) !important;
+  border-color: var(--workflow-accent) !important;
+}
+
+.workflow-standard.portal-app .count-card.success .queue-card-icon {
+  background: color-mix(in srgb, var(--color-success) 14%, var(--workflow-surface));
+  color: var(--color-success);
+}
+
+.workflow-standard.portal-app .count-card.warning .queue-card-icon {
+  background: color-mix(in srgb, var(--color-warning) 14%, var(--workflow-surface));
+  color: var(--color-warning);
+}
+
+.workflow-standard.portal-app .dashboard-total {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 58px;
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--workflow-line);
+  border-radius: 8px;
+  background: var(--workflow-surface);
+  color: var(--workflow-text);
+  text-align: left;
+}
+
+.workflow-standard.portal-app .dashboard-total:focus-visible,
+.workflow-standard.portal-app .count-card:focus-visible {
+  outline: 2px solid var(--workflow-accent);
+  outline-offset: 2px;
 }
 
 .workflow-standard.portal-app .farmer-list {
@@ -693,29 +816,92 @@
 }
 
 .workflow-standard.portal-app .portal-stage-summary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px 10px;
-  margin-top: 12px;
-  padding: 10px 0 0;
+  margin-top: 16px;
+  padding: 12px 0 0;
   border-top: 1px solid var(--workflow-line);
+}
+
+.workflow-standard.portal-app .stage-summary-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workflow-standard.portal-app .stage-summary-heading h2 {
+  font-size: 13px;
+}
+
+.workflow-standard.portal-app .portal-stage-summary ol {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workflow-standard.portal-app .portal-stage-summary li {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
   color: var(--workflow-muted);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 .workflow-standard.portal-app .portal-stage-summary b {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--workflow-accent-soft);
   color: var(--workflow-accent);
   font-size: 10px;
 }
 
-.workflow-standard.portal-app #dash-loading strong,
-.workflow-standard.portal-app #dash-loading span {
-  display: block;
+@media (max-width: 360px) {
+  .workflow-standard.portal-app .dashboard-intro,
+  .workflow-standard.portal-app .stage-summary-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
 }
 
-.workflow-standard.portal-app #dash-loading strong {
-  margin-bottom: 4px;
+.workflow-standard.portal-app .dashboard-loading {
+  margin: 8px 0 0;
+  color: var(--workflow-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.workflow-standard.portal-app .dashboard-skeletons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.workflow-standard.portal-app .dashboard-skeletons span {
+  display: block;
+  height: 92px;
+  border: 1px solid var(--workflow-line);
+  border-radius: 8px;
+  background: var(--workflow-accent-soft);
+  animation: portal-skeleton-pulse 1.1s ease-in-out infinite alternate;
+}
+
+@keyframes portal-skeleton-pulse {
+  to { opacity: .55; }
+}
+
+.workflow-standard.portal-app #dash-loading > strong,
+.workflow-standard.portal-app #dash-loading > span {
+  display: block;
 }
 
 .workflow-standard.portal-app .toast {

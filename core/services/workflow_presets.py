@@ -134,7 +134,6 @@ WORKFLOW_PRESETS = {
             'type': 'spin_credit_analysis',
             'header_row': 2,
             'field_headers': {},
-            'branches': ['Biogas Unit', 'Embu', 'Nakuru', 'West Nairobi'],
         },
         'sheet_schema': {},
         'parser_rules': {},
@@ -331,6 +330,12 @@ def build_workflow_from_preset(
         legacy_batch_sheet_name = str(overrides.get('legacy_batch_sheet_name') or '').strip()
         if legacy_batch_sheet_name:
             workflow['legacy_batch_sheet_name'] = legacy_batch_sheet_name
+        spin_branches = overrides.get('spin_branches')
+        if spin_branches:
+            workflow['branches'] = list(spin_branches)
+        spin_default_branch = str(overrides.get('spin_default_branch') or '').strip()
+        if spin_default_branch:
+            workflow['default_branch'] = spin_default_branch
 
     if preset_key == 'order_approval':
         if overrides.get('search_sheet_names'):

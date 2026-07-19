@@ -163,15 +163,19 @@
   }
   // Dashboard
   async function loadDashboard() {
-    el('dash-loading').style.display = 'block';
+    const loading = el('dash-loading');
+    loading.style.display = 'block';
+    loading.setAttribute('aria-busy', 'true');
     el('dash-counts').style.display = 'none';
     const { ok, data } = await apiFetch('/dashboard/');
     if (!ok) {
-      el('dash-loading').innerHTML = '<strong>Dashboard unavailable</strong><span>Check your Telegram access, then refresh.</span>';
-      el('dash-loading').style.display = 'block';
+      loading.innerHTML = '<strong>Dashboard unavailable</strong><span>Check your Telegram access, then refresh.</span>';
+      loading.setAttribute('aria-busy', 'false');
+      loading.style.display = 'block';
       return;
     }
-    el('dash-loading').style.display = 'none';
+    loading.setAttribute('aria-busy', 'false');
+    loading.style.display = 'none';
     state.counts = data.counts || {};
     renderDashboard();
   }
@@ -180,6 +184,7 @@
     const c = state.counts;
     el('cnt-jbl').textContent = c.jbl_queue ?? '-';
     el('cnt-credit').textContent = c.credit_queue ?? '-';
+    el('cnt-final').textContent = c.final_review_queue ?? '-';
     el('cnt-requisition').textContent = c.requisition_queue ?? '-';
     el('cnt-deferred').textContent = c.deferred ?? '-';
     el('cnt-total').textContent = c.total ?? '-';
@@ -206,7 +211,7 @@
   }
 
   // Clicking a count card navigates to that queue
-  document.querySelectorAll('.count-card[data-page]').forEach(card => {
+  document.querySelectorAll('.count-card[data-page], .dashboard-total[data-page]').forEach(card => {
     card.addEventListener('click', () => {
       const page = card.dataset.page;
       switchPage(page);

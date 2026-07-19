@@ -3847,6 +3847,8 @@ class GroupConfigurationServiceTest(TestCase):
             'workflow_preset': 'spin_credit_analysis',
             'spin_header_row': '2',
             'spin_legacy_batch_sheet_name': 'SPIN Imports',
+            'spin_branches': ['Nakuru', 'Embu'],
+            'spin_default_branch': 'Nakuru',
         })
 
         self.assertTrue(form.is_valid(), form.errors)
@@ -3854,6 +3856,32 @@ class GroupConfigurationServiceTest(TestCase):
         self.assertEqual(workflow['type'], 'spin_credit_analysis')
         self.assertEqual(workflow['header_row'], 2)
         self.assertEqual(workflow['legacy_batch_sheet_name'], 'SPIN Imports')
+        self.assertEqual(workflow['branches'], ['Nakuru', 'Embu'])
+        self.assertEqual(workflow['default_branch'], 'Nakuru')
+
+    def test_group_configuration_admin_form_rejects_default_outside_spin_branches(self):
+        """A group's SPIN default must be one of its configured branches."""
+        from core.admin import GroupSheetConfigurationAdminForm
+
+        form = GroupSheetConfigurationAdminForm(data={
+            'enabled': 'on',
+            'group_id': '-100445',
+            'display_name': 'SPIN',
+            'sheet_id': 'sheet_spin_124',
+            'sheet_name': 'SPIN Requests',
+            'sheet_schema': '{}',
+            'workflow': '{}',
+            'parser_rules': '{}',
+            'metadata': '{}',
+            'workflow_preset': 'spin_credit_analysis',
+            'spin_header_row': '2',
+            'spin_legacy_batch_sheet_name': 'SPIN Imports',
+            'spin_branches': ['Nakuru'],
+            'spin_default_branch': 'Embu',
+        })
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('spin_default_branch', form.errors)
 
 
     def test_workflow_presets_define_order_approval_defaults(self):
@@ -3906,11 +3934,15 @@ class GroupConfigurationServiceTest(TestCase):
             overrides={
                 'spin_header_row': 3,
                 'legacy_batch_sheet_name': 'SPIN Legacy Imports',
+                'spin_branches': ['Nakuru', 'Embu'],
+                'spin_default_branch': 'Embu',
             },
         )
 
         self.assertEqual(workflow['header_row'], 3)
         self.assertEqual(workflow['legacy_batch_sheet_name'], 'SPIN Legacy Imports')
+        self.assertEqual(workflow['branches'], ['Nakuru', 'Embu'])
+        self.assertEqual(workflow['default_branch'], 'Embu')
 
 
     def test_workflow_preset_overrides_order_approval_tabs(self):

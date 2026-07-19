@@ -16,7 +16,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <link rel="stylesheet" href="/static/miniapp/base.css?v=3">
   <link rel="stylesheet" href="/static/miniapp/portal.css?v=3">
-  <link rel="stylesheet" href="/static/miniapp/workflow_standard.css?v=14">
+  <link rel="stylesheet" href="/static/miniapp/workflow_standard.css?v=15">
 </head>
 <body class="workflow-standard portal-app">
 <main>
@@ -90,53 +90,84 @@
 
   <!-- Dashboard -->
   <section id="page-dashboard" class="page active">
-    <div id="dash-loading" class="empty-state" style="padding: 24px 0;">
-      <div class="spinner-inline"></div>
+    <div class="dashboard-intro">
+      <div>
+        <p class="eyebrow">Pipeline overview</p>
+        <h2>Work waiting for your team</h2>
+      </div>
+      <p>Open a queue to continue the next valid step.</p>
     </div>
 
+    <div id="dash-loading" class="dashboard-loading" aria-live="polite" aria-busy="true">
+      <span class="dashboard-loading-copy">Preparing current workload</span>
+      <div class="dashboard-skeletons" aria-hidden="true">
+        <span></span><span></span><span></span><span></span>
+      </div>
+    </div>
     <div id="dash-counts" class="count-grid" style="display:none">
-      <div class="count-card" data-page="jbl" id="card-jbl">
-        <i data-lucide="home"></i>
-        <div class="count-num" id="cnt-jbl">-</div>
-        <div class="count-label">Awaiting JBL Visit</div>
-      </div>
-      <div class="count-card" data-page="credit" id="card-credit">
-        <i data-lucide="shield-check"></i>
-        <div class="count-num" id="cnt-credit">-</div>
-        <div class="count-label">BRO Analysis</div>
-      </div>
-      <div class="count-card" data-page="final" id="card-final">
-        <i data-lucide="phone-call"></i>
-        <div class="count-num" id="cnt-final">-</div>
-        <div class="count-label">Head of Rural Review</div>
-      </div>
-      <div class="count-card success" data-page="requisition" id="card-requisition">
-        <i data-lucide="shopping-bag"></i>
-        <div class="count-num" id="cnt-requisition">-</div>
-        <div class="count-label">Ready for Order</div>
-      </div>
-      <div class="count-card warning" data-page="deferred" id="card-deferred">
-        <i data-lucide="clock"></i>
-        <div class="count-num" id="cnt-deferred">-</div>
-        <div class="count-label">Deferred / Flagged</div>
-      </div>
-      <div class="count-card" style="grid-column: 1/-1;" data-page="all">
-        <div style="display:flex;align-items:center;gap:12px;">
-          <i data-lucide="database" style="width: 28px; height: 28px; color: var(--brand-primary);"></i>
-          <div>
-            <div class="count-num" id="cnt-total">-</div>
-            <div class="count-label">Total Farmers in System</div>
-          </div>
-        </div>
-      </div>
+      <button type="button" class="count-card priority-queue" data-page="jbl" id="card-jbl">
+        <span class="queue-card-icon"><i data-lucide="home"></i></span>
+        <span class="queue-card-body">
+          <span class="count-num" id="cnt-jbl">-</span>
+          <span class="count-label">Awaiting JBL visit</span>
+        </span>
+        <span class="queue-card-action">Open <i data-lucide="arrow-up-right"></i></span>
+      </button>
+      <button type="button" class="count-card" data-page="credit" id="card-credit">
+        <span class="queue-card-icon"><i data-lucide="shield-check"></i></span>
+        <span class="queue-card-body">
+          <span class="count-num" id="cnt-credit">-</span>
+          <span class="count-label">Credit analysis</span>
+        </span>
+        <span class="queue-card-action">Open <i data-lucide="arrow-up-right"></i></span>
+      </button>
+      <button type="button" class="count-card" data-page="final" id="card-final">
+        <span class="queue-card-icon"><i data-lucide="phone-call"></i></span>
+        <span class="queue-card-body">
+          <span class="count-num" id="cnt-final">-</span>
+          <span class="count-label">Head of Rural review</span>
+        </span>
+        <span class="queue-card-action">Open <i data-lucide="arrow-up-right"></i></span>
+      </button>
+      <button type="button" class="count-card success" data-page="requisition" id="card-requisition">
+        <span class="queue-card-icon"><i data-lucide="shopping-bag"></i></span>
+        <span class="queue-card-body">
+          <span class="count-num" id="cnt-requisition">-</span>
+          <span class="count-label">Ready for order</span>
+        </span>
+        <span class="queue-card-action">Open <i data-lucide="arrow-up-right"></i></span>
+      </button>
+      <button type="button" class="count-card warning" data-page="deferred" id="card-deferred">
+        <span class="queue-card-icon"><i data-lucide="clock"></i></span>
+        <span class="queue-card-body">
+          <span class="count-num" id="cnt-deferred">-</span>
+          <span class="count-label">Deferred or flagged</span>
+        </span>
+        <span class="queue-card-action">Review <i data-lucide="arrow-up-right"></i></span>
+      </button>
     </div>
 
-    <div class="portal-stage-summary" aria-label="Workflow stages">
-      <span><b>1</b> HB upload</span>
-      <span><b>2</b> JBL site visit</span>
-      <span><b>3</b> Credit analysis</span>
-      <span><b>4</b> Order assigned</span>
-    </div>
+    <button type="button" class="dashboard-total" data-page="all">
+      <span class="queue-card-icon"><i data-lucide="database"></i></span>
+      <span class="queue-card-body">
+        <span class="count-num" id="cnt-total">-</span>
+        <span class="count-label">Farmer records in the system</span>
+      </span>
+      <span class="queue-card-action">Browse all <i data-lucide="arrow-up-right"></i></span>
+    </button>
+
+    <section class="portal-stage-summary" aria-labelledby="workflow-stages-title">
+      <div class="stage-summary-heading">
+        <h2 id="workflow-stages-title">Workflow path</h2>
+        <span>Where each record moves next</span>
+      </div>
+      <ol>
+        <li><b>1</b><span>HB upload</span></li>
+        <li><b>2</b><span>JBL site visit</span></li>
+        <li><b>3</b><span>Credit analysis</span></li>
+        <li><b>4</b><span>Order assigned</span></li>
+      </ol>
+    </section>
   </section>
 
   <!-- JBL Queue -->
@@ -366,6 +397,6 @@
 <!-- Toast -->
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-  <script src="/static/miniapp/portal.js?v=7"></script>
+  <script src="/static/miniapp/portal.js?v=8"></script>
 </body>
 </html>
