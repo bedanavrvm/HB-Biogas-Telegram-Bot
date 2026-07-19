@@ -309,3 +309,608 @@
     width: calc(100% - 16px);
   }
 }
+
+/* Complete shared product shell. TAT remains the reference for density,
+   touch targets, borders, and information hierarchy. */
+.workflow-standard {
+  --workflow-control-height: 40px;
+  --workflow-content-width: 720px;
+  --workflow-compact-gap: 8px;
+  --workflow-section-gap: 12px;
+}
+
+.workflow-standard .workflow-page-header,
+.workflow-standard.review-app header,
+.workflow-standard.order-approval-app header,
+.workflow-standard.spin-app .spin-header,
+.workflow-standard.portal-app .page > header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding: 8px 4px;
+}
+
+.workflow-standard .workflow-page-header h1,
+.workflow-standard.review-app header h1,
+.workflow-standard.order-approval-app header h1,
+.workflow-standard.spin-app .spin-header h1,
+.workflow-standard.portal-app .page > header h1 {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.workflow-standard .workflow-page-header .meta,
+.workflow-standard.review-app header .meta,
+.workflow-standard.order-approval-app header .hint,
+.workflow-standard.spin-app .spin-header .eyebrow,
+.workflow-standard.portal-app .page > header .meta {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+
+.workflow-standard .workflow-page-header .workflow-brand,
+.workflow-standard.review-app .workflow-brand,
+.workflow-standard.order-approval-app .workflow-brand,
+.workflow-standard.spin-app .workflow-brand,
+.workflow-standard.portal-app .workflow-brand {
+  width: 80px;
+  height: 40px;
+}
+
+.workflow-standard.review-app main,
+.workflow-standard.spin-app .spin-shell,
+.workflow-standard.order-approval-app main,
+.workflow-standard.portal-app main {
+  width: min(100%, var(--workflow-content-width));
+  padding: 8px 8px calc(24px + env(safe-area-inset-bottom));
+}
+
+.workflow-standard.review-app .toolbar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, max-content));
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  margin: 0 0 10px;
+  border: 1px solid var(--workflow-line);
+  border-radius: 8px;
+  background: var(--workflow-surface);
+  box-shadow: none;
+}
+
+.workflow-standard.review-app .toolbar .status {
+  grid-column: 1 / -1;
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--workflow-accent-soft);
+  color: var(--workflow-text);
+}
+
+.workflow-standard.review-app .toolbar button {
+  min-height: var(--workflow-control-height);
+  padding: 8px 10px;
+}
+
+.workflow-standard.review-app .summary {
+  margin: 0 0 10px;
+}
+
+.workflow-standard.review-app .metric {
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+
+.workflow-standard.review-app .metric strong {
+  color: var(--workflow-accent);
+  font-size: 18px;
+}
+
+.workflow-standard.review-app .table-wrap {
+  margin-top: 0;
+  border-radius: 8px;
+}
+
+.workflow-standard.review-app th {
+  background: color-mix(in srgb, var(--workflow-accent-soft) 55%, var(--workflow-surface));
+  font-size: 10px;
+}
+
+.workflow-standard.spin-app .spin-header {
+  padding: 8px 4px;
+}
+
+.workflow-standard.spin-app .draft-state {
+  margin-left: auto;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: var(--workflow-accent-soft);
+  color: var(--workflow-accent);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.workflow-standard.spin-app .spin-tab-bar,
+.workflow-standard.portal-app .tab-bar {
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--workflow-line);
+  border-radius: 8px;
+  background: var(--workflow-surface);
+  box-shadow: none;
+}
+
+.workflow-standard.spin-app .spin-tab-bar .tab-btn,
+.workflow-standard.portal-app .tab-btn {
+  min-height: var(--workflow-control-height);
+  border: 0;
+  border-radius: 6px;
+  color: var(--workflow-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.workflow-standard.spin-app .spin-tab-bar .tab-btn.active,
+.workflow-standard.portal-app .tab-btn.active {
+  border: 0;
+  background: var(--workflow-accent-soft);
+  color: var(--workflow-accent);
+  box-shadow: none;
+}
+
+.workflow-standard.spin-app .spin-form,
+.workflow-standard.spin-app .tab-page.active {
+  gap: var(--workflow-section-gap);
+}
+
+.workflow-standard.spin-app .spin-form {
+  display: grid;
+}
+
+.workflow-standard.spin-app .status-banner[hidden] {
+  display: none !important;
+}
+
+.workflow-standard.spin-app .form-section,
+.workflow-standard.spin-app .review-section {
+  gap: 10px;
+  padding: 12px;
+}
+
+.workflow-standard.spin-app .form-section h2,
+.workflow-standard.spin-app .review-section h2 {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+@media (min-width: 640px) {
+  .workflow-standard.spin-app .form-section h2,
+  .workflow-standard.spin-app .review-section h2 {
+    grid-column: 1 / -1;
+  }
+}
+
+.workflow-standard.order-approval-app main {
+  max-width: var(--workflow-content-width);
+}
+
+.workflow-standard.order-approval-app header {
+  align-items: center;
+  padding: 8px 4px 10px;
+}
+
+.workflow-standard.order-approval-app form {
+  gap: var(--workflow-section-gap);
+}
+
+.workflow-standard.order-approval-app fieldset.form-section {
+  border-color: var(--workflow-line);
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.workflow-standard.order-approval-app .section-toggle {
+  min-height: 44px;
+  padding: 0 12px;
+  font-size: 14px;
+}
+
+.workflow-standard.order-approval-app .section-body > label {
+  min-height: 44px;
+  padding: 8px 12px;
+}
+
+.workflow-standard.order-approval-app .section-body.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+}
+
+.workflow-standard.order-approval-app .form-section[data-collapsed="true"] .section-body.grid {
+  display: none;
+}
+
+.workflow-standard.order-approval-app .section-body.grid > label,
+.workflow-standard.order-approval-app .section-body.grid > label.span-2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  align-items: stretch;
+}
+
+.workflow-standard.order-approval-app .section-body.grid > label > span:first-child,
+.workflow-standard.order-approval-app .section-body.grid > label > .label-text {
+  flex: none;
+  color: var(--workflow-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .02em;
+}
+
+.workflow-standard.order-approval-app .lookup-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.workflow-standard.order-approval-app .lookup-row label {
+  display: grid;
+  gap: 4px;
+}
+
+.workflow-standard.order-approval-app .section-body.grid input,
+.workflow-standard.order-approval-app .section-body.grid select,
+.workflow-standard.order-approval-app .section-body.grid textarea {
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: 100% !important;
+  justify-self: stretch;
+}
+
+.workflow-standard.order-approval-app .lookup-row .secondary {
+  min-height: var(--workflow-control-height);
+}
+
+@media (min-width: 640px) {
+  .workflow-standard.order-approval-app .section-body.grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workflow-standard.order-approval-app .section-body.grid > .span-2,
+  .workflow-standard.order-approval-app .section-body.grid > .lookup-row {
+    grid-column: 1 / -1;
+  }
+}
+
+.workflow-standard.portal-app .tab-bar {
+  width: min(calc(100% - 16px), var(--workflow-content-width));
+  margin: 8px auto 0;
+  top: 4px;
+  background: var(--workflow-surface);
+}
+
+.workflow-standard.portal-app .portal-shell-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 8px;
+  padding: 8px 4px;
+}
+
+.workflow-standard.portal-app .portal-shell-header .workflow-brand {
+  width: 80px;
+  height: 40px;
+}
+
+.workflow-standard.portal-app .portal-shell-header h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.workflow-standard.portal-app .portal-shell-header .meta {
+  margin: 2px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.workflow-standard.portal-app .tab-btn {
+  flex: 0 0 auto;
+  flex-direction: row;
+  gap: 5px;
+  padding: 0 10px;
+}
+
+.workflow-standard.portal-app .tab-btn [data-lucide],
+.workflow-standard.portal-app .tab-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.workflow-standard.portal-app .page > header {
+  justify-content: flex-start;
+  text-align: left;
+  padding: 8px 4px 10px;
+}
+
+.workflow-standard.portal-app #page-dashboard > header {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.workflow-standard.portal-app .count-grid {
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.workflow-standard.portal-app .count-card {
+  min-height: 112px;
+  padding: 12px;
+  gap: 5px;
+  border: 1px solid var(--workflow-line);
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.workflow-standard.portal-app .count-card .count-num {
+  font-size: 24px;
+}
+
+.workflow-standard.portal-app .count-card .count-label {
+  font-size: 10px;
+  letter-spacing: .03em;
+}
+
+.workflow-standard.portal-app .farmer-list {
+  gap: 8px;
+  margin-top: 0;
+}
+
+.workflow-standard.portal-app .farmer-card {
+  padding: 12px;
+  border-color: var(--workflow-line);
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.workflow-standard.portal-app .portal-stage-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+  margin-top: 12px;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--workflow-line);
+  color: var(--workflow-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.workflow-standard.portal-app .portal-stage-summary b {
+  color: var(--workflow-accent);
+  font-size: 10px;
+}
+
+.workflow-standard.portal-app #dash-loading strong,
+.workflow-standard.portal-app #dash-loading span {
+  display: block;
+}
+
+.workflow-standard.portal-app #dash-loading strong {
+  margin-bottom: 4px;
+}
+
+.workflow-standard.portal-app .toast {
+  top: auto;
+  right: auto;
+  bottom: max(12px, env(safe-area-inset-bottom));
+  left: 50%;
+  width: min(320px, calc(100% - 24px));
+  max-width: none;
+  padding: 10px 12px;
+  border: 1px solid var(--workflow-line);
+  border-radius: 8px;
+  background: var(--workflow-surface);
+  color: var(--workflow-text);
+  box-shadow: none;
+  transform: translateX(-50%) translateY(8px);
+  white-space: normal;
+}
+
+.workflow-standard.portal-app .toast.show {
+  transform: translateX(-50%) translateY(0);
+}
+
+.workflow-standard.portal-app .toast.error-toast {
+  border-color: color-mix(in srgb, var(--color-danger) 30%, var(--workflow-line));
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.workflow-standard.portal-app .toast.success-toast {
+  border-color: color-mix(in srgb, var(--color-success) 30%, var(--workflow-line));
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.workflow-standard.empty-workflow {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.workflow-standard.empty-workflow main {
+  width: min(100%, 480px);
+  padding: 0;
+}
+
+.workflow-standard.empty-workflow > main > section {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+  padding: 20px;
+  border: 1px solid var(--workflow-line);
+  border-radius: 8px;
+  background: var(--workflow-surface);
+  box-shadow: none;
+  text-align: left;
+}
+
+.workflow-standard.empty-workflow .workflow-brand {
+  width: 88px;
+  height: 44px;
+}
+
+.workflow-standard.empty-workflow h1 {
+  color: var(--workflow-text) !important;
+  font-family: inherit !important;
+  font-size: 18px !important;
+  letter-spacing: 0 !important;
+  text-align: left !important;
+}
+
+.workflow-standard.empty-workflow .error,
+.workflow-standard.empty-workflow section > p {
+  width: 100%;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, #e5484d 28%, transparent) !important;
+  border-radius: 8px !important;
+  background: color-mix(in srgb, #e5484d 8%, var(--workflow-surface)) !important;
+  color: #b42318 !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  line-height: 1.45;
+}
+
+@media (max-width: 520px) {
+  .workflow-standard.review-app .toolbar {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .workflow-standard.review-app .toolbar button:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .workflow-standard.portal-app .tab-bar {
+    width: calc(100% - 16px);
+  }
+
+  .workflow-standard.portal-app .tab-btn {
+    padding: 0 9px;
+  }
+
+  .workflow-standard.spin-app .draft-state {
+    display: none;
+  }
+}
+
+/* Token bridge: legacy Mini App styles resolve through this same product
+   vocabulary instead of each workflow choosing its own visual system. */
+.workflow-standard:not(.tat-tracker-app) {
+  --bg-base: var(--workflow-page);
+  --bg-surface: var(--workflow-surface);
+  --text-primary: var(--workflow-text);
+  --text-muted: var(--workflow-muted);
+  --border-color: var(--workflow-line);
+  --border-focus: var(--workflow-accent);
+  --brand-primary: var(--workflow-accent);
+  --brand-primary-hover: color-mix(in srgb, var(--workflow-accent) 86%, var(--workflow-text));
+  --brand-primary-text: var(--tg-theme-button-text-color, #f8fafc);
+  --color-soft: color-mix(in srgb, var(--workflow-page) 72%, var(--workflow-surface));
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 8px;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --spin-bg: var(--workflow-page);
+  --spin-surface: var(--workflow-surface);
+  --spin-surface-2: var(--color-soft);
+  --spin-text: var(--workflow-text);
+  --spin-muted: var(--workflow-muted);
+  --spin-line: var(--workflow-line);
+  --spin-primary: var(--workflow-accent);
+  --spin-primary-soft: var(--workflow-accent-soft);
+  --spin-primary-text: var(--tg-theme-button-text-color, #f8fafc);
+  --bg: var(--workflow-page);
+  --surface: var(--workflow-surface);
+  --text: var(--workflow-text);
+  --muted: var(--workflow-muted);
+  --line: var(--workflow-line);
+  --soft: var(--color-soft);
+  --focus: var(--workflow-accent);
+  --action: var(--workflow-accent);
+  --action-pressed: color-mix(in srgb, var(--workflow-accent) 86%, var(--workflow-text));
+  --action-text: var(--tg-theme-button-text-color, #f8fafc);
+}
+
+.workflow-standard:not(.tat-tracker-app),
+.workflow-standard:not(.tat-tracker-app) button,
+.workflow-standard:not(.tat-tracker-app) input,
+.workflow-standard:not(.tat-tracker-app) select,
+.workflow-standard:not(.tat-tracker-app) textarea {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.workflow-standard:not(.tat-tracker-app) h1 {
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.workflow-standard:not(.tat-tracker-app) h2 {
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.workflow-standard.spin-app .form-section h2,
+.workflow-standard.spin-app .review-section h2 {
+  text-transform: none;
+}
+
+.workflow-standard.review-app .toolbar button,
+.workflow-standard.spin-app button,
+.workflow-standard.order-approval-app button,
+.workflow-standard.portal-app button {
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease, opacity .15s ease;
+}
+
+.workflow-standard.review-app button:focus-visible,
+.workflow-standard.spin-app button:focus-visible,
+.workflow-standard.order-approval-app button:focus-visible,
+.workflow-standard.portal-app button:focus-visible,
+.workflow-standard.review-app input:focus-visible,
+.workflow-standard.review-app select:focus-visible,
+.workflow-standard.review-app textarea:focus-visible,
+.workflow-standard.spin-app input:focus-visible,
+.workflow-standard.spin-app select:focus-visible,
+.workflow-standard.spin-app textarea:focus-visible,
+.workflow-standard.order-approval-app input:focus-visible,
+.workflow-standard.order-approval-app select:focus-visible,
+.workflow-standard.order-approval-app textarea:focus-visible,
+.workflow-standard.portal-app input:focus-visible,
+.workflow-standard.portal-app select:focus-visible,
+.workflow-standard.portal-app textarea:focus-visible {
+  outline: 2px solid var(--workflow-accent);
+  outline-offset: 2px;
+}

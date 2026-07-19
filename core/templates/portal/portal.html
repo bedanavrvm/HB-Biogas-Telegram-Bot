@@ -16,9 +16,17 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <link rel="stylesheet" href="/static/miniapp/base.css?v=3">
   <link rel="stylesheet" href="/static/miniapp/portal.css?v=3">
-  <link rel="stylesheet" href="/static/miniapp/workflow_standard.css?v=5">
+  <link rel="stylesheet" href="/static/miniapp/workflow_standard.css?v=14">
 </head>
 <body class="workflow-standard portal-app">
+<main>
+  <header class="portal-shell-header">
+    <img class="workflow-brand" src="/static/miniapp/jawabu-logo.png" alt="Jawabu">
+    <div>
+      <h1>Pipeline Portal</h1>
+      <p class="meta">JBL HomeBiogas, farmer workflow overview</p>
+    </div>
+  </header>
 
 <!-- Tab bar -->
 <nav class="tab-bar" role="tablist">
@@ -60,7 +68,6 @@
   </button>
 </nav>
 
-<main>
   <div id="portal-offline-banner" style="display:none; position:sticky; top:0; z-index:80; margin:0 0 10px; padding:10px 12px; border:1px solid rgba(255,59,48,.25); border-radius:8px; background:#ffe5e5; color:#b42318; font-size:13px; font-weight:600;">Offline. You can view already loaded data, but uploads and updates need a connection.</div>
   <!-- Shared Filter Bar -->
   <div class="filter-bar" id="portal-filter-bar" style="display: none;">
@@ -83,12 +90,6 @@
 
   <!-- Dashboard -->
   <section id="page-dashboard" class="page active">
-    <header>
-      <img class="workflow-brand" src="/static/miniapp/jawabu-logo.png" alt="Jawabu">
-      <div><h1>Pipeline Portal</h1>
-      <p class="meta">JBL HomeBiogas - farmer workflow overview</p></div>
-    </header>
-
     <div id="dash-loading" class="empty-state" style="padding: 24px 0;">
       <div class="spinner-inline"></div>
     </div>
@@ -130,13 +131,11 @@
       </div>
     </div>
 
-    <div style="margin-top: 20px; padding: 12px 0; border-top: 1px solid var(--border-color);">
-      <p class="meta" style="font-size: 11px;">
-        Stage 1 - HB uploads CSV  |
-        Stage 2 - JBL site visit  |
-        Stage 3 - Credit analysis  |
-        Stage 4 | Order assigned
-      </p>
+    <div class="portal-stage-summary" aria-label="Workflow stages">
+      <span><b>1</b> HB upload</span>
+      <span><b>2</b> JBL site visit</span>
+      <span><b>3</b> Credit analysis</span>
+      <span><b>4</b> Order assigned</span>
     </div>
   </section>
 
@@ -367,6 +366,6 @@
 <!-- Toast -->
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="/static/miniapp/portal.js?v=5"></script>
+  <script src="/static/miniapp/portal.js?v=7"></script>
 </body>
 </html>

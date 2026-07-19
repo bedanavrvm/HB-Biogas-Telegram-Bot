@@ -166,8 +166,12 @@
     el('dash-loading').style.display = 'block';
     el('dash-counts').style.display = 'none';
     const { ok, data } = await apiFetch('/dashboard/');
+    if (!ok) {
+      el('dash-loading').innerHTML = '<strong>Dashboard unavailable</strong><span>Check your Telegram access, then refresh.</span>';
+      el('dash-loading').style.display = 'block';
+      return;
+    }
     el('dash-loading').style.display = 'none';
-    if (!ok) { showToast('Could not load dashboard', 'error'); return; }
     state.counts = data.counts || {};
     renderDashboard();
   }
