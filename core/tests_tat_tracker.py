@@ -777,6 +777,12 @@ class TatTrackerWorkflowTest(TestCase):
 
         self.assertEqual(sheet.updates[0][1][0][29], 60.0)
 
+    def test_completed_dropdowns_use_done_timeline_indicators(self):
+        source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
+
+        self.assertIn("'stage-row' + (hasValue ? ' done' : field.editable ? ' editable' : ' locked')", source)
+        self.assertIn('if (hasValue) {\n        indicatorHtml = `<span class="indicator-icon check-done">', source)
+
     def test_sync_case_to_sheet_skips_secondary_sheets_by_default(self):
         class FakeSheet:
             def row_values(self, _row):
