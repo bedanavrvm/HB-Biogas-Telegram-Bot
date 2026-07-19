@@ -24,6 +24,7 @@ from core.services.tat_tracker import (
     create_tat_start_param,
     decode_tat_start_param,
     product_by_key,
+    parse_iso_datetime,
     previous_stages_complete,
     stage_by_key,
     stage_tat_minutes,
@@ -712,6 +713,70 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(sheet.updates[0][1][0][21], 1.25)
         self.assertFalse(any(str(value).startswith('=IF(') for value in sheet.updates[0][1][0]))
 
+    def test_sync_case_to_sheet_keeps_register_approval_tat_numeric(self):
+        class FakeSheet:
+            def __init__(self):
+                self.updates = []
+
+            def row_values(self, row):
+                if row == 2:
+                    return [''] * 31
+                values = [''] * 31
+                values[29] = 'legacy TAT value'
+                return values
+
+            def update(self, a1_range, values, value_input_option=None):
+                self.updates.append((a1_range, values, value_input_option))
+
+        class FakeService:
+            def __init__(self, sheet):
+                self._sheet = sheet
+
+            def is_available(self):
+                return True
+
+        registered_at = timezone.make_aware(timezone.datetime(2026, 7, 15, 9, 0))
+        approved_at = timezone.make_aware(timezone.datetime(2026, 7, 15, 10, 0))
+        sheet = FakeSheet()
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-SME',
+            row_number=5,
+            case_id='JBL-SME-2026-REGISTER-TAT',
+            product_key='sme',
+            product_label='SME',
+            client_name='Approval Client',
+            national_id='12345678',
+            primary_phone='254712345678',
+            branch='Nakuru',
+            bro_name='BRO User',
+            amount='10000',
+            stage_values={
+                'created': registered_at.isoformat(),
+                'disbursement_register': '10:00am',
+                'register_ts': registered_at.isoformat(),
+                'register_approved': 'Approved',
+            },
+            status='Active',
+        )
+        event = TatTrackerEvent.objects.create(
+            case=case,
+            group_id=case.group_id,
+            actor_name='Loan Approver',
+            stage_key='register_approved',
+            stage_label='Register approved',
+            old_value='',
+            new_value='Approved',
+            source='mini_app',
+        )
+        TatTrackerEvent.objects.filter(pk=event.pk).update(created_at=approved_at)
+
+        with patch('core.services.tat_tracker.get_sheets_service', return_value=FakeService(sheet)):
+            sync_case_to_sheet(self.config, case)
+
+        self.assertEqual(sheet.updates[0][1][0][29], 60.0)
+
     def test_sync_case_to_sheet_skips_secondary_sheets_by_default(self):
         class FakeSheet:
             def row_values(self, _row):
@@ -1246,6 +1311,54 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(case.stage_values['sanctions_ts'], sanctions_timestamp)
         self.assertEqual(event.old_value, 'Pending')
         self.assertEqual(event.new_value, 'Met')
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_register_approval_records_a_completion_timestamp_for_its_tat(self, sync_mock):
+        sync_mock.side_effect = self.mark_case_synced
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-SME',
+            row_number=5,
+            case_id='JBL-SME-2026-REGISTER-APPROVAL',
+            product_key='sme',
+            product_label='SME',
+            client_name='Approval Client',
+            branch='Nakuru',
+            bro_name='BRO User',
+            amount='10000',
+            stage_values={
+                'created': timezone.now().isoformat(),
+                'mpesa_to_admin': timezone.now().isoformat(),
+                'mpesa_verified': timezone.now().isoformat(),
+                'ca_analysis_sent': timezone.now().isoformat(),
+                'bro_response': timezone.now().isoformat(),
+                'bm_response': timezone.now().isoformat(),
+                'bro_applied': timezone.now().isoformat(),
+                'disbursement_register': '10:00am',
+                'register_ts': timezone.now().isoformat(),
+            },
+        )
+        loan_approver = {
+            'name': 'Loan Approver',
+            'telegram_id': '444',
+            'roles': ['LOAN_APPROVER'],
+            'branches': ['Nakuru'],
+            'products': ['sme'],
+        }
+
+        update_case(
+            self.config,
+            loan_approver,
+            case.case_id,
+            [{'field': 'register_approved', 'value': 'Approved'}],
+        )
+
+        case.refresh_from_db()
+        self.assertEqual(case.stage_values['register_approved'], 'Approved')
+        self.assertTrue(parse_iso_datetime(case.stage_values['register_approved_ts']))
+        self.assertIsNotNone(stage_tat_minutes(case, stage_by_key(product_by_key('sme'), 'register_approved')))
+
     @patch('core.services.tat_tracker.sync_case_to_sheet')
     def test_changing_a_decision_dropdown_reopens_a_rejected_case(self, sync_mock):
         sync_mock.side_effect = self.mark_case_synced

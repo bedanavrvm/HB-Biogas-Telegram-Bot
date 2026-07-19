@@ -97,7 +97,7 @@ BASE_STAGES_OTHER = (
     StageConfig('sanctions', 'Sanctions', 19, 'LOAN_APPROVER', 'dropdown', tuple(SANCTIONS_OPTIONS), 'sanctions_ts'),
     StageConfig('bro_applied', 'BRO applied on system', 21, 'BRO'),
     StageConfig('disbursement_register', 'Disbursement register', 22, 'ADMIN', 'dropdown', tuple(REGISTER_OPTIONS), 'register_ts'),
-    StageConfig('register_approved', 'Register approved', 24, 'LOAN_APPROVER', 'dropdown', tuple(REGISTER_APPROVED_OPTIONS)),
+    StageConfig('register_approved', 'Register approved', 24, 'LOAN_APPROVER', 'dropdown', tuple(REGISTER_APPROVED_OPTIONS), 'register_approved_ts'),
     StageConfig('disbursement', 'Finance disbursement', 25, 'FINANCE'),
 )
 
@@ -115,7 +115,7 @@ BASE_STAGES_LOGBOOK = (
     StageConfig('sanctions', 'Sanctions', 20, 'LOAN_APPROVER', 'dropdown', tuple(SANCTIONS_OPTIONS), 'sanctions_ts'),
     StageConfig('bro_applied', 'BRO applied on system', 22, 'BRO'),
     StageConfig('disbursement_register', 'Disbursement register', 23, 'ADMIN', 'dropdown', tuple(REGISTER_OPTIONS), 'register_ts'),
-    StageConfig('register_approved', 'Register approved', 25, 'LOAN_APPROVER', 'dropdown', tuple(REGISTER_APPROVED_OPTIONS)),
+    StageConfig('register_approved', 'Register approved', 25, 'LOAN_APPROVER', 'dropdown', tuple(REGISTER_APPROVED_OPTIONS), 'register_approved_ts'),
     StageConfig('disbursement', 'Finance disbursement', 26, 'FINANCE'),
 )
 
@@ -127,7 +127,7 @@ BASE_STAGES_SME = (
     StageConfig('bm_response', 'BM response to CA', 13, 'BM', requires_signature_certificate=True),
     StageConfig('bro_applied', 'BRO applied loan on system', 14, 'BRO'),
     StageConfig('disbursement_register', 'Disbursement register', 15, 'ADMIN', 'dropdown', tuple(REGISTER_OPTIONS), 'register_ts'),
-    StageConfig('register_approved', 'Register approved', 17, 'LOAN_APPROVER', 'dropdown', tuple(REGISTER_APPROVED_OPTIONS)),
+    StageConfig('register_approved', 'Register approved', 17, 'LOAN_APPROVER', 'dropdown', tuple(REGISTER_APPROVED_OPTIONS), 'register_approved_ts'),
     StageConfig('disbursement', 'Finance disbursement', 18, 'FINANCE'),
 )
 
@@ -890,7 +890,13 @@ def previous_stage_timestamp(case: TatTrackerCase, product: ProductConfig, stage
 
 def stage_completed_at(case: TatTrackerCase, stage: StageConfig):
     values = case.stage_values or {}
-    return parse_iso_datetime(values.get(stage.auto_timestamp_key)) or parse_iso_datetime(values.get(stage.key))
+    timestamp = parse_iso_datetime(values.get(stage.auto_timestamp_key)) or parse_iso_datetime(values.get(stage.key))
+    if timestamp:
+        return timestamp
+    if not stage.auto_timestamp_key or not values.get(stage.key) or not case.pk:
+        return None
+    event = case.events.filter(stage_key=stage.key).order_by('created_at').first()
+    return event.created_at if event else None
 
 
 def tat_targets_for_product(workflow: dict | None, product: ProductConfig) -> dict:
