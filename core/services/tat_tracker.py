@@ -47,6 +47,7 @@ DEFAULT_TAT_TARGETS_MINUTES = {
 }
 NEAR_SLA_RATIO = Decimal('0.8')
 TAT_TARGET_MANAGER_ROLES = frozenset({'IT'})
+TAT_HOME_PAGE_SIZE = 10
 
 
 @dataclass(frozen=True)
@@ -339,24 +340,68 @@ def bootstrap(group_config, user_payload: dict) -> dict:
         return {'authorized': False, 'user': user, 'reason': user.get('reason', 'Unauthorized')}
     products = [serialize_product(product) for product in _allowed_products(workflow, user)]
     home = home_data(group_config, user)
-    return {'authorized': True, 'user': public_user(user), 'products': products, 'branches': _allowed_branches(workflow, user), 'bro_names': configured_bro_names(workflow), 'statuses': STATUS_VALUES, 'recent': home['recent'], 'action_required': home['action_required']}
+    return {
+        'authorized': True,
+        'user': public_user(user),
+        'products': products,
+        'branches': _allowed_branches(workflow, user),
+        'bro_names': configured_bro_names(workflow),
+        'statuses': STATUS_VALUES,
+        'recent': home['recent'],
+        'action_required': home['action_required'],
+        'pagination': home['pagination'],
+    }
 
 
-def home_data(group_config, user: dict) -> dict:
+def home_data(
+    group_config,
+    user: dict,
+    *,
+    action_offset: int = 0,
+    recent_offset: int = 0,
+    page_size: int = TAT_HOME_PAGE_SIZE,
+) -> dict:
+    """Return independently paginated home lists for the TAT Mini App."""
     workflow = getattr(group_config, 'workflow', None) or {}
     queryset = TatTrackerCase.objects.filter(group_id=str(group_config.group_id))
     allowed_keys = [p.key for p in _allowed_products(workflow, user)]
     if allowed_keys:
         queryset = queryset.filter(product_key__in=allowed_keys)
-    recent = [serialize_case_summary(case, user, workflow=workflow) for case in queryset.order_by('-created_at')[:20]]
-    action_required = []
-    for case in queryset.exclude(status__in=['Disbursed', 'Rejected', 'Declined']).order_by('-updated_at')[:200]:
+    action_offset = max(0, int(action_offset or 0))
+    recent_offset = max(0, int(recent_offset or 0))
+    page_size = max(1, min(int(page_size or TAT_HOME_PAGE_SIZE), 50))
+
+    recent_total = queryset.count()
+    recent_cases = queryset.order_by('-created_at')[recent_offset:recent_offset + page_size]
+    recent = [serialize_case_summary(case, user, workflow=workflow) for case in recent_cases]
+
+    actionable_cases = []
+    for case in queryset.exclude(status__in=['Disbursed', 'Rejected', 'Declined']).order_by('-updated_at'):
         next_stage = next_action(case)
         if next_stage and can_user_edit_stage(user, case, next_stage):
-            action_required.append(serialize_case_summary(case, user, next_stage=next_stage, workflow=workflow))
-        if len(action_required) >= 20:
-            break
-    return {'recent': recent[:10], 'action_required': action_required[:10]}
+            actionable_cases.append((case, next_stage))
+    action_total = len(actionable_cases)
+    action_required = [
+        serialize_case_summary(case, user, next_stage=next_stage, workflow=workflow)
+        for case, next_stage in actionable_cases[action_offset:action_offset + page_size]
+    ]
+    return {
+        'recent': recent,
+        'action_required': action_required,
+        'pagination': {
+            'recent': pagination_payload(recent_offset, page_size, recent_total, len(recent)),
+            'action_required': pagination_payload(action_offset, page_size, action_total, len(action_required)),
+        },
+    }
+
+
+def pagination_payload(offset: int, page_size: int, total: int, returned: int) -> dict:
+    return {
+        'offset': offset,
+        'page_size': page_size,
+        'total': total,
+        'has_more': offset + returned < total,
+    }
 
 
 def search_cases(group_config, user: dict, query: str) -> list[dict]:

@@ -30,6 +30,7 @@ from core.services.tat_tracker import (
     tat_hours_formula,
     create_case,
     is_tat_tracker_workflow,
+    home_data,
     next_role_alert,
     staff_user_for_payload,
     sync_case_to_sheet,
@@ -77,6 +78,31 @@ class TatTrackerWorkflowTest(TestCase):
 
     def test_detects_tat_tracker_workflow(self):
         self.assertTrue(is_tat_tracker_workflow(self.config))
+
+    def test_home_lists_paginate_independently(self):
+        for index in range(12):
+            TatTrackerCase.objects.create(
+                group_id=self.config.group_id,
+                case_id=f'JBL-SME-2026-{index:03d}',
+                product_key='sme',
+                product_label='SME',
+                client_name=f'Client {index}',
+                branch='Nakuru',
+                status='Active',
+                stage_values={'created': timezone.now().isoformat()},
+            )
+        user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+
+        first_page = home_data(self.config, user)
+        second_page = home_data(self.config, user, action_offset=10, recent_offset=10)
+
+        self.assertEqual(len(first_page['action_required']), 10)
+        self.assertEqual(first_page['pagination']['action_required']['total'], 12)
+        self.assertTrue(first_page['pagination']['action_required']['has_more'])
+        self.assertEqual(len(second_page['action_required']), 2)
+        self.assertFalse(second_page['pagination']['action_required']['has_more'])
+        self.assertEqual(len(first_page['recent']), 10)
+        self.assertEqual(len(second_page['recent']), 2)
 
     @patch('core.services.tat_tracker.sync_tat_target_settings_to_sheet', return_value={'status': 'unavailable'})
     def test_it_can_save_stage_targets_in_minutes(self, sync_targets):

@@ -126,7 +126,22 @@ def tat_tracker_home(request):
     if error:
         return error
     from core.services.tat_tracker import home_data
-    return JsonResponse({'ok': True, 'data': home_data(group_config, user)})
+    return JsonResponse({
+        'ok': True,
+        'data': home_data(
+            group_config,
+            user,
+            action_offset=_tat_home_offset(payload.get('action_offset')),
+            recent_offset=_tat_home_offset(payload.get('recent_offset')),
+        ),
+    })
+
+
+def _tat_home_offset(value) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 @csrf_exempt

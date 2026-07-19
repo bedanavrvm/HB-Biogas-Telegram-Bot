@@ -11,6 +11,8 @@
     pendingCreateRequestId: readPendingCreateRequestId(),
     creatingCase: false,
     refreshing: false,
+    home: { action_required: [], recent: [], pagination: {} },
+    loadingHomePage: { action_required: false, recent: false },
   };
 
   const $ = (id) => document.getElementById(id);
@@ -245,15 +247,39 @@
     items.forEach((item) => list.appendChild(renderCaseButton(item)));
   }
 
-  function renderHome(data) {
-    const actionRequired = data.action_required || [];
-    const recent = data.recent || [];
-    $('queueCount').textContent = actionRequired.length;
-    $('recentCount').textContent = recent.length;
-    $('statQueue').textContent = actionRequired.length;
-    $('statRecent').textContent = recent.length;
+  function renderHome(data, appendList) {
+    const page = data || {};
+    const pagination = page.pagination || {};
+    if (appendList) {
+      state.home[appendList] = state.home[appendList].concat(page[appendList] || []);
+      state.home.pagination[appendList] = pagination[appendList] || {};
+    } else {
+      state.home = {
+        action_required: page.action_required || [],
+        recent: page.recent || [],
+        pagination,
+      };
+    }
+    const actionRequired = state.home.action_required;
+    const recent = state.home.recent;
+    const actionTotal = (state.home.pagination.action_required || {}).total;
+    const recentTotal = (state.home.pagination.recent || {}).total;
+    $('queueCount').textContent = actionTotal == null ? actionRequired.length : actionTotal;
+    $('recentCount').textContent = recentTotal == null ? recent.length : recentTotal;
+    $('statQueue').textContent = actionTotal == null ? actionRequired.length : actionTotal;
+    $('statRecent').textContent = recentTotal == null ? recent.length : recentTotal;
     renderList('queueList', actionRequired, 'No action needed', 'Cases that need your role will appear here.');
     renderList('recentList', recent, 'No recent cases', 'Create a case or search existing records.');
+    updateLoadMoreButton('loadMoreQueueBtn', state.home.pagination.action_required, 'Needs My Action');
+    updateLoadMoreButton('loadMoreRecentBtn', state.home.pagination.recent, 'Recent Activity');
+  }
+
+  function updateLoadMoreButton(id, page, label) {
+    const button = $(id);
+    const total = Number((page || {}).total || 0);
+    const shown = (page || {}).offset + (page || {}).page_size;
+    button.hidden = !(page || {}).has_more;
+    button.textContent = total ? `Load more ${label} (${Math.max(total - shown, 0)} remaining)` : `Load more ${label}`;
   }
 
   function fillSelect(select, items, valueKey, labelKey) {
@@ -534,6 +560,27 @@
     setStatus('Saved.', 'ok');
   }
 
+  async function loadMoreHome(kind) {
+    if (state.loadingHomePage[kind]) return;
+    const buttonId = kind === 'action_required' ? 'loadMoreQueueBtn' : 'loadMoreRecentBtn';
+    const button = $(buttonId);
+    const offset = (state.home[kind] || []).length;
+    try {
+      state.loadingHomePage[kind] = true;
+      setButtonLoading(button, true, 'Loading');
+      const payload = kind === 'action_required'
+        ? { action_offset: offset }
+        : { recent_offset: offset };
+      const result = await api('/api/tat-tracker/home/', payload);
+      renderHome(result.data, kind);
+    } catch (error) {
+      setStatus(error.message, 'error');
+    } finally {
+      state.loadingHomePage[kind] = false;
+      setButtonLoading(button, false);
+    }
+  }
+
   async function saveDropdownStageUpdate(select, field) {
     const previousValue = field.value || '';
     if (!select.value || select.value === previousValue) return;
@@ -558,6 +605,8 @@
     window.location.reload();
   });
   $('backBtn').addEventListener('click', () => { show('queue'); refresh().catch(() => {}); });
+  $('loadMoreQueueBtn').addEventListener('click', () => loadMoreHome('action_required'));
+  $('loadMoreRecentBtn').addEventListener('click', () => loadMoreHome('recent'));
   $('saveRemarksBtn').addEventListener('click', async (event) => {
     const button = event.currentTarget;
     try {
