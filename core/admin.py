@@ -21,6 +21,8 @@ from core.services.tat_tracker import PRODUCTS
 from core.services.telegram_launchers import MINI_APP_LAUNCHER_CHOICES, default_launcher_keys
 
 from .models import (
+    ComplaintCaseEvidence,
+    ComplaintCaseStaffMember,
     CaseUpdate,
     FcaImportRecord,
     GroupSheetConfiguration,
@@ -469,7 +471,7 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
         if preset_key == MANUAL_PRESET:
             workflow = dict(self.cleaned_data.get('workflow') or {})
             existing_workflow = getattr(self.instance, 'workflow', None) or {}
-            workflow['mini_app_launchers'] = list(self.cleaned_data.get('mini_app_launchers') or [])
+            self._apply_selected_launchers(workflow)
             if (
                 workflow.get('type') == 'tat_tracker'
                 or existing_workflow.get('type') == 'tat_tracker'
@@ -511,8 +513,16 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
                 'tat_targets_minutes': self.tat_targets_minutes(),
             },
         )
-        workflow['mini_app_launchers'] = list(self.cleaned_data.get('mini_app_launchers') or [])
+        self._apply_selected_launchers(workflow)
         return workflow
+
+    def _apply_selected_launchers(self, workflow: dict) -> None:
+        """Keep no selection as the workflow default instead of disabling every app."""
+        selected = list(self.cleaned_data.get('mini_app_launchers') or [])
+        if selected:
+            workflow['mini_app_launchers'] = selected
+        else:
+            workflow.pop('mini_app_launchers', None)
 
     def tat_targets_minutes(self) -> dict:
         existing_workflow = (
@@ -693,6 +703,14 @@ class MediaAttachmentAdmin(ReadOnlyAuditAdmin):
         'business_key_value', 'telegram_file_id', 'original_filename',
         'drive_file_id', 'drive_url', 'content_hash',
     ]
+    readonly_fields = ['id', 'created_at']
+
+
+@admin.register(ComplaintCaseEvidence)
+class ComplaintCaseEvidenceAdmin(ReadOnlyAuditAdmin):
+    list_display = ['parsed_message', 'original_filename', 'group_id', 'uploaded_by', 'upload_status', 'created_at']
+    list_filter = ['group_id', 'upload_status', 'created_at']
+    search_fields = ['parsed_message__message_id', 'original_filename', 'uploaded_by', 'drive_file_id']
     readonly_fields = ['id', 'created_at']
 
 
@@ -922,10 +940,18 @@ class TatTrackerStaffMemberInline(admin.StackedInline):
     verbose_name = 'TAT tracker staff member'
     verbose_name_plural = 'TAT tracker staff GUI'
 
+
+class ComplaintCaseStaffMemberInline(admin.StackedInline):
+    model = ComplaintCaseStaffMember
+    extra = 1
+    fields = ('active', 'name', 'telegram_user_id', 'telegram_username', 'role', 'notes')
+    verbose_name = 'Complaint case staff member'
+    verbose_name_plural = 'Complaint case Mini App staff'
+
 @admin.register(GroupSheetConfiguration)
 class GroupSheetConfigurationAdmin(admin.ModelAdmin):
     form = GroupSheetConfigurationAdminForm
-    inlines = [TatTrackerStaffMemberInline]
+    inlines = [ComplaintCaseStaffMemberInline, TatTrackerStaffMemberInline]
     actions = ['publish_jbl_apps_launchers', 'preview_jbl_apps_launchers']
     list_display = [
         'display_label', 'group_id', 'enabled', 'sheet_name',

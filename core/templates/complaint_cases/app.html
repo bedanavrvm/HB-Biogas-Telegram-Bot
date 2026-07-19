@@ -1,0 +1,114 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Complaint Cases</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=4">
+  <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=15">
+  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=1">
+</head>
+<body class="workflow-standard complaint-cases-app" data-group-id="{{ group_id|escape }}">
+  <main aria-label="Complaint Cases">
+    <header class="cases-header">
+      <img class="workflow-brand" src="{% static 'miniapp/jawabu-logo.png' %}" alt="Jawabu HomeBiogas">
+      <div class="title-block">
+        <p class="eyebrow">JBL Workflow</p>
+        <h1>Complaint Cases</h1>
+        <p id="actorLine" class="meta">Opening workspace…</p>
+      </div>
+      <button id="refreshBtn" class="icon-button" type="button" aria-label="Refresh cases">↻</button>
+    </header>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <section id="loadingState" class="loading-state" aria-live="polite">
+      <img src="{% static 'miniapp/jawabu-logo.png' %}" alt="">
+      <span>Loading complaint cases…</span>
+    </section>
+
+    <section id="listView" hidden>
+      <div class="count-grid" aria-label="Case counts">
+        <div class="count-card"><strong id="openCount">0</strong><span>Open</span></div>
+        <div class="count-card"><strong id="progressCount">0</strong><span>In progress</span></div>
+        <div class="count-card"><strong id="closedCount">0</strong><span>Closed</span></div>
+      </div>
+
+      <div class="search-panel">
+        <label for="caseSearch">Find a case</label>
+        <div class="search-input">
+          <span aria-hidden="true">⌕</span>
+          <input id="caseSearch" type="search" autocomplete="off" placeholder="Name, case ID, ID number, phone…">
+        </div>
+      </div>
+
+      <nav class="filter-tabs" aria-label="Case status">
+        <button class="active" type="button" data-status="active">Active</button>
+        <button type="button" data-status="closed">Closed</button>
+      </nav>
+      <section aria-label="Cases">
+        <div id="caseList" class="case-list"></div>
+        <p id="emptyState" class="empty-state" hidden>No complaint cases match this view.</p>
+      </section>
+    </section>
+
+    <section id="detailView" hidden>
+      <button id="backBtn" class="back-button" type="button">← All cases</button>
+      <article class="case-summary">
+        <div class="case-heading">
+          <div>
+            <p id="detailCaseId" class="case-id"></p>
+            <h2 id="detailName">—</h2>
+          </div>
+          <span id="detailStatus" class="status-pill"></span>
+        </div>
+        <div id="detailIdentifiers" class="identifiers"></div>
+        <p id="detailDescription" class="description"></p>
+        <div id="detailMeta" class="case-meta"></div>
+      </article>
+
+      <section class="detail-card location-card">
+        <div class="section-title"><div><h2>Location</h2><p>Captured case location or latest field pin.</p></div></div>
+        <div id="caseMap" class="case-map" hidden></div>
+        <p id="noLocation" class="empty-copy">No location has been captured for this case yet.</p>
+        <a id="mapsLink" class="link-button" target="_blank" rel="noopener" hidden>Open in Google Maps ↗</a>
+      </section>
+
+      <section class="detail-card">
+        <div class="section-title"><div><h2>Update case</h2><p>Add a clear note, field location, or supporting evidence.</p></div></div>
+        <form id="updateForm" novalidate>
+          <div class="form-grid">
+            <label>Status<select id="statusInput" name="status"><option>Open</option><option>In Progress</option><option>Closed</option></select></label>
+            <label class="full-width">Update note<textarea id="noteInput" name="resolution_text" rows="3" placeholder="What happened, what is next, and who owns it?"></textarea></label>
+          </div>
+          <div class="location-actions">
+            <button id="captureLocationBtn" class="secondary-button" type="button">Use my current location</button>
+            <span id="captureState" class="capture-state">No new location selected</span>
+          </div>
+          <label class="upload-field">Evidence <input id="evidenceInput" type="file" name="evidence" multiple accept="image/*,.pdf,.doc,.docx"><span>Photos, PDF, or Word documents · up to 10 files / 30 MB total</span></label>
+          <ul id="selectedEvidence" class="selected-evidence"></ul>
+          <button id="saveBtn" class="primary save-button" type="submit"><span>Save update</span></button>
+        </form>
+      </section>
+
+      <section class="detail-card">
+        <div class="section-title"><div><h2>Evidence</h2><p>Files are saved in the group’s configured Google Drive location.</p></div></div>
+        <div id="evidenceList" class="evidence-list"></div>
+      </section>
+
+      <section class="detail-card">
+        <div class="section-title"><div><h2>Activity</h2><p id="activityDescription">Case updates recorded by staff.</p></div></div>
+        <div id="activityList" class="activity-list"></div>
+      </section>
+    </section>
+  </main>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=1"></script>
+</body>
+</html>

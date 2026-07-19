@@ -56,6 +56,7 @@ DEFAULT_CASE_UPDATE_FIELDS = {
     'date_resolved',
     'risk_level',
     'loan_at_risk',
+    'gps_link',
 }
 
 

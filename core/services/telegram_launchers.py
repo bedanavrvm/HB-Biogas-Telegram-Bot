@@ -21,12 +21,14 @@ TAT_TRACKER_LAUNCHER = 'tat_tracker'
 SPIN_LAUNCHER = 'spin_credit'
 ORDER_APPROVAL_LAUNCHER = 'order_approval'
 PIPELINE_PORTAL_LAUNCHER = 'pipeline_portal'
+COMPLAINT_CASES_LAUNCHER = 'complaint_cases'
 
 MINI_APP_LAUNCHER_CHOICES = (
     (TAT_TRACKER_LAUNCHER, 'TAT Tracker'),
     (SPIN_LAUNCHER, 'SPIN / CRB'),
     (ORDER_APPROVAL_LAUNCHER, 'Order Approval'),
     (PIPELINE_PORTAL_LAUNCHER, 'Pipeline Portal'),
+    (COMPLAINT_CASES_LAUNCHER, 'Complaint Cases'),
 )
 
 _LAUNCHER_LABELS = dict(MINI_APP_LAUNCHER_CHOICES)
@@ -34,6 +36,7 @@ _DEFAULTS_BY_WORKFLOW = {
     'tat_tracker': (TAT_TRACKER_LAUNCHER,),
     'spin_credit_analysis': (SPIN_LAUNCHER,),
     'order_approval': (ORDER_APPROVAL_LAUNCHER,),
+    'case': (COMPLAINT_CASES_LAUNCHER,),
 }
 _LAUNCHER_METADATA_KEY = 'telegram_launcher'
 
@@ -95,6 +98,9 @@ def build_launcher_url(launcher_key: str, group_id: str) -> str:
         return build_order_approval_launcher_url(group_id)
     if launcher_key == PIPELINE_PORTAL_LAUNCHER:
         return _pipeline_portal_url()
+    if launcher_key == COMPLAINT_CASES_LAUNCHER:
+        from core.services.complaint_cases import build_complaint_cases_launcher_url
+        return build_complaint_cases_launcher_url(group_id)
     return ''
 
 

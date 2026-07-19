@@ -261,6 +261,11 @@ class CaseUpdate(models.Model):
     )
     sync_error = models.TextField(blank=True, default='')
     raw_update_text = models.TextField()
+    source = models.CharField(max_length=50, default='telegram')
+    client_request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    gps_link = models.URLField(max_length=500, blank=True, default='')
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -269,10 +274,61 @@ class CaseUpdate(models.Model):
             models.Index(fields=['group_id', 'created_at']),
             models.Index(fields=['telegram_message_id']),
             models.Index(fields=['reply_to_telegram_message_id']),
+            models.Index(fields=['parsed_message', 'client_request_id']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['parsed_message', 'client_request_id'],
+                condition=~models.Q(client_request_id=''),
+                name='unique_complaint_case_update_request',
+            ),
         ]
 
     def __str__(self):
         return f"CaseUpdate {self.parsed_message.message_id}: {self.new_status}"
+
+
+class ComplaintCaseEvidence(models.Model):
+    """Drive-backed, append-only evidence uploaded for a complaint case."""
+
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('success', 'Uploaded'),
+        ('failed', 'Failed'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    parsed_message = models.ForeignKey(
+        ParsedMessage,
+        on_delete=models.CASCADE,
+        related_name='complaint_evidence',
+    )
+    case_update = models.ForeignKey(
+        CaseUpdate,
+        on_delete=models.CASCADE,
+        related_name='evidence',
+    )
+    group_id = models.CharField(max_length=100, db_index=True)
+    uploaded_by = models.CharField(max_length=255, blank=True, default='')
+    original_filename = models.CharField(max_length=255, blank=True, default='')
+    mime_type = models.CharField(max_length=255, blank=True, default='')
+    size = models.PositiveIntegerField(null=True, blank=True)
+    content_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    drive_file_id = models.CharField(max_length=255, blank=True, default='')
+    drive_url = models.URLField(max_length=1000, blank=True, default='')
+    upload_status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    upload_error = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['parsed_message', 'created_at']),
+            models.Index(fields=['group_id', 'upload_status']),
+        ]
+
+    def __str__(self):
+        return f"Complaint evidence {self.original_filename or self.id}"
 
 
 class OrderApprovalUpdate(models.Model):
@@ -1084,6 +1140,52 @@ class GroupSheetConfiguration(models.Model):
     def __str__(self):
         label = self.display_name or self.group_id
         return f"{label} -> {self.sheet_name}"
+
+
+class ComplaintCaseStaffMember(models.Model):
+    """Named staff permitted to work on complaint cases in one Telegram group."""
+
+    ROLE_CHOICES = [
+        ('OFFICER', 'Case officer'),
+        ('MANAGER', 'Case manager'),
+    ]
+
+    group_configuration = models.ForeignKey(
+        GroupSheetConfiguration,
+        on_delete=models.CASCADE,
+        related_name='complaint_case_staff',
+    )
+    name = models.CharField(max_length=255)
+    telegram_user_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
+    telegram_username = models.CharField(max_length=100, blank=True, default='', db_index=True)
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='OFFICER')
+    active = models.BooleanField(default=True)
+    notes = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['group_configuration', 'name']
+        indexes = [
+            models.Index(fields=['group_configuration', 'active']),
+            models.Index(fields=['telegram_user_id']),
+            models.Index(fields=['telegram_username']),
+        ]
+        verbose_name = 'Complaint case staff member'
+        verbose_name_plural = 'Complaint case staff members'
+
+    def clean(self):
+        super().clean()
+        self.name = str(self.name or '').strip()
+        self.telegram_user_id = str(self.telegram_user_id or '').strip()
+        self.telegram_username = str(self.telegram_username or '').strip().lstrip('@')
+        if not self.telegram_user_id and not self.telegram_username:
+            from django.core.exceptions import ValidationError
+            raise ValidationError('Enter either Telegram user ID or Telegram username.')
+
+    def __str__(self):
+        return f'{self.name} ({self.role})'
+
 
 class TatTrackerStaffMember(models.Model):
     """GUI-managed staff permissions for the TAT Tracker Mini App."""

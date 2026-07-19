@@ -56,6 +56,13 @@ from .portal_views import (
     portal_farmer_detail,
     portal_auth_required,
 )
+from .complaint_case_views import (
+    complaint_cases_app,
+    complaint_cases_bootstrap,
+    complaint_cases_list,
+    complaint_cases_detail,
+    complaint_cases_update,
+)
 
 urlpatterns = [
     path('health/', health_check, name='health_check'),
@@ -77,6 +84,11 @@ urlpatterns = [
     path('tat-tracker/create/', tat_tracker_create, name='tat_tracker_create'),
     path('tat-tracker/detail/', tat_tracker_detail, name='tat_tracker_detail'),
     path('tat-tracker/update/', tat_tracker_update, name='tat_tracker_update'),
+    path('complaints/', complaint_cases_app, name='complaint_cases_app'),
+    path('complaints/bootstrap/', complaint_cases_bootstrap, name='complaint_cases_bootstrap'),
+    path('complaints/cases/', complaint_cases_list, name='complaint_cases_list'),
+    path('complaints/cases/<str:case_id>/', complaint_cases_detail, name='complaint_cases_detail'),
+    path('complaints/cases/<str:case_id>/update/', complaint_cases_update, name='complaint_cases_update'),
     path('webhook/e-signatures/tat/', tat_signature_webhook, name='tat_signature_webhook'),
     path('webhook/telegram/', telegram_webhook, name='telegram_webhook'),
     path(

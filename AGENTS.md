@@ -9,6 +9,7 @@ The repository is a Django-based operational workflow platform for JBL/Jawabu Ho
 The repository name is historical. Do not treat this as a small Telegram bot or a single complaint parser. It currently contains several business-critical workflows:
 
 - Complaint and case ingestion from Telegram/forwarded WhatsApp content
+- Complaint case management Mini App, including map pins and Drive evidence
 - Jawabu farmer intake and pipeline processing
 - FCA review/import workflows
 - JBL site-visit processing
@@ -128,6 +129,7 @@ Templates:
 - `core/templates/spin/`
 - `core/templates/tat_tracker/`
 - `core/templates/portal/`
+- `core/templates/complaint_cases/`
 
 Static assets:
 
@@ -171,6 +173,9 @@ This is a template of variables this class of system typically needs. Treat it a
 | `GOOGLE_SERVICE_ACCOUNT_JSON` / `GOOGLE_APPLICATION_CREDENTIALS` | Service-account credentials for Sheets/Drive API access | Yes |
 | Sheet/Drive IDs (e.g. `*_SHEET_ID`, `*_FOLDER_ID`) | Identify target spreadsheets/folders per workflow | Treat as sensitive unless confirmed non-sensitive |
 | `TAT_TRACKER_SIGNATURES_ENABLED` | Enables external TAT e-signature dispatch and stage gating | No |
+| `COMPLAINT_CASES_MINI_APP_SHORT_NAME` | Telegram Mini App short name for complaint cases | No |
+| `COMPLAINT_CASES_WEBAPP_REQUIRE_TELEGRAM_AUTH` | Requires verified Telegram Mini App identity for complaint case APIs | No |
+| `COMPLAINT_CASE_MAX_FILES_PER_UPDATE` / `COMPLAINT_CASE_MAX_TOTAL_UPLOAD_MB` | Limits complaint evidence uploads | No |
 
 When adding a new configuration value, add it to `.env.example` with a placeholder (never a real value) in the same change, and add it to this table.
 
@@ -522,6 +527,7 @@ Use this table to locate the likely change surface for a given workflow, and wha
 | Workflow | Key files | Preserve |
 |---|---|---|
 | **Complaint/case ingestion** | `core/api/views.py`, `services/parser.py`, `services/deduplication.py`, `services/case_updates.py`, `services/sheets.py`, `services/sheet_sync.py`, `core/models.py`, `core/tests.py`, `core/tests_data_quality.py` | Raw-message audit history, deduplication, group context, bot-owned vs. staff-owned sheet fields |
+| **Complaint Cases Mini App** | `core/api/complaint_case_views.py`, `services/complaint_cases.py`, `templates/complaint_cases/`, `static/miniapp/complaint_cases.*`, `core/tests_complaint_cases.py` | Verified Telegram identity plus named group staff roles, group-scoped reads/writes, append-only case/evidence records, idempotent updates, and Drive failure metadata |
 | **Group/workflow configuration** | `services/group_config.py`, `services/workflow_presets.py`, `services/telegram_command_menu.py`, `core/models.py`, `core/admin.py`, `core/tests_pipeline.py` | Database-managed group configuration; don't introduce environment-only config unless backward compatibility is deliberate |
 | **Jawabu/FCA pipeline** | `services/jawabu.py`, `services/jawabu_master.py`, `services/jawabu_pipeline.py`, `services/fca.py`, `core/api/views.py`, `core/api/portal_views.py`, `templates/jawabu_farmers/`, `templates/fca_review/`, `templates/portal/`, `static/miniapp/portal.*`, `core/tests_pipeline.py` | Controlled state transitions, decision history, actor/timestamp metadata |
 | **Requisitions and invoices** | `services/requisition.py`, `services/invoice_parser.py`, `core/api/portal_views.py`, `core/models.py`, requisition templates/workbooks, `core/tests_pipeline.py` | Money handling, order numbers, filenames, generated workbook contents, download authorization, idempotency |
