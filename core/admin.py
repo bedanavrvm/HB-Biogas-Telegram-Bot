@@ -4,6 +4,7 @@ from django.contrib import messages
 from django.conf import settings
 from django.http import HttpResponseRedirect
 from django.template.response import TemplateResponse
+from django.core.exceptions import PermissionDenied
 from django.urls import path, reverse
 from django.utils.html import format_html
 from urllib.parse import urlencode
@@ -17,7 +18,12 @@ from core.services.workflow_presets import (
     preset_for_workflow,
 )
 from core.services.branches import global_branch_choices, workflow_branches as configured_workflow_branches
-from core.services.tat_tracker import PRODUCTS
+from core.services.tat_tracker import (
+    PRODUCTS,
+    configured_products,
+    is_tat_tracker_workflow,
+    resync_tat_tracker_cases,
+)
 from core.services.telegram_launchers import MINI_APP_LAUNCHER_CHOICES, default_launcher_keys
 
 from .models import (
@@ -963,7 +969,7 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
     readonly_fields = [
         'created_at', 'updated_at', 'sheet_link', 'sheet_analyzer_link',
         'live_records_link', 'data_records_link', 'media_records_link',
-        'reset_group_data_link',
+        'reset_group_data_link', 'tat_repair_link',
     ]
     fieldsets = (
         ('Group Routing', {
@@ -971,6 +977,7 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
                 'enabled', 'group_id', 'display_name', 'sheet_id',
                 'sheet_name', 'sheet_link', 'live_records_link', 'data_records_link',
                 'media_records_link', 'sheet_analyzer_link', 'reset_group_data_link',
+                'tat_repair_link',
             ),
             'description': (
                 'Map one Telegram group to one Google Sheet tab. '
@@ -1085,11 +1092,100 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
     class Media:
         js = ('admin/js/workflow_preset_toggle.js',)
 
+    def tat_repair_view(self, request, object_id):
+        config = self.get_object(request, object_id)
+        if config is None:
+            return HttpResponseRedirect(reverse('admin:core_groupsheetconfiguration_changelist'))
+        if not request.user.is_superuser:
+            raise PermissionDenied('Only superusers can run a TAT Sheet repair.')
+        if not is_tat_tracker_workflow(config):
+            self.message_user(request, 'This group is not configured for the TAT Tracker.', level=messages.ERROR)
+            return HttpResponseRedirect(reverse('admin:core_groupsheetconfiguration_change', args=[config.pk]))
+
+        products = configured_products(config.workflow)
+        product_options = [(product.key, product.label) for product in products]
+        selected_product = str(
+            (request.POST.get('product') if request.method == 'POST' else request.GET.get('product')) or ''
+        ).strip()
+        if selected_product and selected_product not in {key for key, _label in product_options}:
+            raise PermissionDenied('The selected product is not enabled for this TAT group.')
+        try:
+            offset = max(0, int(request.POST.get('offset') if request.method == 'POST' else request.GET.get('offset') or 0))
+        except (TypeError, ValueError):
+            offset = 0
+
+        context = {
+            **self.admin_site.each_context(request),
+            'title': 'Repair TAT sheet values',
+            'opts': self.model._meta,
+            'config': config,
+            'product_options': product_options,
+            'selected_product': selected_product,
+            'offset': offset,
+            'batch_limit': 25,
+            'change_url': reverse('admin:core_groupsheetconfiguration_change', args=[config.pk]),
+        }
+        if request.method == 'POST':
+            if request.POST.get('confirm') != 'REPAIR':
+                context['confirmation_error'] = 'Type REPAIR exactly to authorize this batch.'
+                return TemplateResponse(request, 'admin/core/groupsheetconfiguration/tat_repair.html', context)
+            preview_key = {
+                'config_id': str(config.pk),
+                'product': selected_product,
+                'offset': offset,
+            }
+            if request.session.get('tat_repair_preview') != preview_key:
+                context['confirmation_error'] = 'Preview this exact batch before running its repair.'
+                return TemplateResponse(request, 'admin/core/groupsheetconfiguration/tat_repair.html', context)
+            result = resync_tat_tracker_cases(
+                config,
+                dry_run=False,
+                limit=25,
+                offset=offset,
+                product_key=selected_product,
+            )
+            if result['failed']:
+                self.message_user(request, f"TAT repair completed with {len(result['failed'])} failure(s). Review the result below.", level=messages.ERROR)
+            else:
+                self.message_user(request, f"Re-synced {result['synced']} TAT case(s) from Django.", level=messages.SUCCESS)
+            if not result['failed']:
+                query = {}
+                if selected_product:
+                    query['product'] = selected_product
+                if result['next_offset'] is not None:
+                    query['offset'] = result['next_offset']
+                url = request.path
+                if query:
+                    url = f'{url}?{urlencode(query)}'
+                return HttpResponseRedirect(url)
+            context['result'] = result
+        else:
+            context['preview'] = resync_tat_tracker_cases(
+                config,
+                dry_run=True,
+                limit=25,
+                offset=offset,
+                product_key=selected_product,
+            )
+            request.session['tat_repair_preview'] = {
+                'config_id': str(config.pk),
+                'product': selected_product,
+                'offset': offset,
+            }
+        return TemplateResponse(request, 'admin/core/groupsheetconfiguration/tat_repair.html', context)
+
     def get_actions(self, request):
         actions = super().get_actions(request)
         if not request.user.is_superuser:
             actions.pop('publish_jbl_apps_launchers', None)
         return actions
+
+    @admin.display(description='Repair TAT values')
+    def tat_repair_link(self, obj):
+        if not obj or not obj.pk or not is_tat_tracker_workflow(obj):
+            return '-'
+        url = reverse('admin:core_groupsheetconfiguration_tat_repair', args=[obj.pk])
+        return format_html('<a class="button" href="{}">Preview / repair TAT values</a>', url)
 
     @admin.action(description='Publish / refresh JBL Apps launcher')
     def publish_jbl_apps_launchers(self, request, queryset):
@@ -1245,6 +1341,11 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
+            path(
+                '<path:object_id>/tat-repair/',
+                self.admin_site.admin_view(self.tat_repair_view),
+                name='core_groupsheetconfiguration_tat_repair',
+            ),
             path(
                 '<path:object_id>/analyze-sheet/',
                 self.admin_site.admin_view(self.analyze_sheet_view),

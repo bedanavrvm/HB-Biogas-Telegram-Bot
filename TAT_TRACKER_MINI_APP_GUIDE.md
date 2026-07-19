@@ -317,14 +317,18 @@ Django writes calculated values into `TAT Hours`, `TAT Days`, and configured sta
 
 ### One-time repair for old TAT formulas
 
-Older workbook versions may still contain formulas in cells that Django now owns. Do not manually clear the TAT columns: that can erase valid numeric values. First make a Sheet copy, then run `TAT Tracker -> Remove legacy TAT formulas (safe)`. It removes formulas only from TAT Hours, TAT Days, and stage-TAT cells while preserving non-formula values and all case data. Immediately re-sync linked rows from Django using the repair command below, starting with `--dry-run`.
+Older workbook versions may still contain formulas in cells that Django now owns. Do not manually clear the TAT columns: that can erase valid numeric values. First make a Sheet copy, then run `TAT Tracker -> Remove legacy TAT formulas (safe)`. It removes formulas only from TAT Hours, TAT Days, and stage-TAT cells while preserving non-formula values and all case data.
+
+On a Free Render web service, use Django Admin instead of a management-command shell: open **Core → Group sheet configurations → the TAT group → Preview / repair TAT values**. The page previews a maximum of 25 linked rows, then requires `REPAIR` before it re-syncs that exact batch. Repeat from the redirected preview page until no rows remain. Only superusers can open or run this repair.
+
+For a paid Render service, or a controlled local environment with the same production configuration, the equivalent command is:
 
 ```bash
 python manage.py resync_tat_tracker_cases --group-id=-100YOUR_GROUP_ID --dry-run
 python manage.py resync_tat_tracker_cases --group-id=-100YOUR_GROUP_ID
 ```
 
-The command skips cases with no stored Sheet row number to avoid creating a duplicate row. Resolve those separately before using `--case-id` or normal Mini App updates.
+Both repair routes skip cases with no stored Sheet row number to avoid creating a duplicate row. Resolve those separately before using `--case-id` or normal Mini App updates.
 
 
 The script does not write, format, merge, unmerge, freeze, unfreeze, filter, or resize rows 1-3. It does not standardize visual headers. Keep the tracker visual design in the workbook/template itself.

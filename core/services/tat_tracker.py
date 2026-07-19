@@ -672,6 +672,7 @@ def resync_tat_tracker_cases(
     case_ids: list[str] | None = None,
     dry_run: bool = False,
     limit: int | None = None,
+    offset: int = 0,
 ) -> dict[str, object]:
     """Re-write linked TAT cases from Django without creating unknown rows.
 
@@ -691,15 +692,22 @@ def resync_tat_tracker_cases(
         queryset = queryset.filter(case_id__in=selected_case_ids)
 
     linked_cases = queryset.filter(row_number__gt=0).order_by('product_key', 'case_id')
+    total_candidates = linked_cases.count()
+    selected_offset = max(0, int(offset or 0))
     skipped_unlinked = queryset.exclude(row_number__gt=0).count()
     if limit is not None:
-        linked_cases = linked_cases[:max(0, int(limit))]
+        linked_cases = linked_cases[selected_offset:selected_offset + max(0, int(limit))]
+    elif selected_offset:
+        linked_cases = linked_cases[selected_offset:]
     candidates = list(linked_cases)
     result: dict[str, object] = {
+        'total_candidates': total_candidates,
         'candidates': len(candidates),
         'synced': 0,
         'skipped_unlinked': skipped_unlinked,
         'failed': [],
+        'offset': selected_offset,
+        'next_offset': selected_offset + len(candidates) if selected_offset + len(candidates) < total_candidates else None,
     }
     if dry_run:
         return result

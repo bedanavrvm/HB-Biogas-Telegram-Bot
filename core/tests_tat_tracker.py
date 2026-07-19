@@ -8,6 +8,7 @@ from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import RequestFactory, TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 
 from core.admin import TatTrackerStaffMemberAdminForm
@@ -1342,7 +1343,15 @@ class TatTrackerRepairTest(TestCase):
     def test_repair_resync_limits_to_linked_cases_and_selected_product(self, sync_case):
         result = resync_tat_tracker_cases(self.config, product_key='sme')
 
-        self.assertEqual(result, {'candidates': 1, 'synced': 1, 'skipped_unlinked': 1, 'failed': []})
+        self.assertEqual(result, {
+            'total_candidates': 1,
+            'candidates': 1,
+            'synced': 1,
+            'skipped_unlinked': 1,
+            'failed': [],
+            'offset': 0,
+            'next_offset': None,
+        })
         sync_case.assert_called_once_with(self.config, self.repairable_case)
 
     @patch('core.services.tat_tracker.sync_case_to_sheet')
@@ -1382,5 +1391,86 @@ class TatTrackerRepairTest(TestCase):
             case_ids=[],
             dry_run=True,
             limit=None,
+            offset=0,
         )
         self.assertIn("'synced': 0", output.getvalue())
+
+
+class TatTrackerRepairAdminTest(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser(
+            username='repair-admin',
+            email='repair-admin@example.test',
+            password='password',
+        )
+        self.config = GroupSheetConfiguration.objects.create(
+            group_id='-100tat-admin-repair',
+            display_name='TAT Admin Repair',
+            sheet_id='sheet-admin-repair',
+            sheet_name='TRACKER-SME',
+            workflow={'type': 'tat_tracker', 'products': ['sme']},
+        )
+        self.url = reverse('admin:core_groupsheetconfiguration_tat_repair', args=[self.config.pk])
+        self.client.force_login(self.user)
+
+    @patch('core.admin.resync_tat_tracker_cases')
+    def test_repair_page_previews_a_bounded_batch_without_sheet_writes(self, resync):
+        resync.return_value = {
+            'total_candidates': 30,
+            'candidates': 25,
+            'synced': 0,
+            'skipped_unlinked': 2,
+            'failed': [],
+            'offset': 0,
+            'next_offset': 25,
+        }
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Preview only')
+        self.assertContains(response, 'Type REPAIR')
+        resync.assert_called_once_with(self.config, dry_run=True, limit=25, offset=0, product_key='')
+
+    @patch('core.admin.resync_tat_tracker_cases')
+    def test_repair_page_requires_confirmation_before_writing(self, resync):
+        response = self.client.post(self.url, {'confirm': 'no'})
+
+        self.assertEqual(response.status_code, 200)
+        resync.assert_not_called()
+
+    @patch('core.admin.resync_tat_tracker_cases')
+    def test_repair_page_writes_only_after_typed_confirmation(self, resync):
+        resync.return_value = {
+            'total_candidates': 1,
+            'candidates': 1,
+            'synced': 0,
+            'skipped_unlinked': 0,
+            'failed': [],
+            'offset': 0,
+            'next_offset': None,
+        }
+        self.client.get(self.url + '?product=sme')
+        resync.reset_mock()
+        resync.return_value = {
+            'total_candidates': 1,
+            'candidates': 1,
+            'synced': 1,
+            'skipped_unlinked': 0,
+            'failed': [],
+            'offset': 0,
+            'next_offset': None,
+        }
+
+        response = self.client.post(self.url, {'confirm': 'REPAIR', 'product': 'sme', 'offset': '0'})
+
+        self.assertEqual(response.status_code, 302)
+        resync.assert_called_once_with(self.config, dry_run=False, limit=25, offset=0, product_key='sme')
+
+    @patch('core.admin.resync_tat_tracker_cases')
+    def test_repair_page_rejects_a_write_without_matching_preview(self, resync):
+        response = self.client.post(self.url, {'confirm': 'REPAIR', 'product': 'sme', 'offset': '0'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Preview this exact batch')
+        resync.assert_not_called()

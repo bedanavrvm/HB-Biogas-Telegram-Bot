@@ -1,0 +1,69 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div id="content-main">
+  <h1>Repair TAT sheet values</h1>
+  <p><strong>{{ config.display_name|default:config.group_id }}</strong> &mdash; {{ config.group_id }}</p>
+  <p>This operation re-writes Django-owned TAT values only. It does not create rows; cases without a stored row number are skipped.</p>
+
+  {% if confirmation_error %}
+    <p class="errornote" role="alert">{{ confirmation_error }}</p>
+  {% endif %}
+
+  {% if preview %}
+    <h2>Preview only</h2>
+    <ul>
+      <li>{{ preview.candidates }} case(s) in this batch of {{ preview.total_candidates }} linked case(s).</li>
+      <li>{{ preview.skipped_unlinked }} case(s) will be skipped because their Sheet row is unknown.</li>
+      {% if preview.next_offset %}<li>More cases remain after this batch.</li>{% endif %}
+    </ul>
+  {% endif %}
+
+  {% if result %}
+    <h2>Repair result</h2>
+    <ul>
+      <li>{{ result.synced }} case(s) re-synced.</li>
+      <li>{{ result.failed|length }} case(s) failed.</li>
+      {% if result.next_offset %}<li>More cases remain after this batch.</li>{% endif %}
+    </ul>
+  {% endif %}
+
+  <form method="get">
+    <fieldset class="module aligned">
+      <div class="form-row">
+        <label for="id_product">Product</label>
+        <select id="id_product" name="product">
+          <option value="">All configured products</option>
+          {% for key, label in product_options %}
+            <option value="{{ key }}"{% if key == selected_product %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-row">
+        <label for="id_offset">Batch offset</label>
+        <input id="id_offset" name="offset" type="number" min="0" value="{{ offset }}">
+      </div>
+    </fieldset>
+    <div class="submit-row">
+      <input type="submit" value="Preview this batch">
+    </div>
+  </form>
+
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="product" value="{{ selected_product }}">
+    <input type="hidden" name="offset" value="{{ offset }}">
+    <fieldset class="module aligned">
+      <div class="form-row">
+        <label for="id_confirm">Confirmation</label>
+        <input id="id_confirm" name="confirm" type="text" autocomplete="off" aria-describedby="confirm-help">
+        <div id="confirm-help" class="help">Type REPAIR exactly to re-sync up to {{ batch_limit }} cases in this batch.</div>
+      </div>
+    </fieldset>
+    <div class="submit-row">
+      <a href="{{ change_url }}" class="button cancel-link">Cancel</a>
+      <input type="submit" value="Re-sync this batch">
+    </div>
+  </form>
+</div>
+{% endblock %}

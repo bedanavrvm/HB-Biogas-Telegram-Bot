@@ -37,6 +37,7 @@ class Command(BaseCommand):
             case_ids=options.get('case_id') or [],
             dry_run=options['dry_run'],
             limit=options.get('limit'),
+            offset=0,
         )
         self.stdout.write(str(result))
         if result['failed']:
