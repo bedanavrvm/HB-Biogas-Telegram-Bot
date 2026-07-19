@@ -32,6 +32,16 @@ jobs:
           TELEGRAM_WEBHOOK_SECRET: ci-webhook-secret
         run: python manage.py makemigrations --check --dry-run
 
+      - name: Check Django configuration and static assets
+        env:
+          DJANGO_SECRET_KEY: ci-secret-key-for-checks-only-change-in-production
+          DEBUG: "True"
+          TELEGRAM_WEBHOOK_SECRET: ci-webhook-secret
+        run: |
+          python -m compileall config core
+          python manage.py check
+          python manage.py collectstatic --noinput
+
       - name: Run Django tests
         env:
           DJANGO_SECRET_KEY: ci-secret-key-for-tests-only-change-in-production
@@ -41,10 +51,14 @@ jobs:
 
       - name: Check Apps Script syntax
         run: |
-          cp order_approval_apps_script.gs /tmp/order_approval_apps_script.js
-          node --check /tmp/order_approval_apps_script.js
+          for script in *.gs; do
+            cp "$script" "/tmp/${script%.gs}.js"
+            node --check "/tmp/${script%.gs}.js"
+          done
 
-      - name: Scan for known leaked production tokens
+      - name: Scan tracked files for Telegram token patterns
         run: |
-          ! grep -R "TELEGRAM_BOT_TOKEN=8601656696:" .
-          ! grep -R "TELEGRAM_WEBHOOK_SECRET=Ij3YHhi7nLdJYiyvlrnyax1VaXtmcaji7mvpkMog-6E" .
+          if git grep -nE '[0-9]{8,12}:[A-Za-z0-9_-]{30,}'; then
+            echo "Possible Telegram token found in a tracked file. Rotate it and remove it from the repository."
+            exit 1
+          fi

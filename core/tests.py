@@ -9,6 +9,7 @@ from io import BytesIO, StringIO
 from datetime import datetime, timedelta
 from decimal import Decimal
 from django.core.management import call_command
+from django.db import DatabaseError
 from django.test import TestCase, override_settings
 from django.contrib.auth import get_user_model
 from django.utils import timezone
@@ -5043,6 +5044,15 @@ class TelegramWebhookViewTest(TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data['status'], 'success')
+
+    @patch('core.api.views.connection')
+    def test_health_check_reports_database_outage(self, mock_connection):
+        mock_connection.cursor.side_effect = DatabaseError('database unavailable')
+
+        response = self.client.get('/api/health/')
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()['code'], 'DATABASE_UNAVAILABLE')
 
     @override_settings(TELEGRAM_WEBHOOK_SECRET='', DEBUG=False)
     def test_webhook_requires_secret_in_production(self):

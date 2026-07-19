@@ -27,6 +27,7 @@ from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.conf import settings
+from django.db import DatabaseError, connection
 import hmac
 import hashlib
 import json
@@ -56,10 +57,21 @@ logger = logging.getLogger(__name__)
 @require_http_methods(["GET"])
 def health_check(request):
     """Returns system status and version."""
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT 1')
+    except DatabaseError:
+        logger.exception('Health check database probe failed')
+        return error_response(
+            'Service is unavailable.',
+            'DATABASE_UNAVAILABLE',
+            status_code=503,
+        )
+
     return success_response(
         data={
             'service': getattr(settings, 'APP_DISPLAY_NAME', 'Telegram Workflow Bot'),
-            'version': '1.0.0',
+            'version': getattr(settings, 'APP_RELEASE', '') or '1.0.0',
             'timestamp': timezone.now().isoformat(),
             'database': 'connected',
         },

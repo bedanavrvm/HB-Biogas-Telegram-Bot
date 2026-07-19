@@ -16,7 +16,16 @@ SECRET_KEY = config('DJANGO_SECRET_KEY', default='django-inchange-me-in-producti
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1').split(',')
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in config('ALLOWED_HOSTS', default='localhost,127.0.0.1').split(',')
+    if host.strip()
+]
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in config('CSRF_TRUSTED_ORIGINS', default='').split(',')
+    if origin.strip()
+]
 
 # Application definition
 INSTALLED_APPS = [
@@ -64,7 +73,8 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 DATABASES = {
     'default': dj_database_url.config(
-        default=config('DATABASE_URL', default=f'sqlite:///{BASE_DIR / "db.sqlite3"}')
+        default=config('DATABASE_URL', default=f'sqlite:///{BASE_DIR / "db.sqlite3"}'),
+        conn_max_age=config('DATABASE_CONN_MAX_AGE', default=600, cast=int),
     )
 }
 
@@ -86,6 +96,21 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
+# Render terminates TLS before proxying requests to Gunicorn.  These defaults
+# are safe for production while retaining a frictionless local DEBUG setup.
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SECURE_SSL_REDIRECT = config('SECURE_SSL_REDIRECT', default=not DEBUG, cast=bool)
+SESSION_COOKIE_SECURE = config('SESSION_COOKIE_SECURE', default=not DEBUG, cast=bool)
+CSRF_COOKIE_SECURE = config('CSRF_COOKIE_SECURE', default=not DEBUG, cast=bool)
+SECURE_HSTS_SECONDS = config('SECURE_HSTS_SECONDS', default=31536000 if not DEBUG else 0, cast=int)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = config(
+    'SECURE_HSTS_INCLUDE_SUBDOMAINS', default=not DEBUG, cast=bool
+)
+SECURE_HSTS_PRELOAD = config('SECURE_HSTS_PRELOAD', default=not DEBUG, cast=bool)
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = 'same-origin'
+X_FRAME_OPTIONS = 'DENY'
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
@@ -144,6 +169,13 @@ TELEGRAM_BOT_USERNAME = config('TELEGRAM_BOT_USERNAME', default='').lstrip('@')
 TELEGRAM_BOT_DISPLAY_NAME = config('TELEGRAM_BOT_DISPLAY_NAME', default='Telegram Bot')
 APP_DISPLAY_NAME = config('APP_DISPLAY_NAME', default='Telegram Workflow Bot')
 APP_BASE_URL = config('APP_BASE_URL', default='').rstrip('/')
+APP_RELEASE = config('APP_RELEASE', default='').strip()
+
+# Optional production error reporting.  No data is sent when SENTRY_DSN is
+# blank; configure this in Render rather than committing a DSN.
+SENTRY_DSN = config('SENTRY_DSN', default='').strip()
+SENTRY_ENVIRONMENT = config('SENTRY_ENVIRONMENT', default='production' if not DEBUG else 'development')
+SENTRY_TRACES_SAMPLE_RATE = config('SENTRY_TRACES_SAMPLE_RATE', default=0.0, cast=float)
 
 # Spin Credit Analysts (Telegram usernames/user IDs)
 SPIN_ANALYSTS = [

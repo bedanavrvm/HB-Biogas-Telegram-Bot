@@ -5,6 +5,7 @@ dj-database-url==2.1.0
 python-decouple==3.8
 whitenoise==6.6.0
 gunicorn==21.2.0
+sentry-sdk==2.35.1
 
 # Google Sheets
 gspread==6.0.2

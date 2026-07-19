@@ -2,6 +2,8 @@
 
 A production-quality MVP system that extracts structured data from WhatsApp group messages (via manual batch forwarding), processes them, deduplicates, and automatically writes clean structured rows into a shared Google Sheet.
 
+> **Production operations:** Use [PRODUCTION_RUNBOOK.md](./PRODUCTION_RUNBOOK.md) as the current release and recovery procedure. Older root-level deployment notes describe earlier workflow versions and are reference material only.
+
 ## 📐 Architecture
 
 ```
