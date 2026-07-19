@@ -278,6 +278,36 @@ class GoogleSheetsService:
         except Exception:
             return False
 
+    def get_or_create_worksheet(self, title: str, *, rows: int = 100, cols: int = 20):
+        """Return a workbook tab, creating it only when it is explicitly needed.
+
+        Support tabs such as ``TAT TARGETS`` cannot be opened through the
+        normal worksheet-specific initialiser until they exist. This helper is
+        deliberately opt-in so normal case writes never create a tab by typo.
+        """
+        if not _google_sheets_available or not self._sheet_id:
+            return None
+        try:
+            creds = Credentials.from_service_account_file(
+                self._credentials_file,
+                scopes=self.SCOPES,
+            )
+            client = gspread.authorize(creds)
+            workbook = client.open_by_key(self._sheet_id)
+            try:
+                worksheet = workbook.worksheet(title)
+            except gspread.exceptions.WorksheetNotFound:
+                worksheet = workbook.add_worksheet(title=title, rows=rows, cols=cols)
+                logger.info('Created support worksheet %s in %s.', title, self._sheet_id)
+            if self._sheet_name == title:
+                self._client = client
+                self._sheet = worksheet
+                self._initialized = True
+            return worksheet
+        except Exception as exc:
+            logger.warning('Could not create or open worksheet %s in %s: %s', title, self._sheet_id, exc)
+            return None
+
     # ------------------------------------------------------------------
     # Validation helpers
     # ------------------------------------------------------------------

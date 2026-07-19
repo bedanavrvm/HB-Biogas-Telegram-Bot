@@ -452,13 +452,19 @@ function applyStatusConditionalFormatting_(sheet, layout) {
   const dataRows = TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1;
   const row = TAT_CONFIG.DATA_START_ROW;
   const tatHours = colLetter_(layout.cols.tatHours);
-  const totalTarget = tatTargetFormula_(layout.productKey, '__total__');
+  const tatDays = colLetter_(layout.cols.tatDays);
+  const targets = setupTatHighlightingTargets_(sheet, layout);
   const rules = trafficLightRules_(
-    sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.tatHours, dataRows, 2),
+    sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.tatHours, dataRows, 1),
     tatHours,
     row,
-    totalTarget
-  );
+    absoluteCell_(targets.totalHours)
+  ).concat(trafficLightRules_(
+    sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.tatDays, dataRows, 1),
+    tatDays,
+    row,
+    absoluteCell_(targets.totalDays)
+  ));
   (layout.stageTatKeys || []).forEach(function(stageKey, index) {
     const column = layout.cols.tatDays + 1 + index;
     const stage = colLetter_(column);
@@ -466,27 +472,57 @@ function applyStatusConditionalFormatting_(sheet, layout) {
       sheet.getRange(TAT_CONFIG.DATA_START_ROW, column, dataRows, 1),
       stage,
       row,
-      tatTargetFormula_(layout.productKey, stageKey)
+      absoluteCell_(targets.stageColumns[index])
     ).forEach(function(rule) { rules.push(rule); });
   });
   sheet.setConditionalFormatRules(rules);
 }
 
-function tatTargetFormula_(productKey, stageKey) {
-  // Conditional-format rules cannot directly reference another tab. INDIRECT keeps
-  // the cross-tab ranges inside a string while still recalculating from TAT TARGETS.
-  return `SUMIFS(INDIRECT("'TAT TARGETS'!C:C"),INDIRECT("'TAT TARGETS'!A:A"),"${productKey}",INDIRECT("'TAT TARGETS'!B:B"),"${stageKey}")`;
+function setupTatHighlightingTargets_(sheet, layout) {
+  if (!layout.productKey) {
+    throw new Error('TAT highlighting needs a product key for ' + sheet.getName() + '.');
+  }
+  // Conditional-format formulas cannot reliably query another sheet. Store the
+  // TAT TARGETS lookups in hidden cells on this tracker sheet instead, then
+  // keep every conditional rule entirely sheet-local.
+  const helperStart = layout.headers.length + 1;
+  const stageKeys = layout.stageTatKeys || [];
+  const helperCount = 2 + stageKeys.length;
+  ensureRowsAndColumns_(sheet, TAT_CONFIG.DEFAULT_MAX_ROWS, helperStart + helperCount - 1);
+  const totalMinutes = tatTargetCellFormula_(layout.productKey, '__total__');
+  const formulas = [
+    `=IFERROR((${totalMinutes})/60,0)`,
+    `=IFERROR((${totalMinutes})/1440,0)`,
+  ].concat(stageKeys.map(function(stageKey) {
+    return `=IFERROR(${tatTargetCellFormula_(layout.productKey, stageKey)},0)`;
+  }));
+  sheet.getRange(1, helperStart, 1, helperCount).setFormulas([formulas]);
+  sheet.getRange(1, helperStart, 1, helperCount).setNumberFormat('0.00');
+  sheet.hideColumns(helperStart, helperCount);
+  return {
+    totalHours: helperStart,
+    totalDays: helperStart + 1,
+    stageColumns: stageKeys.map(function(_, index) { return helperStart + 2 + index; }),
+  };
 }
 
-function trafficLightRules_(range, column, row, targetFormula) {
+function tatTargetCellFormula_(productKey, stageKey) {
+  return `SUMIFS('TAT TARGETS'!$C:$C,'TAT TARGETS'!$A:$A,"${productKey}",'TAT TARGETS'!$B:$B,"${stageKey}")`;
+}
+
+function absoluteCell_(column) {
+  return `$${colLetter_(column)}$1`;
+}
+
+function trafficLightRules_(range, column, row, target) {
   const value = `${column}${row}`;
-  const target = `(${targetFormula})`;
   return [
     colorRule_(range, `=AND(${value}<>"",${target}>0,${value}<=${target}*0.8)`, '#d9ead3'),
     colorRule_(range, `=AND(${value}<>"",${target}>0,${value}>${target}*0.8,${value}<=${target})`, '#fff2cc'),
     colorRule_(range, `=AND(${value}<>"",${target}>0,${value}>${target})`, '#f4cccc'),
   ];
 }
+
 function addStageTrafficLightRules_(rules, sheet, layout, row, openStatusCheck, target) {
   const rows = TAT_CONFIG.DEFAULT_MAX_ROWS - TAT_CONFIG.DATA_START_ROW + 1;
   const created = colLetter_(layout.cols.created);

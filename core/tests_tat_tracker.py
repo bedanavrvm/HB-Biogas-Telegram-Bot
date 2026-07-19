@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from decimal import Decimal
 import json
 
@@ -34,6 +34,7 @@ from core.services.tat_tracker import (
     staff_user_for_payload,
     sync_case_to_sheet,
     search_cases,
+    sync_tat_target_settings_to_sheet,
     validate_tracker_identity_headers,
     update_case,
     workflow_branches,
@@ -109,6 +110,20 @@ class TatTrackerWorkflowTest(TestCase):
                 'sme': {'total_minutes': '0.01', 'stages': {}},
                 'logbook': {'total_minutes': '', 'stages': {}},
             })
+
+    @patch('core.services.tat_tracker.get_sheets_service')
+    def test_target_sync_creates_missing_support_tab(self, get_service):
+        sheet = MagicMock()
+        get_service.return_value.get_or_create_worksheet.return_value = sheet
+
+        result = sync_tat_target_settings_to_sheet(self.config, {
+            'products': ['sme'],
+            'tat_targets_minutes': {'sme': {'total': 1440, 'stages': {'mpesa_to_admin': 30}}},
+        })
+
+        self.assertEqual(result['status'], 'synced')
+        get_service.return_value.get_or_create_worksheet.assert_called_once_with('TAT TARGETS', rows=500, cols=4)
+        sheet.batch_clear.assert_called_once_with(['A2:D500'])
 
     @override_settings(TAT_TRACKER_SIGNATURES_ENABLED=True)
     def test_sme_bm_certificate_blocks_the_next_stage_until_signed(self):

@@ -874,11 +874,16 @@ def normalize_tat_target_settings(workflow: dict | None, payload: object) -> dic
 
 
 def sync_tat_target_settings_to_sheet(group_config, workflow: dict | None) -> dict:
-    """Write configured SLA targets to the Apps Script-owned support tab."""
+    """Write configured SLA targets to the Apps Script support tab.
+
+    The tab is created on the first IT target save, so formatting does not
+    depend on an administrator remembering to run a separate Apps Script setup.
+    """
     if not getattr(group_config, 'sheet_id', ''):
         return {'status': 'not_configured'}
     service = get_sheets_service(sheet_id=group_config.sheet_id, sheet_name='TAT TARGETS')
-    if not service.is_available():
+    sheet = service.get_or_create_worksheet('TAT TARGETS', rows=500, cols=4)
+    if sheet is None:
         return {'status': 'unavailable'}
     rows = []
     for product in tat_target_settings(workflow):
@@ -888,7 +893,6 @@ def sync_tat_target_settings_to_sheet(group_config, workflow: dict | None) -> di
             if stage['target_minutes']:
                 rows.append([product['key'], stage['key'], stage['target_minutes'], str(NEAR_SLA_RATIO)])
     try:
-        sheet = service._sheet
         sheet.update('A1:D1', [['Product Key', 'Stage Key', 'Target Minutes', 'Near Ratio']], value_input_option='USER_ENTERED')
         sheet.batch_clear(['A2:D500'])
         if rows:
