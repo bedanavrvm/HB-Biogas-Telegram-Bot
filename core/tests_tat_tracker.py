@@ -54,10 +54,10 @@ class TatTrackerWorkflowTest(TestCase):
             group_id='-100tat',
             display_name='TAT Test',
             sheet_id='sheet123',
-            sheet_name='TRACKER-SME',
+            sheet_name='TRACKER-Business',
             workflow={
                 'type': 'tat_tracker',
-                'products': ['sme', 'logbook'],
+                'products': ['business', 'logbook'],
                 'branches': ['Nakuru', 'Embu'],
                 'staff': [
                     {
@@ -66,7 +66,7 @@ class TatTrackerWorkflowTest(TestCase):
                         'name': 'BRO User',
                         'roles': ['BRO'],
                         'branches': ['Nakuru'],
-                        'products': ['sme'],
+                        'products': ['business'],
                         'active': True,
                     },
                     {
@@ -75,7 +75,7 @@ class TatTrackerWorkflowTest(TestCase):
                         'name': 'Admin User',
                         'roles': ['ADMIN'],
                         'branches': ['Nakuru'],
-                        'products': ['sme'],
+                        'products': ['business'],
                         'active': True,
                     },
                 ],
@@ -89,9 +89,9 @@ class TatTrackerWorkflowTest(TestCase):
         for index in range(12):
             TatTrackerCase.objects.create(
                 group_id=self.config.group_id,
-                case_id=f'JBL-SME-2026-{index:03d}',
-                product_key='sme',
-                product_label='SME',
+                case_id=f'JBL-BS-2026-{index:03d}',
+                product_key='business',
+                product_label='Business',
                 client_name=f'Client {index}',
                 branch='Nakuru',
                 status='Active',
@@ -115,7 +115,7 @@ class TatTrackerWorkflowTest(TestCase):
         user = {'roles': ['IT'], 'name': 'IT User'}
 
         result = update_tat_target_settings(self.config, user, {
-            'sme': {
+            'business': {
                 'total_minutes': '1440',
                 'stages': {'mpesa_to_admin': '30'},
             },
@@ -123,7 +123,7 @@ class TatTrackerWorkflowTest(TestCase):
         })
 
         self.config.refresh_from_db()
-        targets = self.config.workflow['tat_targets_minutes']['sme']
+        targets = self.config.workflow['tat_targets_minutes']['business']
         self.assertTrue(result['changed'])
         self.assertEqual(targets['total'], 1440)
         self.assertEqual(targets['stages']['mpesa_to_admin'], 30)
@@ -139,7 +139,7 @@ class TatTrackerWorkflowTest(TestCase):
     def test_target_minutes_must_be_whole_number(self):
         with self.assertRaisesRegex(ValueError, 'whole minutes'):
             normalize_tat_target_settings(self.config.workflow, {
-                'sme': {'total_minutes': '0.01', 'stages': {}},
+                'business': {'total_minutes': '0.01', 'stages': {}},
                 'logbook': {'total_minutes': '', 'stages': {}},
             })
 
@@ -149,8 +149,8 @@ class TatTrackerWorkflowTest(TestCase):
         get_service.return_value.get_or_create_worksheet.return_value = sheet
 
         result = sync_tat_target_settings_to_sheet(self.config, {
-            'products': ['sme'],
-            'tat_targets_minutes': {'sme': {'total': 1440, 'stages': {'mpesa_to_admin': 30}}},
+            'products': ['business'],
+            'tat_targets_minutes': {'business': {'total': 1440, 'stages': {'mpesa_to_admin': 30}}},
         })
 
         self.assertEqual(result['status'], 'synced')
@@ -165,17 +165,17 @@ class TatTrackerWorkflowTest(TestCase):
             telegram_user_id='333',
             roles='BM',
             branches='Nakuru',
-            products='sme',
+            products='business',
             signing_national_id='12345678',
             signing_phone_number='+254700000001',
         )
         case = TatTrackerCase.objects.create(
             group_id=self.config.group_id,
             sheet_id=self.config.sheet_id,
-            sheet_name='TRACKER-SME',
-            case_id='JBL-SME-2026-APPROVAL',
-            product_key='sme',
-            product_label='SME',
+            sheet_name='TRACKER-Business',
+            case_id='JBL-BS-2026-APPROVAL',
+            product_key='business',
+            product_label='Business',
             client_name='Approval Client',
             branch='Nakuru',
             bro_name='BRO User',
@@ -197,7 +197,7 @@ class TatTrackerWorkflowTest(TestCase):
             stage_key='bm_response',
             external_reference='TAT-test-bm-response-v1',
         )
-        next_stage = stage_by_key(product_by_key('sme'), 'bro_applied')
+        next_stage = stage_by_key(product_by_key('business'), 'bro_applied')
 
         self.assertFalse(previous_stages_complete(case, next_stage))
 
@@ -209,17 +209,17 @@ class TatTrackerWorkflowTest(TestCase):
     @override_settings(TAT_TRACKER_SIGNATURES_ENABLED=False)
     @patch('core.models.TatTrackerApprovalCertificate.objects.filter')
     def test_signature_dispatch_is_disabled_by_default(self, certificate_filter):
-        _dispatch_tat_approval_certificate('JBL-SME-2026-001', {'telegram_id': '333'})
+        _dispatch_tat_approval_certificate('JBL-BS-2026-001', {'telegram_id': '333'})
 
         certificate_filter.assert_not_called()
     def test_sme_bm_certificate_does_not_block_when_signatures_are_disabled(self):
         case = TatTrackerCase.objects.create(
             group_id=self.config.group_id,
             sheet_id=self.config.sheet_id,
-            sheet_name='TRACKER-SME',
-            case_id='JBL-SME-2026-SIGNATURES-OFF',
-            product_key='sme',
-            product_label='SME',
+            sheet_name='TRACKER-Business',
+            case_id='JBL-BS-2026-SIGNATURES-OFF',
+            product_key='business',
+            product_label='Business',
             client_name='Approval Client',
             branch='Nakuru',
             bro_name='BRO User',
@@ -234,7 +234,7 @@ class TatTrackerWorkflowTest(TestCase):
             },
         )
 
-        self.assertTrue(previous_stages_complete(case, stage_by_key(product_by_key('sme'), 'bro_applied')))
+        self.assertTrue(previous_stages_complete(case, stage_by_key(product_by_key('business'), 'bro_applied')))
     @override_settings(APP_BASE_URL='https://example.test')
     def test_builds_secure_tracker_url(self):
         url = build_tat_tracker_url(self.config.group_id)
@@ -303,12 +303,12 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(data['bro_names'], ['BRO User'])
 
     def test_tat_formula_helpers_match_tracker_columns(self):
-        sme = product_by_key('sme')
+        business = product_by_key('business')
         logbook = product_by_key('logbook')
         mjengo = product_by_key('mjengo')
 
-        self.assertEqual(tat_hours_formula(sme, 5), '=IF(OR($H5="",$R5=""),"",ROUND(($R5-$H5)*24,2))')
-        self.assertEqual(tat_days_formula(sme, 5), '=IF(U5="","",ROUND(U5/24,2))')
+        self.assertEqual(tat_hours_formula(business, 5), '=IF(OR($H5="",$R5=""),"",ROUND(($R5-$H5)*24,2))')
+        self.assertEqual(tat_days_formula(business, 5), '=IF(U5="","",ROUND(U5/24,2))')
         self.assertEqual(tat_hours_formula(logbook, 5), '=IF(OR($H5="",$Z5=""),"",ROUND(($Z5-$H5)*24,2))')
         self.assertEqual(tat_days_formula(logbook, 5), '=IF(AC5="","",ROUND(AC5/24,2))')
         self.assertEqual(tat_hours_formula(mjengo, 5), '=IF(OR($H5="",$Y5=""),"",ROUND(($Y5-$H5)*24,2))')
@@ -321,7 +321,7 @@ class TatTrackerWorkflowTest(TestCase):
             telegram_username='gui_staff',
             roles='CA,BM',
             branches='ALL',
-            products='sme,logbook',
+            products='business,logbook',
         )
         TatTrackerStaffMember.objects.create(
             group_configuration=self.config,
@@ -336,7 +336,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(workflow['staff'][0]['name'], 'GUI Staff')
         self.assertEqual(workflow['staff'][0]['roles'], ['CA', 'BM'])
         self.assertEqual(workflow['staff'][0]['branches'], ['ALL'])
-        self.assertEqual(workflow['staff'][0]['products'], ['sme', 'logbook'])
+        self.assertEqual(workflow['staff'][0]['products'], ['business', 'logbook'])
 
 
     def test_gui_staff_rows_override_legacy_workflow_staff_even_when_inactive(self):
@@ -368,14 +368,14 @@ class TatTrackerWorkflowTest(TestCase):
             telegram_user_id='333',
             roles='CA,BM',
             branches='Nakuru,Embu',
-            products='sme,logbook',
+            products='business,logbook',
         )
 
         form = TatTrackerStaffMemberAdminForm(instance=staff)
 
         self.assertEqual(form['roles'].value(), ['CA', 'BM'])
         self.assertEqual(form['branches'].value(), ['Nakuru', 'Embu'])
-        self.assertEqual(form['products'].value(), ['sme', 'logbook'])
+        self.assertEqual(form['products'].value(), ['business', 'logbook'])
         html = form.as_p()
         self.assertIn('name="roles" value="CA"', html)
         self.assertIn('name="roles" value="BM"', html)
@@ -390,7 +390,7 @@ class TatTrackerWorkflowTest(TestCase):
             'telegram_username': '',
             'roles': ['CA', 'BM'],
             'branches': ['Nakuru', 'Embu'],
-            'products': ['sme', 'logbook'],
+            'products': ['business', 'logbook'],
             'active': 'on',
             'notes': '',
         }
@@ -401,7 +401,7 @@ class TatTrackerWorkflowTest(TestCase):
         staff = form.save()
         self.assertEqual(staff.roles, 'CA,BM')
         self.assertEqual(staff.branches, 'Nakuru,Embu')
-        self.assertEqual(staff.products, 'sme,logbook')
+        self.assertEqual(staff.products, 'business,logbook')
 
     def test_staff_admin_form_limits_branches_to_the_group_configuration(self):
         self.config.workflow['branches'] = ['Muranga', 'Thika Road']
@@ -412,7 +412,7 @@ class TatTrackerWorkflowTest(TestCase):
             'telegram_user_id': '334',
             'roles': ['BRO'],
             'branches': ['Nakuru'],
-            'products': ['sme'],
+            'products': ['business'],
             'active': 'on',
         }
 
@@ -426,7 +426,7 @@ class TatTrackerWorkflowTest(TestCase):
 
     def test_group_admin_form_exposes_tat_targets_from_workflow(self):
         self.config.workflow.setdefault('tat_targets_minutes', {}).setdefault(
-            'sme',
+            'business',
             {'total': 20160, 'stages': {}},
         )['stages'] = {
             'mpesa_to_admin': 45,
@@ -438,11 +438,11 @@ class TatTrackerWorkflowTest(TestCase):
 
         form = GroupSheetConfigurationAdminForm(instance=self.config)
 
-        self.assertIn('tat_target_sme_total', form.fields)
-        self.assertIn('tat_target_sme_mpesa_to_admin', form.fields)
-        self.assertEqual(form['tat_target_sme_total'].value(), 20160)
-        self.assertEqual(form['tat_target_sme_mpesa_to_admin'].value(), 45)
-        self.assertEqual(form['tat_target_sme_ca_analysis_sent'].value(), 180)
+        self.assertIn('tat_target_business_total', form.fields)
+        self.assertIn('tat_target_business_mpesa_to_admin', form.fields)
+        self.assertEqual(form['tat_target_business_total'].value(), 20160)
+        self.assertEqual(form['tat_target_business_mpesa_to_admin'].value(), 45)
+        self.assertEqual(form['tat_target_business_ca_analysis_sent'].value(), 180)
 
     def test_group_admin_form_saves_tat_targets_into_generated_workflow(self):
         from core.admin import GroupSheetConfigurationAdminForm
@@ -458,28 +458,28 @@ class TatTrackerWorkflowTest(TestCase):
             'workflow': json.dumps(self.config.workflow),
             'parser_rules': '{}',
             'metadata': '{}',
-            'tat_target_sme_total': '1440',
-            'tat_target_sme_mpesa_to_admin': '30',
-            'tat_target_sme_ca_analysis_sent': '120',
+            'tat_target_business_total': '1440',
+            'tat_target_business_mpesa_to_admin': '30',
+            'tat_target_business_ca_analysis_sent': '120',
         }
 
         form = GroupSheetConfigurationAdminForm(data=data, instance=self.config)
 
         self.assertTrue(form.is_valid(), form.errors)
         workflow = form.generated_workflow()
-        self.assertEqual(workflow['tat_targets_minutes']['sme']['total'], 1440)
+        self.assertEqual(workflow['tat_targets_minutes']['business']['total'], 1440)
         self.assertEqual(
-            workflow['tat_targets_minutes']['sme']['stages']['mpesa_to_admin'],
+            workflow['tat_targets_minutes']['business']['stages']['mpesa_to_admin'],
             30,
         )
         self.assertEqual(
-            workflow['tat_targets_minutes']['sme']['stages']['ca_analysis_sent'],
+            workflow['tat_targets_minutes']['business']['stages']['ca_analysis_sent'],
             120,
         )
 
     def test_group_admin_form_preserves_existing_tat_targets_when_fields_blank(self):
         self.config.workflow.setdefault('tat_targets_minutes', {}).setdefault(
-            'sme',
+            'business',
             {'total': 20160, 'stages': {}},
         )['stages'] = {
             'mpesa_to_admin': 45,
@@ -507,17 +507,17 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertTrue(form.is_valid(), form.errors)
         workflow = form.generated_workflow()
         self.assertEqual(
-            workflow['tat_targets_minutes']['sme']['stages']['mpesa_to_admin'],
+            workflow['tat_targets_minutes']['business']['stages']['mpesa_to_admin'],
             45,
         )
         self.assertEqual(
-            workflow['tat_targets_minutes']['sme']['stages']['ca_analysis_sent'],
+            workflow['tat_targets_minutes']['business']['stages']['ca_analysis_sent'],
             180,
         )
 
     def test_group_admin_form_preserves_existing_tat_workflow_settings(self):
         self.config.workflow.update({
-            'products': ['sme'],
+            'products': ['business'],
             'branches': ['Muranga', 'Thika Road'],
             'alert_next_role': False,
         })
@@ -536,23 +536,23 @@ class TatTrackerWorkflowTest(TestCase):
             'workflow': json.dumps(self.config.workflow),
             'parser_rules': '{}',
             'metadata': '{}',
-            'tat_target_sme_total': '1440',
+            'tat_target_business_total': '1440',
         }
 
         form = GroupSheetConfigurationAdminForm(data=data, instance=self.config)
 
         self.assertTrue(form.is_valid(), form.errors)
         workflow = form.generated_workflow()
-        self.assertEqual(workflow['products'], ['sme'])
+        self.assertEqual(workflow['products'], ['business'])
         self.assertEqual(workflow['branches'], ['Muranga', 'Thika Road'])
         self.assertIs(workflow['alert_next_role'], False)
-        self.assertEqual(workflow['tat_targets_minutes']['sme']['total'], 1440)
+        self.assertEqual(workflow['tat_targets_minutes']['business']['total'], 1440)
 
     def test_group_admin_form_loads_tat_targets_even_when_preset_is_manual(self):
         self.config.workflow = {
             'type': 'custom_tat_tracker',
             'tat_targets_minutes': {
-                'sme': {
+                'business': {
                     'total': 1440,
                     'stages': {'mpesa_to_admin': 30},
                 },
@@ -564,16 +564,16 @@ class TatTrackerWorkflowTest(TestCase):
 
         form = GroupSheetConfigurationAdminForm(instance=self.config)
 
-        self.assertEqual(form['tat_target_sme_total'].value(), 1440)
-        self.assertEqual(form['tat_target_sme_mpesa_to_admin'].value(), 30)
+        self.assertEqual(form['tat_target_business_total'].value(), 1440)
+        self.assertEqual(form['tat_target_business_mpesa_to_admin'].value(), 30)
 
     def test_group_admin_manual_tat_workflow_merges_gui_target_fields(self):
         self.config.workflow = {
             'type': 'tat_tracker',
-            'products': ['sme'],
+            'products': ['business'],
             'branches': ['Nakuru'],
             'tat_targets_minutes': {
-                'sme': {
+                'business': {
                     'total': 20160,
                     'stages': {'mpesa_to_admin': 45},
                 },
@@ -594,23 +594,23 @@ class TatTrackerWorkflowTest(TestCase):
             'workflow': json.dumps(self.config.workflow),
             'parser_rules': '{}',
             'metadata': '{}',
-            'tat_target_sme_total': '1440',
-            'tat_target_sme_ca_analysis_sent': '120',
+            'tat_target_business_total': '1440',
+            'tat_target_business_ca_analysis_sent': '120',
         }
 
         form = GroupSheetConfigurationAdminForm(data=data, instance=self.config)
 
         self.assertTrue(form.is_valid(), form.errors)
         workflow = form.generated_workflow()
-        self.assertEqual(workflow['products'], ['sme'])
+        self.assertEqual(workflow['products'], ['business'])
         self.assertEqual(workflow['branches'], ['Nakuru'])
-        self.assertEqual(workflow['tat_targets_minutes']['sme']['total'], 1440)
+        self.assertEqual(workflow['tat_targets_minutes']['business']['total'], 1440)
         self.assertEqual(
-            workflow['tat_targets_minutes']['sme']['stages']['mpesa_to_admin'],
+            workflow['tat_targets_minutes']['business']['stages']['mpesa_to_admin'],
             45,
         )
         self.assertEqual(
-            workflow['tat_targets_minutes']['sme']['stages']['ca_analysis_sent'],
+            workflow['tat_targets_minutes']['business']['stages']['ca_analysis_sent'],
             120,
         )
 
@@ -625,7 +625,7 @@ class TatTrackerWorkflowTest(TestCase):
         model_admin = admin.site._registry[GroupSheetConfiguration]
         form_class = model_admin.get_form(request, self.config)
 
-        self.assertIn('tat_target_sme_total', form_class.base_fields)
+        self.assertIn('tat_target_business_total', form_class.base_fields)
         self.assertIn('tat_target_logbook_ca_analysis_sent', form_class.base_fields)
     def test_staff_user_matches_gui_staff_row(self):
         TatTrackerStaffMember.objects.create(
@@ -655,7 +655,7 @@ class TatTrackerWorkflowTest(TestCase):
     @staticmethod
     def mark_case_synced(_group_config, case):
         case.row_number = case.row_number or 5
-        case.sheet_name = case.sheet_name or 'TRACKER-SME'
+        case.sheet_name = case.sheet_name or 'TRACKER-Business'
         case.sync_error = ''
         case.save(update_fields=['row_number', 'sheet_name', 'sync_error', 'updated_at'])
 
@@ -682,11 +682,11 @@ class TatTrackerWorkflowTest(TestCase):
         case = TatTrackerCase.objects.create(
             group_id=self.config.group_id,
             sheet_id=self.config.sheet_id,
-            sheet_name='TRACKER-SME',
+            sheet_name='TRACKER-Business',
             row_number=5,
-            case_id='JBL-SME-2026-001',
-            product_key='sme',
-            product_label='SME',
+            case_id='JBL-BS-2026-001',
+            product_key='business',
+            product_label='Business',
             client_name='Test Client',
             national_id='12345678',
             primary_phone='254712345678',
@@ -741,11 +741,11 @@ class TatTrackerWorkflowTest(TestCase):
         case = TatTrackerCase.objects.create(
             group_id=self.config.group_id,
             sheet_id=self.config.sheet_id,
-            sheet_name='TRACKER-SME',
+            sheet_name='TRACKER-Business',
             row_number=5,
-            case_id='JBL-SME-2026-REGISTER-TAT',
-            product_key='sme',
-            product_label='SME',
+            case_id='JBL-BS-2026-REGISTER-TAT',
+            product_key='business',
+            product_label='Business',
             client_name='Approval Client',
             national_id='12345678',
             primary_phone='254712345678',
@@ -800,11 +800,11 @@ class TatTrackerWorkflowTest(TestCase):
         case = TatTrackerCase.objects.create(
             group_id=self.config.group_id,
             sheet_id=self.config.sheet_id,
-            sheet_name='TRACKER-SME',
+            sheet_name='TRACKER-Business',
             row_number=5,
-            case_id='JBL-SME-2026-003',
-            product_key='sme',
-            product_label='SME',
+            case_id='JBL-BS-2026-003',
+            product_key='business',
+            product_label='Business',
             client_name='Test Client',
             national_id='12345678',
             primary_phone='254712345678',
@@ -840,7 +840,7 @@ class TatTrackerWorkflowTest(TestCase):
 
             def append_row(self, row, value_input_option=None):
                 self.appended.append((row, value_input_option))
-                return {'updates': {'updatedRange': 'TRACKER-SME!A6:AC6'}}
+                return {'updates': {'updatedRange': 'TRACKER-Business!A6:AC6'}}
 
         class FakeService:
             def __init__(self, sheet):
@@ -853,10 +853,10 @@ class TatTrackerWorkflowTest(TestCase):
         case = TatTrackerCase.objects.create(
             group_id=self.config.group_id,
             sheet_id=self.config.sheet_id,
-            sheet_name='TRACKER-SME',
-            case_id='JBL-SME-2026-005',
-            product_key='sme',
-            product_label='SME',
+            sheet_name='TRACKER-Business',
+            case_id='JBL-BS-2026-005',
+            product_key='business',
+            product_label='Business',
             client_name='Test Client',
             national_id='12345678',
             primary_phone='254712345678',
@@ -903,11 +903,11 @@ class TatTrackerWorkflowTest(TestCase):
         case = TatTrackerCase.objects.create(
             group_id=self.config.group_id,
             sheet_id=self.config.sheet_id,
-            sheet_name='TRACKER-SME',
+            sheet_name='TRACKER-Business',
             row_number=5,
-            case_id='JBL-SME-2026-009',
-            product_key='sme',
-            product_label='SME',
+            case_id='JBL-BS-2026-009',
+            product_key='business',
+            product_label='Business',
             client_name='Header Client',
             national_id='12345678',
             primary_phone='254712345678',
@@ -946,11 +946,11 @@ class TatTrackerWorkflowTest(TestCase):
         case = TatTrackerCase.objects.create(
             group_id=self.config.group_id,
             sheet_id=self.config.sheet_id,
-            sheet_name='TRACKER-SME',
+            sheet_name='TRACKER-Business',
             row_number=5,
-            case_id='JBL-SME-2026-004',
-            product_key='sme',
-            product_label='SME',
+            case_id='JBL-BS-2026-004',
+            product_key='business',
+            product_label='Business',
             client_name='Test Client',
             national_id='12345678',
             primary_phone='254712345678',
@@ -972,8 +972,8 @@ class TatTrackerWorkflowTest(TestCase):
     def test_calculated_tat_values_use_aware_datetimes_and_ongoing_now(self):
         case = TatTrackerCase(
             group_id=self.config.group_id,
-            case_id='JBL-SME-2026-002',
-            product_key='sme',
+            case_id='JBL-BS-2026-002',
+            product_key='business',
             client_name='Ongoing Client',
             stage_values={'created': timezone.make_aware(timezone.datetime(2026, 7, 14, 8, 0)).isoformat()},
         )
@@ -986,8 +986,8 @@ class TatTrackerWorkflowTest(TestCase):
     def test_rejected_tat_ends_at_decision_timestamp(self):
         case = TatTrackerCase(
             group_id=self.config.group_id,
-            case_id='JBL-SME-2026-006',
-            product_key='sme',
+            case_id='JBL-BS-2026-006',
+            product_key='business',
             client_name='Rejected Client',
             status='Rejected',
             stage_values={
@@ -1001,11 +1001,11 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(calculated_tat_minutes(case, now=now), Decimal('150.00'))
 
     def test_stage_tat_minutes_use_previous_stage_and_current_pending_stage(self):
-        product = product_by_key('sme')
+        product = product_by_key('business')
         case = TatTrackerCase(
             group_id=self.config.group_id,
-            case_id='JBL-SME-2026-007',
-            product_key='sme',
+            case_id='JBL-BS-2026-007',
+            product_key='business',
             client_name='Stage Client',
             stage_values={
                 'created': timezone.make_aware(timezone.datetime(2026, 7, 14, 8, 0)).isoformat(),
@@ -1019,16 +1019,16 @@ class TatTrackerWorkflowTest(TestCase):
 
     def test_detail_payload_includes_stage_tat_and_sla_status(self):
         self.config.workflow['tat_targets_minutes'] = {
-            'sme': {'total': 120, 'stages': {'mpesa_to_admin': 60, 'mpesa_verified': 30}}
+            'business': {'total': 120, 'stages': {'mpesa_to_admin': 60, 'mpesa_verified': 30}}
         }
         user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
         case = TatTrackerCase.objects.create(
             group_id=self.config.group_id,
             sheet_id=self.config.sheet_id,
-            sheet_name='TRACKER-SME',
-            case_id='JBL-SME-2026-008',
-            product_key='sme',
-            product_label='SME',
+            sheet_name='TRACKER-Business',
+            case_id='JBL-BS-2026-008',
+            product_key='business',
+            product_label='Business',
             client_name='Target Client',
             branch='Nakuru',
             bro_name='BRO User',
@@ -1052,8 +1052,8 @@ class TatTrackerWorkflowTest(TestCase):
     def test_next_role_alert_targets_pending_stage_role(self):
         data = {
             'summary': {
-                'case_id': 'JBL-SME-2026-001',
-                'product_key': 'sme',
+                'case_id': 'JBL-BS-2026-001',
+                'product_key': 'business',
                 'client_name': 'Test Client',
                 'national_id': '12345678',
                 'primary_phone': '0712345678',
@@ -1070,7 +1070,7 @@ class TatTrackerWorkflowTest(TestCase):
 
     def test_next_role_alert_can_be_disabled_in_workflow(self):
         self.config.workflow['stage_alerts_enabled'] = False
-        data = {'summary': {'product_key': 'sme', 'next_stage_key': 'mpesa_to_admin'}}
+        data = {'summary': {'product_key': 'business', 'next_stage_key': 'mpesa_to_admin'}}
 
         self.assertEqual(next_role_alert(self.config, data), {})
 
@@ -1087,7 +1087,7 @@ class TatTrackerWorkflowTest(TestCase):
             data=json.dumps({
                 'group_id': self.config.group_id,
                 'init_data': 'mock',
-                'product_key': 'sme',
+                'product_key': 'business',
                 'branch': 'Nakuru',
                 'client_name': 'Test Client',
             'national_id': '12345678',
@@ -1112,7 +1112,7 @@ class TatTrackerWorkflowTest(TestCase):
         user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
 
         detail = create_case(self.config, user, {
-            'product_key': 'sme',
+            'product_key': 'business',
             'branch': 'Nakuru',
             'client_name': 'Test Client',
             'national_id': '12 345 678',
@@ -1132,7 +1132,7 @@ class TatTrackerWorkflowTest(TestCase):
     def test_create_case_rejects_invalid_customer_identifiers(self, sync_mock):
         user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
         payload = {
-            'product_key': 'sme',
+            'product_key': 'business',
             'branch': 'Nakuru',
             'client_name': 'Test Client',
             'national_id': '1234',
@@ -1149,7 +1149,7 @@ class TatTrackerWorkflowTest(TestCase):
         sync_mock.side_effect = self.mark_case_synced
         user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
         first = create_case(self.config, user, {
-            'product_key': 'sme',
+            'product_key': 'business',
             'branch': 'Nakuru',
             'client_name': 'Test Client',
             'national_id': '12345678',
@@ -1158,7 +1158,7 @@ class TatTrackerWorkflowTest(TestCase):
             'amount': '10000',
         })
         second = create_case(self.config, user, {
-            'product_key': 'sme',
+            'product_key': 'business',
             'branch': 'Nakuru',
             'client_name': 'Second Client',
             'national_id': '87654321',
@@ -1166,8 +1166,8 @@ class TatTrackerWorkflowTest(TestCase):
             'bro_name': 'BRO User',
             'amount': '10000',
         })
-        self.assertEqual(first['summary']['case_id'], 'JBL-SME-2026-001')
-        self.assertEqual(second['summary']['case_id'], 'JBL-SME-2026-002')
+        self.assertEqual(first['summary']['case_id'], 'JBL-BS-2026-001')
+        self.assertEqual(second['summary']['case_id'], 'JBL-BS-2026-002')
         self.assertEqual(TatTrackerCase.objects.count(), 2)
         self.assertEqual(sync_mock.call_count, 2)
 
@@ -1176,7 +1176,7 @@ class TatTrackerWorkflowTest(TestCase):
         sync_mock.side_effect = self.mark_case_synced
         user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
         payload = {
-            'product_key': 'sme',
+            'product_key': 'business',
             'branch': 'Nakuru',
             'client_name': 'Test Client',
             'national_id': '12345678',
@@ -1198,7 +1198,7 @@ class TatTrackerWorkflowTest(TestCase):
         sync_mock.side_effect = self.mark_case_synced
         user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
         payload = {
-            'product_key': 'sme',
+            'product_key': 'business',
             'branch': 'Nakuru',
             'client_name': 'Test Client',
             'national_id': '12345678',
@@ -1227,7 +1227,7 @@ class TatTrackerWorkflowTest(TestCase):
 
         with self.assertRaises(RuntimeError):
             create_case(self.config, user, {
-                'product_key': 'sme',
+                'product_key': 'business',
                 'branch': 'Nakuru',
                 'client_name': 'Test Client',
             'national_id': '12345678',
@@ -1245,7 +1245,7 @@ class TatTrackerWorkflowTest(TestCase):
         bro = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
         admin = staff_user_for_payload(self.config, {'id': 222, 'username': 'admin_user'})
         detail = create_case(self.config, bro, {
-            'product_key': 'sme',
+            'product_key': 'business',
             'branch': 'Nakuru',
             'client_name': 'Test Client',
             'national_id': '12345678',
@@ -1324,11 +1324,11 @@ class TatTrackerWorkflowTest(TestCase):
         case = TatTrackerCase.objects.create(
             group_id=self.config.group_id,
             sheet_id=self.config.sheet_id,
-            sheet_name='TRACKER-SME',
+            sheet_name='TRACKER-Business',
             row_number=5,
-            case_id='JBL-SME-2026-REGISTER-APPROVAL',
-            product_key='sme',
-            product_label='SME',
+            case_id='JBL-BS-2026-REGISTER-APPROVAL',
+            product_key='business',
+            product_label='Business',
             client_name='Approval Client',
             branch='Nakuru',
             bro_name='BRO User',
@@ -1350,7 +1350,7 @@ class TatTrackerWorkflowTest(TestCase):
             'telegram_id': '444',
             'roles': ['LOAN_APPROVER'],
             'branches': ['Nakuru'],
-            'products': ['sme'],
+            'products': ['business'],
         }
 
         update_case(
@@ -1363,7 +1363,7 @@ class TatTrackerWorkflowTest(TestCase):
         case.refresh_from_db()
         self.assertEqual(case.stage_values['register_approved'], 'Approved')
         self.assertTrue(parse_iso_datetime(case.stage_values['register_approved_ts']))
-        self.assertIsNotNone(stage_tat_minutes(case, stage_by_key(product_by_key('sme'), 'register_approved')))
+        self.assertIsNotNone(stage_tat_minutes(case, stage_by_key(product_by_key('business'), 'register_approved')))
 
     @patch('core.services.tat_tracker.sync_case_to_sheet')
     def test_changing_a_decision_dropdown_reopens_a_rejected_case(self, sync_mock):
@@ -1416,17 +1416,17 @@ class TatTrackerRepairTest(TestCase):
             group_id='-100tat-repair',
             display_name='TAT Repair Test',
             sheet_id='sheet-repair',
-            sheet_name='TRACKER-SME',
-            workflow={'type': 'tat_tracker', 'products': ['sme', 'logbook']},
+            sheet_name='TRACKER-Business',
+            workflow={'type': 'tat_tracker', 'products': ['business', 'logbook']},
         )
         self.repairable_case = TatTrackerCase.objects.create(
             group_id=self.config.group_id,
             sheet_id=self.config.sheet_id,
-            sheet_name='TRACKER-SME',
+            sheet_name='TRACKER-Business',
             row_number=5,
-            case_id='JBL-SME-2026-REPAIR',
-            product_key='sme',
-            product_label='SME',
+            case_id='JBL-BS-2026-REPAIR',
+            product_key='business',
+            product_label='Business',
             client_name='Repairable Client',
             branch='Nakuru',
             status='Active',
@@ -1448,10 +1448,10 @@ class TatTrackerRepairTest(TestCase):
         TatTrackerCase.objects.create(
             group_id=self.config.group_id,
             sheet_id=self.config.sheet_id,
-            sheet_name='TRACKER-SME',
-            case_id='JBL-SME-2026-UNLINKED',
-            product_key='sme',
-            product_label='SME',
+            sheet_name='TRACKER-Business',
+            case_id='JBL-BS-2026-UNLINKED',
+            product_key='business',
+            product_label='Business',
             client_name='Unlinked Client',
             branch='Nakuru',
             status='Active',
@@ -1460,7 +1460,7 @@ class TatTrackerRepairTest(TestCase):
 
     @patch('core.services.tat_tracker.sync_case_to_sheet')
     def test_repair_resync_limits_to_linked_cases_and_selected_product(self, sync_case):
-        result = resync_tat_tracker_cases(self.config, product_key='sme')
+        result = resync_tat_tracker_cases(self.config, product_key='business')
 
         self.assertEqual(result, {
             'total_candidates': 1,
@@ -1499,14 +1499,14 @@ class TatTrackerRepairTest(TestCase):
             'resync_tat_tracker_cases',
             f'--group-id={self.config.group_id}',
             '--product',
-            'sme',
+            'business',
             '--dry-run',
             stdout=output,
         )
 
         resync.assert_called_once_with(
             self.config,
-            product_key='sme',
+            product_key='business',
             case_ids=[],
             dry_run=True,
             limit=None,
@@ -1526,8 +1526,8 @@ class TatTrackerRepairAdminTest(TestCase):
             group_id='-100tat-admin-repair',
             display_name='TAT Admin Repair',
             sheet_id='sheet-admin-repair',
-            sheet_name='TRACKER-SME',
-            workflow={'type': 'tat_tracker', 'products': ['sme']},
+            sheet_name='TRACKER-Business',
+            workflow={'type': 'tat_tracker', 'products': ['business']},
         )
         self.url = reverse('admin:core_groupsheetconfiguration_tat_repair', args=[self.config.pk])
         self.client.force_login(self.user)
@@ -1569,7 +1569,7 @@ class TatTrackerRepairAdminTest(TestCase):
             'offset': 0,
             'next_offset': None,
         }
-        self.client.get(self.url + '?product=sme')
+        self.client.get(self.url + '?product=business')
         resync.reset_mock()
         resync.return_value = {
             'total_candidates': 1,
@@ -1581,14 +1581,14 @@ class TatTrackerRepairAdminTest(TestCase):
             'next_offset': None,
         }
 
-        response = self.client.post(self.url, {'confirm': 'REPAIR', 'product': 'sme', 'offset': '0'})
+        response = self.client.post(self.url, {'confirm': 'REPAIR', 'product': 'business', 'offset': '0'})
 
         self.assertEqual(response.status_code, 302)
-        resync.assert_called_once_with(self.config, dry_run=False, limit=25, offset=0, product_key='sme')
+        resync.assert_called_once_with(self.config, dry_run=False, limit=25, offset=0, product_key='business')
 
     @patch('core.admin.resync_tat_tracker_cases')
     def test_repair_page_rejects_a_write_without_matching_preview(self, resync):
-        response = self.client.post(self.url, {'confirm': 'REPAIR', 'product': 'sme', 'offset': '0'})
+        response = self.client.post(self.url, {'confirm': 'REPAIR', 'product': 'business', 'offset': '0'})
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Preview this exact batch')

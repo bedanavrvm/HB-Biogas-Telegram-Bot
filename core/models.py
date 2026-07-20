@@ -1204,7 +1204,7 @@ class TatTrackerStaffMember(models.Model):
     ]
     PRODUCT_CHOICES = [
         ('ALL', 'All products'),
-        ('sme', 'SME'),
+        ('business', 'Business'),
         ('logbook', 'Logbook'),
         ('mjengo', 'Mjengo'),
         ('kilimo', 'Kilimo'),

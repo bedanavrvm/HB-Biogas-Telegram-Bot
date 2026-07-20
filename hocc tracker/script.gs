@@ -62,7 +62,7 @@ const CONFIG = {
     "TRACKER-MJENGO":      "JBL-MJ",
     "TRACKER-KILIMO":    "JBL-KI",
     "TRACKER-MICRO-ASSET": "JBL-MA",
-    "TRACKER-SME":         "JBL-SME",
+    "TRACKER-Business":         "JBL-BS",
   },
 };
 
@@ -283,11 +283,11 @@ const KILIMO_CONFIG = { ...NO_VALUATION_CONFIG, SHEET_NAME: "TRACKER-KILIMO", MA
 const MICRO_ASSET_CONFIG = { ...NO_VALUATION_CONFIG, SHEET_NAME: "TRACKER-MICRO-ASSET", MAX_AMOUNT: 300000 };
 
 /**
- * SME - shorter non-HOCC flow.
- * The workbook does not define an SME upper amount cap, so MAX_AMOUNT is null.
+ * Business - shorter non-HOCC flow.
+ * The workbook does not define a Business upper amount cap, so MAX_AMOUNT is null.
  */
-const SME_CONFIG = {
-  SHEET_NAME: "TRACKER-SME",
+const BUSINESS_CONFIG = {
+  SHEET_NAME: "TRACKER-Business",
   HAS_VALUATION: false,
   HAS_HOCC_FLOW: false,
   MIN_AMOUNT: 5000,
@@ -365,7 +365,7 @@ const PRODUCTS = {
   "TRACKER-MJENGO":      MJENGO_CONFIG,
   "TRACKER-KILIMO":    KILIMO_CONFIG,
   "TRACKER-MICRO-ASSET": MICRO_ASSET_CONFIG,
-  "TRACKER-SME":         SME_CONFIG,
+  "TRACKER-Business":         BUSINESS_CONFIG,
 };
 
 const TRACKER_SHEETS = Object.keys(PRODUCTS);
@@ -374,11 +374,11 @@ const TRACKER_SHEETS = Object.keys(PRODUCTS);
 // ════════════════════════════════════════════════════════════════════════════
 //  LEGACY ROLE MAP
 //  KEY:   Google account email
-//  VALUE: { sheets: [...], cols_logbook: [...], cols_other: [...], cols_sme: [...] }
+//  VALUE: { sheets: [...], cols_logbook: [...], cols_other: [...], cols_business: [...] }
 //         sheets = which TRACKER sheets they can edit (or "*" for all)
 //         cols_logbook = column indices for LOGBOOK (with valuation)
 //         cols_other = column indices for MJENGO/KILIMO/MICRO-ASSET (no valuation)
-//         cols_sme = column indices for SME's shorter flow
+//         cols_business = column indices for Business's shorter flow
 //
 //  STAFF is the default source of truth. This map is used only if
 //  WEB_APP_CONFIG.USE_ROLE_MAP_FALLBACK is set to true.
@@ -391,7 +391,7 @@ const ROLE_MAP = {
     sheets: "*",
     cols_logbook: [1,2,3,4,5,7,8,9,10,11,12,13,14,15,17,18,20,21,23,24],
     cols_other:   [1,2,3,4,5,7,8,9,10,11,12,13,14,16,17,19,20,22,23],
-    cols_sme:     [1,2,3,4,5,7,8,9,10,11,12,13,15,16],
+    cols_business:     [1,2,3,4,5,7,8,9,10,11,12,13,15,16],
   },
 
   // ── BRO ─────────────────────────────────────────────────────────────
@@ -400,13 +400,13 @@ const ROLE_MAP = {
     sheets: "*",
     cols_logbook: [1,2,3,4,5,7,10,20],
     cols_other:   [1,2,3,4,5,7,10,19],
-    cols_sme:     [1,2,3,4,5,7,10,12],
+    cols_business:     [1,2,3,4,5,7,10,12],
   },
   "lo2@jawabubiz.co.ke": {
     sheets: "*",
     cols_logbook: [1,2,3,4,5,7,10,20],
     cols_other:   [1,2,3,4,5,7,10,19],
-    cols_sme:     [1,2,3,4,5,7,10,12],
+    cols_business:     [1,2,3,4,5,7,10,12],
   },
 
   // ── Credit Analyst ──────────────────────────────────────────────────
@@ -415,7 +415,7 @@ const ROLE_MAP = {
     sheets: "*",
     cols_logbook: [9],
     cols_other:   [9],
-    cols_sme:     [9],
+    cols_business:     [9],
   },
 
   // ── Branch Managers ─────────────────────────────────────────────────
@@ -424,13 +424,13 @@ const ROLE_MAP = {
     sheets: "*",
     cols_logbook: [11,12],
     cols_other:   [11],
-    cols_sme:     [11],
+    cols_business:     [11],
   },
   "bm.ngong@jawabubiz.co.ke": {
     sheets: "*",
     cols_logbook: [11,12],
     cols_other:   [11],
-    cols_sme:     [11],
+    cols_business:     [11],
   },
 
   // ── HOCC Secretary ──────────────────────────────────────────────────
@@ -439,7 +439,7 @@ const ROLE_MAP = {
     sheets: "*",
     cols_logbook: [13,14,17],
     cols_other:   [12,13,16],
-    cols_sme:     [],
+    cols_business:     [],
   },
 
   // ── HOCC Chair ──────────────────────────────────────────────────────
@@ -448,7 +448,7 @@ const ROLE_MAP = {
     sheets: "*",
     cols_logbook: [15],
     cols_other:   [14],
-    cols_sme:     [],
+    cols_business:     [],
   },
 
   // ── Loan Approver ───────────────────────────────────────────────────
@@ -457,7 +457,7 @@ const ROLE_MAP = {
     sheets: "*",
     cols_logbook: [18,23],
     cols_other:   [17,22],
-    cols_sme:     [15],
+    cols_business:     [15],
   },
 
   // ── Admin ───────────────────────────────────────────────────────────
@@ -466,7 +466,7 @@ const ROLE_MAP = {
     sheets: "*",
     cols_logbook: [8,21],
     cols_other:   [8,20],
-    cols_sme:     [8,13],
+    cols_business:     [8,13],
   },
 
   // ── Finance ─────────────────────────────────────────────────────────
@@ -475,7 +475,7 @@ const ROLE_MAP = {
     sheets: "*",
     cols_logbook: [24],
     cols_other:   [23],
-    cols_sme:     [16],
+    cols_business:     [16],
   },
 
   // ── Management (view-only — no edit columns) ────────────────────────
@@ -483,13 +483,13 @@ const ROLE_MAP = {
     sheets: "*",
     cols_logbook: [],
     cols_other:   [],
-    cols_sme:     [],
+    cols_business:     [],
   },
   "doo@jawabubiz.co.ke": {
     sheets: "*",
     cols_logbook: [],
     cols_other:   [],
-    cols_sme:     [],
+    cols_business:     [],
   },
 };
 
@@ -517,7 +517,7 @@ const WEB_APP_CONFIG = {
     { sheetName: "TRACKER-MJENGO", label: "Mjengo" },
     { sheetName: "TRACKER-KILIMO", label: "Kilimo" },
     { sheetName: "TRACKER-MICRO-ASSET", label: "Micro Asset" },
-    { sheetName: "TRACKER-SME", label: "SME" },
+    { sheetName: "TRACKER-Business", label: "Business" },
   ],
   DROPDOWNS: {
     DECISION: ["Approved", "Rejected", "Deferred"],
@@ -537,21 +537,21 @@ const STAFF_ROLE_TEMPLATES = {
   IT: {
     cols_logbook: [1,2,3,4,5,7,8,9,10,11,12,13,14,15,17,18,20,21,23,24],
     cols_other:   [1,2,3,4,5,7,8,9,10,11,12,13,14,16,17,19,20,22,23],
-    cols_sme:     [1,2,3,4,5,7,8,9,10,11,12,13,15,16],
+    cols_business:     [1,2,3,4,5,7,8,9,10,11,12,13,15,16],
   },
   BRO: {
     cols_logbook: [1,2,3,4,5,7,10,20],
     cols_other:   [1,2,3,4,5,7,10,19],
-    cols_sme:     [1,2,3,4,5,7,10,12],
+    cols_business:     [1,2,3,4,5,7,10,12],
   },
-  CA: { cols_logbook: [9], cols_other: [9], cols_sme: [9] },
-  BM: { cols_logbook: [11,12], cols_other: [11], cols_sme: [11] },
-  SECRETARY: { cols_logbook: [13,14,17], cols_other: [12,13,16], cols_sme: [] },
-  CHAIR: { cols_logbook: [15], cols_other: [14], cols_sme: [] },
-  LOAN_APPROVER: { cols_logbook: [18,23], cols_other: [17,22], cols_sme: [15] },
-  ADMIN: { cols_logbook: [8,21], cols_other: [8,20], cols_sme: [8,13] },
-  FINANCE: { cols_logbook: [24], cols_other: [23], cols_sme: [16] },
-  MANAGEMENT: { cols_logbook: [], cols_other: [], cols_sme: [] },
+  CA: { cols_logbook: [9], cols_other: [9], cols_business: [9] },
+  BM: { cols_logbook: [11,12], cols_other: [11], cols_business: [11] },
+  SECRETARY: { cols_logbook: [13,14,17], cols_other: [12,13,16], cols_business: [] },
+  CHAIR: { cols_logbook: [15], cols_other: [14], cols_business: [] },
+  LOAN_APPROVER: { cols_logbook: [18,23], cols_other: [17,22], cols_business: [15] },
+  ADMIN: { cols_logbook: [8,21], cols_other: [8,20], cols_business: [8,13] },
+  FINANCE: { cols_logbook: [24], cols_other: [23], cols_business: [16] },
+  MANAGEMENT: { cols_logbook: [], cols_other: [], cols_business: [] },
 };
 
 
@@ -1226,7 +1226,7 @@ function formulaEndColumn_(sheetName, pConfig) {
 
 function roleColumnsForSheet_(roleInfo, sheetName) {
   if (sheetName === "TRACKER-LOGBOOK") return roleInfo.cols_logbook || [];
-  if (sheetName === "TRACKER-SME") return roleInfo.cols_sme || [];
+  if (sheetName === "TRACKER-Business") return roleInfo.cols_business || [];
   return roleInfo.cols_other || [];
 }
 
@@ -3003,7 +3003,7 @@ function webListActiveStaffRoleInfos_() {
       sheets: sheetsIdx === undefined ? "*" : webParseSheets_(row[sheetsIdx]),
       cols_logbook: roleInfo.cols_logbook,
       cols_other: roleInfo.cols_other,
-      cols_sme: roleInfo.cols_sme,
+      cols_business: roleInfo.cols_business,
     }]);
     return assignments;
   }, []);
@@ -3036,7 +3036,7 @@ function webCurrentUser_() {
     sheets: roleInfo.sheets,
     cols_logbook: roleInfo.cols_logbook || [],
     cols_other: roleInfo.cols_other || [],
-    cols_sme: roleInfo.cols_sme || [],
+    cols_business: roleInfo.cols_business || [],
   };
 }
 
@@ -3247,7 +3247,7 @@ function webFindStaffUser_(email) {
       sheets: sheetsIdx === undefined ? "*" : webParseSheets_(row[sheetsIdx]),
       cols_logbook: roleInfo.cols_logbook,
       cols_other: roleInfo.cols_other,
-      cols_sme: roleInfo.cols_sme,
+      cols_business: roleInfo.cols_business,
     };
     break;
   }
@@ -3296,13 +3296,13 @@ function webMergeRoleTemplates_(roles) {
     if (!template) return null;
     (template.cols_logbook || []).forEach(col => colsLogbook.add(col));
     (template.cols_other || []).forEach(col => colsOther.add(col));
-    (template.cols_sme || []).forEach(col => colsSme.add(col));
+    (template.cols_business || []).forEach(col => colsSme.add(col));
   }
 
   return {
     cols_logbook: Array.from(colsLogbook).sort((a, b) => a - b),
     cols_other: Array.from(colsOther).sort((a, b) => a - b),
-    cols_sme: Array.from(colsSme).sort((a, b) => a - b),
+    cols_business: Array.from(colsSme).sort((a, b) => a - b),
   };
 }
 

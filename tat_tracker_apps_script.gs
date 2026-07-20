@@ -35,7 +35,7 @@ const TAT_CONFIG = {
   MONEY_FORMAT: '#,##0',
   TAT_HOURS_TARGET: 336,
   TRACKER_SHEETS: [
-    'TRACKER-SME',
+    'TRACKER-Business',
     'TRACKER-LOGBOOK',
     'TRACKER-MJENGO',
     'TRACKER-KILIMO',
@@ -62,9 +62,9 @@ const TAT_CONFIG = {
 };
 
 const PRODUCT_LAYOUTS = {
-  'TRACKER-SME': {
-    productKey: 'sme',
-    title: 'TAT TRACKER - SME',
+  'TRACKER-Business': {
+    productKey: 'business',
+    title: 'TAT TRACKER - Business',
     maxAmount: null,
     minAmount: 5000,
     headers: [
@@ -74,7 +74,7 @@ const PRODUCT_LAYOUTS = {
       'BRO Applied Loan on System', 'Disbursement Register', 'Register Timestamp',
       'Register Approved', 'Finance Disbursement', 'Status', 'Remarks / Delays',
       'TAT Hours', 'TAT Days'
-    ].concat(smeStageTatHeaders_()),
+    ].concat(businessStageTatHeaders_()),
     cols: {
       amount: 7,
       created: 8,
@@ -89,7 +89,7 @@ const PRODUCT_LAYOUTS = {
     },
     dateCols: [8, 9, 10, 11, 12, 13, 14, 16, 18],
     stageCols: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18],
-    stageTatKeys: smeStageTatKeys_(),
+    stageTatKeys: businessStageTatKeys_(),
   },
   'TRACKER-LOGBOOK': {
     productKey: 'logbook',
@@ -172,7 +172,7 @@ function noValuationLayout(productKey, title, minAmount, maxAmount) {
   };
 }
 
-function smeStageTatKeys_() {
+function businessStageTatKeys_() {
   return ['mpesa_to_admin', 'mpesa_verified', 'ca_analysis_sent', 'bro_response', 'bm_response', 'bro_applied', 'disbursement_register', 'register_approved', 'disbursement'];
 }
 
@@ -183,7 +183,7 @@ function noValuationStageTatKeys_() {
 function logbookStageTatKeys_() {
   return ['mpesa_to_admin', 'mpesa_verified', 'ca_analysis_sent', 'bro_response', 'valuation_ready', 'bm_tat_request', 'tat_scheduled', 'tat_held', 'decision', 'minutes_shared', 'sanctions', 'bro_applied', 'disbursement_register', 'register_approved', 'disbursement'];
 }
-function smeStageTatHeaders_() {
+function businessStageTatHeaders_() {
   return [
     'MPESA sent to Admin TAT Minutes',
     'MPESA verified and sent to CA TAT Minutes',
@@ -241,7 +241,7 @@ function onOpen() {
     .createMenu('TAT Tracker')
     .addItem('Setup / refresh workbook', 'setupTatTrackerWorkbook')
     .addItem('Setup current tracker tab only', 'setupCurrentTatTrackerSheet')
-    .addItem('Setup SME tab', 'setupTatSmeSheet')
+    .addItem('Setup Business tab', 'setupTatBusinessSheet')
     .addItem('Setup Logbook tab', 'setupTatLogbookSheet')
     .addItem('Setup Mjengo tab', 'setupTatMjengoSheet')
     .addItem('Setup Kilimo tab', 'setupTatKilimoSheet')
@@ -273,8 +273,8 @@ function setupCurrentTatTrackerSheet() {
   setupSingleTatTrackerSheet_(sheet.getName());
 }
 
-function setupTatSmeSheet() {
-  setupSingleTatTrackerSheet_('TRACKER-SME');
+function setupTatBusinessSheet() {
+  setupSingleTatTrackerSheet_('TRACKER-Business');
 }
 
 function setupTatLogbookSheet() {

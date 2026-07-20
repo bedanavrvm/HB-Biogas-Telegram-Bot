@@ -104,17 +104,17 @@ WORKFLOW_PRESETS = {
     'tat_tracker': {
         'label': 'TAT Tracker',
         'description': 'Role-based TAT case tracker with Mini App queues and Google Sheet mirroring.',
-        'sheet_name': 'TRACKER-SME',
+        'sheet_name': 'TRACKER-Business',
         'workflow': {
             'type': 'tat_tracker',
             'header_row': 2,
             'data_start_row': 5,
-            'products': ['logbook', 'mjengo', 'kilimo', 'micro_asset', 'sme'],
+            'products': ['logbook', 'mjengo', 'kilimo', 'micro_asset', 'business'],
             'branches': ['Biogas Unit', 'Embu', 'Nakuru', 'West Nairobi'],
             'allow_unconfigured_users': False,
             'default_roles': ['BRO'],
             'tat_targets_minutes': {
-                'sme': {'total': 20160, 'stages': {}},
+                'business': {'total': 20160, 'stages': {}},
                 'logbook': {'total': 20160, 'stages': {}},
                 'mjengo': {'total': 20160, 'stages': {}},
                 'kilimo': {'total': 20160, 'stages': {}},

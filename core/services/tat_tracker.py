@@ -39,7 +39,7 @@ REGISTER_OPTIONS = ['10:00am', '1:00pm', '3:30pm']
 REGISTER_APPROVED_OPTIONS = ['Approved', 'Pending']
 STATUS_VALUES = ['Active', 'Disbursed', 'Rejected', 'Declined', 'Deferred', 'Stalled', 'Pending Docs']
 DEFAULT_TAT_TARGETS_MINUTES = {
-    'sme': {'total': 20160, 'stages': {}},
+    'business': {'total': 20160, 'stages': {}},
     'logbook': {'total': 20160, 'stages': {}},
     'mjengo': {'total': 20160, 'stages': {}},
     'kilimo': {'total': 20160, 'stages': {}},
@@ -119,7 +119,7 @@ BASE_STAGES_LOGBOOK = (
     StageConfig('disbursement', 'Finance disbursement', 26, 'FINANCE'),
 )
 
-BASE_STAGES_SME = (
+BASE_STAGES_BUSINESS = (
     StageConfig('mpesa_to_admin', 'MPESA sent to Admin', 9, 'BRO'),
     StageConfig('mpesa_verified', 'MPESA verified and sent to CA', 10, 'ADMIN'),
     StageConfig('ca_analysis_sent', 'Credit analysis sent', 11, 'CA'),
@@ -136,7 +136,7 @@ PRODUCTS: dict[str, ProductConfig] = {
     'mjengo': ProductConfig('mjengo', 'Mjengo', 'TRACKER-MJENGO', 'JBL-MJ', Decimal('50000'), Decimal('300000'), 27, 26, 28, {'created': 8, 'decision_ts': 17, 'sanctions_ts': 20, 'register_ts': 23}, BASE_STAGES_OTHER),
     'kilimo': ProductConfig('kilimo', 'Kilimo', 'TRACKER-KILIMO', 'JBL-KI', Decimal('50000'), Decimal('300000'), 27, 26, 28, {'created': 8, 'decision_ts': 17, 'sanctions_ts': 20, 'register_ts': 23}, BASE_STAGES_OTHER),
     'micro_asset': ProductConfig('micro_asset', 'Micro Asset', 'TRACKER-MICRO-ASSET', 'JBL-MA', Decimal('50000'), Decimal('300000'), 27, 26, 28, {'created': 8, 'decision_ts': 17, 'sanctions_ts': 20, 'register_ts': 23}, BASE_STAGES_OTHER),
-    'sme': ProductConfig('sme', 'SME', 'TRACKER-SME', 'JBL-SME', Decimal('5000'), None, 20, 19, 21, {'created': 8, 'register_ts': 16}, BASE_STAGES_SME),
+    'business': ProductConfig('business', 'Business', 'TRACKER-Business', 'JBL-BS', Decimal('5000'), None, 20, 19, 21, {'created': 8, 'register_ts': 16}, BASE_STAGES_BUSINESS),
 }
 
 
@@ -168,9 +168,9 @@ STAGE_TAT_COLUMNS: dict[str, tuple[StageTatColumn, ...]] = {
         StageTatColumn(stage.key, 30 + index, _stage_tat_aliases(stage))
         for index, stage in enumerate(BASE_STAGES_OTHER)
     ),
-    'sme': tuple(
+    'business': tuple(
         StageTatColumn(stage.key, 23 + index, _stage_tat_aliases(stage))
-        for index, stage in enumerate(BASE_STAGES_SME)
+        for index, stage in enumerate(BASE_STAGES_BUSINESS)
     ),
 }
 
