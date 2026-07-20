@@ -17,9 +17,10 @@ from django.db.models import Q
 from django.utils import timezone
 from django.utils.text import get_valid_filename
 
-from core.models import CaseUpdate, ComplaintCaseEvidence, ComplaintCaseStaffMember, ParsedMessage
+from core.models import CaseUpdate, ComplaintCaseEvidence, ComplaintCaseStaffMember, ParsedMessage, ProcessedMessage, RawMessage
+from core.services.identifiers import normalize_kenyan_phone
 from core.services.order_approval import GoogleDriveMediaStorage
-from core.services.sheets import get_sheets_service
+from core.services.sheets import append_parsed_message_to_sheet, get_sheets_service
 
 
 ACTIVE_STATUSES = {'Open', 'In Progress'}
@@ -80,6 +81,12 @@ def bootstrap_data(group_config, actor: ComplaintCaseActor) -> dict[str, Any]:
     return {
         'actor': {'name': actor.name, 'role': actor.role, 'is_manager': actor.is_manager},
         'statuses': sorted(STATUS_VALUES),
+        'branches': list(
+            cases.exclude(branch_region='').order_by('branch_region').values_list('branch_region', flat=True).distinct()
+        ),
+        'categories': list(
+            cases.exclude(complaint_category='').order_by('complaint_category').values_list('complaint_category', flat=True).distinct()
+        ),
         'counts': {
             'open': cases.filter(complaint_status='Open').count(),
             'in_progress': cases.filter(complaint_status='In Progress').count(),
@@ -130,6 +137,191 @@ def update_case(
         return case_detail(group_config, case_id)
     store_evidence(group_config, case, update_record, actor, uploaded_files)
     return case_detail(group_config, case_id)
+
+
+def create_complaint_case(
+    group_config,
+    actor: ComplaintCaseActor,
+    fields: dict[str, Any],
+    uploaded_files: list,
+) -> dict[str, Any]:
+    request_id = create_request_id(fields.get('client_request_id'))
+    validate_uploaded_files(uploaded_files)
+    values = validate_new_case_fields(fields)
+    message_id = complaint_case_message_id(group_config.group_id, request_id)
+    case = ParsedMessage.objects.filter(
+        group_id=str(group_config.group_id),
+        message_id=message_id,
+    ).first()
+    created = False
+    create_update = None
+
+    if not case:
+        try:
+            with transaction.atomic():
+                case = ParsedMessage.objects.select_for_update().filter(
+                    group_id=str(group_config.group_id),
+                    message_id=message_id,
+                ).first()
+                if not case:
+                    raw_content = new_case_raw_content(values, actor)
+                    raw_message = RawMessage.objects.create(
+                        telegram_message_id=message_id,
+                        sender=actor.name,
+                        content=raw_content,
+                        received_at=timezone.now(),
+                        has_image=bool(uploaded_files),
+                    )
+                    processed_message = ProcessedMessage.objects.create(
+                        message_hash=complaint_case_hash(group_config.group_id, request_id),
+                        raw_message=raw_message,
+                        status='success',
+                    )
+                    case = ParsedMessage.objects.create(
+                        processed_message=processed_message,
+                        message_id=message_id,
+                        timestamp=timezone.now(),
+                        sender=actor.name,
+                        raw_message=raw_content,
+                        gps_link=values['gps_link'],
+                        image_flag=bool(uploaded_files),
+                        source='complaint_mini_app',
+                        customer_name=values['client_name'],
+                        customer_phone=values['customer_phone'],
+                        customer_id=values['customer_id'],
+                        branch_region=values['branch_region'],
+                        complaint_category=values['complaint_category'],
+                        complaint_description=values['complaint_description'],
+                        complaint_status='Open',
+                        group_id=str(group_config.group_id),
+                        sheet_id=str(getattr(group_config, 'sheet_id', '') or ''),
+                        sheet_name=str(getattr(group_config, 'sheet_name', '') or ''),
+                    )
+                    create_update = CaseUpdate.objects.create(
+                        parsed_message=case,
+                        group_id=case.group_id,
+                        updated_by=actor.name,
+                        old_status='',
+                        new_status='Open',
+                        resolution_text='Complaint created in Complaint Cases Mini App.',
+                        raw_update_text='Complaint created in Complaint Cases Mini App',
+                        source='mini_app_create',
+                        client_request_id=request_id,
+                        gps_link=values['gps_link'],
+                        latitude=values['latitude'],
+                        longitude=values['longitude'],
+                        sync_status='success',
+                    )
+                    created = True
+        except IntegrityError:
+            case = ParsedMessage.objects.filter(
+                group_id=str(group_config.group_id),
+                message_id=message_id,
+            ).first()
+            if not case:
+                raise
+
+    if created and create_update:
+        store_evidence(group_config, case, create_update, actor, uploaded_files)
+    synced = sync_new_case_to_sheet(group_config, case)
+    return {
+        'case': case_detail(group_config, case.message_id),
+        'created': created,
+        'synced_to_sheet': synced,
+    }
+
+
+def create_request_id(value: Any) -> str:
+    request_id = str(value or '').strip()
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{7,127}', request_id):
+        raise ComplaintCaseError('The create request is missing a valid retry identifier. Refresh and try again.')
+    return request_id
+
+
+def validate_new_case_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    client_name = required_case_text(fields.get('client_name'), 'Client name')
+    branch_region = required_case_text(fields.get('branch_region'), 'Branch')
+    complaint_category = required_case_text(fields.get('complaint_category'), 'Complaint category')
+    complaint_description = required_description(fields.get('complaint_description'))
+    customer_id = limited_case_text(fields.get('customer_id'), 'Customer ID')
+    phone_input = str(fields.get('customer_phone') or '').strip()
+    customer_phone = normalize_kenyan_phone(phone_input) if phone_input else ''
+    if phone_input and not customer_phone:
+        raise ComplaintCaseError('Enter a valid Kenyan phone number.')
+    if not customer_phone and not customer_id:
+        raise ComplaintCaseError('Enter a phone number or customer ID.')
+    latitude, longitude, gps_link = normalize_location(fields)
+    return {
+        'client_name': client_name,
+        'customer_phone': customer_phone,
+        'customer_id': customer_id,
+        'branch_region': branch_region,
+        'complaint_category': complaint_category,
+        'complaint_description': complaint_description,
+        'latitude': latitude,
+        'longitude': longitude,
+        'gps_link': gps_link,
+    }
+
+
+def required_case_text(value: Any, label: str) -> str:
+    text = limited_case_text(value, label)
+    if not text:
+        raise ComplaintCaseError(f'{label} is required.')
+    return text
+
+
+def required_description(value: Any) -> str:
+    """Keep descriptions useful while still bounding untrusted Mini App input."""
+    text = str(value or '').strip()
+    if not text:
+        raise ComplaintCaseError('Complaint description is required.')
+    if len(text) > 5000:
+        raise ComplaintCaseError('Complaint description must be 5,000 characters or fewer.')
+    return text
+
+
+def limited_case_text(value: Any, label: str) -> str:
+    text = str(value or '').strip()
+    if len(text) > 255:
+        raise ComplaintCaseError(f'{label} must be 255 characters or fewer.')
+    return text
+
+
+def complaint_case_message_id(group_id: str, request_id: str) -> str:
+    return f'CMP-MA-{hashlib.sha256(f"{group_id}:{request_id}".encode()).hexdigest()[:24]}'
+
+
+def complaint_case_hash(group_id: str, request_id: str) -> str:
+    return hashlib.sha256(f'complaint-mini-app:{group_id}:{request_id}'.encode()).hexdigest()
+
+
+def new_case_raw_content(values: dict[str, Any], actor: ComplaintCaseActor) -> str:
+    return json.dumps(
+        {
+            'source': 'complaint_mini_app',
+            'created_by': actor.name,
+            'client_name': values['client_name'],
+            'customer_phone': values['customer_phone'],
+            'customer_id': values['customer_id'],
+            'branch_region': values['branch_region'],
+            'complaint_category': values['complaint_category'],
+            'complaint_description': values['complaint_description'],
+            'gps_link': values['gps_link'],
+        },
+        sort_keys=True,
+    )
+
+
+def sync_new_case_to_sheet(group_config, case: ParsedMessage) -> bool:
+    if case.synced_to_sheets and not case.last_sync_error:
+        return True
+    return append_parsed_message_to_sheet(
+        case,
+        sheet_id=str(getattr(group_config, 'sheet_id', '') or ''),
+        sheet_name=str(getattr(group_config, 'sheet_name', '') or ''),
+        sheet_schema=getattr(group_config, 'sheet_schema_config', None),
+    )
 
 
 def validate_update_fields(case: ParsedMessage, actor: ComplaintCaseActor, fields: dict[str, Any]) -> dict[str, Any]:
@@ -323,6 +515,7 @@ def serialize_case(case: ParsedMessage) -> dict[str, Any]:
         'description': case.complaint_description,
         'status': case.complaint_status or 'Open',
         'reported_at': format_datetime(case.timestamp),
+        'recorded_at': format_datetime(case.created_at),
         'days_open': case.days_open,
         'risk_level': case.risk_level,
     }

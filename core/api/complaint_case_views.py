@@ -14,6 +14,7 @@ from core.services.complaint_cases import (
     ComplaintCaseError,
     bootstrap_data,
     case_detail,
+    create_complaint_case,
     decode_complaint_start_param,
     is_complaint_workflow,
     list_cases,
@@ -101,6 +102,33 @@ def complaint_cases_list(request):
             ),
         }
     )
+
+
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(['POST'])
+def complaint_cases_create(request):
+    payload = _request_payload(request)
+    group_config, actor, error = _context(request, payload)
+    if error:
+        return error
+    try:
+        result = create_complaint_case(
+            group_config,
+            actor,
+            payload,
+            request.FILES.getlist('evidence'),
+        )
+    except ComplaintCaseError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    except Exception:
+        logger.exception('Complaint case creation failed for group %s.', group_config.group_id)
+        return JsonResponse({'ok': False, 'error': 'The complaint could not be created. Try again.'}, status=500)
+    if not actor.is_manager:
+        result['case'].pop('raw_message', None)
+    message = 'Complaint created.' if result['created'] else 'Existing complaint opened.'
+    if not result['synced_to_sheet']:
+        message += ' The Sheet sync is pending.'
+    return JsonResponse({'ok': True, 'case': result['case'], 'message': message}, status=201 if result['created'] else 200)
 
 
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.

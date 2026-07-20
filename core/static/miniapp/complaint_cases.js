@@ -6,7 +6,7 @@
     groupId: document.body.dataset.groupId || '',
     initData: telegram ? telegram.initData || '' : '',
     status: 'active', query: '', currentCase: null, map: null, marker: null,
-    capturedLocation: null, debounce: null,
+    capturedLocation: null, createCapturedLocation: null, debounce: null,
   };
   const $ = (id) => document.getElementById(id);
   const escapeHtml = (value) => String(value == null ? '' : value).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[character]));
@@ -34,7 +34,7 @@
 
   function setLoading(loading) {
     $('loadingState').hidden = !loading;
-    if (loading) { $('listView').hidden = true; $('detailView').hidden = true; }
+    if (loading) { $('listView').hidden = true; $('createView').hidden = true; $('detailView').hidden = true; }
   }
 
   function statusClass(status) { return `status-${String(status || 'Open').toLowerCase().replace(/\s+/g, '-')}`; }
@@ -53,7 +53,16 @@
         <span class="status-pill">${escapeHtml(caseItem.status)}</span>
       </button>`).join('');
     $('emptyState').hidden = cases.length > 0;
-    list.querySelectorAll('[data-case-id]').forEach((button) => button.addEventListener('click', () => loadDetail(button.dataset.caseId)));
+    list.querySelectorAll('[data-case-id]').forEach((button) => {
+      const caseItem = cases.find((item) => item.case_id === button.dataset.caseId);
+      if (caseItem && caseItem.recorded_at) {
+        const recorded = document.createElement('p');
+        recorded.className = 'case-recorded';
+        recorded.textContent = `Recorded ${caseItem.recorded_at}`;
+        button.querySelector('div').append(recorded);
+      }
+      button.addEventListener('click', () => loadDetail(button.dataset.caseId));
+    });
   }
 
   async function loadCases() {
@@ -71,6 +80,7 @@
       const data = response.data || {};
       $('actorLine').textContent = `${data.actor && data.actor.name || 'Staff'} · ${data.actor && data.actor.is_manager ? 'Case manager' : 'Case officer'}`;
       renderCounts(data.counts || {});
+      renderCreateOptions(data);
       $('listView').hidden = false;
       await loadCases();
     } catch (error) { notify(error.message, true); }
@@ -91,6 +101,13 @@
     renderEvidence(caseItem.evidence || []);
     renderActivity(caseItem.updates || []);
     $('activityDescription').textContent = caseItem.raw_message ? 'Full audit, including the original captured message.' : 'Case updates recorded by staff.';
+  }
+
+  function renderCreateOptions(data) {
+    [['createBranchOptions', data.branches || []], ['createCategoryOptions', data.categories || []]].forEach(([id, values]) => {
+      const list = $(id); list.replaceChildren();
+      values.forEach((value) => { const option = document.createElement('option'); option.value = value; list.append(option); });
+    });
   }
 
   function renderMap(location) {
@@ -132,12 +149,27 @@
     $('selectedEvidence').innerHTML = files.map((file) => `<li>${escapeHtml(file.name)} · ${Math.ceil(file.size / 1024)} KB</li>`).join('');
   }
 
+  function selectedCreateFiles() {
+    const files = Array.from($('createEvidenceInput').files || []);
+    $('createSelectedEvidence').innerHTML = files.map((file) => `<li>${escapeHtml(file.name)} &middot; ${Math.ceil(file.size / 1024)} KB</li>`).join('');
+  }
+
   function captureLocation() {
     if (!navigator.geolocation) { notify('Location capture is not available in this browser.', true); return; }
     const button = $('captureLocationBtn'); button.disabled = true; button.textContent = 'Capturing location…';
     navigator.geolocation.getCurrentPosition((position) => {
       state.capturedLocation = { latitude: position.coords.latitude.toFixed(6), longitude: position.coords.longitude.toFixed(6) };
       $('captureState').textContent = `Location ready: ${state.capturedLocation.latitude}, ${state.capturedLocation.longitude}`;
+      button.disabled = false; button.textContent = 'Use my current location';
+    }, () => { button.disabled = false; button.textContent = 'Use my current location'; notify('We could not access your location. Check Telegram and browser permissions.', true); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+  }
+
+  function captureCreateLocation() {
+    if (!navigator.geolocation) { notify('Location capture is not available in this browser.', true); return; }
+    const button = $('createCaptureLocationBtn'); button.disabled = true; button.textContent = 'Capturing location…';
+    navigator.geolocation.getCurrentPosition((position) => {
+      state.createCapturedLocation = { latitude: position.coords.latitude.toFixed(6), longitude: position.coords.longitude.toFixed(6) };
+      $('createCaptureState').textContent = `Location ready: ${state.createCapturedLocation.latitude}, ${state.createCapturedLocation.longitude}`;
       button.disabled = false; button.textContent = 'Use my current location';
     }, () => { button.disabled = false; button.textContent = 'Use my current location'; notify('We could not access your location. Check Telegram and browser permissions.', true); }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
   }
@@ -158,6 +190,29 @@
     finally { button.removeAttribute('aria-busy'); button.querySelector('span').textContent = 'Save update'; }
   }
 
+  async function submitCreate(event) {
+    event.preventDefault();
+    const form = $('createCaseForm');
+    if (!form.reportValidity()) return;
+    const button = $('createSaveBtn'); button.setAttribute('aria-busy', 'true'); button.querySelector('span').textContent = 'Creating…';
+    const formData = new FormData(form);
+    formData.set('client_request_id', requestId());
+    if (state.createCapturedLocation) {
+      formData.set('latitude', state.createCapturedLocation.latitude);
+      formData.set('longitude', state.createCapturedLocation.longitude);
+    }
+    try {
+      const response = await api('cases/create/', null, formData);
+      renderDetail(response.case);
+      form.reset(); $('createSelectedEvidence').innerHTML = ''; state.createCapturedLocation = null;
+      $('createCaptureState').textContent = 'Location is optional';
+      $('createView').hidden = true; $('detailView').hidden = false;
+      notify(response.message || 'Complaint created.');
+      await refreshCounts();
+    } catch (error) { notify(error.message, true); }
+    finally { button.removeAttribute('aria-busy'); button.querySelector('span').textContent = 'Create complaint'; }
+  }
+
   async function refreshCounts() {
     const response = await api('bootstrap/'); renderCounts((response.data || {}).counts || {});
   }
@@ -165,9 +220,14 @@
   document.querySelectorAll('.filter-tabs button').forEach((button) => button.addEventListener('click', () => { state.status = button.dataset.status; document.querySelectorAll('.filter-tabs button').forEach((node) => node.classList.toggle('active', node === button)); loadCases(); }));
   $('caseSearch').addEventListener('input', (event) => { state.query = event.target.value; window.clearTimeout(state.debounce); state.debounce = window.setTimeout(loadCases, 250); });
   $('refreshBtn').addEventListener('click', () => window.location.reload());
+  $('newCaseBtn').addEventListener('click', () => { $('listView').hidden = true; $('detailView').hidden = true; $('createView').hidden = false; });
+  $('cancelCreateBtn').addEventListener('click', () => { $('createView').hidden = true; $('listView').hidden = false; });
   $('backBtn').addEventListener('click', () => { $('detailView').hidden = true; $('listView').hidden = false; loadCases(); });
   $('captureLocationBtn').addEventListener('click', captureLocation);
+  $('createCaptureLocationBtn').addEventListener('click', captureCreateLocation);
   $('evidenceInput').addEventListener('change', selectedFiles);
+  $('createEvidenceInput').addEventListener('change', selectedCreateFiles);
   $('updateForm').addEventListener('submit', submitUpdate);
+  $('createCaseForm').addEventListener('submit', submitCreate);
   bootstrap();
 }());

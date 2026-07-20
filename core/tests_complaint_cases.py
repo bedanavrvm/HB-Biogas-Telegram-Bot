@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import time
+from pathlib import Path
 from urllib.parse import urlencode
 from unittest.mock import patch
 
@@ -12,6 +13,7 @@ from django.utils import timezone
 
 from core.admin import ComplaintCaseStaffMemberInline, TatTrackerStaffMemberInline
 from core.models import (
+    CaseUpdate,
     ComplaintCaseEvidence,
     ComplaintCaseStaffMember,
     GroupSheetConfiguration,
@@ -19,7 +21,13 @@ from core.models import (
     ProcessedMessage,
     RawMessage,
 )
-from core.services.complaint_cases import ComplaintCaseError, list_cases, staff_actor_for_payload, update_case
+from core.services.complaint_cases import (
+    ComplaintCaseError,
+    create_complaint_case,
+    list_cases,
+    staff_actor_for_payload,
+    update_case,
+)
 from core.services.group_config import GroupConfig
 from core.services.telegram_auth import validate_telegram_init_data
 
@@ -54,6 +62,7 @@ class ComplaintCaseServiceTests(TestCase):
     def test_list_is_group_scoped(self):
         cases = list_cases(self.config)
         self.assertEqual([case['case_id'] for case in cases], ['CASE-1'])
+        self.assertTrue(cases[0]['recorded_at'])
 
     def test_officer_can_progress_case_once_with_retry_idempotency(self):
         actor = self.actor('100')
@@ -85,6 +94,88 @@ class ComplaintCaseServiceTests(TestCase):
             )
         self.assertEqual(ComplaintCaseEvidence.objects.get().upload_status, 'failed')
         self.assertEqual(self.case.case_updates.count(), 1)
+
+    @patch('core.services.complaint_cases.append_parsed_message_to_sheet', return_value=True)
+    def test_officer_can_create_an_auditable_case_once_with_a_retry_identifier(self, append_to_sheet):
+        def mark_case_synced(case, **_kwargs):
+            case.synced_to_sheets = True
+            case.last_sync_error = ''
+            case.save(update_fields=['synced_to_sheets', 'last_sync_error'])
+            return True
+
+        append_to_sheet.side_effect = mark_case_synced
+        fields = {
+            'client_request_id': 'create-complaint-001',
+            'client_name': 'New Client',
+            'customer_phone': '0712345678',
+            'customer_id': '',
+            'branch_region': 'Nakuru',
+            'complaint_category': 'Product issue',
+            'complaint_description': 'The unit requires a field visit.',
+            'latitude': '-1.286389',
+            'longitude': '36.817223',
+        }
+
+        first = create_complaint_case(self.config, self.actor('100'), fields, [])
+        second = create_complaint_case(self.config, self.actor('100'), fields, [])
+
+        case = ParsedMessage.objects.get(message_id=first['case']['case_id'])
+        self.assertEqual(first['case']['case_id'], second['case']['case_id'])
+        self.assertEqual(case.customer_phone, '254712345678')
+        self.assertEqual(case.complaint_status, 'Open')
+        self.assertEqual(case.source, 'complaint_mini_app')
+        self.assertTrue(case.raw_message)
+        self.assertEqual(CaseUpdate.objects.filter(parsed_message=case).count(), 1)
+        append_to_sheet.assert_called_once()
+
+    def test_new_case_requires_a_phone_or_customer_id(self):
+        with self.assertRaisesMessage(ComplaintCaseError, 'phone number or customer ID'):
+            create_complaint_case(
+                self.config,
+                self.actor('100'),
+                {
+                    'client_request_id': 'create-complaint-002',
+                    'client_name': 'New Client',
+                    'branch_region': 'Nakuru',
+                    'complaint_category': 'Product issue',
+                    'complaint_description': 'The unit requires a field visit.',
+                },
+                [],
+            )
+
+    @patch('core.services.complaint_cases.append_parsed_message_to_sheet', return_value=False)
+    def test_new_case_keeps_the_audit_record_when_sheet_sync_is_deferred(self, append_to_sheet):
+        result = create_complaint_case(
+            self.config,
+            self.actor('100'),
+            {
+                'client_request_id': 'create-complaint-003',
+                'client_name': 'Deferred Sync Client',
+                'customer_id': 'ID-300',
+                'branch_region': 'Nakuru',
+                'complaint_category': 'Product issue',
+                'complaint_description': 'Create locally and retry the Sheet sync later.',
+            },
+            [],
+        )
+
+        case = ParsedMessage.objects.get(message_id=result['case']['case_id'])
+        self.assertTrue(result['created'])
+        self.assertFalse(result['synced_to_sheet'])
+        self.assertEqual(case.case_updates.count(), 1)
+        append_to_sheet.assert_called_once()
+
+
+class ComplaintCaseMiniAppAssetTests(TestCase):
+    def test_cards_show_recorded_date_and_create_form_has_required_fields(self):
+        root = Path(__file__).resolve().parent
+        template = (root / 'templates' / 'complaint_cases' / 'app.html').read_text(encoding='utf-8')
+        script = (root / 'static' / 'miniapp' / 'complaint_cases.js').read_text(encoding='utf-8')
+
+        for expected in ('id="newCaseBtn"', 'id="createCaseForm"', 'name="client_name"', 'name="customer_phone"', 'name="customer_id"', 'name="branch_region"', 'name="complaint_category"', 'name="complaint_description"', 'id="createEvidenceInput"'):
+            self.assertIn(expected, template)
+        self.assertIn('caseItem.recorded_at', script)
+        self.assertIn("api('cases/create/'", script)
 
 
 class ComplaintCaseAdminTests(TestCase):

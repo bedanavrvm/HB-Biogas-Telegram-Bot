@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=4">
   <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=15">
-  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=1">
+  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=2">
 </head>
 <body class="workflow-standard complaint-cases-app" data-group-id="{{ group_id|escape }}">
   <main aria-label="Complaint Cases">
@@ -24,6 +24,7 @@
         <p id="actorLine" class="meta">Opening workspace…</p>
       </div>
       <button id="refreshBtn" class="icon-button" type="button" aria-label="Refresh cases">↻</button>
+      <button id="newCaseBtn" class="secondary-button header-action" type="button">New case</button>
     </header>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -55,6 +56,32 @@
       <section aria-label="Cases">
         <div id="caseList" class="case-list"></div>
         <p id="emptyState" class="empty-state" hidden>No complaint cases match this view.</p>
+      </section>
+    </section>
+
+    <section id="createView" hidden>
+      <button id="cancelCreateBtn" class="back-button" type="button">&larr; All cases</button>
+      <section class="detail-card">
+        <div class="section-title"><div><h2>Create complaint</h2><p>Records the original complaint, its first audit event, and a Sheet entry.</p></div></div>
+        <form id="createCaseForm" novalidate>
+          <div class="form-grid">
+            <label class="full-width">Client name<input id="createClientName" name="client_name" type="text" maxlength="255" autocomplete="name" required></label>
+            <label>Phone number<input id="createPhone" name="customer_phone" type="tel" maxlength="20" inputmode="tel" autocomplete="tel" placeholder="0712 345 678"></label>
+            <label>ID number<input id="createCustomerId" name="customer_id" type="text" maxlength="255" autocomplete="off"></label>
+            <label>Branch<input id="createBranch" name="branch_region" type="text" list="createBranchOptions" maxlength="255" required placeholder="Select or type a branch"></label>
+            <label>Category<input id="createCategory" name="complaint_category" type="text" list="createCategoryOptions" maxlength="255" required placeholder="Select or type a category"></label>
+            <label class="full-width">Description<textarea id="createDescription" name="complaint_description" rows="5" maxlength="5000" required placeholder="Describe the issue, impact, and any immediate action needed."></textarea></label>
+          </div>
+          <datalist id="createBranchOptions"></datalist>
+          <datalist id="createCategoryOptions"></datalist>
+          <div class="location-actions">
+            <button id="createCaptureLocationBtn" class="secondary-button" type="button">Use my current location</button>
+            <span id="createCaptureState" class="capture-state">Location is optional</span>
+          </div>
+          <label class="upload-field">Evidence <input id="createEvidenceInput" type="file" name="evidence" multiple accept="image/*,.pdf,.doc,.docx"><span>Photos, PDF, or Word documents · up to 10 files / 30 MB total</span></label>
+          <ul id="createSelectedEvidence" class="selected-evidence"></ul>
+          <button id="createSaveBtn" class="primary save-button" type="submit"><span>Create complaint</span></button>
+        </form>
       </section>
     </section>
 
@@ -109,6 +136,6 @@
     </section>
   </main>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=1"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=2"></script>
 </body>
 </html>

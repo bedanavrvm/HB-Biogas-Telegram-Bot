@@ -59,6 +59,7 @@ from .portal_views import (
 from .complaint_case_views import (
     complaint_cases_app,
     complaint_cases_bootstrap,
+    complaint_cases_create,
     complaint_cases_list,
     complaint_cases_detail,
     complaint_cases_update,
@@ -87,6 +88,7 @@ urlpatterns = [
     path('complaints/', complaint_cases_app, name='complaint_cases_app'),
     path('complaints/bootstrap/', complaint_cases_bootstrap, name='complaint_cases_bootstrap'),
     path('complaints/cases/', complaint_cases_list, name='complaint_cases_list'),
+    path('complaints/cases/create/', complaint_cases_create, name='complaint_cases_create'),
     path('complaints/cases/<str:case_id>/', complaint_cases_detail, name='complaint_cases_detail'),
     path('complaints/cases/<str:case_id>/update/', complaint_cases_update, name='complaint_cases_update'),
     path('webhook/e-signatures/tat/', tat_signature_webhook, name='tat_signature_webhook'),
