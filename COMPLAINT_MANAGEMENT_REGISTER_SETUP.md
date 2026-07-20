@@ -3,6 +3,10 @@
 This setup matches the Order Approval workbook pattern while keeping the
 existing case/complaint bot workflow compatible.
 
+For Complaint Cases Mini App staff operation, Telegram launch setup, access
+roles, evidence/location handling, recovery, and release checks, see
+[COMPLAINT_CASES_MINI_APP_GUIDE.md](COMPLAINT_CASES_MINI_APP_GUIDE.md).
+
 ## Files
 
 - `Complaint_Management_Register_V2.xlsx`

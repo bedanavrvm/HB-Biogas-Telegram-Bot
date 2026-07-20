@@ -957,7 +957,7 @@ class ComplaintCaseStaffMemberInline(admin.StackedInline):
 @admin.register(GroupSheetConfiguration)
 class GroupSheetConfigurationAdmin(admin.ModelAdmin):
     form = GroupSheetConfigurationAdminForm
-    inlines = [ComplaintCaseStaffMemberInline, TatTrackerStaffMemberInline]
+    inlines = []
     actions = ['publish_jbl_apps_launchers', 'preview_jbl_apps_launchers']
     list_display = [
         'display_label', 'group_id', 'enabled', 'sheet_name',
@@ -1241,11 +1241,13 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
                     f'{config.display_name or config.group_id}: {exc}',
                     level=messages.ERROR,
                 )
-    def get_inline_instances(self, request, obj=None):
+    def get_inlines(self, request, obj=None):
         workflow_type = str(((obj.workflow if obj else {}) or {}).get('type') or '')
-        if workflow_type != 'tat_tracker':
-            return []
-        return super().get_inline_instances(request, obj)
+        if workflow_type == 'case':
+            return [ComplaintCaseStaffMemberInline]
+        if workflow_type == 'tat_tracker':
+            return [TatTrackerStaffMemberInline]
+        return []
 
     @admin.display(description='Group')
     def display_label(self, obj):

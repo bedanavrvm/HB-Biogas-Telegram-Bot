@@ -5,10 +5,12 @@ import time
 from urllib.parse import urlencode
 from unittest.mock import patch
 
+from django.contrib import admin
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase, override_settings
+from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 
+from core.admin import ComplaintCaseStaffMemberInline, TatTrackerStaffMemberInline
 from core.models import (
     ComplaintCaseEvidence,
     ComplaintCaseStaffMember,
@@ -83,6 +85,27 @@ class ComplaintCaseServiceTests(TestCase):
             )
         self.assertEqual(ComplaintCaseEvidence.objects.get().upload_status, 'failed')
         self.assertEqual(self.case.case_updates.count(), 1)
+
+
+class ComplaintCaseAdminTests(TestCase):
+    def test_group_admin_shows_only_the_staff_inline_for_its_workflow(self):
+        complaint_group = GroupSheetConfiguration.objects.create(
+            group_id='-100complaints', workflow={'type': 'case'}
+        )
+        tat_group = GroupSheetConfiguration.objects.create(
+            group_id='-100tat', workflow={'type': 'tat_tracker'}
+        )
+        model_admin = admin.site._registry[GroupSheetConfiguration]
+        request = RequestFactory().get('/admin/core/groupsheetconfiguration/')
+
+        self.assertEqual(
+            model_admin.get_inlines(request, complaint_group),
+            [ComplaintCaseStaffMemberInline],
+        )
+        self.assertEqual(
+            model_admin.get_inlines(request, tat_group),
+            [TatTrackerStaffMemberInline],
+        )
 
 
 class TelegramInitDataTests(TestCase):
