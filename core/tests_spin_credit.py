@@ -7,8 +7,14 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from core.models import GroupSheetConfiguration, SpinCreditRequest
-from core.services.spin_credit import classify_spin_message, classify_spin_progress_event, parse_spin_entry, process_spin_batch_export
+from core.models import GroupSheetConfiguration, SpinBatchReviewItem, SpinCreditRequest
+from core.services.spin_credit import (
+    classify_spin_message,
+    classify_spin_progress_event,
+    parse_spin_entry,
+    process_spin_batch_export,
+    resolve_spin_batch_review_item,
+)
 
 
 class SpinCreditParserTestCase(TestCase):
@@ -341,6 +347,51 @@ Requesting Ksh 45,000 to repay in 8 weeks
         self.assertEqual(result['skipped'], 1)
 
     @patch('core.services.spin_credit.append_spin_requests_to_sheet')
+    def test_batch_candidates_are_retained_and_can_be_resolved_once(self, mock_append):
+        mock_append.return_value = {'success': True, 'row_numbers': [7], 'sheet_name': 'SPIN Legacy Batch'}
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100spinreviewqueue',
+            display_name='JBL Branch',
+            sheet_id='sheet-id',
+            sheet_name='SPIN Requests',
+            enabled=True,
+            workflow={'type': 'spin_credit_analysis', 'header_row': 1},
+        )
+        export = """7/1/26, 09:05 - Catherine JBL: Please send this to SPIN.
+7/1/26, 09:07 - Catherine JBL: John Kamau ID 33445566 phone 0798765432 requesting Ksh 20,000"""
+
+        result = process_spin_batch_export(config, export, telegram_message_id='103', sender='Tester')
+        retry = process_spin_batch_export(config, export, telegram_message_id='104', sender='Tester')
+
+        self.assertEqual(result['batch_review_queued'], 2)
+        self.assertEqual(retry['batch_review_queued'], 2)
+        self.assertEqual(SpinBatchReviewItem.objects.filter(group_id=config.group_id).count(), 2)
+        item = SpinBatchReviewItem.objects.get(group_id=config.group_id, category='incomplete')
+
+        resolved = resolve_spin_batch_review_item(
+            config,
+            item,
+            {
+                'request_type': 'spin_crb',
+                'branch': '',
+                'customer_name': 'Jane Wanjiku',
+                'national_id': '12345678',
+                'primary_phone': '0712345678',
+                'requested_amount': '45000',
+                'tenor': '8 weeks',
+            },
+            reviewed_by='Review Officer',
+        )
+
+        item.refresh_from_db()
+        self.assertTrue(resolved['success'])
+        self.assertEqual(item.status, 'resolved')
+        self.assertEqual(item.reviewed_by, 'Review Officer')
+        self.assertIsNotNone(item.resolved_request)
+        self.assertEqual(SpinCreditRequest.objects.filter(group_id=config.group_id).count(), 1)
+        mock_append.assert_called_once()
+
+    @patch('core.services.spin_credit.append_spin_requests_to_sheet')
     def test_process_batch_links_statement_and_analysis_progress_to_pending_request(self, mock_append):
         mock_append.return_value = {'success': True, 'row_numbers': [2], 'sheet_name': 'SPIN Legacy Batch'}
         config = GroupSheetConfiguration.objects.create(
@@ -424,6 +475,51 @@ class SpinCreditMiniAppTestCase(TestCase):
         self.assertEqual(record.row_number, 5)
         mock_append.assert_called_once()
         mock_reply.assert_called_once()
+
+    @override_settings(SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, ALLOWED_HOSTS=['testserver'])
+    @patch('core.services.spin_credit.append_spin_requests_to_sheet')
+    def test_batch_review_endpoint_promotes_a_retained_candidate(self, mock_append):
+        mock_append.return_value = {'success': True, 'row_numbers': [8], 'sheet_name': 'SPIN Requests'}
+        group = GroupSheetConfiguration.objects.create(
+            group_id='-100spinbatchreviewapi',
+            display_name='Nakuru SPIN Requests',
+            sheet_id='sheet-id',
+            sheet_name='SPIN Requests',
+            enabled=True,
+            workflow={'type': 'spin_credit_analysis', 'header_row': 1},
+        )
+        from core.services.group_config import GroupRegistry
+        GroupRegistry._instance = None
+        process_spin_batch_export(
+            group,
+            '7/1/26, 09:05 - Catherine JBL: Please send this to SPIN.',
+            telegram_message_id='batch-review-api',
+        )
+        item = SpinBatchReviewItem.objects.get(group_id=group.group_id)
+
+        response = self.client.post(
+            '/api/spin/batch-review/resolve/',
+            data=json.dumps({
+                'group_id': group.group_id,
+                'item_id': str(item.id),
+                'action': 'resolve',
+                'fields': {
+                    'request_type': 'spin_crb',
+                    'customer_name': 'Mary Wanjiku',
+                    'national_id': '12345678',
+                    'primary_phone': '0712345678',
+                    'requested_amount': '54000',
+                    'tenor': '12 months',
+                },
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['success'])
+        item.refresh_from_db()
+        self.assertEqual(item.status, 'resolved')
+        self.assertEqual(SpinCreditRequest.objects.filter(group_id=group.group_id).count(), 1)
 
 
 

@@ -510,6 +510,64 @@ class SpinCreditRequest(models.Model):
         return f"{self.get_request_type_display()} {self.customer_name or self.national_id or self.primary_phone}".strip()
 
 
+class SpinBatchReviewItem(models.Model):
+    """An uncertain WhatsApp batch message retained for staff classification."""
+
+    CATEGORY_CHOICES = [
+        ('incomplete', 'Incomplete SPIN request'),
+        ('ambiguous', 'Possible SPIN request'),
+    ]
+    STATUS_CHOICES = [
+        ('pending', 'Pending review'),
+        ('resolved', 'Resolved to SPIN request'),
+        ('rejected', 'Marked not SPIN'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    group_id = models.CharField(max_length=100, db_index=True)
+    telegram_message_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    source_message_hash = models.CharField(max_length=64, db_index=True)
+    source_filename = models.CharField(max_length=255, blank=True, default='')
+    source_message_index = models.PositiveIntegerField(null=True, blank=True)
+    source_sender = models.CharField(max_length=255, blank=True, default='')
+    source_received_at = models.DateTimeField(null=True, blank=True)
+    raw_message = models.TextField()
+
+    category = models.CharField(max_length=30, choices=CATEGORY_CHOICES, db_index=True)
+    reason = models.TextField(blank=True, default='')
+    detected_fields = models.JSONField(blank=True, default=dict)
+    candidate_fields = models.JSONField(blank=True, default=dict)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', db_index=True)
+    resolved_request = models.ForeignKey(
+        SpinCreditRequest,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='resolved_batch_review_items',
+    )
+    resolution_fields = models.JSONField(blank=True, default=dict)
+    reviewed_by = models.CharField(max_length=255, blank=True, default='')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-source_received_at', '-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['group_id', 'source_message_hash'],
+                name='unique_spin_batch_review_source_per_group',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['group_id', 'status', 'created_at']),
+            models.Index(fields=['group_id', 'category', 'status']),
+        ]
+
+    def __str__(self):
+        return f"{self.get_category_display()} {self.group_id} #{self.source_message_index or 0}"
+
+
 class SpinRequestSequence(models.Model):
     """Durable per-group/year sequence for staff-facing SPIN references."""
 

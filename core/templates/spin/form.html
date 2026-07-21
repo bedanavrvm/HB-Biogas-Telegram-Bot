@@ -176,6 +176,11 @@
         <div class="count-num" id="cnt-review">-</div>
         <div class="count-label">Awaiting Review</div>
       </div>
+      <div class="count-card warning" data-filter="batch_review" id="card-batch-review">
+        <i data-lucide="scan-search"></i>
+        <div class="count-num" id="cnt-batch-review">-</div>
+        <div class="count-label">Batch Candidates</div>
+      </div>
       <div class="count-card success" data-filter="completed" id="card-completed-requests">
         <i data-lucide="check-circle"></i>
         <div class="count-num" id="cnt-completed">-</div>
@@ -193,6 +198,7 @@
         <select id="statusFilter">
           <option value="all">All Statuses</option>
           <option value="review_needed">Awaiting Review</option>
+          <option value="batch_review">Batch Candidates</option>
           <option value="completed">Completed</option>
         </select>
       </div>
@@ -317,6 +323,7 @@
         <div id="reviewModalBanner" class="status-banner error wide" role="alert" aria-live="assertive" hidden></div>
       </div>
       <footer class="modal-footer">
+        <button type="button" id="rejectReviewBtn" class="secondary" hidden>Not a SPIN request</button>
         <button type="button" id="cancelReviewModalBtn" class="secondary">Cancel</button>
         <button type="submit" id="submitReviewBtn" class="primary">Save Review</button>
       </footer>
@@ -326,7 +333,7 @@
 
 <script id="spin-form-data" type="application/json">{{ form_json|safe }}</script>
 <script src="{% static 'miniapp/telegram.js' %}"></script>
-<script src="{% static 'miniapp/spin_form.js' %}?v=102"></script>
+  <script src="{% static 'miniapp/spin_form.js' %}?v=103"></script>
 </body>
 </html>
 

@@ -36,6 +36,7 @@
   const cntAll = document.getElementById('cnt-all');
   const cntReview = document.getElementById('cnt-review');
   const cntCompleted = document.getElementById('cnt-completed');
+  const cntBatchReview = document.getElementById('cnt-batch-review');
   const cntFailed = document.getElementById('cnt-failed');
   const requestsList = document.getElementById('requestsList');
   const dashboardLoading = document.getElementById('dashboardLoading');
@@ -53,11 +54,14 @@
   const closeReviewModalBtn = document.getElementById('closeReviewModalBtn');
   const cancelReviewModalBtn = document.getElementById('cancelReviewModalBtn');
   const submitReviewBtn = document.getElementById('submitReviewBtn');
+  const rejectReviewBtn = document.getElementById('rejectReviewBtn');
   const reviewModalBanner = document.getElementById('reviewModalBanner');
   const reviewBranchField = document.getElementById('reviewBranchField');
   const reviewBranchSelect = document.getElementById('reviewBranchSelect');
 
   let requests = [];
+  let batchReviewItems = [];
+  let reviewTarget = null;
   let isAnalyst = false;
 
   document.getElementById('groupId').value = config.group_id || '';
@@ -395,11 +399,45 @@
     return status;
   }
 
+  function candidateMatches(item, keyword) {
+    if (!keyword) return true;
+    const fields = item.fields || {};
+    return [item.raw_message, item.source_sender, fields.customer_name, fields.national_id, fields.primary_phone]
+      .some(value => String(value || '').toLowerCase().includes(keyword));
+  }
+
+  function renderBatchReviewItem(item) {
+    const fields = item.fields || {};
+    const category = item.category === 'ambiguous' ? 'Possible SPIN request' : 'Incomplete SPIN request';
+    const identity = [fields.customer_name || 'Unidentified customer', fields.national_id || fields.primary_phone || 'No ID or phone captured'].join(' / ');
+    return `
+      <details class="request-card batch-review-card" id="batch-review-${escapeHtml(item.id)}">
+        <summary class="card-toggle">
+          <span class="card-title-group">
+            <span class="card-customer-name">${escapeHtml(identity)}</span>
+            <span class="card-summary-meta">${escapeHtml(category)}${item.source_sender ? ` / ${escapeHtml(item.source_sender)}` : ''}</span>
+            <span class="card-date">${escapeHtml(item.source_received_at || 'Batch message date not set')}</span>
+          </span>
+          <span class="card-header-right"><span class="badge status-review_needed">Batch review</span><i data-lucide="chevron-down" class="card-chevron"></i></span>
+        </summary>
+        <div class="card-body">
+          <div class="card-field wide"><label>Why it needs review</label><p>${escapeHtml(item.reason || 'This message could not be safely imported automatically.')}</p></div>
+          <div class="card-field wide"><label>Original batch message</label><p class="batch-review-raw">${escapeHtml(item.raw_message || '')}</p></div>
+          <div class="card-actions"><button type="button" class="secondary batch-review-action-btn" data-id="${escapeHtml(item.id)}"><i data-lucide="scan-search" style="width:14px; height:14px;"></i> Review candidate</button></div>
+        </div>
+      </details>`;
+  }
+
   function renderRequests() {
     const keyword = dashboardSearch.value.trim().toLowerCase();
     const status = statusFilter.value;
 
+    const batchCandidates = batchReviewItems.filter(item => {
+      if (status !== 'all' && status !== 'review_needed' && status !== 'batch_review') return false;
+      return candidateMatches(item, keyword);
+    });
     const filtered = requests.filter(r => {
+      if (status === 'batch_review') return false;
       if (status !== 'all') {
         if (status === 'review_needed') {
           if (r.import_status !== 'review_needed' && r.import_status !== 'imported') return false;
@@ -419,7 +457,7 @@
       return true;
     });
 
-    if (!filtered.length) {
+    if (!filtered.length && !batchCandidates.length) {
       requestsList.innerHTML = `
         <div class="empty-state">
           <i data-lucide="info" style="width:32px; height:32px; color:var(--spin-muted); margin:0 auto 8px; display:block;"></i>
@@ -430,7 +468,7 @@
       return;
     }
 
-    requestsList.innerHTML = filtered.map(r => {
+    requestsList.innerHTML = batchCandidates.map(renderBatchReviewItem).join('') + filtered.map(r => {
       const statusClass = r.import_status === 'imported' ? 'review_needed' : r.import_status;
       const customerName = r.customer_name || 'Unnamed customer';
       const attachments = (r.attachment_names || []).map((name, i) => {
@@ -553,6 +591,9 @@
         openReviewModal(btn.dataset.id);
       });
     });
+    requestsList.querySelectorAll('.batch-review-action-btn').forEach(btn => {
+      btn.addEventListener('click', () => openBatchReviewModal(btn.dataset.id));
+    });
   }
   async function fetchRequests() {
     requestsList.style.display = 'none';
@@ -576,21 +617,24 @@
         return;
       }
       requests = (result.requests || []).filter(r => r.import_status !== 'failed');
+      batchReviewItems = result.batch_review_items || [];
       isAnalyst = !!result.is_analyst;
 
       // Update summary count values
       const countAllVal = requests.length;
       const countReviewVal = requests.filter(r => r.import_status === 'review_needed' || r.import_status === 'imported').length;
       const countCompletedVal = requests.filter(r => r.import_status === 'completed').length;
+      const countBatchReviewVal = batchReviewItems.length;
 
       cntAll.textContent = countAllVal;
       cntReview.textContent = countReviewVal;
       cntCompleted.textContent = countCompletedVal;
+      if (cntBatchReview) cntBatchReview.textContent = countBatchReviewVal;
       dashboardCounts.style.display = 'grid';
 
       // Update dashboard tab badge
-      if (countReviewVal > 0) {
-        dashboardTabBadge.textContent = countReviewVal;
+      if (countReviewVal + countBatchReviewVal > 0) {
+        dashboardTabBadge.textContent = countReviewVal + countBatchReviewVal;
         dashboardTabBadge.style.display = 'inline-flex';
       } else {
         dashboardTabBadge.style.display = 'none';
@@ -683,9 +727,34 @@
   function openReviewModal(reqId) {
     const record = requests.find(r => r.id === reqId);
     if (!record) return;
+    openReviewRecord(record, { kind: 'request', id: record.id });
+  }
+
+  function openBatchReviewModal(itemId) {
+    const item = batchReviewItems.find(candidate => candidate.id === itemId);
+    if (!item) return;
+    const fields = item.fields || {};
+    openReviewRecord({
+      request_type: fields.request_type || 'spin_crb',
+      branch: fields.branch || '',
+      customer_name: fields.customer_name || '',
+      national_id: fields.national_id || '',
+      primary_phone: fields.primary_phone || '',
+      secondary_phone: fields.secondary_phone || '',
+      requested_amount: fields.requested_amount || '',
+      tenor: fields.tenor || '',
+      customer_type: fields.customer_type || '',
+      loan_product: fields.loan_product || '',
+      code: fields.code || '',
+      business_notes: fields.business_notes || ''
+    }, { kind: 'batch', id: item.id });
+  }
+
+  function openReviewRecord(record, target) {
+    reviewTarget = target;
     reviewForm.reset();
     setBanner('', '', reviewModalBanner);
-    document.getElementById('reviewRequestId').value = record.id;
+    document.getElementById('reviewRequestId').value = target.id;
     reviewForm.elements['request_type'].value = record.request_type === 'SPIN/CRB' ? 'spin_crb' : String(record.request_type || '').toLowerCase();
     if (!['spin_crb', 'spin', 'crb'].includes(reviewForm.elements['request_type'].value)) {
       reviewForm.elements['request_type'].value = 'spin_crb';
@@ -703,6 +772,8 @@
     reviewForm.elements['business_notes'].value = record.business_notes || '';
     reviewModal.hidden = false;
     reviewModal.classList.remove('hidden');
+    if (rejectReviewBtn) rejectReviewBtn.hidden = target.kind !== 'batch';
+    submitReviewBtn.textContent = target.kind === 'batch' ? 'Create SPIN Request' : 'Save Review';
     setButtonLoading(submitReviewBtn, false);
     if (window.lucide) window.lucide.createIcons();
   }
@@ -712,6 +783,8 @@
     reviewModal.classList.add('hidden');
     reviewForm.reset();
     setBanner('', '', reviewModalBanner);
+    reviewTarget = null;
+    if (rejectReviewBtn) rejectReviewBtn.hidden = true;
     setButtonLoading(submitReviewBtn, false);
   }
 
@@ -720,8 +793,9 @@
     setBanner('', '', reviewModalBanner);
     setButtonLoading(submitReviewBtn, true, 'Saving');
 
+    const isBatchCandidate = reviewTarget && reviewTarget.kind === 'batch';
     const payload = {
-      request_id: document.getElementById('reviewRequestId').value,
+      ...(isBatchCandidate ? { item_id: reviewTarget.id, action: 'resolve' } : { request_id: document.getElementById('reviewRequestId').value }),
       group_id: config.group_id || '',
       form_token: config.form_token || '',
       init_data: tg ? tg.initData || '' : '',
@@ -729,7 +803,7 @@
     };
 
     try {
-      const response = await fetch('/api/spin/review/update/', {
+      const response = await fetch(isBatchCandidate ? '/api/spin/batch-review/resolve/' : '/api/spin/review/update/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -747,6 +821,36 @@
       setBanner('Network error saving review.', 'error', reviewModalBanner);
     } finally {
       setButtonLoading(submitReviewBtn, false);
+    }
+  }
+
+  async function rejectBatchReviewItem() {
+    if (!reviewTarget || reviewTarget.kind !== 'batch') return;
+    setButtonLoading(rejectReviewBtn, true, 'Saving');
+    try {
+      const response = await fetch('/api/spin/batch-review/resolve/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          item_id: reviewTarget.id,
+          action: 'reject',
+          group_id: config.group_id || '',
+          form_token: config.form_token || '',
+          init_data: tg ? tg.initData || '' : ''
+        })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        setBanner(result.message || 'The message could not be marked.', 'error', reviewModalBanner);
+        return;
+      }
+      closeReviewModal();
+      setBanner('Message marked as not a SPIN request.', 'success');
+      fetchRequests();
+    } catch (_) {
+      setBanner('Network error saving the decision.', 'error', reviewModalBanner);
+    } finally {
+      setButtonLoading(rejectReviewBtn, false);
     }
   }
 
@@ -800,6 +904,7 @@
   closeReviewModalBtn.addEventListener('click', closeReviewModal);
   cancelReviewModalBtn.addEventListener('click', closeReviewModal);
   reviewForm.addEventListener('submit', submitReview);
+  if (rejectReviewBtn) rejectReviewBtn.addEventListener('click', rejectBatchReviewItem);
 
   // Hook search & filters events
   dashboardSearch.addEventListener('input', renderRequests);

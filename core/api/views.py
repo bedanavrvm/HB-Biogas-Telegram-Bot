@@ -890,7 +890,13 @@ def spin_form_requests(request):
             user_payload = json.loads(auth_payload['user'])
         except json.JSONDecodeError:
             pass
-    from core.services.spin_credit import is_user_spin_analyst, spin_request_id, format_sheet_datetime, REQUEST_TYPE_LABELS
+    from core.services.spin_credit import (
+        REQUEST_TYPE_LABELS,
+        batch_review_item_summary,
+        format_sheet_datetime,
+        is_user_spin_analyst,
+        spin_request_id,
+    )
     is_analyst = is_user_spin_analyst(user_payload)
     from core.models import SpinCreditRequest
     queryset = SpinCreditRequest.objects.filter(group_id=group_id)
@@ -925,10 +931,16 @@ def spin_form_requests(request):
             'analysis_completed_at': parsed_f.get('analysis_completed_at', ''),
             'analysis_completed_by': parsed_f.get('analysis_completed_by', ''),
         })
+    from core.models import SpinBatchReviewItem
+    batch_review_items = SpinBatchReviewItem.objects.filter(
+        group_id=group_id,
+        status='pending',
+    ).order_by('-source_received_at', '-created_at')[:100]
     return JsonResponse({
         'success': True,
         'is_analyst': is_analyst,
-        'requests': data
+        'requests': data,
+        'batch_review_items': [batch_review_item_summary(item) for item in batch_review_items],
     })
 
 
@@ -1054,6 +1066,39 @@ def spin_form_review_update(request):
     if result.get('status') == 'not_found':
         status = 404
     return JsonResponse(result, status=status)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def spin_batch_review_resolve(request):
+    """Resolve or reject an uncertain SPIN message retained from a WhatsApp batch."""
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'message': 'Invalid request body.'}, status=400)
+
+    group_id, group_config, auth_payload, error_response = _spin_webapp_context(payload)
+    if error_response:
+        return error_response
+    item_id = str(payload.get('item_id') or '').strip()
+    if not item_id:
+        return JsonResponse({'success': False, 'message': 'Batch review item is required.'}, status=400)
+
+    from core.models import SpinBatchReviewItem
+    from core.services.spin_credit import resolve_spin_batch_review_item
+    try:
+        item = SpinBatchReviewItem.objects.get(id=item_id, group_id=group_id)
+    except (SpinBatchReviewItem.DoesNotExist, ValueError):
+        return JsonResponse({'success': False, 'message': 'Batch review item not found.'}, status=404)
+
+    result = resolve_spin_batch_review_item(
+        group_config=group_config,
+        item=item,
+        fields=payload.get('fields') or {},
+        reviewed_by=_sender_from_webapp_auth(auth_payload) or 'SPIN staff',
+        action=str(payload.get('action') or 'resolve'),
+    )
+    return JsonResponse(result, status=200 if result.get('success') else 400)
 
 
 
@@ -2825,6 +2870,7 @@ def _send_telegram_reply(message_data: dict, result: dict) -> None:
             f"Valid SPIN requests: {result.get('valid_requests', result.get('processed', 0))}",
             f"Incomplete SPIN requests: {result.get('incomplete_requests', 0)}",
             f"Ambiguous messages: {result.get('ambiguous_messages', 0)}",
+            f"Retained for Mini App review: {result.get('batch_review_queued', 0)}",
             f"Request messages processed: {result.get('processed', 0)}",
             f"Imported: {result.get('imported', 0)}",
             f"Needs review: {result.get('review_needed', 0)}",

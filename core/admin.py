@@ -44,6 +44,7 @@ from .models import (
     RequisitionBatch,
     RequisitionTemplate,
     SpinCreditRequest,
+    SpinBatchReviewItem,
     TatTrackerCase,
     TatTrackerEvent,
     TatTrackerStaffMember,
@@ -1769,3 +1770,11 @@ class SpinCreditRequestAdmin(TestDataDeleteAdmin):
         'customer_name', 'national_id', 'primary_phone', 'secondary_phone',
         'requested_by', 'raw_message', 'source_message_hash',
     )
+
+
+@admin.register(SpinBatchReviewItem)
+class SpinBatchReviewItemAdmin(ReadOnlyAuditAdmin):
+    list_display = ('category', 'status', 'group_id', 'source_sender', 'source_received_at', 'reviewed_by')
+    list_filter = ('group_id', 'category', 'status', 'created_at')
+    search_fields = ('source_sender', 'raw_message', 'source_message_hash', 'reviewed_by')
+    readonly_fields = [field.name for field in SpinBatchReviewItem._meta.fields]

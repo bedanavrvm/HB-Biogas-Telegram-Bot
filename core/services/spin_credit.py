@@ -19,7 +19,7 @@ from django.core import signing
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from core.models import GroupSheetConfiguration, SpinCreditRequest, SpinRequestSequence
+from core.models import GroupSheetConfiguration, SpinBatchReviewItem, SpinCreditRequest, SpinRequestSequence
 from core.services.branches import global_branch_choices, validate_workflow_branch, workflow_branches, workflow_default_branch
 from core.services.parser import analyze_whatsapp_export
 from core.services.sheets import get_sheets_service
@@ -254,6 +254,7 @@ def process_spin_batch_export(
     spin_candidates = 0
     incomplete_candidates = []
     ambiguous_messages = []
+    batch_review_items = []
     progress_events = 0
     linked_progress_events = 0
     unlinked_progress_events = []
@@ -277,9 +278,19 @@ def process_spin_batch_export(
         if classification.category == 'incomplete':
             spin_candidates += 1
             incomplete_candidates.append(classification_summary(entry, classification, index))
+            review_item = persist_spin_batch_review_item(
+                group_config, entry, classification, index, telegram_message_id, source_filename,
+            )
+            if review_item:
+                batch_review_items.append(review_item)
             continue
         if classification.category == 'ambiguous':
             ambiguous_messages.append(classification_summary(entry, classification, index))
+            review_item = persist_spin_batch_review_item(
+                group_config, entry, classification, index, telegram_message_id, source_filename,
+            )
+            if review_item:
+                batch_review_items.append(review_item)
             continue
 
         skipped += 1
@@ -298,6 +309,7 @@ def process_spin_batch_export(
             'ambiguous_messages': len(ambiguous_messages),
             'imported': 0,
             'review_needed': 0,
+            'batch_review_queued': len(batch_review_items),
             'duplicates': 0,
             'rejected': 0,
             'failed': 0,
@@ -372,6 +384,7 @@ def process_spin_batch_export(
         'ambiguous_messages': len(ambiguous_messages),
         'imported': sum(1 for r in results if r['status'] == 'imported'),
         'review_needed': sum(1 for r in results if r['status'] == 'review_needed'),
+        'batch_review_queued': len(batch_review_items),
         'duplicates': sum(1 for r in results if r['status'] == 'duplicate'),
         'rejected': sum(1 for r in results if r['status'] == 'rejected'),
         'failed': sum(1 for r in results if r['status'] == 'failed'),
@@ -602,6 +615,89 @@ def classification_summary(entry: dict[str, Any], classification: SpinMessageCla
         'loan_detail_fields': classification.loan_detail_fields,
         'reason': classification.reason,
     }
+
+
+def parse_spin_review_candidate(
+    entry: dict[str, Any],
+    classification: SpinMessageClassification,
+    index: int,
+    source_filename: str,
+) -> ParsedSpinRequest:
+    """Extract every usable field from an uncertain message without promoting it yet."""
+    raw = str(entry.get('content') or '').strip()
+    text = strip_attachment_lines(raw)
+    request_type = classification.request_type or 'spin_crb'
+    parsed = ParsedSpinRequest(
+        request_type=request_type,
+        request_datetime=entry.get('received_at'),
+        requested_by=str(entry.get('sender') or '').strip(),
+        raw_message=raw,
+        source_filename=source_filename,
+        source_message_index=index,
+        attachment_names=extract_attachment_names(raw),
+        source_message_hash=source_hash(entry, raw),
+    )
+    parsed.customer_name = extract_customer_name(text, request_type)
+    parsed.raw_id_text, parsed.national_id = extract_id(text)
+    phones = extract_phones(text)
+    if phones:
+        parsed.primary_phone = phones[0]
+    if len(phones) > 1:
+        parsed.secondary_phone = phones[1]
+    parsed.customer_type = extract_customer_type(text)
+    parsed.loan_product = extract_loan_product(text)
+    parsed.requested_amount = extract_amount(text)
+    parsed.tenor = extract_tenor(text)
+    parsed.code = extract_code(text)
+    parsed.business_notes = extract_business_notes(text, parsed)
+    parsed.parsed_fields = parsed_fields(parsed)
+    parsed.missing_fields = missing_fields_for(parsed)
+    return parsed
+
+
+def persist_spin_batch_review_item(
+    group_config,
+    entry: dict[str, Any],
+    classification: SpinMessageClassification,
+    index: int,
+    telegram_message_id: str,
+    source_filename: str,
+) -> SpinBatchReviewItem | None:
+    """Persist uncertain messages so a batch import can never silently discard them."""
+    candidate = parse_spin_review_candidate(entry, classification, index, source_filename)
+    existing_request = SpinCreditRequest.objects.filter(
+        group_id=str(group_config.group_id),
+        source_message_hash=candidate.source_message_hash,
+    ).first()
+    defaults = {
+        'telegram_message_id': str(telegram_message_id or ''),
+        'source_filename': source_filename,
+        'source_message_index': index,
+        'source_sender': candidate.requested_by,
+        'source_received_at': candidate.request_datetime,
+        'raw_message': candidate.raw_message,
+        'category': classification.category,
+        'reason': classification.reason,
+        'detected_fields': {
+            'keywords': classification.keywords,
+            'identifier_fields': classification.identifier_fields,
+            'loan_detail_fields': classification.loan_detail_fields,
+        },
+        'candidate_fields': candidate.parsed_fields,
+    }
+    item, created = SpinBatchReviewItem.objects.get_or_create(
+        group_id=str(group_config.group_id),
+        source_message_hash=candidate.source_message_hash,
+        defaults=defaults,
+    )
+    if existing_request and item.status == 'pending':
+        item.status = 'resolved'
+        item.resolved_request = existing_request
+        item.resolution_fields = {'source': 'automatic_import'}
+        item.reviewed_at = timezone.now()
+        item.save(update_fields=['status', 'resolved_request', 'resolution_fields', 'reviewed_at', 'updated_at'])
+        return None
+    return item if created or item.status == 'pending' else None
 
 
 def has_spin_request_details(low: str) -> bool:
@@ -1723,6 +1819,159 @@ def update_spin_review_request(group_config, record: SpinCreditRequest, fields: 
         'record_id': str(record.id),
         'missing_fields': record.missing_fields,
         'sheet_synced': sheet_synced,
+    }
+
+
+def batch_review_item_summary(item: SpinBatchReviewItem) -> dict[str, Any]:
+    fields = item.candidate_fields or {}
+    return {
+        'id': str(item.id),
+        'category': item.category,
+        'reason': item.reason,
+        'source_sender': item.source_sender,
+        'source_received_at': format_sheet_datetime(item.source_received_at),
+        'raw_message': item.raw_message,
+        'detected_fields': item.detected_fields or {},
+        'fields': {
+            'request_type': fields.get('request_type') or 'spin_crb',
+            'branch': fields.get('branch') or '',
+            'customer_name': fields.get('customer_name') or '',
+            'national_id': fields.get('national_id') or '',
+            'primary_phone': fields.get('primary_phone') or '',
+            'secondary_phone': fields.get('secondary_phone') or '',
+            'customer_type': fields.get('customer_type') or '',
+            'loan_product': fields.get('loan_product') or '',
+            'requested_amount': fields.get('requested_amount') or '',
+            'tenor': fields.get('tenor') or '',
+            'business_notes': fields.get('business_notes') or '',
+            'code': fields.get('code') or '',
+        },
+    }
+
+
+def resolve_spin_batch_review_item(
+    group_config,
+    item: SpinBatchReviewItem,
+    fields: dict[str, Any],
+    reviewed_by: str = '',
+    action: str = 'resolve',
+) -> dict[str, Any]:
+    """Resolve a retained batch candidate into a normal SPIN request or reject it."""
+    if str(item.group_id) != str(group_config.group_id):
+        return {'success': False, 'status': 'not_found', 'message': 'Batch review item not found.'}
+    if item.status != 'pending':
+        return {'success': False, 'status': item.status, 'message': 'This batch review item has already been handled.'}
+
+    if action == 'reject':
+        item.status = 'rejected'
+        item.reviewed_by = reviewed_by
+        item.reviewed_at = timezone.now()
+        item.resolution_fields = {'action': 'rejected'}
+        item.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'resolution_fields', 'updated_at'])
+        return {'success': True, 'status': 'rejected', 'message': 'Message marked as not a SPIN request.'}
+
+    candidate = item.candidate_fields or {}
+    draft = SpinCreditRequest(
+        group_id=item.group_id,
+        request_type=str(candidate.get('request_type') or 'spin_crb'),
+        customer_name=str(candidate.get('customer_name') or ''),
+        national_id=str(candidate.get('national_id') or ''),
+        primary_phone=str(candidate.get('primary_phone') or ''),
+        secondary_phone=str(candidate.get('secondary_phone') or ''),
+        customer_type=str(candidate.get('customer_type') or ''),
+        loan_product=str(candidate.get('loan_product') or ''),
+        requested_amount=parse_amount(str(candidate.get('requested_amount') or '')),
+        tenor=str(candidate.get('tenor') or ''),
+        business_notes=str(candidate.get('business_notes') or ''),
+        code=str(candidate.get('code') or ''),
+        parsed_fields={'branch': str(candidate.get('branch') or '')},
+    )
+    cleaned, errors = normalize_spin_review_fields(group_config, draft, fields)
+    if errors:
+        return {'success': False, 'status': 'validation_error', 'message': 'Fix the highlighted fields and try again.', 'errors': errors}
+
+    parsed = ParsedSpinRequest(
+        request_type=cleaned['request_type'],
+        request_datetime=item.source_received_at,
+        requested_by=item.source_sender,
+        customer_name=cleaned['customer_name'],
+        national_id=cleaned['national_id'],
+        raw_id_text=cleaned['raw_id_text'],
+        primary_phone=cleaned['primary_phone'],
+        secondary_phone=cleaned['secondary_phone'],
+        customer_type=cleaned['customer_type'],
+        loan_product=cleaned['loan_product'],
+        requested_amount=cleaned['requested_amount'],
+        tenor=cleaned['tenor'],
+        business_notes=cleaned['business_notes'],
+        code=cleaned['code'],
+        raw_message=item.raw_message,
+        source_filename=item.source_filename,
+        source_message_index=item.source_message_index,
+        source_message_hash=item.source_message_hash,
+    )
+    parsed.parsed_fields = parsed_fields(parsed)
+    parsed.parsed_fields['branch'] = cleaned['branch']
+    parsed.missing_fields = missing_fields_for(parsed)
+    if parsed.missing_fields:
+        return {
+            'success': False,
+            'status': 'validation_error',
+            'message': 'Complete the required SPIN request fields before saving.',
+            'missing_fields': parsed.missing_fields,
+        }
+
+    record = SpinCreditRequest.objects.filter(
+        group_id=str(group_config.group_id), source_message_hash=item.source_message_hash,
+    ).first()
+    if not record:
+        try:
+            record = save_spin_request(group_config, parsed, item.telegram_message_id, import_status='imported')
+        except IntegrityError:
+            record = SpinCreditRequest.objects.filter(
+                group_id=str(group_config.group_id), source_message_hash=item.source_message_hash,
+            ).first()
+    if not record:
+        return {'success': False, 'status': 'failed', 'message': 'The request could not be created. Try again.'}
+
+    sheet_synced = bool(record.row_number)
+    if not sheet_synced:
+        target_sheet_name = configured_spin_batch_sheet_name(
+            getattr(group_config, 'workflow', None) or {}, group_config.sheet_name,
+        )
+        sync_result = append_spin_requests_to_sheet(group_config, [record], sheet_name=target_sheet_name)
+        sheet_synced = bool(sync_result.get('success'))
+        if sheet_synced:
+            row_numbers = sync_result.get('row_numbers') or []
+            record.row_number = row_numbers[0] if row_numbers else None
+            record.sheet_id = group_config.sheet_id or ''
+            record.sheet_name = sync_result.get('sheet_name') or target_sheet_name or ''
+            record.import_status = 'imported'
+            record.sync_error = ''
+            record.save(update_fields=['row_number', 'sheet_id', 'sheet_name', 'import_status', 'sync_error', 'updated_at'])
+        else:
+            record.import_status = 'failed'
+            record.sync_error = (sync_result.get('error') or 'Google Sheets append failed')
+            record.save(update_fields=['import_status', 'sync_error', 'updated_at'])
+    if not sheet_synced:
+        return {'success': False, 'status': 'sheet_sync_failed', 'message': 'The request was retained, but the Sheet could not be updated. Try again.'}
+
+    item.status = 'resolved'
+    item.resolved_request = record
+    item.resolution_fields = {
+        **cleaned,
+        'requested_amount': str(cleaned['requested_amount'] or ''),
+    }
+    item.reviewed_by = reviewed_by
+    item.reviewed_at = timezone.now()
+    item.save(update_fields=['status', 'resolved_request', 'resolution_fields', 'reviewed_by', 'reviewed_at', 'updated_at'])
+    return {
+        'success': True,
+        'status': 'resolved',
+        'message': 'Batch candidate saved as a SPIN request.',
+        'request_id': spin_request_id(record),
+        'record_id': str(record.id),
+        'sheet_synced': True,
     }
 
 
