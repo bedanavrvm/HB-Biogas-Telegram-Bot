@@ -172,7 +172,7 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         template = (root / 'templates' / 'complaint_cases' / 'app.html').read_text(encoding='utf-8')
         script = (root / 'static' / 'miniapp' / 'complaint_cases.js').read_text(encoding='utf-8')
 
-        for expected in ('id="newCaseBtn"', 'id="createCaseForm"', 'name="client_name"', 'name="customer_phone"', 'name="customer_id"', 'name="branch_region"', 'name="complaint_category"', 'name="complaint_description"', 'id="createEvidenceInput"'):
+        for expected in ('class="app-top"', 'class="overview-strip"', 'class="tabs"', 'class="form-card"', 'id="complaintTabs"', 'data-view="create"', 'id="createCaseForm"', 'name="client_name"', 'name="customer_phone"', 'name="customer_id"', 'name="branch_region"', 'name="complaint_category"', 'name="complaint_description"', 'id="createEvidenceInput"'):
             self.assertIn(expected, template)
         self.assertIn('caseItem.recorded_at', script)
         self.assertIn("api('cases/create/'", script)

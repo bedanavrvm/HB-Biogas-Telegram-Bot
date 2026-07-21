@@ -217,12 +217,25 @@
     const response = await api('bootstrap/'); renderCounts((response.data || {}).counts || {});
   }
 
+  function showComplaintView(view) {
+    const showCreate = view === 'create';
+    $('listView').hidden = showCreate;
+    $('createView').hidden = !showCreate;
+    $('detailView').hidden = true;
+    document.querySelectorAll('#complaintTabs [data-view]').forEach((button) => {
+      button.classList.toggle('active', button.dataset.view === view);
+    });
+    if (view === 'find') {
+      $('caseSearch').focus();
+    }
+  }
+
   document.querySelectorAll('.filter-tabs button').forEach((button) => button.addEventListener('click', () => { state.status = button.dataset.status; document.querySelectorAll('.filter-tabs button').forEach((node) => node.classList.toggle('active', node === button)); loadCases(); }));
   $('caseSearch').addEventListener('input', (event) => { state.query = event.target.value; window.clearTimeout(state.debounce); state.debounce = window.setTimeout(loadCases, 250); });
   $('refreshBtn').addEventListener('click', () => window.location.reload());
-  $('newCaseBtn').addEventListener('click', () => { $('listView').hidden = true; $('detailView').hidden = true; $('createView').hidden = false; });
-  $('cancelCreateBtn').addEventListener('click', () => { $('createView').hidden = true; $('listView').hidden = false; });
-  $('backBtn').addEventListener('click', () => { $('detailView').hidden = true; $('listView').hidden = false; loadCases(); });
+  document.querySelectorAll('#complaintTabs [data-view]').forEach((button) => button.addEventListener('click', () => showComplaintView(button.dataset.view)));
+  $('cancelCreateBtn').addEventListener('click', () => { showComplaintView('queue'); loadCases(); });
+  $('backBtn').addEventListener('click', () => { showComplaintView('queue'); loadCases(); });
   $('captureLocationBtn').addEventListener('click', captureLocation);
   $('createCaptureLocationBtn').addEventListener('click', captureCreateLocation);
   $('evidenceInput').addEventListener('change', selectedFiles);
