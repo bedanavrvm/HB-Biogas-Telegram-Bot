@@ -11,7 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=4">
-  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=3">
+  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=4">
 </head>
 <body class="complaint-cases-app" data-group-id="{{ group_id|escape }}">
   <main class="complaint-app" aria-label="Complaint Cases">
@@ -38,9 +38,9 @@
 
     <section id="listView" class="view active" hidden>
       <section class="overview-strip" aria-label="Complaint summary">
-        <div class="metric-tile priority"><span id="openCount">0</span><small>Open</small></div>
-        <div class="metric-tile"><span id="progressCount">0</span><small>In progress</small></div>
-        <div class="metric-tile"><span id="closedCount">0</span><small>Closed</small></div>
+        <button class="metric-tile priority" type="button" data-status-filter="Open"><span id="openCount">0</span><small>Open</small></button>
+        <button class="metric-tile" type="button" data-status-filter="In Progress"><span id="progressCount">0</span><small>In progress</small></button>
+        <button class="metric-tile" type="button" data-status-filter="Closed"><span id="closedCount">0</span><small>Closed</small></button>
       </section>
 
       <nav id="complaintTabs" class="tabs" aria-label="Complaint views">
@@ -55,7 +55,10 @@
           <label class="sr-label" for="caseSearch">Find a case</label>
           <div class="search-input-wrap"><svg class="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><input id="caseSearch" type="search" autocomplete="off" placeholder="Name, case ID, ID number, phone..."></div>
         </div>
-        <div class="filter-tabs" aria-label="Case status"><button class="active" type="button" data-status="active">Active</button><button type="button" data-status="closed">Closed</button></div>
+        <div class="queue-filters">
+          <div class="filter-tabs" aria-label="Case status"><button class="active" type="button" data-status="active">Active</button><button type="button" data-status="Open">Open</button><button type="button" data-status="In Progress">In progress</button><button type="button" data-status="Closed">Closed</button></div>
+          <label>Branch<select id="branchFilter"><option value="">All branches</option></select></label>
+        </div>
         <div id="caseList" class="case-list"></div>
         <p id="emptyState" class="empty-state" hidden>No complaint cases match this view.</p>
       </section>
@@ -91,7 +94,7 @@
       <form id="updateForm" class="form-card" novalidate>
         <div class="form-heading"><h2>Update case</h2><p>Add a clear note, field location, or supporting evidence.</p></div>
         <div class="form-grid"><label>Status<select id="statusInput" name="status"><option>Open</option><option>In Progress</option><option>Closed</option></select></label><label class="full-width">Update note<textarea id="noteInput" name="resolution_text" rows="3" placeholder="What happened, what is next, and who owns it?"></textarea></label></div>
-        <div class="location-actions"><button id="captureLocationBtn" class="secondary" type="button">Use my current location</button><span id="captureState" class="capture-state">No new location selected</span></div>
+        <div class="location-actions" hidden><button id="captureLocationBtn" class="secondary" type="button">Use my current location</button><span id="captureState" class="capture-state">No new location selected</span></div>
         <label class="upload-field">Evidence <input id="evidenceInput" type="file" name="evidence" multiple accept="image/*,.pdf,.doc,.docx"><span>Photos, PDF, or Word documents &middot; up to 10 files / 30 MB total</span></label><ul id="selectedEvidence" class="selected-evidence"></ul>
         <div class="form-actions"><button id="saveBtn" class="primary" type="submit"><span>Save update</span></button></div>
       </form>
@@ -100,6 +103,6 @@
     </section>
   </main>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=3"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=4"></script>
 </body>
 </html>

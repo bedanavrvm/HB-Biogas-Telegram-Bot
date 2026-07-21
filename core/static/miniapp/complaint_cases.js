@@ -5,7 +5,7 @@
   const state = {
     groupId: document.body.dataset.groupId || '',
     initData: telegram ? telegram.initData || '' : '',
-    status: 'active', query: '', currentCase: null, map: null, marker: null,
+    status: 'active', branch: '', query: '', currentCase: null, map: null, marker: null,
     capturedLocation: null, createCapturedLocation: null, debounce: null,
   };
   const $ = (id) => document.getElementById(id);
@@ -39,6 +39,14 @@
 
   function statusClass(status) { return `status-${String(status || 'Open').toLowerCase().replace(/\s+/g, '-')}`; }
 
+  function callHref(phone) {
+    const digits = String(phone || '').replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('254')) return `tel:+${digits}`;
+    if (digits.startsWith('0')) return `tel:+254${digits.slice(1)}`;
+    return `tel:+${digits}`;
+  }
+
   function renderCounts(counts) {
     $('openCount').textContent = counts.open || 0;
     $('progressCount').textContent = counts.in_progress || 0;
@@ -67,7 +75,7 @@
 
   async function loadCases() {
     try {
-      const response = await api('cases/', { query: state.query, status: state.status });
+      const response = await api('cases/', { query: state.query, status: state.status, branch: state.branch });
       renderCases(response.cases || []);
     } catch (error) { notify(error.message, true); }
   }
@@ -81,6 +89,7 @@
       $('actorLine').textContent = `${data.actor && data.actor.name || 'Staff'} · ${data.actor && data.actor.is_manager ? 'Case manager' : 'Case officer'}`;
       renderCounts(data.counts || {});
       renderCreateOptions(data);
+      renderBranchFilter(data.branches || []);
       $('listView').hidden = false;
       await loadCases();
     } catch (error) { notify(error.message, true); }
@@ -94,7 +103,7 @@
     $('detailStatus').textContent = caseItem.status;
     $('detailStatus').className = `status-pill ${statusClass(caseItem.status)}`;
     $('detailDescription').textContent = caseItem.description || 'No complaint description was captured.';
-    $('detailIdentifiers').innerHTML = [caseItem.customer_phone && `Phone: ${caseItem.customer_phone}`, caseItem.customer_id && `ID: ${caseItem.customer_id}`].filter(Boolean).map((item) => `<span class="identifier">${escapeHtml(item)}</span>`).join('') || '<span class="identifier">No client ID or phone captured</span>';
+    $('detailIdentifiers').innerHTML = detailIdentifiersMarkup(caseItem);
     $('detailMeta').textContent = [caseItem.category, caseItem.branch, caseItem.reported_at, caseItem.days_open != null ? `${caseItem.days_open} days open` : ''].filter(Boolean).join(' · ');
     $('statusInput').value = caseItem.status || 'Open';
     renderMap(caseItem.location || {});
@@ -108,6 +117,31 @@
       const list = $(id); list.replaceChildren();
       values.forEach((value) => { const option = document.createElement('option'); option.value = value; list.append(option); });
     });
+  }
+
+  function renderBranchFilter(branches) {
+    const select = $('branchFilter');
+    const selected = state.branch;
+    select.innerHTML = '<option value="">All branches</option>' + (branches || []).map((branch) => `<option value="${escapeHtml(branch)}">${escapeHtml(branch)}</option>`).join('');
+    select.value = selected;
+  }
+
+  function detailIdentifiersMarkup(caseItem) {
+    const items = [];
+    const phoneLink = callHref(caseItem.customer_phone);
+    if (caseItem.customer_phone) {
+      items.push(`
+        <span class="identifier phone-identifier">
+          <span>Phone: ${escapeHtml(caseItem.customer_phone)}</span>
+          ${phoneLink ? `<a class="call-button" href="${escapeHtml(phoneLink)}" aria-label="Call ${escapeHtml(caseItem.customer_phone)}">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.77.63 2.6a2 2 0 0 1-.45 2.11L8.02 9.7a16 16 0 0 0 6.28 6.28l1.27-1.27a2 2 0 0 1 2.11-.45c.83.3 1.7.51 2.6.63A2 2 0 0 1 22 16.92Z"/></svg>
+            <span>Call</span>
+          </a>` : ''}
+        </span>
+      `);
+    }
+    if (caseItem.customer_id) items.push(`<span class="identifier">ID: ${escapeHtml(caseItem.customer_id)}</span>`);
+    return items.join('') || '<span class="identifier">No client ID or phone captured</span>';
   }
 
   function renderMap(location) {
@@ -230,7 +264,16 @@
     }
   }
 
-  document.querySelectorAll('.filter-tabs button').forEach((button) => button.addEventListener('click', () => { state.status = button.dataset.status; document.querySelectorAll('.filter-tabs button').forEach((node) => node.classList.toggle('active', node === button)); loadCases(); }));
+  function applyStatusFilter(status) {
+    state.status = status || 'active';
+    document.querySelectorAll('.filter-tabs button').forEach((node) => node.classList.toggle('active', node.dataset.status === state.status));
+    showComplaintView('queue');
+    loadCases();
+  }
+
+  document.querySelectorAll('.filter-tabs button').forEach((button) => button.addEventListener('click', () => applyStatusFilter(button.dataset.status)));
+  document.querySelectorAll('[data-status-filter]').forEach((button) => button.addEventListener('click', () => applyStatusFilter(button.dataset.statusFilter)));
+  $('branchFilter').addEventListener('change', (event) => { state.branch = event.target.value; loadCases(); });
   $('caseSearch').addEventListener('input', (event) => { state.query = event.target.value; window.clearTimeout(state.debounce); state.debounce = window.setTimeout(loadCases, 250); });
   $('refreshBtn').addEventListener('click', () => window.location.reload());
   document.querySelectorAll('#complaintTabs [data-view]').forEach((button) => button.addEventListener('click', () => showComplaintView(button.dataset.view)));

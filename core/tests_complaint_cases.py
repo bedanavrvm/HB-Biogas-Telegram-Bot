@@ -15,6 +15,7 @@ from core.admin import ComplaintCaseStaffMemberInline, TatTrackerStaffMemberInli
 from core.models import (
     CaseUpdate,
     ComplaintCaseEvidence,
+    ComplaintCaseSequence,
     ComplaintCaseStaffMember,
     GroupSheetConfiguration,
     ParsedMessage,
@@ -24,6 +25,7 @@ from core.models import (
 from core.services.complaint_cases import (
     ComplaintCaseError,
     create_complaint_case,
+    evidence_filename,
     list_cases,
     staff_actor_for_payload,
     update_case,
@@ -64,6 +66,18 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertEqual([case['case_id'] for case in cases], ['CASE-1'])
         self.assertTrue(cases[0]['recorded_at'])
 
+    def test_list_can_filter_by_exact_status_and_branch(self):
+        self.case.branch_region = 'Nakuru'
+        self.case.save(update_fields=['branch_region'])
+        embu_case = self.create_case('-100100', 'CASE-3')
+        embu_case.branch_region = 'Embu'
+        embu_case.complaint_status = 'In Progress'
+        embu_case.save(update_fields=['branch_region', 'complaint_status'])
+
+        cases = list_cases(self.config, status='In Progress', branch='Embu')
+
+        self.assertEqual([case['case_id'] for case in cases], ['CASE-3'])
+
     def test_officer_can_progress_case_once_with_retry_idempotency(self):
         actor = self.actor('100')
         fields = {'client_request_id': 'request-1', 'status': 'In Progress', 'resolution_text': 'Called the client.'}
@@ -95,6 +109,12 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertEqual(ComplaintCaseEvidence.objects.get().upload_status, 'failed')
         self.assertEqual(self.case.case_updates.count(), 1)
 
+    def test_evidence_filename_uses_customer_id_when_available(self):
+        self.case.customer_id = 'ID 123/456'
+        self.case.save(update_fields=['customer_id'])
+
+        self.assertEqual(evidence_filename(self.case, 'site photo.jpg', 1), 'CASE-ID_123456-01-site_photo.jpg')
+
     @patch('core.services.complaint_cases.append_parsed_message_to_sheet', return_value=True)
     def test_officer_can_create_an_auditable_case_once_with_a_retry_identifier(self, append_to_sheet):
         def mark_case_synced(case, **_kwargs):
@@ -121,6 +141,9 @@ class ComplaintCaseServiceTests(TestCase):
 
         case = ParsedMessage.objects.get(message_id=first['case']['case_id'])
         self.assertEqual(first['case']['case_id'], second['case']['case_id'])
+        self.assertRegex(first['case']['case_id'], r'^CMP-\d{4}-001$')
+        sequence = ComplaintCaseSequence.objects.get(group_id=self.config.group_id)
+        self.assertEqual(sequence.next_number, 2)
         self.assertEqual(case.customer_phone, '254712345678')
         self.assertEqual(case.complaint_status, 'Open')
         self.assertEqual(case.source, 'complaint_mini_app')
@@ -172,10 +195,15 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         template = (root / 'templates' / 'complaint_cases' / 'app.html').read_text(encoding='utf-8')
         script = (root / 'static' / 'miniapp' / 'complaint_cases.js').read_text(encoding='utf-8')
 
-        for expected in ('class="app-top"', 'class="overview-strip"', 'class="tabs"', 'class="form-card"', 'id="complaintTabs"', 'data-view="create"', 'id="createCaseForm"', 'name="client_name"', 'name="customer_phone"', 'name="customer_id"', 'name="branch_region"', 'name="complaint_category"', 'name="complaint_description"', 'id="createEvidenceInput"'):
+        for expected in ('class="app-top"', 'class="overview-strip"', 'class="tabs"', 'class="form-card"', 'id="complaintTabs"', 'data-view="create"', 'id="createCaseForm"', 'name="client_name"', 'name="customer_phone"', 'name="customer_id"', 'name="branch_region"', 'name="complaint_category"', 'name="complaint_description"', 'id="createEvidenceInput"', 'id="branchFilter"', 'data-status-filter="Open"', 'data-status-filter="In Progress"', 'data-status-filter="Closed"', 'id="captureLocationBtn" class="secondary" type="button"'):
             self.assertIn(expected, template)
+        self.assertIn('<div class="location-actions" hidden><button id="captureLocationBtn"', template)
         self.assertIn('caseItem.recorded_at', script)
         self.assertIn("api('cases/create/'", script)
+        self.assertIn('function callHref(phone)', script)
+        self.assertIn('class="call-button"', script)
+        self.assertIn('branch: state.branch', script)
+        self.assertIn('function applyStatusFilter(status)', script)
 
 
 class ComplaintCaseAdminTests(TestCase):

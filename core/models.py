@@ -288,6 +288,25 @@ class CaseUpdate(models.Model):
         return f"CaseUpdate {self.parsed_message.message_id}: {self.new_status}"
 
 
+class ComplaintCaseSequence(models.Model):
+    """Durable per-group/year sequence for staff-facing complaint references."""
+
+    group_id = models.CharField(max_length=100, db_index=True)
+    year = models.PositiveIntegerField(db_index=True)
+    next_number = models.PositiveIntegerField(default=1)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['group_id', 'year'], name='unique_complaint_sequence_group_year'),
+        ]
+        verbose_name = 'Complaint case sequence'
+        verbose_name_plural = 'Complaint case sequences'
+
+    def __str__(self):
+        return f"{self.group_id} {self.year}: next {self.next_number}"
+
+
 class ComplaintCaseEvidence(models.Model):
     """Drive-backed, append-only evidence uploaded for a complaint case."""
 

@@ -17,7 +17,15 @@ from django.db.models import Q
 from django.utils import timezone
 from django.utils.text import get_valid_filename
 
-from core.models import CaseUpdate, ComplaintCaseEvidence, ComplaintCaseStaffMember, ParsedMessage, ProcessedMessage, RawMessage
+from core.models import (
+    CaseUpdate,
+    ComplaintCaseEvidence,
+    ComplaintCaseSequence,
+    ComplaintCaseStaffMember,
+    ParsedMessage,
+    ProcessedMessage,
+    RawMessage,
+)
 from core.services.identifiers import normalize_kenyan_phone
 from core.services.order_approval import GoogleDriveMediaStorage
 from core.services.sheets import append_parsed_message_to_sheet, get_sheets_service
@@ -95,9 +103,10 @@ def bootstrap_data(group_config, actor: ComplaintCaseActor) -> dict[str, Any]:
     }
 
 
-def list_cases(group_config, query: str = '', status: str = 'active', limit: int = 50) -> list[dict[str, Any]]:
+def list_cases(group_config, query: str = '', status: str = 'active', branch: str = '', limit: int = 50) -> list[dict[str, Any]]:
     cases = _case_queryset(group_config.group_id)
     cases = _filter_status(cases, status)
+    cases = _filter_branch(cases, branch)
     cases = _filter_query(cases, query)
     return [serialize_case(case) for case in cases[:max(1, min(limit, 100))]]
 
@@ -148,10 +157,10 @@ def create_complaint_case(
     request_id = create_request_id(fields.get('client_request_id'))
     validate_uploaded_files(uploaded_files)
     values = validate_new_case_fields(fields)
-    message_id = complaint_case_message_id(group_config.group_id, request_id)
+    request_hash = complaint_case_hash(group_config.group_id, request_id)
     case = ParsedMessage.objects.filter(
         group_id=str(group_config.group_id),
-        message_id=message_id,
+        processed_message__message_hash=request_hash,
     ).first()
     created = False
     create_update = None
@@ -161,9 +170,10 @@ def create_complaint_case(
             with transaction.atomic():
                 case = ParsedMessage.objects.select_for_update().filter(
                     group_id=str(group_config.group_id),
-                    message_id=message_id,
+                    processed_message__message_hash=request_hash,
                 ).first()
                 if not case:
+                    message_id = next_complaint_case_id(group_config)
                     raw_content = new_case_raw_content(values, actor)
                     raw_message = RawMessage.objects.create(
                         telegram_message_id=message_id,
@@ -173,7 +183,7 @@ def create_complaint_case(
                         has_image=bool(uploaded_files),
                     )
                     processed_message = ProcessedMessage.objects.create(
-                        message_hash=complaint_case_hash(group_config.group_id, request_id),
+                        message_hash=request_hash,
                         raw_message=raw_message,
                         status='success',
                     )
@@ -216,7 +226,7 @@ def create_complaint_case(
         except IntegrityError:
             case = ParsedMessage.objects.filter(
                 group_id=str(group_config.group_id),
-                message_id=message_id,
+                processed_message__message_hash=request_hash,
             ).first()
             if not case:
                 raise
@@ -290,6 +300,22 @@ def limited_case_text(value: Any, label: str) -> str:
 
 def complaint_case_message_id(group_id: str, request_id: str) -> str:
     return f'CMP-MA-{hashlib.sha256(f"{group_id}:{request_id}".encode()).hexdigest()[:24]}'
+
+
+def next_complaint_case_id(group_config) -> str:
+    year = timezone.localtime(timezone.now()).year
+    sequence, _ = ComplaintCaseSequence.objects.select_for_update().get_or_create(
+        group_id=str(group_config.group_id),
+        year=year,
+        defaults={'next_number': 1},
+    )
+    while True:
+        number = sequence.next_number
+        sequence.next_number = number + 1
+        sequence.save(update_fields=['next_number', 'updated_at'])
+        case_id = f'CMP-{year}-{number:03d}'
+        if not ParsedMessage.objects.filter(group_id=str(group_config.group_id), message_id=case_id).exists():
+            return case_id
 
 
 def complaint_case_hash(group_id: str, request_id: str) -> str:
@@ -500,7 +526,8 @@ def store_evidence_file(group_config, case, update, actor, file_obj, index: int)
 
 def evidence_filename(case: ParsedMessage, original_filename: str, index: int) -> str:
     filename = get_valid_filename(original_filename or 'evidence')
-    return f'CASE-{get_valid_filename(case.message_id)}-{index:02d}-{filename}'
+    tracking_id = get_valid_filename(case.customer_id or case.message_id)
+    return f'CASE-{tracking_id}-{index:02d}-{filename}'
 
 
 def serialize_case(case: ParsedMessage) -> dict[str, Any]:
@@ -581,11 +608,18 @@ def _case_for_group(group_id: str, case_id: str) -> ParsedMessage:
 
 
 def _filter_status(cases, status: str):
+    if status in STATUS_VALUES:
+        return cases.filter(complaint_status=status)
     if status == 'active':
         return cases.filter(Q(complaint_status__in=ACTIVE_STATUSES) | Q(complaint_status=''))
     if status == 'closed':
         return cases.filter(complaint_status='Closed')
     return cases
+
+
+def _filter_branch(cases, branch: str):
+    text = str(branch or '').strip()
+    return cases.filter(branch_region=text) if text else cases
 
 
 def _filter_query(cases, query: str):

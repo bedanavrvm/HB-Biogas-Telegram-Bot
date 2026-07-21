@@ -99,6 +99,7 @@ def complaint_cases_list(request):
                 group_config,
                 query=str(payload.get('query') or ''),
                 status=str(payload.get('status') or 'active'),
+                branch=str(payload.get('branch') or ''),
             ),
         }
     )
