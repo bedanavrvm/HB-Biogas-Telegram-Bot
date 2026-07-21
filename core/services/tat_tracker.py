@@ -31,6 +31,9 @@ from core.services.sheets import get_sheets_service
 
 logger = logging.getLogger(__name__)
 
+_TAT_HEADER_CACHE_TTL_SECONDS = 300
+_TAT_HEADER_CACHE: dict[tuple[str, str, str], tuple[float, list[Any]]] = {}
+
 TAT_TRACKER_WORKFLOW_TYPE = 'tat_tracker'
 TAT_TRACKER_HEADER_ROW = 2
 TAT_FORM_TOKEN_SALT = 'tat-tracker-mini-app'
@@ -482,6 +485,8 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
         created_by=user.get('name', ''), created_by_telegram_id=user.get('telegram_id', ''), last_updated_by=user.get('name', ''),
     )
     TatTrackerEvent.objects.create(case=case, group_id=case.group_id, actor_name=user.get('name', ''), actor_telegram_id=user.get('telegram_id', ''), actor_role=','.join(user.get('roles') or []), stage_key='created', stage_label='Case Created', new_value=format_datetime(now), source='mini_app', sheet_name=case.sheet_name)
+    if payload.get('_defer_sheet_sync'):
+        return serialize_case_detail(case, user, workflow=workflow)
     sync_case_to_sheet(group_config, case)
     if not case.row_number:
         raise RuntimeError('TAT tracker sheet sync did not return a row number. Case was not saved.')
@@ -586,10 +591,12 @@ def process_tat_batch_rows(
     failed = 0
     errors = []
     case_ids = []
+    created_cases = []
     for row in rows:
         payload = dict(row['payload'])
         payload['bro_name'] = user.get('name') or sender or payload.get('bro_name') or ''
         payload['client_request_id'] = f"tat-batch:{group_config.group_id}:{telegram_message_id}:{row['line_number']}"
+        payload['_defer_sheet_sync'] = True
         try:
             before_count = TatTrackerCase.objects.filter(group_id=str(group_config.group_id)).count()
             result = create_case(group_config, user, payload)
@@ -605,12 +612,20 @@ def process_tat_batch_rows(
             duplicates += 1
         else:
             imported += 1
+            case_id = summary.get('case_id') or ''
+            if case_id:
+                created_cases.append(TatTrackerCase.objects.get(group_id=str(group_config.group_id), case_id=case_id))
+
+    sync_result = sync_tat_batch_created_cases(group_config, created_cases)
+    if sync_result['failed']:
+        errors.extend(sync_result['failed'][:8])
 
     reply_lines = [
         'TAT batch processed.',
         f'Rows received: {len(rows)}',
         f'Created: {imported}',
         f'Already imported: {duplicates}',
+        f'Synced to sheet: {sync_result["synced"]}',
         f'Failed: {failed}',
     ]
     visible_case_ids = [case_id for case_id in case_ids if case_id][:8]
@@ -789,6 +804,68 @@ def normalize_tat_batch_product(value: str) -> str:
     return aliases.get(key, key)
 
 
+def sync_tat_batch_created_cases(group_config, cases: list[TatTrackerCase]) -> dict:
+    result = {'synced': 0, 'failed': []}
+    if not cases:
+        return result
+    cases_by_product: dict[str, list[TatTrackerCase]] = {}
+    for case in cases:
+        cases_by_product.setdefault(case.product_key, []).append(case)
+
+    for product_key, product_cases in cases_by_product.items():
+        product = product_by_key(product_key)
+        service = get_sheets_service(sheet_id=group_config.sheet_id, sheet_name=product.sheet_name)
+        if not service.is_available():
+            error = 'Google Sheets service unavailable.'
+            for case in product_cases:
+                case.sync_error = error
+                case.save(update_fields=['sync_error', 'updated_at'])
+                result['failed'].append(f'{case.case_id}: {error}')
+            continue
+        sheet = service._sheet
+        try:
+            headers = cached_tat_sheet_headers(group_config, product, sheet)
+            validate_tracker_identity_headers(headers)
+            rows = [
+                build_tat_sheet_row_data(group_config, case, product, headers)
+                for case in product_cases
+            ]
+            append_result = append_tat_batch_rows(sheet, rows)
+            start_row = row_number_from_update_result(append_result)
+            now = timezone.now()
+            for index, case in enumerate(product_cases):
+                if start_row:
+                    case.row_number = start_row + index
+                case.sheet_name = product.sheet_name
+                case.last_synced_at = now
+                case.sync_error = ''
+                case.save(update_fields=['row_number', 'sheet_name', 'last_synced_at', 'sync_error', 'updated_at'])
+                result['synced'] += 1
+        except Exception as exc:
+            logger.exception('TAT batch sheet sync failed for product %s', product_key)
+            error = str(exc)
+            for case in product_cases:
+                case.sync_error = error
+                case.save(update_fields=['sync_error', 'updated_at'])
+                result['failed'].append(f'{case.case_id}: {error}')
+    return result
+
+
+def append_tat_batch_rows(sheet, rows: list[list[Any]]) -> Any:
+    if not rows:
+        return None
+    if hasattr(sheet, 'append_rows'):
+        return sheet.append_rows(rows, value_input_option='USER_ENTERED')
+    start_row = next_sheet_row(sheet)
+    width = max(len(row) for row in rows)
+    sheet.update(
+        f'A{start_row}:{column_letter(width)}{start_row + len(rows) - 1}',
+        rows,
+        value_input_option='USER_ENTERED',
+    )
+    return {'updates': {'updatedRange': f'A{start_row}:{column_letter(width)}{start_row + len(rows) - 1}'}}
+
+
 @transaction.atomic
 def update_case(group_config, user: dict, case_id: str, updates: list[dict]) -> dict:
     workflow = getattr(group_config, 'workflow', None) or {}
@@ -916,44 +993,12 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
     try:
         # TAT values are Django-calculated display columns. Keeping them out
         # of sheet formulas avoids delayed spreadsheet recalculation.
-        headers = sheet.row_values(TAT_TRACKER_HEADER_ROW) if hasattr(sheet, 'row_values') else []
+        headers = cached_tat_sheet_headers(group_config, product, sheet)
         validate_tracker_identity_headers(headers)
-        tat_columns = resolve_tat_sheet_columns(product, headers)
-        width = max([product.tat_start_col + 1, *tat_columns.values()])
         row = case.row_number
         values = sheet.row_values(row) if row else []
-        row_data = [''] * width
-        for idx, value in enumerate(values[:width], start=1):
-            row_data[idx - 1] = value
-        row_data[0] = case.case_id
-        row_data[1] = case.client_name
-        row_data[2] = case.national_id
-        row_data[3] = case.primary_phone
-        row_data[4] = case.branch
-        row_data[5] = case.bro_name
-        row_data[6] = float(case.amount or 0) if case.amount is not None else ''
-        row_data[product.stage_columns['created'] - 1] = sheet_datetime(case.stage_values.get('created'))
-        for stage in product.stages:
-            if stage.key in case.stage_values:
-                row_data[stage.column - 1] = sheet_value_for_stage(stage, case.stage_values.get(stage.key))
-            if stage.auto_timestamp_key and stage.auto_timestamp_key in case.stage_values:
-                col = product.stage_columns.get(stage.auto_timestamp_key)
-                if col:
-                    row_data[col - 1] = sheet_datetime(case.stage_values.get(stage.auto_timestamp_key))
-        row_data[product.status_col - 1] = case.status
-        row_data[product.remarks_col - 1] = case.remarks
-        tat_minutes = calculated_tat_minutes(case)
-        tat_hours = calculated_tat_hours(case) if tat_minutes is not None else None
-        tat_days = calculated_tat_days(case) if tat_minutes is not None else None
-        row_data[product.tat_start_col - 1] = float(tat_hours) if tat_hours is not None else ''
-        row_data[product.tat_start_col] = float(tat_days) if tat_days is not None else ''
-        if tat_columns.get('total_minutes'):
-            row_data[tat_columns['total_minutes'] - 1] = float(tat_minutes) if tat_minutes is not None else ''
-        for stage in product.stages:
-            col = tat_columns.get(stage.key)
-            if col:
-                minutes = stage_tat_minutes(case, stage)
-                row_data[col - 1] = float(minutes) if minutes is not None else ''
+        row_data = build_tat_sheet_row_data(group_config, case, product, headers, values)
+        width = len(row_data)
         if row:
             sheet.update(f'A{row}:{column_letter(width)}{row}', [row_data], value_input_option='USER_ENTERED')
         else:
@@ -977,6 +1022,65 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
         case.save(update_fields=['sync_error', 'updated_at'])
         logger.exception('TAT tracker sheet sync failed for %s', case.case_id)
         raise
+
+
+def build_tat_sheet_row_data(
+    group_config,
+    case: TatTrackerCase,
+    product: ProductConfig,
+    headers: list[Any],
+    existing_values: list[Any] | None = None,
+) -> list[Any]:
+    del group_config
+    tat_columns = resolve_tat_sheet_columns(product, headers)
+    width = max([product.tat_start_col + 1, *tat_columns.values()])
+    row_data = [''] * width
+    for idx, value in enumerate((existing_values or [])[:width], start=1):
+        row_data[idx - 1] = value
+    row_data[0] = case.case_id
+    row_data[1] = case.client_name
+    row_data[2] = case.national_id
+    row_data[3] = case.primary_phone
+    row_data[4] = case.branch
+    row_data[5] = case.bro_name
+    row_data[6] = float(case.amount or 0) if case.amount is not None else ''
+    row_data[product.stage_columns['created'] - 1] = sheet_datetime(case.stage_values.get('created'))
+    for stage in product.stages:
+        if stage.key in case.stage_values:
+            row_data[stage.column - 1] = sheet_value_for_stage(stage, case.stage_values.get(stage.key))
+        if stage.auto_timestamp_key and stage.auto_timestamp_key in case.stage_values:
+            col = product.stage_columns.get(stage.auto_timestamp_key)
+            if col:
+                row_data[col - 1] = sheet_datetime(case.stage_values.get(stage.auto_timestamp_key))
+    row_data[product.status_col - 1] = case.status
+    row_data[product.remarks_col - 1] = case.remarks
+    tat_minutes = calculated_tat_minutes(case)
+    tat_hours = calculated_tat_hours(case) if tat_minutes is not None else None
+    tat_days = calculated_tat_days(case) if tat_minutes is not None else None
+    row_data[product.tat_start_col - 1] = float(tat_hours) if tat_hours is not None else ''
+    row_data[product.tat_start_col] = float(tat_days) if tat_days is not None else ''
+    if tat_columns.get('total_minutes'):
+        row_data[tat_columns['total_minutes'] - 1] = float(tat_minutes) if tat_minutes is not None else ''
+    for stage in product.stages:
+        col = tat_columns.get(stage.key)
+        if col:
+            minutes = stage_tat_minutes(case, stage)
+            row_data[col - 1] = float(minutes) if minutes is not None else ''
+    return row_data
+
+
+def cached_tat_sheet_headers(group_config, product: ProductConfig, sheet) -> list[Any]:
+    if not hasattr(sheet, 'row_values'):
+        return []
+    group_key = str(getattr(group_config, 'pk', '') or getattr(group_config, 'group_id', '') or '')
+    cache_key = (group_key, str(group_config.sheet_id or ''), product.sheet_name)
+    now = time.monotonic()
+    cached = _TAT_HEADER_CACHE.get(cache_key)
+    if cached and now - cached[0] < _TAT_HEADER_CACHE_TTL_SECONDS:
+        return list(cached[1])
+    headers = sheet.row_values(TAT_TRACKER_HEADER_ROW)
+    _TAT_HEADER_CACHE[cache_key] = (now, list(headers))
+    return headers
 
 
 def resync_tat_tracker_cases(

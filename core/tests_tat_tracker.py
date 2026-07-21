@@ -17,6 +17,7 @@ from core.models import GroupSheetConfiguration, TatTrackerApprovalCertificate, 
 from core.api.views import _dispatch_tat_approval_certificate, _process_telegram_message
 from core.services.group_config import GroupRegistry
 from core.services.tat_tracker import (
+    _TAT_HEADER_CACHE,
     bootstrap,
     build_tat_tracker_url,
     calculated_tat_days,
@@ -44,6 +45,7 @@ from core.services.tat_tracker import (
     next_role_alert,
     staff_user_for_payload,
     sync_case_to_sheet,
+    sync_tat_batch_created_cases,
     resync_tat_tracker_cases,
     search_cases,
     sync_tat_target_settings_to_sheet,
@@ -56,6 +58,7 @@ from core.services.tat_tracker import (
 
 class TatTrackerWorkflowTest(TestCase):
     def setUp(self):
+        _TAT_HEADER_CACHE.clear()
         self.config = GroupSheetConfiguration.objects.create(
             group_id='-100tat',
             display_name='TAT Test',
@@ -321,10 +324,8 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(rows[0]['line_number'], 2)
         self.assertEqual(rows[0]['payload']['client_name'], 'Mary Wanjiku')
 
-    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    @patch('core.services.tat_tracker.sync_tat_batch_created_cases', return_value={'synced': 1, 'failed': []})
     def test_bro_can_upload_tat_batch_csv_file(self, sync_mock):
-        sync_mock.side_effect = lambda group_config, case: setattr(case, 'row_number', 5) or case.save(update_fields=['row_number'])
-
         result = process_tat_batch_file(
             self.config,
             filename='tat_batch.csv',
@@ -340,12 +341,12 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(result['status'], 'tat_batch_processed')
         self.assertEqual(result['created'], 1)
         self.assertEqual(TatTrackerCase.objects.get().client_name, 'MARY WANJIKU')
+        sync_mock.assert_called_once()
 
     @override_settings(TELEGRAM_BOT_USERNAME='testbot')
-    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    @patch('core.services.tat_tracker.sync_tat_batch_created_cases', return_value={'synced': 1, 'failed': []})
     def test_bro_can_upload_tat_batch_with_batch_command(self, sync_mock):
         GroupRegistry._instance = None
-        sync_mock.side_effect = lambda group_config, case: setattr(case, 'row_number', 5) or case.save(update_fields=['row_number'])
         result = _process_telegram_message({
             'message_id': 902,
             'chat': {'id': self.config.group_id, 'type': 'supergroup', 'title': 'TAT Test'},
@@ -362,10 +363,10 @@ class TatTrackerWorkflowTest(TestCase):
         case = TatTrackerCase.objects.get(client_name='MARY WANJIKU')
         self.assertEqual(case.bro_name, 'BRO User')
         self.assertEqual(case.create_request_id, 'tat-batch:-100tat:902:1')
+        sync_mock.assert_called_once()
 
-    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    @patch('core.services.tat_tracker.sync_tat_batch_created_cases', return_value={'synced': 1, 'failed': []})
     def test_tat_batch_retry_is_idempotent(self, sync_mock):
-        sync_mock.side_effect = lambda group_config, case: setattr(case, 'row_number', 5) or case.save(update_fields=['row_number'])
         payload = (
             "business | Mary Wanjiku | 12345678 | 254712345678 | Nakuru | 25000"
         )
@@ -1013,6 +1014,78 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(len(sheet.appended), 1)
         self.assertEqual(sheet.row_values_calls, [2])
         self.assertFalse(sheet.col_values_called)
+
+    def test_sync_tat_batch_created_cases_appends_same_product_in_one_sheet_write(self):
+        class FakeSheet:
+            def __init__(self):
+                self.row_values_calls = []
+                self.appended_rows = []
+
+            def row_values(self, row):
+                self.row_values_calls.append(row)
+                headers = [''] * 31
+                headers[2] = 'ID NUMBER'
+                headers[3] = 'PHONE NUMBER'
+                return headers
+
+            def append_rows(self, rows, value_input_option=None):
+                self.appended_rows.append((rows, value_input_option))
+                return {'updates': {'updatedRange': 'TRACKER-Business!A5:AE6'}}
+
+        class FakeService:
+            def __init__(self, sheet):
+                self._sheet = sheet
+
+            def is_available(self):
+                return True
+
+        sheet = FakeSheet()
+        created_at = timezone.now().isoformat()
+        case_one = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-Business',
+            case_id='JBL-BS-2026-101',
+            product_key='business',
+            product_label='Business',
+            client_name='First Client',
+            national_id='12345678',
+            primary_phone='254712345678',
+            branch='Nakuru',
+            bro_name='BRO User',
+            amount='10000',
+            stage_values={'created': created_at},
+            status='Active',
+        )
+        case_two = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-Business',
+            case_id='JBL-BS-2026-102',
+            product_key='business',
+            product_label='Business',
+            client_name='Second Client',
+            national_id='22345678',
+            primary_phone='254722345678',
+            branch='Embu',
+            bro_name='BRO User',
+            amount='20000',
+            stage_values={'created': created_at},
+            status='Active',
+        )
+
+        with patch('core.services.tat_tracker.get_sheets_service', return_value=FakeService(sheet)):
+            result = sync_tat_batch_created_cases(self.config, [case_one, case_two])
+
+        self.assertEqual(result, {'synced': 2, 'failed': []})
+        self.assertEqual(sheet.row_values_calls, [2])
+        self.assertEqual(len(sheet.appended_rows), 1)
+        self.assertEqual(sheet.appended_rows[0][1], 'USER_ENTERED')
+        self.assertEqual(len(sheet.appended_rows[0][0]), 2)
+        case_one.refresh_from_db()
+        case_two.refresh_from_db()
+        self.assertEqual(case_one.row_number, 5)
+        self.assertEqual(case_two.row_number, 6)
 
     def test_sync_case_to_sheet_prefers_stage_tat_headers_over_fixed_lag_columns(self):
         class FakeSheet:
