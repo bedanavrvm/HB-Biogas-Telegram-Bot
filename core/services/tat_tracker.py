@@ -376,6 +376,8 @@ def home_data(
     action_offset: int = 0,
     recent_offset: int = 0,
     page_size: int = TAT_HOME_PAGE_SIZE,
+    product_key: str = '',
+    branch: str = '',
 ) -> dict:
     """Return independently paginated home lists for the TAT Mini App."""
     workflow = getattr(group_config, 'workflow', None) or {}
@@ -383,6 +385,19 @@ def home_data(
     allowed_keys = [p.key for p in _allowed_products(workflow, user)]
     if allowed_keys:
         queryset = queryset.filter(product_key__in=allowed_keys)
+    selected_product = str(product_key or '').strip()
+    if selected_product:
+        if selected_product in allowed_keys:
+            queryset = queryset.filter(product_key=selected_product)
+        else:
+            queryset = queryset.none()
+    allowed_branches = _allowed_branches(workflow, user)
+    selected_branch = str(branch or '').strip()
+    if selected_branch:
+        if selected_branch in allowed_branches:
+            queryset = queryset.filter(branch=selected_branch)
+        else:
+            queryset = queryset.none()
     action_offset = max(0, int(action_offset or 0))
     recent_offset = max(0, int(recent_offset or 0))
     page_size = max(1, min(int(page_size or TAT_HOME_PAGE_SIZE), 50))

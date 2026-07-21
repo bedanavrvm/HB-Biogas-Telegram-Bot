@@ -145,6 +145,8 @@ def tat_tracker_home(request):
             user,
             action_offset=_tat_home_offset(payload.get('action_offset')),
             recent_offset=_tat_home_offset(payload.get('recent_offset')),
+            product_key=payload.get('product_key') or '',
+            branch=payload.get('branch') or '',
         ),
     })
 

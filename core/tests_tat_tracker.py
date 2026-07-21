@@ -119,6 +119,47 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(len(first_page['recent']), 10)
         self.assertEqual(len(second_page['recent']), 2)
 
+    def test_home_data_filters_by_product_and_branch(self):
+        cases = [
+            ('JBL-BS-2026-001', 'business', 'Business', 'Nakuru', 'Business Nakuru'),
+            ('JBL-BS-2026-002', 'business', 'Business', 'Embu', 'Business Embu'),
+            ('JBL-LB-2026-001', 'logbook', 'Logbook', 'Nakuru', 'Logbook Nakuru'),
+        ]
+        for case_id, product_key, product_label, branch, client_name in cases:
+            TatTrackerCase.objects.create(
+                group_id=self.config.group_id,
+                case_id=case_id,
+                product_key=product_key,
+                product_label=product_label,
+                client_name=client_name,
+                branch=branch,
+                status='Active',
+                stage_values={'created': timezone.now().isoformat()},
+            )
+        user = {
+            'name': 'IT User',
+            'roles': ['IT'],
+            'branches': ['Nakuru', 'Embu'],
+            'products': ['business', 'logbook'],
+        }
+
+        filtered = home_data(self.config, user, product_key='business', branch='Nakuru')
+
+        self.assertEqual(filtered['pagination']['recent']['total'], 1)
+        self.assertEqual(filtered['recent'][0]['case_id'], 'JBL-BS-2026-001')
+        self.assertTrue(all(item['product_key'] == 'business' for item in filtered['recent']))
+        self.assertTrue(all(item['branch'] == 'Nakuru' for item in filtered['recent']))
+
+    def test_tat_mini_app_sends_queue_filters_with_home_pagination(self):
+        source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
+        template = Path('core/templates/tat_tracker/app.html').read_text(encoding='utf-8')
+
+        self.assertIn('id="queueProductFilter"', template)
+        self.assertIn('id="queueBranchFilter"', template)
+        self.assertIn("product_key: $('queueProductFilter') ? $('queueProductFilter').value : ''", source)
+        self.assertIn("branch: $('queueBranchFilter') ? $('queueBranchFilter').value : ''", source)
+        self.assertIn("api('/api/tat-tracker/home/', homePayload(payload))", source)
+
     @patch('core.services.tat_tracker.sync_tat_target_settings_to_sheet', return_value={'status': 'unavailable'})
     def test_it_can_save_stage_targets_in_minutes(self, sync_targets):
         user = {'roles': ['IT'], 'name': 'IT User'}

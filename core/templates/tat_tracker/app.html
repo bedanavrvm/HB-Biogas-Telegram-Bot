@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=4">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=14">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=15">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -85,6 +85,11 @@
     </nav>
 
     <section id="queueView" class="view active" aria-label="Queue">
+      <section class="filter-bar" aria-label="Queue filters">
+        <label>Product<select id="queueProductFilter"></select></label>
+        <label>Branch<select id="queueBranchFilter"></select></label>
+      </section>
+
       <section class="section-block">
         <div class="section-head">
           <div>
@@ -223,6 +228,6 @@
   </main>
 
   <script src="{% static 'miniapp/telegram.js' %}?v=2"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=18"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=19"></script>
 </body>
 </html>

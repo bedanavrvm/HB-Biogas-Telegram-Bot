@@ -292,6 +292,22 @@
     });
   }
 
+  function fillFilterSelect(select, items, valueKey, labelKey, allLabel) {
+    const options = [{ value: '', label: allLabel }].concat(items || []);
+    fillSelect(select, options, valueKey, labelKey);
+  }
+
+  function currentHomeFilters() {
+    return {
+      product_key: $('queueProductFilter') ? $('queueProductFilter').value : '',
+      branch: $('queueBranchFilter') ? $('queueBranchFilter').value : '',
+    };
+  }
+
+  function homePayload(extra) {
+    return Object.assign({}, currentHomeFilters(), extra || {});
+  }
+
   function isTargetManager() {
     const roles = ((state.data || {}).user || {}).roles || [];
     return roles.some((role) => String(role).toUpperCase() === 'IT');
@@ -368,6 +384,8 @@
     $('statRole').textContent = user.name || 'Staff';
     fillSelect(document.querySelector('[name="product_key"]'), data.products, 'key', 'label');
     fillSelect(document.querySelector('[name="branch"]'), (data.branches || []).map((value) => ({ value, label: value })), 'value', 'label');
+    fillFilterSelect($('queueProductFilter'), data.products, 'key', 'label', 'All products');
+    fillFilterSelect($('queueBranchFilter'), (data.branches || []).map((value) => ({ value, label: value })), 'value', 'label', 'All branches');
     const broInput = document.querySelector('[name="bro_name"]');
     const broOptions = [{ value: '', label: 'Select BRO' }].concat((data.bro_names || []).map((name) => ({ value: name, label: name })));
     fillSelect(broInput, broOptions, 'value', 'label');
@@ -384,7 +402,7 @@
     const background = Boolean(options && options.background);
     if (!background) setStatus('Refreshing queue...', 'busy');
     try {
-      const result = await api('/api/tat-tracker/home/', {});
+      const result = await api('/api/tat-tracker/home/', homePayload());
       renderHome(result.data);
       if (!background) setStatus('Queue updated.', 'ok');
       return result;
@@ -571,7 +589,7 @@
       const payload = kind === 'action_required'
         ? { action_offset: offset }
         : { recent_offset: offset };
-      const result = await api('/api/tat-tracker/home/', payload);
+      const result = await api('/api/tat-tracker/home/', homePayload(payload));
       renderHome(result.data, kind);
     } catch (error) {
       setStatus(error.message, 'error');
@@ -607,6 +625,8 @@
   $('backBtn').addEventListener('click', () => { show('queue'); refresh().catch(() => {}); });
   $('loadMoreQueueBtn').addEventListener('click', () => loadMoreHome('action_required'));
   $('loadMoreRecentBtn').addEventListener('click', () => loadMoreHome('recent'));
+  $('queueProductFilter').addEventListener('change', () => refresh().catch(() => {}));
+  $('queueBranchFilter').addEventListener('change', () => refresh().catch(() => {}));
   $('saveRemarksBtn').addEventListener('click', async (event) => {
     const button = event.currentTarget;
     try {

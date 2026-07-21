@@ -403,6 +403,20 @@ h2 { font-size: 13px; font-weight: 750; }
   padding: 8px;
 }
 
+.filter-bar {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--tat-line);
+  border-radius: var(--radius-sm);
+  background: var(--tat-surface);
+  box-shadow: var(--shadow);
+}
+.filter-bar select {
+  min-height: 34px;
+}
+
 .section-block { padding: 0; overflow: hidden; }
 .section-head {
   display: flex;
