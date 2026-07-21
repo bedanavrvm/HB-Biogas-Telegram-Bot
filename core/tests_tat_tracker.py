@@ -1,9 +1,10 @@
 from unittest.mock import MagicMock, patch
 from decimal import Decimal
-from io import StringIO
+from io import BytesIO, StringIO
 import json
 from pathlib import Path
 
+import openpyxl
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
@@ -24,7 +25,11 @@ from core.services.tat_tracker import (
     create_tat_start_param,
     decode_tat_start_param,
     product_by_key,
+    parse_tat_batch_rows,
+    parse_tat_batch_file,
     parse_iso_datetime,
+    process_tat_batch_upload,
+    process_tat_batch_file,
     previous_stages_complete,
     stage_by_key,
     stage_tat_minutes,
@@ -42,6 +47,7 @@ from core.services.tat_tracker import (
     resync_tat_tracker_cases,
     search_cases,
     sync_tat_target_settings_to_sheet,
+    tat_batch_format_message,
     validate_tracker_identity_headers,
     update_case,
     workflow_branches,
@@ -261,6 +267,139 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn('url', button)
         self.assertNotIn('web_app', button)
         self.assertTrue(button['url'].startswith('https://t.me/testbot/tattracker?startapp='))
+
+    @override_settings(TELEGRAM_BOT_USERNAME='testbot')
+    def test_tatbatch_command_returns_batch_format(self):
+        GroupRegistry._instance = None
+        result = _process_telegram_message({
+            'message_id': 901,
+            'chat': {'id': self.config.group_id, 'type': 'supergroup', 'title': 'TAT Test'},
+            'from': {'id': 111, 'first_name': 'BRO', 'last_name': 'User', 'username': 'bro_user'},
+            'text': '@testbot /tatbatch',
+            'date': 1783920000,
+        })
+
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('Attach an Excel .xlsx or CSV file', result['reply_text'])
+        self.assertIn('Product, Client Name, National ID, Phone, Branch, Amount', result['reply_text'])
+
+    def test_parse_tat_batch_rows_accepts_pipe_rows(self):
+        rows = parse_tat_batch_rows(
+            "product | client name | national id | phone | branch | amount\n"
+            "business | Mary Wanjiku | 12345678 | 254712345678 | Nakuru | 25000"
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['payload']['product_key'], 'business')
+        self.assertEqual(rows[0]['payload']['client_name'], 'Mary Wanjiku')
+
+    def test_parse_tat_batch_csv_accepts_required_headers(self):
+        rows = parse_tat_batch_file(
+            'tat_batch.csv',
+            (
+                "Product,Client Name,National ID,Phone,Branch,Amount\n"
+                "business,Mary Wanjiku,12345678,254712345678,Nakuru,25000\n"
+            ).encode('utf-8'),
+        )
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['line_number'], 2)
+        self.assertEqual(rows[0]['payload']['product_key'], 'business')
+        self.assertEqual(rows[0]['payload']['primary_phone'], '254712345678')
+
+    def test_parse_tat_batch_xlsx_accepts_required_headers(self):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(['Product', 'Client Name', 'National ID', 'Phone', 'Branch', 'Amount'])
+        sheet.append(['business', 'Mary Wanjiku', '12345678', '254712345678', 'Nakuru', '25000'])
+        stream = BytesIO()
+        workbook.save(stream)
+
+        rows = parse_tat_batch_file('tat_batch.xlsx', stream.getvalue())
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['line_number'], 2)
+        self.assertEqual(rows[0]['payload']['client_name'], 'Mary Wanjiku')
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_bro_can_upload_tat_batch_csv_file(self, sync_mock):
+        sync_mock.side_effect = lambda group_config, case: setattr(case, 'row_number', 5) or case.save(update_fields=['row_number'])
+
+        result = process_tat_batch_file(
+            self.config,
+            filename='tat_batch.csv',
+            content=(
+                "Product,Client Name,National ID,Phone,Branch,Amount\n"
+                "business,Mary Wanjiku,12345678,254712345678,Nakuru,25000\n"
+            ).encode('utf-8'),
+            user_payload={'id': 111, 'username': 'bro_user'},
+            telegram_message_id='csv-1',
+            sender='BRO User',
+        )
+
+        self.assertEqual(result['status'], 'tat_batch_processed')
+        self.assertEqual(result['created'], 1)
+        self.assertEqual(TatTrackerCase.objects.get().client_name, 'MARY WANJIKU')
+
+    @override_settings(TELEGRAM_BOT_USERNAME='testbot')
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_bro_can_upload_tat_batch_with_batch_command(self, sync_mock):
+        GroupRegistry._instance = None
+        sync_mock.side_effect = lambda group_config, case: setattr(case, 'row_number', 5) or case.save(update_fields=['row_number'])
+        result = _process_telegram_message({
+            'message_id': 902,
+            'chat': {'id': self.config.group_id, 'type': 'supergroup', 'title': 'TAT Test'},
+            'from': {'id': 111, 'first_name': 'BRO', 'last_name': 'User', 'username': 'bro_user'},
+            'text': (
+                '@testbot /batch\n'
+                'business | Mary Wanjiku | 12345678 | 254712345678 | Nakuru | 25000'
+            ),
+            'date': 1783920000,
+        })
+
+        self.assertEqual(result['status'], 'tat_batch_processed')
+        self.assertEqual(result['created'], 1)
+        case = TatTrackerCase.objects.get(client_name='MARY WANJIKU')
+        self.assertEqual(case.bro_name, 'BRO User')
+        self.assertEqual(case.create_request_id, 'tat-batch:-100tat:902:1')
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_tat_batch_retry_is_idempotent(self, sync_mock):
+        sync_mock.side_effect = lambda group_config, case: setattr(case, 'row_number', 5) or case.save(update_fields=['row_number'])
+        payload = (
+            "business | Mary Wanjiku | 12345678 | 254712345678 | Nakuru | 25000"
+        )
+
+        first = process_tat_batch_upload(
+            self.config,
+            payload,
+            user_payload={'id': 111, 'username': 'bro_user'},
+            telegram_message_id='retry-1',
+            sender='BRO User',
+        )
+        second = process_tat_batch_upload(
+            self.config,
+            payload,
+            user_payload={'id': 111, 'username': 'bro_user'},
+            telegram_message_id='retry-1',
+            sender='BRO User',
+        )
+
+        self.assertEqual(first['created'], 1)
+        self.assertEqual(second['duplicates'], 1)
+        self.assertEqual(TatTrackerCase.objects.filter(client_name='MARY WANJIKU').count(), 1)
+
+    def test_non_bro_cannot_upload_tat_batch(self):
+        result = process_tat_batch_upload(
+            self.config,
+            "business | Mary Wanjiku | 12345678 | 254712345678 | Nakuru | 25000",
+            user_payload={'id': 222, 'username': 'admin_user'},
+            telegram_message_id='not-bro',
+            sender='Admin User',
+        )
+
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('Only configured BRO users', result['reply_text'])
 
     @override_settings(STORAGES={
         'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},

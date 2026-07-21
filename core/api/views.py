@@ -1432,6 +1432,20 @@ def _process_telegram_message(message_data: dict) -> dict:
                         sender=sender,
                         telegram_message_id=telegram_message_id,
                     )
+                if _looks_like_tat_batch_format_command(content):
+                    from core.services.tat_tracker import tat_batch_format_message
+                    return {
+                        'status': 'command',
+                        'reply_text': tat_batch_format_message(),
+                    }
+                if _looks_like_batch_command(content):
+                    return _process_tat_batch_command(
+                        group_config=group_config,
+                        message_data=message_data,
+                        command_content=content,
+                        sender=sender,
+                        telegram_message_id=telegram_message_id,
+                    )
                 from core.services.commands import handle_bot_command
                 command_result = handle_bot_command(
                     content,
@@ -1445,7 +1459,7 @@ def _process_telegram_message(message_data: dict) -> dict:
                     'status': 'command',
                     'reply_text': (
                         "This group is configured for the TAT Tracker.\n"
-                        "Send @bot /tat to open the tracker Mini App."
+                        "Send @bot /tat to open the tracker Mini App, @bot /tatbatch for batch format, or @bot /batch to upload BRO cases."
                     ),
                 }
             if is_order_approval_workflow(group_config):
@@ -1614,6 +1628,10 @@ def _process_telegram_message(message_data: dict) -> dict:
 
 def _looks_like_batch_command(content: str) -> bool:
     return bool(re.match(r'^/batch(?:@\w+)?(?:\s|$)', str(content or '').strip(), re.IGNORECASE))
+
+
+def _looks_like_tat_batch_format_command(content: str) -> bool:
+    return bool(re.match(r'^/tatbatch(?:@\w+)?(?:\s|$)', str(content or '').strip(), re.IGNORECASE))
 
 
 def _looks_like_fca_batch_command(content: str) -> bool:
@@ -2157,6 +2175,47 @@ def _process_spin_batch_command(
     )
 
 
+def _process_tat_batch_command(
+    group_config,
+    message_data: dict,
+    command_content: str,
+    sender: str,
+    telegram_message_id: str,
+) -> dict:
+    payload = _batch_command_payload(command_content)
+    if message_data.get('document'):
+        filename, content, document_error = _download_telegram_tat_batch_document(message_data)
+        if document_error:
+            return {'status': 'command', 'reply_text': document_error}
+        from core.services.tat_tracker import process_tat_batch_file
+        return process_tat_batch_file(
+            group_config=group_config,
+            filename=filename,
+            content=content,
+            user_payload=message_data.get('from') or {},
+            telegram_message_id=telegram_message_id,
+            sender=sender,
+        )
+    if not payload:
+        payload, document_error = _download_telegram_text_document(message_data)
+        if document_error:
+            return {'status': 'command', 'reply_text': document_error}
+
+    if not payload:
+        from core.services.tat_tracker import tat_batch_format_message
+        return {'status': 'command', 'reply_text': tat_batch_format_message()}
+
+    from core.services.tat_tracker import process_tat_batch_upload
+
+    return process_tat_batch_upload(
+        group_config=group_config,
+        batch_text=payload,
+        user_payload=message_data.get('from') or {},
+        telegram_message_id=telegram_message_id,
+        sender=sender,
+    )
+
+
 def _process_jawabu_batch_command(
     group_config,
     message_data: dict,
@@ -2417,6 +2476,61 @@ def _download_telegram_csv_document(message_data: dict) -> tuple[str, str, str]:
     except Exception as exc:
         logger.error('Failed to download Telegram Farmers CSV: %s', exc, exc_info=True)
         return '', filename, 'Could not download the Farmers CSV. Please resend it.'
+
+
+def _download_telegram_tat_batch_document(message_data: dict) -> tuple[str, bytes, str]:
+    document = message_data.get('document') or {}
+    if not document:
+        return '', b'', ''
+
+    filename = str(document.get('file_name') or '').strip()
+    mime_type = str(document.get('mime_type') or '').lower()
+    lower_filename = filename.lower()
+    is_excel = lower_filename.endswith('.xlsx') or mime_type == 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    is_csv = lower_filename.endswith('.csv') or mime_type in {'text/csv', 'application/vnd.ms-excel'}
+    if not (is_excel or is_csv):
+        return '', b'', (
+            "The TAT /batch command supports Excel .xlsx or CSV files only.\n"
+            "Send @bot /tatbatch to see the required columns."
+        )
+
+    file_size = int(document.get('file_size') or 0)
+    max_mb = max(1, int(getattr(settings, 'WHATSAPP_BATCH_MAX_FILE_SIZE_MB', 5)))
+    if file_size and file_size > max_mb * 1024 * 1024:
+        return '', b'', f"TAT batch file is too large. Maximum size is {max_mb} MB."
+
+    bot_token = settings.TELEGRAM_BOT_TOKEN
+    file_id = document.get('file_id')
+    if not bot_token or not file_id:
+        return '', b'', "Could not download the TAT batch file from Telegram."
+
+    try:
+        file_meta = requests.get(
+            f'https://api.telegram.org/bot{bot_token}/getFile',
+            params={'file_id': file_id},
+            timeout=settings.API_REQUEST_TIMEOUT,
+        )
+        file_meta.raise_for_status()
+        file_path = file_meta.json().get('result', {}).get('file_path', '')
+        if not file_path:
+            return '', b'', 'Telegram did not return a downloadable file path.'
+        file_response = requests.get(
+            f'https://api.telegram.org/file/bot{bot_token}/{file_path}',
+            timeout=settings.API_REQUEST_TIMEOUT,
+        )
+        file_response.raise_for_status()
+        raw = file_response.content
+        if len(raw) > max_mb * 1024 * 1024:
+            return '', b'', f"TAT batch file is too large. Maximum size is {max_mb} MB."
+        return filename, raw, ''
+    except requests.Timeout:
+        logger.warning('Timed out downloading Telegram TAT batch file')
+        return '', b'', 'Timed out downloading the TAT batch file. Please resend it.'
+    except Exception as exc:
+        logger.error('Failed to download Telegram TAT batch file: %s', exc, exc_info=True)
+        return '', b'', 'Could not download the TAT batch file. Please resend it.'
+
+
 def _download_telegram_text_document(message_data: dict) -> tuple[str, str]:
     document = message_data.get('document') or {}
     if not document:

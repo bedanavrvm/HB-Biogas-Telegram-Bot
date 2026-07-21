@@ -54,6 +54,8 @@ SPIN_BOT_COMMANDS = [
 TAT_TRACKER_BOT_COMMANDS = [
     {'command': 'tat', 'description': 'Open the TAT Tracker Mini App'},
     {'command': 'tracker', 'description': 'Open the TAT Tracker Mini App'},
+    {'command': 'tatbatch', 'description': 'Show TAT batch upload format'},
+    {'command': 'batch', 'description': 'Upload TAT cases in batch'},
 ]
 
 

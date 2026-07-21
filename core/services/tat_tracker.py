@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import base64
 import binascii
+import csv
 import hmac
 import hashlib
+import io
 import json
 import logging
 import re
@@ -20,6 +22,7 @@ from django.core import signing
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
+import openpyxl
 
 from core.models import TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, TatTrackerStaffMember
 from core.services.branches import DEFAULT_WORKFLOW_BRANCHES, global_branch_choices, workflow_branches as configured_workflow_branches
@@ -38,6 +41,16 @@ SANCTIONS_OPTIONS = ['Pending', 'Met', 'Not Met']
 REGISTER_OPTIONS = ['10:00am', '1:00pm', '3:30pm']
 REGISTER_APPROVED_OPTIONS = ['Approved', 'Pending']
 STATUS_VALUES = ['Active', 'Disbursed', 'Rejected', 'Declined', 'Deferred', 'Stalled', 'Pending Docs']
+TAT_BATCH_FORMAT_TEXT = (
+    "TAT batch upload format\n\n"
+    "Attach an Excel .xlsx or CSV file and send @bot /batch.\n\n"
+    "Required headers:\n"
+    "Product, Client Name, National ID, Phone, Branch, Amount\n\n"
+    "Example row:\n"
+    "business, Mary Wanjiku, 12345678, 254712345678, Nakuru, 25000\n\n"
+    "Accepted products: business, logbook, mjengo, kilimo, micro_asset.\n"
+    "The uploader must be configured as a BRO for the selected branch/product."
+)
 DEFAULT_TAT_TARGETS_MINUTES = {
     'business': {'total': 20160, 'stages': {}},
     'logbook': {'total': 20160, 'stages': {}},
@@ -473,6 +486,307 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
     if not case.row_number:
         raise RuntimeError('TAT tracker sheet sync did not return a row number. Case was not saved.')
     return serialize_case_detail(case, user, workflow=workflow)
+
+
+def tat_batch_format_message() -> str:
+    return TAT_BATCH_FORMAT_TEXT
+
+
+def process_tat_batch_upload(
+    group_config,
+    batch_text: str,
+    *,
+    user_payload: dict,
+    telegram_message_id: str,
+    sender: str = '',
+) -> dict:
+    user = staff_user_for_payload(group_config, user_payload, fallback_name=sender)
+    if not user.get('authorized'):
+        return {
+            'status': 'command',
+            'reply_text': user.get('reason') or 'Your Telegram account is not configured for the TAT Tracker.',
+        }
+    roles = {str(role).upper() for role in user.get('roles') or []}
+    if 'BRO' not in roles and 'IT' not in roles:
+        return {
+            'status': 'command',
+            'reply_text': 'Only configured BRO users can upload TAT batches.',
+        }
+
+    try:
+        rows = parse_tat_batch_rows(batch_text)
+    except ValueError as exc:
+        return {
+            'status': 'command',
+            'reply_text': f"{exc}\n\n{TAT_BATCH_FORMAT_TEXT}",
+        }
+    if not rows:
+        return {'status': 'command', 'reply_text': TAT_BATCH_FORMAT_TEXT}
+
+    return process_tat_batch_rows(
+        group_config,
+        rows,
+        user=user,
+        telegram_message_id=telegram_message_id,
+        sender=sender,
+    )
+
+
+def process_tat_batch_file(
+    group_config,
+    *,
+    filename: str,
+    content: bytes,
+    user_payload: dict,
+    telegram_message_id: str,
+    sender: str = '',
+) -> dict:
+    user = staff_user_for_payload(group_config, user_payload, fallback_name=sender)
+    if not user.get('authorized'):
+        return {
+            'status': 'command',
+            'reply_text': user.get('reason') or 'Your Telegram account is not configured for the TAT Tracker.',
+        }
+    roles = {str(role).upper() for role in user.get('roles') or []}
+    if 'BRO' not in roles and 'IT' not in roles:
+        return {
+            'status': 'command',
+            'reply_text': 'Only configured BRO users can upload TAT batches.',
+        }
+
+    try:
+        rows = parse_tat_batch_file(filename, content)
+    except ValueError as exc:
+        return {
+            'status': 'command',
+            'reply_text': f"{exc}\n\n{TAT_BATCH_FORMAT_TEXT}",
+        }
+    if not rows:
+        return {'status': 'command', 'reply_text': TAT_BATCH_FORMAT_TEXT}
+
+    return process_tat_batch_rows(
+        group_config,
+        rows,
+        user=user,
+        telegram_message_id=telegram_message_id,
+        sender=sender,
+    )
+
+
+def process_tat_batch_rows(
+    group_config,
+    rows: list[dict],
+    *,
+    user: dict,
+    telegram_message_id: str,
+    sender: str = '',
+) -> dict:
+    imported = 0
+    duplicates = 0
+    failed = 0
+    errors = []
+    case_ids = []
+    for row in rows:
+        payload = dict(row['payload'])
+        payload['bro_name'] = user.get('name') or sender or payload.get('bro_name') or ''
+        payload['client_request_id'] = f"tat-batch:{group_config.group_id}:{telegram_message_id}:{row['line_number']}"
+        try:
+            before_count = TatTrackerCase.objects.filter(group_id=str(group_config.group_id)).count()
+            result = create_case(group_config, user, payload)
+            after_count = TatTrackerCase.objects.filter(group_id=str(group_config.group_id)).count()
+        except Exception as exc:
+            failed += 1
+            errors.append(f"Line {row['line_number']}: {exc}")
+            continue
+
+        summary = result.get('summary') or {}
+        case_ids.append(summary.get('case_id') or '')
+        if after_count == before_count:
+            duplicates += 1
+        else:
+            imported += 1
+
+    reply_lines = [
+        'TAT batch processed.',
+        f'Rows received: {len(rows)}',
+        f'Created: {imported}',
+        f'Already imported: {duplicates}',
+        f'Failed: {failed}',
+    ]
+    visible_case_ids = [case_id for case_id in case_ids if case_id][:8]
+    if visible_case_ids:
+        reply_lines.append('Case IDs: ' + ', '.join(visible_case_ids))
+    if errors:
+        reply_lines.append('')
+        reply_lines.append('Issues:')
+        reply_lines.extend(errors[:8])
+
+    return {
+        'status': 'tat_batch_processed',
+        'total': len(rows),
+        'created': imported,
+        'duplicates': duplicates,
+        'failed': failed,
+        'errors': errors,
+        'case_ids': case_ids,
+        'reply_text': '\n'.join(reply_lines),
+    }
+
+
+def parse_tat_batch_file(filename: str, content: bytes) -> list[dict]:
+    lower_filename = str(filename or '').lower()
+    if lower_filename.endswith('.xlsx'):
+        return parse_tat_batch_xlsx(content)
+    if lower_filename.endswith('.csv'):
+        return parse_tat_batch_csv(decode_tat_batch_csv(content))
+    raise ValueError('TAT batch upload only supports .xlsx or .csv files.')
+
+
+def parse_tat_batch_csv(csv_text: str) -> list[dict]:
+    reader = csv.DictReader(io.StringIO(csv_text))
+    return rows_from_tat_batch_dicts(reader, line_offset=1)
+
+
+def parse_tat_batch_xlsx(content: bytes) -> list[dict]:
+    try:
+        workbook = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    except Exception as exc:
+        raise ValueError('Could not read the Excel workbook. Save it as .xlsx and retry.') from exc
+    worksheet = workbook.worksheets[0]
+    header_row = None
+    headers = []
+    for row_number, row in enumerate(worksheet.iter_rows(min_row=1, max_row=10, values_only=True), start=1):
+        values = [str(value or '').strip() for value in row]
+        if required_tat_batch_fields_present(values):
+            header_row = row_number
+            headers = values
+            break
+    if not header_row:
+        raise ValueError('Excel file is missing required headers: Product, Client Name, National ID, Phone, Branch, Amount.')
+
+    dict_rows = []
+    for row_number, row in enumerate(worksheet.iter_rows(min_row=header_row + 1, values_only=True), start=header_row + 1):
+        if not any(str(value or '').strip() for value in row):
+            continue
+        values = {
+            headers[index]: row[index] if index < len(row) else ''
+            for index in range(len(headers))
+        }
+        values['__line_number'] = row_number
+        dict_rows.append(values)
+    return rows_from_tat_batch_dicts(dict_rows)
+
+
+def decode_tat_batch_csv(content: bytes) -> str:
+    for encoding in ('utf-8-sig', 'utf-8', 'cp1252'):
+        try:
+            return content.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    raise ValueError('Could not read the CSV text encoding. Export it as UTF-8 CSV and retry.')
+
+
+def rows_from_tat_batch_dicts(dict_rows, *, line_offset: int = 0) -> list[dict]:
+    rows = []
+    for index, row in enumerate(dict_rows, start=1):
+        normalized = {normalize_tat_batch_header(key): value for key, value in dict(row or {}).items()}
+        line_number = int(normalized.get('line_number') or index + line_offset)
+        payload = {
+            'product_key': normalize_tat_batch_product(normalized.get('product')),
+            'client_name': normalized.get('client_name') or '',
+            'national_id': normalized.get('national_id') or '',
+            'primary_phone': normalized.get('phone') or '',
+            'branch': normalized.get('branch') or '',
+            'amount': normalized.get('amount') or '',
+        }
+        if not any(str(value or '').strip() for value in payload.values()):
+            continue
+        missing = [
+            label
+            for key, label in TAT_BATCH_REQUIRED_FIELDS.items()
+            if not str(payload.get(key) or '').strip()
+        ]
+        if missing:
+            raise ValueError(f"Line {line_number}: missing required field(s): {', '.join(missing)}.")
+        rows.append({'line_number': line_number, 'payload': payload})
+    return rows
+
+
+TAT_BATCH_REQUIRED_FIELDS = {
+    'product_key': 'Product',
+    'client_name': 'Client Name',
+    'national_id': 'National ID',
+    'primary_phone': 'Phone',
+    'branch': 'Branch',
+    'amount': 'Amount',
+}
+
+
+def required_tat_batch_fields_present(headers: list[str]) -> bool:
+    normalized = {normalize_tat_batch_header(header) for header in headers}
+    return {'product', 'client_name', 'national_id', 'phone', 'branch', 'amount'}.issubset(normalized)
+
+
+def normalize_tat_batch_header(value: str) -> str:
+    key = re.sub(r'[^a-z0-9]+', '_', str(value or '').strip().lower()).strip('_')
+    aliases = {
+        'product_key': 'product',
+        'product_type': 'product',
+        'customer_name': 'client_name',
+        'name': 'client_name',
+        'client': 'client_name',
+        'id': 'national_id',
+        'id_number': 'national_id',
+        'national_id_number': 'national_id',
+        'phone_number': 'phone',
+        'primary_phone': 'phone',
+        'mobile': 'phone',
+        'loan_amount': 'amount',
+    }
+    return aliases.get(key, key)
+
+
+def parse_tat_batch_rows(batch_text: str) -> list[dict]:
+    rows = []
+    for line_number, raw_line in enumerate(str(batch_text or '').splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith('#'):
+            continue
+        if line.lower().startswith(('product |', 'product,', 'tat batch upload format')):
+            continue
+        parts = split_tat_batch_line(line)
+        if len(parts) != 6:
+            raise ValueError(
+                f"Line {line_number}: expected 6 fields: product | client name | national id | phone | branch | amount."
+            )
+        product, client_name, national_id, phone, branch, amount = parts
+        rows.append({
+            'line_number': line_number,
+            'payload': {
+                'product_key': normalize_tat_batch_product(product),
+                'client_name': client_name,
+                'national_id': national_id,
+                'primary_phone': phone,
+                'branch': branch,
+                'amount': amount,
+            },
+        })
+    return rows
+
+
+def split_tat_batch_line(line: str) -> list[str]:
+    delimiter = '|' if '|' in line else ','
+    return [part.strip() for part in line.split(delimiter)]
+
+
+def normalize_tat_batch_product(value: str) -> str:
+    key = str(value or '').strip().lower().replace('-', '_').replace(' ', '_')
+    aliases = {
+        'microasset': 'micro_asset',
+        'micro': 'micro_asset',
+        'sme': 'business',
+    }
+    return aliases.get(key, key)
 
 
 @transaction.atomic
