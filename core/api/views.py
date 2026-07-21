@@ -1234,6 +1234,11 @@ def telegram_webhook(request):
             if key in body:
                 try:
                     validate_message_fields(body[key])
+                    onboarding_result = _process_new_chat_members(body[key])
+                    if onboarding_result:
+                        if onboarding_result.get('status') == 'command':
+                            _send_telegram_reply(body[key], onboarding_result)
+                        return success_response(onboarding_result)
                     result = _process_telegram_message(body[key])
                     _send_telegram_reply(body[key], result)
                     if result.get('status') == 'partial':
@@ -1262,6 +1267,55 @@ def telegram_webhook(request):
 # ---------------------------------------------------------------------------
 # Internal message processing
 # ---------------------------------------------------------------------------
+
+def _process_new_chat_members(message_data: dict) -> dict | None:
+    members = message_data.get('new_chat_members') or []
+    if not members:
+        return None
+    group_id = str(message_data.get('chat', {}).get('id', ''))
+    if not group_id:
+        return {'status': 'ignored', 'reason': 'New member update missing chat.id'}
+    human_members = [
+        member for member in members
+        if isinstance(member, dict) and not member.get('is_bot')
+    ]
+    if not human_members:
+        return {'status': 'ignored', 'reason': 'Only bot members joined'}
+
+    from core.services.group_config import GroupRegistry
+    group_config = GroupRegistry.get_instance().get_group(group_id)
+    if not group_config:
+        return {'status': 'ignored', 'reason': 'Group is not configured'}
+    try:
+        from core.services.telegram_launchers import preview_group_launcher
+        launcher = preview_group_launcher(group_config)
+    except Exception as exc:
+        logger.warning('Could not build onboarding launcher for group %s: %s', group_id, exc, exc_info=True)
+        return {'status': 'ignored', 'reason': 'No onboarding launcher configured'}
+
+    names = ', '.join(_telegram_member_display_name(member) for member in human_members[:3])
+    if len(human_members) > 3:
+        names += f' and {len(human_members) - 3} more'
+    text = (
+        f"Welcome {names}.\n\n"
+        "Use the buttons below to open the tools configured for this group.\n"
+        "If a button does not open for you, ask an admin to add your Telegram account to the workflow staff list."
+    )
+    return {
+        'status': 'command',
+        'reply_text': text,
+        'reply_markup': launcher.get('reply_markup'),
+        'onboarded_members': len(human_members),
+    }
+
+
+def _telegram_member_display_name(member: dict) -> str:
+    first = str(member.get('first_name') or '').strip()
+    last = str(member.get('last_name') or '').strip()
+    username = str(member.get('username') or '').strip().lstrip('@')
+    name = ' '.join(part for part in [first, last] if part).strip()
+    return name or (f'@{username}' if username else 'new team member')
+
 
 def _process_telegram_message(message_data: dict) -> dict:
     """

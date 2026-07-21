@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from django.core.management import call_command
 from django.db import DatabaseError
-from django.test import TestCase, override_settings
+from django.test import RequestFactory, TestCase, override_settings
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from unittest.mock import patch, MagicMock
@@ -5032,6 +5032,68 @@ class TelegramWebhookViewTest(TestCase):
         self.assertEqual(data['status'], 'partial')
         self.assertIn('warnings', data)
         self.assertEqual(data['warnings'][0], 'Google Sheets sync failed')
+
+    @override_settings(
+        TELEGRAM_BOT_TOKEN='token',
+        TELEGRAM_BOT_USERNAME='jbl_test_bot',
+        TAT_TRACKER_MINI_APP_SHORT_NAME='tattracker',
+    )
+    def test_new_member_update_builds_onboarding_message(self):
+        GroupSheetConfiguration.objects.create(
+            group_id='-100123',
+            sheet_id='sheet123',
+            sheet_name='TRACKER-Business',
+            workflow={'type': 'tat_tracker'},
+        )
+        from core.services.group_config import GroupRegistry
+        GroupRegistry._instance = None
+
+        from core.api.views import _process_new_chat_members
+
+        result = _process_new_chat_members({
+            'message_id': 790,
+            'from': {'id': 999, 'first_name': 'Adder'},
+            'chat': {'id': -100123, 'type': 'supergroup'},
+            'date': 1711123456,
+            'new_chat_members': [
+                {'id': 456, 'first_name': 'New', 'last_name': 'Staff', 'is_bot': False},
+            ],
+        })
+
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('Welcome New Staff', result['reply_text'])
+        self.assertIn('inline_keyboard', result['reply_markup'])
+
+    @patch('core.api.views._send_telegram_reply')
+    @patch('core.api.views._process_telegram_message')
+    def test_webhook_routes_new_member_update_to_onboarding(self, mock_process, mock_reply):
+        payload = {
+            'update_id': 123457,
+            'message': {
+                'message_id': 790,
+                'from': {'id': 999, 'first_name': 'Adder'},
+                'chat': {'id': -100123, 'type': 'supergroup'},
+                'date': 1711123456,
+                'new_chat_members': [
+                    {'id': 456, 'first_name': 'New', 'last_name': 'Staff', 'is_bot': False},
+                ],
+            },
+        }
+
+        from core.api.views import telegram_webhook
+        request = RequestFactory().post(
+            '/webhook/telegram/',
+            data=json.dumps(payload),
+            content_type='application/json',
+        )
+
+        with patch('core.api.views._process_new_chat_members', return_value={'status': 'ignored', 'reason': 'ok'}) as onboard:
+            response = telegram_webhook(request)
+
+        self.assertEqual(response.status_code, 200)
+        onboard.assert_called_once()
+        mock_process.assert_not_called()
+        mock_reply.assert_not_called()
     
     def test_webhook_rejects_get(self):
         """Test webhook only accepts POST."""
