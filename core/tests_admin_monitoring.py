@@ -1,9 +1,13 @@
+from django.contrib import admin
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.test import Client, RequestFactory, TestCase, override_settings
 from django.urls import resolve
+from unfold.admin import ModelAdmin
 
 from core.admin_dashboard import dashboard_callback
+from core.admin import GroupSheetConfigurationAdmin
 from core.models import GroupSheetConfiguration, ParsedMessage, SpinCreditRequest, TatTrackerCase, TatTrackerEvent
 
 
@@ -83,6 +87,34 @@ class AdminMonitoringTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Operations Overview')
         self.assertContains(response, '/static/admin/css/compact_unfold.css')
+
+    def test_builtin_auth_models_use_unfold_admin(self):
+        self.assertIsInstance(admin.site._registry[get_user_model()], ModelAdmin)
+        self.assertIsInstance(admin.site._registry[Group], ModelAdmin)
+
+    def test_group_configuration_change_form_uses_unfold_tabs(self):
+        group = GroupSheetConfiguration.objects.create(
+            group_id='-1002',
+            display_name='Config Test',
+            sheet_id='sheet',
+            workflow={'type': 'tat_tracker'},
+        )
+        user = get_user_model().objects.create_superuser(
+            username='admin2',
+            email='admin2@example.test',
+            password='password',
+        )
+        client = Client()
+        client.force_login(user)
+
+        response = client.get(f'/admin/core/groupsheetconfiguration/{group.pk}/change/', follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'tab-wrapper')
+        self.assertContains(response, 'TAT Tracker Targets')
+        self.assertTrue(GroupSheetConfigurationAdmin.compressed_fields)
+        self.assertTrue(GroupSheetConfigurationAdmin.list_filter_submit)
+        self.assertTrue(GroupSheetConfigurationAdmin.list_fullwidth)
 
     def _processed_message_id(self):
         from core.models import ProcessedMessage, RawMessage

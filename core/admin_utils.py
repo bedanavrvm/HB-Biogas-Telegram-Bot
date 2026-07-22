@@ -167,6 +167,9 @@ def auto_register_unregistered_models() -> list[type[models.Model]]:
         attrs = {
             '__module__': __name__,
             'list_display': list_display,
+            'compressed_fields': True,
+            'list_filter_submit': True,
+            'list_fullwidth': True,
         }
         list_filter = lightweight_list_filter(model, list_display)
         if list_filter:

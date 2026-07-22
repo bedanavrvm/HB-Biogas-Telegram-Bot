@@ -1,6 +1,10 @@
 from django import forms
 from django.contrib import admin
 from django.contrib import messages
+from django.contrib.auth import get_user_model
+from django.contrib.auth.admin import GroupAdmin as DjangoGroupAdmin
+from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
+from django.contrib.auth.models import Group
 from django.conf import settings
 from django.http import HttpResponseRedirect
 from django.template.response import TemplateResponse
@@ -88,6 +92,10 @@ for _product_key, _product in PRODUCTS.items():
 
 class ReadOnlyAuditAdmin(ModelAdmin):
     """Prevent admin edits that would not be written back to the live sheet."""
+
+    compressed_fields = True
+    list_filter_submit = True
+    list_fullwidth = True
 
     def get_readonly_fields(self, request, obj=None):
         return [field.name for field in self.model._meta.fields]
@@ -627,6 +635,9 @@ for _product_key, _product_label, _field_names in TAT_TARGET_FIELD_GROUPS:
 
 @admin.register(TatTrackerCase)
 class TatTrackerCaseAdmin(TestDataDeleteAdmin):
+    compressed_fields = True
+    list_filter_submit = True
+    list_fullwidth = True
     list_display = [
         'case_id', 'group_id', 'product_label', 'client_name', 'branch',
         'status', 'current_stage', 'is_deleted', 'deleted_at', 'updated_at',
@@ -801,6 +812,9 @@ class JawabuFarmerUploadBatchAdmin(ReadOnlyAuditAdmin):
     readonly_fields = ['id', 'created_at', 'updated_at', 'committed_at']
 @admin.register(JawabuFarmerMaster)
 class JawabuFarmerMasterAdmin(ModelAdmin):
+    compressed_fields = True
+    list_filter_submit = True
+    list_fullwidth = True
     list_display = [
         'customer_name', 'national_id', 'primary_phone', 'county',
         'sub_county', 'lead_source', 'hb_sales_person', 'status', 'updated_at',
@@ -997,6 +1011,9 @@ class ComplaintCaseStaffMemberInline(StackedInline):
 @admin.register(GroupSheetConfiguration)
 class GroupSheetConfigurationAdmin(ModelAdmin):
     form = GroupSheetConfigurationAdminForm
+    compressed_fields = True
+    list_filter_submit = True
+    list_fullwidth = True
     inlines = []
     actions = ['publish_jbl_apps_launchers', 'preview_jbl_apps_launchers']
     list_display = [
@@ -1031,6 +1048,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 'Optional JSON mapping from canonical workflow fields to this '
                 'sheet\'s column headers.'
             ),
+            'classes': ('tab',),
         }),
         ('Workflow Preset', {
             'fields': ('workflow_preset',),
@@ -1042,6 +1060,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 'automatically where a preset applies. '
                 'Only the relevant settings section will expand below.'
             ),
+            'classes': ('tab',),
         }),
         ('Pinned JBL Apps Launcher', {
             'fields': ('mini_app_launchers',),
@@ -1049,6 +1068,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 'Select the generic Mini Apps available in this Telegram group. '
                 'Use the Publish JBL Apps launcher action after saving; saving alone never sends Telegram messages.'
             ),
+            'classes': ('tab',),
         }),
         ('Case / Complaints Settings', {
             'fields': (
@@ -1059,7 +1079,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 'Header row and optional canonical-field header mappings for '
                 'the complaint register workflow.'
             ),
-            'classes': ('collapse', 'preset-section', 'preset-case'),
+            'classes': ('tab', 'preset-section', 'preset-case'),
         }),
         ('Order Approval Settings', {
             'fields': (
@@ -1070,7 +1090,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 'order_approval_media_root_folder',
             ),
             'description': 'Sheet tabs and matching config for the Order Approval (BRO) workflow.',
-            'classes': ('collapse', 'preset-section', 'preset-order_approval'),
+            'classes': ('tab', 'preset-section', 'preset-order_approval'),
         }),
         ('SPIN / CRB Settings', {
             'fields': (
@@ -1080,7 +1100,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 'spin_default_branch',
             ),
             'description': 'Header, import tab, and per-group branch settings for the SPIN / CRB workflow.',
-            'classes': ('collapse', 'preset-section', 'preset-spin_credit_analysis'),
+            'classes': ('tab', 'preset-section', 'preset-spin_credit_analysis'),
         }),
         ('TAT Tracker Targets', {
             'fields': tuple(
@@ -1093,7 +1113,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 'stage targets control each stage badge/status in the Mini App. '
                 'Leave a stage blank to show minutes without SLA status.'
             ),
-            'classes': ('collapse', 'preset-section', 'preset-tat_tracker'),
+            'classes': ('tab', 'preset-section', 'preset-tat_tracker'),
         }),
         ('Jawabu HomeBiogas Settings', {
             'fields': (
@@ -1112,7 +1132,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 'jawabu_internal_order_record_id_prefix',
             ),
             'description': 'Master Data sync plus optional downstream internal Order Sheet sync for the Jawabu HomeBiogas workflow.',
-            'classes': ('collapse', 'preset-section', 'preset-jawabu_homebiogas'),
+            'classes': ('tab', 'preset-section', 'preset-jawabu_homebiogas'),
         }),
         ('Advanced Workflow And Parser Rules', {
             'fields': ('workflow', 'parser_rules'),
@@ -1121,11 +1141,11 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 'preset where possible; custom workflows can define their own '
                 'JSON here.'
             ),
-            'classes': ('collapse',),
+            'classes': ('tab',),
         }),
         ('Metadata', {
             'fields': ('metadata', 'created_at', 'updated_at'),
-            'classes': ('collapse',),
+            'classes': ('tab',),
         }),
     )
 
@@ -1760,6 +1780,9 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
 @admin.register(TatTrackerStaffMember)
 class TatTrackerStaffMemberAdmin(ModelAdmin):
     form = TatTrackerStaffMemberAdminForm
+    compressed_fields = True
+    list_filter_submit = True
+    list_fullwidth = True
     list_display = [
         'name', 'group_configuration', 'active', 'telegram_user_id',
         'telegram_username', 'roles', 'branches', 'products', 'updated_at',
@@ -1784,6 +1807,9 @@ class TatTrackerStaffMemberAdmin(ModelAdmin):
 
 @admin.register(RequisitionTemplate)
 class RequisitionTemplateAdmin(ModelAdmin):
+    compressed_fields = True
+    list_filter_submit = True
+    list_fullwidth = True
     list_display = ('name', 'is_active', 'file', 'created_at', 'updated_at')
     list_editable = ('is_active',)
     search_fields = ('name',)
@@ -1817,6 +1843,31 @@ class SpinBatchReviewItemAdmin(ReadOnlyAuditAdmin):
     list_filter = ('group_id', 'category', 'status', 'created_at')
     search_fields = ('source_sender', 'raw_message', 'source_message_hash', 'reviewed_by')
     readonly_fields = [field.name for field in SpinBatchReviewItem._meta.fields]
+
+
+class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
+    compressed_fields = True
+    list_filter_submit = True
+    list_fullwidth = True
+
+
+class UnfoldGroupAdmin(ModelAdmin, DjangoGroupAdmin):
+    compressed_fields = True
+    list_filter_submit = True
+    list_fullwidth = True
+
+
+try:
+    admin.site.unregister(get_user_model())
+except admin.sites.NotRegistered:
+    pass
+admin.site.register(get_user_model(), UnfoldUserAdmin)
+
+try:
+    admin.site.unregister(Group)
+except admin.sites.NotRegistered:
+    pass
+admin.site.register(Group, UnfoldGroupAdmin)
 
 
 from core.admin_utils import auto_register_unregistered_models

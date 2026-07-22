@@ -1,16 +1,11 @@
 /**
- * workflow_preset_toggle.js
+ * Shows only the settings section matching the selected workflow preset.
  *
- * Shows only the settings fieldset that matches the currently selected
- * workflow preset dropdown value, hiding all others.
- *
- * Relies on Django's fieldset <h2> title matching the CSS classes
- * preset-<preset_key> that are added in admin.py fieldsets.
+ * Supports both legacy collapsed fieldsets and Unfold tab fieldsets.
  */
 (function () {
   'use strict';
 
-  /** Map preset value → CSS class suffix applied to the fieldset module. */
   const PRESET_SECTIONS = {
     case: 'preset-case',
     order_approval: 'preset-order_approval',
@@ -20,29 +15,59 @@
   };
 
   function applyToggle(selectedPreset) {
-    // All fieldsets carrying a preset-section class.
     const sections = document.querySelectorAll('.module.preset-section');
+    const visibleTabLinks = [];
+
     sections.forEach(function (section) {
       const isMatch = section.classList.contains(
         PRESET_SECTIONS[selectedPreset] || '__none__'
       );
+      const tabWrapper = section.closest('.tab-wrapper');
+      const target = tabWrapper || section;
+      const tabLink = findTabLink(tabWrapper);
+
       if (isMatch) {
-        // Show and auto-expand.
-        section.style.display = '';
-        const toggle = section.querySelector('.collapse-toggle');
-        const content = section.querySelector('.collapse');
-        if (toggle && content && content.style.display === 'none') {
-          toggle.click();
+        target.style.display = '';
+        if (tabLink) {
+          tabLink.style.display = '';
+          visibleTabLinks.push(tabLink);
         }
+        expandLegacyCollapse(section);
       } else {
-        // Hide entirely — no need to pollute form with irrelevant fields.
-        section.style.display = 'none';
+        target.style.display = 'none';
+        if (tabLink) {
+          tabLink.style.display = 'none';
+        }
       }
     });
+
+    if (visibleTabLinks.length) {
+      visibleTabLinks[0].querySelector('a')?.click();
+    }
+  }
+
+  function expandLegacyCollapse(section) {
+    const toggle = section.querySelector('.collapse-toggle');
+    const content = section.querySelector('.collapse');
+    if (toggle && content && content.style.display === 'none') {
+      toggle.click();
+    }
+  }
+
+  function findTabLink(tabWrapper) {
+    if (!tabWrapper || !tabWrapper.parentElement) return null;
+
+    const wrappers = Array.from(
+      tabWrapper.parentElement.querySelectorAll(':scope > .tab-wrapper')
+    );
+    const index = wrappers.indexOf(tabWrapper);
+    if (index < 0) return null;
+
+    const tabList = tabWrapper.parentElement.querySelector(':scope > ul');
+    return tabList ? tabList.children[index] : null;
   }
 
   function init() {
-    // Django renders the select as id_workflow_preset.
     const select = document.getElementById('id_workflow_preset');
     if (!select) return;
 
