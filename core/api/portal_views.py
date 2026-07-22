@@ -336,6 +336,9 @@ def portal_log_jbl_visit(request, farmer_id: str):
     officer = str(body.get('officer') or '').strip()
     comment = str(body.get('comment') or '').strip()
     sender = _portal_sender_from_request(request) or officer
+    county = str(body.get('county') or '').strip() if 'county' in body else None
+    sub_county = str(body.get('sub_county') or '').strip() if 'sub_county' in body else None
+    village = str(body.get('village') or '').strip() if 'village' in body else None
 
     latitude = body.get('latitude')
     longitude = body.get('longitude')
@@ -354,6 +357,9 @@ def portal_log_jbl_visit(request, farmer_id: str):
         sender=sender,
         latitude=latitude,
         longitude=longitude,
+        county=county,
+        sub_county=sub_county,
+        village=village,
     )
     if not ok:
         return JsonResponse({'ok': False, 'error': error}, status=400)

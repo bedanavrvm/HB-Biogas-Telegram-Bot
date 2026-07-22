@@ -781,11 +781,23 @@
         </div>
         <div class="form-row">
           <label>Officer Name</label>
-          <input type="text" id="jbl-officer" placeholder="Your name" value="${farmer.jbl_officer || ''}">
+          <input type="text" id="jbl-officer" placeholder="Your name" value="${escapeHtml(farmer.jbl_officer || '')}">
+        </div>
+        <div class="form-row">
+          <label>County</label>
+          <input type="text" id="jbl-county" placeholder="County" value="${escapeHtml(farmer.county || '')}">
+        </div>
+        <div class="form-row">
+          <label>Constituency</label>
+          <input type="text" id="jbl-sub-county" placeholder="Constituency / sub-county" value="${escapeHtml(farmer.sub_county || '')}">
+        </div>
+        <div class="form-row">
+          <label>Village</label>
+          <input type="text" id="jbl-village" placeholder="Village / area" value="${escapeHtml(farmer.village || '')}">
         </div>
         <div class="form-row">
           <label>Comment (optional)</label>
-          <textarea id="jbl-comment" rows="2" placeholder="Additional notes...">${farmer.jbl_visit_comment || ''}</textarea>
+          <textarea id="jbl-comment" rows="2" placeholder="Additional notes...">${escapeHtml(farmer.jbl_visit_comment || '')}</textarea>
         </div>
         <div class="form-row media-upload-row">
           <label>Visit Media</label>
@@ -950,6 +962,9 @@
     const visitDate = el('jbl-date')?.value || '';
     const visitStatus = el('jbl-status')?.value || '';
     const officer = el('jbl-officer')?.value || '';
+    const county = el('jbl-county')?.value || '';
+    const subCounty = el('jbl-sub-county')?.value || '';
+    const village = el('jbl-village')?.value || '';
     const comment = el('jbl-comment')?.value || '';
     const latitude = el('jbl-lat')?.value || '';
     const longitude = el('jbl-lng')?.value || '';
@@ -965,6 +980,9 @@
         visit_date: visitDate,
         visit_status: visitStatus,
         officer: officer,
+        county: county,
+        sub_county: subCounty,
+        village: village,
         comment: comment,
         latitude: latitude,
         longitude: longitude

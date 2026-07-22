@@ -183,7 +183,8 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(card['sign_date'], '24-June-2026')
 
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
-    def test_log_jbl_visit(self, mock_sync):
+    @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
+    def test_log_jbl_visit(self, mock_order_sync, mock_sync):
         """Verify Advance from Stage 1 to Stage 2."""
         ok, error = log_jbl_visit(
             self.farmer_stage1,
@@ -191,6 +192,9 @@ class JblPipelineServiceTestCase(TestCase):
             officer='Officer Joe',
             visit_status='Awaiting Analysis',
             comment='Ready for credit review',
+            county='Muranga',
+            sub_county='Kandara',
+            village='Gakira',
         )
         self.assertTrue(ok)
         self.assertEqual(error, '')
@@ -198,7 +202,11 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(self.farmer_stage1.jbl_officer, 'Officer Joe')
         self.assertEqual(self.farmer_stage1.jbl_visit_date, date(2026, 6, 28))
         self.assertEqual(self.farmer_stage1.jbl_visit_comment, 'Ready for credit review')
+        self.assertEqual(self.farmer_stage1.county, 'Muranga')
+        self.assertEqual(self.farmer_stage1.sub_county, 'Kandara')
+        self.assertEqual(self.farmer_stage1.village, 'Gakira')
         mock_sync.assert_called_once_with(self.farmer_stage1)
+        mock_order_sync.assert_called_once_with(self.farmer_stage1)
 
     @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
@@ -338,6 +346,9 @@ class JblPipelineApiTestCase(TestCase):
             'visit_status': 'Awaiting Analysis',
             'officer': 'JBL Officer Alpha',
             'comment': 'Good soil conditions',
+            'county': 'Kiambu',
+            'sub_county': 'Ruiru',
+            'village': 'Kahawa Sukari',
             'latitude': -1.2921,
             'longitude': 36.8219,
         }
@@ -349,6 +360,9 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(self.farmer.jbl_visit_status, 'Awaiting Analysis')
         self.assertEqual(self.farmer.jbl_officer, 'JBL Officer Alpha')
         self.assertEqual(self.farmer.jbl_visit_date, date(2026, 7, 1))
+        self.assertEqual(self.farmer.county, 'Kiambu')
+        self.assertEqual(self.farmer.sub_county, 'Ruiru')
+        self.assertEqual(self.farmer.village, 'Kahawa Sukari')
         self.assertEqual(self.farmer.latitude, '-1.2921')
         self.assertEqual(self.farmer.longitude, '36.8219')
         self.assertEqual(self.farmer.gps_link, 'https://maps.google.com/?q=-1.2921,36.8219')

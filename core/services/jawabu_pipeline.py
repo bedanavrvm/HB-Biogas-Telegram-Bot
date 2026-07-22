@@ -158,6 +158,9 @@ def log_jbl_visit(
     sender: str = '',
     latitude: float | None = None,
     longitude: float | None = None,
+    county: str | None = None,
+    sub_county: str | None = None,
+    village: str | None = None,
 ) -> tuple[bool, str]:
     """
     Record that a JBL officer has visited the farmer (Stage 2 advance).
@@ -178,6 +181,16 @@ def log_jbl_visit(
         'jbl_visit_date', 'jbl_officer', 'jbl_visit_status',
         'jbl_visit_comment', 'updated_at',
     ]
+
+    if county is not None:
+        farmer.county = str(county or '').strip()
+        update_fields.append('county')
+    if sub_county is not None:
+        farmer.sub_county = str(sub_county or '').strip()
+        update_fields.append('sub_county')
+    if village is not None:
+        farmer.village = str(village or '').strip()
+        update_fields.append('village')
 
     if latitude is not None and longitude is not None:
         farmer.latitude = latitude
