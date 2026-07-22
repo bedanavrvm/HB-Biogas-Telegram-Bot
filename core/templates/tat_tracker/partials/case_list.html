@@ -1,0 +1,28 @@
+{% for case in cases %}
+  <button type="button" class="case-card htmx-tat-case-card" data-case-id="{{ case.case_id }}">
+    <div class="case-header">
+      <strong class="case-name">{{ case.client_name|default:"Unnamed client" }}</strong>
+      <span class="case-amount">KES {{ case.amount|default:"" }}</span>
+    </div>
+    <div class="case-details">
+      <span class="case-id-badge">{{ case.case_id }}</span>
+      <span class="case-meta-dot"></span>
+      <span class="case-meta-text">{{ case.product|default:"" }}</span>
+      <span class="case-meta-dot"></span>
+      <span class="case-meta-text">{{ case.branch|default:"" }}</span>
+    </div>
+    {% if case.national_id or case.primary_phone %}
+      <div class="case-identifiers">
+        {% if case.national_id %}<span class="case-identifier"><small>ID</small>{{ case.national_id }}</span>{% endif %}
+        {% if case.primary_phone %}<span class="case-identifier"><small>Phone</small>{{ case.primary_phone }}</span>{% endif %}
+      </div>
+    {% endif %}
+    <div class="case-tags">
+      <span class="status-chip {{ case.status|default:'active'|lower|cut:' ' }}">{{ case.status|default:"Active" }}</span>
+      {% if case.next_stage %}<span class="next-chip">Next: {{ case.next_stage }}</span>{% endif %}
+      <span class="case-time">{{ case.updated_at|default:"" }}</span>
+    </div>
+  </button>
+{% empty %}
+  <div class="empty-state"><strong>{{ empty_title }}</strong><span>{{ empty_detail }}</span></div>
+{% endfor %}

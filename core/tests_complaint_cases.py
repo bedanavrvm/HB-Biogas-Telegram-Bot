@@ -9,6 +9,7 @@ from unittest.mock import patch
 from django.contrib import admin
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, TestCase, override_settings
+from django.urls import reverse
 from django.utils import timezone
 
 from core.admin import ComplaintCaseStaffMemberInline, TatTrackerStaffMemberInline
@@ -61,6 +62,13 @@ class ComplaintCaseServiceTests(TestCase):
     def actor(self, telegram_id):
         return staff_actor_for_payload(self.config, {'user': json.dumps({'id': telegram_id})})
 
+    def signed_init_data(self, telegram_id='100'):
+        pairs = {'auth_date': str(int(time.time())), 'user': json.dumps({'id': int(telegram_id)})}
+        check = '\n'.join(f'{key}={value}' for key, value in sorted(pairs.items()))
+        secret = hmac.new(b'WebAppData', b'test-bot-token', hashlib.sha256).digest()
+        pairs['hash'] = hmac.new(secret, check.encode('utf-8'), hashlib.sha256).hexdigest()
+        return urlencode(pairs)
+
     def test_list_is_group_scoped(self):
         cases = list_cases(self.config)
         self.assertEqual([case['case_id'] for case in cases], ['CASE-1'])
@@ -77,6 +85,25 @@ class ComplaintCaseServiceTests(TestCase):
         cases = list_cases(self.config, status='In Progress', branch='Embu')
 
         self.assertEqual([case['case_id'] for case in cases], ['CASE-3'])
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
+    def test_list_fragment_renders_authorized_cases(self):
+        self.case.branch_region = 'Nakuru'
+        self.case.save(update_fields=['branch_region'])
+        embu_case = self.create_case('-100100', 'CASE-3')
+        embu_case.branch_region = 'Embu'
+        embu_case.save(update_fields=['branch_region'])
+
+        response = self.client.post(
+            reverse('complaint_cases_list_fragment'),
+            {'group_id': self.group.group_id, 'branch': 'Nakuru', 'status': 'active'},
+            HTTP_X_TELEGRAM_INIT_DATA=self.signed_init_data('100'),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'complaint_cases/partials/case_list.html')
+        self.assertContains(response, 'CASE-1')
+        self.assertNotContains(response, 'CASE-3')
 
     def test_officer_can_progress_case_once_with_retry_idempotency(self):
         actor = self.actor('100')
@@ -195,7 +222,7 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         template = (root / 'templates' / 'complaint_cases' / 'app.html').read_text(encoding='utf-8')
         script = (root / 'static' / 'miniapp' / 'complaint_cases.js').read_text(encoding='utf-8')
 
-        for expected in ('class="app-top"', 'class="overview-strip"', 'class="tabs"', 'class="form-card"', 'id="complaintTabs"', 'data-view="create"', 'id="createCaseForm"', 'name="client_name"', 'name="customer_phone"', 'name="customer_id"', 'name="branch_region"', 'name="complaint_category"', 'name="complaint_description"', 'id="createEvidenceInput"', 'id="branchFilter"', 'data-status-filter="Open"', 'data-status-filter="In Progress"', 'data-status-filter="Closed"', 'id="captureLocationBtn" class="secondary" type="button"'):
+        for expected in ('class="app-top"', 'class="overview-strip"', 'class="tabs"', 'class="form-card"', 'id="complaintTabs"', 'data-view="create"', 'id="createCaseForm"', 'name="client_name"', 'name="customer_phone"', 'name="customer_id"', 'name="branch_region"', 'name="complaint_category"', 'name="complaint_description"', 'id="createEvidenceInput"', 'id="branchFilter"', 'data-status-filter="Open"', 'data-status-filter="In Progress"', 'data-status-filter="Closed"', 'id="captureLocationBtn" class="secondary" type="button"', 'htmx.org'):
             self.assertIn(expected, template)
         self.assertIn('<div class="location-actions" hidden><button id="captureLocationBtn"', template)
         self.assertIn('caseItem.recorded_at', script)
@@ -204,6 +231,8 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('class="call-button"', script)
         self.assertIn('branch: state.branch', script)
         self.assertIn('function applyStatusFilter(status)', script)
+        self.assertIn('function configureHtmx()', script)
+        self.assertIn("htmx.ajax('POST', '/api/complaints/cases/fragment/'", script)
 
 
 class ComplaintCaseAdminTests(TestCase):

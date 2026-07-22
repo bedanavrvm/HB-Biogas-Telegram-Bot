@@ -1,8 +1,12 @@
 from unittest.mock import MagicMock, patch
 from decimal import Decimal
 from io import BytesIO, StringIO
+import hashlib
+import hmac
 import json
+import time
 from pathlib import Path
+from urllib.parse import urlencode
 
 import openpyxl
 from django.contrib import admin
@@ -62,6 +66,7 @@ from core.services.tat_tracker import (
 class TatTrackerWorkflowTest(TestCase):
     def setUp(self):
         _TAT_HEADER_CACHE.clear()
+        GroupRegistry._instance = None
         self.config = GroupSheetConfiguration.objects.create(
             group_id='-100tat',
             display_name='TAT Test',
@@ -94,6 +99,16 @@ class TatTrackerWorkflowTest(TestCase):
             },
         )
 
+    def signed_init_data(self, telegram_id='111', username='bro_user'):
+        pairs = {
+            'auth_date': str(int(time.time())),
+            'user': json.dumps({'id': int(telegram_id), 'username': username}),
+        }
+        check = '\n'.join(f'{key}={value}' for key, value in sorted(pairs.items()))
+        secret = hmac.new(b'WebAppData', b'test-bot-token', hashlib.sha256).digest()
+        pairs['hash'] = hmac.new(secret, check.encode('utf-8'), hashlib.sha256).hexdigest()
+        return urlencode(pairs)
+
     def test_detects_tat_tracker_workflow(self):
         self.assertTrue(is_tat_tracker_workflow(self.config))
 
@@ -121,6 +136,63 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertFalse(second_page['pagination']['action_required']['has_more'])
         self.assertEqual(len(first_page['recent']), 10)
         self.assertEqual(len(second_page['recent']), 2)
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token')
+    def test_home_fragment_renders_recent_cases(self):
+        TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            case_id='JBL-BS-2026-001',
+            product_key='business',
+            product_label='Business',
+            client_name='Fragment Client',
+            branch='Nakuru',
+            status='Active',
+            stage_values={'created': timezone.now().isoformat()},
+        )
+
+        response = self.client.post(
+            reverse('tat_tracker_home_fragment'),
+            {
+                'group_id': self.config.group_id,
+                'init_data': self.signed_init_data(),
+                'list': 'recent',
+                'product_key': 'business',
+                'branch': 'Nakuru',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'tat_tracker/partials/case_list.html')
+        self.assertContains(response, 'Fragment Client')
+        self.assertContains(response, 'htmx-tat-case-card')
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token')
+    def test_search_fragment_renders_matching_cases(self):
+        TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            case_id='JBL-BS-2026-002',
+            product_key='business',
+            product_label='Business',
+            client_name='Searchable Client',
+            national_id='12345678',
+            primary_phone='254712345678',
+            branch='Nakuru',
+            status='Active',
+            stage_values={'created': timezone.now().isoformat()},
+        )
+
+        response = self.client.post(
+            reverse('tat_tracker_search_fragment'),
+            {
+                'group_id': self.config.group_id,
+                'init_data': self.signed_init_data(),
+                'query': 'Searchable',
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Searchable Client')
+        self.assertContains(response, 'JBL-BS-2026-002')
 
     def test_home_data_filters_by_product_and_branch(self):
         cases = [

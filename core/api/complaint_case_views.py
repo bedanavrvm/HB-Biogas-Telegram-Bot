@@ -107,6 +107,23 @@ def complaint_cases_list(request):
 
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
 @require_http_methods(['POST'])
+def complaint_cases_list_fragment(request):
+    payload = _request_payload(request)
+    group_config, actor, error = _context(request, payload)
+    if error:
+        return error
+    del actor
+    cases = list_cases(
+        group_config,
+        query=str(payload.get('query') or ''),
+        status=str(payload.get('status') or 'active'),
+        branch=str(payload.get('branch') or ''),
+    )
+    return render(request, 'complaint_cases/partials/case_list.html', {'cases': cases})
+
+
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(['POST'])
 def complaint_cases_create(request):
     payload = _request_payload(request)
     group_config, actor, error = _context(request, payload)

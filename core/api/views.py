@@ -97,6 +97,12 @@ def _tat_json_body(request) -> dict:
         return {}
 
 
+def _tat_payload(request) -> dict:
+    if request.content_type.startswith('application/x-www-form-urlencoded') or request.content_type.startswith('multipart/'):
+        return request.POST.dict()
+    return _tat_json_body(request)
+
+
 def _tat_context(payload: dict):
     from core.services.group_config import GroupRegistry
     from core.services.tat_tracker import is_tat_tracker_workflow, staff_user_for_payload, validate_tat_form_token, validate_tat_telegram_webapp_init_data
@@ -151,6 +157,37 @@ def tat_tracker_home(request):
     })
 
 
+@csrf_exempt
+@require_http_methods(["POST"])
+def tat_tracker_home_fragment(request):
+    payload = _tat_payload(request)
+    group_id, group_config, user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    from core.services.tat_tracker import home_data
+
+    list_key = str(payload.get('list') or 'action_required').strip()
+    if list_key not in {'action_required', 'recent'}:
+        return JsonResponse({'ok': False, 'error': 'Unknown TAT list.'}, status=400)
+    data = home_data(
+        group_config,
+        user,
+        action_offset=_tat_home_offset(payload.get('action_offset')),
+        recent_offset=_tat_home_offset(payload.get('recent_offset')),
+        product_key=payload.get('product_key') or '',
+        branch=payload.get('branch') or '',
+    )
+    empty = {
+        'action_required': ('No action needed', 'Cases that need your role will appear here.'),
+        'recent': ('No recent cases', 'Create a case or search existing records.'),
+    }[list_key]
+    return render(request, 'tat_tracker/partials/case_list.html', {
+        'cases': data.get(list_key) or [],
+        'empty_title': empty[0],
+        'empty_detail': empty[1],
+    })
+
+
 def _tat_home_offset(value) -> int:
     try:
         return max(0, int(value or 0))
@@ -167,6 +204,21 @@ def tat_tracker_search(request):
         return error
     from core.services.tat_tracker import search_cases
     return JsonResponse({'ok': True, 'results': search_cases(group_config, user, payload.get('query', ''))})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def tat_tracker_search_fragment(request):
+    payload = _tat_payload(request)
+    group_id, group_config, user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    from core.services.tat_tracker import search_cases
+    return render(request, 'tat_tracker/partials/case_list.html', {
+        'cases': search_cases(group_config, user, payload.get('query', '')),
+        'empty_title': 'No matching cases',
+        'empty_detail': 'Try a client name, ID number, phone, case ID, branch, or BRO.',
+    })
 
 
 

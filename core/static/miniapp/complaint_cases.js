@@ -12,6 +12,19 @@
   const escapeHtml = (value) => String(value == null ? '' : value).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[character]));
   const requestId = () => window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : `complaint-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
+  function configureHtmx() {
+    if (!window.htmx) return;
+    document.body.addEventListener('htmx:configRequest', (event) => {
+      event.detail.headers['X-Telegram-Init-Data'] = state.initData;
+    });
+    document.body.addEventListener('htmx:afterSwap', (event) => {
+      if (event.detail.target && event.detail.target.id === 'caseList') {
+        hydrateCaseRows(event.detail.target);
+        $('emptyState').hidden = true;
+      }
+    });
+  }
+
   async function api(path, payload, formData) {
     const data = formData || Object.assign({ group_id: state.groupId }, payload || {});
     if (formData) formData.set('group_id', state.groupId);
@@ -73,7 +86,31 @@
     });
   }
 
+  function hydrateCaseRows(root) {
+    root.querySelectorAll('[data-case-id]').forEach((button) => {
+      if (button.dataset.bound === '1') return;
+      button.dataset.bound = '1';
+      button.addEventListener('click', () => loadDetail(button.dataset.caseId));
+    });
+  }
+
+  function renderCasesFragment() {
+    if (!window.htmx) return false;
+    window.htmx.ajax('POST', '/api/complaints/cases/fragment/', {
+      target: '#caseList',
+      swap: 'innerHTML',
+      values: {
+        group_id: state.groupId,
+        query: state.query,
+        status: state.status,
+        branch: state.branch,
+      },
+    });
+    return true;
+  }
+
   async function loadCases() {
+    if (renderCasesFragment()) return;
     try {
       const response = await api('cases/', { query: state.query, status: state.status, branch: state.branch });
       renderCases(response.cases || []);
@@ -285,5 +322,6 @@
   $('createEvidenceInput').addEventListener('change', selectedCreateFiles);
   $('updateForm').addEventListener('submit', submitUpdate);
   $('createCaseForm').addEventListener('submit', submitCreate);
+  configureHtmx();
   bootstrap();
 }());

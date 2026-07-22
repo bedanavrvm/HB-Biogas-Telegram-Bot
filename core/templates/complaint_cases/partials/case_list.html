@@ -1,0 +1,16 @@
+{% for case_item in cases %}
+  <button type="button" class="case-row status-{{ case_item.status|default:'Open'|lower|cut:' ' }}" data-case-id="{{ case_item.case_id }}">
+    <div>
+      <p class="case-id">{{ case_item.case_id }}</p>
+      <h2>{{ case_item.customer_name|default:"Unnamed client" }}</h2>
+      <p>{{ case_item.category|default:"Complaint" }} - {{ case_item.branch|default:"Branch not set" }}</p>
+      <p>{{ case_item.customer_phone|default:case_item.customer_id|default:"No client identifier" }}</p>
+      {% if case_item.recorded_at %}
+        <p class="case-recorded">Recorded {{ case_item.recorded_at }}</p>
+      {% endif %}
+    </div>
+    <span class="status-pill">{{ case_item.status }}</span>
+  </button>
+{% empty %}
+  <p class="empty-state">No complaint cases match this view.</p>
+{% endfor %}
