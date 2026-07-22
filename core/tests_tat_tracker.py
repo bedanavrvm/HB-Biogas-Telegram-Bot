@@ -25,6 +25,7 @@ from core.services.tat_tracker import (
     calculated_tat_minutes,
     create_tat_start_param,
     decode_tat_start_param,
+    get_case_detail,
     product_by_key,
     parse_tat_batch_rows,
     parse_tat_batch_file,
@@ -48,6 +49,7 @@ from core.services.tat_tracker import (
     sync_tat_batch_created_cases,
     resync_tat_tracker_cases,
     search_cases,
+    soft_delete_tat_case,
     sync_tat_target_settings_to_sheet,
     tat_batch_format_message,
     validate_tracker_identity_headers,
@@ -56,6 +58,7 @@ from core.services.tat_tracker import (
 )
 
 
+@override_settings(SECURE_SSL_REDIRECT=False)
 class TatTrackerWorkflowTest(TestCase):
     def setUp(self):
         _TAT_HEADER_CACHE.clear()
@@ -149,6 +152,55 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(filtered['recent'][0]['case_id'], 'JBL-BS-2026-001')
         self.assertTrue(all(item['product_key'] == 'business' for item in filtered['recent']))
         self.assertTrue(all(item['branch'] == 'Nakuru' for item in filtered['recent']))
+
+    def test_soft_deleted_cases_are_hidden_from_mini_app_lists(self):
+        deleted_case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            case_id='JBL-BS-2026-DEL',
+            product_key='business',
+            product_label='Business',
+            client_name='Deleted Client',
+            branch='Nakuru',
+            status='Active',
+            stage_values={'created': timezone.now().isoformat()},
+        )
+        active_case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            case_id='JBL-BS-2026-ACT',
+            product_key='business',
+            product_label='Business',
+            client_name='Active Client',
+            branch='Nakuru',
+            status='Active',
+            stage_values={'created': timezone.now().isoformat()},
+        )
+        user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+
+        changed = soft_delete_tat_case(
+            deleted_case,
+            actor_name='Admin User',
+            actor_role='ADMIN',
+            reason='Duplicate test data cleanup.',
+        )
+
+        self.assertTrue(changed)
+        deleted_case.refresh_from_db()
+        self.assertTrue(deleted_case.is_deleted)
+        self.assertEqual(deleted_case.deleted_by, 'Admin User')
+        self.assertEqual(
+            TatTrackerEvent.objects.filter(case=deleted_case, stage_key='deleted').count(),
+            1,
+        )
+
+        home = home_data(self.config, user)
+        home_ids = {item['case_id'] for item in home['recent']}
+        self.assertNotIn(deleted_case.case_id, home_ids)
+        self.assertIn(active_case.case_id, home_ids)
+
+        search_results = search_cases(self.config, user, 'Deleted')
+        self.assertEqual(search_results, [])
+        with self.assertRaises(TatTrackerCase.DoesNotExist):
+            get_case_detail(self.config, user, deleted_case.case_id)
 
     def test_tat_mini_app_sends_queue_filters_with_home_pagination(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')

@@ -381,7 +381,7 @@ def home_data(
 ) -> dict:
     """Return independently paginated home lists for the TAT Mini App."""
     workflow = getattr(group_config, 'workflow', None) or {}
-    queryset = TatTrackerCase.objects.filter(group_id=str(group_config.group_id))
+    queryset = TatTrackerCase.objects.filter(group_id=str(group_config.group_id), is_deleted=False)
     allowed_keys = [p.key for p in _allowed_products(workflow, user)]
     if allowed_keys:
         queryset = queryset.filter(product_key__in=allowed_keys)
@@ -447,7 +447,7 @@ def search_cases(group_config, user: dict, query: str) -> list[dict]:
         query |= Q(national_id=normalized_id)
     if normalized_phone:
         query |= Q(primary_phone=normalized_phone)
-    queryset = TatTrackerCase.objects.filter(group_id=str(group_config.group_id)).filter(query)
+    queryset = TatTrackerCase.objects.filter(group_id=str(group_config.group_id), is_deleted=False).filter(query)
     allowed_keys = [p.key for p in _allowed_products(workflow, user)]
     if allowed_keys:
         queryset = queryset.filter(product_key__in=allowed_keys)
@@ -455,8 +455,53 @@ def search_cases(group_config, user: dict, query: str) -> list[dict]:
 
 
 def get_case_detail(group_config, user: dict, case_id: str) -> dict:
-    case = TatTrackerCase.objects.get(group_id=str(group_config.group_id), case_id=str(case_id))
+    case = TatTrackerCase.objects.get(group_id=str(group_config.group_id), case_id=str(case_id), is_deleted=False)
     return serialize_case_detail(case, user, workflow=getattr(group_config, 'workflow', None) or {})
+
+
+def soft_delete_tat_case(
+    case: TatTrackerCase,
+    *,
+    actor_name: str = '',
+    actor_telegram_id: str = '',
+    actor_role: str = '',
+    reason: str = '',
+) -> bool:
+    """Mark a TAT case as deleted while preserving the case and its events."""
+    if case.is_deleted:
+        return False
+    deleted_at = timezone.now()
+    reason = str(reason or 'Deleted from Django admin.').strip()
+    case.is_deleted = True
+    case.deleted_at = deleted_at
+    case.deleted_by = str(actor_name or '').strip()
+    case.deletion_reason = reason
+    case.last_updated_by = str(actor_name or '').strip()
+    case.sync_error = ''
+    case.save(update_fields=[
+        'is_deleted',
+        'deleted_at',
+        'deleted_by',
+        'deletion_reason',
+        'last_updated_by',
+        'sync_error',
+        'updated_at',
+    ])
+    TatTrackerEvent.objects.create(
+        case=case,
+        group_id=case.group_id,
+        actor_name=case.deleted_by,
+        actor_telegram_id=str(actor_telegram_id or ''),
+        actor_role=str(actor_role or 'ADMIN'),
+        stage_key='deleted',
+        stage_label='Case Deleted',
+        old_value='Active backend record',
+        new_value=reason,
+        source='admin_correction',
+        sheet_name=case.sheet_name,
+        row_number=case.row_number,
+    )
+    return True
 
 
 @transaction.atomic
@@ -487,6 +532,8 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
             create_request_id=create_request_id,
         ).first()
         if existing:
+            if existing.is_deleted:
+                raise ValueError('This submission was previously deleted. Refresh the Mini App before trying again.')
             return serialize_case_detail(existing, user, workflow=workflow)
     case_id = next_case_id(group_config, product)
     now = timezone.now()
@@ -613,9 +660,9 @@ def process_tat_batch_rows(
         payload['client_request_id'] = f"tat-batch:{group_config.group_id}:{telegram_message_id}:{row['line_number']}"
         payload['_defer_sheet_sync'] = True
         try:
-            before_count = TatTrackerCase.objects.filter(group_id=str(group_config.group_id)).count()
+            before_count = TatTrackerCase.objects.filter(group_id=str(group_config.group_id), is_deleted=False).count()
             result = create_case(group_config, user, payload)
-            after_count = TatTrackerCase.objects.filter(group_id=str(group_config.group_id)).count()
+            after_count = TatTrackerCase.objects.filter(group_id=str(group_config.group_id), is_deleted=False).count()
         except Exception as exc:
             failed += 1
             errors.append(f"Line {row['line_number']}: {exc}")
@@ -629,7 +676,7 @@ def process_tat_batch_rows(
             imported += 1
             case_id = summary.get('case_id') or ''
             if case_id:
-                created_cases.append(TatTrackerCase.objects.get(group_id=str(group_config.group_id), case_id=case_id))
+                created_cases.append(TatTrackerCase.objects.get(group_id=str(group_config.group_id), case_id=case_id, is_deleted=False))
 
     sync_result = sync_tat_batch_created_cases(group_config, created_cases)
     if sync_result['failed']:
@@ -884,7 +931,7 @@ def append_tat_batch_rows(sheet, rows: list[list[Any]]) -> Any:
 @transaction.atomic
 def update_case(group_config, user: dict, case_id: str, updates: list[dict]) -> dict:
     workflow = getattr(group_config, 'workflow', None) or {}
-    case = TatTrackerCase.objects.select_for_update().get(group_id=str(group_config.group_id), case_id=str(case_id))
+    case = TatTrackerCase.objects.select_for_update().get(group_id=str(group_config.group_id), case_id=str(case_id), is_deleted=False)
     if not updates:
         raise ValueError('No updates were submitted.')
     for item in updates:
@@ -1118,7 +1165,7 @@ def resync_tat_tracker_cases(
         raise ValueError(f'Unknown TAT product: {selected_product}.')
 
     selected_case_ids = [str(case_id).strip() for case_id in (case_ids or []) if str(case_id).strip()]
-    queryset = TatTrackerCase.objects.filter(group_id=str(group_config.group_id))
+    queryset = TatTrackerCase.objects.filter(group_id=str(group_config.group_id), is_deleted=False)
     if selected_product:
         queryset = queryset.filter(product_key=selected_product)
     if selected_case_ids:

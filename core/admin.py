@@ -5,6 +5,7 @@ from django.conf import settings
 from django.http import HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.urls import path, reverse
 from django.utils.html import format_html
 from urllib.parse import urlencode
@@ -23,6 +24,7 @@ from core.services.tat_tracker import (
     configured_products,
     is_tat_tracker_workflow,
     resync_tat_tracker_cases,
+    soft_delete_tat_case,
 )
 from core.services.telegram_launchers import MINI_APP_LAUNCHER_CHOICES, default_launcher_keys
 
@@ -624,9 +626,45 @@ for _product_key, _product_label, _field_names in TAT_TARGET_FIELD_GROUPS:
 
 @admin.register(TatTrackerCase)
 class TatTrackerCaseAdmin(TestDataDeleteAdmin):
-    list_display = ['case_id', 'group_id', 'product_label', 'client_name', 'branch', 'status', 'current_stage', 'updated_at']
-    list_filter = ['group_id', 'product_key', 'branch', 'status', 'current_stage']
+    list_display = [
+        'case_id', 'group_id', 'product_label', 'client_name', 'branch',
+        'status', 'current_stage', 'is_deleted', 'deleted_at', 'updated_at',
+    ]
+    list_filter = ['is_deleted', 'group_id', 'product_key', 'branch', 'status', 'current_stage']
     search_fields = ['case_id', 'client_name', 'national_id', 'primary_phone', 'bro_name', 'branch']
+    actions = ['mark_selected_deleted']
+
+    def has_delete_permission(self, request, obj=None):
+        return bool(request.user and request.user.is_superuser)
+
+    def delete_model(self, request, obj):
+        deleted = soft_delete_tat_case(
+            obj,
+            actor_name=request.user.get_username(),
+            actor_role='ADMIN',
+            reason='Deleted from Django admin.',
+        )
+        if deleted:
+            self.message_user(request, f'{obj.case_id} marked as deleted. Audit event preserved.', messages.SUCCESS)
+        else:
+            self.message_user(request, f'{obj.case_id} was already marked as deleted.', messages.WARNING)
+
+    def delete_queryset(self, request, queryset):
+        deleted_count = 0
+        with transaction.atomic():
+            for case in queryset.select_for_update():
+                if soft_delete_tat_case(
+                    case,
+                    actor_name=request.user.get_username(),
+                    actor_role='ADMIN',
+                    reason='Bulk deleted from Django admin.',
+                ):
+                    deleted_count += 1
+        self.message_user(request, f'{deleted_count} TAT case(s) marked as deleted. Audit events preserved.', messages.SUCCESS)
+
+    @admin.action(description='Mark selected TAT cases as deleted')
+    def mark_selected_deleted(self, request, queryset):
+        self.delete_queryset(request, queryset)
 
 
 @admin.register(TatTrackerEvent)

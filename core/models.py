@@ -645,6 +645,10 @@ class TatTrackerCase(models.Model):
     last_updated_by = models.CharField(max_length=255, blank=True, default='')
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_error = models.TextField(blank=True, default='')
+    is_deleted = models.BooleanField(default=False, db_index=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.CharField(max_length=255, blank=True, default='')
+    deletion_reason = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -666,6 +670,7 @@ class TatTrackerCase(models.Model):
             models.Index(fields=['group_id', 'product_key', 'status']),
             models.Index(fields=['group_id', 'client_name']),
             models.Index(fields=['group_id', 'current_stage']),
+            models.Index(fields=['group_id', 'is_deleted']),
         ]
         verbose_name = 'TAT tracker case'
         verbose_name_plural = 'TAT tracker cases'
