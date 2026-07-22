@@ -322,6 +322,8 @@ class JblPipelineApiTestCase(TestCase):
             national_id='99999999',
             primary_phone='254799999999',
             sign_date='24-June-2026',
+            county='Kiambu',
+            branch='Ruiru',
             status='active',
         )
 
@@ -340,6 +342,26 @@ class JblPipelineApiTestCase(TestCase):
         self.assertContains(response, 'Pipeline test farmer')
         self.assertContains(response, 'htmx-farmer-card')
         self.assertContains(response, 'HB visit: 24-June-2026')
+
+    def test_portal_jbl_queue_fragment_filters_by_county_and_branch(self):
+        """Verify server-rendered JBL queue fragments honor selected filters."""
+        JawabuFarmerMaster.objects.create(
+            customer_name='Other branch farmer',
+            national_id='88888888',
+            primary_phone='254788888888',
+            sign_date='24-June-2026',
+            county='Nakuru',
+            branch='Naivasha',
+            status='active',
+        )
+
+        response = self.client.get(reverse('portal_jbl_queue_fragment'), {
+            'county': 'Kiambu',
+            'branch': 'Ruiru',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Pipeline test farmer')
+        self.assertNotContains(response, 'Other branch farmer')
 
     def test_dashboard_api(self):
         """Verify GET /api/portal/dashboard/ counts."""

@@ -144,6 +144,16 @@ def _paginate_list(items: list, request, page_size: int = 30):
     return items[start:end], pagination
 
 
+def _apply_county_branch_filters(qs, request):
+    county = request.GET.get('county', '').strip()
+    branch = request.GET.get('branch', '').strip()
+    if county:
+        qs = qs.filter(county__iexact=county)
+    if branch:
+        qs = qs.filter(branch__iexact=branch)
+    return qs
+
+
 # ── Render View ───────────────────────────────────────────────────────────────
 
 
@@ -289,7 +299,7 @@ def portal_meta(request):
 def portal_jbl_queue(request):
     """GET /api/portal/jbl-queue/ — farmers awaiting JBL visit."""
     from core.services.jawabu_pipeline import jbl_visit_queue, farmer_to_card
-    qs = jbl_visit_queue()
+    qs = _apply_county_branch_filters(jbl_visit_queue(), request)
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
@@ -305,15 +315,17 @@ def portal_jbl_queue_fragment(request):
     """GET /api/portal/jbl-queue/fragment/ - htmx-rendered JBL visit queue."""
     from core.services.jawabu_pipeline import jbl_visit_queue, farmer_to_card
 
-    qs = jbl_visit_queue()
+    qs = _apply_county_branch_filters(jbl_visit_queue(), request)
     items, pagination = _paginate_qs(qs, request)
     return render(request, 'portal/partials/farmer_list.html', {
         'farmers': [farmer_to_card(f) for f in items],
         'pagination': pagination,
         'queue_key': 'jbl',
         'mode': 'jbl_visit',
+        'county': request.GET.get('county', '').strip(),
+        'branch': request.GET.get('branch', '').strip(),
         'empty_title': 'All caught up!',
-        'empty_sub': 'No farmers are waiting for a JBL visit.',
+        'empty_sub': 'No farmers match the current JBL visit filters.',
     })
 
 

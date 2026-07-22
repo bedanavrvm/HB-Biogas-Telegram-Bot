@@ -48,6 +48,8 @@
     document.body.addEventListener('htmx:afterSwap', event => {
       if (event.detail.target?.id === 'jbl-list') {
         hydrateHtmxFarmerCards(event.detail.target);
+        const page = new URL(event.detail.xhr.responseURL).searchParams.get('page');
+        state.pages.jbl = parseInt(page || '1', 10) || 1;
         if (window.lucide) window.lucide.createIcons();
       }
     });
@@ -304,7 +306,10 @@
   function renderJblQueueFragment(page = 1) {
     const listEl = el('jbl-list');
     if (!listEl || !window.htmx) return;
-    window.htmx.ajax('GET', apiBase() + '/jbl-queue/fragment/?page=' + encodeURIComponent(page), {
+    const params = new URLSearchParams({ page: String(page) });
+    if (state.filters.county) params.set('county', state.filters.county);
+    if (state.filters.branch) params.set('branch', state.filters.branch);
+    window.htmx.ajax('GET', apiBase() + '/jbl-queue/fragment/?' + params.toString(), {
       target: '#jbl-list',
       swap: 'innerHTML'
     });
@@ -1177,6 +1182,9 @@
     const qKey = state.activePage;
     if (qKey === 'all') {
       loadQueue('all', 1);
+    } else if (qKey === 'jbl' && window.htmx) {
+      updateFilterOptions(state.queues[qKey] || []);
+      renderJblQueueFragment(1);
     } else {
       updateFilterOptions(state.queues[qKey] || []);
       applyFilters();
@@ -1186,6 +1194,7 @@
   el('filter-branch')?.addEventListener('change', e => {
     state.filters.branch = e.target.value;
     if (state.activePage === 'all') loadQueue('all', 1);
+    else if (state.activePage === 'jbl' && window.htmx) renderJblQueueFragment(1);
     else applyFilters();
   });
 
@@ -1195,6 +1204,9 @@
     const qKey = state.activePage;
     if (qKey === 'all') {
       loadQueue('all', 1);
+    } else if (qKey === 'jbl' && window.htmx) {
+      updateFilterOptions(state.queues[qKey] || []);
+      renderJblQueueFragment(1);
     } else {
       updateFilterOptions(state.queues[qKey] || []);
       applyFilters();
