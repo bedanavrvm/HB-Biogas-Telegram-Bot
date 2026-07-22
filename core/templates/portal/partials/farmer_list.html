@@ -1,0 +1,34 @@
+{% if farmers %}
+  {% for farmer in farmers %}
+    {% include "portal/partials/farmer_card.html" with farmer=farmer queue_key=queue_key mode=mode %}
+  {% endfor %}
+  {% if pagination.pages > 1 %}
+    <div class="pagination htmx-pagination">
+      {% if pagination.page > 1 %}
+        <button
+          type="button"
+          class="btn btn-secondary"
+          hx-get="/api/portal/jbl-queue/fragment/?page={{ pagination.page|add:'-1' }}"
+          hx-target="#jbl-list"
+          hx-swap="innerHTML"
+        >Previous</button>
+      {% endif %}
+      <span>Page {{ pagination.page }} of {{ pagination.pages }}</span>
+      {% if pagination.page < pagination.pages %}
+        <button
+          type="button"
+          class="btn btn-secondary"
+          hx-get="/api/portal/jbl-queue/fragment/?page={{ pagination.page|add:'1' }}"
+          hx-target="#jbl-list"
+          hx-swap="innerHTML"
+        >Next</button>
+      {% endif %}
+    </div>
+  {% endif %}
+{% else %}
+  <div class="empty-state">
+    <div class="es-icon">OK</div>
+    <div class="es-title">{{ empty_title }}</div>
+    <div class="es-sub">{{ empty_sub }}</div>
+  </div>
+{% endif %}

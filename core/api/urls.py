@@ -37,6 +37,7 @@ from .portal_views import (
     portal_dashboard,
     portal_meta,
     portal_jbl_queue,
+    portal_jbl_queue_fragment,
     portal_log_jbl_visit,
     portal_upload_jbl_media,
     portal_credit_queue,
@@ -120,6 +121,7 @@ urlpatterns = [
     path('portal/meta/', portal_auth_required(portal_meta), name='portal_meta'),
     # Stage 2 - JBL Visit
     path('portal/jbl-queue/', portal_auth_required(portal_jbl_queue), name='portal_jbl_queue'),
+    path('portal/jbl-queue/fragment/', portal_auth_required(portal_jbl_queue_fragment), name='portal_jbl_queue_fragment'),
     path('portal/jbl-queue/<str:farmer_id>/', portal_auth_required(portal_log_jbl_visit), name='portal_log_jbl_visit'),
     path('portal/jbl-queue/<str:farmer_id>/media/', portal_auth_required(portal_upload_jbl_media), name='portal_upload_jbl_media'),
     # Stage 3 - Credit Decision

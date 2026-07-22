@@ -1,0 +1,30 @@
+<div
+  class="farmer-card htmx-farmer-card{% if queue_key == 'requisition' %} requisition-card{% endif %}"
+  data-farmer-id="{{ farmer.id }}"
+  data-mode="{{ mode|default:'' }}"
+>
+  <div style="flex: 1;">
+    <div class="fc-name">{{ farmer.customer_name|default:farmer.national_id|default:farmer.primary_phone|default:"Unknown" }}</div>
+    <div class="fc-sub">
+      {{ farmer.county|default:"-" }}{% if farmer.sub_county %} | {{ farmer.sub_county }}{% endif %}{% if farmer.branch %} | {{ farmer.branch }}{% endif %}
+    </div>
+    <div class="fc-sub">{{ farmer.primary_phone|default:"" }}</div>
+    {% if queue_key == "jbl" and farmer.sign_date %}
+      <div class="fc-sub fc-visit-date">HB visit: {{ farmer.sign_date }}</div>
+    {% endif %}
+    <div class="fc-badges">
+      {% if farmer.stage_label %}
+        <span class="badge badge-blue">{{ farmer.stage_label }}</span>
+      {% endif %}
+      {% if farmer.jbl_visit_status %}
+        <span class="badge badge-orange">{{ farmer.jbl_visit_status }}</span>
+      {% endif %}
+      {% if farmer.credit_decision %}
+        <span class="badge badge-green">{{ farmer.credit_decision }}</span>
+      {% endif %}
+      {% if farmer.order_number %}
+        <span class="badge badge-green">Order: {{ farmer.order_number }}</span>
+      {% endif %}
+    </div>
+  </div>
+</div>

@@ -330,6 +330,16 @@ class JblPipelineApiTestCase(TestCase):
         response = self.client.get(reverse('portal_home'))
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'portal/portal.html')
+        self.assertContains(response, 'htmx.org')
+
+    def test_portal_jbl_queue_fragment_renders_cards(self):
+        """Verify the htmx JBL queue fragment renders useful farmer cards."""
+        response = self.client.get(reverse('portal_jbl_queue_fragment'))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'portal/partials/farmer_list.html')
+        self.assertContains(response, 'Pipeline test farmer')
+        self.assertContains(response, 'htmx-farmer-card')
+        self.assertContains(response, 'HB visit: 24-June-2026')
 
     def test_dashboard_api(self):
         """Verify GET /api/portal/dashboard/ counts."""

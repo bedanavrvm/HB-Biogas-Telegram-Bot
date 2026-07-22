@@ -300,6 +300,24 @@ def portal_jbl_queue(request):
 
 
 @csrf_exempt
+@require_http_methods(["GET"])
+def portal_jbl_queue_fragment(request):
+    """GET /api/portal/jbl-queue/fragment/ - htmx-rendered JBL visit queue."""
+    from core.services.jawabu_pipeline import jbl_visit_queue, farmer_to_card
+
+    qs = jbl_visit_queue()
+    items, pagination = _paginate_qs(qs, request)
+    return render(request, 'portal/partials/farmer_list.html', {
+        'farmers': [farmer_to_card(f) for f in items],
+        'pagination': pagination,
+        'queue_key': 'jbl',
+        'mode': 'jbl_visit',
+        'empty_title': 'All caught up!',
+        'empty_sub': 'No farmers are waiting for a JBL visit.',
+    })
+
+
+@csrf_exempt
 @require_http_methods(["POST"])
 def portal_log_jbl_visit(request, farmer_id: str):
     """

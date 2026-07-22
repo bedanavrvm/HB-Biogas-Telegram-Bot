@@ -39,6 +39,20 @@
     return raw ? { 'X-Telegram-Init-Data': raw } : {};
   }
 
+  function configureHtmx() {
+    if (!window.htmx) return;
+    document.body.addEventListener('htmx:configRequest', event => {
+      const raw = tg?.initData || '';
+      if (raw) event.detail.headers['X-Telegram-Init-Data'] = raw;
+    });
+    document.body.addEventListener('htmx:afterSwap', event => {
+      if (event.detail.target?.id === 'jbl-list') {
+        hydrateHtmxFarmerCards(event.detail.target);
+        if (window.lucide) window.lucide.createIcons();
+      }
+    });
+  }
+
   async function apiFetch(path, opts = {}) {
     const headers = { 'Content-Type': 'application/json', ...initDataHeader(), ...(opts.headers || {}) };
     const res = await fetch(apiBase() + path, { ...opts, headers });
@@ -270,12 +284,46 @@
     // Apply filtering
     if (qKey !== 'dashboard' && qKey !== 'all') {
       updateFilterOptions(farmers);
-      applyFilters();
+      if (qKey === 'jbl' && window.htmx && !state.filters.county && !state.filters.branch) {
+        renderJblQueueFragment(page);
+      } else {
+        applyFilters();
+      }
     } else {
       if (qKey === 'all') updateFilterOptions(farmers);
       renderFarmerList(listEl, farmers, cfg, qKey);
     }
-    renderPagination(qKey, data.pagination);
+    if (qKey === 'jbl' && window.htmx && !state.filters.county && !state.filters.branch) {
+      const pgEl = el('pg-jbl');
+      if (pgEl) pgEl.innerHTML = '';
+    } else {
+      renderPagination(qKey, data.pagination);
+    }
+  }
+
+  function renderJblQueueFragment(page = 1) {
+    const listEl = el('jbl-list');
+    if (!listEl || !window.htmx) return;
+    window.htmx.ajax('GET', apiBase() + '/jbl-queue/fragment/?page=' + encodeURIComponent(page), {
+      target: '#jbl-list',
+      swap: 'innerHTML'
+    });
+  }
+
+  function hydrateHtmxFarmerCards(root) {
+    root.querySelectorAll('.htmx-farmer-card[data-farmer-id]').forEach(card => {
+      if (card.dataset.bound === '1') return;
+      card.dataset.bound = '1';
+      card.addEventListener('click', async () => {
+        const id = card.dataset.farmerId;
+        const { ok, data } = await apiFetch('/farmers/' + encodeURIComponent(id) + '/');
+        if (!ok || !data.ok) {
+          showToast(data.error || 'Could not load farmer details.', 'error');
+          return;
+        }
+        openFarmerSheet(data.farmer, card.dataset.mode || 'jbl_visit');
+      });
+    });
   }
 
   function renderBatchesList(listEl, batches, cfg) {
@@ -1175,6 +1223,7 @@
   }
   // Bootstrap
   async function init() {
+    configureHtmx();
     await loadMeta();
     switchPage('dashboard');
     loadDashboard();
