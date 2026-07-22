@@ -15,8 +15,10 @@ from django.utils import timezone
 from core.models import GroupSheetConfiguration, JawabuFarmerMaster, LiveSheetRecordChange, RequisitionBatch
 from core.services.jawabu_pipeline import (
     assign_order,
+    all_cases,
     credit_queue,
     deferred_queue,
+    farmer_to_card,
     final_review_queue,
     jbl_visit_queue,
     log_jbl_visit,
@@ -51,6 +53,8 @@ class JblPipelineServiceTestCase(TestCase):
             national_id='11111111',
             primary_phone='254711111111',
             sign_date='24-June-2026',
+            county='Kiambu',
+            branch='Ruiru',
             status='active',
         )
 
@@ -60,6 +64,8 @@ class JblPipelineServiceTestCase(TestCase):
             national_id='22222222',
             primary_phone='254722222222',
             sign_date='24-June-2026',
+            county='Kiambu',
+            branch='Thika',
             jbl_visit_date=date(2026, 6, 25),
             jbl_officer='Officer Bob',
             jbl_visit_status='Awaiting Analysis',
@@ -72,6 +78,8 @@ class JblPipelineServiceTestCase(TestCase):
             national_id='33333332',
             primary_phone='254733333332',
             sign_date='24-June-2026',
+            county='Nakuru',
+            branch='Naivasha',
             jbl_visit_date=date(2026, 6, 25),
             jbl_officer='Officer Bob',
             jbl_visit_status='Approved',
@@ -87,6 +95,8 @@ class JblPipelineServiceTestCase(TestCase):
             national_id='33333333',
             primary_phone='254733333333',
             sign_date='24-June-2026',
+            county='Nakuru',
+            branch='Naivasha',
             jbl_visit_date=date(2026, 6, 25),
             jbl_officer='Officer Bob',
             jbl_visit_status='Approved',
@@ -103,6 +113,8 @@ class JblPipelineServiceTestCase(TestCase):
             national_id='44444444',
             primary_phone='254744444444',
             sign_date='24-June-2026',
+            county='Meru',
+            branch='Maua',
             jbl_visit_date=date(2026, 6, 25),
             jbl_officer='Officer Bob',
             jbl_visit_status='Approved',
@@ -158,6 +170,18 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(counts['requisition_queue'], 1)
         self.assertEqual(counts['total'], 5)
 
+    def test_all_cases_filters_by_county_and_branch(self):
+        """Verify all-cases browsing supports combined county and branch filters."""
+        results = list(all_cases(county='Nakuru', branch='Naivasha'))
+        self.assertEqual(results, [self.farmer_stage_review, self.farmer_stage3])
+
+        branch_only = list(all_cases(branch='Thika'))
+        self.assertEqual(branch_only, [self.farmer_stage2])
+
+    def test_farmer_card_exposes_hb_visit_date_source(self):
+        card = farmer_to_card(self.farmer_stage1)
+        self.assertEqual(card['sign_date'], '24-June-2026')
+
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
     def test_log_jbl_visit(self, mock_sync):
         """Verify Advance from Stage 1 to Stage 2."""
@@ -194,6 +218,24 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(self.farmer_stage2.credit_decided_by, 'analyst_1')
         mock_sync.assert_called_once_with(self.farmer_stage2)
         mock_order_sync.assert_called_once_with(self.farmer_stage2)
+
+    @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
+    @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
+    def test_set_credit_decision_requires_imab_yes_for_terminal_decision(self, mock_sync, mock_order_sync):
+        """Verify terminal credit decisions cannot proceed when IMAB creation is not complete."""
+        ok, error = set_credit_decision(
+            self.farmer_stage2,
+            decision='Approved',
+            imab_created='No',
+            customer_no='15121',
+            sender='analyst_1',
+        )
+        self.assertFalse(ok)
+        self.assertIn('created in IMAB', error)
+        self.farmer_stage2.refresh_from_db()
+        self.assertEqual(self.farmer_stage2.credit_decision, '')
+        mock_sync.assert_not_called()
+        mock_order_sync.assert_not_called()
 
     @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
@@ -262,7 +304,7 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['ok'])
 
-@override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
+@override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, SECURE_SSL_REDIRECT=False)
 class JblPipelineApiTestCase(TestCase):
     """Test suite for the portal Mini App API endpoints."""
 
@@ -344,6 +386,44 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(self.farmer.credit_decision, 'Approved')
         self.assertEqual(self.farmer.imab_created, 'Yes')
         self.assertEqual(self.farmer.customer_no, '15122')
+
+    def test_set_credit_decision_api_blocks_imab_no(self):
+        """Verify the API blocks Head of Rural progression until IMAB is complete."""
+        self.farmer.jbl_visit_date = date(2026, 7, 1)
+        self.farmer.jbl_visit_status = 'Approved'
+        self.farmer.save()
+
+        payload = {'decision': 'Approved', 'imab_created': 'No', 'customer_no': '15122'}
+        url = reverse('portal_set_credit_decision', args=[self.farmer.id])
+        response = self.client.post(url, json.dumps(payload), content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.json()['ok'])
+        self.assertIn('created in IMAB', response.json()['error'])
+
+        self.farmer.refresh_from_db()
+        self.assertEqual(self.farmer.credit_decision, '')
+
+    def test_portal_all_cases_filters_by_branch(self):
+        """Verify all cases endpoint honors the branch filter from the Mini App."""
+        self.farmer.customer_name = 'Branch Filter Farmer'
+        self.farmer.county = 'Kiambu'
+        self.farmer.branch = 'Ruiru'
+        self.farmer.save()
+        other = JawabuFarmerMaster.objects.create(
+            customer_name='Other Branch Farmer',
+            national_id='88888888',
+            primary_phone='254788888888',
+            county='Kiambu',
+            branch='Thika',
+            status='active',
+        )
+
+        response = self.client.get(reverse('portal_all_cases'), {'county': 'Kiambu', 'branch': 'Ruiru'})
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        ids = {item['id'] for item in data['farmers']}
+        self.assertIn(str(self.farmer.id), ids)
+        self.assertNotIn(str(other.id), ids)
 
     def test_set_final_decision_api(self):
         """Verify Head of Rural final review stores decision and after-call comments."""

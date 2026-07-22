@@ -114,14 +114,16 @@ def deferred_queue():
         Q(jbl_visit_status__in=['Rejected by JBL', 'Cancelled', 'Client Withdrew', 'Opted for Cash'])
     ).order_by('-updated_at')
 
-def all_cases(search: str = '', county: str = ''):
+def all_cases(search: str = '', county: str = '', branch: str = ''):
     """
-    Full farmer list with optional search and county filter.
+    Full farmer list with optional search, county, and branch filters.
     Aggregates across all groups.
     """
     qs = JawabuFarmerMaster.objects.all()
     if county:
         qs = qs.filter(county__iexact=county)
+    if branch:
+        qs = qs.filter(branch__iexact=branch)
     if search:
         from django.db.models import Q
         qs = qs.filter(
@@ -213,8 +215,11 @@ def set_credit_decision(
 
     imab_created = str(imab_created or '').strip()
     customer_no = str(customer_no or '').strip()
-    if decision in CREDIT_TERMINAL and (not imab_created or not customer_no):
-        return False, 'IS CUSTOMER CREATED ON IMAB and CUSTOMER NO are required before the case can reach Head of Rural review.'
+    if decision in CREDIT_TERMINAL:
+        if imab_created != 'Yes':
+            return False, 'Customer must be created in IMAB before the case can reach Head of Rural review.'
+        if not customer_no:
+            return False, 'CUSTOMER NO is required once the customer is created in IMAB.'
 
     farmer.credit_decision = decision
     farmer.imab_created = imab_created

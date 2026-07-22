@@ -83,8 +83,14 @@
   function fmt(v) { return v || '-'; }
   function fmtDate(v) {
     if (!v) return '-';
-    const d = new Date(v);
-    if (isNaN(d.getTime())) return '-';
+    let d;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(String(v))) {
+      const [year, month, day] = String(v).split('-').map(Number);
+      d = new Date(year, month - 1, day);
+    } else {
+      d = new Date(v);
+    }
+    if (isNaN(d.getTime())) return String(v);
     const day = String(d.getDate()).padStart(2, '0');
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const month = months[d.getMonth()];
@@ -137,10 +143,10 @@
       updateBatchPanel();
     }
 
-    // Show filter bar only on list queue views (jbl, credit, requisition, deferred)
+    // Show filter bar on farmer list views.
     const filterBar = el('portal-filter-bar');
     if (filterBar) {
-      if (page === 'dashboard' || page === 'all' || page === 'batches') {
+      if (page === 'dashboard' || page === 'batches') {
         filterBar.style.display = 'none';
       } else {
         filterBar.style.display = 'flex';
@@ -239,6 +245,8 @@
     if (qKey === 'all') {
       const searchVal = state.search || '';
       if (searchVal) url += '&search=' + encodeURIComponent(searchVal);
+      if (state.filters.county) url += '&county=' + encodeURIComponent(state.filters.county);
+      if (state.filters.branch) url += '&branch=' + encodeURIComponent(state.filters.branch);
     }
 
     const { ok, data } = await apiFetch(url);
@@ -264,6 +272,7 @@
       updateFilterOptions(farmers);
       applyFilters();
     } else {
+      if (qKey === 'all') updateFilterOptions(farmers);
       renderFarmerList(listEl, farmers, cfg, qKey);
     }
     renderPagination(qKey, data.pagination);
@@ -467,6 +476,7 @@
           <div class="fc-name">${f.customer_name || f.national_id || f.primary_phone || 'Unknown'}</div>
           <div class="fc-sub">${fmt(f.county)}${f.sub_county ? ' | ' + f.sub_county : ''}${f.branch ? ' | ' + f.branch : ''}</div>
           <div class="fc-sub">${f.primary_phone || ''}</div>
+          ${qKey === 'jbl' && f.sign_date ? `<div class="fc-sub fc-visit-date">HB visit: ${escapeHtml(fmtDate(f.sign_date))}</div>` : ''}
           <div class="fc-badges">
             ${stageBadge(f)}
             ${jblBadge(f)}
@@ -564,6 +574,7 @@
             <div class="fc-name">${f.customer_name || f.national_id || f.primary_phone || 'Unknown'}</div>
             <div class="fc-sub">${fmt(f.county)}${f.sub_county ? ' | ' + f.sub_county : ''}${f.branch ? ' | ' + f.branch : ''}</div>
             <div class="fc-sub">${f.primary_phone || ''}</div>
+            ${qKey === 'jbl' && f.sign_date ? `<div class="fc-sub fc-visit-date">HB visit: ${escapeHtml(fmtDate(f.sign_date))}</div>` : ''}
             <div class="fc-badges">
               ${stageBadge(f)}
               ${jblBadge(f)}
@@ -670,6 +681,7 @@
       formEl.innerHTML = buildCreditForm(farmer);
       footerEl.innerHTML = `<button class="primary" id="btn-submit-credit">Set Credit Decision</button>`;
       el('btn-submit-credit').addEventListener('click', submitCreditDecision);
+      wireCreditImabFields();
     } else if (mode === 'final_review') {
       formEl.innerHTML = buildFinalReviewForm(farmer);
       footerEl.innerHTML = `<button class="primary" id="btn-submit-final">Save Final Review</button>`;
@@ -698,6 +710,7 @@
     }
 
     el('sheet-overlay').classList.add('open');
+    if (window.lucide) window.lucide.createIcons();
   }
 
   function initMap(lat, lng) {
@@ -839,6 +852,7 @@
     const imabOptions = (state.metaImabOptions.length ? state.metaImabOptions : ['Yes', 'No', 'Pending']).map(v =>
       `<option value="${v}"${farmer.imab_created === v ? ' selected' : ''}>${v}</option>`
     ).join('');
+    const customerNoDisabled = farmer.imab_created !== 'Yes';
     return `
       <div class="form-section">
         <div class="form-row">
@@ -851,11 +865,31 @@
         </div>
         <div class="form-row">
           <label>CUSTOMER NO</label>
-          <input type="text" id="credit-customer-no" inputmode="numeric" pattern="[0-9]*" placeholder="IMAB customer number" value="${escapeHtml(farmer.customer_no || '')}">
+          <input type="text" id="credit-customer-no" inputmode="numeric" pattern="[0-9]*" placeholder="IMAB customer number" value="${escapeHtml(customerNoDisabled ? '' : (farmer.customer_no || ''))}"${customerNoDisabled ? ' disabled' : ''}>
+          <small id="credit-imab-help" class="field-help">${customerNoDisabled ? 'Select Yes after IMAB creation before entering a customer number.' : 'Required before this case can move to Head of Rural review.'}</small>
         </div>
       </div>
       ${farmer.jbl_visit_comment ? `<div class="info-row"><span class="ir-label">JBL Comment</span><span class="ir-value">${escapeHtml(farmer.jbl_visit_comment)}</span></div>` : ''}
     `;
+  }
+
+  function wireCreditImabFields() {
+    const imab = el('credit-imab');
+    const customerNo = el('credit-customer-no');
+    const help = el('credit-imab-help');
+    if (!imab || !customerNo) return;
+    const sync = () => {
+      const enabled = imab.value === 'Yes';
+      customerNo.disabled = !enabled;
+      if (!enabled) customerNo.value = '';
+      if (help) {
+        help.textContent = enabled
+          ? 'Required before this case can move to Head of Rural review.'
+          : 'Select Yes after IMAB creation before entering a customer number.';
+      }
+    };
+    imab.addEventListener('change', sync);
+    sync();
   }
 
   function buildFinalReviewForm(farmer) {
@@ -869,7 +903,7 @@
           <label>Client Phone</label>
           <div style="display:flex;gap:8px;align-items:center;width:100%;">
             <input type="tel" value="${escapeHtml(farmer.primary_phone || '')}" readonly style="flex:1;">
-            ${phone ? `<a class="btn btn-primary" href="tel:+${phone.replace(/^\+/, '')}" style="height:38px;display:inline-flex;align-items:center;gap:6px;text-decoration:none;white-space:nowrap;">Call</a>` : ''}
+            ${phone ? `<a class="phone-call-button" href="tel:+${phone.replace(/^\+/, '')}" aria-label="Call client"><i data-lucide="phone"></i></a>` : ''}
           </div>
         </div>
         <div class="form-row">
@@ -991,7 +1025,8 @@
     const imabCreated = el('credit-imab')?.value || '';
     const customerNo = (el('credit-customer-no')?.value || '').replace(/[^0-9]/g, '');
     if (!decision) { showToast('Please select a decision', 'error'); return; }
-    if (!imabCreated || !customerNo) { showToast('IMAB status and Customer No are required before Head of Rural review.', 'error'); return; }
+    if (imabCreated !== 'Yes') { showToast('Create the customer in IMAB before sending this case to Head of Rural review.', 'error'); return; }
+    if (!customerNo) { showToast('Enter the IMAB Customer No before sending this case to Head of Rural review.', 'error'); return; }
 
     const btn = el('btn-submit-credit');
     btn.disabled = true;
@@ -1074,21 +1109,30 @@
     state.filters.county = e.target.value;
     state.filters.branch = ''; // reset branch if county changed
     const qKey = state.activePage;
-    updateFilterOptions(state.queues[qKey] || []);
-    applyFilters();
+    if (qKey === 'all') {
+      loadQueue('all', 1);
+    } else {
+      updateFilterOptions(state.queues[qKey] || []);
+      applyFilters();
+    }
   });
 
   el('filter-branch')?.addEventListener('change', e => {
     state.filters.branch = e.target.value;
-    applyFilters();
+    if (state.activePage === 'all') loadQueue('all', 1);
+    else applyFilters();
   });
 
   el('btn-clear-filters')?.addEventListener('click', () => {
     state.filters.county = '';
     state.filters.branch = '';
     const qKey = state.activePage;
-    updateFilterOptions(state.queues[qKey] || []);
-    applyFilters();
+    if (qKey === 'all') {
+      loadQueue('all', 1);
+    } else {
+      updateFilterOptions(state.queues[qKey] || []);
+      applyFilters();
+    }
   });
   // Search (All Cases tab)
   let searchTimer;

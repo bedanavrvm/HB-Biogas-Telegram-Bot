@@ -568,12 +568,13 @@ def portal_assign_order(request, farmer_id: str):
 def portal_all_cases(request):
     """
     GET /api/portal/farmers/
-    Query params: search, county, page
+    Query params: search, county, branch, page
     """
     from core.services.jawabu_pipeline import all_cases, farmer_to_card
     search = request.GET.get('search', '').strip()
     county = request.GET.get('county', '').strip()
-    qs = all_cases(search=search, county=county)
+    branch = request.GET.get('branch', '').strip()
+    qs = all_cases(search=search, county=county, branch=branch)
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
