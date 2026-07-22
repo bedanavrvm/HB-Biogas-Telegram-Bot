@@ -29,6 +29,10 @@ CSRF_TRUSTED_ORIGINS = [
 
 # Application definition
 INSTALLED_APPS = [
+    'unfold',
+    'unfold.contrib.filters',
+    'unfold.contrib.forms',
+    'unfold.contrib.inlines',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -38,6 +42,27 @@ INSTALLED_APPS = [
     # Local apps
     'core',
 ]
+
+UNFOLD = {
+    'SITE_TITLE': 'JBL Workflow Admin',
+    'SITE_HEADER': 'JBL/Jawabu HomeBiogas Operations',
+    'SITE_URL': '/',
+    'COLORS': {
+        'primary': {
+            '50': '240 253 250',
+            '100': '204 251 241',
+            '200': '153 246 228',
+            '300': '94 234 212',
+            '400': '45 212 191',
+            '500': '20 184 166',
+            '600': '13 148 136',
+            '700': '15 118 110',
+            '800': '17 94 89',
+            '900': '19 78 74',
+            '950': '4 47 46',
+        },
+    },
+}
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

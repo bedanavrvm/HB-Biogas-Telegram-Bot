@@ -8,6 +8,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.urls import path, reverse
 from django.utils.html import format_html
+from unfold.admin import ModelAdmin, StackedInline
 from urllib.parse import urlencode
 
 from core.services.workflow_presets import (
@@ -85,7 +86,7 @@ for _product_key, _product in PRODUCTS.items():
     TAT_TARGET_FIELD_GROUPS.append((_product_key, _product.label, tuple(_fields)))
 
 
-class ReadOnlyAuditAdmin(admin.ModelAdmin):
+class ReadOnlyAuditAdmin(ModelAdmin):
     """Prevent admin edits that would not be written back to the live sheet."""
 
     def get_readonly_fields(self, request, obj=None):
@@ -799,7 +800,7 @@ class JawabuFarmerUploadBatchAdmin(ReadOnlyAuditAdmin):
     search_fields = ['source_filename', 'group_id', 'sender', 'telegram_message_id', 'error']
     readonly_fields = ['id', 'created_at', 'updated_at', 'committed_at']
 @admin.register(JawabuFarmerMaster)
-class JawabuFarmerMasterAdmin(admin.ModelAdmin):
+class JawabuFarmerMasterAdmin(ModelAdmin):
     list_display = [
         'customer_name', 'national_id', 'primary_phone', 'county',
         'sub_county', 'lead_source', 'hb_sales_person', 'status', 'updated_at',
@@ -974,7 +975,7 @@ class TatTrackerStaffMemberAdminForm(forms.ModelForm):
         self.fields[field_name].initial = values
 
 
-class TatTrackerStaffMemberInline(admin.StackedInline):
+class TatTrackerStaffMemberInline(StackedInline):
     model = TatTrackerStaffMember
     form = TatTrackerStaffMemberAdminForm
     extra = 1
@@ -986,7 +987,7 @@ class TatTrackerStaffMemberInline(admin.StackedInline):
     verbose_name_plural = 'TAT tracker staff GUI'
 
 
-class ComplaintCaseStaffMemberInline(admin.StackedInline):
+class ComplaintCaseStaffMemberInline(StackedInline):
     model = ComplaintCaseStaffMember
     extra = 1
     fields = ('active', 'name', 'telegram_user_id', 'telegram_username', 'role', 'notes')
@@ -994,7 +995,7 @@ class ComplaintCaseStaffMemberInline(admin.StackedInline):
     verbose_name_plural = 'Complaint case Mini App staff'
 
 @admin.register(GroupSheetConfiguration)
-class GroupSheetConfigurationAdmin(admin.ModelAdmin):
+class GroupSheetConfigurationAdmin(ModelAdmin):
     form = GroupSheetConfigurationAdminForm
     inlines = []
     actions = ['publish_jbl_apps_launchers', 'preview_jbl_apps_launchers']
@@ -1757,7 +1758,7 @@ class GroupSheetConfigurationAdmin(admin.ModelAdmin):
 
 
 @admin.register(TatTrackerStaffMember)
-class TatTrackerStaffMemberAdmin(admin.ModelAdmin):
+class TatTrackerStaffMemberAdmin(ModelAdmin):
     form = TatTrackerStaffMemberAdminForm
     list_display = [
         'name', 'group_configuration', 'active', 'telegram_user_id',
@@ -1782,7 +1783,7 @@ class TatTrackerStaffMemberAdmin(admin.ModelAdmin):
         GroupSheetConfigurationAdmin._clear_runtime_config_cache()
 
 @admin.register(RequisitionTemplate)
-class RequisitionTemplateAdmin(admin.ModelAdmin):
+class RequisitionTemplateAdmin(ModelAdmin):
     list_display = ('name', 'is_active', 'file', 'created_at', 'updated_at')
     list_editable = ('is_active',)
     search_fields = ('name',)
@@ -1816,3 +1817,9 @@ class SpinBatchReviewItemAdmin(ReadOnlyAuditAdmin):
     list_filter = ('group_id', 'category', 'status', 'created_at')
     search_fields = ('source_sender', 'raw_message', 'source_message_hash', 'reviewed_by')
     readonly_fields = [field.name for field in SpinBatchReviewItem._meta.fields]
+
+
+from core.admin_utils import auto_register_unregistered_models
+
+
+AUTO_REGISTERED_MODELS = auto_register_unregistered_models()
