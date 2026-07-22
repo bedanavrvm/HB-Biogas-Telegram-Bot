@@ -8,8 +8,8 @@
         <button
           type="button"
           class="btn btn-secondary"
-          hx-get="/api/portal/jbl-queue/fragment/?page={{ pagination.page|add:'-1' }}{% if county %}&county={{ county|urlencode }}{% endif %}{% if branch %}&branch={{ branch|urlencode }}{% endif %}"
-          hx-target="#jbl-list"
+          hx-get="/api/portal/queues/{{ queue_key }}/fragment/?page={{ pagination.page|add:'-1' }}{% if search %}&search={{ search|urlencode }}{% endif %}{% if county %}&county={{ county|urlencode }}{% endif %}{% if branch %}&branch={{ branch|urlencode }}{% endif %}"
+          hx-target="#{% if queue_key == 'requisition' %}req{% else %}{{ queue_key }}{% endif %}-list"
           hx-swap="innerHTML"
         >Previous</button>
       {% endif %}
@@ -18,8 +18,8 @@
         <button
           type="button"
           class="btn btn-secondary"
-          hx-get="/api/portal/jbl-queue/fragment/?page={{ pagination.page|add:'1' }}{% if county %}&county={{ county|urlencode }}{% endif %}{% if branch %}&branch={{ branch|urlencode }}{% endif %}"
-          hx-target="#jbl-list"
+          hx-get="/api/portal/queues/{{ queue_key }}/fragment/?page={{ pagination.page|add:'1' }}{% if search %}&search={{ search|urlencode }}{% endif %}{% if county %}&county={{ county|urlencode }}{% endif %}{% if branch %}&branch={{ branch|urlencode }}{% endif %}"
+          hx-target="#{% if queue_key == 'requisition' %}req{% else %}{{ queue_key }}{% endif %}-list"
           hx-swap="innerHTML"
         >Next</button>
       {% endif %}

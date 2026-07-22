@@ -3,6 +3,14 @@
   data-farmer-id="{{ farmer.id }}"
   data-mode="{{ mode|default:'' }}"
 >
+  {% if queue_key == "requisition" %}
+    <input
+      type="checkbox"
+      class="farmer-card-checkbox"
+      data-id="{{ farmer.id }}"
+      onclick="event.stopPropagation();"
+    >
+  {% endif %}
   <div style="flex: 1;">
     <div class="fc-name">{{ farmer.customer_name|default:farmer.national_id|default:farmer.primary_phone|default:"Unknown" }}</div>
     <div class="fc-sub">
@@ -21,6 +29,9 @@
       {% endif %}
       {% if farmer.credit_decision %}
         <span class="badge badge-green">{{ farmer.credit_decision }}</span>
+      {% endif %}
+      {% if farmer.final_decision %}
+        <span class="badge badge-green">Final: {{ farmer.final_decision }}</span>
       {% endif %}
       {% if farmer.order_number %}
         <span class="badge badge-green">Order: {{ farmer.order_number }}</span>

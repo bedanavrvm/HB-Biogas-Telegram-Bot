@@ -46,10 +46,12 @@
       if (raw) event.detail.headers['X-Telegram-Init-Data'] = raw;
     });
     document.body.addEventListener('htmx:afterSwap', event => {
-      if (event.detail.target?.id === 'jbl-list') {
-        hydrateHtmxFarmerCards(event.detail.target);
+      const qKey = queueKeyForList(event.detail.target?.id);
+      if (qKey) {
+        if (qKey === 'batches') hydrateHtmxBatchCards(event.detail.target);
+        else hydrateHtmxFarmerCards(event.detail.target);
         const page = new URL(event.detail.xhr.responseURL).searchParams.get('page');
-        state.pages.jbl = parseInt(page || '1', 10) || 1;
+        state.pages[qKey] = parseInt(page || '1', 10) || 1;
         if (window.lucide) window.lucide.createIcons();
       }
     });
@@ -242,14 +244,20 @@
   });
   // Generic queue loader
   const queueConfig = {
-    jbl: { endpoint: '/jbl-queue/', listId: 'jbl-list', pageKey: 'jbl', mode: 'jbl_visit', emptyTitle: 'All caught up!', emptySub: 'No farmers are waiting for a JBL visit.' },
-    credit: { endpoint: '/credit-queue/', listId: 'credit-list', pageKey: 'credit', mode: 'credit', emptyTitle: 'No BRO analysis cases', emptySub: 'No farmers are awaiting BRO credit analysis.' },
-    final: { endpoint: '/final-review-queue/', listId: 'final-list', pageKey: 'final', mode: 'final_review', emptyTitle: 'No final review cases', emptySub: 'No clients are awaiting Head of Rural review.' },
-    requisition: { endpoint: '/requisition-queue/', listId: 'req-list', pageKey: 'requisition', mode: 'requisition', emptyTitle: 'No approved cases', emptySub: 'No credit-approved farmers are awaiting an order number.' },
-    deferred: { endpoint: '/deferred/', listId: 'deferred-list', pageKey: 'deferred', mode: null, emptyTitle: 'No deferred cases', emptySub: 'No farmers are deferred or flagged.' },
-    all: { endpoint: '/farmers/', listId: 'all-list', pageKey: 'all', mode: null, emptyTitle: 'No farmers found', emptySub: 'Try a different search term.' },
-    batches: { endpoint: '/requisition-batches/', listId: 'batches-list', pageKey: 'batches', mode: null, emptyTitle: 'No batches found', emptySub: 'No requisition batches have been generated yet.' },
+    jbl: { endpoint: '/jbl-queue/', fragmentEndpoint: '/queues/jbl/fragment/', listId: 'jbl-list', pageKey: 'jbl', mode: 'jbl_visit', emptyTitle: 'All caught up!', emptySub: 'No farmers are waiting for a JBL visit.' },
+    credit: { endpoint: '/credit-queue/', fragmentEndpoint: '/queues/credit/fragment/', listId: 'credit-list', pageKey: 'credit', mode: 'credit', emptyTitle: 'No BRO analysis cases', emptySub: 'No farmers are awaiting BRO credit analysis.' },
+    final: { endpoint: '/final-review-queue/', fragmentEndpoint: '/queues/final/fragment/', listId: 'final-list', pageKey: 'final', mode: 'final_review', emptyTitle: 'No final review cases', emptySub: 'No clients are awaiting Head of Rural review.' },
+    requisition: { endpoint: '/requisition-queue/', fragmentEndpoint: '/queues/requisition/fragment/', listId: 'req-list', pageKey: 'requisition', mode: 'requisition', emptyTitle: 'No approved cases', emptySub: 'No credit-approved farmers are awaiting an order number.' },
+    deferred: { endpoint: '/deferred/', fragmentEndpoint: '/queues/deferred/fragment/', listId: 'deferred-list', pageKey: 'deferred', mode: null, emptyTitle: 'No deferred cases', emptySub: 'No farmers are deferred or flagged.' },
+    all: { endpoint: '/farmers/', fragmentEndpoint: '/queues/all/fragment/', listId: 'all-list', pageKey: 'all', mode: null, emptyTitle: 'No farmers found', emptySub: 'Try a different search term.' },
+    batches: { endpoint: '/requisition-batches/', fragmentEndpoint: '/requisition-batches/fragment/', listId: 'batches-list', pageKey: 'batches', mode: null, emptyTitle: 'No batches found', emptySub: 'No requisition batches have been generated yet.' },
   };
+
+  function queueKeyForList(listId) {
+    if (!listId) return null;
+    const entry = Object.entries(queueConfig).find(([, cfg]) => cfg.listId === listId && cfg.fragmentEndpoint);
+    return entry ? entry[0] : null;
+  }
 
   async function loadQueue(qKey, page = 1) {
     const cfg = queueConfig[qKey];
@@ -263,6 +271,9 @@
       if (searchVal) url += '&search=' + encodeURIComponent(searchVal);
       if (state.filters.county) url += '&county=' + encodeURIComponent(state.filters.county);
       if (state.filters.branch) url += '&branch=' + encodeURIComponent(state.filters.branch);
+    } else if (cfg.fragmentEndpoint) {
+      if (state.filters.county) url += '&county=' + encodeURIComponent(state.filters.county);
+      if (state.filters.branch) url += '&branch=' + encodeURIComponent(state.filters.branch);
     }
 
     const { ok, data } = await apiFetch(url);
@@ -273,8 +284,14 @@
       state.queues[qKey] = batches;
       state.pagination[qKey] = data.pagination || {};
       state.pages[qKey] = page;
-      renderBatchesList(listEl, batches, cfg);
-      renderPagination(qKey, data.pagination);
+      if (window.htmx) {
+        renderQueueFragment(qKey, page);
+        const pgEl = el('pg-batches');
+        if (pgEl) pgEl.innerHTML = '';
+      } else {
+        renderBatchesList(listEl, batches, cfg);
+        renderPagination(qKey, data.pagination);
+      }
       return;
     }
 
@@ -284,33 +301,32 @@
     state.pages[qKey] = page;
 
     // Apply filtering
-    if (qKey !== 'dashboard' && qKey !== 'all') {
+    if (cfg.fragmentEndpoint && window.htmx) {
       updateFilterOptions(farmers);
-      if (qKey === 'jbl' && window.htmx && !state.filters.county && !state.filters.branch) {
-        renderJblQueueFragment(page);
-      } else {
-        applyFilters();
-      }
+      renderQueueFragment(qKey, page);
+      const pgEl = el('pg-' + qKey);
+      if (pgEl) pgEl.innerHTML = '';
+    } else if (qKey !== 'dashboard' && qKey !== 'all') {
+      updateFilterOptions(farmers);
+      applyFilters();
     } else {
       if (qKey === 'all') updateFilterOptions(farmers);
       renderFarmerList(listEl, farmers, cfg, qKey);
     }
-    if (qKey === 'jbl' && window.htmx && !state.filters.county && !state.filters.branch) {
-      const pgEl = el('pg-jbl');
-      if (pgEl) pgEl.innerHTML = '';
-    } else {
+    if (!(cfg.fragmentEndpoint && window.htmx)) {
       renderPagination(qKey, data.pagination);
     }
   }
 
-  function renderJblQueueFragment(page = 1) {
-    const listEl = el('jbl-list');
-    if (!listEl || !window.htmx) return;
+  function renderQueueFragment(qKey, page = 1) {
+    const cfg = queueConfig[qKey];
+    if (!cfg?.fragmentEndpoint || !window.htmx || !el(cfg.listId)) return;
     const params = new URLSearchParams({ page: String(page) });
+    if (qKey === 'all' && state.search) params.set('search', state.search);
     if (state.filters.county) params.set('county', state.filters.county);
     if (state.filters.branch) params.set('branch', state.filters.branch);
-    window.htmx.ajax('GET', apiBase() + '/jbl-queue/fragment/?' + params.toString(), {
-      target: '#jbl-list',
+    window.htmx.ajax('GET', apiBase() + cfg.fragmentEndpoint + '?' + params.toString(), {
+      target: '#' + cfg.listId,
       swap: 'innerHTML'
     });
   }
@@ -319,6 +335,13 @@
     root.querySelectorAll('.htmx-farmer-card[data-farmer-id]').forEach(card => {
       if (card.dataset.bound === '1') return;
       card.dataset.bound = '1';
+      card.querySelector('.farmer-card-checkbox')?.addEventListener('change', event => {
+        event.stopPropagation();
+        const id = event.target.dataset.id;
+        if (event.target.checked) state.selectedRequisitions.add(id);
+        else state.selectedRequisitions.delete(id);
+        updateBatchPanel();
+      });
       card.addEventListener('click', async () => {
         const id = card.dataset.farmerId;
         const { ok, data } = await apiFetch('/farmers/' + encodeURIComponent(id) + '/');
@@ -326,7 +349,42 @@
           showToast(data.error || 'Could not load farmer details.', 'error');
           return;
         }
-        openFarmerSheet(data.farmer, card.dataset.mode || 'jbl_visit');
+        openFarmerSheet(data.farmer, card.dataset.mode || null);
+      });
+    });
+  }
+
+  function hydrateHtmxBatchCards(root) {
+    root.querySelectorAll('.btn-view-batch').forEach(btn => {
+      if (btn.dataset.bound === '1') return;
+      btn.dataset.bound = '1';
+      btn.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        openBatchDetail(btn.dataset.order);
+      });
+    });
+    root.querySelectorAll('.btn-download-batch').forEach(btn => {
+      if (btn.dataset.bound === '1') return;
+      btn.dataset.bound = '1';
+      btn.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        const url = btn.dataset.url || '';
+        if (!url) {
+          showToast('This batch has no saved requisition file. Regenerate it first.', 'error');
+          return;
+        }
+        openPortalLink(url);
+      });
+    });
+    root.querySelectorAll('.btn-upload-invoices').forEach(btn => {
+      if (btn.dataset.bound === '1') return;
+      btn.dataset.bound = '1';
+      btn.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        openInvoiceOverlay(btn.dataset.order);
       });
     });
   }
@@ -1182,9 +1240,9 @@
     const qKey = state.activePage;
     if (qKey === 'all') {
       loadQueue('all', 1);
-    } else if (qKey === 'jbl' && window.htmx) {
+    } else if (queueConfig[qKey]?.fragmentEndpoint && window.htmx) {
       updateFilterOptions(state.queues[qKey] || []);
-      renderJblQueueFragment(1);
+      renderQueueFragment(qKey, 1);
     } else {
       updateFilterOptions(state.queues[qKey] || []);
       applyFilters();
@@ -1194,7 +1252,7 @@
   el('filter-branch')?.addEventListener('change', e => {
     state.filters.branch = e.target.value;
     if (state.activePage === 'all') loadQueue('all', 1);
-    else if (state.activePage === 'jbl' && window.htmx) renderJblQueueFragment(1);
+    else if (queueConfig[state.activePage]?.fragmentEndpoint && window.htmx) renderQueueFragment(state.activePage, 1);
     else applyFilters();
   });
 
@@ -1204,9 +1262,9 @@
     const qKey = state.activePage;
     if (qKey === 'all') {
       loadQueue('all', 1);
-    } else if (qKey === 'jbl' && window.htmx) {
+    } else if (queueConfig[qKey]?.fragmentEndpoint && window.htmx) {
       updateFilterOptions(state.queues[qKey] || []);
-      renderJblQueueFragment(1);
+      renderQueueFragment(qKey, 1);
     } else {
       updateFilterOptions(state.queues[qKey] || []);
       applyFilters();

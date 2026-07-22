@@ -154,6 +154,35 @@ def _apply_county_branch_filters(qs, request):
     return qs
 
 
+PORTAL_QUEUE_FRAGMENT_CONFIG = {
+    'jbl': {'service': 'jbl_visit_queue', 'mode': 'jbl_visit', 'empty_title': 'All caught up!', 'empty_sub': 'No farmers match the current JBL visit filters.'},
+    'credit': {'service': 'credit_queue', 'mode': 'credit', 'empty_title': 'No BRO analysis cases', 'empty_sub': 'No farmers match the current credit filters.'},
+    'final': {'service': 'final_review_queue', 'mode': 'final_review', 'empty_title': 'No final review cases', 'empty_sub': 'No clients match the current final review filters.'},
+    'requisition': {'service': 'requisition_queue', 'mode': 'requisition', 'empty_title': 'No approved cases', 'empty_sub': 'No credit-approved farmers match the current filters.'},
+    'deferred': {'service': 'deferred_queue', 'mode': '', 'empty_title': 'No deferred cases', 'empty_sub': 'No deferred or flagged farmers match the current filters.'},
+    'all': {'service': 'all_cases', 'mode': '', 'empty_title': 'No farmers found', 'empty_sub': 'Try a different search term or filter.'},
+}
+
+
+def _portal_queue_queryset(queue_key: str, request):
+    from core.services import jawabu_pipeline
+
+    config = PORTAL_QUEUE_FRAGMENT_CONFIG.get(queue_key)
+    if not config:
+        return None, None
+
+    if queue_key == 'all':
+        qs = jawabu_pipeline.all_cases(
+            search=request.GET.get('search', '').strip(),
+            county=request.GET.get('county', '').strip(),
+            branch=request.GET.get('branch', '').strip(),
+        )
+    else:
+        qs = getattr(jawabu_pipeline, config['service'])()
+        qs = _apply_county_branch_filters(qs, request)
+    return qs, config
+
+
 # ── Render View ───────────────────────────────────────────────────────────────
 
 
@@ -257,6 +286,66 @@ def _serialize_batch(batch, farmers, request, include_farmers: bool = True) -> d
         'farmers': farmers_payload,
     }
 
+
+def _portal_requisition_batches_payload(request) -> tuple[list[dict], dict]:
+    from django.db.models import Count, Max
+    from core.models import JawabuFarmerMaster, RequisitionBatch
+
+    county = (request.GET.get('county') or '').strip().lower()
+    branch = (request.GET.get('branch') or '').strip().lower()
+
+    batches_list = []
+    seen_orders = set()
+    for batch in RequisitionBatch.objects.all().order_by('-requisition_date', '-updated_at'):
+        farmers = _farmers_for_batch(batch.order_number, batch.farmer_ids or None)
+        if county:
+            farmers = [farmer for farmer in farmers if (farmer.county or '').lower() == county]
+        if branch:
+            farmers = [farmer for farmer in farmers if (farmer.branch or '').lower() == branch]
+        if (county or branch) and not farmers:
+            continue
+        batches_list.append(_serialize_batch(batch, farmers, request))
+        seen_orders.add(batch.order_number)
+
+    qs = JawabuFarmerMaster.objects.filter(order_number__isnull=False).exclude(order_number='')
+    if county:
+        qs = qs.filter(county__iexact=county)
+    if branch:
+        qs = qs.filter(branch__iexact=branch)
+    legacy_data = qs.exclude(order_number__in=seen_orders).values('order_number').annotate(
+        req_date=Max('requisition_date'),
+        farmer_count=Count('id'),
+    )
+    for item in legacy_data:
+        order_no = item['order_number']
+        farmers = list(qs.filter(order_number=order_no).order_by('customer_name'))
+        summary = _invoice_summary_for_farmers(farmers)
+        pseudo = RequisitionBatch(
+            order_number=order_no,
+            requisition_date=item['req_date'],
+            farmer_count=item['farmer_count'],
+            status=summary.get('status', 'generated'),
+            invoice_summary=summary,
+        )
+        payload = _serialize_batch(pseudo, farmers, request)
+        payload.update({
+            'id': '',
+            'generated_by': '',
+            'generated_at': '',
+            'updated_at': '',
+            'filename': '',
+            'has_requisition_file': False,
+            'download_url': '',
+            'last_invoice_result': {},
+        })
+        batches_list.append(payload)
+
+    batches_list.sort(
+        key=lambda item: (item.get('requisition_date') or '', item.get('updated_at') or '', item.get('order_number') or ''),
+        reverse=True,
+    )
+    return _paginate_list(batches_list, request)
+
 @require_http_methods(["GET", "HEAD"])
 def portal_home(request):
     """Render the main JBL Pipeline Portal Mini App page."""
@@ -313,19 +402,30 @@ def portal_jbl_queue(request):
 @require_http_methods(["GET"])
 def portal_jbl_queue_fragment(request):
     """GET /api/portal/jbl-queue/fragment/ - htmx-rendered JBL visit queue."""
-    from core.services.jawabu_pipeline import jbl_visit_queue, farmer_to_card
+    return portal_queue_fragment(request, 'jbl')
 
-    qs = _apply_county_branch_filters(jbl_visit_queue(), request)
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def portal_queue_fragment(request, queue_key: str):
+    """GET /api/portal/queues/<queue_key>/fragment/ - htmx-rendered farmer queue."""
+    from core.services.jawabu_pipeline import farmer_to_card
+
+    qs, config = _portal_queue_queryset(queue_key, request)
+    if qs is None:
+        return HttpResponse('Unknown portal queue.', status=404)
+
     items, pagination = _paginate_qs(qs, request)
     return render(request, 'portal/partials/farmer_list.html', {
         'farmers': [farmer_to_card(f) for f in items],
         'pagination': pagination,
-        'queue_key': 'jbl',
-        'mode': 'jbl_visit',
+        'queue_key': queue_key,
+        'mode': config['mode'],
         'county': request.GET.get('county', '').strip(),
         'branch': request.GET.get('branch', '').strip(),
-        'empty_title': 'All caught up!',
-        'empty_sub': 'No farmers match the current JBL visit filters.',
+        'search': request.GET.get('search', '').strip(),
+        'empty_title': config['empty_title'],
+        'empty_sub': config['empty_sub'],
     })
 
 
@@ -428,7 +528,7 @@ def portal_upload_jbl_media(request, farmer_id: str):
 def portal_credit_queue(request):
     """GET /api/portal/credit-queue/ — farmers awaiting credit analysis."""
     from core.services.jawabu_pipeline import credit_queue, farmer_to_card
-    qs = credit_queue()
+    qs = _apply_county_branch_filters(credit_queue(), request)
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
@@ -485,7 +585,7 @@ def portal_set_credit_decision(request, farmer_id: str):
 def portal_final_review_queue(request):
     """GET /api/portal/final-review-queue/ - records awaiting Head of Rural final decision."""
     from core.services.jawabu_pipeline import final_review_queue, farmer_to_card
-    qs = final_review_queue()
+    qs = _apply_county_branch_filters(final_review_queue(), request)
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
@@ -538,7 +638,7 @@ def portal_set_final_decision(request, farmer_id: str):
 def portal_requisition_queue(request):
     """GET /api/portal/requisition-queue/ — credit-approved farmers awaiting order."""
     from core.services.jawabu_pipeline import requisition_queue, farmer_to_card
-    qs = requisition_queue()
+    qs = _apply_county_branch_filters(requisition_queue(), request)
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
@@ -624,7 +724,7 @@ def portal_all_cases(request):
 def portal_deferred(request):
     """GET /api/portal/deferred/ — deferred/rejected/flagged farmers."""
     from core.services.jawabu_pipeline import deferred_queue, farmer_to_card
-    qs = deferred_queue()
+    qs = _apply_county_branch_filters(deferred_queue(), request)
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
@@ -827,68 +927,26 @@ def portal_requisition_download(request, token: str):
 @require_http_methods(["GET"])
 def portal_requisition_batches(request):
     """GET /api/portal/requisition-batches/ - generated batch output history."""
-    from django.db.models import Count, Max
-    from core.models import JawabuFarmerMaster, RequisitionBatch
-
-    county = (request.GET.get('county') or '').strip().lower()
-    branch = (request.GET.get('branch') or '').strip().lower()
-
-    batches_list = []
-    seen_orders = set()
-    for batch in RequisitionBatch.objects.all().order_by('-requisition_date', '-updated_at'):
-        farmers = _farmers_for_batch(batch.order_number, batch.farmer_ids or None)
-        if county:
-            farmers = [farmer for farmer in farmers if (farmer.county or '').lower() == county]
-        if branch:
-            farmers = [farmer for farmer in farmers if (farmer.branch or '').lower() == branch]
-        if (county or branch) and not farmers:
-            continue
-        batches_list.append(_serialize_batch(batch, farmers, request))
-        seen_orders.add(batch.order_number)
-
-    # Include older sheet/order batches generated before RequisitionBatch existed.
-    qs = JawabuFarmerMaster.objects.filter(order_number__isnull=False).exclude(order_number='')
-    if county:
-        qs = qs.filter(county__iexact=county)
-    if branch:
-        qs = qs.filter(branch__iexact=branch)
-    legacy_data = qs.exclude(order_number__in=seen_orders).values('order_number').annotate(
-        req_date=Max('requisition_date'),
-        farmer_count=Count('id'),
-    )
-    for item in legacy_data:
-        order_no = item['order_number']
-        farmers = list(qs.filter(order_number=order_no).order_by('customer_name'))
-        summary = _invoice_summary_for_farmers(farmers)
-        pseudo = RequisitionBatch(
-            order_number=order_no,
-            requisition_date=item['req_date'],
-            farmer_count=item['farmer_count'],
-            status=summary.get('status', 'generated'),
-            invoice_summary=summary,
-        )
-        payload = _serialize_batch(pseudo, farmers, request)
-        payload.update({
-            'id': '',
-            'generated_by': '',
-            'generated_at': '',
-            'updated_at': '',
-            'filename': '',
-            'has_requisition_file': False,
-            'download_url': '',
-            'last_invoice_result': {},
-        })
-        batches_list.append(payload)
-
-    batches_list.sort(
-        key=lambda item: (item.get('requisition_date') or '', item.get('updated_at') or '', item.get('order_number') or ''),
-        reverse=True,
-    )
-    paged_batches, pagination = _paginate_list(batches_list, request)
+    paged_batches, pagination = _portal_requisition_batches_payload(request)
     return JsonResponse({
         'ok': True,
         'batches': paged_batches,
         'pagination': pagination,
+    })
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def portal_requisition_batches_fragment(request):
+    """GET /api/portal/requisition-batches/fragment/ - htmx-rendered batch history."""
+    paged_batches, pagination = _portal_requisition_batches_payload(request)
+    return render(request, 'portal/partials/batch_list.html', {
+        'batches': paged_batches,
+        'pagination': pagination,
+        'county': request.GET.get('county', '').strip(),
+        'branch': request.GET.get('branch', '').strip(),
+        'empty_title': 'No batches found',
+        'empty_sub': 'No requisition batches match the current filters.',
     })
 
 

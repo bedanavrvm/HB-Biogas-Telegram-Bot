@@ -1,0 +1,34 @@
+{% if batches %}
+  {% for batch in batches %}
+    {% include "portal/partials/batch_card.html" with batch=batch %}
+  {% endfor %}
+  {% if pagination.pages > 1 %}
+    <div class="pagination htmx-pagination">
+      {% if pagination.page > 1 %}
+        <button
+          type="button"
+          class="btn btn-secondary"
+          hx-get="/api/portal/requisition-batches/fragment/?page={{ pagination.page|add:'-1' }}{% if county %}&county={{ county|urlencode }}{% endif %}{% if branch %}&branch={{ branch|urlencode }}{% endif %}"
+          hx-target="#batches-list"
+          hx-swap="innerHTML"
+        >Previous</button>
+      {% endif %}
+      <span>Page {{ pagination.page }} of {{ pagination.pages }}</span>
+      {% if pagination.page < pagination.pages %}
+        <button
+          type="button"
+          class="btn btn-secondary"
+          hx-get="/api/portal/requisition-batches/fragment/?page={{ pagination.page|add:'1' }}{% if county %}&county={{ county|urlencode }}{% endif %}{% if branch %}&branch={{ branch|urlencode }}{% endif %}"
+          hx-target="#batches-list"
+          hx-swap="innerHTML"
+        >Next</button>
+      {% endif %}
+    </div>
+  {% endif %}
+{% else %}
+  <div class="empty-state">
+    <div class="es-icon">Box</div>
+    <div class="es-title">{{ empty_title }}</div>
+    <div class="es-sub">{{ empty_sub }}</div>
+  </div>
+{% endif %}

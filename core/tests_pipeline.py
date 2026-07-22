@@ -363,6 +363,86 @@ class JblPipelineApiTestCase(TestCase):
         self.assertContains(response, 'Pipeline test farmer')
         self.assertNotContains(response, 'Other branch farmer')
 
+    def test_portal_queue_fragment_renders_credit_final_requisition_and_all(self):
+        """Verify the shared htmx fragment supports the main farmer queues."""
+        credit_farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Credit queue farmer',
+            national_id='77777777',
+            primary_phone='254777777777',
+            sign_date='24-June-2026',
+            jbl_visit_date=date(2026, 7, 1),
+            jbl_visit_status='Awaiting Analysis',
+            county='Kiambu',
+            branch='Ruiru',
+            status='active',
+        )
+        final_farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Final queue farmer',
+            national_id='66666666',
+            primary_phone='254766666666',
+            sign_date='24-June-2026',
+            jbl_visit_date=date(2026, 7, 1),
+            credit_decision='Approved',
+            imab_created='Yes',
+            customer_no='15130',
+            county='Nakuru',
+            branch='Naivasha',
+            status='active',
+        )
+        req_farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Requisition queue farmer',
+            national_id='55555555',
+            primary_phone='254755555555',
+            sign_date='24-June-2026',
+            jbl_visit_date=date(2026, 7, 1),
+            credit_decision='Approved',
+            imab_created='Yes',
+            customer_no='15131',
+            final_decision='Approved',
+            county='Meru',
+            branch='Maua',
+            status='active',
+        )
+
+        credit_response = self.client.get(reverse('portal_queue_fragment', args=['credit']))
+        self.assertContains(credit_response, credit_farmer.customer_name)
+        self.assertContains(credit_response, 'data-mode="credit"')
+
+        final_response = self.client.get(reverse('portal_queue_fragment', args=['final']))
+        self.assertContains(final_response, final_farmer.customer_name)
+        self.assertContains(final_response, 'data-mode="final_review"')
+
+        requisition_response = self.client.get(reverse('portal_queue_fragment', args=['requisition']))
+        self.assertContains(requisition_response, req_farmer.customer_name)
+        self.assertContains(requisition_response, 'farmer-card-checkbox')
+
+        all_response = self.client.get(reverse('portal_queue_fragment', args=['all']), {'search': 'Pipeline test'})
+        self.assertContains(all_response, 'Pipeline test farmer')
+        self.assertNotContains(all_response, credit_farmer.customer_name)
+
+    def test_portal_requisition_batches_fragment_renders_actions(self):
+        """Verify the htmx batch fragment preserves batch action controls."""
+        self.farmer.order_number = 'JBL-ORD-001'
+        self.farmer.requisition_date = date(2026, 7, 2)
+        self.farmer.save()
+        RequisitionBatch.objects.create(
+            order_number='JBL-ORD-001',
+            requisition_date=date(2026, 7, 2),
+            generated_by='tester',
+            farmer_ids=[str(self.farmer.id)],
+            farmer_count=1,
+            status='generated',
+            invoice_summary={'invoiced_count': 0, 'pending_invoice_count': 1},
+        )
+
+        response = self.client.get(reverse('portal_requisition_batches_fragment'))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'portal/partials/batch_list.html')
+        self.assertContains(response, 'Order JBL-ORD-001')
+        self.assertContains(response, 'btn-view-batch')
+        self.assertContains(response, 'btn-download-batch')
+        self.assertContains(response, 'btn-upload-invoices')
+
     def test_dashboard_api(self):
         """Verify GET /api/portal/dashboard/ counts."""
         response = self.client.get(reverse('portal_dashboard'))

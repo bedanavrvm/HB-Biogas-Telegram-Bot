@@ -38,6 +38,7 @@ from .portal_views import (
     portal_meta,
     portal_jbl_queue,
     portal_jbl_queue_fragment,
+    portal_queue_fragment,
     portal_log_jbl_visit,
     portal_upload_jbl_media,
     portal_credit_queue,
@@ -50,6 +51,7 @@ from .portal_views import (
     portal_requisition_generate,
     portal_requisition_download,
     portal_requisition_batches,
+    portal_requisition_batches_fragment,
     portal_requisition_batch_detail,
     portal_requisition_batch_download,
     portal_upload_batch_invoices,
@@ -122,6 +124,7 @@ urlpatterns = [
     # Stage 2 - JBL Visit
     path('portal/jbl-queue/', portal_auth_required(portal_jbl_queue), name='portal_jbl_queue'),
     path('portal/jbl-queue/fragment/', portal_auth_required(portal_jbl_queue_fragment), name='portal_jbl_queue_fragment'),
+    path('portal/queues/<str:queue_key>/fragment/', portal_auth_required(portal_queue_fragment), name='portal_queue_fragment'),
     path('portal/jbl-queue/<str:farmer_id>/', portal_auth_required(portal_log_jbl_visit), name='portal_log_jbl_visit'),
     path('portal/jbl-queue/<str:farmer_id>/media/', portal_auth_required(portal_upload_jbl_media), name='portal_upload_jbl_media'),
     # Stage 3 - Credit Decision
@@ -136,6 +139,7 @@ urlpatterns = [
     path('portal/requisition-download/<str:token>/', portal_requisition_download, name='portal_requisition_download'),
     path('portal/requisition-queue/<str:farmer_id>/', portal_auth_required(portal_assign_order), name='portal_assign_order'),
     path('portal/requisition-batches/', portal_auth_required(portal_requisition_batches), name='portal_requisition_batches'),
+    path('portal/requisition-batches/fragment/', portal_auth_required(portal_requisition_batches_fragment), name='portal_requisition_batches_fragment'),
     path('portal/requisition-batches/upload-invoices/', portal_auth_required(portal_upload_batch_invoices), name='portal_upload_batch_invoices'),
     path('portal/requisition-batches/<str:order_number>/download/', portal_requisition_batch_download, name='portal_requisition_batch_download'),
     path('portal/requisition-batches/<str:order_number>/', portal_auth_required(portal_requisition_batch_detail), name='portal_requisition_batch_detail'),
