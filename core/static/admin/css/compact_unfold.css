@@ -85,3 +85,27 @@
         max-width: 18rem;
     }
 }
+
+body.change-list #changelist-filter {
+    justify-content: flex-end !important;
+}
+
+body.change-list #changelist-filter > div:last-child {
+    margin-left: auto !important;
+    margin-right: 1rem !important;
+}
+
+@media (min-width: 1536px) {
+    body.change-list #changelist .changelist-form-container {
+        flex-direction: row !important;
+    }
+
+    body.change-list #changelist-filter {
+        order: 2 !important;
+    }
+
+    body.change-list #changelist-filter > div:last-child {
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+    }
+}
