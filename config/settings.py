@@ -39,6 +39,10 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'health_check',
+    'health_check.db',
+    'health_check.storage',
+    'health_check.contrib.migrations',
     # Local apps
     'core',
 ]
@@ -47,6 +51,7 @@ UNFOLD = {
     'SITE_TITLE': 'JBL Workflow Admin',
     'SITE_HEADER': 'JBL/Jawabu HomeBiogas Operations',
     'SITE_URL': '/',
+    'DASHBOARD_CALLBACK': 'core.admin_dashboard.dashboard_callback',
     'COLORS': {
         'primary': {
             '50': '240 253 250',

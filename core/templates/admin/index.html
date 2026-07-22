@@ -1,0 +1,74 @@
+{% extends 'admin/base.html' %}
+
+{% load i18n %}
+
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block branding %}
+    {% include "unfold/helpers/site_branding.html" %}
+{% endblock %}
+
+{% block content %}
+    {% if ops_dashboard %}
+        <div class="mb-8">
+            <div class="mb-4 flex flex-col gap-1">
+                <h2 class="font-semibold text-font-important-light text-lg dark:text-font-important-dark">
+                    Operations Overview
+                </h2>
+                <p class="text-font-subtle-light text-sm dark:text-font-subtle-dark">
+                    Aggregate workflow state, generated {{ ops_dashboard.generated_at|date:"Y-m-d H:i" }}.
+                </p>
+            </div>
+
+            <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                {% for card in ops_dashboard.cards %}
+                    <a href="{{ card.url }}" class="block rounded border border-base-200 bg-white p-4 shadow-sm hover:border-primary-500 dark:border-base-800 dark:bg-base-900">
+                        <div class="text-font-subtle-light text-sm dark:text-font-subtle-dark">{{ card.title }}</div>
+                        <div class="mt-2 text-3xl font-semibold text-font-important-light dark:text-font-important-dark">{{ card.value }}</div>
+                        <div class="mt-1 text-font-subtle-light text-sm dark:text-font-subtle-dark">{{ card.detail }}</div>
+                    </a>
+                {% endfor %}
+            </div>
+
+            <div class="mt-4 grid gap-4 xl:grid-cols-3">
+                <div class="rounded border border-base-200 bg-white p-4 shadow-sm dark:border-base-800 dark:bg-base-900">
+                    <h3 class="mb-3 font-semibold text-font-important-light dark:text-font-important-dark">Attention Needed</h3>
+                    <div class="divide-y divide-base-200 dark:divide-base-800">
+                        {% for alert in ops_dashboard.alerts %}
+                            <a href="{{ alert.url }}" class="flex items-center justify-between py-2 text-sm">
+                                <span class="text-font-default-light dark:text-font-default-dark">{{ alert.label }}</span>
+                                <span class="{% if alert.count %}text-red-600 dark:text-red-400{% else %}text-green-700 dark:text-green-400{% endif %} font-semibold">{{ alert.count }}</span>
+                            </a>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                {% for section in ops_dashboard.status_sections %}
+                    <div class="rounded border border-base-200 bg-white p-4 shadow-sm dark:border-base-800 dark:bg-base-900">
+                        <h3 class="mb-3 font-semibold text-font-important-light dark:text-font-important-dark">{{ section.title }}</h3>
+                        <div class="space-y-2">
+                            {% for item in section.items %}
+                                <div class="flex items-center justify-between gap-3 text-sm">
+                                    <span class="truncate text-font-default-light dark:text-font-default-dark">{{ item.label }}</span>
+                                    <span class="{% if item.tone == 'success' %}bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200{% elif item.tone == 'danger' %}bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200{% elif item.tone == 'warning' %}bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200{% else %}bg-base-100 text-font-subtle-light dark:bg-base-800 dark:text-font-subtle-dark{% endif %} rounded px-2 py-1 font-semibold">
+                                        {{ item.count }}
+                                    </span>
+                                </div>
+                            {% empty %}
+                                <div class="text-font-subtle-light text-sm dark:text-font-subtle-dark">No records yet.</div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    {% endif %}
+
+    <div class="flex flex-col lg:flex-row lg:gap-8">
+        <div class="grow">
+            {% include "unfold/helpers/app_list_default.html" %}
+        </div>
+
+        {% include "unfold/helpers/history.html" %}
+    </div>
+{% endblock %}
