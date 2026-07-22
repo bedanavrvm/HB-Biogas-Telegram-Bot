@@ -52,6 +52,9 @@ UNFOLD = {
     'SITE_HEADER': 'JBL/Jawabu HomeBiogas Operations',
     'SITE_URL': '/',
     'DASHBOARD_CALLBACK': 'core.admin_dashboard.dashboard_callback',
+    'STYLES': [
+        '/static/admin/css/compact_unfold.css',
+    ],
     'COLORS': {
         'primary': {
             '50': '240 253 250',

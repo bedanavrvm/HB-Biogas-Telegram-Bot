@@ -82,6 +82,7 @@ class AdminMonitoringTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Operations Overview')
+        self.assertContains(response, '/static/admin/css/compact_unfold.css')
 
     def _processed_message_id(self):
         from core.models import ProcessedMessage, RawMessage

@@ -1,0 +1,87 @@
+/*
+ * Project-level density tweaks for django-unfold.
+ * Keep the admin useful for operational scanning instead of oversized forms.
+ */
+
+@media (min-width: 1024px) {
+    body.change-form #content,
+    body.change-list #content,
+    body.dashboard #content {
+        max-width: min(96vw, 1720px) !important;
+    }
+
+    body.change-form #content-main {
+        max-width: 1320px;
+    }
+
+    body.change-form .module > h2 {
+        margin-bottom: 1rem !important;
+        padding-bottom: .65rem !important;
+        padding-top: .65rem !important;
+    }
+
+    body.change-form fieldset.module {
+        margin-bottom: 1.25rem;
+    }
+
+    body.change-form .form-row,
+    body.change-form fieldset.module > div > div {
+        gap: .75rem !important;
+    }
+
+    body.change-form label {
+        line-height: 1.25rem;
+    }
+
+    body.change-form input:not([type='checkbox']):not([type='radio']),
+    body.change-form select {
+        min-height: 2.25rem !important;
+        padding-bottom: .45rem !important;
+        padding-top: .45rem !important;
+    }
+
+    body.change-form textarea {
+        min-height: 5.5rem;
+    }
+
+    body.change-form .help,
+    body.change-form .helptext {
+        margin-top: .25rem !important;
+        max-width: 62rem;
+    }
+
+    body.model-groupsheetconfiguration.change-form fieldset.preset-tat_tracker > div {
+        display: grid !important;
+        gap: .75rem 1rem !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    body.model-groupsheetconfiguration.change-form fieldset.preset-tat_tracker > div > div {
+        border-bottom: 1px solid var(--color-base-200);
+        padding-bottom: .6rem !important;
+    }
+
+    body.model-groupsheetconfiguration.change-form fieldset.preset-tat_tracker label {
+        font-size: .8125rem;
+    }
+
+    body.model-groupsheetconfiguration.change-form fieldset.preset-tat_tracker input {
+        max-width: 12rem;
+    }
+}
+
+@media (min-width: 1280px) {
+    body.change-list #changelist .changelist-form-container {
+        gap: 1rem !important;
+    }
+
+    body.change-list #result_list th,
+    body.change-list #result_list td {
+        padding-left: .65rem !important;
+        padding-right: .65rem !important;
+    }
+
+    body.change-list #changelist-filter {
+        max-width: 18rem;
+    }
+}
