@@ -7,6 +7,7 @@ from datetime import date, datetime
 from typing import Any
 from django.conf import settings
 from core.models import JawabuFarmerMaster
+from core.services.template_storage import TemplateStorageError, workbook_source_from_template
 
 
 class RequisitionTemplateError(RuntimeError):
@@ -70,26 +71,16 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
     from core.models import RequisitionTemplate
 
     active_template = RequisitionTemplate.objects.filter(is_active=True).first()
-    if active_template and active_template.file:
-        try:
-            template_path = active_template.file.path
-        except (NotImplementedError, ValueError):
-            template_path = ''
-        if not template_path or not os.path.exists(template_path):
-            raise RequisitionTemplateError(
-                'The active requisition template file is not available on this server. '
-                'Upload the Excel template again in Django Admin > Requisition templates, '
-                'or attach persistent storage for Render media files.'
-            )
-    else:
-        template_path = os.path.join(settings.BASE_DIR, 'requisition', 'JBL_Requisition_Form_184.xlsx')
-        if not os.path.exists(template_path):
-            raise RequisitionTemplateError(
-                'No requisition Excel template is configured. Upload the template in '
-                'Django Admin > Requisition templates and mark it active.'
-            )
+    fallback_path = os.path.join(settings.BASE_DIR, 'requisition', 'JBL_Requisition_Form_184.xlsx')
+    try:
+        template_source = workbook_source_from_template(active_template, fallback_path=fallback_path)
+    except TemplateStorageError as exc:
+        raise RequisitionTemplateError(
+            'No requisition Excel template is available. Upload the template in '
+            'Django Admin > Requisition templates and confirm it was stored in Google Drive.'
+        ) from exc
 
-    wb = openpyxl.load_workbook(template_path)
+    wb = openpyxl.load_workbook(template_source)
     ws = wb.active
     
     # 1. Search for date and order ref cell placeholders in rows 1 to 7

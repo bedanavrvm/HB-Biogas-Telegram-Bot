@@ -1488,6 +1488,18 @@ class RequisitionTemplate(models.Model):
     """
     name = models.CharField(max_length=255, default='JBL Requisition Form')
     file = models.FileField(upload_to='requisition/', help_text='Upload the Excel (.xlsx) template here.')
+    original_filename = models.CharField(max_length=255, blank=True, default='')
+    content_type = models.CharField(
+        max_length=255,
+        blank=True,
+        default='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    size = models.PositiveIntegerField(default=0)
+    checksum = models.CharField(max_length=64, blank=True, default='')
+    drive_file_id = models.CharField(max_length=255, blank=True, default='')
+    drive_url = models.URLField(max_length=1000, blank=True, default='')
+    drive_uploaded_at = models.DateTimeField(null=True, blank=True)
+    drive_upload_error = models.TextField(blank=True, default='')
     is_active = models.BooleanField(default=True, help_text='Mark this as the active template used for generation.')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1507,6 +1519,18 @@ class PaymentDocumentTemplate(models.Model):
     """
     name = models.CharField(max_length=255, default='HB Payment Document')
     file = models.FileField(upload_to='payment_documents/', help_text='Upload the Excel (.xlsx) payment template here.')
+    original_filename = models.CharField(max_length=255, blank=True, default='')
+    content_type = models.CharField(
+        max_length=255,
+        blank=True,
+        default='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    size = models.PositiveIntegerField(default=0)
+    checksum = models.CharField(max_length=64, blank=True, default='')
+    drive_file_id = models.CharField(max_length=255, blank=True, default='')
+    drive_url = models.URLField(max_length=1000, blank=True, default='')
+    drive_uploaded_at = models.DateTimeField(null=True, blank=True)
+    drive_upload_error = models.TextField(blank=True, default='')
     is_active = models.BooleanField(default=True, help_text='Mark this as the active template used for payment generation.')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

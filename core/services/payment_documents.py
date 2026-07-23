@@ -18,6 +18,7 @@ from openpyxl.utils import column_index_from_string, get_column_letter
 from core.models import JawabuFarmerMaster, ParsedInvoice, PaymentDocument, PaymentDocumentTemplate
 from core.services.invoice_parser import clean_amount
 from core.services.requisition import copy_row_formatting
+from core.services.template_storage import TemplateStorageError, workbook_source_from_template
 
 
 PAYMENT_TEMPLATE_FILENAME = 'HB_PAYMENT__89__7__machine_ready (1).xlsx'
@@ -42,25 +43,14 @@ class PaymentTemplateLayout:
 
 def _template_source():
     active_template = PaymentDocumentTemplate.objects.filter(is_active=True).first()
-    if active_template and active_template.file:
-        try:
-            template_path = active_template.file.path
-        except (NotImplementedError, ValueError):
-            template_path = ''
-        if not template_path or not Path(template_path).exists():
-            raise PaymentTemplateError(
-                'The active payment document template file is missing. '
-                'Upload it again in Django Admin > Payment document templates.'
-            )
-        return template_path
-
     fallback_path = Path('requisition') / PAYMENT_TEMPLATE_FILENAME
-    if fallback_path.exists():
-        return str(fallback_path)
-    raise PaymentTemplateError(
-        'No payment document template is configured. Upload one in '
-        'Django Admin > Payment document templates.'
-    )
+    try:
+        return workbook_source_from_template(active_template, fallback_path=fallback_path)
+    except TemplateStorageError as exc:
+        raise PaymentTemplateError(
+            'No payment document template is available. Upload one in '
+            'Django Admin > Payment document templates and confirm it was stored in Google Drive.'
+        ) from exc
 
 
 def _read_config_sheet(wb) -> dict[str, str]:

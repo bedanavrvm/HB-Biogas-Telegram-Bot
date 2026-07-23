@@ -1814,9 +1814,20 @@ class RequisitionTemplateAdmin(ModelAdmin):
     compressed_fields = True
     list_filter_submit = True
     list_fullwidth = True
-    list_display = ('name', 'is_active', 'file', 'created_at', 'updated_at')
+    list_display = ('name', 'is_active', 'file', 'drive_url', 'drive_uploaded_at', 'created_at', 'updated_at')
     list_editable = ('is_active',)
-    search_fields = ('name',)
+    readonly_fields = (
+        'original_filename', 'content_type', 'size', 'checksum',
+        'drive_file_id', 'drive_url', 'drive_uploaded_at', 'drive_upload_error',
+        'created_at', 'updated_at',
+    )
+    search_fields = ('name', 'original_filename', 'drive_file_id', 'drive_url')
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        if 'file' in form.changed_data or not obj.drive_file_id:
+            from core.services.template_storage import upload_template_record_to_drive
+            upload_template_record_to_drive(obj, category='Requisition')
 
 
 @admin.register(PaymentDocumentTemplate)
@@ -1824,9 +1835,20 @@ class PaymentDocumentTemplateAdmin(ModelAdmin):
     compressed_fields = True
     list_filter_submit = True
     list_fullwidth = True
-    list_display = ('name', 'is_active', 'file', 'created_at', 'updated_at')
+    list_display = ('name', 'is_active', 'file', 'drive_url', 'drive_uploaded_at', 'created_at', 'updated_at')
     list_editable = ('is_active',)
-    search_fields = ('name',)
+    readonly_fields = (
+        'original_filename', 'content_type', 'size', 'checksum',
+        'drive_file_id', 'drive_url', 'drive_uploaded_at', 'drive_upload_error',
+        'created_at', 'updated_at',
+    )
+    search_fields = ('name', 'original_filename', 'drive_file_id', 'drive_url')
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        if 'file' in form.changed_data or not obj.drive_file_id:
+            from core.services.template_storage import upload_template_record_to_drive
+            upload_template_record_to_drive(obj, category='Payment Documents')
 
 
 @admin.register(RequisitionBatch)

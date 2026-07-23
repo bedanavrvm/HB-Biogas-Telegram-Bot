@@ -1,4 +1,5 @@
 from datetime import date
+import io
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -169,3 +170,24 @@ class RequisitionTemplateGenerationTests(TestCase):
         generated = load_workbook(output_path)
 
         self.assertEqual(len(generated.active._images), 1)
+
+    def test_generation_uses_drive_backed_template_when_local_file_is_missing(self):
+        template_path = Path('tmp_requisition_drive_source.xlsx')
+        output_path = Path('tmp_requisition_drive_source_output.xlsx')
+        self.addCleanup(lambda: template_path.exists() and template_path.unlink())
+        self.addCleanup(lambda: output_path.exists() and output_path.unlink())
+        self.write_reconciled_shape_template(template_path)
+        template_bytes = template_path.read_bytes()
+        fake_template = SimpleNamespace(file=None, drive_file_id='drive-template-id')
+
+        with patch('core.models.RequisitionTemplate') as model, patch(
+            'core.services.requisition.workbook_source_from_template',
+            return_value=io.BytesIO(template_bytes),
+        ) as source:
+            model.objects.filter.return_value.first.return_value = fake_template
+            output_path.write_bytes(generate_requisition_excel([self.farmer()], 'REQ-DRIVE-001', date(2026, 7, 23)))
+
+        source.assert_called_once()
+        ws = load_workbook(output_path, data_only=False).active
+        self.assertEqual(ws['M7'].value, 'REQ-DRIVE-001')
+        self.assertEqual(ws['D14'].value, 'Mary Wanjiku')

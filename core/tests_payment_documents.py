@@ -1,5 +1,6 @@
 from datetime import date
 from decimal import Decimal
+import io
 import json
 import tempfile
 from unittest.mock import patch
@@ -152,6 +153,26 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
 
                 xlsx, summary = generate_payment_workbook('ORDER-UPLOADED')
 
+        self.assertTrue(xlsx)
+        self.assertEqual(summary['ready_count'], 1)
+
+    def test_payment_workbook_generation_uses_drive_backed_template_when_local_file_is_missing(self):
+        farmer = self.farmer(order_number='ORDER-DRIVE-TEMPLATE')
+        self.invoice_batch(farmer)
+        template = PaymentDocumentTemplate.objects.create(
+            name='Drive payment template',
+            is_active=True,
+            drive_file_id='drive-template-id',
+        )
+        template_bytes = open('requisition/HB_PAYMENT__89__7__machine_ready (1).xlsx', 'rb').read()
+
+        with patch(
+            'core.services.payment_documents.workbook_source_from_template',
+            return_value=io.BytesIO(template_bytes),
+        ) as source:
+            xlsx, summary = generate_payment_workbook('ORDER-DRIVE-TEMPLATE')
+
+        source.assert_called_once()
         self.assertTrue(xlsx)
         self.assertEqual(summary['ready_count'], 1)
 
