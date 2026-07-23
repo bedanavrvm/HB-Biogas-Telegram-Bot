@@ -26,6 +26,7 @@ from core.services.jawabu_pipeline import (
     requisition_queue,
     set_credit_decision,
     set_final_decision,
+    sync_farmer_to_master_sheet,
 )
 
 
@@ -207,6 +208,44 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(self.farmer_stage1.village, 'Gakira')
         mock_sync.assert_called_once_with(self.farmer_stage1)
         mock_order_sync.assert_called_once_with(self.farmer_stage1)
+
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_master_sheet_sync_writes_jbl_location_fields(self, mock_get_sheets):
+        """Verify editable JBL visit location fields are pushed to Master Data."""
+        from core.tests import FakeMasterDataSheet, FakeJawabuService
+
+        self.farmer_stage1.county = 'Muranga'
+        self.farmer_stage1.sub_county = 'Kandara'
+        self.farmer_stage1.village = 'Gakira'
+        self.farmer_stage1.save(update_fields=['county', 'sub_county', 'village', 'updated_at'])
+
+        headers = [
+            'No.',
+            'Customer Name',
+            'National ID',
+            'Primary Phone',
+            'County',
+            'Constituency',
+            'Village',
+            'Last Updated At',
+        ]
+        fake_sheet = FakeMasterDataSheet(headers, [
+            '1',
+            self.farmer_stage1.customer_name,
+            self.farmer_stage1.national_id,
+            self.farmer_stage1.primary_phone,
+            'Kiambu',
+            '',
+            '',
+            '',
+        ])
+        mock_get_sheets.return_value = FakeJawabuService(fake_sheet)
+
+        self.assertTrue(sync_farmer_to_master_sheet(self.farmer_stage1))
+        row = fake_sheet.values[4]
+        self.assertEqual(row[4], 'Muranga')
+        self.assertEqual(row[5], 'Kandara')
+        self.assertEqual(row[6], 'Gakira')
 
     @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')

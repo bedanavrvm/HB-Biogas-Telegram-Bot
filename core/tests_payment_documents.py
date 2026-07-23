@@ -6,6 +6,7 @@ import tempfile
 from unittest.mock import patch
 
 from django.core.files import File
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from openpyxl import load_workbook
@@ -131,6 +132,55 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(event.action, 'parsed')
         self.assertEqual(event.actor, 'Tester')
         self.assertEqual(event.metadata['drive_file_id'], 'drive-id')
+
+    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_invoice_pool_upload_accepts_multiple_pdfs(self, storage, parse_pdf):
+        storage.return_value.upload.side_effect = [
+            ('drive-id-1', 'https://drive.test/pdf-1'),
+            ('drive-id-2', 'https://drive.test/pdf-2'),
+        ]
+        parse_pdf.side_effect = [
+            ([{
+                'page': 1,
+                'invoice_no': '9505',
+                'invoice_date': '20/07/2026',
+                'customer_name': 'Mary Wanjiku',
+                'customer_id': '12345678',
+                'customer_phone': '254712345678',
+                'invoice_amount': '54,000.00',
+                'payment': '6,000.00',
+                'balance_due': '43,500.00',
+            }], 1),
+            ([{
+                'page': 1,
+                'invoice_no': '9506',
+                'invoice_date': '21/07/2026',
+                'customer_name': 'John Kamau',
+                'customer_id': '87654321',
+                'customer_phone': '254722222222',
+                'invoice_amount': '89,900.00',
+                'payment': '10,000.00',
+                'balance_due': '79,900.00',
+            }], 1),
+        ]
+
+        response = self.client.post(reverse('portal_invoice_pool_upload'), {
+            'file': [
+                SimpleUploadedFile('invoice-1.pdf', b'%PDF-1.4 one', content_type='application/pdf'),
+                SimpleUploadedFile('invoice-2.pdf', b'%PDF-1.4 two', content_type='application/pdf'),
+            ],
+        })
+        data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['total_uploaded'], 2)
+        self.assertEqual(data['total_parsed'], 2)
+        self.assertEqual(data['unmatched_count'], 2)
+        self.assertEqual(len(data['invoice_batch_ids']), 2)
+        self.assertEqual(InvoiceUploadBatch.objects.count(), 2)
+        self.assertEqual(ParsedInvoice.objects.count(), 2)
 
     def test_invoice_pool_endpoint_lists_batches_and_invoices_with_filters(self):
         farmer = self.farmer(order_number='ORDER-MATCHED')

@@ -1227,47 +1227,77 @@ def portal_upload_batch_invoices(request):
 @csrf_exempt
 @require_http_methods(["POST"])
 def portal_invoice_pool_upload(request):
-    """Upload an HB invoice PDF into the general unmatched invoice pool."""
-    pdf_file = request.FILES.get('file')
-    if not pdf_file:
+    """Upload one or more HB invoice PDFs into the general unmatched invoice pool."""
+    getlist = getattr(request.FILES, 'getlist', None)
+    pdf_files = getlist('file') if getlist else []
+    if not pdf_files:
+        pdf_file = request.FILES.get('file')
+        pdf_files = [pdf_file] if pdf_file else []
+    if not pdf_files:
         return JsonResponse({'ok': False, 'error': 'No file uploaded under key "file".'}, status=400)
-    if not str(pdf_file.name or '').lower().endswith('.pdf'):
-        return JsonResponse({'ok': False, 'error': 'Only PDF files are supported.'}, status=400)
 
     max_mb = max(1, int(getattr(settings, 'INVOICE_UPLOAD_MAX_FILE_SIZE_MB', 8) or 8))
     max_bytes = max_mb * 1024 * 1024
-    if getattr(pdf_file, 'size', 0) and pdf_file.size > max_bytes:
-        return JsonResponse({
-            'ok': False,
-            'error': f'Invoice PDF is too large for this Mini App upload. Maximum size is {max_mb} MB.',
-            'max_file_size_mb': max_mb,
-        }, status=413)
+    for pdf_file in pdf_files:
+        if not str(pdf_file.name or '').lower().endswith('.pdf'):
+            return JsonResponse({'ok': False, 'error': f'Only PDF files are supported: {pdf_file.name}'}, status=400)
+        if getattr(pdf_file, 'size', 0) and pdf_file.size > max_bytes:
+            return JsonResponse({
+                'ok': False,
+                'error': f'Invoice PDF is too large for this Mini App upload: {pdf_file.name}. Maximum size is {max_mb} MB.',
+                'max_file_size_mb': max_mb,
+            }, status=413)
 
     from core.services.invoice_parser import InvoiceUploadStorageError, ingest_invoice_upload_batch
 
-    try:
-        batch = ingest_invoice_upload_batch(
-            pdf_bytes=pdf_file.read(),
-            filename=getattr(pdf_file, 'name', '') or 'hb_invoices.pdf',
-            content_type=getattr(pdf_file, 'content_type', '') or 'application/pdf',
-            uploaded_by=_portal_sender_from_request(request),
-        )
-    except InvoiceUploadStorageError as exc:
-        return JsonResponse({'ok': False, 'error': f'Invoice PDF was not stored in Google Drive: {exc}'}, status=502)
-    except Exception as exc:
-        logger.exception("Invoice pool upload failed")
-        return JsonResponse({'ok': False, 'error': f'Failed to parse PDF: {exc}'}, status=500)
+    batches = []
+    failures = []
+    uploaded_by = _portal_sender_from_request(request)
+    for pdf_file in pdf_files:
+        filename = getattr(pdf_file, 'name', '') or 'hb_invoices.pdf'
+        try:
+            batch = ingest_invoice_upload_batch(
+                pdf_bytes=pdf_file.read(),
+                filename=filename,
+                content_type=getattr(pdf_file, 'content_type', '') or 'application/pdf',
+                uploaded_by=uploaded_by,
+            )
+            batches.append(batch)
+        except InvoiceUploadStorageError as exc:
+            failures.append({'filename': filename, 'error': f'Invoice PDF was not stored in Google Drive: {exc}'})
+        except Exception as exc:
+            logger.exception("Invoice pool upload failed for %s", filename)
+            failures.append({'filename': filename, 'error': f'Failed to parse PDF: {exc}'})
+
+    if not batches:
+        status = 502 if any('Google Drive' in item['error'] for item in failures) else 500
+        return JsonResponse({
+            'ok': False,
+            'error': failures[0]['error'] if failures else 'Invoice upload failed.',
+            'failures': failures,
+            'max_file_size_mb': max_mb,
+        }, status=status)
+
+    total_pages = sum(batch.total_pages for batch in batches)
+    total_parsed = sum(batch.total_parsed for batch in batches)
+    unmatched_count = sum(batch.unmatched_count for batch in batches)
+    first_batch = batches[0]
 
     return JsonResponse({
-        'ok': batch.total_parsed > 0,
-        'invoice_batch_id': str(batch.id),
-        'drive_url': batch.drive_url,
-        'status': batch.status,
-        'total_pages': batch.total_pages,
-        'total_parsed': batch.total_parsed,
-        'unmatched_count': batch.unmatched_count,
+        'ok': total_parsed > 0 and not failures,
+        'invoice_batch_id': str(first_batch.id),
+        'invoice_batch_ids': [str(batch.id) for batch in batches],
+        'drive_url': first_batch.drive_url,
+        'status': 'partial' if failures else 'parsed',
+        'total_uploaded': len(batches),
+        'total_failed': len(failures),
+        'total_pages': total_pages,
+        'total_parsed': total_parsed,
+        'unmatched_count': unmatched_count,
+        'batches': [_serialize_invoice_batch(batch) for batch in batches],
+        'failures': failures,
         'max_file_size_mb': max_mb,
-    })
+    }, status=207 if failures else 200)
 
 
 def _serialize_invoice_batch(batch) -> dict:
