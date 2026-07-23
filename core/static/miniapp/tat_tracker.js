@@ -1,5 +1,6 @@
 (function () {
   const utils = window.MiniAppUtils || {};
+  const tatApi = window.TatMiniAppApi || {};
   const tg = window.MiniAppTelegram ? window.MiniAppTelegram.init() : (utils.initTelegram ? utils.initTelegram() : null);
   const body = document.body;
   const state = {
@@ -50,6 +51,7 @@
   }
 
   async function api(path, payload) {
+    if (tatApi.postJson) return tatApi.postJson(path, basePayload(payload), utils);
     if (utils.fetchJson) {
       return utils.fetchJson(path, {
         method: 'POST',
@@ -68,6 +70,7 @@
   }
 
   async function fragmentPost(path, payload) {
+    if (tatApi.postFragment) return tatApi.postFragment(path, basePayload(payload), utils);
     if (utils.fetchHtml && utils.formBody) {
       return utils.fetchHtml(path, {
         method: 'POST',

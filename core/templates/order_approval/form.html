@@ -1005,8 +1005,10 @@
     </dialog>
   </main>
 
+  <script src="{% static 'miniapp/order_approval_api.js' %}?v=1"></script>
   <script>
     const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+    const orderApprovalApi = window.OrderApprovalMiniAppApi || {};
     const form = document.getElementById('approval-form');
     const statusEl = document.getElementById('status');
     const recordMetaEl = document.getElementById('record-meta');
@@ -1480,13 +1482,15 @@
         data.set('form_token', form.elements.form_token.value);
         data.set('id_prefix', prefix);
 
-        const response = await fetch('/api/order-approval/webapp/suggest/', {
-          method: 'POST',
-          body: data,
-          signal: suggestionController.signal
-        });
-        const payload = await response.json();
-        if (!response.ok || !payload.success || idNumberInput.value.trim() !== prefix) {
+        const result = orderApprovalApi.postForm
+          ? await orderApprovalApi.postForm('/api/order-approval/webapp/suggest/', data, { signal: suggestionController.signal })
+          : await fetch('/api/order-approval/webapp/suggest/', {
+            method: 'POST',
+            body: data,
+            signal: suggestionController.signal
+          }).then(async (response) => ({ ok: response.ok, data: await response.json().catch(() => ({})) }));
+        const payload = result.data || {};
+        if (!result.ok || !payload.success || idNumberInput.value.trim() !== prefix) {
           return;
         }
         renderIdSuggestions(payload.suggestions || [], prefix);
@@ -1680,13 +1684,15 @@
         data.set('form_token', form.elements.form_token.value);
         data.set('id_number', idNumberInput.value.trim());
 
-        const response = await fetch('/api/order-approval/webapp/lookup/', {
-          method: 'POST',
-          body: data
-        });
-        const payload = await response.json();
+        const result = orderApprovalApi.postForm
+          ? await orderApprovalApi.postForm('/api/order-approval/webapp/lookup/', data)
+          : await fetch('/api/order-approval/webapp/lookup/', {
+            method: 'POST',
+            body: data
+          }).then(async (response) => ({ ok: response.ok, data: await response.json().catch(() => ({})) }));
+        const payload = result.data || {};
 
-        if (!response.ok || !payload.success) {
+        if (!result.ok || !payload.success) {
           writeBlankFieldsInput.value = '0';
           setRecordMeta('');
           setStatus('error', payload.message || 'Lookup failed.');
@@ -2053,13 +2059,15 @@
       setStatus('working', 'Submitting update...');
 
       try {
-        const response = await fetch('/api/order-approval/webapp/submit/', {
-          method: 'POST',
-          body: new FormData(form)
-        });
-        const payload = await response.json();
+        const result = orderApprovalApi.postForm
+          ? await orderApprovalApi.postForm('/api/order-approval/webapp/submit/', new FormData(form))
+          : await fetch('/api/order-approval/webapp/submit/', {
+            method: 'POST',
+            body: new FormData(form)
+          }).then(async (response) => ({ ok: response.ok, data: await response.json().catch(() => ({})) }));
+        const payload = result.data || {};
 
-        if (!response.ok || !payload.success) {
+        if (!result.ok || !payload.success) {
           const errors = payload.errors || [];
           const message = errors.length
             ? `Fix these fields:\n- ${errors.join('\n- ')}`

@@ -7,6 +7,9 @@
   const portalHelpers = window.PortalMiniAppHelpers || {};
   const portalApi = window.PortalMiniAppApi || {};
   const portalQueues = window.PortalMiniAppQueues || {};
+  const portalFarmerSheet = window.PortalMiniAppFarmerSheet || {};
+  const portalFilters = window.PortalMiniAppFilters || {};
+  const portalRequisitions = window.PortalMiniAppRequisitions || {};
   const tg = utils.initTelegram ? utils.initTelegram({ closingConfirmation: false }) : window.Telegram?.WebApp;
   if (tg && !utils.initTelegram) {
     tg.ready();
@@ -31,8 +34,6 @@
     pendingRequisitionPayload: null
   };
 
-  let mapInstance = null;
-  let mapMarker = null;
   // Helpers
   function el(id) { return document.getElementById(id); }
 
@@ -563,6 +564,7 @@
   }
 
   function batchClientRows(farmers, blockedById = {}) {
+    if (portalHelpers.batchClientRows) return portalHelpers.batchClientRows(farmers, blockedById);
     if (!farmers.length) return '<div class="empty-state"><div class="es-title">No clients</div></div>';
     return farmers.map(f => {
       const missing = blockedById[f.id] || [];
@@ -592,69 +594,15 @@
   }
 
   function openInvoiceOverlay(orderNumber) {
-    const overlay = el('invoice-overlay');
-    const overlaySub = el('invoice-overlay-sub');
-    const batchNumInput = el('invoice-batch-number');
-    const fileInput = el('invoice-file-input');
-    const fileInfo = el('invoice-file-info');
-    const submitBtn = el('invoice-submit-btn');
-    const resultsDiv = el('invoice-results');
-    if (!overlay || !batchNumInput) return;
-
-    batchNumInput.value = orderNumber;
-    overlaySub.textContent = `Batch: ${orderNumber}`;
-    fileInput.value = '';
-    fileInfo.style.display = 'none';
-    fileInfo.textContent = '';
-    submitBtn.disabled = true;
-    resultsDiv.style.display = 'none';
-    overlay.classList.add('open');
+    if (portalRequisitions.openInvoiceOverlay) {
+      portalRequisitions.openInvoiceOverlay(orderNumber);
+    }
   }
 
   async function openBatchDetail(orderNumber) {
-    if (!orderNumber) return;
-    const overlay = el('batch-detail-overlay');
-    const title = el('batch-detail-title');
-    const sub = el('batch-detail-sub');
-    const summary = el('batch-detail-summary');
-    const actions = el('batch-detail-actions');
-    const invoiceResult = el('batch-detail-invoice-result');
-    const clients = el('batch-detail-clients');
-    title.textContent = `Order ${orderNumber}`;
-    sub.textContent = 'Loading batch details...';
-    summary.innerHTML = '';
-    actions.innerHTML = '';
-    invoiceResult.innerHTML = '';
-    clients.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
-    overlay.classList.add('open');
-
-    const { ok, data } = await apiFetch('/requisition-batches/' + encodeURIComponent(orderNumber) + '/');
-    if (!ok || !data.ok) {
-      clients.innerHTML = `<div class="empty-state"><div class="es-title">Could not load batch</div><div class="es-sub">${escapeHtml(data.error || 'Try again.')}</div></div>`;
-      return;
+    if (portalRequisitions.openBatchDetail) {
+      return portalRequisitions.openBatchDetail(orderNumber);
     }
-    const batch = data.batch;
-    const inv = batch.invoice_summary || {};
-    sub.textContent = `${batch.requisition_date || 'No date'} - ${batch.farmer_count || 0} client(s)`;
-    summary.innerHTML = summaryGrid([
-      { label: 'Clients', value: String(batch.farmer_count || 0) },
-      { label: 'Invoiced', value: String(inv.invoiced_count || 0) },
-      { label: 'Pending invoices', value: String(inv.pending_invoice_count ?? 0) },
-    ]);
-    actions.innerHTML = `
-      ${batch.download_url ? `<button class="btn btn-primary" id="batch-detail-download">Open Requisition Form</button>` : '<span class="badge badge-grey">No saved requisition file</span>'}
-      <button class="btn btn-secondary" id="batch-detail-upload">Upload Invoices</button>
-    `;
-    el('batch-detail-download')?.addEventListener('click', () => openPortalLink(batch.download_url));
-    el('batch-detail-upload')?.addEventListener('click', () => openInvoiceOverlay(batch.order_number));
-
-    const last = batch.last_invoice_result || {};
-    invoiceResult.innerHTML = last.total_parsed ? `
-      <div class="batch-warning-list">
-        <div class="batch-warning">Last invoice upload: matched ${escapeHtml(last.matched_count || 0)} of ${escapeHtml(last.total_parsed || 0)} parsed invoice(s).</div>
-      </div>
-    ` : '';
-    clients.innerHTML = batchClientRows(batch.farmers || []);
   }
 
 
@@ -708,102 +656,11 @@
   }
 
   function updateFilterOptions(farmers) {
-    const countySelect = el('filter-county');
-    const branchSelect = el('filter-branch');
-    if (!countySelect || !branchSelect) return;
-
-    const currentCounty = state.filters.county;
-    const currentBranch = state.filters.branch;
-
-    const counties = new Set();
-    const branches = new Set();
-
-    farmers.forEach(f => {
-      if (f.county) counties.add(f.county.trim());
-      if (!currentCounty || (f.county && f.county.trim() === currentCounty)) {
-        if (f.branch) branches.add(f.branch.trim());
-      }
-    });
-
-    countySelect.innerHTML = '<option value="">All Counties</option>' + 
-      Array.from(counties).sort().map(c => `<option value="${c}" ${c === currentCounty ? 'selected' : ''}>${c}</option>`).join('');
-
-    branchSelect.innerHTML = '<option value="">All Branches</option>' + 
-      Array.from(branches).sort().map(b => `<option value="${b}" ${b === currentBranch ? 'selected' : ''}>${b}</option>`).join('');
-
-    const clearBtn = el('btn-clear-filters');
-    if (clearBtn) {
-      clearBtn.style.display = (currentCounty || currentBranch) ? 'inline-flex' : 'none';
-    }
+    if (portalFilters.updateFilterOptions) portalFilters.updateFilterOptions(farmers);
   }
 
   function applyFilters() {
-    const qKey = state.activePage;
-    const cfg = queueConfig[qKey];
-    if (!cfg) return;
-
-    const originalFarmers = state.queues[qKey] || [];
-    
-    const filteredFarmers = originalFarmers.filter(f => {
-      const matchCounty = !state.filters.county || (f.county && f.county.trim() === state.filters.county);
-      const matchBranch = !state.filters.branch || (f.branch && f.branch.trim() === state.filters.branch);
-      return matchCounty && matchBranch;
-    });
-
-    const listEl = el(cfg.listId);
-    renderFilteredFarmerList(listEl, filteredFarmers, cfg, qKey);
-  }
-
-  function renderFilteredFarmerList(listEl, farmers, cfg, qKey) {
-    if (!farmers.length) {
-      listEl.innerHTML = `<div class="empty-state"><div class="es-icon">OK</div><div class="es-title">${cfg.emptyTitle}</div><div class="es-sub">No matching records found for chosen filters.</div></div>`;
-      return;
-    }
-    listEl.innerHTML = farmers.map(f => {
-      const originalIdx = state.queues[qKey].indexOf(f);
-      return `
-        <div class="farmer-card${qKey === 'requisition' ? ' requisition-card' : ''}" data-qkey="${qKey}" data-idx="${originalIdx}" id="fc-${qKey}-${originalIdx}">
-          ${qKey === 'requisition' ? `
-            <input type="checkbox" class="farmer-card-checkbox" data-id="${f.id}" ${state.selectedRequisitions.has(f.id) ? 'checked' : ''} onclick="event.stopPropagation();">
-          ` : ''}
-          <div style="flex: 1;">
-            <div class="fc-name">${f.customer_name || f.national_id || f.primary_phone || 'Unknown'}</div>
-            <div class="fc-sub">${fmt(f.county)}${f.sub_county ? ' | ' + f.sub_county : ''}${f.branch ? ' | ' + f.branch : ''}</div>
-            <div class="fc-sub">${f.primary_phone || ''}</div>
-            ${qKey === 'jbl' && f.sign_date ? `<div class="fc-sub fc-visit-date">HB visit: ${escapeHtml(fmtDate(f.sign_date))}</div>` : ''}
-            <div class="fc-badges">
-              ${stageBadge(f)}
-              ${jblBadge(f)}
-              ${creditBadge(f)}
-              ${f.order_number ? `<span class="badge badge-green">Order: ${f.order_number}</span>` : ''}
-            </div>
-          </div>
-        </div>
-      `;
-    }).join('');
-
-    listEl.querySelectorAll('.farmer-card').forEach(card => {
-      card.addEventListener('click', () => {
-        const qKey = card.dataset.qkey;
-        const idx = parseInt(card.dataset.idx, 10);
-        const farmer = state.queues[qKey][idx];
-        openFarmerSheet(farmer, cfg.mode);
-      });
-    });
-
-    if (qKey === 'requisition') {
-      listEl.querySelectorAll('.farmer-card-checkbox').forEach(cb => {
-        cb.addEventListener('change', () => {
-          const id = cb.dataset.id;
-          if (cb.checked) {
-            state.selectedRequisitions.add(id);
-          } else {
-            state.selectedRequisitions.delete(id);
-          }
-          updateBatchPanel();
-        });
-      });
-    }
+    if (portalFilters.applyFilters) portalFilters.applyFilters();
   }
 
   function renderPagination(qKey, pg) {
@@ -821,534 +678,15 @@
   }
   // Detail sheet
   function openFarmerSheet(farmer, mode) {
-    state.selectedFarmer = farmer;
-    state.activeMode = mode;
-
-    // Header
-    el('sheet-name').textContent = farmer.customer_name || 'Unknown Farmer';
-    el('sheet-sub').textContent = [farmer.county, farmer.sub_county, farmer.branch].filter(Boolean).join(' | ') || farmer.primary_phone || '';
-
-    // Info rows
-    const infoFields = [
-      ['National ID', fmt(farmer.national_id)],
-      ['Phone', fmt(farmer.primary_phone)],
-      ['HBG Visit', fmtDate(farmer.sign_date)],
-      ['JBL Visit', fmtDate(farmer.jbl_visit_date)],
-      ['JBL Officer', fmt(farmer.jbl_officer)],
-      ['JBL Status', farmer.jbl_visit_status ? `<span class="badge badge-blue">${farmer.jbl_visit_status}</span>` : '-'],
-      ['Credit Decision', farmer.credit_decision ? `<span class="badge ${farmer.credit_decision === 'Approved' ? 'badge-green' : 'badge-orange'}">${farmer.credit_decision}</span>` : '-'],
-      ['IMAB Created', fmt(farmer.imab_created)],
-      ['Customer No.', fmt(farmer.customer_no)],
-      ['Visit Media', farmer.jbl_media_count ? `${farmer.jbl_media_count} file link${farmer.jbl_media_count === 1 ? '' : 's'}` : '-'],
-      ['Order No.', farmer.order_number ? `<strong>${farmer.order_number}</strong>` : '-'],
-      ['Requisition Date', fmtDate(farmer.requisition_date)],
-      ['HB Sales Person', fmt(farmer.hb_sales_person)],
-      ['Village', fmt(farmer.village)],
-      // Stage 7 - Invoice
-      ...(farmer.invoice_number || farmer.invoice_amount || farmer.balance_due ? [
-        ['Invoice', ''],
-        ['Invoice No.', farmer.invoice_number ? `<code style="font-size:12px;">${farmer.invoice_number}</code>` : '-'],
-        ['Invoice Date', fmtDate(farmer.invoice_date)],
-        ['Invoice Amount', farmer.invoice_amount ? `<strong>KES ${farmer.invoice_amount}</strong>` : '-'],
-        ['Discount', farmer.discount ? `KES ${farmer.discount}` : '-'],
-        ['Payment', farmer.payment ? `KES ${farmer.payment}` : '-'],
-        ['Balance Due', farmer.balance_due
-          ? `<span class="badge ${parseFloat(farmer.balance_due) === 0 ? 'badge-green' : 'badge-orange'}">KES ${farmer.balance_due}</span>`
-          : '-'],
-      ] : []),
-    ];
-    el('sheet-info').innerHTML = infoFields.map(([label, value]) =>
-      `<li class="info-row"><span class="ir-label">${label}</span><span class="ir-value">${value}</span></li>`
-    ).join('');
-
-    // Action form
-    const formEl = el('sheet-form');
-    const footerEl = el('sheet-footer');
-    formEl.innerHTML = '';
-    footerEl.innerHTML = '';
-    el('sheet-gate-warning').style.display = 'none';
-
-    if (mode === 'jbl_visit') {
-      formEl.innerHTML = buildJblForm(farmer);
-      footerEl.innerHTML = `<button class="primary" id="btn-submit-jbl">Log JBL Visit</button>`;
-      el('btn-submit-jbl').addEventListener('click', submitJblVisit);
-      wireGpsButton();
-    } else if (mode === 'credit') {
-      formEl.innerHTML = buildCreditForm(farmer);
-      footerEl.innerHTML = `<button class="primary" id="btn-submit-credit">Set Credit Decision</button>`;
-      el('btn-submit-credit').addEventListener('click', submitCreditDecision);
-      wireCreditImabFields();
-    } else if (mode === 'final_review') {
-      formEl.innerHTML = buildFinalReviewForm(farmer);
-      footerEl.innerHTML = `<button class="primary" id="btn-submit-final">Save Final Review</button>`;
-      el('btn-submit-final').addEventListener('click', submitFinalDecision);
-    } else if (mode === 'requisition') {
-      const notApproved = farmer.final_decision !== 'Approved';
-      if (notApproved) {
-        el('sheet-gate-warning').style.display = 'flex';
-        el('sheet-gate-warning').innerHTML = `Final Decision is <strong>${farmer.final_decision || 'not set'}</strong>. Must be <strong>Approved</strong> to assign an order.`;
-        formEl.innerHTML = buildRequisitionForm(farmer);
-        footerEl.innerHTML = `<button class="primary" id="btn-submit-req" disabled>Assign Order (Gate: Final Review)</button>`;
-      } else {
-        formEl.innerHTML = buildRequisitionForm(farmer);
-        footerEl.innerHTML = `<button class="primary" id="btn-submit-req">Assign Order Number</button>`;
-        el('btn-submit-req').addEventListener('click', submitOrder);
-      }
+    if (portalFarmerSheet.openFarmerSheet) {
+      portalFarmerSheet.openFarmerSheet(farmer, mode);
     }
-
-    // Map Rendering
-    const lat = parseFloat(farmer.latitude);
-    const lng = parseFloat(farmer.longitude);
-    if (!isNaN(lat) && !isNaN(lng)) {
-      initMap(lat, lng);
-    } else {
-      destroyMap();
-    }
-
-    el('sheet-overlay').classList.add('open');
-    if (window.lucide) window.lucide.createIcons();
-  }
-
-  function initMap(lat, lng) {
-    const mapContainer = el('sheet-map-container');
-    if (!mapContainer) return;
-    mapContainer.style.display = 'block';
-
-    // Determine theme
-    const isDark = (window.Telegram?.WebApp?.colorScheme === 'dark') || 
-                   (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
-
-    // Tile URL based on theme (Voyager vs Dark Matter)
-    const tileUrl = isDark 
-      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-      : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-    const attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
-
-    if (!mapInstance) {
-      mapInstance = L.map('sheet-map', {
-        zoomControl: false,
-        attributionControl: false
-      }).setView([lat, lng], 13);
-
-      L.tileLayer(tileUrl, { attribution: attribution, maxZoom: 20 }).addTo(mapInstance);
-      mapMarker = L.marker([lat, lng]).addTo(mapInstance);
-    } else {
-      // Re-locate and reset center
-      mapInstance.setView([lat, lng], 13);
-      
-      // Update tile layer URL
-      mapInstance.eachLayer(layer => {
-        if (layer instanceof L.TileLayer) {
-          layer.setUrl(tileUrl);
-        }
-      });
-
-      if (mapMarker) {
-        mapMarker.setLatLng([lat, lng]);
-      } else {
-        mapMarker = L.marker([lat, lng]).addTo(mapInstance);
-      }
-    }
-
-    setTimeout(() => {
-      if (mapInstance) mapInstance.invalidateSize();
-    }, 100);
-  }
-
-  function destroyMap() {
-    const mapContainer = el('sheet-map-container');
-    if (mapContainer) mapContainer.style.display = 'none';
-  }
-
-  function buildJblForm(farmer) {
-    const today = new Date().toISOString().split('T')[0];
-    const statusOptions = state.metaStatuses.map(s =>
-      `<option value="${s}"${farmer.jbl_visit_status === s ? ' selected' : ''}>${s}</option>`
-    ).join('');
-    return `
-      <div class="form-section">
-        <div class="form-row">
-          <label>Visit Date</label>
-          <input type="date" id="jbl-date" value="${farmer.jbl_visit_date || today}">
-        </div>
-        <div class="form-row">
-          <label>Status / Outcome</label>
-          <select id="jbl-status"><option value="">- Select -</option>${statusOptions}</select>
-        </div>
-        <div class="form-row">
-          <label>Officer Name</label>
-          <input type="text" id="jbl-officer" placeholder="Your name" value="${escapeHtml(farmer.jbl_officer || '')}">
-        </div>
-        <div class="form-row">
-          <label>County</label>
-          <input type="text" id="jbl-county" placeholder="County" value="${escapeHtml(farmer.county || '')}">
-        </div>
-        <div class="form-row">
-          <label>Constituency</label>
-          <input type="text" id="jbl-sub-county" placeholder="Constituency / sub-county" value="${escapeHtml(farmer.sub_county || '')}">
-        </div>
-        <div class="form-row">
-          <label>Village</label>
-          <input type="text" id="jbl-village" placeholder="Village / area" value="${escapeHtml(farmer.village || '')}">
-        </div>
-        <div class="form-row">
-          <label>Comment (optional)</label>
-          <textarea id="jbl-comment" rows="2" placeholder="Additional notes...">${escapeHtml(farmer.jbl_visit_comment || '')}</textarea>
-        </div>
-        <div class="form-row media-upload-row">
-          <label>Visit Media</label>
-          <div class="media-upload-control">
-            <input type="file" id="jbl-media" name="files" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx">
-            <small>Optional. Upload visit photos, signed docs, or supporting files.</small>
-            ${farmer.jbl_media_count ? `<small>${farmer.jbl_media_count} existing Drive link${farmer.jbl_media_count === 1 ? '' : 's'} on this record.</small>` : ''}
-          </div>
-        </div>
-        <div class="form-row" style="border-bottom: none; background: transparent; padding: 12px 0 0;">
-          <button type="button" id="btn-gps" style="width: 100%; height: 38px; display: flex; align-items: center; justify-content: center; gap: 8px;">
-            - Capture GPS Location
-          </button>
-          <div id="gps-coords" style="font-size: 11px; font-weight: 600; color: var(--text-muted); text-align: center; margin-top: 6px;">
-            Not captured
-          </div>
-          <input type="hidden" id="jbl-lat" value="">
-          <input type="hidden" id="jbl-lng" value="">
-        </div>
-      </div>
-    `;
-  }
-
-  function wireGpsButton() {
-    const btn = el('btn-gps');
-    if (!btn) return;
-    btn.addEventListener('click', () => {
-      if (!navigator.geolocation) {
-        showToast('GPS is not supported by your browser', 'error');
-        return;
-      }
-      btn.disabled = true;
-      btn.innerHTML = 'Capturing Location...';
-      navigator.geolocation.getCurrentPosition(
-        position => {
-          const lat = position.coords.latitude;
-          const lng = position.coords.longitude;
-          el('jbl-lat').value = lat;
-          el('jbl-lng').value = lng;
-          el('gps-coords').innerHTML = `Location captured<br><span style="font-family: monospace; font-size: 12px; color: var(--color-success)">Lat: ${lat.toFixed(6)}, Lng: ${lng.toFixed(6)}</span>`;
-          btn.innerHTML = 'Location Captured';
-          btn.disabled = false;
-          showToast('GPS location captured', 'success');
-        },
-        error => {
-          btn.disabled = false;
-          btn.innerHTML = 'Try Capture Again';
-          let msg = 'Failed to get location';
-          if (error.code === error.PERMISSION_DENIED) msg = 'Location permission denied';
-          else if (error.code === error.POSITION_UNAVAILABLE) msg = 'Location unavailable';
-          else if (error.code === error.TIMEOUT) msg = 'Location request timed out';
-          el('gps-coords').textContent = msg;
-          showToast(msg, 'error');
-        },
-        { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
-      );
-    });
-  }
-
-  function buildCreditForm(farmer) {
-    const decisionOptions = state.metaDecisions.map(d =>
-      `<option value="${d}"${farmer.credit_decision === d ? ' selected' : ''}>${d}</option>`
-    ).join('');
-    const imabOptions = (state.metaImabOptions.length ? state.metaImabOptions : ['Yes', 'No', 'Pending']).map(v =>
-      `<option value="${v}"${farmer.imab_created === v ? ' selected' : ''}>${v}</option>`
-    ).join('');
-    const customerNoDisabled = farmer.imab_created !== 'Yes';
-    return `
-      <div class="form-section">
-        <div class="form-row">
-          <label>Credit Decision</label>
-          <select id="credit-decision"><option value="">- Select -</option>${decisionOptions}</select>
-        </div>
-        <div class="form-row">
-          <label>IS CUSTOMER CREATED ON IMAB?</label>
-          <select id="credit-imab"><option value="">- Select -</option>${imabOptions}</select>
-        </div>
-        <div class="form-row">
-          <label>CUSTOMER NO</label>
-          <input type="text" id="credit-customer-no" inputmode="numeric" pattern="[0-9]*" placeholder="IMAB customer number" value="${escapeHtml(customerNoDisabled ? '' : (farmer.customer_no || ''))}"${customerNoDisabled ? ' disabled' : ''}>
-          <small id="credit-imab-help" class="field-help">${customerNoDisabled ? 'Select Yes after IMAB creation before entering a customer number.' : 'Required before this case can move to Head of Rural review.'}</small>
-        </div>
-      </div>
-      ${farmer.jbl_visit_comment ? `<div class="info-row"><span class="ir-label">JBL Comment</span><span class="ir-value">${escapeHtml(farmer.jbl_visit_comment)}</span></div>` : ''}
-    `;
-  }
-
-  function wireCreditImabFields() {
-    const imab = el('credit-imab');
-    const customerNo = el('credit-customer-no');
-    const help = el('credit-imab-help');
-    if (!imab || !customerNo) return;
-    const sync = () => {
-      const enabled = imab.value === 'Yes';
-      customerNo.disabled = !enabled;
-      if (!enabled) customerNo.value = '';
-      if (help) {
-        help.textContent = enabled
-          ? 'Required before this case can move to Head of Rural review.'
-          : 'Select Yes after IMAB creation before entering a customer number.';
-      }
-    };
-    imab.addEventListener('change', sync);
-    sync();
-  }
-
-  function buildFinalReviewForm(farmer) {
-    const decisionOptions = state.metaFinalDecisions.map(d =>
-      `<option value="${d}"${farmer.final_decision === d ? ' selected' : ''}>${d}</option>`
-    ).join('');
-    const phone = String(farmer.primary_phone || '').replace(/[^0-9+]/g, '');
-    return `
-      <div class="form-section">
-        <div class="form-row">
-          <label>Client Phone</label>
-          <div style="display:flex;gap:8px;align-items:center;width:100%;">
-            <input type="tel" value="${escapeHtml(farmer.primary_phone || '')}" readonly style="flex:1;">
-            ${phone ? `<a class="phone-call-button" href="tel:+${phone.replace(/^\+/, '')}" aria-label="Call client"><i data-lucide="phone"></i></a>` : ''}
-          </div>
-        </div>
-        <div class="form-row">
-          <label>Final Decision</label>
-          <select id="final-decision"><option value="">- Select -</option>${decisionOptions}</select>
-        </div>
-        <div class="form-row">
-          <label>After-call Comments</label>
-          <textarea id="final-comment" rows="4" placeholder="Summarize the call and reason for the decision...">${escapeHtml(farmer.final_decision_comment || '')}</textarea>
-        </div>
-      </div>
-      ${farmer.jbl_visit_comment ? `<div class="info-row"><span class="ir-label">BRO Comment</span><span class="ir-value">${escapeHtml(farmer.jbl_visit_comment)}</span></div>` : ''}
-    `;
-  }
-
-  function buildRequisitionForm(farmer) {
-    const today = new Date().toISOString().split('T')[0];
-    return `
-      <div class="form-section">
-        <div class="form-row">
-          <label>Order Number</label>
-          <input type="text" id="req-order" placeholder="e.g. JBL-2026-001" value="${farmer.order_number || ''}">
-        </div>
-        <div class="form-row">
-          <label>Requisition Date</label>
-          <input type="date" id="req-date" value="${farmer.requisition_date || today}">
-        </div>
-      </div>
-    `;
-  }
-
-  function closeSheet() {
-    el('sheet-overlay').classList.remove('open');
-    state.selectedFarmer = null;
-    state.activeMode = null;
-    destroyMap();
-  }
-  el('sheet-overlay').addEventListener('click', e => { if (e.target === el('sheet-overlay')) closeSheet(); });
-  el('sheet-close').addEventListener('click', closeSheet);
-  // Submit handlers
-  async function submitJblVisit() {
-    const farmer = state.selectedFarmer;
-    if (!farmer) return;
-    const visitDate = el('jbl-date')?.value || '';
-    const visitStatus = el('jbl-status')?.value || '';
-    const officer = el('jbl-officer')?.value || '';
-    const county = el('jbl-county')?.value || '';
-    const subCounty = el('jbl-sub-county')?.value || '';
-    const village = el('jbl-village')?.value || '';
-    const comment = el('jbl-comment')?.value || '';
-    const latitude = el('jbl-lat')?.value || '';
-    const longitude = el('jbl-lng')?.value || '';
-    if (!visitStatus) { showToast('Please select a visit status', 'error'); return; }
-
-    const btn = el('btn-submit-jbl');
-    setButtonLoading(btn, true, 'Saving...');
-
-    const { ok, data } = await apiFetch('/jbl-queue/' + farmer.id + '/', {
-      method: 'POST',
-      body: JSON.stringify({
-        visit_date: visitDate,
-        visit_status: visitStatus,
-        officer: officer,
-        county: county,
-        sub_county: subCounty,
-        village: village,
-        comment: comment,
-        latitude: latitude,
-        longitude: longitude
-      }),
-    });
-
-    setButtonLoading(btn, false);
-    if (!ok) { showToast(data.error || 'Save failed', 'error'); return; }
-    const uploadOk = await uploadJblMediaIfSelected(farmer.id);
-    if (!uploadOk) return;
-    showToast('JBL visit logged', 'success');
-    closeSheet();
-    reloadCurrentQueue();
-    loadDashboard();
-  }
-
-  async function uploadJblMediaIfSelected(farmerId) {
-    const input = el('jbl-media');
-    const files = input?.files ? Array.from(input.files) : [];
-    if (!files.length) return true;
-    if (!navigator.onLine) {
-      showToast('Offline. Reconnect before uploading visit media.', 'error');
-      return false;
-    }
-    const formData = new FormData();
-    files.forEach(file => formData.append('files', file));
-    showToast('Uploading visit media...');
-    try {
-      const response = await fetch(apiBase() + '/jbl-queue/' + farmerId + '/media/', {
-        method: 'POST',
-        headers: {
-          ...initDataHeader(),
-          'X-CSRFToken': getCookie('csrftoken') || ''
-        },
-        body: formData
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.ok === false) {
-        showToast(data.error || 'Media upload failed. Visit was saved; retry media upload from the record.', 'error');
-        return false;
-      }
-      const warnings = Array.isArray(data.warnings) && data.warnings.length ? ' ' + data.warnings.join(' ') : '';
-      showToast(`Stored ${data.stored_count || 0} media file${(data.stored_count || 0) === 1 ? '' : 's'}.${warnings}`, data.warnings?.length ? 'warning' : 'success');
-      return true;
-    } catch (err) {
-      console.error(err);
-      showToast('Media upload failed. Visit was saved; retry media upload from the record.', 'error');
-      return false;
-    }
-  }
-
-
-  async function submitCreditDecision() {
-    const farmer = state.selectedFarmer;
-    if (!farmer) return;
-    const decision = el('credit-decision')?.value || '';
-    const imabCreated = el('credit-imab')?.value || '';
-    const customerNo = (el('credit-customer-no')?.value || '').replace(/[^0-9]/g, '');
-    if (!decision) { showToast('Please select a decision', 'error'); return; }
-    if (imabCreated !== 'Yes') { showToast('Create the customer in IMAB before sending this case to Head of Rural review.', 'error'); return; }
-    if (!customerNo) { showToast('Enter the IMAB Customer No before sending this case to Head of Rural review.', 'error'); return; }
-
-    const btn = el('btn-submit-credit');
-    setButtonLoading(btn, true, 'Saving...');
-
-    const { ok, data } = await apiFetch('/credit-queue/' + farmer.id + '/', {
-      method: 'POST',
-      body: JSON.stringify({ decision, imab_created: imabCreated, customer_no: customerNo }),
-    });
-
-    setButtonLoading(btn, false);
-    if (!ok) { showToast(data.error || 'Save failed', 'error'); return; }
-    showToast('Credit decision saved', 'success');
-    closeSheet();
-    reloadCurrentQueue();
-    loadDashboard();
-  }
-
-  async function submitFinalDecision() {
-    const farmer = state.selectedFarmer;
-    if (!farmer) return;
-    const finalDecision = el('final-decision')?.value || '';
-    const decisionComment = el('final-comment')?.value || '';
-    if (!finalDecision) { showToast('Please select a final decision', 'error'); return; }
-
-    const btn = el('btn-submit-final');
-    setButtonLoading(btn, true, 'Saving...');
-
-    const { ok, data } = await apiFetch('/final-review-queue/' + farmer.id + '/', {
-      method: 'POST',
-      body: JSON.stringify({ final_decision: finalDecision, decision_comment: decisionComment }),
-    });
-
-    setButtonLoading(btn, false);
-    if (!ok) { showToast(data.error || 'Save failed', 'error'); return; }
-    showToast('Final review saved', 'success');
-    closeSheet();
-    reloadCurrentQueue();
-    loadDashboard();
-  }
-
-  async function submitOrder() {
-    const farmer = state.selectedFarmer;
-    if (!farmer) return;
-    const orderNumber = (el('req-order')?.value || '').trim();
-    const reqDate = el('req-date')?.value || '';
-    if (!orderNumber) { showToast('Order number is required', 'error'); return; }
-
-    const btn = el('btn-submit-req');
-    setButtonLoading(btn, true, 'Saving...');
-
-    const { ok, status, data } = await apiFetch('/requisition-queue/' + farmer.id + '/', {
-      method: 'POST',
-      body: JSON.stringify({ order_number: orderNumber, requisition_date: reqDate }),
-    });
-
-    setButtonLoading(btn, false);
-    if (!ok) {
-      if (status === 403) { showToast('Error: ' + (data.error || 'Final review not approved'), 'error'); }
-      else { showToast(data.error || 'Save failed', 'error'); }
-      return;
-    }
-    showToast('Order assigned', 'success');
-    closeSheet();
-    reloadCurrentQueue();
-    loadDashboard();
   }
 
   function reloadCurrentQueue() {
     const p = state.activePage;
     if (queueConfig[p]) loadQueue(p, state.pages[p] || 1);
   }
-  // Filters Event Listeners
-  el('filter-county')?.addEventListener('change', async e => {
-    state.filters.county = e.target.value;
-    state.filters.branch = ''; // reset branch if county changed
-    const qKey = state.activePage;
-    if (qKey === 'all') {
-      loadQueue('all', 1);
-    } else if (queueConfig[qKey]?.fragmentEndpoint && window.htmx) {
-      updateFilterOptions(state.queues[qKey] || []);
-      if (!(await renderQueueFragment(qKey, 1))) applyFilters();
-    } else {
-      updateFilterOptions(state.queues[qKey] || []);
-      applyFilters();
-    }
-  });
-
-  el('filter-branch')?.addEventListener('change', async e => {
-    state.filters.branch = e.target.value;
-    if (state.activePage === 'all') loadQueue('all', 1);
-    else if (queueConfig[state.activePage]?.fragmentEndpoint && window.htmx) {
-      if (!(await renderQueueFragment(state.activePage, 1))) applyFilters();
-    }
-    else applyFilters();
-  });
-
-  el('btn-clear-filters')?.addEventListener('click', async () => {
-    state.filters.county = '';
-    state.filters.branch = '';
-    const qKey = state.activePage;
-    if (qKey === 'all') {
-      loadQueue('all', 1);
-    } else if (queueConfig[qKey]?.fragmentEndpoint && window.htmx) {
-      updateFilterOptions(state.queues[qKey] || []);
-      if (!(await renderQueueFragment(qKey, 1))) applyFilters();
-    } else {
-      updateFilterOptions(state.queues[qKey] || []);
-      applyFilters();
-    }
-  });
   // Search (All Cases tab)
   let searchTimer;
   el('all-search')?.addEventListener('input', e => {
@@ -1382,142 +720,10 @@
   }
 
   function updateBatchPanel() {
-    const panel = el('requisition-batch-panel');
-    if (!panel) return;
-    const count = state.selectedRequisitions.size;
-    if (count > 0) {
-      panel.style.display = 'block';
-      const badge = el('batch-selected-count');
-      if (badge) badge.textContent = `${count} selected`;
-    } else {
-      panel.style.display = 'none';
+    if (portalRequisitions.updateBatchPanel) {
+      portalRequisitions.updateBatchPanel();
     }
   }
-
-  function currentRequisitionPayload() {
-    const orderNoInput = el('batch-order-num');
-    const reqDateInput = el('batch-req-date');
-    if (!orderNoInput || !reqDateInput) return null;
-    const order_number = orderNoInput.value.trim();
-    const requisition_date = reqDateInput.value.trim();
-    const farmer_ids = Array.from(state.selectedRequisitions);
-    if (!order_number) {
-      alert('Please enter an Order Number / Batch Ref.');
-      return null;
-    }
-    if (!requisition_date) {
-      alert('Please select a Requisition Date.');
-      return null;
-    }
-    if (!farmer_ids.length) {
-      alert('No farmers selected.');
-      return null;
-    }
-    return { farmer_ids, order_number, requisition_date, return_url: true };
-  }
-
-  async function requestRequisitionPreview() {
-    const payload = currentRequisitionPayload();
-    if (!payload) return;
-    try {
-      showToast('Preparing batch preview...');
-      const response = await fetch(apiBase() + '/requisition-queue/preview/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...initDataHeader(),
-          'X-CSRFToken': getCookie('csrftoken') || ''
-        },
-        body: JSON.stringify(payload)
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.ok) {
-        showToast(data.error || 'Could not prepare preview.', 'error');
-        return;
-      }
-      state.pendingRequisitionPayload = payload;
-      openRequisitionPreview(data);
-    } catch (err) {
-      console.error(err);
-      showToast('Could not prepare preview.', 'error');
-    }
-  }
-
-  function openRequisitionPreview(data) {
-    const overlay = el('requisition-preview-overlay');
-    const sub = el('requisition-preview-sub');
-    const summary = el('requisition-preview-summary');
-    const warnings = el('requisition-preview-warnings');
-    const list = el('requisition-preview-list');
-    const confirm = el('requisition-preview-confirm');
-    const blockedById = {};
-    (data.blocked || []).forEach(item => {
-      if (item.farmer?.id) blockedById[item.farmer.id] = item.missing || [];
-    });
-    sub.textContent = `Order ${data.order_number} - ${data.requisition_date}`;
-    summary.innerHTML = summaryGrid([
-      { label: 'Ready', value: String(data.ready_count || 0) },
-      { label: 'Blocked', value: String(data.blocked_count || 0) },
-      { label: 'Warnings', value: String(data.warning_count || 0) },
-    ]);
-    renderWarnings(warnings, data.warnings || []);
-    const allFarmers = [...(data.ready || []), ...(data.blocked || []).map(item => item.farmer)];
-    list.innerHTML = batchClientRows(allFarmers, blockedById);
-    confirm.disabled = (data.blocked_count || 0) > 0 || !(data.ready_count || 0);
-    confirm.textContent = confirm.disabled ? 'Resolve Blocked Items' : 'Generate Requisition';
-    overlay.classList.add('open');
-  }
-
-  async function generateRequisitionFromPreview() {
-    const payload = state.pendingRequisitionPayload;
-    if (!payload) return;
-    const confirm = el('requisition-preview-confirm');
-    setButtonLoading(confirm, true, 'Generating...');
-    try {
-      const response = await fetch(apiBase() + '/requisition-queue/generate/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...initDataHeader(),
-          'X-CSRFToken': getCookie('csrftoken') || ''
-        },
-        body: JSON.stringify(payload)
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok || !result.ok || !result.download_url) {
-        showToast(result.error || 'Requisition generation failed.', 'error');
-        return;
-      }
-      openPortalLink(result.download_url);
-      showToast('Requisition generated and saved to Batches.', 'success');
-      state.selectedRequisitions.clear();
-      state.pendingRequisitionPayload = null;
-      el('batch-order-num').value = '';
-      el('batch-req-date').value = '';
-      updateBatchPanel();
-      el('requisition-preview-overlay').classList.remove('open');
-      loadQueue('requisition', 1);
-      loadQueue('batches', 1);
-    } catch (err) {
-      console.error(err);
-      showToast('An error occurred during generation.', 'error');
-    } finally {
-      setButtonLoading(confirm, false);
-    }
-  }
-
-  el('btn-generate-requisition')?.addEventListener('click', requestRequisitionPreview);
-  el('requisition-preview-confirm')?.addEventListener('click', generateRequisitionFromPreview);
-  el('requisition-preview-close')?.addEventListener('click', () => el('requisition-preview-overlay').classList.remove('open'));
-  el('requisition-preview-cancel')?.addEventListener('click', () => el('requisition-preview-overlay').classList.remove('open'));
-  el('requisition-preview-overlay')?.addEventListener('click', e => {
-    if (e.target === el('requisition-preview-overlay')) el('requisition-preview-overlay').classList.remove('open');
-  });
-  el('batch-detail-close')?.addEventListener('click', () => el('batch-detail-overlay').classList.remove('open'));
-  el('batch-detail-overlay')?.addEventListener('click', e => {
-    if (e.target === el('batch-detail-overlay')) el('batch-detail-overlay').classList.remove('open');
-  });
-
 
   function getCookie(name) {
     let cookieValue = null;
@@ -1533,167 +739,61 @@
     }
     return cookieValue;
   }
-  // Invoice Upload Handlers
-  const invoiceOverlay = el('invoice-overlay');
-  const invoiceOverlayClose = el('invoice-overlay-close');
-  const invoiceUploadForm = el('invoice-upload-form');
-  const invoiceFileInput = el('invoice-file-input');
-  const invoiceFileInfo = el('invoice-file-info');
-  const invoiceSubmitBtn = el('invoice-submit-btn');
-  const invoiceResults = el('invoice-results');
-  const invoiceResultsSummary = el('invoice-results-summary');
-  const invoiceResultsList = el('invoice-results-list');
-  const invoiceUploadMaxMb = Number(window.PORTAL_CONFIG?.invoiceUploadMaxFileSizeMb || 8);
-  const invoiceUploadMaxBytes = Math.max(1, invoiceUploadMaxMb) * 1024 * 1024;
-  let invoiceUploadInProgress = false;
-
-  function invoiceFileSizeLabel(bytes) {
-    if (portalHelpers.invoiceFileSizeLabel) return portalHelpers.invoiceFileSizeLabel(bytes);
-    if (!bytes && bytes !== 0) return 'unknown size';
-    if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
-    return `${(bytes / 1024).toFixed(1)} KB`;
+  if (portalFarmerSheet.init) {
+    portalFarmerSheet.init({
+      apiFetch,
+      el,
+      escapeHtml,
+      fmt,
+      fmtDate,
+      getCookie,
+      loadDashboard,
+      portalApi,
+      reloadCurrentQueue,
+      setButtonLoading,
+      showToast,
+      state,
+      tg,
+    });
   }
-
-  function validateInvoiceFile(file) {
-    if (portalHelpers.validateInvoiceFile) return portalHelpers.validateInvoiceFile(file, invoiceUploadMaxBytes, invoiceUploadMaxMb);
-    if (!file) return 'Select a PDF file first.';
-    if (!String(file.name || '').toLowerCase().endsWith('.pdf')) return 'Only PDF files are supported.';
-    if (file.size > invoiceUploadMaxBytes) {
-      return `This PDF is ${invoiceFileSizeLabel(file.size)}. Maximum supported size is ${invoiceUploadMaxMb} MB.`;
-    }
-    return '';
+  if (portalFilters.init) {
+    portalFilters.init({
+      applyFilters,
+      creditBadge,
+      el,
+      escapeHtml,
+      fmt,
+      fmtDate,
+      jblBadge,
+      loadQueue,
+      openFarmerSheet,
+      queueConfig,
+      renderQueueFragment,
+      stageBadge,
+      state,
+      updateBatchPanel,
+    });
   }
-
-  function closeInvoiceOverlay() {
-    invoiceOverlay.classList.remove('open');
+  if (portalRequisitions.init) {
+    portalRequisitions.init({
+      apiFetch,
+      batchClientRows,
+      el,
+      escapeHtml,
+      getCookie,
+      loadQueue,
+      openPortalLink,
+      portalApi,
+      portalHelpers,
+      renderWarnings,
+      setButtonLoading,
+      showToast,
+      state,
+      summaryGrid,
+      tg,
+      updateConnectionBanner,
+    });
   }
-
-  invoiceOverlayClose.addEventListener('click', closeInvoiceOverlay);
-  invoiceOverlay.addEventListener('click', e => {
-    if (e.target === invoiceOverlay) closeInvoiceOverlay();
-  });
-
-  invoiceFileInput.addEventListener('change', () => {
-    const file = invoiceFileInput.files[0];
-    if (file) {
-      const validationError = validateInvoiceFile(file);
-      if (validationError) {
-        showToast(validationError, 'error');
-        invoiceFileInput.value = '';
-        invoiceFileInfo.style.display = 'none';
-        invoiceSubmitBtn.disabled = true;
-        return;
-      }
-      invoiceFileInfo.textContent = `Selected: ${file.name} (${invoiceFileSizeLabel(file.size)}). Limit: ${invoiceUploadMaxMb} MB.`;
-      invoiceFileInfo.style.display = 'block';
-      invoiceSubmitBtn.disabled = false;
-    } else {
-      invoiceFileInfo.style.display = 'none';
-      invoiceSubmitBtn.disabled = true;
-    }
-  });
-
-  invoiceUploadForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    if (invoiceUploadInProgress) return;
-    const file = invoiceFileInput.files[0];
-    const validationError = validateInvoiceFile(file);
-    if (validationError) {
-      showToast(validationError, 'error');
-      return;
-    }
-    if (navigator.onLine === false) {
-      updateConnectionBanner();
-      showToast('Offline. Reconnect before uploading invoice PDFs.', 'error');
-      return;
-    }
-
-    invoiceUploadInProgress = true;
-    invoiceSubmitBtn.disabled = true;
-    const origBtnText = invoiceSubmitBtn.textContent;
-    invoiceSubmitBtn.textContent = 'Extracting & Syncing...';
-
-    try {
-      const formData = new FormData(invoiceUploadForm);
-      const response = await fetch(apiBase() + '/requisition-batches/upload-invoices/', {
-        method: 'POST',
-        headers: {
-          ...initDataHeader(),
-          'X-CSRFToken': getCookie('csrftoken') || ''
-        },
-        body: formData
-      });
-
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.error || 'Failed to process invoices.');
-      }
-
-      const res = await response.json();
-      if (!res.ok && !(res.results || []).length) {
-        throw new Error(res.error || 'Invoice extraction failed.');
-      }
-
-      if (res.ok) {
-        showToast(`Invoices processed successfully! Matched ${res.matched_count} of ${res.total_parsed}.`, 'success');
-      } else {
-        showToast(res.error || 'No invoice matched. Review the details below.', 'error');
-      }
-
-      // Render results
-      const matchedCount = res.matched_count || 0;
-      const totalParsed = res.total_parsed || 0;
-      const candidateCount = res.candidate_count ?? 'unknown';
-      invoiceResultsSummary.textContent = res.ok
-        ? `Matched ${matchedCount} of ${totalParsed} parsed invoice(s). Candidates in selected batch: ${candidateCount}.`
-        : `${res.error || 'Invoice upload needs review.'} Parsed: ${totalParsed}. Matched: ${matchedCount}. Candidates in selected batch: ${candidateCount}.`;
-      invoiceResultsList.innerHTML = (res.results || []).map(r => {
-        const matched = r.status === 'Matched';
-        const customerName = escapeHtml(r.customer_name || '-');
-        const invoiceNo = escapeHtml(r.invoice_no || '-');
-        const status = escapeHtml(r.status || 'Unmatched');
-        const reason = r.reason ? `<div style="font-size:11px; color:#7f1d1d; margin-top:2px;">${escapeHtml(r.reason)}</div>` : '';
-        const parsed = !matched ? `
-          <div style="font-size:11px; color:#475569; margin-top:4px; line-height:1.45;">
-            Parsed ID: <strong>${escapeHtml(r.parsed_national_id || '-')}</strong> |
-            Phone: <strong>${escapeHtml(r.parsed_phone || '-')}</strong> |
-            Selected order: <strong>${escapeHtml(r.selected_order_number || res.order_number || '-')}</strong><br>
-            Batch candidates: ${escapeHtml(r.batch_candidate_count ?? '-')} |
-            ID matches: ${escapeHtml(r.batch_id_match_count ?? '-')} |
-            Phone matches: ${escapeHtml(r.batch_phone_match_count ?? '-')} |
-            Name matches: ${escapeHtml(r.batch_name_match_count ?? '-')}
-          </div>` : '';
-        const outside = (r.outside_batch_matches || []).length ? `
-          <div style="font-size:11px; color:#7c2d12; margin-top:4px; line-height:1.45;">
-            Possible match outside selected order:<br>
-            ${(r.outside_batch_matches || []).map(m => `${escapeHtml(m.customer_name || '-')} | ID ${escapeHtml(m.national_id || '-')} - ${escapeHtml(m.primary_phone || '-')} | Order ${escapeHtml(m.order_number || '-')} | Status ${escapeHtml(m.status || '-')}`).join('<br>')}
-          </div>` : '';
-        return `
-        <div style="font-size:13px; padding:6px 8px; background:${matched ? '#f0fdf4' : '#fef2f2'}; border-radius:6px; border:1px solid ${matched ? '#bbf7d0' : '#fecaca'};">
-          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-            <span style="font-weight:600; color:#1e293b;">${customerName}</span>
-            <div style="display:flex; align-items:center; gap:6px;">
-              <span style="font-size:11px; font-family:monospace; color:#64748b;">${invoiceNo}</span>
-              <span class="badge ${matched ? 'badge-green' : 'badge-red'}" style="font-size:10px; padding:2px 6px;">${status}</span>
-            </div>
-          </div>
-          ${reason}
-          ${parsed}
-          ${outside}
-        </div>`;
-      }).join('');
-      invoiceResults.style.display = 'block';
-
-      // Reload batches list
-      loadQueue('batches', state.pages['batches'] || 1);
-    } catch (err) {
-      showToast(err.message, 'error');
-    } finally {
-      invoiceUploadInProgress = false;
-      invoiceSubmitBtn.disabled = false;
-      invoiceSubmitBtn.textContent = origBtnText;
-    }
-  });
 
   updateConnectionBanner();
   init();

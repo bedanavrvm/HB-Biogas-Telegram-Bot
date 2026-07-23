@@ -1,5 +1,6 @@
 (function () {
   const utils = window.MiniAppUtils || {};
+  const complaintApi = window.ComplaintCasesMiniAppApi || {};
   const telegram = utils.initTelegram ? utils.initTelegram({ closingConfirmation: false }) : (window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null);
   if (telegram && !utils.initTelegram) { telegram.ready(); telegram.expand(); }
 
@@ -28,6 +29,8 @@
 
   async function api(path, payload, formData) {
     const data = formData || Object.assign({ group_id: state.groupId }, payload || {});
+    if (formData && complaintApi.postForm) return complaintApi.postForm(path, formData, state.initData, state.groupId, utils);
+    if (!formData && complaintApi.postJson) return complaintApi.postJson(path, data, state.initData, utils);
     if (formData) formData.set('group_id', state.groupId);
     const options = { method: 'POST', headers: { 'X-Telegram-Init-Data': state.initData } };
     if (formData) options.body = formData;
@@ -40,6 +43,7 @@
   }
 
   async function fragmentPost(path, payload) {
+    if (complaintApi.postFragment) return complaintApi.postFragment(path, payload, state.initData, utils);
     if (utils.fetchHtml && utils.formBody) {
       return utils.fetchHtml(path, {
         method: 'POST',

@@ -2,6 +2,7 @@
   'use strict';
 
   const utils = window.MiniAppUtils || {};
+  const spinApi = window.SpinMiniAppApi || {};
   const tg = utils.initTelegram ? utils.initTelegram() : (window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null);
   function applyTelegramTheme() {
     const scheme = tg && tg.colorScheme === 'dark' ? 'tg-dark' : 'tg-light';
@@ -367,8 +368,10 @@
 
     setButtonLoading(submitBtn, true, 'Submitting');
     try {
-      const response = await fetch('/api/spin/submit/', buildSubmitOptions(data));
-      const result = await response.json();
+      const response = spinApi.postForm
+        ? await spinApi.postForm('/api/spin/submit/', buildSubmitOptions(data))
+        : await fetch('/api/spin/submit/', buildSubmitOptions(data)).then(async res => ({ ok: res.ok, data: await res.json().catch(() => ({})) }));
+      const result = response.data || {};
       if (!response.ok || !result.success) {
         const messages = (result.errors && result.errors.length ? result.errors : [result.message || 'Submission failed.']);
         setBanner(messages, 'error');
@@ -605,8 +608,10 @@
     const url = `/api/spin/requests/?group_id=${config.group_id || ''}&form_token=${config.form_token || ''}&init_data=${initDataEnc}`;
 
     try {
-      const response = await fetch(url);
-      const result = await response.json();
+      const response = spinApi.getJson
+        ? await spinApi.getJson(url)
+        : await fetch(url).then(async res => ({ ok: res.ok, data: await res.json().catch(() => ({})) }));
+      const result = response.data || {};
       if (!response.ok || !result.success) {
         requestsList.innerHTML = `
           <div class="empty-state">
@@ -805,12 +810,14 @@
     };
 
     try {
-      const response = await fetch(isBatchCandidate ? '/api/spin/batch-review/resolve/' : '/api/spin/review/update/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const result = await response.json();
+      const response = spinApi.postJson
+        ? await spinApi.postJson(isBatchCandidate ? '/api/spin/batch-review/resolve/' : '/api/spin/review/update/', payload)
+        : await fetch(isBatchCandidate ? '/api/spin/batch-review/resolve/' : '/api/spin/review/update/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }).then(async res => ({ ok: res.ok, data: await res.json().catch(() => ({})) }));
+      const result = response.data || {};
       if (!response.ok || !result.success) {
         setBanner(result.errors || result.message || 'Review could not be saved.', 'error', reviewModalBanner);
         return;
@@ -830,18 +837,26 @@
     if (!reviewTarget || reviewTarget.kind !== 'batch') return;
     setButtonLoading(rejectReviewBtn, true, 'Saving');
     try {
-      const response = await fetch('/api/spin/batch-review/resolve/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const response = spinApi.postJson
+        ? await spinApi.postJson('/api/spin/batch-review/resolve/', {
           item_id: reviewTarget.id,
           action: 'reject',
           group_id: config.group_id || '',
           form_token: config.form_token || '',
           init_data: tg ? tg.initData || '' : ''
         })
-      });
-      const result = await response.json();
+        : await fetch('/api/spin/batch-review/resolve/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            item_id: reviewTarget.id,
+            action: 'reject',
+            group_id: config.group_id || '',
+            form_token: config.form_token || '',
+            init_data: tg ? tg.initData || '' : ''
+          })
+        }).then(async res => ({ ok: res.ok, data: await res.json().catch(() => ({})) }));
+      const result = response.data || {};
       if (!response.ok || !result.success) {
         setBanner(result.message || 'The message could not be marked.', 'error', reviewModalBanner);
         return;
@@ -878,11 +893,13 @@
     formData.append('init_data', tg ? tg.initData || '' : '');
 
     try {
-      const response = await fetch('/api/spin/complete/', {
-        method: 'POST',
-        body: formData
-      });
-      const result = await response.json();
+      const response = spinApi.postForm
+        ? await spinApi.postForm('/api/spin/complete/', formData)
+        : await fetch('/api/spin/complete/', {
+          method: 'POST',
+          body: formData
+        }).then(async res => ({ ok: res.ok, data: await res.json().catch(() => ({})) }));
+      const result = response.data || {};
       if (!response.ok || !result.success) {
         setBanner(result.message || 'Upload failed.', 'error', modalBanner);
         return;

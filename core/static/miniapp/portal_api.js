@@ -24,6 +24,24 @@
     return { ok: response.ok, status: response.status, data };
   }
 
+  async function postJson(path, payload, tg, extraHeaders) {
+    return apiFetch(path, {
+      method: 'POST',
+      headers: extraHeaders || {},
+      body: JSON.stringify(payload || {}),
+    }, tg);
+  }
+
+  async function postForm(path, formData, tg, extraHeaders) {
+    const response = await fetch(apiBase() + path, {
+      method: 'POST',
+      headers: { ...initDataHeader(tg), ...(extraHeaders || {}) },
+      body: formData,
+    });
+    const data = await response.json().catch(function () { return {}; });
+    return { ok: response.ok, status: response.status, data };
+  }
+
   async function fetchHtml(path, opts, tg) {
     const options = opts || {};
     const url = path.startsWith('/api/') ? path : apiBase() + path;
@@ -47,5 +65,7 @@
     apiFetch,
     fetchHtml,
     initDataHeader,
+    postForm,
+    postJson,
   };
 })();
