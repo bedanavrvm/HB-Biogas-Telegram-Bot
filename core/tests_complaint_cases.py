@@ -225,6 +225,7 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         for expected in ('class="app-top"', 'class="overview-strip"', 'class="tabs"', 'class="form-card"', 'id="complaintTabs"', 'data-view="create"', 'id="createCaseForm"', 'name="client_name"', 'name="customer_phone"', 'name="customer_id"', 'name="branch_region"', 'name="complaint_category"', 'name="complaint_description"', 'id="createEvidenceInput"', 'id="branchFilter"', 'data-status-filter="Open"', 'data-status-filter="In Progress"', 'data-status-filter="Closed"', 'id="captureLocationBtn" class="secondary" type="button"', 'htmx.org'):
             self.assertIn(expected, template)
         self.assertIn('<div class="location-actions" hidden><button id="captureLocationBtn"', template)
+        self.assertIn("miniapp/utils.js", template)
         self.assertIn('caseItem.recorded_at', script)
         self.assertIn("api('cases/create/'", script)
         self.assertIn('function callHref(phone)', script)
@@ -232,7 +233,9 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('branch: state.branch', script)
         self.assertIn('function applyStatusFilter(status)', script)
         self.assertIn('function configureHtmx()', script)
-        self.assertIn("htmx.ajax('POST', '/api/complaints/cases/fragment/'", script)
+        self.assertIn("utils.fetchHtml(path", script)
+        self.assertIn("utils.fetchJson(`/api/complaints/${path}`", script)
+        self.assertIn("await renderCasesFragment()", script)
 
 
 class ComplaintCaseAdminTests(TestCase):

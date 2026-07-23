@@ -1,14 +1,15 @@
 (function () {
   'use strict';
 
-  const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+  const utils = window.MiniAppUtils || {};
+  const tg = utils.initTelegram ? utils.initTelegram() : (window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null);
   function applyTelegramTheme() {
     const scheme = tg && tg.colorScheme === 'dark' ? 'tg-dark' : 'tg-light';
     document.body.classList.remove('tg-dark', 'tg-light');
     document.body.classList.add(scheme);
   }
 
-  if (tg) {
+  if (tg && !utils.initTelegram) {
     tg.ready();
     tg.expand();
     applyTelegramTheme();
@@ -274,6 +275,7 @@
   }
 
   function escapeHtml(value) {
+    if (utils.escapeHtml) return utils.escapeHtml(value);
     return String(value).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
   }
 

@@ -1,6 +1,7 @@
 (function () {
-  const telegram = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
-  if (telegram) { telegram.ready(); telegram.expand(); }
+  const utils = window.MiniAppUtils || {};
+  const telegram = utils.initTelegram ? utils.initTelegram({ closingConfirmation: false }) : (window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null);
+  if (telegram && !utils.initTelegram) { telegram.ready(); telegram.expand(); }
 
   const state = {
     groupId: document.body.dataset.groupId || '',
@@ -9,7 +10,7 @@
     capturedLocation: null, createCapturedLocation: null, debounce: null,
   };
   const $ = (id) => document.getElementById(id);
-  const escapeHtml = (value) => String(value == null ? '' : value).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[character]));
+  const escapeHtml = utils.escapeHtml || ((value) => String(value == null ? '' : value).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[character])));
   const requestId = () => window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : `complaint-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
   function configureHtmx() {
@@ -31,6 +32,7 @@
     const options = { method: 'POST', headers: { 'X-Telegram-Init-Data': state.initData } };
     if (formData) options.body = formData;
     else { options.headers['Content-Type'] = 'application/json'; options.body = JSON.stringify(data); }
+    if (utils.fetchJson) return utils.fetchJson(`/api/complaints/${path}`, options);
     const response = await fetch(`/api/complaints/${path}`, options);
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.ok) throw new Error(result.error || 'Request failed.');
@@ -38,6 +40,13 @@
   }
 
   async function fragmentPost(path, payload) {
+    if (utils.fetchHtml && utils.formBody) {
+      return utils.fetchHtml(path, {
+        method: 'POST',
+        headers: Object.assign({ 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' }, utils.initDataHeader ? utils.initDataHeader(state.initData) : { 'X-Telegram-Init-Data': state.initData }),
+        body: utils.formBody(payload || {}),
+      });
+    }
     const response = await fetch(path, {
       method: 'POST',
       headers: {
@@ -53,6 +62,10 @@
 
   function notify(message, error) {
     const toast = $('toast');
+    if (utils.showToast) {
+      utils.showToast(toast, message, { error, timeout: 5000, className: `toast visible${error ? ' error' : ''}`, resetClassName: 'toast' });
+      return;
+    }
     toast.textContent = message;
     toast.className = `toast visible${error ? ' error' : ''}`;
     window.clearTimeout(notify.timer);

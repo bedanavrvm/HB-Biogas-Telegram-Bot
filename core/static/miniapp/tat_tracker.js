@@ -1,5 +1,6 @@
 (function () {
-  const tg = window.MiniAppTelegram ? window.MiniAppTelegram.init() : null;
+  const utils = window.MiniAppUtils || {};
+  const tg = window.MiniAppTelegram ? window.MiniAppTelegram.init() : (utils.initTelegram ? utils.initTelegram() : null);
   const body = document.body;
   const state = {
     groupId: body.dataset.groupId || '',
@@ -49,6 +50,13 @@
   }
 
   async function api(path, payload) {
+    if (utils.fetchJson) {
+      return utils.fetchJson(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(basePayload(payload)),
+      });
+    }
     const response = await fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -60,6 +68,13 @@
   }
 
   async function fragmentPost(path, payload) {
+    if (utils.fetchHtml && utils.formBody) {
+      return utils.fetchHtml(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+        body: utils.formBody(basePayload(payload)),
+      });
+    }
     const response = await fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
@@ -148,6 +163,7 @@
   }
 
   function escapeHtml(value) {
+    if (utils.escapeHtml) return utils.escapeHtml(value);
     return String(value == null ? '' : value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
   }
 

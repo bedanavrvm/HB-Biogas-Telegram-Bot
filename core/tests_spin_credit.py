@@ -428,6 +428,16 @@ Code 856189
 
 
 class SpinCreditMiniAppTestCase(TestCase):
+    def test_mini_app_loads_shared_frontend_utils(self):
+        from pathlib import Path
+
+        template = Path('core/templates/spin/form.html').read_text(encoding='utf-8')
+        source = Path('core/static/miniapp/spin_form.js').read_text(encoding='utf-8')
+
+        self.assertIn('miniapp/utils.js', template)
+        self.assertIn('window.MiniAppUtils', source)
+        self.assertIn('utils.escapeHtml', source)
+
     @override_settings(SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, ALLOWED_HOSTS=['testserver'])
     @patch('core.api.views._post_telegram_reply')
     @patch('core.services.spin_credit.append_spin_requests_to_sheet')

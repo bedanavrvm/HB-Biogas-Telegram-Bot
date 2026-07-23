@@ -333,6 +333,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'portal/portal.html')
         self.assertContains(response, 'htmx.org')
+        self.assertContains(response, 'miniapp/utils.js')
 
     def test_portal_jbl_queue_fragment_renders_cards(self):
         """Verify the htmx JBL queue fragment renders useful farmer cards."""

@@ -3,8 +3,9 @@
 (() => {
   'use strict';
   // Init Telegram Web App
-  const tg = window.Telegram?.WebApp;
-  if (tg) {
+  const utils = window.MiniAppUtils || {};
+  const tg = utils.initTelegram ? utils.initTelegram({ closingConfirmation: false }) : window.Telegram?.WebApp;
+  if (tg && !utils.initTelegram) {
     tg.ready();
     tg.expand();
   }
@@ -36,7 +37,7 @@
 
   function initDataHeader() {
     const raw = tg?.initData || '';
-    return raw ? { 'X-Telegram-Init-Data': raw } : {};
+    return utils.initDataHeader ? utils.initDataHeader(raw) : (raw ? { 'X-Telegram-Init-Data': raw } : {});
   }
 
   function configureHtmx() {
@@ -67,6 +68,14 @@
   let _toastTimer = null;
   function showToast(msg, type = '') {
     const t = el('toast');
+    if (utils.showToast) {
+      utils.showToast(t, msg, {
+        className: 'toast show' + (type ? ' ' + type + '-toast' : ''),
+        resetClassName: 'toast',
+        timeout: 3000,
+      });
+      return;
+    }
     t.textContent = msg;
     t.className = 'toast show' + (type ? ' ' + type + '-toast' : '');
     clearTimeout(_toastTimer);
@@ -89,6 +98,7 @@
   });
 
   function escapeHtml(value) {
+    if (utils.escapeHtml) return utils.escapeHtml(value);
     return String(value ?? '').replace(/[&<>"']/g, ch => ({
       '&': '&amp;',
       '<': '&lt;',
@@ -341,11 +351,13 @@
     if (state.filters.county) params.set('county', state.filters.county);
     if (state.filters.branch) params.set('branch', state.filters.branch);
     try {
-      const response = await fetch(apiBase() + cfg.fragmentEndpoint + '?' + params.toString(), {
-        headers: initDataHeader(),
-      });
-      const html = await response.text();
-      if (!response.ok) throw new Error(html || 'Could not load queue.');
+      const html = utils.fetchHtml
+        ? await utils.fetchHtml(apiBase() + cfg.fragmentEndpoint + '?' + params.toString(), { headers: initDataHeader() })
+        : await fetch(apiBase() + cfg.fragmentEndpoint + '?' + params.toString(), { headers: initDataHeader() }).then(async (response) => {
+          const text = await response.text();
+          if (!response.ok) throw new Error(text || 'Could not load queue.');
+          return text;
+        });
       list.innerHTML = html;
       if (qKey === 'batches') hydrateHtmxBatchCards(list);
       else hydrateHtmxFarmerCards(list);

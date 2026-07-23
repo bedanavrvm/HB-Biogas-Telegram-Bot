@@ -280,9 +280,11 @@ class TatTrackerWorkflowTest(TestCase):
 
         self.assertIn('id="queueProductFilter"', template)
         self.assertIn('id="queueBranchFilter"', template)
+        self.assertIn("miniapp/utils.js", template)
         self.assertIn("product_key: $('queueProductFilter') ? $('queueProductFilter').value : ''", source)
         self.assertIn("branch: $('queueBranchFilter') ? $('queueBranchFilter').value : ''", source)
         self.assertIn("api('/api/tat-tracker/home/', homePayload(payload))", source)
+        self.assertIn('utils.fetchJson(path', source)
 
     @patch('core.services.tat_tracker.sync_tat_target_settings_to_sheet', return_value={'status': 'unavailable'})
     def test_it_can_save_stage_targets_in_minutes(self, sync_targets):
