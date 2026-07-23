@@ -27,6 +27,7 @@
   }
 
   function fieldHasProblem(row, fieldName) {
+    if (fieldName !== 'Cleaning Notes' && isBlank(row[fieldName])) return true;
     if (!isReview(row)) return false;
     const notes = rowNotes(row);
     if (fieldName === 'Customer Name') {

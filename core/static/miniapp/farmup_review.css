@@ -143,8 +143,8 @@ td.field-error {
 
 td.field-error input,
 td.field-error textarea {
-  border-color: #dc2626;
-  background: #fffafa;
+  border-color: #dc2626 !important;
+  background: #fffafa !important;
 }
 
 @media (max-width: 520px) {
