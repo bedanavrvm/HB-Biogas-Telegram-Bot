@@ -722,6 +722,21 @@ def jawabu_farmers_review_commit(request):
             f"Updated: {sheet_sync.get('updated', 0)}",
             f"Conflicts: {sheet_sync.get('conflicts', 0)}",
         ])
+        if sheet_sync.get('conflicts'):
+            reply_lines.append('Note: conflicts were committed locally; existing non-empty sheet values were preserved.')
+            for detail in (sheet_sync.get('conflict_details') or [])[:3]:
+                label = (
+                    detail.get('customer_name')
+                    or detail.get('national_id')
+                    or detail.get('primary_phone')
+                    or detail.get('duplicate_key')
+                    or f"row {detail.get('row_number')}"
+                )
+                fields = []
+                for note in detail.get('conflicts') or []:
+                    fields.append(str(note).split(':', 1)[0])
+                field_text = ', '.join(fields[:3]) if fields else 'field mismatch'
+                reply_lines.append(f"- {label}: {field_text}")
         if sheet_sync.get('errors'):
             reply_lines.append(f"Warning: {sheet_sync['errors'][0]}")
     else:
@@ -2150,6 +2165,7 @@ def _process_jawabu_farmup_command(
         sender=sender,
         source_filename=filename,
         csv_text=csv_text,
+        group_config=group_config,
     )
     review_url = build_farmup_review_url(str(batch.id))
     mini_app_url = build_farmup_mini_app_url(str(batch.id))
@@ -2164,6 +2180,13 @@ def _process_jawabu_farmup_command(
         if mini_app_url
         else "Mini App short name is not configured; this button opens the secure web review link."
     )
+    preflight = stats.get('master_sheet_preflight') or {}
+    preflight_note = ''
+    if preflight.get('conflicts'):
+        preflight_note = (
+            f"Master Data preflight conflicts: {preflight.get('conflicts', 0)} "
+            "(review before commit)\n"
+        )
     button_text = 'Open Farmers Review Mini App' if mini_app_url else 'Open Farmers Review'
     return {
         'status': 'command',
@@ -2171,6 +2194,7 @@ def _process_jawabu_farmup_command(
             "Farmers CSV ready for review\n"
             f"Rows extracted: {stats.get('total_rows', 0)}\n"
             f"Rows needing review: {stats.get('review_needed', 0)}\n"
+            f"{preflight_note}"
             f"{launch_note}\n\n"
             "Correct any values, then commit approved rows."
         ),

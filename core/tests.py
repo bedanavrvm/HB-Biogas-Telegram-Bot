@@ -1618,10 +1618,51 @@ Mary Njeri njihia
 
         self.assertEqual(result['updated'], 1)
         self.assertEqual(result['conflicts'], 1)
+        self.assertEqual(result['conflict_details'][0]['row_number'], 5)
+        self.assertEqual(result['conflict_details'][0]['customer_name'], 'DAVID MUGAMBI')
+        self.assertIn('County', result['conflict_details'][0]['conflicts'][0])
         self.assertEqual(sheet.values[4][4], 'EMBU')
         self.assertEqual(sheet.values[4][headers.index('Import Status')], 'updated_with_conflict')
         self.assertEqual(sheet.update_options, ['RAW'])
         self.assertIn('County', sheet.values[4][headers.index('Review Notes')])
+
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_farmup_review_batch_flags_master_sheet_conflicts_before_commit(self, mock_service):
+        from core.services.jawabu_master import create_farmup_review_batch
+
+        headers = ['No.', 'Customer Name', 'National ID', 'Primary Phone', 'County', 'Duplicate Key']
+        existing = ['1', 'DAVID MUGAMBI', '23215888', '254721997481', 'EMBU', '23215888|254721997481']
+        fake_sheet = FakeMasterDataSheet(headers, existing)
+        mock_service.return_value = FakeJawabuService(fake_sheet)
+        self.group.workflow = {
+            **(self.group.workflow or {}),
+            'master_sync_enabled': True,
+            'master_sheet_id': 'sheet',
+            'master_sheet_name': 'Master Data',
+            'master_header_row': 3,
+            'master_data_start_row': 5,
+        }
+        csv_text = (
+            'Full Name,ID NUMBER,Mobile,HBG Hub,Actual Receipts\n'
+            'David Mugambi,23215888,0721997481,MERU,5000\n'
+        )
+
+        batch, stats = create_farmup_review_batch(
+            group_id=self.group.group_id,
+            telegram_message_id='101',
+            sender='Reviewer',
+            source_filename='farmers.csv',
+            csv_text=csv_text,
+            group_config=self.group,
+        )
+
+        row = batch.parsed_rows[0]
+        self.assertEqual(stats['master_sheet_preflight']['conflicts'], 1)
+        self.assertEqual(batch.review_needed, 1)
+        self.assertFalse(row['approved'])
+        self.assertEqual(row['Import Status'], 'review_needed')
+        self.assertIn('Master Data conflict before commit', row['Cleaning Notes'])
+        self.assertIn('County', row['Cleaning Notes'])
 class FcaWorkflowServiceTest(TestCase):
     """Tests for FCA Excel batch imports."""
 

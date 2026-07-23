@@ -296,6 +296,7 @@ def create_farmup_review_batch(
     sender: str,
     source_filename: str,
     csv_text: str,
+    group_config=None,
 ) -> tuple[JawabuFarmerUploadBatch, dict]:
     rows, stats = build_cleaned_master_preview(
         io.StringIO(csv_text),
@@ -317,7 +318,91 @@ def create_farmup_review_batch(
         parsed_rows=review_rows,
         mapping=mapping_review_rows(),
     )
+    preflight = flag_farmup_master_sheet_conflicts(batch, review_rows, group_config=group_config)
+    if preflight.get('conflicts'):
+        batch.review_needed = sum(1 for row in review_rows if row.get('Import Status') == 'review_needed')
+        batch.parsed_rows = review_rows
+        batch.save(update_fields=['review_needed', 'parsed_rows', 'updated_at'])
+        stats['review_needed'] = batch.review_needed
+        stats['master_sheet_preflight'] = preflight
     return batch, stats
+
+
+def flag_farmup_master_sheet_conflicts(
+    batch: JawabuFarmerUploadBatch,
+    review_rows: list[dict],
+    *,
+    group_config=None,
+) -> dict:
+    """Read Master Data and mark upload rows that would preserve conflicting sheet values."""
+    workflow = getattr(group_config, 'workflow', None) or {}
+    if not workflow.get('master_sync_enabled'):
+        return {'enabled': False, 'conflicts': 0, 'errors': []}
+
+    sheet_id = str(workflow.get('master_sheet_id') or getattr(group_config, 'sheet_id', '') or '').strip()
+    sheet_name = str(workflow.get('master_sheet_name') or 'Master Data').strip()
+    header_row = positive_int(workflow.get('master_header_row'), 3)
+    data_start_row = positive_int(workflow.get('master_data_start_row'), header_row + 2)
+    if not sheet_id or not sheet_name:
+        return {
+            'enabled': True,
+            'conflicts': 0,
+            'errors': ['Master sheet sync is enabled but master_sheet_id/master_sheet_name is incomplete.'],
+        }
+
+    try:
+        from core.services.sheets import GoogleSheetsService
+
+        service = GoogleSheetsService.get_instance(sheet_id=sheet_id, sheet_name=sheet_name)
+        if not service.is_available():
+            raise RuntimeError('Google Sheets service unavailable for Master Data sheet.')
+        sheet = service._sheet
+        headers = list(sheet.row_values(header_row))
+        values = sheet.get_all_values()
+        header_lookup = header_lookup_from_headers(headers)
+        existing = build_master_existing_index(values, header_lookup, data_start_row)
+        details = []
+        now_text = timezone.now().strftime('%d-%B-%Y %H:%M')
+        for index, row in enumerate(review_rows, start=1):
+            if row.get('Import Status') == 'review_needed':
+                continue
+            cleaned = cleaned_master_row_from_review(row, batch, index, timezone.now())
+            row_number = find_master_row_number(cleaned, existing)
+            if not row_number:
+                continue
+            row_values = row_values_for_number(values, row_number, len(headers))
+            _change_count, conflict_notes = merge_master_row_values(
+                row_values=list(row_values),
+                headers=headers,
+                header_lookup=header_lookup,
+                cleaned=cleaned,
+                batch=batch,
+                now_text=now_text,
+                created=False,
+            )
+            if not conflict_notes:
+                continue
+            note = 'Master Data conflict before commit: ' + '; '.join(conflict_notes)
+            row['Import Status'] = 'review_needed'
+            row['approved'] = False
+            row['Cleaning Notes'] = append_note(row.get('Cleaning Notes', ''), note)
+            details.append({
+                'row_id': row.get('row_id') or index,
+                'source_row': row.get('Source Row') or index,
+                'row_number': row_number,
+                'customer_name': cleaned.get('customer_name') or '',
+                'national_id': cleaned.get('national_id') or '',
+                'primary_phone': cleaned.get('primary_phone') or '',
+                'conflicts': conflict_notes,
+            })
+        return {'enabled': True, 'conflicts': len(details), 'conflict_details': details[:20], 'errors': []}
+    except Exception as exc:  # pragma: no cover - defensive external API handling
+        logger.error('Farmup Master Data preflight failed: %s', exc, exc_info=True)
+        return {
+            'enabled': True,
+            'conflicts': 0,
+            'errors': [f'Master Data preflight failed: {exc}'],
+        }
 
 
 @transaction.atomic
@@ -557,6 +642,7 @@ def write_rows_to_master_sheet(
     existing = build_master_existing_index(values, header_lookup, data_start_row)
     created = updated = conflicts = 0
     errors = []
+    conflict_details = []
     pending_updates = []
     now_text = timezone.now().strftime('%d-%B-%Y %H:%M')
     for cleaned in cleaned_rows:
@@ -575,6 +661,14 @@ def write_rows_to_master_sheet(
                 )
                 if conflict_notes:
                     conflicts += 1
+                    conflict_details.append({
+                        'row_number': row_number,
+                        'customer_name': cleaned.get('customer_name') or '',
+                        'national_id': cleaned.get('national_id') or '',
+                        'primary_phone': cleaned.get('primary_phone') or '',
+                        'duplicate_key': cleaned.get('duplicate_key') or '',
+                        'conflicts': conflict_notes,
+                    })
                 if change_count:
                     pending_updates.append((row_number, row_values))
                     values = pad_values_to_row(values, row_number, len(headers))
@@ -606,7 +700,13 @@ def write_rows_to_master_sheet(
             batch_update_master_sheet_rows(sheet, pending_updates, len(headers))
         except Exception as exc:  # pragma: no cover - defensive external API handling
             errors.append(f'Master Data batch write failed: {exc}')
-    return {'created': created, 'updated': updated, 'conflicts': conflicts, 'errors': errors[:20]}
+    return {
+        'created': created,
+        'updated': updated,
+        'conflicts': conflicts,
+        'conflict_details': conflict_details[:20],
+        'errors': errors[:20],
+    }
 
 
 def batch_update_master_sheet_rows(sheet, updates: list[tuple[int, list]], width: int) -> None:
