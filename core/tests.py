@@ -1799,6 +1799,42 @@ Mary Njeri njihia
         self.assertEqual(rows[0]['National ID'], '23215888')
         self.assertEqual(rows[0]['Import Status'], 'active')
         self.assertEqual(rows[0]['Cleaning Notes'], '')
+
+    def test_farmup_preview_flags_invalid_bracketed_id(self):
+        import io
+        from core.services.jawabu_master import build_cleaned_master_preview
+
+        csv_text = (
+            'Full Name,Mobile,HBG Hub,Actual Receipts\n'
+            'David Mugambi [*****261-1],0721997481,EMBU,5000\n'
+        )
+
+        rows, stats = build_cleaned_master_preview(io.StringIO(csv_text), source_name='farmers.csv')
+
+        self.assertEqual(stats['review_needed'], 1)
+        self.assertEqual(rows[0]['Customer Name'], 'DAVID MUGAMBI')
+        self.assertEqual(rows[0]['National ID'], '')
+        self.assertEqual(rows[0]['Import Status'], 'review_needed')
+        self.assertIn('Bracketed National ID in Full Name must be 5-12 digits only', rows[0]['Cleaning Notes'])
+
+    def test_farmup_preview_flags_invalid_explicit_national_id(self):
+        import io
+        from core.services.jawabu_master import build_cleaned_master_preview
+
+        csv_text = (
+            'Full Name,ID NUMBER,Mobile,HBG Hub,Actual Receipts\n'
+            'David Mugambi,123,0721997481,EMBU,5000\n'
+        )
+
+        rows, stats = build_cleaned_master_preview(io.StringIO(csv_text), source_name='farmers.csv')
+
+        self.assertEqual(stats['review_needed'], 1)
+        self.assertEqual(rows[0]['Customer Name'], 'DAVID MUGAMBI')
+        self.assertEqual(rows[0]['National ID'], '')
+        self.assertEqual(rows[0]['Import Status'], 'review_needed')
+        self.assertIn('National ID must be 5-12 digits only', rows[0]['Cleaning Notes'])
+
+
 class FcaWorkflowServiceTest(TestCase):
     """Tests for FCA Excel batch imports."""
 

@@ -1171,9 +1171,12 @@ def clean_farmer_row(raw_row: dict, header_map: dict[str, str]) -> dict:
     values = {field: raw_value(raw_row, header_map, field) for field in CANONICAL_FIELDS}
     values['sign_date'] = first_non_blank(raw_row, ['Sign Date__2', 'Sign Date'])
     raw_name = clean_text(values['customer_name'])
+    bracketed_id_value = bracketed_id_token(raw_name)
     bracketed_id = extract_bracketed_id(raw_name)
     customer_name = clean_name(remove_bracketed_id(raw_name))
-    national_id = clean_national_id(values['national_id']) or bracketed_id
+    raw_national_id = clean_text(values['national_id'])
+    explicit_national_id = clean_national_id(raw_national_id)
+    national_id = explicit_national_id or bracketed_id
     primary_phone = normalise_phone(values['primary_phone'])
     secondary_phone = normalise_phone(values['secondary_phone'])
     county = normalise_county(values['county']).upper()
@@ -1181,8 +1184,14 @@ def clean_farmer_row(raw_row: dict, header_map: dict[str, str]) -> dict:
     review_notes = []
     if not customer_name:
         review_notes.append('Missing customer name')
-    if not national_id and not primary_phone:
-        review_notes.append('Missing National ID and primary phone')
+    if raw_national_id and not explicit_national_id:
+        review_notes.append('National ID must be 5-12 digits only')
+    if bracketed_id_value and not is_valid_national_id(bracketed_id_value):
+        review_notes.append('Bracketed National ID in Full Name must be 5-12 digits only')
+    if not national_id:
+        review_notes.append('Missing National ID')
+    if not primary_phone:
+        review_notes.append('Missing primary phone')
     if values['primary_phone'] and not primary_phone:
         review_notes.append('Primary phone could not be normalized')
     if primary_phone and not is_valid_phone(primary_phone):
@@ -1276,16 +1285,26 @@ def clean_name(value: str) -> str:
 
 
 def clean_national_id(value: str) -> str:
-    return re.sub(r'\D', '', str(value or ''))
+    text = clean_text(value)
+    return text if is_valid_national_id(text) else ''
+
+
+def is_valid_national_id(value: str) -> bool:
+    return bool(re.fullmatch(r'\d{5,12}', clean_text(value)))
+
+
+def bracketed_id_token(value: str) -> str:
+    match = re.search(r'\[([^\]]+)\]', str(value or ''))
+    return clean_text(match.group(1)) if match else ''
 
 
 def extract_bracketed_id(value: str) -> str:
-    match = re.search(r'\[(\d{5,12})\]', str(value or ''))
-    return match.group(1) if match else ''
+    token = bracketed_id_token(value)
+    return token if is_valid_national_id(token) else ''
 
 
 def remove_bracketed_id(value: str) -> str:
-    return clean_text(re.sub(r'\[\d{5,12}\]', '', str(value or '')))
+    return clean_text(re.sub(r'\[[^\]]+\]', '', str(value or '')))
 
 
 def clean_coordinate(value: str) -> str:

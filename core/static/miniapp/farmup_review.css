@@ -94,8 +94,9 @@ table {
 }
 
 th, td {
-  padding: 6px 8px;
+  padding: 3px 6px;
   font-size: 12px;
+  vertical-align: middle;
 }
 
 th {
@@ -106,19 +107,44 @@ th {
 }
 
 input, select, textarea {
-  min-height: 28px;
-  padding: 4px 8px;
+  min-height: 30px;
+  padding: 3px 6px;
   border-radius: var(--radius-sm);
 }
 
 textarea {
-  min-height: 28px;
+  min-height: 30px;
+}
+
+.workflow-standard.review-app .table-wrap td input:not([type="checkbox"]),
+.workflow-standard.review-app .table-wrap td textarea {
+  min-height: 30px !important;
+  height: 30px;
+  padding: 3px 6px !important;
+  border-radius: 6px !important;
+  line-height: 1.2;
+}
+
+.workflow-standard.review-app .table-wrap td textarea {
+  resize: none;
+  overflow: hidden;
 }
 
 .no-results {
   color: var(--text-muted);
   font-weight: 700;
   text-align: center;
+}
+
+td.field-error {
+  background: #fff1f2;
+  box-shadow: inset 3px 0 #dc2626;
+}
+
+td.field-error input,
+td.field-error textarea {
+  border-color: #dc2626;
+  background: #fffafa;
 }
 
 @media (max-width: 520px) {

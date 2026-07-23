@@ -18,6 +18,35 @@
     return row['Import Status'] === 'review_needed';
   }
 
+  function rowNotes(row) {
+    return String(row['Cleaning Notes'] || '').toLowerCase();
+  }
+
+  function isBlank(value) {
+    return !String(value || '').trim();
+  }
+
+  function fieldHasProblem(row, fieldName) {
+    if (!isReview(row)) return false;
+    const notes = rowNotes(row);
+    if (fieldName === 'Customer Name') {
+      return isBlank(row[fieldName]) || notes.includes('customer name');
+    }
+    if (fieldName === 'National ID') {
+      return isBlank(row[fieldName]) || notes.includes('national id');
+    }
+    if (fieldName === 'Primary Phone') {
+      return notes.includes('primary phone') || (isBlank(row[fieldName]) && notes.includes('phone'));
+    }
+    if (fieldName === 'Secondary Phone') {
+      return notes.includes('secondary phone');
+    }
+    if (fieldName === 'Cleaning Notes') {
+      return true;
+    }
+    return isBlank(row[fieldName]) && notes.includes(fieldName.toLowerCase());
+  }
+
   function rowSearchText(row) {
     const values = [
       row['Customer Name'],
@@ -70,6 +99,11 @@
       fields.forEach((name) => {
         const td = document.createElement('td');
         const input = name === 'Cleaning Notes' ? document.createElement('textarea') : document.createElement('input');
+        if (fieldHasProblem(row, name)) {
+          td.classList.add('field-error');
+          input.classList.add('field-error-input');
+          input.setAttribute('aria-invalid', 'true');
+        }
         input.value = row[name] || '';
         input.addEventListener('input', () => { row[name] = input.value; saveDraft(); });
         td.appendChild(input);
