@@ -1787,6 +1787,7 @@ def portal_payment_readiness(request, order_number: str):
     return JsonResponse({'ok': True, 'data': payment_readiness(order_number)})
 
 
+@csrf_exempt
 @require_http_methods(["POST"])
 def portal_payment_document_preview(request, order_number: str):
     """Create a Drive-backed payment workbook preview."""
@@ -1807,6 +1808,7 @@ def portal_payment_document_preview(request, order_number: str):
     return JsonResponse({'ok': True, 'document': serialize_payment_document(doc)})
 
 
+@csrf_exempt
 @require_http_methods(["POST"])
 def portal_payment_document_finalize(request, order_number: str):
     """Create an immutable Drive-backed final payment workbook."""

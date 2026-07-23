@@ -9,7 +9,7 @@
     (<code>{{ config.group_id }}</code>).
   </p>
   <p>
-    Google Sheets rows and Google Drive files will not be deleted. This page only clears local Django database records.
+    Google Sheets rows and actual Google Drive files will not be deleted. This page only clears local Django database records and Drive metadata records.
   </p>
 
   <h2>Records To Delete</h2>
@@ -40,6 +40,20 @@
         Clear all local Farmers master records, including rows not linked to this group.
       </label>
       <p class="help">Use only on test data. Google Sheets rows are still not deleted.</p>
+    </div>
+    <div class="form-row">
+      <label>
+        <input type="checkbox" name="include_order_records" value="yes">
+        Also clear generated order/requisition and payment document records.
+      </label>
+      <p class="help">Deletes local <code>RequisitionBatch</code> and <code>PaymentDocument</code> records. Actual Google Drive files are not deleted.</p>
+    </div>
+    <div class="form-row">
+      <label>
+        <input type="checkbox" name="include_drive_upload_records" value="yes">
+        Also clear local Drive upload records.
+      </label>
+      <p class="help">Deletes local complaint evidence and invoice upload records, including parsed invoice rows. Actual Google Drive files are not deleted.</p>
     </div>
     {% if is_spin_workflow %}
     <div class="form-row">

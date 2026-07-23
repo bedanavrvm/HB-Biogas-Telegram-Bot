@@ -1456,11 +1456,15 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 return HttpResponseRedirect(request.path)
             include_farmer_uploads = request.POST.get('include_farmer_uploads') == 'yes'
             include_all_farmer_master = request.POST.get('include_all_farmer_master') == 'yes'
+            include_order_records = request.POST.get('include_order_records') == 'yes'
+            include_drive_upload_records = request.POST.get('include_drive_upload_records') == 'yes'
             include_spin_legacy_batch = request.POST.get('include_spin_legacy_batch') == 'yes'
             result = reset_group_data(
                 config.group_id,
                 include_farmer_uploads=include_farmer_uploads,
                 include_all_farmer_master=include_all_farmer_master,
+                include_order_records=include_order_records,
+                include_drive_upload_records=include_drive_upload_records,
                 include_spin_legacy_batch=include_spin_legacy_batch,
                 spin_legacy_batch_sheet_name=spin_legacy_batch_sheet_name,
             )

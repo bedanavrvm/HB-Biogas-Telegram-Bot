@@ -7,16 +7,20 @@ from django.db import transaction
 
 from core.models import (
     CaseUpdate,
+    ComplaintCaseEvidence,
     FcaImportRecord,
+    InvoiceUploadBatch,
     JawabuFarmerMaster,
     JawabuFarmerUploadBatch,
     JawabuVisitRecord,
     LiveSheetRecordChange,
     MediaAttachment,
     OrderApprovalUpdate,
+    PaymentDocument,
     ParsedMessage,
     ProcessedMessage,
     RawMessage,
+    RequisitionBatch,
     SpinCreditRequest,
     TatTrackerCase,
     TatTrackerEvent,
@@ -40,10 +44,14 @@ def group_data_counts(
         'raw_messages': RawMessage.objects.filter(id__in=raw_ids).count(),
         'order_updates': OrderApprovalUpdate.objects.filter(group_id=group_id).count(),
         'media_attachments': MediaAttachment.objects.filter(group_id=group_id).count(),
+        'complaint_case_evidence': ComplaintCaseEvidence.objects.filter(group_id=group_id).count(),
         'jawabu_records': JawabuVisitRecord.objects.filter(group_id=group_id).count(),
         'farmer_upload_batches': JawabuFarmerUploadBatch.objects.filter(group_id=group_id).count(),
         'linked_farmer_master_records': _linked_farmer_master_queryset(group_id).count(),
         'all_farmer_master_records': JawabuFarmerMaster.objects.count(),
+        'requisition_batches': RequisitionBatch.objects.count(),
+        'invoice_upload_batches': InvoiceUploadBatch.objects.count(),
+        'payment_documents': PaymentDocument.objects.count(),
         'fca_records': FcaImportRecord.objects.filter(group_id=group_id).count(),
         'spin_requests': _spin_live_queryset(group_id, spin_legacy_name).count(),
         'spin_legacy_batch_requests': _spin_legacy_queryset(group_id, spin_legacy_name).count(),
@@ -59,14 +67,16 @@ def reset_group_data(
     *,
     include_farmer_uploads: bool = False,
     include_all_farmer_master: bool = False,
+    include_order_records: bool = False,
+    include_drive_upload_records: bool = False,
     include_spin_legacy_batch: bool = False,
     spin_legacy_batch_sheet_name: str = DEFAULT_SPIN_LEGACY_BATCH_SHEET_NAME,
 ) -> dict[str, Any]:
     """Delete all local DB records owned by one Telegram group.
 
-    Google Sheets and Google Drive files are intentionally not modified. Raw and
-    processed dedup records are removed only when they are no longer referenced
-    by parsed rows after the group rows are deleted.
+    Google Sheets and actual Google Drive files are intentionally not modified.
+    Raw and processed dedup records are removed only when they are no longer
+    referenced by parsed rows after the group rows are deleted.
     """
     group_id = str(group_id or '')
     spin_legacy_name = _spin_legacy_batch_name(spin_legacy_batch_sheet_name)
@@ -74,6 +84,12 @@ def reset_group_data(
     processed_ids, raw_ids = _case_processing_ids(group_id)
 
     MediaAttachment.objects.filter(group_id=group_id).delete()
+    if include_drive_upload_records:
+        ComplaintCaseEvidence.objects.filter(group_id=group_id).delete()
+        InvoiceUploadBatch.objects.all().delete()
+    if include_order_records:
+        PaymentDocument.objects.all().delete()
+        RequisitionBatch.objects.all().delete()
     OrderApprovalUpdate.objects.filter(group_id=group_id).delete()
     JawabuVisitRecord.objects.filter(group_id=group_id).delete()
     if include_farmer_uploads:

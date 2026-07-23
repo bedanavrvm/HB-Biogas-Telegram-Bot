@@ -19,15 +19,18 @@ from core.models import (
     CaseUpdate,
     FcaImportRecord,
     GroupSheetConfiguration,
+    InvoiceUploadBatch,
     JawabuFarmerMaster,
     JawabuFarmerUploadBatch,
     JawabuVisitRecord,
     LiveSheetRecordChange,
     OrderApprovalUpdate,
     MediaAttachment,
+    PaymentDocument,
     RawMessage,
     ProcessedMessage,
     ParsedMessage,
+    RequisitionBatch,
     TatTrackerCase,
     TatTrackerEvent,
 )
@@ -3773,6 +3776,73 @@ class GroupResetServiceTest(TestCase):
 
         self.assertFalse(JawabuFarmerUploadBatch.objects.filter(group_id='-100farmreset').exists())
         self.assertFalse(JawabuFarmerMaster.objects.exists())
+
+    def test_reset_group_data_keeps_generated_orders_and_drive_uploads_unless_requested(self):
+        from core.services.group_reset import group_data_counts, reset_group_data
+
+        RequisitionBatch.objects.create(
+            order_number='REQ-RESET-001',
+            drive_file_id='drive-req',
+            drive_url='https://drive.test/req',
+        )
+        PaymentDocument.objects.create(
+            order_number='REQ-RESET-001',
+            drive_file_id='drive-payment',
+            drive_url='https://drive.test/payment',
+        )
+        InvoiceUploadBatch.objects.create(
+            original_filename='invoice.pdf',
+            uploaded_by='Tester',
+            drive_file_id='drive-invoice',
+            drive_url='https://drive.test/invoice',
+        )
+
+        counts = group_data_counts('-100reset')
+        self.assertEqual(counts['requisition_batches'], 1)
+        self.assertEqual(counts['payment_documents'], 1)
+        self.assertEqual(counts['invoice_upload_batches'], 1)
+
+        result = reset_group_data('-100reset')
+
+        self.assertEqual(result['deleted']['requisition_batches'], 0)
+        self.assertEqual(result['deleted']['payment_documents'], 0)
+        self.assertEqual(result['deleted']['invoice_upload_batches'], 0)
+        self.assertTrue(RequisitionBatch.objects.filter(order_number='REQ-RESET-001').exists())
+        self.assertTrue(PaymentDocument.objects.filter(order_number='REQ-RESET-001').exists())
+        self.assertTrue(InvoiceUploadBatch.objects.filter(original_filename='invoice.pdf').exists())
+
+    def test_reset_group_data_can_delete_generated_orders_and_drive_upload_records(self):
+        from core.services.group_reset import reset_group_data
+
+        RequisitionBatch.objects.create(
+            order_number='REQ-RESET-002',
+            drive_file_id='drive-req',
+            drive_url='https://drive.test/req',
+        )
+        PaymentDocument.objects.create(
+            order_number='REQ-RESET-002',
+            drive_file_id='drive-payment',
+            drive_url='https://drive.test/payment',
+        )
+        InvoiceUploadBatch.objects.create(
+            original_filename='invoice.pdf',
+            uploaded_by='Tester',
+            drive_file_id='drive-invoice',
+            drive_url='https://drive.test/invoice',
+        )
+
+        result = reset_group_data(
+            '-100reset',
+            include_order_records=True,
+            include_drive_upload_records=True,
+        )
+
+        self.assertEqual(result['deleted']['requisition_batches'], 1)
+        self.assertEqual(result['deleted']['payment_documents'], 1)
+        self.assertEqual(result['deleted']['invoice_upload_batches'], 1)
+        self.assertFalse(RequisitionBatch.objects.exists())
+        self.assertFalse(PaymentDocument.objects.exists())
+        self.assertFalse(InvoiceUploadBatch.objects.exists())
 
 
 class GroupConfigurationServiceTest(TestCase):

@@ -6,7 +6,7 @@ import tempfile
 from unittest.mock import patch
 
 from django.core.files import File
-from django.test import TestCase, override_settings
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from openpyxl import load_workbook
 
@@ -516,6 +516,18 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertTrue(data['ok'])
         self.assertEqual(data['document']['drive_url'], 'https://drive.test/payment')
         self.assertEqual(PaymentDocument.objects.get().status, 'preview')
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_payment_preview_endpoint_does_not_require_csrf_cookie(self, storage):
+        farmer = self.farmer()
+        self.invoice_batch(farmer)
+        storage.return_value.upload.return_value = ('drive-xlsx', 'https://drive.test/payment')
+        csrf_client = Client(enforce_csrf_checks=True)
+
+        response = csrf_client.post(reverse('portal_payment_document_preview', args=['ORDER-001']))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['ok'])
 
     def test_payment_preview_endpoint_returns_readiness_when_blocked(self):
         self.farmer(repayment_date='')

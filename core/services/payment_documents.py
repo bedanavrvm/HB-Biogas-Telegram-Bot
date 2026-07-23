@@ -155,6 +155,19 @@ def _first_numeric_row(ws, start_row: int, serial_col: int) -> int:
     raise PaymentTemplateError('Could not detect payment workbook first data row.')
 
 
+def _detect_totals_row(ws, start_row: int, sum_columns: tuple[int, ...]) -> int:
+    candidate_columns = sum_columns or tuple(range(1, ws.max_column + 1))
+    for row in range(start_row, min(ws.max_row, 160) + 1):
+        formula_count = 0
+        for col in candidate_columns:
+            value = ws.cell(row=row, column=col).value
+            if isinstance(value, str) and value.strip().upper().startswith('=SUM('):
+                formula_count += 1
+        if formula_count >= 2:
+            return row
+    raise PaymentTemplateError('Could not detect payment workbook totals row.')
+
+
 def _last_numeric_row(ws, start_row: int, serial_col: int) -> int:
     last = start_row
     for row in range(start_row, min(ws.max_row, 120) + 1):
@@ -199,9 +212,14 @@ def payment_template_layout(wb) -> PaymentTemplateLayout:
     ws = wb[sheet_name]
     header_row = _detect_header_row(ws)
     columns = _column_mapping_from_headers(ws, header_row)
-    data_start_row = _first_numeric_row(ws, header_row + 1, columns['no'])
-    last_data_row = _last_numeric_row(ws, data_start_row, columns['no'])
-    totals_row = last_data_row + 1
+    sum_columns = _sum_columns_from_config(config, columns)
+    try:
+        data_start_row = _first_numeric_row(ws, header_row + 1, columns['no'])
+        last_data_row = _last_numeric_row(ws, data_start_row, columns['no'])
+        totals_row = last_data_row + 1
+    except PaymentTemplateError:
+        totals_row = _detect_totals_row(ws, header_row + 1, sum_columns)
+        data_start_row = header_row + 1
     signature_block_start_row = totals_row + 3
     warnings = []
     expected = {
@@ -221,7 +239,7 @@ def payment_template_layout(wb) -> PaymentTemplateLayout:
         totals_row=totals_row,
         signature_block_start_row=signature_block_start_row,
         columns=columns,
-        sum_columns=_sum_columns_from_config(config, columns),
+        sum_columns=sum_columns,
         config_warnings=tuple(warnings),
     )
 
