@@ -81,6 +81,12 @@ class RequisitionTemplateGenerationTests(TestCase):
         self.assertEqual(ws['M5'].value, '23-Jul-2026')
         self.assertEqual(ws['L7'].value, 'Order No:')
         self.assertEqual(ws['M7'].value, 'REQ-TEST-001')
+        self.assertTrue(ws['M5'].font.bold)
+        self.assertTrue(ws['M7'].font.bold)
+        self.assertEqual(ws['M5'].font.sz, ws['L5'].font.sz)
+        self.assertEqual(ws['M7'].font.sz, ws['L7'].font.sz)
+        self.assertEqual(ws['M5'].alignment.horizontal, 'center')
+        self.assertEqual(ws['M7'].alignment.horizontal, 'center')
         self.assertEqual(ws['D14'].value, 'Mary Wanjiku')
         self.assertEqual(ws['E14'].value, '254712345678')
         self.assertEqual(ws['F14'].value, '12345678')
@@ -93,6 +99,8 @@ class RequisitionTemplateGenerationTests(TestCase):
         self.assertIn(ws['D15'].value, (None, ''))
         self.assertIn(ws['E15'].value, (None, ''))
         self.assertNotIn('TOTAL', str(ws['D15'].value or '').upper())
+        for cell_ref in ('C14', 'D14', 'E14', 'F14', 'G14', 'H14', 'I14', 'J14', 'K14', 'L14', 'M14'):
+            self.assertEqual(ws[cell_ref].alignment.horizontal, 'center')
 
     def test_supplied_reconciled_template_is_supported_when_present(self):
         template_path = Path('requisition/JBL_Requisition_Form_Reconciled.xlsx')

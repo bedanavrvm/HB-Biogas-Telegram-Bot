@@ -35,6 +35,29 @@ def copy_row_formatting(ws: Any, src_row: int, dst_row: int) -> None:
         dst_cell.alignment = copy.copy(src_cell.alignment)
         dst_cell.number_format = src_cell.number_format
 
+
+def _center_written_cell(cell: Any) -> None:
+    alignment = copy.copy(cell.alignment)
+    cell.alignment = openpyxl.styles.Alignment(
+        horizontal='center',
+        vertical=alignment.vertical or 'center',
+        text_rotation=alignment.text_rotation,
+        wrap_text=alignment.wrap_text,
+        shrink_to_fit=alignment.shrink_to_fit,
+        indent=alignment.indent,
+    )
+
+
+def _write_system_value(ws: Any, row: int, column: int, value: Any, *, style_from: Any = None, bold: bool = False) -> None:
+    cell = ws.cell(row=row, column=column, value=value)
+    if style_from is not None:
+        cell.font = copy.copy(style_from.font)
+    if bold:
+        base_font = copy.copy(cell.font)
+        base_font.bold = True
+        cell.font = base_font
+    _center_written_cell(cell)
+
 def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: str, requisition_date: date) -> bytes:
     import os
     from django.conf import settings
@@ -79,17 +102,17 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
     date_str = requisition_date.strftime('%d-%b-%Y') if isinstance(requisition_date, (date, datetime)) else str(requisition_date)
     if date_cell:
         date_cell.value = str(date_cell.value or '').split(':')[0] + ':'
-        ws.cell(row=date_cell.row, column=date_cell.column + 1, value=date_str)
+        _write_system_value(ws, date_cell.row, date_cell.column + 1, date_str, style_from=date_cell, bold=True)
     else:
         ws['A4'] = "Date:"
-        ws['B4'] = date_str
+        _write_system_value(ws, 4, 2, date_str, style_from=ws['A4'], bold=True)
 
     if order_ref_cell:
         order_ref_cell.value = str(order_ref_cell.value or '').split(':')[0] + ':'
-        ws.cell(row=order_ref_cell.row, column=order_ref_cell.column + 1, value=order_number)
+        _write_system_value(ws, order_ref_cell.row, order_ref_cell.column + 1, order_number, style_from=order_ref_cell, bold=True)
     else:
         ws['H4'] = "Order No:"
-        ws['I4'] = order_number
+        _write_system_value(ws, 4, 9, order_number, style_from=ws['H4'], bold=True)
     
     # 2. Find main header row
     header_row_idx = None
@@ -200,14 +223,14 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
     # 6. Write the data
     for idx, farmer in enumerate(farmers):
         r = first_data_row + idx
-        ws.cell(row=r, column=col_no, value=idx + 1)  # NO.
-        ws.cell(row=r, column=col_name, value=farmer.customer_name)  # NAME OF THE CUSTOMER
-        ws.cell(row=r, column=col_phone, value=farmer.primary_phone)  # CONTACT NO.
-        ws.cell(row=r, column=col_id, value=farmer.national_id)  # ID NO.
-        ws.cell(row=r, column=col_credit, value=farmer.credit_decision)  # CREDIT ANALYSIS
-        ws.cell(row=r, column=col_callup, value="")  # CALLUP COMMENT (blank)
-        ws.cell(row=r, column=col_county, value=farmer.county)  # COUNTY
-        ws.cell(row=r, column=col_landmark, value=farmer.landmark)  # LOCATION & NEAREST LANDMARK
+        _write_system_value(ws, r, col_no, idx + 1)  # NO.
+        _write_system_value(ws, r, col_name, farmer.customer_name)  # NAME OF THE CUSTOMER
+        _write_system_value(ws, r, col_phone, farmer.primary_phone)  # CONTACT NO.
+        _write_system_value(ws, r, col_id, farmer.national_id)  # ID NO.
+        _write_system_value(ws, r, col_credit, farmer.credit_decision)  # CREDIT ANALYSIS
+        _write_system_value(ws, r, col_callup, "")  # CALLUP COMMENT (blank)
+        _write_system_value(ws, r, col_county, farmer.county)  # COUNTY
+        _write_system_value(ws, r, col_landmark, farmer.landmark)  # LOCATION & NEAREST LANDMARK
         
         deposit = clean_deposit_float(farmer.actual_receipts)
         is_hbg = True
@@ -215,13 +238,13 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
             is_hbg = False
             
         if is_hbg:
-            ws.cell(row=r, column=col_hbg, value=deposit)  # HBG
-            ws.cell(row=r, column=col_jbl, value="")  # JBL
+            _write_system_value(ws, r, col_hbg, deposit)  # HBG
+            _write_system_value(ws, r, col_jbl, "")  # JBL
         else:
-            ws.cell(row=r, column=col_hbg, value="")  # HBG
-            ws.cell(row=r, column=col_jbl, value=deposit)  # JBL
+            _write_system_value(ws, r, col_hbg, "")  # HBG
+            _write_system_value(ws, r, col_jbl, deposit)  # JBL
             
-        ws.cell(row=r, column=col_sales, value=farmer.hb_sales_person)  # HB SALES PERSON
+        _write_system_value(ws, r, col_sales, farmer.hb_sales_person)  # HB SALES PERSON
 
     # 7. Remove the template totals row; staff requested no total-customer/deposit summary row.
     new_totals_row = first_data_row + N
