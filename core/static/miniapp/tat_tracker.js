@@ -341,17 +341,8 @@
     $('recentCount').textContent = recentTotal == null ? recent.length : recentTotal;
     $('statQueue').textContent = actionTotal == null ? actionRequired.length : actionTotal;
     $('statRecent').textContent = recentTotal == null ? recent.length : recentTotal;
-    if (window.htmx && !appendList) {
-      renderTatHomeFragment('action_required').then((rendered) => {
-        if (!rendered) renderList('queueList', actionRequired, 'No action needed', 'Cases that need your role will appear here.');
-      });
-      renderTatHomeFragment('recent').then((rendered) => {
-        if (!rendered) renderList('recentList', recent, 'No recent cases', 'Create a case or search existing records.');
-      });
-    } else {
-      renderList('queueList', actionRequired, 'No action needed', 'Cases that need your role will appear here.');
-      renderList('recentList', recent, 'No recent cases', 'Create a case or search existing records.');
-    }
+    renderList('queueList', actionRequired, 'No action needed', 'Cases that need your role will appear here.');
+    renderList('recentList', recent, 'No recent cases', 'Create a case or search existing records.');
     updateLoadMoreButton('loadMoreQueueBtn', state.home.pagination.action_required, 'Needs My Action');
     updateLoadMoreButton('loadMoreRecentBtn', state.home.pagination.recent, 'Recent Activity');
   }

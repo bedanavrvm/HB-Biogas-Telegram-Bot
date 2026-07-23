@@ -227,8 +227,8 @@ class MiniAppFrontendSmokeTests(TestCase):
                 'complaintApi.postFragment',
             ),
             'core/static/miniapp/tat_tracker.js': (
-                "renderTatHomeFragment('action_required').then",
                 "renderList('queueList'",
+                "renderList('recentList'",
                 'await renderTatSearchFragment(query)',
                 'window.TatMiniAppApi',
                 'tatApi.postJson',
