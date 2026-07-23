@@ -285,9 +285,14 @@
       state.pagination[qKey] = data.pagination || {};
       state.pages[qKey] = page;
       if (window.htmx) {
-        renderQueueFragment(qKey, page);
-        const pgEl = el('pg-batches');
-        if (pgEl) pgEl.innerHTML = '';
+        const rendered = await renderQueueFragment(qKey, page);
+        if (rendered) {
+          const pgEl = el('pg-batches');
+          if (pgEl) pgEl.innerHTML = '';
+        } else {
+          renderBatchesList(listEl, batches, cfg);
+          renderPagination(qKey, data.pagination);
+        }
       } else {
         renderBatchesList(listEl, batches, cfg);
         renderPagination(qKey, data.pagination);
@@ -303,9 +308,18 @@
     // Apply filtering
     if (cfg.fragmentEndpoint && window.htmx) {
       updateFilterOptions(farmers);
-      renderQueueFragment(qKey, page);
-      const pgEl = el('pg-' + qKey);
-      if (pgEl) pgEl.innerHTML = '';
+      const rendered = await renderQueueFragment(qKey, page);
+      if (rendered) {
+        const pgEl = el('pg-' + qKey);
+        if (pgEl) pgEl.innerHTML = '';
+      } else if (qKey !== 'dashboard' && qKey !== 'all') {
+        applyFilters();
+        renderPagination(qKey, data.pagination);
+      } else {
+        if (qKey === 'all') updateFilterOptions(farmers);
+        renderFarmerList(listEl, farmers, cfg, qKey);
+        renderPagination(qKey, data.pagination);
+      }
     } else if (qKey !== 'dashboard' && qKey !== 'all') {
       updateFilterOptions(farmers);
       applyFilters();
@@ -318,17 +332,29 @@
     }
   }
 
-  function renderQueueFragment(qKey, page = 1) {
+  async function renderQueueFragment(qKey, page = 1) {
     const cfg = queueConfig[qKey];
-    if (!cfg?.fragmentEndpoint || !window.htmx || !el(cfg.listId)) return;
+    const list = cfg ? el(cfg.listId) : null;
+    if (!cfg?.fragmentEndpoint || !window.htmx || !list) return false;
     const params = new URLSearchParams({ page: String(page) });
     if (qKey === 'all' && state.search) params.set('search', state.search);
     if (state.filters.county) params.set('county', state.filters.county);
     if (state.filters.branch) params.set('branch', state.filters.branch);
-    window.htmx.ajax('GET', apiBase() + cfg.fragmentEndpoint + '?' + params.toString(), {
-      target: '#' + cfg.listId,
-      swap: 'innerHTML'
-    });
+    try {
+      const response = await fetch(apiBase() + cfg.fragmentEndpoint + '?' + params.toString(), {
+        headers: initDataHeader(),
+      });
+      const html = await response.text();
+      if (!response.ok) throw new Error(html || 'Could not load queue.');
+      list.innerHTML = html;
+      if (qKey === 'batches') hydrateHtmxBatchCards(list);
+      else hydrateHtmxFarmerCards(list);
+      state.pages[qKey] = page;
+      if (window.lucide) window.lucide.createIcons();
+      return true;
+    } catch (error) {
+      return false;
+    }
   }
 
   function hydrateHtmxFarmerCards(root) {
@@ -1234,7 +1260,7 @@
     if (queueConfig[p]) loadQueue(p, state.pages[p] || 1);
   }
   // Filters Event Listeners
-  el('filter-county')?.addEventListener('change', e => {
+  el('filter-county')?.addEventListener('change', async e => {
     state.filters.county = e.target.value;
     state.filters.branch = ''; // reset branch if county changed
     const qKey = state.activePage;
@@ -1242,21 +1268,23 @@
       loadQueue('all', 1);
     } else if (queueConfig[qKey]?.fragmentEndpoint && window.htmx) {
       updateFilterOptions(state.queues[qKey] || []);
-      renderQueueFragment(qKey, 1);
+      if (!(await renderQueueFragment(qKey, 1))) applyFilters();
     } else {
       updateFilterOptions(state.queues[qKey] || []);
       applyFilters();
     }
   });
 
-  el('filter-branch')?.addEventListener('change', e => {
+  el('filter-branch')?.addEventListener('change', async e => {
     state.filters.branch = e.target.value;
     if (state.activePage === 'all') loadQueue('all', 1);
-    else if (queueConfig[state.activePage]?.fragmentEndpoint && window.htmx) renderQueueFragment(state.activePage, 1);
+    else if (queueConfig[state.activePage]?.fragmentEndpoint && window.htmx) {
+      if (!(await renderQueueFragment(state.activePage, 1))) applyFilters();
+    }
     else applyFilters();
   });
 
-  el('btn-clear-filters')?.addEventListener('click', () => {
+  el('btn-clear-filters')?.addEventListener('click', async () => {
     state.filters.county = '';
     state.filters.branch = '';
     const qKey = state.activePage;
@@ -1264,7 +1292,7 @@
       loadQueue('all', 1);
     } else if (queueConfig[qKey]?.fragmentEndpoint && window.htmx) {
       updateFilterOptions(state.queues[qKey] || []);
-      renderQueueFragment(qKey, 1);
+      if (!(await renderQueueFragment(qKey, 1))) applyFilters();
     } else {
       updateFilterOptions(state.queues[qKey] || []);
       applyFilters();

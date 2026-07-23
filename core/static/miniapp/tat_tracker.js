@@ -59,6 +59,17 @@
     return data;
   }
 
+  async function fragmentPost(path, payload) {
+    const response = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+      body: new URLSearchParams(basePayload(payload)).toString(),
+    });
+    const html = await response.text();
+    if (!response.ok) throw new Error(html || 'Request failed.');
+    return html;
+  }
+
   function closeNotice() {
     if (noticeTimeout) {
       clearTimeout(noticeTimeout);
@@ -264,25 +275,30 @@
     });
   }
 
-  function renderTatHomeFragment(listKey) {
+  async function renderTatHomeFragment(listKey) {
     if (!window.htmx) return false;
-    const target = listKey === 'action_required' ? '#queueList' : '#recentList';
-    window.htmx.ajax('POST', '/api/tat-tracker/home/fragment/', {
-      target,
-      swap: 'innerHTML',
-      values: basePayload(Object.assign(homePayload(), { list: listKey })),
-    });
-    return true;
+    const target = $(listKey === 'action_required' ? 'queueList' : 'recentList');
+    if (!target) return false;
+    try {
+      target.innerHTML = await fragmentPost('/api/tat-tracker/home/fragment/', Object.assign(homePayload(), { list: listKey }));
+      hydrateHtmxCaseCards(target);
+      return true;
+    } catch (error) {
+      return false;
+    }
   }
 
-  function renderTatSearchFragment(query) {
+  async function renderTatSearchFragment(query) {
     if (!window.htmx) return false;
-    window.htmx.ajax('POST', '/api/tat-tracker/search/fragment/', {
-      target: '#searchList',
-      swap: 'innerHTML',
-      values: basePayload({ query }),
-    });
-    return true;
+    const target = $('searchList');
+    if (!target) return false;
+    try {
+      target.innerHTML = await fragmentPost('/api/tat-tracker/search/fragment/', { query });
+      hydrateHtmxCaseCards(target);
+      return true;
+    } catch (error) {
+      return false;
+    }
   }
 
   function renderHome(data, appendList) {
@@ -307,8 +323,12 @@
     $('statQueue').textContent = actionTotal == null ? actionRequired.length : actionTotal;
     $('statRecent').textContent = recentTotal == null ? recent.length : recentTotal;
     if (window.htmx && !appendList) {
-      renderTatHomeFragment('action_required');
-      renderTatHomeFragment('recent');
+      renderTatHomeFragment('action_required').then((rendered) => {
+        if (!rendered) renderList('queueList', actionRequired, 'No action needed', 'Cases that need your role will appear here.');
+      });
+      renderTatHomeFragment('recent').then((rendered) => {
+        if (!rendered) renderList('recentList', recent, 'No recent cases', 'Create a case or search existing records.');
+      });
     } else {
       renderList('queueList', actionRequired, 'No action needed', 'Cases that need your role will appear here.');
       renderList('recentList', recent, 'No recent cases', 'Create a case or search existing records.');
@@ -723,7 +743,7 @@
     try {
       const result = await api('/api/tat-tracker/search/', { query });
       if (requestNumber !== state.searchRequestNumber) return;
-      if (!renderTatSearchFragment(query)) {
+      if (!(await renderTatSearchFragment(query))) {
         renderList('searchList', result.results, 'No matching cases', 'Try a client name, ID number, phone, case ID, branch, or BRO.');
       }
     } catch (error) {

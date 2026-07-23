@@ -37,6 +37,20 @@
     return result;
   }
 
+  async function fragmentPost(path, payload) {
+    const response = await fetch(path, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        'X-Telegram-Init-Data': state.initData,
+      },
+      body: new URLSearchParams(payload || {}).toString(),
+    });
+    const html = await response.text();
+    if (!response.ok) throw new Error(html || 'Could not load cases.');
+    return html;
+  }
+
   function notify(message, error) {
     const toast = $('toast');
     toast.textContent = message;
@@ -94,23 +108,27 @@
     });
   }
 
-  function renderCasesFragment() {
+  async function renderCasesFragment() {
     if (!window.htmx) return false;
-    window.htmx.ajax('POST', '/api/complaints/cases/fragment/', {
-      target: '#caseList',
-      swap: 'innerHTML',
-      values: {
+    try {
+      const html = await fragmentPost('/api/complaints/cases/fragment/', {
         group_id: state.groupId,
         query: state.query,
         status: state.status,
         branch: state.branch,
-      },
-    });
-    return true;
+      });
+      const list = $('caseList');
+      list.innerHTML = html;
+      hydrateCaseRows(list);
+      $('emptyState').hidden = !list.querySelector('[data-case-id]');
+      return true;
+    } catch (error) {
+      return false;
+    }
   }
 
   async function loadCases() {
-    if (renderCasesFragment()) return;
+    if (await renderCasesFragment()) return;
     try {
       const response = await api('cases/', { query: state.query, status: state.status, branch: state.branch });
       renderCases(response.cases || []);
