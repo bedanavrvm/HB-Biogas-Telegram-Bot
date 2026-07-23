@@ -327,6 +327,12 @@ class JblPipelineApiTestCase(TestCase):
             status='active',
         )
 
+    def mark_requisition_location_ready(self, farmer=None):
+        farmer = farmer or self.farmer
+        farmer.sub_county = 'Kieni'
+        farmer.village = 'Mweiga'
+        farmer.save(update_fields=['sub_county', 'village', 'updated_at'])
+
     def test_portal_home_render(self):
         """Verify that the home page view resolves and renders the template."""
         response = self.client.get(reverse('portal_home'))
@@ -601,6 +607,7 @@ class JblPipelineApiTestCase(TestCase):
         self.farmer.imab_created = 'Yes'
         self.farmer.customer_no = '15124'
         self.farmer.save()
+        self.mark_requisition_location_ready()
         payload = {
             'farmer_ids': [str(self.farmer.id)],
             'order_number': 'REQ-PREVIEW-1',
@@ -639,6 +646,31 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(data['blocked_count'], 1)
         self.assertIn('Customer No', data['blocked'][0]['missing'])
 
+    def test_portal_requisition_preview_blocks_missing_constituency_and_village(self):
+        self.farmer.final_decision = 'Approved'
+        self.farmer.imab_created = 'Yes'
+        self.farmer.customer_no = '15124'
+        self.farmer.sub_county = ''
+        self.farmer.village = ''
+        self.farmer.save()
+        payload = {
+            'farmer_ids': [str(self.farmer.id)],
+            'order_number': 'REQ-PREVIEW-LOCATION',
+            'requisition_date': '2026-07-06',
+        }
+        response = self.client.post(
+            reverse('portal_requisition_preview'),
+            json.dumps(payload),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['ready_count'], 0)
+        self.assertEqual(data['blocked_count'], 1)
+        self.assertIn('Constituency', data['blocked'][0]['missing'])
+        self.assertIn('Village', data['blocked'][0]['missing'])
+
     @patch('core.services.requisition.generate_requisition_excel', return_value=b'xlsx-bytes')
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
@@ -649,6 +681,7 @@ class JblPipelineApiTestCase(TestCase):
         self.farmer.imab_created = 'Yes'
         self.farmer.customer_no = '15124'
         self.farmer.save()
+        self.mark_requisition_location_ready()
 
         payload = {
             'farmer_ids': [str(self.farmer.id)],
@@ -688,6 +721,7 @@ class JblPipelineApiTestCase(TestCase):
         self.farmer.imab_created = 'Yes'
         self.farmer.customer_no = '15124'
         self.farmer.save()
+        self.mark_requisition_location_ready()
 
         payload = {
             'farmer_ids': [str(self.farmer.id)],
@@ -743,6 +777,7 @@ class JblPipelineApiTestCase(TestCase):
         self.farmer.imab_created = 'Yes'
         self.farmer.customer_no = '15124'
         self.farmer.save()
+        self.mark_requisition_location_ready()
         payload = {
             'farmer_ids': [str(self.farmer.id)],
             'order_number': 'REQ-BATCH-99',

@@ -242,6 +242,10 @@ def _validate_requisition_farmers(farmers) -> tuple[list[dict], list[dict], list
             missing.append('Customer No')
         if not farmer.imab_created:
             missing.append('IMAB status')
+        if not str(farmer.sub_county or '').strip():
+            missing.append('Constituency')
+        if not str(farmer.village or '').strip():
+            missing.append('Village')
         if not farmer.national_id:
             warnings.append({'farmer_id': str(farmer.id), 'message': f'{farmer.customer_name or farmer.id}: National ID is blank.'})
         if not farmer.primary_phone:

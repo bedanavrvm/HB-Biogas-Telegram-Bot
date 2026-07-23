@@ -19,6 +19,8 @@ class RequisitionTemplateGenerationTests(TestCase):
             'national_id': '12345678',
             'credit_decision': 'Approved',
             'county': 'Nakuru',
+            'sub_county': 'Kieni',
+            'village': 'Mweiga',
             'landmark': 'Near town centre',
             'actual_receipts': '25,000',
             'lead_source': 'HomeBiogas',
@@ -93,7 +95,7 @@ class RequisitionTemplateGenerationTests(TestCase):
         self.assertEqual(ws['G14'].value, 'Approved')
         self.assertIsNone(ws['H14'].value)
         self.assertEqual(ws['I14'].value, 'Nakuru')
-        self.assertEqual(ws['J14'].value, 'Near town centre')
+        self.assertEqual(ws['J14'].value, 'Kieni - Mweiga')
         self.assertEqual(ws['K14'].value, 25000)
         self.assertEqual(ws['M14'].value, 'Sales One')
         self.assertIn(ws['D15'].value, (None, ''))
@@ -116,6 +118,8 @@ class RequisitionTemplateGenerationTests(TestCase):
                 primary_phone='254700111222',
                 national_id='87654321',
                 county='Embu',
+                sub_county='Manyatta',
+                village='Gatunduri',
                 landmark='Market road',
                 actual_receipts='30000',
                 lead_source='JBL referral',
@@ -138,6 +142,7 @@ class RequisitionTemplateGenerationTests(TestCase):
         self.assertEqual(ws['K14'].value, 25000)
         self.assertEqual(ws['D15'].value, 'John Kamau')
         self.assertEqual(ws['F15'].value, '87654321')
+        self.assertEqual(ws['J15'].value, 'Manyatta - Gatunduri')
         self.assertEqual(ws['L15'].value, 30000)
         self.assertIn(ws['D16'].value, (None, ''))
         self.assertIn(ws['E16'].value, (None, ''))

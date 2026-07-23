@@ -58,6 +58,12 @@ def _write_system_value(ws: Any, row: int, column: int, value: Any, *, style_fro
         cell.font = base_font
     _center_written_cell(cell)
 
+
+def requisition_location_text(farmer: Any) -> str:
+    constituency = str(getattr(farmer, 'sub_county', '') or '').strip()
+    village = str(getattr(farmer, 'village', '') or '').strip()
+    return ' - '.join(part for part in (constituency, village) if part)
+
 def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: str, requisition_date: date) -> bytes:
     import os
     from django.conf import settings
@@ -230,7 +236,7 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
         _write_system_value(ws, r, col_credit, farmer.credit_decision)  # CREDIT ANALYSIS
         _write_system_value(ws, r, col_callup, "")  # CALLUP COMMENT (blank)
         _write_system_value(ws, r, col_county, farmer.county)  # COUNTY
-        _write_system_value(ws, r, col_landmark, farmer.landmark)  # LOCATION & NEAREST LANDMARK
+        _write_system_value(ws, r, col_landmark, requisition_location_text(farmer))  # LOCATION & NEAREST LANDMARK
         
         deposit = clean_deposit_float(farmer.actual_receipts)
         is_hbg = True
