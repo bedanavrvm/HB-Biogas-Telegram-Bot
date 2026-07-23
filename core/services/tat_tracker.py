@@ -43,6 +43,8 @@ DECISION_OPTIONS = ['Approved', 'Rejected', 'Deferred']
 SANCTIONS_OPTIONS = ['Pending', 'Met', 'Not Met']
 REGISTER_OPTIONS = ['10:00am', '1:00pm', '3:30pm']
 REGISTER_APPROVED_OPTIONS = ['Approved', 'Pending']
+MINUTES_SHARED_OPTIONS = ['Yes', 'No']
+BRO_APPLIED_OPTIONS = ['Pending', 'Met', 'Not Met']
 STATUS_VALUES = ['Active', 'Disbursed', 'Rejected', 'Declined', 'Deferred', 'Stalled', 'Pending Docs']
 TAT_BATCH_FORMAT_TEXT = (
     "TAT batch upload format\n\n"
@@ -109,9 +111,9 @@ BASE_STAGES_OTHER = (
     StageConfig('tat_scheduled', 'HOCC scheduled', 14, 'SECRETARY'),
     StageConfig('tat_held', 'HOCC held', 15, 'SECRETARY'),
     StageConfig('decision', 'Decision', 16, 'CHAIR', 'dropdown', tuple(DECISION_OPTIONS), 'decision_ts'),
-    StageConfig('minutes_shared', 'Minutes shared', 18, 'SECRETARY'),
+    StageConfig('minutes_shared', 'Minutes shared', 18, 'SECRETARY', 'dropdown', tuple(MINUTES_SHARED_OPTIONS), 'minutes_shared_ts'),
     StageConfig('sanctions', 'Sanctions', 19, 'LOAN_APPROVER', 'dropdown', tuple(SANCTIONS_OPTIONS), 'sanctions_ts'),
-    StageConfig('bro_applied', 'BRO applied on system', 21, 'BRO'),
+    StageConfig('bro_applied', 'BRO applied on system', 21, 'BRO', 'dropdown', tuple(BRO_APPLIED_OPTIONS), 'bro_applied_ts'),
     StageConfig('disbursement_register', 'Disbursement register', 22, 'ADMIN', 'dropdown', tuple(REGISTER_OPTIONS), 'register_ts'),
     StageConfig('register_approved', 'Register approved', 24, 'LOAN_APPROVER', 'dropdown', tuple(REGISTER_APPROVED_OPTIONS), 'register_approved_ts'),
     StageConfig('disbursement', 'Finance disbursement', 25, 'FINANCE'),
@@ -127,9 +129,9 @@ BASE_STAGES_LOGBOOK = (
     StageConfig('tat_scheduled', 'HOCC scheduled', 15, 'SECRETARY'),
     StageConfig('tat_held', 'HOCC held', 16, 'SECRETARY'),
     StageConfig('decision', 'Decision', 17, 'CHAIR', 'dropdown', tuple(DECISION_OPTIONS), 'decision_ts'),
-    StageConfig('minutes_shared', 'Minutes shared', 19, 'SECRETARY'),
+    StageConfig('minutes_shared', 'Minutes shared', 19, 'SECRETARY', 'dropdown', tuple(MINUTES_SHARED_OPTIONS), 'minutes_shared_ts'),
     StageConfig('sanctions', 'Sanctions', 20, 'LOAN_APPROVER', 'dropdown', tuple(SANCTIONS_OPTIONS), 'sanctions_ts'),
-    StageConfig('bro_applied', 'BRO applied on system', 22, 'BRO'),
+    StageConfig('bro_applied', 'BRO applied on system', 22, 'BRO', 'dropdown', tuple(BRO_APPLIED_OPTIONS), 'bro_applied_ts'),
     StageConfig('disbursement_register', 'Disbursement register', 23, 'ADMIN', 'dropdown', tuple(REGISTER_OPTIONS), 'register_ts'),
     StageConfig('register_approved', 'Register approved', 25, 'LOAN_APPROVER', 'dropdown', tuple(REGISTER_APPROVED_OPTIONS), 'register_approved_ts'),
     StageConfig('disbursement', 'Finance disbursement', 26, 'FINANCE'),
@@ -1740,6 +1742,8 @@ def display_stage_value(stage: StageConfig, value: Any) -> str:
         return ''
     if stage.kind == 'timestamp':
         return format_datetime(parse_iso_datetime(value))
+    if stage.kind == 'dropdown':
+        return dropdown_display_value(stage, value)
     return str(value)
 
 
@@ -1748,7 +1752,18 @@ def sheet_value_for_stage(stage: StageConfig, value: Any) -> str:
         return ''
     if stage.kind == 'timestamp':
         return sheet_datetime(value)
+    if stage.kind == 'dropdown':
+        return dropdown_display_value(stage, value)
     return str(value)
+
+
+def dropdown_display_value(stage: StageConfig, value: Any) -> str:
+    raw = str(value or '').strip()
+    if stage.key == 'minutes_shared' and parse_iso_datetime(raw):
+        return 'Yes'
+    if stage.key == 'bro_applied' and parse_iso_datetime(raw):
+        return 'Met'
+    return raw
 
 
 def parse_iso_datetime(value: Any):

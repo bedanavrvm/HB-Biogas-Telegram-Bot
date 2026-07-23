@@ -1084,6 +1084,125 @@ class TatTrackerWorkflowTest(TestCase):
 
         self.assertEqual(sheet.updates[0][1][0][29], 60.0)
 
+    def test_sync_case_to_sheet_writes_mjengo_dropdown_values_not_stage_timestamps(self):
+        class FakeSheet:
+            def __init__(self):
+                self.updates = []
+
+            def row_values(self, row):
+                if row == 2:
+                    return [''] * 43
+                return []
+
+            def update(self, a1_range, values, value_input_option=None):
+                self.updates.append((a1_range, values, value_input_option))
+
+        class FakeService:
+            def __init__(self, sheet):
+                self._sheet = sheet
+
+            def is_available(self):
+                return True
+
+        sheet = FakeSheet()
+        now = timezone.now().isoformat()
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-MJENGO',
+            row_number=5,
+            case_id='JBL-MJ-2026-SHEET-DROPDOWN',
+            product_key='mjengo',
+            product_label='Mjengo',
+            client_name='Sheet Client',
+            national_id='12345678',
+            primary_phone='254712345678',
+            branch='Nakuru',
+            bro_name='BRO User',
+            amount='100000',
+            stage_values={
+                'created': now,
+                'mpesa_to_admin': now,
+                'mpesa_verified': now,
+                'ca_analysis_sent': now,
+                'bro_response': now,
+                'bm_tat_request': now,
+                'tat_scheduled': now,
+                'tat_held': now,
+                'decision': 'Approved',
+                'decision_ts': now,
+                'minutes_shared': 'Yes',
+                'minutes_shared_ts': now,
+                'sanctions': 'Met',
+                'sanctions_ts': now,
+                'bro_applied': 'Met',
+                'bro_applied_ts': now,
+            },
+            status='Active',
+        )
+
+        with patch('core.services.tat_tracker.get_sheets_service', return_value=FakeService(sheet)):
+            sync_case_to_sheet(self.config, case)
+
+        row = sheet.updates[0][1][0]
+        self.assertEqual(row[17], 'Yes')
+        self.assertEqual(row[20], 'Met')
+
+    def test_sync_case_to_sheet_maps_legacy_mjengo_stage_timestamps_to_dropdown_values(self):
+        class FakeSheet:
+            def __init__(self):
+                self.updates = []
+
+            def row_values(self, row):
+                if row == 2:
+                    return [''] * 43
+                return []
+
+            def update(self, a1_range, values, value_input_option=None):
+                self.updates.append((a1_range, values, value_input_option))
+
+        class FakeService:
+            def __init__(self, sheet):
+                self._sheet = sheet
+
+            def is_available(self):
+                return True
+
+        sheet = FakeSheet()
+        now = timezone.now().isoformat()
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-MJENGO',
+            row_number=5,
+            case_id='JBL-MJ-2026-LEGACY-DROPDOWN',
+            product_key='mjengo',
+            product_label='Mjengo',
+            client_name='Legacy Client',
+            national_id='12345678',
+            primary_phone='254712345678',
+            branch='Nakuru',
+            bro_name='BRO User',
+            amount='100000',
+            stage_values={
+                'created': now,
+                'decision': 'Approved',
+                'decision_ts': now,
+                'minutes_shared': now,
+                'sanctions': 'Met',
+                'sanctions_ts': now,
+                'bro_applied': now,
+            },
+            status='Active',
+        )
+
+        with patch('core.services.tat_tracker.get_sheets_service', return_value=FakeService(sheet)):
+            sync_case_to_sheet(self.config, case)
+
+        row = sheet.updates[0][1][0]
+        self.assertEqual(row[17], 'Yes')
+        self.assertEqual(row[20], 'Met')
+
     def test_completed_dropdowns_use_done_timeline_indicators(self):
         source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
 
@@ -1668,7 +1787,8 @@ class TatTrackerWorkflowTest(TestCase):
                 'tat_held': timezone.now().isoformat(),
                 'decision': 'Approved',
                 'decision_ts': timezone.now().isoformat(),
-                'minutes_shared': timezone.now().isoformat(),
+                'minutes_shared': 'Yes',
+                'minutes_shared_ts': timezone.now().isoformat(),
                 'sanctions': 'Pending',
                 'sanctions_ts': sanctions_timestamp,
             },
@@ -1696,6 +1816,96 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(case.stage_values['sanctions_ts'], sanctions_timestamp)
         self.assertEqual(event.old_value, 'Pending')
         self.assertEqual(event.new_value, 'Met')
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_mjengo_minutes_shared_writes_dropdown_value_and_internal_timestamp(self, sync_mock):
+        sync_mock.side_effect = self.mark_case_synced
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-MJENGO',
+            row_number=5,
+            case_id='JBL-MJ-2026-MINUTES-DROPDOWN',
+            product_key='mjengo',
+            product_label='Mjengo',
+            client_name='Minutes Client',
+            branch='Nakuru',
+            bro_name='BRO User',
+            amount='100000',
+            stage_values={
+                'created': timezone.now().isoformat(),
+                'mpesa_to_admin': timezone.now().isoformat(),
+                'mpesa_verified': timezone.now().isoformat(),
+                'ca_analysis_sent': timezone.now().isoformat(),
+                'bro_response': timezone.now().isoformat(),
+                'bm_tat_request': timezone.now().isoformat(),
+                'tat_scheduled': timezone.now().isoformat(),
+                'tat_held': timezone.now().isoformat(),
+                'decision': 'Approved',
+                'decision_ts': timezone.now().isoformat(),
+            },
+        )
+        secretary = {
+            'name': 'Secretary',
+            'telegram_id': '333',
+            'roles': ['SECRETARY'],
+            'branches': ['Nakuru'],
+            'products': ['mjengo'],
+        }
+
+        update_case(self.config, secretary, case.case_id, [{'field': 'minutes_shared', 'value': 'Yes'}])
+
+        case.refresh_from_db()
+        self.assertEqual(case.stage_values['minutes_shared'], 'Yes')
+        self.assertTrue(parse_iso_datetime(case.stage_values['minutes_shared_ts']))
+        self.assertIsNotNone(stage_tat_minutes(case, stage_by_key(product_by_key('mjengo'), 'minutes_shared')))
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_mjengo_bro_applied_writes_dropdown_value_and_internal_timestamp(self, sync_mock):
+        sync_mock.side_effect = self.mark_case_synced
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-MJENGO',
+            row_number=5,
+            case_id='JBL-MJ-2026-BRO-APPLIED-DROPDOWN',
+            product_key='mjengo',
+            product_label='Mjengo',
+            client_name='Applied Client',
+            branch='Nakuru',
+            bro_name='BRO User',
+            amount='100000',
+            stage_values={
+                'created': timezone.now().isoformat(),
+                'mpesa_to_admin': timezone.now().isoformat(),
+                'mpesa_verified': timezone.now().isoformat(),
+                'ca_analysis_sent': timezone.now().isoformat(),
+                'bro_response': timezone.now().isoformat(),
+                'bm_tat_request': timezone.now().isoformat(),
+                'tat_scheduled': timezone.now().isoformat(),
+                'tat_held': timezone.now().isoformat(),
+                'decision': 'Approved',
+                'decision_ts': timezone.now().isoformat(),
+                'minutes_shared': 'Yes',
+                'minutes_shared_ts': timezone.now().isoformat(),
+                'sanctions': 'Met',
+                'sanctions_ts': timezone.now().isoformat(),
+            },
+        )
+        bro = {
+            'name': 'BRO User',
+            'telegram_id': '111',
+            'roles': ['BRO'],
+            'branches': ['Nakuru'],
+            'products': ['mjengo'],
+        }
+
+        update_case(self.config, bro, case.case_id, [{'field': 'bro_applied', 'value': 'Met'}])
+
+        case.refresh_from_db()
+        self.assertEqual(case.stage_values['bro_applied'], 'Met')
+        self.assertTrue(parse_iso_datetime(case.stage_values['bro_applied_ts']))
+        self.assertIsNotNone(stage_tat_minutes(case, stage_by_key(product_by_key('mjengo'), 'bro_applied')))
 
     @patch('core.services.tat_tracker.sync_case_to_sheet')
     def test_register_approval_records_a_completion_timestamp_for_its_tat(self, sync_mock):

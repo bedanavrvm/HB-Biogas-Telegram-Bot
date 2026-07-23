@@ -55,6 +55,8 @@ const TAT_CONFIG = {
     ],
     DECISION: ['Approved', 'Rejected', 'Deferred'],
     SANCTIONS: ['Pending', 'Met', 'Not Met'],
+    MINUTES_SHARED: ['Yes', 'No'],
+    BRO_APPLIED: ['Pending', 'Met', 'Not Met'],
     REGISTER: ['10:00am', '1:00pm', '3:30pm'],
     REGISTER_APPROVED: ['Approved', 'Pending'],
     STATUS: ['Active', 'Disbursed', 'Rejected', 'Declined', 'Deferred', 'Stalled', 'Pending Docs'],
@@ -111,8 +113,10 @@ const PRODUCT_LAYOUTS = {
       created: 8,
       decision: 17,
       decisionTs: 18,
+      minutesShared: 19,
       sanctions: 20,
       sanctionsTs: 21,
+      broApplied: 22,
       register: 23,
       registerTs: 24,
       registerApproved: 25,
@@ -122,7 +126,7 @@ const PRODUCT_LAYOUTS = {
       tatHours: 29,
       tatDays: 30,
     },
-    dateCols: [8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 21, 22, 24, 26],
+    dateCols: [8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 21, 24, 26],
     stageCols: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26],
     stageTatKeys: logbookStageTatKeys_(),
   },
@@ -155,8 +159,10 @@ function noValuationLayout(productKey, title, minAmount, maxAmount) {
       created: 8,
       decision: 16,
       decisionTs: 17,
+      minutesShared: 18,
       sanctions: 19,
       sanctionsTs: 20,
+      broApplied: 21,
       register: 22,
       registerTs: 23,
       registerApproved: 24,
@@ -166,7 +172,7 @@ function noValuationLayout(productKey, title, minAmount, maxAmount) {
       tatHours: 28,
       tatDays: 29,
     },
-    dateCols: [8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 20, 21, 23, 25],
+    dateCols: [8, 9, 10, 11, 12, 13, 14, 15, 17, 20, 23, 25],
     stageCols: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25],
     stageTatKeys: noValuationStageTatKeys_(),
   };
@@ -432,7 +438,9 @@ function applyValidations_(sheet, layout) {
   sheet.getRange(TAT_CONFIG.DATA_START_ROW, 5, rows, 1).setDataValidation(branchRule);
   sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.status, rows, 1).setDataValidation(statusRule);
   if (layout.cols.decision) sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.decision, rows, 1).setDataValidation(listRule_(TAT_CONFIG.DROPDOWNS.DECISION, true));
+  if (layout.cols.minutesShared) sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.minutesShared, rows, 1).setDataValidation(listRule_(TAT_CONFIG.DROPDOWNS.MINUTES_SHARED, true));
   if (layout.cols.sanctions) sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.sanctions, rows, 1).setDataValidation(listRule_(TAT_CONFIG.DROPDOWNS.SANCTIONS, true));
+  if (layout.cols.broApplied) sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.broApplied, rows, 1).setDataValidation(listRule_(TAT_CONFIG.DROPDOWNS.BRO_APPLIED, true));
   if (layout.cols.register) sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.register, rows, 1).setDataValidation(listRule_(TAT_CONFIG.DROPDOWNS.REGISTER, true));
   if (layout.cols.registerApproved) sheet.getRange(TAT_CONFIG.DATA_START_ROW, layout.cols.registerApproved, rows, 1).setDataValidation(listRule_(TAT_CONFIG.DROPDOWNS.REGISTER_APPROVED, true));
 
