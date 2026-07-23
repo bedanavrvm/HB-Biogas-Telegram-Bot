@@ -121,6 +121,14 @@
       const matched = invoice.matched_farmer_name || invoice.matched_order_number
         ? '<div class="fc-sub">Matched: ' + escapeHtml(invoice.matched_farmer_name || '-') + (invoice.matched_order_number ? ' | Order ' + escapeHtml(invoice.matched_order_number) : '') + '</div>'
         : '<div class="fc-sub">No customer/order match yet</div>';
+      const readiness = invoice.payment_readiness || {};
+      const readinessBadge = invoice.status === 'matched' && invoice.matched_order_number
+        ? readiness.error
+          ? '<span class="badge badge-red">Payment readiness unavailable</span>'
+          : readiness.blocked_count > 0
+            ? '<span class="badge badge-orange">Payment blocked: ' + escapeHtml(readiness.blocked_count) + '</span>'
+            : '<span class="badge badge-green">Payment ready: ' + escapeHtml(readiness.ready_count || 0) + '</span>'
+        : '';
       const actions = [
         '<button class="btn btn-secondary invoice-match-action" data-invoice="' + escapeHtml(invoice.id) + '">Match</button>',
         invoice.status === 'matched' ? '<button class="btn btn-secondary invoice-unmatch-action" data-invoice="' + escapeHtml(invoice.id) + '">Unmatch</button>' : '',
@@ -139,6 +147,7 @@
         '<span class="badge badge-grey">Amount: ' + money(invoice.invoice_amount) + '</span>',
         '<span class="badge badge-grey">Payment: ' + money(invoice.payment) + '</span>',
         '<span class="badge badge-grey">Balance: ' + money(invoice.balance_due) + '</span>',
+        readinessBadge,
         '</div>',
         invoice.balance_due_check ? '<div class="fc-sub">Balance check: ' + escapeHtml(invoice.balance_due_check) + '</div>' : '',
         invoice.review_notes ? '<div class="batch-warning" style="margin-top:8px;">' + escapeHtml(invoice.review_notes) + '</div>' : '',
@@ -241,7 +250,9 @@
       return;
     }
     target.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
-    const result = await deps.apiFetch('/invoice-pool/farmers/?search=' + encodeURIComponent(search));
+    const params = new URLSearchParams({ search: search });
+    if (state.selectedInvoice?.id) params.set('invoice_id', state.selectedInvoice.id);
+    const result = await deps.apiFetch('/invoice-pool/farmers/?' + params.toString());
     const farmers = result.data?.farmers || [];
     if (!result.ok || !result.data?.ok || !farmers.length) {
       target.innerHTML = '<div class="empty-state"><div class="es-title">No matching farmers</div><div class="es-sub">Try another ID, phone, name, or order.</div></div>';
@@ -251,6 +262,11 @@
       const conflict = farmer.has_invoice
         ? '<div class="batch-warning" style="margin-top:8px;">' + escapeHtml(farmer.invoice_conflict_label || 'This farmer already has an invoice.') + '</div>'
         : '';
+      const reasons = Array.isArray(farmer.match_reasons) && farmer.match_reasons.length
+        ? '<div class="fc-badges" style="margin-top:6px;">' + farmer.match_reasons.map(function (reason) {
+          return '<span class="badge badge-blue">' + escapeHtml(reason) + '</span>';
+        }).join('') + '</div>'
+        : '';
       return [
         '<div class="farmer-card batch-card" style="cursor:default;">',
         '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;">',
@@ -258,6 +274,7 @@
         '<div class="fc-name">' + escapeHtml(farmer.customer_name || 'Unnamed farmer') + '</div>',
         '<div class="fc-sub">ID ' + escapeHtml(farmer.national_id || '-') + ' | ' + escapeHtml(farmer.primary_phone || '-') + '</div>',
         '<div class="fc-sub">' + escapeHtml(farmer.county || '-') + (farmer.order_number ? ' | Order ' + escapeHtml(farmer.order_number) : '') + (farmer.customer_no ? ' | Customer No ' + escapeHtml(farmer.customer_no) : '') + '</div>',
+        reasons,
         conflict,
         '</div>',
         '<button class="btn btn-primary invoice-select-candidate" data-farmer="' + escapeHtml(farmer.id) + '"' + (farmer.has_invoice ? ' data-conflict="1"' : '') + '>Select</button>',

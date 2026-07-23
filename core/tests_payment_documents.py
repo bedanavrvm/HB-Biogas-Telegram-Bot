@@ -144,6 +144,8 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(len(data['invoices']), 1)
         self.assertEqual(data['invoices'][0]['status'], 'matched')
         self.assertEqual(data['invoices'][0]['matched_order_number'], 'ORDER-MATCHED')
+        self.assertEqual(data['invoices'][0]['payment_readiness']['ready_count'], 1)
+        self.assertEqual(data['invoices'][0]['payment_readiness']['blocked_count'], 0)
         batch_ids = {item['id'] for item in data['batches']}
         self.assertIn(str(batch.id), batch_ids)
         self.assertIn(str(unmatched_batch.id), batch_ids)
@@ -159,6 +161,27 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(data['farmers'][0]['id'], str(farmer.id))
         self.assertTrue(data['farmers'][0]['has_invoice'])
         self.assertIn('Existing invoice', data['farmers'][0]['invoice_conflict_label'])
+
+    def test_invoice_farmer_candidates_are_ranked_from_invoice_identity(self):
+        id_match = self.farmer(customer_name='Different Name', national_id='11112222', primary_phone='254700000100')
+        phone_match = self.farmer(customer_name='Other Name', national_id='33334444', primary_phone='254799888777')
+        batch = self.invoice_batch()
+        invoice = batch.invoices.get()
+        invoice.customer_id = '11112222'
+        invoice.customer_phone = '0799888777'
+        invoice.save(update_fields=['customer_id', 'customer_phone', 'updated_at'])
+
+        response = self.client.get(reverse('portal_invoice_farmer_candidates'), {
+            'invoice_id': str(invoice.id),
+            'search': 'different',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['farmers'][0]['id'], str(id_match.id))
+        self.assertIn('ID match', data['farmers'][0]['match_reasons'])
+        ids = {farmer['id'] for farmer in data['farmers']}
+        self.assertIn(str(phone_match.id), ids)
 
     @patch('core.services.invoice_parser.sync_farmer_to_master_sheet', return_value=True)
     def test_manual_invoice_match_endpoint_links_invoice_to_farmer(self, mock_sync):

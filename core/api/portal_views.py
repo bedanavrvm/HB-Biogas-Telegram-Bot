@@ -13,6 +13,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import time
 import uuid
 from functools import wraps
@@ -1289,8 +1290,10 @@ def _serialize_invoice_batch(batch) -> dict:
     }
 
 
-def _serialize_parsed_invoice(invoice) -> dict:
+def _serialize_parsed_invoice(invoice, payment_readiness_by_order: dict | None = None) -> dict:
     farmer = invoice.matched_farmer
+    order_number = invoice.matched_order_number or (farmer.order_number if farmer else '')
+    readiness = (payment_readiness_by_order or {}).get(order_number) if order_number else None
     return {
         'id': str(invoice.id),
         'batch_id': str(invoice.batch_id),
@@ -1310,7 +1313,8 @@ def _serialize_parsed_invoice(invoice) -> dict:
         'status': invoice.status,
         'matched_farmer_id': str(farmer.id) if farmer else '',
         'matched_farmer_name': farmer.customer_name if farmer else '',
-        'matched_order_number': invoice.matched_order_number,
+        'matched_order_number': order_number,
+        'payment_readiness': readiness or {},
         'review_notes': invoice.review_notes,
         'created_at': invoice.created_at.isoformat() if invoice.created_at else None,
         'updated_at': invoice.updated_at.isoformat() if invoice.updated_at else None,
@@ -1343,6 +1347,25 @@ def portal_invoice_pool(request):
         )
     invoices = invoices.order_by('-created_at')
     paged_invoices, invoice_pagination = _paginate_qs(invoices, request, page_size=25)
+    readiness_by_order = {}
+    order_numbers = sorted({
+        invoice.matched_order_number or (invoice.matched_farmer.order_number if invoice.matched_farmer else '')
+        for invoice in paged_invoices
+        if invoice.status == 'matched' and (invoice.matched_order_number or (invoice.matched_farmer and invoice.matched_farmer.order_number))
+    })
+    if order_numbers:
+        from core.services.payment_documents import payment_readiness
+        for order_number in order_numbers:
+            try:
+                readiness = payment_readiness(order_number)
+            except Exception as exc:
+                readiness_by_order[order_number] = {'ok': False, 'error': str(exc)}
+            else:
+                readiness_by_order[order_number] = {
+                    'ready_count': readiness.get('ready_count', 0),
+                    'blocked_count': readiness.get('blocked_count', 0),
+                    'farmer_count': readiness.get('farmer_count', 0),
+                }
 
     batches = InvoiceUploadBatch.objects.annotate(invoice_count=Count('invoices')).order_by('-created_at')[:20]
     summary = {
@@ -1358,7 +1381,7 @@ def portal_invoice_pool(request):
         'ok': True,
         'summary': summary,
         'batches': [_serialize_invoice_batch(batch) for batch in batches],
-        'invoices': [_serialize_parsed_invoice(invoice) for invoice in paged_invoices],
+        'invoices': [_serialize_parsed_invoice(invoice, readiness_by_order) for invoice in paged_invoices],
         'pagination': invoice_pagination,
         'filters': {
             'status': status,
@@ -1375,16 +1398,63 @@ def portal_invoice_farmer_candidates(request):
     from core.models import JawabuFarmerMaster
 
     search = str(request.GET.get('search') or '').strip()
-    if len(search) < 2:
+    invoice_id = str(request.GET.get('invoice_id') or '').strip()
+    parsed_invoice = None
+    if invoice_id:
+        from core.models import ParsedInvoice
+        parsed_invoice = ParsedInvoice.objects.filter(pk=invoice_id).first()
+    if len(search) < 2 and not parsed_invoice:
         return JsonResponse({'ok': True, 'farmers': []})
 
-    qs = JawabuFarmerMaster.objects.filter(status='active').filter(
-        Q(customer_name__icontains=search)
-        | Q(national_id__icontains=search)
-        | Q(primary_phone__icontains=search)
-        | Q(order_number__icontains=search)
-        | Q(customer_no__icontains=search)
-    ).order_by('customer_name')[:15]
+    query = Q()
+    if search:
+        query |= (
+            Q(customer_name__icontains=search)
+            | Q(national_id__icontains=search)
+            | Q(primary_phone__icontains=search)
+            | Q(order_number__icontains=search)
+            | Q(customer_no__icontains=search)
+        )
+    if parsed_invoice:
+        if parsed_invoice.customer_id:
+            query |= Q(national_id__iexact=parsed_invoice.customer_id)
+        if parsed_invoice.customer_name:
+            query |= Q(customer_name__icontains=parsed_invoice.customer_name)
+        phone_digits = re.sub(r'\D', '', parsed_invoice.customer_phone or '')
+        if phone_digits:
+            query |= Q(primary_phone__icontains=phone_digits[-9:])
+    qs = list(JawabuFarmerMaster.objects.filter(status='active').filter(query).order_by('customer_name')[:30])
+
+    def score(farmer):
+        points = 0
+        reasons = []
+        if parsed_invoice:
+            if parsed_invoice.customer_id and str(farmer.national_id or '').strip() == parsed_invoice.customer_id:
+                points += 100
+                reasons.append('ID match')
+            inv_phone = re.sub(r'\D', '', parsed_invoice.customer_phone or '')[-9:]
+            farmer_phone = re.sub(r'\D', '', farmer.primary_phone or '')[-9:]
+            if inv_phone and farmer_phone and inv_phone == farmer_phone:
+                points += 80
+                reasons.append('Phone match')
+            if parsed_invoice.customer_name and str(farmer.customer_name or '').strip().lower() == parsed_invoice.customer_name.strip().lower():
+                points += 60
+                reasons.append('Name match')
+        if search:
+            needle = search.lower()
+            if needle in str(farmer.order_number or '').lower():
+                points += 25
+                reasons.append('Order search')
+            if needle in str(farmer.customer_no or '').lower():
+                points += 25
+                reasons.append('Customer no search')
+        return points, reasons
+
+    scored = []
+    for farmer in qs:
+        points, reasons = score(farmer)
+        scored.append((points, farmer.customer_name or '', farmer, reasons))
+    scored.sort(key=lambda item: (-item[0], item[1]))
     return JsonResponse({
         'ok': True,
         'farmers': [
@@ -1401,8 +1471,10 @@ def portal_invoice_farmer_candidates(request):
                 'invoice_conflict_label': (
                     f"Existing invoice {farmer.invoice_number}" if farmer.invoice_number else ''
                 ),
+                'match_score': points,
+                'match_reasons': reasons,
             }
-            for farmer in qs
+            for points, _name, farmer, reasons in scored[:15]
         ],
     })
 
