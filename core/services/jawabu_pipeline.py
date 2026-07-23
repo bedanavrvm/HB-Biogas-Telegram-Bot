@@ -260,6 +260,8 @@ def set_final_decision(
     *,
     final_decision: str,
     decision_comment: str = '',
+    repayment_date: str | None = None,
+    repayment_tenor: str | None = None,
     sender: str = '',
 ) -> tuple[bool, str]:
     """
@@ -283,10 +285,19 @@ def set_final_decision(
     farmer.final_decision_comment = str(decision_comment or '').strip()
     farmer.final_decided_by = str(sender or '').strip()
     farmer.final_decided_at = timezone.now()
-    farmer.save(update_fields=[
+
+    update_fields = [
         'final_decision', 'final_decision_comment', 'final_decided_by',
         'final_decided_at', 'updated_at',
-    ])
+    ]
+    if repayment_date is not None:
+        farmer.repayment_date = str(repayment_date or '').strip()
+        update_fields.append('repayment_date')
+    if repayment_tenor is not None:
+        farmer.repayment_tenor = str(repayment_tenor or '').strip()
+        update_fields.append('repayment_tenor')
+
+    farmer.save(update_fields=update_fields)
     logger.info(
         'Final decision %s set for farmer %s by %s',
         final_decision, farmer.id, sender,

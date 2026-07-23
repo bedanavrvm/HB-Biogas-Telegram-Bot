@@ -248,6 +248,8 @@
           </div>
         </div>
         <div class="form-row"><label>Final Decision</label><select id="final-decision"><option value="">- Select -</option>${decisionOptions}</select></div>
+        <div class="form-row"><label>Repayment Dates</label><input type="text" id="final-repayment-date" placeholder="e.g. 10TH" value="${deps.escapeHtml(farmer.repayment_date || '')}"></div>
+        <div class="form-row"><label>Tenor</label><input type="text" id="final-repayment-tenor" placeholder="e.g. 6 months" value="${deps.escapeHtml(farmer.repayment_tenor || '')}"></div>
         <div class="form-row"><label>After-call Comments</label><textarea id="final-comment" rows="4" placeholder="Summarize the call and reason for the decision...">${deps.escapeHtml(farmer.final_decision_comment || '')}</textarea></div>
       </div>
       ${farmer.jbl_visit_comment ? `<div class="info-row"><span class="ir-label">BRO Comment</span><span class="ir-value">${deps.escapeHtml(farmer.jbl_visit_comment)}</span></div>` : ''}
@@ -369,13 +371,20 @@
     if (!farmer) return;
     const finalDecision = el('final-decision')?.value || '';
     const decisionComment = el('final-comment')?.value || '';
+    const repaymentDate = el('final-repayment-date')?.value || '';
+    const repaymentTenor = el('final-repayment-tenor')?.value || '';
     if (!finalDecision) return deps.showToast('Please select a final decision', 'error');
 
     const btn = el('btn-submit-final');
     deps.setButtonLoading(btn, true, 'Saving...');
     const { ok, data } = await deps.apiFetch('/final-review-queue/' + farmer.id + '/', {
       method: 'POST',
-      body: JSON.stringify({ final_decision: finalDecision, decision_comment: decisionComment }),
+      body: JSON.stringify({
+        final_decision: finalDecision,
+        decision_comment: decisionComment,
+        repayment_date: repaymentDate,
+        repayment_tenor: repaymentTenor,
+      }),
     });
     deps.setButtonLoading(btn, false);
     if (!ok) return deps.showToast(data.error || 'Save failed', 'error');

@@ -254,12 +254,16 @@ class JblPipelineServiceTestCase(TestCase):
             self.farmer_stage_review,
             final_decision='Approved',
             decision_comment='Called and approved',
+            repayment_date='10TH',
+            repayment_tenor='6 months',
             sender='head_rural',
         )
         self.assertTrue(ok)
         self.assertEqual(error, '')
         self.assertEqual(self.farmer_stage_review.final_decision, 'Approved')
         self.assertEqual(self.farmer_stage_review.final_decision_comment, 'Called and approved')
+        self.assertEqual(self.farmer_stage_review.repayment_date, '10TH')
+        self.assertEqual(self.farmer_stage_review.repayment_tenor, '6 months')
         self.assertEqual(self.farmer_stage_review.final_decided_by, 'head_rural')
         mock_sync.assert_called_once_with(self.farmer_stage_review)
         mock_order_sync.assert_called_once_with(self.farmer_stage_review)
@@ -570,6 +574,8 @@ class JblPipelineApiTestCase(TestCase):
         payload = {
             'final_decision': 'Approved',
             'decision_comment': 'Called client; ready for order.',
+            'repayment_date': '15TH',
+            'repayment_tenor': '9 months',
         }
         url = reverse('portal_set_final_decision', args=[self.farmer.id])
         response = self.client.post(url, json.dumps(payload), content_type='application/json')
@@ -578,6 +584,8 @@ class JblPipelineApiTestCase(TestCase):
         self.farmer.refresh_from_db()
         self.assertEqual(self.farmer.final_decision, 'Approved')
         self.assertEqual(self.farmer.final_decision_comment, 'Called client; ready for order.')
+        self.assertEqual(self.farmer.repayment_date, '15TH')
+        self.assertEqual(self.farmer.repayment_tenor, '9 months')
 
     def test_assign_order_gate_fails_on_unapproved(self):
         """Verify requisition posting fails with 403 on credit not approved."""

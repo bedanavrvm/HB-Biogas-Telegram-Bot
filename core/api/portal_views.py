@@ -683,7 +683,7 @@ def portal_final_review_queue(request):
 def portal_set_final_decision(request, farmer_id: str):
     """
     POST /api/portal/final-review-queue/<farmer_id>/
-    Body: { final_decision, decision_comment }
+    Body: { final_decision, decision_comment, repayment_date, repayment_tenor }
     """
     from core.models import JawabuFarmerMaster
     from core.services.jawabu_pipeline import set_final_decision, farmer_to_card
@@ -700,6 +700,8 @@ def portal_set_final_decision(request, farmer_id: str):
 
     final_decision = str(body.get('final_decision') or '').strip()
     decision_comment = str(body.get('decision_comment') or '').strip()
+    repayment_date = str(body.get('repayment_date') or '').strip() if 'repayment_date' in body else None
+    repayment_tenor = str(body.get('repayment_tenor') or '').strip() if 'repayment_tenor' in body else None
     if not final_decision:
         return JsonResponse({'ok': False, 'error': 'final_decision is required.'}, status=400)
 
@@ -708,6 +710,8 @@ def portal_set_final_decision(request, farmer_id: str):
         farmer,
         final_decision=final_decision,
         decision_comment=decision_comment,
+        repayment_date=repayment_date,
+        repayment_tenor=repayment_tenor,
         sender=sender,
     )
     if not ok:
