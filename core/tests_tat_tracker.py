@@ -112,6 +112,10 @@ class TatTrackerWorkflowTest(TestCase):
     def test_detects_tat_tracker_workflow(self):
         self.assertTrue(is_tat_tracker_workflow(self.config))
 
+    def test_product_amount_limits_match_current_tat_policy(self):
+        self.assertEqual(product_by_key('logbook').max_amount, Decimal('700000'))
+        self.assertEqual(product_by_key('mjengo').max_amount, Decimal('500000'))
+
     def test_home_lists_paginate_independently(self):
         for index in range(12):
             TatTrackerCase.objects.create(

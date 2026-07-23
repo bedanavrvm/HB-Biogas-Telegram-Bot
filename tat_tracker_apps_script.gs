@@ -96,7 +96,7 @@ const PRODUCT_LAYOUTS = {
   'TRACKER-LOGBOOK': {
     productKey: 'logbook',
     title: 'TAT TRACKER - LOGBOOK',
-    maxAmount: 500000,
+    maxAmount: 700000,
     minAmount: 50000,
     headers: [
       'Case ID', 'Client Name', 'ID NUMBER', 'PHONE NUMBER', 'Branch', 'BRO Name', 'Amount',
@@ -135,7 +135,7 @@ const PRODUCT_LAYOUTS = {
   'TRACKER-MICRO-ASSET': null,
 };
 
-PRODUCT_LAYOUTS['TRACKER-MJENGO'] = noValuationLayout('mjengo', 'TAT TRACKER - MJENGO', 50000, 300000);
+PRODUCT_LAYOUTS['TRACKER-MJENGO'] = noValuationLayout('mjengo', 'TAT TRACKER - MJENGO', 50000, 500000);
 PRODUCT_LAYOUTS['TRACKER-KILIMO'] = noValuationLayout('kilimo', 'TAT TRACKER - KILIMO', 50000, 300000);
 PRODUCT_LAYOUTS['TRACKER-MICRO-ASSET'] = noValuationLayout('micro_asset', 'TAT TRACKER - MICRO-ASSET', 50000, 300000);
 
