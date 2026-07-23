@@ -5,7 +5,6 @@ import os
 import openpyxl
 from datetime import date, datetime
 from typing import Any
-from openpyxl.utils import get_column_letter
 from django.conf import settings
 from core.models import JawabuFarmerMaster
 
@@ -79,18 +78,18 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
 
     date_str = requisition_date.strftime('%d-%b-%Y') if isinstance(requisition_date, (date, datetime)) else str(requisition_date)
     if date_cell:
-        orig = str(date_cell.value)
-        prefix = orig.split(":")[0] + ":"
-        date_cell.value = f"{prefix}   {date_str}"
+        date_cell.value = str(date_cell.value or '').split(':')[0] + ':'
+        ws.cell(row=date_cell.row, column=date_cell.column + 1, value=date_str)
     else:
-        ws['A4'] = f"Date:   {date_str}"
+        ws['A4'] = "Date:"
+        ws['B4'] = date_str
 
     if order_ref_cell:
-        orig = str(order_ref_cell.value)
-        prefix = orig.split(":")[0] + ":"
-        order_ref_cell.value = f"{prefix}   {order_number}"
+        order_ref_cell.value = str(order_ref_cell.value or '').split(':')[0] + ':'
+        ws.cell(row=order_ref_cell.row, column=order_ref_cell.column + 1, value=order_number)
     else:
-        ws['H4'] = f"Order No:   {order_number}"
+        ws['H4'] = "Order No:"
+        ws['I4'] = order_number
     
     # 2. Find main header row
     header_row_idx = None
@@ -186,6 +185,7 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
     N = len(farmers)
     
     totals_row_idx = last_data_row + 1
+    preserved_images = list(getattr(ws, '_images', []) or [])
     
     # 5. Adjust row count dynamically
     if N > template_data_rows:
@@ -223,30 +223,11 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
             
         ws.cell(row=r, column=col_sales, value=farmer.hb_sales_person)  # HB SALES PERSON
 
-    # 7. Write the totals row right after the client data
+    # 7. Remove the template totals row; staff requested no total-customer/deposit summary row.
     new_totals_row = first_data_row + N
-    ws.insert_rows(new_totals_row, 1)
-    copy_row_formatting(ws, first_data_row, new_totals_row)
-    
-    ws.cell(row=new_totals_row, column=col_name, value="TOTAL CUSTOMERS:                    TOTAL DEPOSITS →")
-    ws.cell(row=new_totals_row, column=col_name).font = openpyxl.styles.Font(bold=True)
-    
-    col_letter_hbg = get_column_letter(col_hbg)
-    col_letter_jbl = get_column_letter(col_jbl)
-    col_letter_name = get_column_letter(col_name)
-    
-    if N > 0:
-        ws.cell(row=new_totals_row, column=col_hbg, value=f"=SUM({col_letter_hbg}{first_data_row}:{col_letter_hbg}{first_data_row + N - 1})")
-        ws.cell(row=new_totals_row, column=col_jbl, value=f"=SUM({col_letter_jbl}{first_data_row}:{col_letter_jbl}{first_data_row + N - 1})")
-        ws.cell(row=new_totals_row, column=col_sales, value=f"=COUNTA({col_letter_name}{first_data_row}:{col_letter_name}{first_data_row + N - 1})")
-    else:
-        ws.cell(row=new_totals_row, column=col_hbg, value=0)
-        ws.cell(row=new_totals_row, column=col_jbl, value=0)
-        ws.cell(row=new_totals_row, column=col_sales, value=0)
-        
-    ws.cell(row=new_totals_row, column=col_hbg).font = openpyxl.styles.Font(bold=True)
-    ws.cell(row=new_totals_row, column=col_jbl).font = openpyxl.styles.Font(bold=True)
-    ws.cell(row=new_totals_row, column=col_sales).font = openpyxl.styles.Font(bold=True)
+    ws.delete_rows(new_totals_row, 1)
+    if preserved_images:
+        ws._images = preserved_images
         
     out = io.BytesIO()
     wb.save(out)

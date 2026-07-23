@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 from django.test import TestCase
 from openpyxl import Workbook, load_workbook
+from openpyxl.drawing.image import Image as XlsxImage
+from PIL import Image as PilImage
 
 from core.services.requisition import generate_requisition_excel
 
@@ -75,8 +77,10 @@ class RequisitionTemplateGenerationTests(TestCase):
         output_path.write_bytes(self.generate_with_template(template_path, [self.farmer()]))
         ws = load_workbook(output_path, data_only=False).active
 
-        self.assertEqual(ws['L5'].value, 'Date:   23-Jul-2026')
-        self.assertEqual(ws['L7'].value, 'Order No:   REQ-TEST-001')
+        self.assertEqual(ws['L5'].value, 'Date:')
+        self.assertEqual(ws['M5'].value, '23-Jul-2026')
+        self.assertEqual(ws['L7'].value, 'Order No:')
+        self.assertEqual(ws['M7'].value, 'REQ-TEST-001')
         self.assertEqual(ws['D14'].value, 'Mary Wanjiku')
         self.assertEqual(ws['E14'].value, '254712345678')
         self.assertEqual(ws['F14'].value, '12345678')
@@ -86,6 +90,9 @@ class RequisitionTemplateGenerationTests(TestCase):
         self.assertEqual(ws['J14'].value, 'Near town centre')
         self.assertEqual(ws['K14'].value, 25000)
         self.assertEqual(ws['M14'].value, 'Sales One')
+        self.assertIn(ws['D15'].value, (None, ''))
+        self.assertIn(ws['E15'].value, (None, ''))
+        self.assertNotIn('TOTAL', str(ws['D15'].value or '').upper())
 
     def test_supplied_reconciled_template_is_supported_when_present(self):
         template_path = Path('requisition/JBL_Requisition_Form_Reconciled.xlsx')
@@ -116,5 +123,28 @@ class RequisitionTemplateGenerationTests(TestCase):
         self.assertEqual(ws['D15'].value, 'John Kamau')
         self.assertEqual(ws['F15'].value, '87654321')
         self.assertEqual(ws['L15'].value, 30000)
-        self.assertEqual(ws['K16'].value, '=SUM(K14:K15)')
-        self.assertEqual(ws['L16'].value, '=SUM(L14:L15)')
+        self.assertIn(ws['D16'].value, (None, ''))
+        self.assertIn(ws['E16'].value, (None, ''))
+        self.assertNotIn('TOTAL', str(ws['D16'].value or '').upper())
+        self.assertNotEqual(ws['K16'].value, '=SUM(K14:K15)')
+        self.assertNotEqual(ws['L16'].value, '=SUM(L14:L15)')
+
+    def test_generation_preserves_embedded_template_logos(self):
+        template_path = Path('tmp_requisition_with_logo.xlsx')
+        output_path = Path('tmp_requisition_with_logo_output.xlsx')
+        logo_path = Path('tmp_requisition_logo.png')
+        self.addCleanup(lambda: template_path.exists() and template_path.unlink())
+        self.addCleanup(lambda: output_path.exists() and output_path.unlink())
+        self.addCleanup(lambda: logo_path.exists() and logo_path.unlink())
+        self.write_reconciled_shape_template(template_path)
+
+        PilImage.new('RGB', (24, 24), color=(10, 80, 160)).save(logo_path)
+        wb = load_workbook(template_path)
+        ws = wb.active
+        ws.add_image(XlsxImage(str(logo_path)), 'C3')
+        wb.save(template_path)
+
+        output_path.write_bytes(self.generate_with_template(template_path, [self.farmer()]))
+        generated = load_workbook(output_path)
+
+        self.assertEqual(len(generated.active._images), 1)
