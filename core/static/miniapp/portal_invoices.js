@@ -138,6 +138,9 @@
             ? '<span class="badge badge-orange">Payment blocked: ' + escapeHtml(readiness.blocked_count) + '</span>'
             : '<span class="badge badge-green">Payment ready: ' + escapeHtml(readiness.ready_count || 0) + '</span>'
         : '';
+      const duplicateBadge = invoice.duplicate_count > 0
+        ? '<span class="badge badge-orange">Possible duplicates: ' + escapeHtml(invoice.duplicate_count) + '</span>'
+        : '';
       const actions = [
         '<button class="btn btn-secondary invoice-detail-action" data-invoice="' + escapeHtml(invoice.id) + '">Details</button>',
         '<button class="btn btn-secondary invoice-match-action" data-invoice="' + escapeHtml(invoice.id) + '">Match</button>',
@@ -162,6 +165,7 @@
         '<span class="badge badge-grey">Payment: ' + money(invoice.payment) + '</span>',
         '<span class="badge badge-grey">Balance: ' + money(invoice.balance_due) + '</span>',
         readinessBadge,
+        duplicateBadge,
         '</div>',
         invoice.balance_due_check ? '<div class="fc-sub">Balance check: ' + escapeHtml(invoice.balance_due_check) + '</div>' : '',
         invoice.review_notes ? '<div class="batch-warning" style="margin-top:8px;">' + escapeHtml(invoice.review_notes) + '</div>' : '',
@@ -302,7 +306,14 @@
       }).join('')
       : '<div class="empty-state"><div class="es-title">No audit events yet</div></div>';
     const blockedHtml = blocked.length
-      ? '<div class="batch-warning" style="margin-top:8px;">Blocked payment fields: ' + escapeHtml(blocked.map(function (item) { return item.customer_name || item.customer_no || item.id || 'record'; }).join(', ')) + '</div>'
+      ? '<div class="batch-warning" style="margin-top:8px;">' + blocked.map(function (item) {
+        const name = item.customer_name || item.customer_no || item.farmer_id || 'record';
+        const missing = Array.isArray(item.missing) && item.missing.length ? item.missing.join(', ') : 'missing required fields';
+        return escapeHtml(name + ': ' + missing);
+      }).join('<br>') + '</div>'
+      : '';
+    const paymentAction = invoice.matched_order_number
+      ? '<button class="btn btn-primary invoice-payment-preview-action" data-order="' + escapeHtml(invoice.matched_order_number) + '"' + (readiness.blocked_count > 0 || readiness.error ? ' disabled' : '') + '>Generate payment preview</button>'
       : '';
     target.innerHTML = [
       '<div class="batch-client-list">',
@@ -320,7 +331,7 @@
       readiness.ready_count > 0 && !readiness.blocked_count ? '<span class="badge badge-green">Payment ready</span>' : '',
       '</div>',
       blockedHtml,
-      '<div style="margin-top:10px;">' + sourceLink + '</div>',
+      '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">' + sourceLink + paymentAction + '</div>',
       '</div>',
       '<div class="form-section">',
       '<h3 style="font-size:14px;margin:0 0 8px;">Parsed fields</h3>',
@@ -346,6 +357,9 @@
         else window.open(btn.dataset.url, '_blank', 'noopener');
       });
     });
+    target.querySelectorAll('.invoice-payment-preview-action').forEach(function (btn) {
+      btn.addEventListener('click', function () { generatePaymentPreview(btn.dataset.order); });
+    });
   }
 
   async function openInvoiceDetail(invoiceId) {
@@ -364,6 +378,24 @@
 
   function closeInvoiceDetail() {
     el('invoice-detail-overlay')?.classList.remove('open');
+  }
+
+  async function generatePaymentPreview(orderNumber) {
+    if (!orderNumber) return;
+    const response = await deps.apiFetch('/payment-documents/' + encodeURIComponent(orderNumber) + '/preview/', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    if (!response.ok || !response.data?.ok) {
+      deps.showToast(response.data?.error || 'Payment preview failed.', 'error');
+      return;
+    }
+    const doc = response.data.document || {};
+    deps.showToast('Payment preview generated.', 'success');
+    if (doc.drive_url) {
+      if (deps.openPortalLink) deps.openPortalLink(doc.drive_url);
+      else window.open(doc.drive_url, '_blank', 'noopener');
+    }
   }
 
   async function searchCandidates() {

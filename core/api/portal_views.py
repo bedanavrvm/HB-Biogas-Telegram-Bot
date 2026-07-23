@@ -1290,11 +1290,16 @@ def _serialize_invoice_batch(batch) -> dict:
     }
 
 
-def _serialize_parsed_invoice(invoice, payment_readiness_by_order: dict | None = None) -> dict:
+def _serialize_parsed_invoice(
+    invoice,
+    payment_readiness_by_order: dict | None = None,
+    *,
+    include_duplicate_summary: bool = False,
+) -> dict:
     farmer = invoice.matched_farmer
     order_number = invoice.matched_order_number or (farmer.order_number if farmer else '')
     readiness = (payment_readiness_by_order or {}).get(order_number) if order_number else None
-    return {
+    data = {
         'id': str(invoice.id),
         'batch_id': str(invoice.batch_id),
         'batch_filename': invoice.batch.original_filename if invoice.batch_id else '',
@@ -1319,6 +1324,9 @@ def _serialize_parsed_invoice(invoice, payment_readiness_by_order: dict | None =
         'created_at': invoice.created_at.isoformat() if invoice.created_at else None,
         'updated_at': invoice.updated_at.isoformat() if invoice.updated_at else None,
     }
+    if include_duplicate_summary:
+        data['duplicate_count'] = _invoice_duplicate_count(invoice)
+    return data
 
 
 def _serialize_invoice_event(event) -> dict:
@@ -1332,9 +1340,8 @@ def _serialize_invoice_event(event) -> dict:
     }
 
 
-def _invoice_duplicate_candidates(invoice) -> list[dict]:
+def _invoice_duplicate_query(invoice):
     from django.db.models import Q
-    from core.models import ParsedInvoice
 
     query = Q()
     if invoice.invoice_no:
@@ -1344,6 +1351,34 @@ def _invoice_duplicate_candidates(invoice) -> list[dict]:
     phone_digits = re.sub(r'\D', '', invoice.customer_phone or '')
     if phone_digits:
         query |= Q(customer_phone__icontains=phone_digits[-9:])
+    return query, phone_digits
+
+
+def _invoice_duplicate_reasons(invoice, candidate, phone_digits: str) -> list[str]:
+    reasons = []
+    if invoice.invoice_no and str(candidate.invoice_no or '').strip().lower() == invoice.invoice_no.strip().lower():
+        reasons.append('Same invoice no')
+    if invoice.customer_id and str(candidate.customer_id or '').strip().lower() == invoice.customer_id.strip().lower():
+        reasons.append('Same ID')
+    candidate_phone = re.sub(r'\D', '', candidate.customer_phone or '')[-9:]
+    if phone_digits and candidate_phone and candidate_phone == phone_digits[-9:]:
+        reasons.append('Same phone')
+    return reasons
+
+
+def _invoice_duplicate_count(invoice) -> int:
+    from core.models import ParsedInvoice
+
+    query, _phone_digits = _invoice_duplicate_query(invoice)
+    if not query.children:
+        return 0
+    return ParsedInvoice.objects.filter(query).exclude(pk=invoice.pk).count()
+
+
+def _invoice_duplicate_candidates(invoice) -> list[dict]:
+    from core.models import ParsedInvoice
+
+    query, phone_digits = _invoice_duplicate_query(invoice)
     if not query.children:
         return []
 
@@ -1356,14 +1391,7 @@ def _invoice_duplicate_candidates(invoice) -> list[dict]:
     )
     rows = []
     for candidate in candidates:
-        reasons = []
-        if invoice.invoice_no and str(candidate.invoice_no or '').strip().lower() == invoice.invoice_no.strip().lower():
-            reasons.append('Same invoice no')
-        if invoice.customer_id and str(candidate.customer_id or '').strip().lower() == invoice.customer_id.strip().lower():
-            reasons.append('Same ID')
-        candidate_phone = re.sub(r'\D', '', candidate.customer_phone or '')[-9:]
-        if phone_digits and candidate_phone and candidate_phone == phone_digits[-9:]:
-            reasons.append('Same phone')
+        reasons = _invoice_duplicate_reasons(invoice, candidate, phone_digits)
         serialized = _serialize_parsed_invoice(candidate)
         serialized['duplicate_reasons'] = reasons
         rows.append(serialized)
@@ -1430,7 +1458,10 @@ def portal_invoice_pool(request):
         'ok': True,
         'summary': summary,
         'batches': [_serialize_invoice_batch(batch) for batch in batches],
-        'invoices': [_serialize_parsed_invoice(invoice, readiness_by_order) for invoice in paged_invoices],
+        'invoices': [
+            _serialize_parsed_invoice(invoice, readiness_by_order, include_duplicate_summary=True)
+            for invoice in paged_invoices
+        ],
         'pagination': invoice_pagination,
         'filters': {
             'status': status,

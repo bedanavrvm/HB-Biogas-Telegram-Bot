@@ -151,6 +151,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(data['invoices'][0]['matched_order_number'], 'ORDER-MATCHED')
         self.assertEqual(data['invoices'][0]['payment_readiness']['ready_count'], 1)
         self.assertEqual(data['invoices'][0]['payment_readiness']['blocked_count'], 0)
+        self.assertEqual(data['invoices'][0]['duplicate_count'], 1)
         batch_ids = {item['id'] for item in data['batches']}
         self.assertIn(str(batch.id), batch_ids)
         self.assertIn(str(unmatched_batch.id), batch_ids)
