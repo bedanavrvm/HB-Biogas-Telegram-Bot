@@ -450,6 +450,35 @@
   </div>
 </div>
 
+<div class="sheet-overlay" id="invoice-match-overlay" role="dialog" aria-modal="true">
+  <div class="sheet-panel">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+        <div>
+          <h2>Match Invoice</h2>
+          <p class="sheet-sub" id="invoice-match-sub">Search and select the correct farmer record</p>
+        </div>
+        <button id="invoice-match-close" class="sheet-close-button" aria-label="Close">x</button>
+      </div>
+    </div>
+    <div class="sheet-body">
+      <div id="invoice-match-summary" class="batch-client-list"></div>
+      <div class="form-section">
+        <div class="form-row">
+          <label for="invoice-match-search">Farmer search</label>
+          <input type="search" id="invoice-match-search" placeholder="Name, ID, phone, order, or customer no">
+        </div>
+        <div class="form-row">
+          <label for="invoice-match-note">Review note</label>
+          <textarea id="invoice-match-note" rows="3" placeholder="Optional note for audit trail"></textarea>
+        </div>
+      </div>
+      <div id="invoice-match-candidates" class="farmer-list"></div>
+    </div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 

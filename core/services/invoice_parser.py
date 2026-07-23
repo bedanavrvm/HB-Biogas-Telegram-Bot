@@ -7,7 +7,7 @@ from pathlib import Path
 from pypdf import PdfReader
 from django.utils import timezone
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Count, Q
 
 from core.models import InvoiceUploadBatch, JawabuFarmerMaster, ParsedInvoice
 from core.services.jawabu_pipeline import sync_farmer_to_master_sheet
@@ -714,6 +714,125 @@ def _match_invoice_to_farmer(inv: dict, farmers: list[JawabuFarmerMaster]):
             return matched, reason
 
     return None, ''
+
+
+def _invoice_dict_from_parsed(invoice: ParsedInvoice) -> dict:
+    return {
+        'invoice_no': invoice.invoice_no,
+        'invoice_date': invoice.invoice_date_raw or (invoice.invoice_date.isoformat() if invoice.invoice_date else ''),
+        'invoice_amount': str(invoice.invoice_amount or ''),
+        'discount': str(invoice.discount or ''),
+        'payment': str(invoice.payment or ''),
+        'balance_due': str(invoice.balance_due or ''),
+    }
+
+
+def _apply_invoice_to_farmer(farmer: JawabuFarmerMaster, invoice: ParsedInvoice) -> None:
+    farmer.invoice_number = invoice.invoice_no
+    farmer.invoice_date = invoice.invoice_date
+    farmer.invoice_amount = invoice.invoice_amount
+    farmer.discount = invoice.discount
+    farmer.payment = invoice.payment
+    farmer.balance_due = invoice.balance_due
+    farmer.save(update_fields=[
+        'invoice_number', 'invoice_date', 'invoice_amount',
+        'discount', 'payment', 'balance_due', 'updated_at',
+    ])
+    if not sync_farmer_to_master_sheet(farmer):
+        raise InvoiceSheetSyncError(
+            "Google Sheet sync failed for "
+            f"{farmer.customer_name or 'matched farmer'} "
+            f"({farmer.national_id or farmer.primary_phone or farmer.id}). "
+            "The invoice was not committed to the database."
+        )
+
+
+def refresh_invoice_batch_counts(batch: InvoiceUploadBatch) -> InvoiceUploadBatch:
+    status_counts = {}
+    for row in batch.invoices.values('status').annotate(count=Count('id')):
+        status_counts[row['status']] = row['count']
+    batch.total_parsed = batch.invoices.count()
+    batch.matched_count = status_counts.get('matched', 0)
+    batch.unmatched_count = status_counts.get('unmatched', 0) + status_counts.get('ambiguous', 0)
+    if batch.total_parsed == 0:
+        batch.status = 'needs_review'
+    elif batch.matched_count == batch.total_parsed:
+        batch.status = 'matched'
+    elif batch.matched_count:
+        batch.status = 'partially_matched'
+    elif status_counts.get('ambiguous', 0):
+        batch.status = 'needs_review'
+    elif status_counts.get('ignored', 0) == batch.total_parsed:
+        batch.status = 'needs_review'
+    else:
+        batch.status = 'parsed'
+    batch.save(update_fields=['total_parsed', 'matched_count', 'unmatched_count', 'status', 'updated_at'])
+    return batch
+
+
+def manually_match_invoice(invoice: ParsedInvoice, farmer: JawabuFarmerMaster, *, actor: str = '', note: str = '') -> ParsedInvoice:
+    with transaction.atomic():
+        invoice = ParsedInvoice.objects.select_for_update().select_related('batch').get(pk=invoice.pk)
+        farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=farmer.pk)
+        _apply_invoice_to_farmer(farmer, invoice)
+        note_text = str(note or '').strip()
+        actor_text = str(actor or 'portal').strip()
+        invoice.status = 'matched'
+        invoice.matched_farmer = farmer
+        invoice.matched_order_number = farmer.order_number or ''
+        invoice.review_notes = f"Manually matched by {actor_text}." + (f" {note_text}" if note_text else '')
+        invoice.save(update_fields=[
+            'status', 'matched_farmer', 'matched_order_number', 'review_notes', 'updated_at',
+        ])
+        refresh_invoice_batch_counts(invoice.batch)
+    return invoice
+
+
+def unmatch_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') -> ParsedInvoice:
+    with transaction.atomic():
+        invoice = ParsedInvoice.objects.select_for_update().select_related('batch').get(pk=invoice.pk)
+        old_farmer = None
+        if invoice.matched_farmer_id:
+            old_farmer = JawabuFarmerMaster.objects.select_for_update().filter(pk=invoice.matched_farmer_id).first()
+        if old_farmer and str(old_farmer.invoice_number or '').strip() == str(invoice.invoice_no or '').strip():
+            old_farmer.invoice_number = ''
+            old_farmer.invoice_date = None
+            old_farmer.invoice_amount = None
+            old_farmer.discount = None
+            old_farmer.payment = None
+            old_farmer.balance_due = None
+            old_farmer.save(update_fields=[
+                'invoice_number', 'invoice_date', 'invoice_amount',
+                'discount', 'payment', 'balance_due', 'updated_at',
+            ])
+            if not sync_farmer_to_master_sheet(old_farmer):
+                raise InvoiceSheetSyncError(
+                    "Google Sheet sync failed while unmatching invoice "
+                    f"{invoice.invoice_no or invoice.id} from {old_farmer.customer_name or old_farmer.id}."
+                )
+        note_text = str(note or '').strip()
+        actor_text = str(actor or 'portal').strip()
+        invoice.status = 'unmatched'
+        invoice.matched_farmer = None
+        invoice.matched_order_number = ''
+        invoice.review_notes = f"Unmatched by {actor_text}." + (f" {note_text}" if note_text else '')
+        invoice.save(update_fields=[
+            'status', 'matched_farmer', 'matched_order_number', 'review_notes', 'updated_at',
+        ])
+        refresh_invoice_batch_counts(invoice.batch)
+    return invoice
+
+
+def ignore_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') -> ParsedInvoice:
+    with transaction.atomic():
+        invoice = ParsedInvoice.objects.select_for_update().select_related('batch').get(pk=invoice.pk)
+        note_text = str(note or '').strip()
+        actor_text = str(actor or 'portal').strip()
+        invoice.status = 'ignored'
+        invoice.review_notes = f"Ignored by {actor_text}." + (f" {note_text}" if note_text else '')
+        invoice.save(update_fields=['status', 'review_notes', 'updated_at'])
+        refresh_invoice_batch_counts(invoice.batch)
+    return invoice
 
 
 def match_and_update_invoices(order_number: str, pdf_bytes: bytes) -> dict:

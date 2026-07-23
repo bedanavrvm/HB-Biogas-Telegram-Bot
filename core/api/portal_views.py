@@ -1369,6 +1369,124 @@ def portal_invoice_pool(request):
 
 
 @require_http_methods(["GET"])
+def portal_invoice_farmer_candidates(request):
+    """Search farmer records that an invoice can be manually linked to."""
+    from django.db.models import Q
+    from core.models import JawabuFarmerMaster
+
+    search = str(request.GET.get('search') or '').strip()
+    if len(search) < 2:
+        return JsonResponse({'ok': True, 'farmers': []})
+
+    qs = JawabuFarmerMaster.objects.filter(status='active').filter(
+        Q(customer_name__icontains=search)
+        | Q(national_id__icontains=search)
+        | Q(primary_phone__icontains=search)
+        | Q(order_number__icontains=search)
+        | Q(customer_no__icontains=search)
+    ).order_by('customer_name')[:15]
+    return JsonResponse({
+        'ok': True,
+        'farmers': [
+            {
+                'id': str(farmer.id),
+                'customer_name': farmer.customer_name,
+                'national_id': farmer.national_id,
+                'primary_phone': farmer.primary_phone,
+                'order_number': farmer.order_number,
+                'county': farmer.county,
+                'customer_no': farmer.customer_no,
+                'invoice_number': farmer.invoice_number,
+                'has_invoice': bool(farmer.invoice_number),
+                'invoice_conflict_label': (
+                    f"Existing invoice {farmer.invoice_number}" if farmer.invoice_number else ''
+                ),
+            }
+            for farmer in qs
+        ],
+    })
+
+
+def _json_body(request) -> dict:
+    try:
+        return json.loads(request.body or b'{}')
+    except (json.JSONDecodeError, ValueError):
+        return {}
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_invoice_match(request, invoice_id: str):
+    """Manually link a parsed invoice to the correct farmer/order record."""
+    from core.models import JawabuFarmerMaster, ParsedInvoice
+    from core.services.invoice_parser import InvoiceSheetSyncError, manually_match_invoice
+
+    body = _json_body(request)
+    farmer_id = str(body.get('farmer_id') or '').strip()
+    note = str(body.get('note') or '').strip()
+    if not farmer_id:
+        return JsonResponse({'ok': False, 'error': 'farmer_id is required.'}, status=400)
+    try:
+        invoice = ParsedInvoice.objects.get(pk=invoice_id)
+        farmer = JawabuFarmerMaster.objects.get(pk=farmer_id)
+    except ParsedInvoice.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Invoice not found.'}, status=404)
+    except JawabuFarmerMaster.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
+
+    try:
+        invoice = manually_match_invoice(invoice, farmer, actor=_portal_sender_from_request(request), note=note)
+    except InvoiceSheetSyncError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=502)
+    except Exception as exc:
+        logger.exception("Manual invoice match failed")
+        return JsonResponse({'ok': False, 'error': f'Manual match failed: {exc}'}, status=500)
+
+    return JsonResponse({'ok': True, 'invoice': _serialize_parsed_invoice(invoice)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_invoice_unmatch(request, invoice_id: str):
+    """Remove a parsed invoice match and clear farmer invoice fields when appropriate."""
+    from core.models import ParsedInvoice
+    from core.services.invoice_parser import InvoiceSheetSyncError, unmatch_invoice
+
+    body = _json_body(request)
+    try:
+        invoice = ParsedInvoice.objects.get(pk=invoice_id)
+    except ParsedInvoice.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Invoice not found.'}, status=404)
+
+    try:
+        invoice = unmatch_invoice(invoice, actor=_portal_sender_from_request(request), note=str(body.get('note') or '').strip())
+    except InvoiceSheetSyncError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=502)
+    except Exception as exc:
+        logger.exception("Manual invoice unmatch failed")
+        return JsonResponse({'ok': False, 'error': f'Unmatch failed: {exc}'}, status=500)
+
+    return JsonResponse({'ok': True, 'invoice': _serialize_parsed_invoice(invoice)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_invoice_ignore(request, invoice_id: str):
+    """Mark a parsed invoice as ignored with an audit note."""
+    from core.models import ParsedInvoice
+    from core.services.invoice_parser import ignore_invoice
+
+    body = _json_body(request)
+    try:
+        invoice = ParsedInvoice.objects.get(pk=invoice_id)
+    except ParsedInvoice.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Invoice not found.'}, status=404)
+
+    invoice = ignore_invoice(invoice, actor=_portal_sender_from_request(request), note=str(body.get('note') or '').strip())
+    return JsonResponse({'ok': True, 'invoice': _serialize_parsed_invoice(invoice)})
+
+
+@require_http_methods(["GET"])
 def portal_payment_readiness(request, order_number: str):
     """Return readiness status for payment document generation."""
     from core.services.payment_documents import payment_readiness

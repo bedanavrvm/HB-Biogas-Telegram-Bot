@@ -148,6 +148,89 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertIn(str(batch.id), batch_ids)
         self.assertIn(str(unmatched_batch.id), batch_ids)
 
+    def test_invoice_farmer_candidate_search(self):
+        farmer = self.farmer(customer_name='Searchable Client', national_id='99887766')
+
+        response = self.client.get(reverse('portal_invoice_farmer_candidates'), {'search': '99887766'})
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['farmers'][0]['id'], str(farmer.id))
+        self.assertTrue(data['farmers'][0]['has_invoice'])
+        self.assertIn('Existing invoice', data['farmers'][0]['invoice_conflict_label'])
+
+    @patch('core.services.invoice_parser.sync_farmer_to_master_sheet', return_value=True)
+    def test_manual_invoice_match_endpoint_links_invoice_to_farmer(self, mock_sync):
+        farmer = self.farmer(
+            order_number='ORDER-MANUAL',
+            invoice_number='',
+            invoice_date=None,
+            invoice_amount=None,
+            discount=None,
+            payment=None,
+            balance_due=None,
+        )
+        batch = self.invoice_batch()
+        invoice = batch.invoices.get()
+
+        response = self.client.post(
+            reverse('portal_invoice_match', args=[str(invoice.id)]),
+            data=json.dumps({'farmer_id': str(farmer.id), 'note': 'Verified by phone'}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        invoice.refresh_from_db()
+        farmer.refresh_from_db()
+        self.assertEqual(invoice.status, 'matched')
+        self.assertEqual(invoice.matched_farmer_id, farmer.id)
+        self.assertEqual(invoice.matched_order_number, 'ORDER-MANUAL')
+        self.assertEqual(farmer.invoice_number, '9505')
+        self.assertEqual(farmer.balance_due, Decimal('43500'))
+        self.assertIn('Verified by phone', invoice.review_notes)
+        mock_sync.assert_called_once_with(farmer)
+
+    @patch('core.services.invoice_parser.sync_farmer_to_master_sheet', return_value=True)
+    def test_manual_invoice_unmatch_endpoint_clears_linked_farmer_invoice_fields(self, mock_sync):
+        farmer = self.farmer(order_number='ORDER-MATCHED')
+        batch = self.invoice_batch(farmer)
+        invoice = batch.invoices.get()
+
+        response = self.client.post(
+            reverse('portal_invoice_unmatch', args=[str(invoice.id)]),
+            data=json.dumps({'note': 'Wrong household'}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        invoice.refresh_from_db()
+        farmer.refresh_from_db()
+        self.assertEqual(invoice.status, 'unmatched')
+        self.assertIsNone(invoice.matched_farmer)
+        self.assertEqual(invoice.matched_order_number, '')
+        self.assertEqual(farmer.invoice_number, '')
+        self.assertIsNone(farmer.balance_due)
+        self.assertIn('Wrong household', invoice.review_notes)
+        mock_sync.assert_called_once_with(farmer)
+
+    def test_manual_invoice_ignore_endpoint_marks_invoice_ignored(self):
+        batch = self.invoice_batch()
+        invoice = batch.invoices.get()
+
+        response = self.client.post(
+            reverse('portal_invoice_ignore', args=[str(invoice.id)]),
+            data=json.dumps({'note': 'Duplicate PDF page'}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        invoice.refresh_from_db()
+        batch.refresh_from_db()
+        self.assertEqual(invoice.status, 'ignored')
+        self.assertIn('Duplicate PDF page', invoice.review_notes)
+        self.assertEqual(batch.unmatched_count, 0)
+
     def test_payment_template_layout_uses_visible_sheet_when_config_is_stale(self):
         workbook = load_workbook('requisition/HB_PAYMENT__89__7__machine_ready (1).xlsx')
         layout = payment_template_layout(workbook)
