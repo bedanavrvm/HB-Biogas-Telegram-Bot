@@ -1269,6 +1269,105 @@ def portal_invoice_pool_upload(request):
     })
 
 
+def _serialize_invoice_batch(batch) -> dict:
+    return {
+        'id': str(batch.id),
+        'original_filename': batch.original_filename,
+        'content_type': batch.content_type,
+        'size': batch.size,
+        'uploaded_by': batch.uploaded_by,
+        'drive_file_id': batch.drive_file_id,
+        'drive_url': batch.drive_url,
+        'status': batch.status,
+        'total_pages': batch.total_pages,
+        'total_parsed': batch.total_parsed,
+        'matched_count': batch.matched_count,
+        'unmatched_count': batch.unmatched_count,
+        'error': batch.error,
+        'created_at': batch.created_at.isoformat() if batch.created_at else None,
+        'updated_at': batch.updated_at.isoformat() if batch.updated_at else None,
+    }
+
+
+def _serialize_parsed_invoice(invoice) -> dict:
+    farmer = invoice.matched_farmer
+    return {
+        'id': str(invoice.id),
+        'batch_id': str(invoice.batch_id),
+        'batch_filename': invoice.batch.original_filename if invoice.batch_id else '',
+        'page': invoice.page,
+        'invoice_no': invoice.invoice_no,
+        'invoice_date': invoice.invoice_date.isoformat() if invoice.invoice_date else invoice.invoice_date_raw,
+        'customer_name': invoice.customer_name,
+        'customer_id': invoice.customer_id,
+        'customer_phone': invoice.customer_phone,
+        'invoice_amount': str(invoice.invoice_amount) if invoice.invoice_amount is not None else '',
+        'total_after_discount': str(invoice.total_after_discount) if invoice.total_after_discount is not None else '',
+        'discount': str(invoice.discount) if invoice.discount is not None else '',
+        'payment': str(invoice.payment) if invoice.payment is not None else '',
+        'balance_due': str(invoice.balance_due) if invoice.balance_due is not None else '',
+        'balance_due_check': invoice.balance_due_check,
+        'status': invoice.status,
+        'matched_farmer_id': str(farmer.id) if farmer else '',
+        'matched_farmer_name': farmer.customer_name if farmer else '',
+        'matched_order_number': invoice.matched_order_number,
+        'review_notes': invoice.review_notes,
+        'created_at': invoice.created_at.isoformat() if invoice.created_at else None,
+        'updated_at': invoice.updated_at.isoformat() if invoice.updated_at else None,
+    }
+
+
+@require_http_methods(["GET"])
+def portal_invoice_pool(request):
+    """Return invoice upload batches and parsed invoice records for the invoice workspace."""
+    from django.db.models import Count, Q
+    from core.models import InvoiceUploadBatch, ParsedInvoice
+
+    status = str(request.GET.get('status') or '').strip()
+    search = str(request.GET.get('search') or '').strip()
+    batch_id = str(request.GET.get('batch_id') or '').strip()
+
+    invoices = ParsedInvoice.objects.select_related('batch', 'matched_farmer').all()
+    if status:
+        invoices = invoices.filter(status=status)
+    if batch_id:
+        invoices = invoices.filter(batch_id=batch_id)
+    if search:
+        invoices = invoices.filter(
+            Q(invoice_no__icontains=search)
+            | Q(customer_name__icontains=search)
+            | Q(customer_id__icontains=search)
+            | Q(customer_phone__icontains=search)
+            | Q(matched_order_number__icontains=search)
+            | Q(batch__original_filename__icontains=search)
+        )
+    invoices = invoices.order_by('-created_at')
+    paged_invoices, invoice_pagination = _paginate_qs(invoices, request, page_size=25)
+
+    batches = InvoiceUploadBatch.objects.annotate(invoice_count=Count('invoices')).order_by('-created_at')[:20]
+    summary = {
+        'batch_count': InvoiceUploadBatch.objects.count(),
+        'invoice_count': ParsedInvoice.objects.count(),
+        'unmatched_count': ParsedInvoice.objects.filter(status='unmatched').count(),
+        'matched_count': ParsedInvoice.objects.filter(status='matched').count(),
+        'ambiguous_count': ParsedInvoice.objects.filter(status='ambiguous').count(),
+        'ignored_count': ParsedInvoice.objects.filter(status='ignored').count(),
+    }
+
+    return JsonResponse({
+        'ok': True,
+        'summary': summary,
+        'batches': [_serialize_invoice_batch(batch) for batch in batches],
+        'invoices': [_serialize_parsed_invoice(invoice) for invoice in paged_invoices],
+        'pagination': invoice_pagination,
+        'filters': {
+            'status': status,
+            'search': search,
+            'batch_id': batch_id,
+        },
+    })
+
+
 @require_http_methods(["GET"])
 def portal_payment_readiness(request, order_number: str):
     """Return readiness status for payment document generation."""

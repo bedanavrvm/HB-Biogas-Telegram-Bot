@@ -10,6 +10,7 @@
   const portalFarmerSheet = window.PortalMiniAppFarmerSheet || {};
   const portalFilters = window.PortalMiniAppFilters || {};
   const portalRequisitions = window.PortalMiniAppRequisitions || {};
+  const portalInvoices = window.PortalMiniAppInvoices || {};
   const tg = utils.initTelegram ? utils.initTelegram({ closingConfirmation: false }) : window.Telegram?.WebApp;
   if (tg && !utils.initTelegram) {
     tg.ready();
@@ -206,7 +207,7 @@
     // Show filter bar on farmer list views.
     const filterBar = el('portal-filter-bar');
     if (filterBar) {
-      if (page === 'dashboard' || page === 'batches') {
+      if (page === 'dashboard' || page === 'batches' || page === 'invoices') {
         filterBar.style.display = 'none';
       } else {
         filterBar.style.display = 'flex';
@@ -706,6 +707,7 @@
   // Page router
   function loadPage(page) {
     if (page === 'dashboard') loadDashboard();
+    else if (page === 'invoices' && portalInvoices.load) portalInvoices.load(1);
     else if (queueConfig[page]) loadQueue(page, 1);
   }
   // Bootstrap
@@ -792,6 +794,21 @@
       summaryGrid,
       tg,
       updateConnectionBanner,
+    });
+  }
+  if (portalInvoices.init) {
+    portalInvoices.init({
+      apiFetch,
+      el,
+      escapeHtml,
+      fmtDate,
+      getCookie,
+      openPortalLink,
+      portalApi,
+      setButtonLoading,
+      showToast,
+      summaryGrid,
+      tg,
     });
   }
 

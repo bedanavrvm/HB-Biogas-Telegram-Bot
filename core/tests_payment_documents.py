@@ -127,6 +127,27 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(parsed.invoice_no, '9505')
         self.assertEqual(parsed.status, 'unmatched')
 
+    def test_invoice_pool_endpoint_lists_batches_and_invoices_with_filters(self):
+        farmer = self.farmer(order_number='ORDER-MATCHED')
+        batch = self.invoice_batch(farmer)
+        unmatched_batch = self.invoice_batch()
+
+        response = self.client.get(reverse('portal_invoice_pool'), {'status': 'matched', 'search': '9505'})
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['summary']['batch_count'], 2)
+        self.assertEqual(data['summary']['invoice_count'], 2)
+        self.assertEqual(data['summary']['matched_count'], 1)
+        self.assertEqual(data['summary']['unmatched_count'], 1)
+        self.assertEqual(len(data['invoices']), 1)
+        self.assertEqual(data['invoices'][0]['status'], 'matched')
+        self.assertEqual(data['invoices'][0]['matched_order_number'], 'ORDER-MATCHED')
+        batch_ids = {item['id'] for item in data['batches']}
+        self.assertIn(str(batch.id), batch_ids)
+        self.assertIn(str(unmatched_batch.id), batch_ids)
+
     def test_payment_template_layout_uses_visible_sheet_when_config_is_stale(self):
         workbook = load_workbook('requisition/HB_PAYMENT__89__7__machine_ready (1).xlsx')
         layout = payment_template_layout(workbook)

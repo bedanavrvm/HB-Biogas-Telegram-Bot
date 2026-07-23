@@ -67,6 +67,10 @@
     <i data-lucide="layers"></i>
     Batches
   </button>
+  <button class="tab-btn" data-page="invoices" aria-label="Invoice Pool">
+    <i data-lucide="receipt-text"></i>
+    Invoices
+  </button>
 </nav>
 
   <div id="portal-offline-banner" style="display:none; position:sticky; top:0; z-index:80; margin:0 0 10px; padding:10px 12px; border:1px solid rgba(255,59,48,.25); border-radius:8px; background:#ffe5e5; color:#b42318; font-size:13px; font-weight:600;">Offline. You can view already loaded data, but uploads and updates need a connection.</div>
@@ -239,6 +243,55 @@
     <div class="pagination" id="pg-requisition"></div>
   </section>
 
+  <section id="page-invoices" class="page">
+    <header>
+      <h1>Invoices</h1>
+      <p class="meta">General HB invoice pool, parsed records, and reconciliation status</p>
+    </header>
+    <div class="batch-panel" style="display:block;">
+      <div class="batch-title">
+        <span class="badge badge-blue">Invoice pool</span>
+        <span>Upload invoices without selecting an order</span>
+      </div>
+      <form id="invoice-pool-upload-form" class="batch-form" style="align-items:end;">
+        <div class="field-group">
+          <label for="invoice-pool-file">HB invoice PDF</label>
+          <input type="file" id="invoice-pool-file" name="file" accept="application/pdf">
+        </div>
+        <button class="btn btn-primary" id="invoice-pool-upload-submit" type="submit">Upload & Parse</button>
+      </form>
+      <div id="invoice-pool-upload-result"></div>
+    </div>
+    <div class="batch-summary-grid" id="invoice-pool-summary"></div>
+    <div class="filter-bar" style="display:flex;">
+      <div class="filter-item">
+        <label for="invoice-pool-status">Status</label>
+        <select id="invoice-pool-status">
+          <option value="">All statuses</option>
+          <option value="unmatched">Unmatched</option>
+          <option value="matched">Matched</option>
+          <option value="ambiguous">Ambiguous</option>
+          <option value="ignored">Ignored</option>
+        </select>
+      </div>
+      <div class="filter-item" style="flex:1;">
+        <label for="invoice-pool-search">Search</label>
+        <input type="search" id="invoice-pool-search" placeholder="Invoice no, name, ID, phone, order, filename">
+      </div>
+      <button class="btn-clear-filters" id="invoice-pool-clear" type="button" title="Clear invoice filters">-</button>
+    </div>
+    <div class="batch-panel" style="display:block;">
+      <div class="batch-title">
+        <span class="badge">Recent uploads</span>
+      </div>
+      <div id="invoice-pool-batches" class="farmer-list"></div>
+    </div>
+    <div id="invoice-pool-list" class="farmer-list">
+      <div class="empty-state"><div class="spinner-inline"></div></div>
+    </div>
+    <div class="pagination" id="pg-invoices"></div>
+  </section>
+
   <!-- Deferred -->
   <section id="page-deferred" class="page">
     <header>
@@ -407,6 +460,7 @@
   <script src="/static/miniapp/portal_farmer_sheet.js?v=3"></script>
   <script src="/static/miniapp/portal_filters.js?v=1"></script>
   <script src="/static/miniapp/portal_requisitions.js?v=4"></script>
-  <script src="/static/miniapp/portal.js?v=18"></script>
+  <script src="/static/miniapp/portal_invoices.js?v=1"></script>
+  <script src="/static/miniapp/portal.js?v=19"></script>
 </body>
 </html>
