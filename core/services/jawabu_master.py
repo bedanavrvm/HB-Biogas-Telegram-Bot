@@ -318,13 +318,6 @@ def create_farmup_review_batch(
         parsed_rows=review_rows,
         mapping=mapping_review_rows(),
     )
-    preflight = flag_farmup_master_sheet_conflicts(batch, review_rows, group_config=group_config)
-    if preflight.get('conflicts'):
-        batch.review_needed = sum(1 for row in review_rows if row.get('Import Status') == 'review_needed')
-        batch.parsed_rows = review_rows
-        batch.save(update_fields=['review_needed', 'parsed_rows', 'updated_at'])
-        stats['review_needed'] = batch.review_needed
-        stats['master_sheet_preflight'] = preflight
     return batch, stats
 
 
@@ -364,6 +357,8 @@ def flag_farmup_master_sheet_conflicts(
         details = []
         now_text = timezone.now().strftime('%d-%B-%Y %H:%M')
         for index, row in enumerate(review_rows, start=1):
+            if row.get('approved') is False:
+                continue
             if row.get('Import Status') == 'review_needed':
                 continue
             cleaned = cleaned_master_row_from_review(row, batch, index, timezone.now())
@@ -431,6 +426,9 @@ def commit_farmup_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict],
     for index, row in enumerate(rows, start=1):
         row = dict(row or {})
         row['row_id'] = row.get('row_id') or index
+        if row.get('Import Status') == 'review_needed':
+            remaining_rows.append(row)
+            continue
         if not row.get('approved'):
             skipped += 1
             skipped_rows.append(row)
@@ -642,9 +640,10 @@ def write_rows_to_master_sheet(
     values = sheet.get_all_values()
     header_lookup = header_lookup_from_headers(headers)
     existing = build_master_existing_index(values, header_lookup, data_start_row)
-    created = updated = conflicts = 0
+    created = updated = conflicts = overwritten = 0
     errors = []
     conflict_details = []
+    overwrite_details = []
     pending_updates = []
     now_text = timezone.now().strftime('%d-%B-%Y %H:%M')
     for cleaned in cleaned_rows:
@@ -662,14 +661,14 @@ def write_rows_to_master_sheet(
                     created=False,
                 )
                 if conflict_notes:
-                    conflicts += 1
-                    conflict_details.append({
+                    overwritten += 1
+                    overwrite_details.append({
                         'row_number': row_number,
                         'customer_name': cleaned.get('customer_name') or '',
                         'national_id': cleaned.get('national_id') or '',
                         'primary_phone': cleaned.get('primary_phone') or '',
                         'duplicate_key': cleaned.get('duplicate_key') or '',
-                        'conflicts': conflict_notes,
+                        'overwritten_fields': conflict_notes,
                     })
                 if change_count:
                     pending_updates.append((row_number, row_values))
@@ -707,6 +706,8 @@ def write_rows_to_master_sheet(
         'updated': updated,
         'conflicts': conflicts,
         'conflict_details': conflict_details[:20],
+        'overwritten': overwritten,
+        'overwrite_details': overwrite_details[:20],
         'errors': errors[:20],
     }
 
@@ -767,21 +768,18 @@ def merge_master_row_values(
             continue
         idx = header_lookup[normalize_header(target_header)] - 1
         current = row_values[idx] if idx < len(row_values) else ''
-        if master_values_equivalent(field, current, new_value, cleaned):
-            row_values[idx] = new_value
-        elif not str(current or '').strip():
-            row_values[idx] = new_value
-        else:
-            conflict_notes.append(f"{target_header}: sheet '{current}' vs upload '{new_value}'")
+        if not master_values_equivalent(field, current, new_value, cleaned) and str(current or '').strip():
+            conflict_notes.append(f"{target_header}: sheet '{current}' replaced by Django '{new_value}'")
+        row_values[idx] = new_value
 
-    status = 'created' if created else ('updated_with_conflict' if conflict_notes else 'updated')
+    status = 'created' if created else 'updated'
     set_header_value(row_values, header_lookup, 'Master Record ID', str(cleaned.get('id') or cleaned.get('duplicate_key') or ''))
     set_header_value(row_values, header_lookup, 'Import Batch ID', str(batch.id))
     set_header_value(row_values, header_lookup, 'Source Filename', batch.source_filename)
     set_header_value(row_values, header_lookup, 'Source Row', cleaned.get('source_row_number') or '')
     set_header_value(row_values, header_lookup, 'Duplicate Key', cleaned.get('duplicate_key') or '')
     set_header_value(row_values, header_lookup, 'Import Status', status)
-    set_header_value(row_values, header_lookup, 'Review Notes', '; '.join(conflict_notes) or cleaned.get('cleaning_notes') or '')
+    set_header_value(row_values, header_lookup, 'Review Notes', cleaned.get('cleaning_notes') or '')
     set_header_value(row_values, header_lookup, 'Reviewed By', batch.sender)
     set_header_value(row_values, header_lookup, 'Reviewed At', now_text)
     set_header_value(row_values, header_lookup, 'Last Updated At', now_text)

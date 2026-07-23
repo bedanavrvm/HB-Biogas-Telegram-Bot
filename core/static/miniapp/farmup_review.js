@@ -11,8 +11,10 @@
   const body = document.getElementById('rowsBody');
   const statusEl = document.getElementById('status');
   const rowSearch = document.getElementById('rowSearch');
+  const reviewOnlyFilter = document.getElementById('reviewOnlyFilter');
   const visibleCount = document.getElementById('visibleCount');
   let searchText = '';
+  let reviewOnly = false;
 
   function isBlank(value) {
     return !String(value || '').trim();
@@ -72,9 +74,10 @@
 
   function visibleRows() {
     const needle = searchText.trim().toLowerCase();
-    if (!needle) return rows;
+    const candidateRows = reviewOnly ? rows.filter(isReview) : rows;
+    if (!needle) return candidateRows;
     const terms = needle.split(/\s+/).filter(Boolean);
-    return rows.filter((row) => {
+    return candidateRows.filter((row) => {
       const haystack = rowSearchText(row);
       return terms.every((term) => haystack.includes(term));
     });
@@ -133,9 +136,14 @@
     document.getElementById('skippedCount').textContent = rows.filter((row) => !row.approved).length;
     const shown = visibleRows().length;
     if (visibleCount) {
+      const reviewText = reviewOnly ? 'review row(s)' : 'row(s)';
       visibleCount.textContent = searchText.trim()
-        ? `Showing ${shown} of ${rows.length} row(s)`
-        : 'Showing all rows';
+        ? `Showing ${shown} of ${rows.length} ${reviewText}`
+        : (reviewOnly ? `Showing ${shown} review row(s)` : 'Showing all rows');
+    }
+    if (reviewOnlyFilter) {
+      reviewOnlyFilter.classList.toggle('active', reviewOnly);
+      reviewOnlyFilter.setAttribute('aria-pressed', reviewOnly ? 'true' : 'false');
     }
   }
 
@@ -207,8 +215,14 @@
     render();
   });
 
+  reviewOnlyFilter?.addEventListener('click', () => {
+    reviewOnly = !reviewOnly;
+    render();
+  });
+
   document.getElementById('clearSearch')?.addEventListener('click', () => {
     searchText = '';
+    reviewOnly = false;
     if (rowSearch) rowSearch.value = '';
     render();
     rowSearch?.focus();

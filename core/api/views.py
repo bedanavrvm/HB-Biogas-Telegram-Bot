@@ -722,6 +722,21 @@ def jawabu_farmers_review_commit(request):
             f"Updated: {sheet_sync.get('updated', 0)}",
             f"Conflicts: {sheet_sync.get('conflicts', 0)}",
         ])
+        if sheet_sync.get('overwritten'):
+            reply_lines.append(f"Stale sheet rows overwritten from Django: {sheet_sync.get('overwritten', 0)}")
+            for detail in (sheet_sync.get('overwrite_details') or [])[:3]:
+                label = (
+                    detail.get('customer_name')
+                    or detail.get('national_id')
+                    or detail.get('primary_phone')
+                    or detail.get('duplicate_key')
+                    or f"row {detail.get('row_number')}"
+                )
+                fields = []
+                for note in detail.get('overwritten_fields') or []:
+                    fields.append(str(note).split(':', 1)[0])
+                field_text = ', '.join(fields[:3]) if fields else 'field mismatch'
+                reply_lines.append(f"- {label}: {field_text}")
         if sheet_sync.get('conflicts'):
             reply_lines.append('Note: conflicts were committed locally; existing non-empty sheet values were preserved.')
             for detail in (sheet_sync.get('conflict_details') or [])[:3]:

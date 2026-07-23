@@ -1677,14 +1677,15 @@ Mary Njeri njihia
         )
 
         self.assertEqual(result['updated'], 1)
-        self.assertEqual(result['conflicts'], 1)
-        self.assertEqual(result['conflict_details'][0]['row_number'], 5)
-        self.assertEqual(result['conflict_details'][0]['customer_name'], 'DAVID MUGAMBI')
-        self.assertIn('County', result['conflict_details'][0]['conflicts'][0])
-        self.assertEqual(sheet.values[4][4], 'EMBU')
-        self.assertEqual(sheet.values[4][headers.index('Import Status')], 'updated_with_conflict')
+        self.assertEqual(result['conflicts'], 0)
+        self.assertEqual(result['overwritten'], 1)
+        self.assertEqual(result['overwrite_details'][0]['row_number'], 5)
+        self.assertEqual(result['overwrite_details'][0]['customer_name'], 'DAVID MUGAMBI')
+        self.assertIn('County', result['overwrite_details'][0]['overwritten_fields'][0])
+        self.assertEqual(sheet.values[4][4], 'MERU')
+        self.assertEqual(sheet.values[4][headers.index('Import Status')], 'updated')
         self.assertEqual(sheet.update_options, ['RAW'])
-        self.assertIn('County', sheet.values[4][headers.index('Review Notes')])
+        self.assertEqual(sheet.values[4][headers.index('Review Notes')], '')
 
     def test_farmup_master_sheet_writer_accepts_name_with_separated_bracketed_id(self):
         from core.services.jawabu_master import ensure_master_system_headers, write_rows_to_master_sheet
@@ -1769,7 +1770,7 @@ Mary Njeri njihia
         self.assertEqual(sheet.values[4][headers.index('Import Status')], 'updated')
 
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
-    def test_farmup_review_batch_flags_master_sheet_conflicts_before_commit(self, mock_service):
+    def test_farmup_review_batch_ignores_stale_master_sheet_values_before_commit(self, mock_service):
         from core.services.jawabu_master import create_farmup_review_batch
 
         headers = ['No.', 'Customer Name', 'National ID', 'Primary Phone', 'County', 'Duplicate Key']
@@ -1799,12 +1800,11 @@ Mary Njeri njihia
         )
 
         row = batch.parsed_rows[0]
-        self.assertEqual(stats['master_sheet_preflight']['conflicts'], 1)
-        self.assertEqual(batch.review_needed, 1)
-        self.assertFalse(row['approved'])
-        self.assertEqual(row['Import Status'], 'review_needed')
-        self.assertIn('Master Data conflict before commit', row['Cleaning Notes'])
-        self.assertIn('County', row['Cleaning Notes'])
+        self.assertNotIn('master_sheet_preflight', stats)
+        self.assertEqual(batch.review_needed, 0)
+        self.assertTrue(row['approved'])
+        self.assertEqual(row['Import Status'], 'active')
+        self.assertEqual(row['Cleaning Notes'], '')
 
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
     def test_farmup_review_batch_does_not_flag_separated_bracketed_id(self, mock_service):
@@ -1842,6 +1842,49 @@ Mary Njeri njihia
         self.assertTrue(row['approved'])
         self.assertEqual(row['Import Status'], 'active')
         self.assertNotIn('Master Data conflict before commit', row['Cleaning Notes'])
+
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_farmup_commit_overwrites_stale_sheet_values_when_db_is_source_of_truth(self, mock_service):
+        from core.services.jawabu_master import commit_farmup_review_batch, create_farmup_review_batch
+
+        headers = ['No.', 'Customer Name', 'National ID', 'Primary Phone', 'Secondary Phone', 'County', 'Deposit Paid to HB', 'Duplicate Key']
+        existing = ['1', 'PETER MATOMU KARINA', '99999999', '254721997481', '254704408281', 'EMBU', '5000', '99999999|254721997481']
+        fake_sheet = FakeMasterDataSheet(headers, existing)
+        mock_service.return_value = FakeJawabuService(fake_sheet)
+        self.group.workflow = {
+            **(self.group.workflow or {}),
+            'master_sync_enabled': True,
+            'master_sheet_id': 'sheet',
+            'master_sheet_name': 'Master Data',
+            'master_header_row': 3,
+            'master_data_start_row': 5,
+        }
+        csv_text = (
+            'Full Name,ID NUMBER,Mobile,Phone,HBG Hub,Actual Receipts,Sign Date,Sales Person\n'
+            'Peter Matomu Karina,12345678,0721997481,0704408281,EMBU,5000,24/06/2026,Jane Sales\n'
+        )
+        batch, stats = create_farmup_review_batch(
+            group_id=self.group.group_id,
+            telegram_message_id='101',
+            sender='Reviewer',
+            source_filename='farmers.csv',
+            csv_text=csv_text,
+        )
+
+        result = commit_farmup_review_batch(batch, batch.parsed_rows, group_config=self.group)
+
+        batch.refresh_from_db()
+        self.assertNotIn('master_sheet_preflight', stats)
+        self.assertTrue(result['success'])
+        self.assertEqual(result['committed'], 1)
+        self.assertEqual(result['review_needed'], 0)
+        self.assertEqual(result['sheet_sync']['conflicts'], 0)
+        self.assertEqual(result['sheet_sync']['overwritten'], 1)
+        self.assertIn('National ID', result['sheet_sync']['overwrite_details'][0]['overwritten_fields'][0])
+        self.assertEqual(batch.status, 'committed')
+        self.assertEqual(JawabuFarmerMaster.objects.count(), 1)
+        self.assertEqual(fake_sheet.values[4][2], '12345678')
+        self.assertEqual(fake_sheet.values[4][fake_sheet.values[2].index('Import Status')], 'updated')
 
     def test_farmup_preview_extracts_bracketed_id_without_review_note(self):
         import io

@@ -67,6 +67,12 @@ button {
   min-width: 180px;
 }
 
+.filter-toggle.active {
+  border-color: #dc2626 !important;
+  background: #fff1f2 !important;
+  color: #991b1b !important;
+}
+
 .visible-count {
   color: var(--text-muted);
   font-size: 12px;
