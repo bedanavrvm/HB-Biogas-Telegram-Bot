@@ -28,6 +28,14 @@ class MiniAppFrontendSmokeTests(TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assert_script_order(response, utility_marker, app_marker)
 
+    def test_portal_loads_helper_module_between_utils_and_app(self):
+        response = self.client.get(reverse('portal_home'))
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode('utf-8')
+
+        self.assertLess(html.index('miniapp/utils.js'), html.index('miniapp/portal_helpers.js'))
+        self.assertLess(html.index('miniapp/portal_helpers.js'), html.index('miniapp/portal.js'))
+
     def test_shared_utils_expose_frontend_primitives(self):
         source = Path('core/static/miniapp/utils.js').read_text(encoding='utf-8')
 
@@ -40,6 +48,22 @@ class MiniAppFrontendSmokeTests(TestCase):
             'fetchHtml',
             'setButtonLoading',
             'showToast',
+        ):
+            self.assertIn(expected, source)
+
+    def test_portal_helpers_expose_pure_ui_primitives(self):
+        source = Path('core/static/miniapp/portal_helpers.js').read_text(encoding='utf-8')
+
+        for expected in (
+            'window.PortalMiniAppHelpers',
+            'fmtDate',
+            'stageBadge',
+            'creditBadge',
+            'finalDecisionBadge',
+            'jblBadge',
+            'summaryGrid',
+            'renderWarnings',
+            'validateInvoiceFile',
         ):
             self.assertIn(expected, source)
 
@@ -58,6 +82,9 @@ class MiniAppFrontendSmokeTests(TestCase):
                 'const rendered = await renderQueueFragment(qKey, page)',
                 'renderFarmerList(listEl, farmers, cfg, qKey)',
                 'renderBatchesList(listEl, batches, cfg)',
+                'function setButtonLoading(button, loading, label)',
+                'utils.setButtonLoading',
+                'window.PortalMiniAppHelpers',
             ),
         }
 

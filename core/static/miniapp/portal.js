@@ -4,6 +4,7 @@
   'use strict';
   // Init Telegram Web App
   const utils = window.MiniAppUtils || {};
+  const portalHelpers = window.PortalMiniAppHelpers || {};
   const tg = utils.initTelegram ? utils.initTelegram({ closingConfirmation: false }) : window.Telegram?.WebApp;
   if (tg && !utils.initTelegram) {
     tg.ready();
@@ -108,8 +109,30 @@
     }[ch]));
   }
 
-  function fmt(v) { return v || '-'; }
+  function setButtonLoading(button, loading, label) {
+    if (utils.setButtonLoading) {
+      utils.setButtonLoading(button, loading, label);
+      return;
+    }
+    if (!button) return;
+    if (loading) {
+      if (!button.dataset.originalHtml) button.dataset.originalHtml = button.innerHTML;
+      button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
+      button.innerHTML = '<span class="spinner-inline" aria-hidden="true"></span><span>' + escapeHtml(label || 'Working') + '</span>';
+    } else {
+      button.disabled = false;
+      button.removeAttribute('aria-busy');
+      if (button.dataset.originalHtml) {
+        button.innerHTML = button.dataset.originalHtml;
+        delete button.dataset.originalHtml;
+      }
+    }
+  }
+
+  function fmt(v) { return portalHelpers.fmt ? portalHelpers.fmt(v) : (v || '-'); }
   function fmtDate(v) {
+    if (portalHelpers.fmtDate) return portalHelpers.fmtDate(v);
     if (!v) return '-';
     let d;
     if (/^\d{4}-\d{2}-\d{2}$/.test(String(v))) {
@@ -127,6 +150,7 @@
   }
 
   function stageBadge(farmer) {
+    if (portalHelpers.stageBadge) return portalHelpers.stageBadge(farmer);
     const stage = farmer.pipeline_stage || 1;
     const labels = ['-', 'Awaiting JBL', 'JBL Visited', 'Credit Set', 'Ordered', '', '', 'Invoiced'];
     const styles = ['', 'badge-grey', 'badge-blue', 'badge-orange', 'badge-green', '', '', 'badge-green'];
@@ -134,18 +158,21 @@
   }
 
   function creditBadge(farmer) {
+    if (portalHelpers.creditBadge) return portalHelpers.creditBadge(farmer);
     if (!farmer.credit_decision) return '';
     const map = { Approved: 'badge-green', Rejected: 'badge-red', Deferred: 'badge-orange', Pending: 'badge-grey', 'Exemption Approved': 'badge-green' };
     return `<span class="badge ${map[farmer.credit_decision] || 'badge-grey'}">${farmer.credit_decision}</span>`;
   }
 
   function finalDecisionBadge(farmer) {
+    if (portalHelpers.finalDecisionBadge) return portalHelpers.finalDecisionBadge(farmer);
     if (!farmer.final_decision) return '';
     const map = { Approved: 'badge-green', Rejected: 'badge-red', Deferred: 'badge-orange', 'Under Review': 'badge-blue' };
     return `<span class="badge ${map[farmer.final_decision] || 'badge-grey'}">Final: ${farmer.final_decision}</span>`;
   }
 
   function jblBadge(farmer) {
+    if (portalHelpers.jblBadge) return portalHelpers.jblBadge(farmer);
     if (!farmer.jbl_visit_status) return '';
     const cls = farmer.jbl_visit_status.startsWith('Approved') ? 'badge-green'
       : farmer.jbl_visit_status === 'Awaiting Analysis' ? 'badge-blue'
@@ -511,6 +538,7 @@
   }
 
   function summaryGrid(items) {
+    if (portalHelpers.summaryGrid) return portalHelpers.summaryGrid(items);
     return items.map(item => `
       <div class="batch-summary-item">
         <strong>${escapeHtml(item.value)}</strong>
@@ -536,6 +564,10 @@
   }
 
   function renderWarnings(container, warnings) {
+    if (portalHelpers.renderWarnings) {
+      portalHelpers.renderWarnings(container, warnings);
+      return;
+    }
     if (!container) return;
     if (!warnings || !warnings.length) {
       container.innerHTML = '';
@@ -1120,8 +1152,7 @@
     if (!visitStatus) { showToast('Please select a visit status', 'error'); return; }
 
     const btn = el('btn-submit-jbl');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-inline"></span> Saving...';
+    setButtonLoading(btn, true, 'Saving...');
 
     const { ok, data } = await apiFetch('/jbl-queue/' + farmer.id + '/', {
       method: 'POST',
@@ -1138,8 +1169,7 @@
       }),
     });
 
-    btn.disabled = false;
-    btn.textContent = 'Log JBL Visit';
+    setButtonLoading(btn, false);
     if (!ok) { showToast(data.error || 'Save failed', 'error'); return; }
     const uploadOk = await uploadJblMediaIfSelected(farmer.id);
     if (!uploadOk) return;
@@ -1196,16 +1226,14 @@
     if (!customerNo) { showToast('Enter the IMAB Customer No before sending this case to Head of Rural review.', 'error'); return; }
 
     const btn = el('btn-submit-credit');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-inline"></span> Saving...';
+    setButtonLoading(btn, true, 'Saving...');
 
     const { ok, data } = await apiFetch('/credit-queue/' + farmer.id + '/', {
       method: 'POST',
       body: JSON.stringify({ decision, imab_created: imabCreated, customer_no: customerNo }),
     });
 
-    btn.disabled = false;
-    btn.textContent = 'Set Credit Decision';
+    setButtonLoading(btn, false);
     if (!ok) { showToast(data.error || 'Save failed', 'error'); return; }
     showToast('Credit decision saved', 'success');
     closeSheet();
@@ -1221,16 +1249,14 @@
     if (!finalDecision) { showToast('Please select a final decision', 'error'); return; }
 
     const btn = el('btn-submit-final');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-inline"></span> Saving...';
+    setButtonLoading(btn, true, 'Saving...');
 
     const { ok, data } = await apiFetch('/final-review-queue/' + farmer.id + '/', {
       method: 'POST',
       body: JSON.stringify({ final_decision: finalDecision, decision_comment: decisionComment }),
     });
 
-    btn.disabled = false;
-    btn.textContent = 'Save Final Review';
+    setButtonLoading(btn, false);
     if (!ok) { showToast(data.error || 'Save failed', 'error'); return; }
     showToast('Final review saved', 'success');
     closeSheet();
@@ -1246,16 +1272,14 @@
     if (!orderNumber) { showToast('Order number is required', 'error'); return; }
 
     const btn = el('btn-submit-req');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-inline"></span> Saving...';
+    setButtonLoading(btn, true, 'Saving...');
 
     const { ok, status, data } = await apiFetch('/requisition-queue/' + farmer.id + '/', {
       method: 'POST',
       body: JSON.stringify({ order_number: orderNumber, requisition_date: reqDate }),
     });
 
-    btn.disabled = false;
-    btn.textContent = 'Assign Order Number';
+    setButtonLoading(btn, false);
     if (!ok) {
       if (status === 403) { showToast('Error: ' + (data.error || 'Final review not approved'), 'error'); }
       else { showToast(data.error || 'Save failed', 'error'); }
@@ -1433,8 +1457,7 @@
     const payload = state.pendingRequisitionPayload;
     if (!payload) return;
     const confirm = el('requisition-preview-confirm');
-    confirm.disabled = true;
-    confirm.innerHTML = '<span class="spinner-inline"></span> Generating...';
+    setButtonLoading(confirm, true, 'Generating...');
     try {
       const response = await fetch(apiBase() + '/requisition-queue/generate/', {
         method: 'POST',
@@ -1464,8 +1487,7 @@
       console.error(err);
       showToast('An error occurred during generation.', 'error');
     } finally {
-      confirm.disabled = false;
-      confirm.textContent = 'Generate Requisition';
+      setButtonLoading(confirm, false);
     }
   }
 
@@ -1511,12 +1533,14 @@
   let invoiceUploadInProgress = false;
 
   function invoiceFileSizeLabel(bytes) {
+    if (portalHelpers.invoiceFileSizeLabel) return portalHelpers.invoiceFileSizeLabel(bytes);
     if (!bytes && bytes !== 0) return 'unknown size';
     if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
     return `${(bytes / 1024).toFixed(1)} KB`;
   }
 
   function validateInvoiceFile(file) {
+    if (portalHelpers.validateInvoiceFile) return portalHelpers.validateInvoiceFile(file, invoiceUploadMaxBytes, invoiceUploadMaxMb);
     if (!file) return 'Select a PDF file first.';
     if (!String(file.name || '').toLowerCase().endsWith('.pdf')) return 'Only PDF files are supported.';
     if (file.size > invoiceUploadMaxBytes) {
