@@ -1494,6 +1494,25 @@ class RequisitionTemplate(models.Model):
         return f"{self.name} ({'Active' if self.is_active else 'Inactive'})"
 
 
+class PaymentDocumentTemplate(models.Model):
+    """
+    Admin-uploaded Excel template used for HB payment document generation.
+    """
+    name = models.CharField(max_length=255, default='HB Payment Document')
+    file = models.FileField(upload_to='payment_documents/', help_text='Upload the Excel (.xlsx) payment template here.')
+    is_active = models.BooleanField(default=True, help_text='Mark this as the active template used for payment generation.')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-is_active', '-updated_at']
+        verbose_name = 'Payment document template'
+        verbose_name_plural = 'Payment document templates'
+
+    def __str__(self):
+        return f"{self.name} ({'Active' if self.is_active else 'Inactive'})"
+
+
 class InvoiceUploadBatch(models.Model):
     """Drive-backed invoice PDF upload batch kept before reconciliation."""
 

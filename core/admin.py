@@ -48,6 +48,7 @@ from .models import (
     InvoiceUploadBatch,
     ParsedInvoice,
     PaymentDocument,
+    PaymentDocumentTemplate,
     RawMessage,
     ProcessedMessage,
     ParsedMessage,
@@ -1810,6 +1811,16 @@ class TatTrackerStaffMemberAdmin(ModelAdmin):
 
 @admin.register(RequisitionTemplate)
 class RequisitionTemplateAdmin(ModelAdmin):
+    compressed_fields = True
+    list_filter_submit = True
+    list_fullwidth = True
+    list_display = ('name', 'is_active', 'file', 'created_at', 'updated_at')
+    list_editable = ('is_active',)
+    search_fields = ('name',)
+
+
+@admin.register(PaymentDocumentTemplate)
+class PaymentDocumentTemplateAdmin(ModelAdmin):
     compressed_fields = True
     list_filter_submit = True
     list_fullwidth = True

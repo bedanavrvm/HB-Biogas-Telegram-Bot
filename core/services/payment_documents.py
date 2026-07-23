@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import io
-import os
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -11,13 +10,12 @@ from pathlib import Path
 from typing import Any
 
 import openpyxl
-from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from openpyxl.formula.translate import Translator
 from openpyxl.utils import column_index_from_string, get_column_letter
 
-from core.models import JawabuFarmerMaster, ParsedInvoice, PaymentDocument
+from core.models import JawabuFarmerMaster, ParsedInvoice, PaymentDocument, PaymentDocumentTemplate
 from core.services.invoice_parser import clean_amount
 from core.services.requisition import copy_row_formatting
 
@@ -42,18 +40,26 @@ class PaymentTemplateLayout:
     config_warnings: tuple[str, ...] = ()
 
 
-def _template_path() -> str:
-    configured = str(getattr(settings, 'PAYMENT_DOCUMENT_TEMPLATE_PATH', '') or '').strip()
-    candidates = [
-        configured,
-        os.path.join(settings.BASE_DIR, 'requisition', PAYMENT_TEMPLATE_FILENAME),
-    ]
-    for path in candidates:
-        if path and os.path.exists(path):
-            return path
+def _template_source():
+    active_template = PaymentDocumentTemplate.objects.filter(is_active=True).first()
+    if active_template and active_template.file:
+        try:
+            template_path = active_template.file.path
+        except (NotImplementedError, ValueError):
+            template_path = ''
+        if not template_path or not Path(template_path).exists():
+            raise PaymentTemplateError(
+                'The active payment document template file is missing. '
+                'Upload it again in Django Admin > Payment document templates.'
+            )
+        return template_path
+
+    fallback_path = Path('requisition') / PAYMENT_TEMPLATE_FILENAME
+    if fallback_path.exists():
+        return str(fallback_path)
     raise PaymentTemplateError(
-        'No payment workbook template is configured. Add '
-        f'requisition/{PAYMENT_TEMPLATE_FILENAME} or set PAYMENT_DOCUMENT_TEMPLATE_PATH.'
+        'No payment document template is configured. Upload one in '
+        'Django Admin > Payment document templates.'
     )
 
 
@@ -409,7 +415,7 @@ def generate_payment_workbook(order_number: str) -> tuple[bytes, dict[str, Any]]
     readiness = payment_readiness(order_number)
     if readiness['blocked_count']:
         raise PaymentTemplateError('Payment document has blocked rows. Resolve missing fields before generating.')
-    wb = openpyxl.load_workbook(_template_path())
+    wb = openpyxl.load_workbook(_template_source())
     layout = payment_template_layout(wb)
     ws = wb[layout.sheet_name]
     rows = [item['row'] for item in readiness['ready']]

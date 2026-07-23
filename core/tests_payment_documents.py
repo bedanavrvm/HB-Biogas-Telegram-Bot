@@ -1,8 +1,10 @@
 from datetime import date
 from decimal import Decimal
 import json
+import tempfile
 from unittest.mock import patch
 
+from django.core.files import File
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from openpyxl import load_workbook
@@ -12,6 +14,7 @@ from core.models import (
     JawabuFarmerMaster,
     ParsedInvoice,
     PaymentDocument,
+    PaymentDocumentTemplate,
 )
 from core.services.invoice_parser import ingest_invoice_upload_batch
 from core.services.payment_documents import (
@@ -133,6 +136,24 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(layout.totals_row, 12)
         self.assertEqual(layout.columns['cust_no'], 5)
         self.assertIn('header_row config=5 visible=7', layout.config_warnings)
+
+    def test_payment_workbook_generation_uses_active_admin_uploaded_template(self):
+        farmer = self.farmer(order_number='ORDER-UPLOADED')
+        self.invoice_batch(farmer)
+
+        with tempfile.TemporaryDirectory() as media_root:
+            with self.settings(MEDIA_ROOT=media_root):
+                template = PaymentDocumentTemplate.objects.create(
+                    name='Uploaded payment template',
+                    is_active=True,
+                )
+                with open('requisition/HB_PAYMENT__89__7__machine_ready (1).xlsx', 'rb') as handle:
+                    template.file.save('uploaded_payment_template.xlsx', File(handle), save=True)
+
+                xlsx, summary = generate_payment_workbook('ORDER-UPLOADED')
+
+        self.assertTrue(xlsx)
+        self.assertEqual(summary['ready_count'], 1)
 
     def test_payment_readiness_blocks_missing_repayment_terms(self):
         farmer = self.farmer(repayment_date='', repayment_tenor='')
