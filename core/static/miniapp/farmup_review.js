@@ -14,16 +14,18 @@
   const visibleCount = document.getElementById('visibleCount');
   let searchText = '';
 
+  function isBlank(value) {
+    return !String(value || '').trim();
+  }
+
   function isReview(row) {
-    return row['Import Status'] === 'review_needed';
+    return row['Import Status'] === 'review_needed' || fields.some((fieldName) => (
+      fieldName !== 'Cleaning Notes' && isBlank(row[fieldName])
+    ));
   }
 
   function rowNotes(row) {
     return String(row['Cleaning Notes'] || '').toLowerCase();
-  }
-
-  function isBlank(value) {
-    return !String(value || '').trim();
   }
 
   function fieldHasProblem(row, fieldName) {

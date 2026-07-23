@@ -1290,8 +1290,8 @@ Mary Njeri njihia
         from core.services.jawabu_master import import_jawabu_farmers_csv
 
         csv_file = StringIO(
-            "Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Sign Date,Sign Date,Created Date,HBG Contract Name\n"
-            "David Mugambi [23215888],,Embu,+254721997481,+254704408281,5000,01/05/2026,24/06/2026,30/06/2026,HBGC-14560\n"
+            "Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Sign Date,Sign Date,Created Date,HBG Contract Name,Sales Person\n"
+            "David Mugambi [23215888],,Embu,+254721997481,+254704408281,5000,01/05/2026,24/06/2026,30/06/2026,HBGC-14560,Jane Sales\n"
         )
 
         result = import_jawabu_farmers_csv(csv_file, source_name='farmers.csv')
@@ -1725,8 +1725,8 @@ Mary Njeri njihia
             'master_data_start_row': 5,
         }
         csv_text = (
-            'Full Name,ID NUMBER,Mobile,HBG Hub,Actual Receipts\n'
-            'David Mugambi,23215888,0721997481,MERU,5000\n'
+            'Full Name,ID NUMBER,Mobile,Phone,HBG Hub,Actual Receipts,Sign Date,Sales Person\n'
+            'David Mugambi,23215888,0721997481,0704408281,MERU,5000,24/06/2026,Jane Sales\n'
         )
 
         batch, stats = create_farmup_review_batch(
@@ -1763,8 +1763,8 @@ Mary Njeri njihia
             'master_data_start_row': 5,
         }
         csv_text = (
-            'Full Name,ID NUMBER,Mobile,HBG Hub,Actual Receipts\n'
-            'David Mugambi,23215888,0721997481,EMBU,5000\n'
+            'Full Name,ID NUMBER,Mobile,Phone,HBG Hub,Actual Receipts,Sign Date,Sales Person\n'
+            'David Mugambi,23215888,0721997481,0704408281,EMBU,5000,24/06/2026,Jane Sales\n'
         )
 
         batch, stats = create_farmup_review_batch(
@@ -1788,8 +1788,8 @@ Mary Njeri njihia
         from core.services.jawabu_master import build_cleaned_master_preview
 
         csv_text = (
-            'Full Name,Mobile,HBG Hub,Actual Receipts\n'
-            'David Mugambi [23215888],0721997481,EMBU,5000\n'
+            'Full Name,Mobile,Phone,HBG Hub,Actual Receipts,Sign Date,Sales Person\n'
+            'David Mugambi [23215888],0721997481,0704408281,EMBU,5000,24/06/2026,Jane Sales\n'
         )
 
         rows, stats = build_cleaned_master_preview(io.StringIO(csv_text), source_name='farmers.csv')
@@ -1805,8 +1805,8 @@ Mary Njeri njihia
         from core.services.jawabu_master import build_cleaned_master_preview
 
         csv_text = (
-            'Full Name,Mobile,HBG Hub,Actual Receipts\n'
-            'David Mugambi [*****261-1],0721997481,EMBU,5000\n'
+            'Full Name,Mobile,Phone,HBG Hub,Actual Receipts,Sign Date,Sales Person\n'
+            'David Mugambi [*****261-1],0721997481,0704408281,EMBU,5000,24/06/2026,Jane Sales\n'
         )
 
         rows, stats = build_cleaned_master_preview(io.StringIO(csv_text), source_name='farmers.csv')
@@ -1822,8 +1822,8 @@ Mary Njeri njihia
         from core.services.jawabu_master import build_cleaned_master_preview
 
         csv_text = (
-            'Full Name,ID NUMBER,Mobile,HBG Hub,Actual Receipts\n'
-            'David Mugambi,123,0721997481,EMBU,5000\n'
+            'Full Name,ID NUMBER,Mobile,Phone,HBG Hub,Actual Receipts,Sign Date,Sales Person\n'
+            'David Mugambi,123,0721997481,0704408281,EMBU,5000,24/06/2026,Jane Sales\n'
         )
 
         rows, stats = build_cleaned_master_preview(io.StringIO(csv_text), source_name='farmers.csv')

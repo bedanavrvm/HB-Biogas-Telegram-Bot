@@ -1192,6 +1192,16 @@ def clean_farmer_row(raw_row: dict, header_map: dict[str, str]) -> dict:
         review_notes.append('Missing National ID')
     if not primary_phone:
         review_notes.append('Missing primary phone')
+    if not secondary_phone:
+        review_notes.append('Missing secondary phone')
+    if not county:
+        review_notes.append('Missing County')
+    if not values['sign_date']:
+        review_notes.append('Missing HBG Visit Date')
+    if not values['actual_receipts']:
+        review_notes.append('Missing Deposit Paid to HB')
+    if not values['hb_sales_person']:
+        review_notes.append('Missing HB Sales Person')
     if values['primary_phone'] and not primary_phone:
         review_notes.append('Primary phone could not be normalized')
     if primary_phone and not is_valid_phone(primary_phone):
