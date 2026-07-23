@@ -1010,6 +1010,47 @@
   }
 }
 
+.workflow-standard.portal-app .tab-bar {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  max-width: calc(100vw - 16px);
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.workflow-standard.portal-app .tab-bar::-webkit-scrollbar {
+  height: 4px;
+}
+
+.workflow-standard.portal-app .tab-bar::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--workflow-accent) 35%, transparent);
+}
+
+.workflow-standard.portal-app .tab-btn {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+}
+
+@media (max-width: 520px) {
+  .workflow-standard.portal-app .tab-bar {
+    width: calc(100vw - 16px);
+    margin-left: 0;
+    margin-right: 0;
+    padding: 2px 2px 6px;
+  }
+
+  .workflow-standard.portal-app .tab-btn {
+    min-width: max-content;
+    padding: 0 11px;
+  }
+}
+
 /* Token bridge: legacy Mini App styles resolve through this same product
    vocabulary instead of each workflow choosing its own visual system. */
 .workflow-standard:not(.tat-tracker-app) {

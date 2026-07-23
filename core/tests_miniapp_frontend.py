@@ -271,3 +271,16 @@ class MiniAppFrontendSmokeTests(TestCase):
             with self.subTest(path=path):
                 for marker in markers:
                     self.assertIn(marker, source)
+
+    def test_portal_top_nav_is_horizontally_scrollable_on_mobile(self):
+        stylesheet = Path('core/static/miniapp/workflow_standard.css').read_text(encoding='utf-8')
+        response = self.client.get(reverse('portal_home'))
+        html = response.content.decode('utf-8')
+
+        self.assertIn('miniapp/workflow_standard.css?v=16', html)
+        self.assertIn('.workflow-standard.portal-app .tab-bar', stylesheet)
+        self.assertIn('flex-wrap: nowrap', stylesheet)
+        self.assertIn('overflow-x: auto', stylesheet)
+        self.assertIn('-webkit-overflow-scrolling: touch', stylesheet)
+        self.assertIn('.workflow-standard.portal-app .tab-btn', stylesheet)
+        self.assertIn('flex: 0 0 auto', stylesheet)
