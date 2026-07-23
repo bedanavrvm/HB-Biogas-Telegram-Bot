@@ -8,6 +8,7 @@
     search: '',
     loading: false,
     selectedInvoice: null,
+    selectedIds: new Set(),
   };
   let searchTimer = null;
   let candidateTimer = null;
@@ -110,6 +111,14 @@
     });
   }
 
+  function updateBulkToolbar() {
+    const toolbar = el('invoice-bulk-toolbar');
+    const count = el('invoice-selected-count');
+    const selectedCount = state.selectedIds.size;
+    if (toolbar) toolbar.style.display = selectedCount ? 'block' : 'none';
+    if (count) count.textContent = selectedCount + ' selected';
+  }
+
   function renderInvoices(invoices) {
     const target = el('invoice-pool-list');
     if (!target) return;
@@ -130,13 +139,18 @@
             : '<span class="badge badge-green">Payment ready: ' + escapeHtml(readiness.ready_count || 0) + '</span>'
         : '';
       const actions = [
+        '<button class="btn btn-secondary invoice-detail-action" data-invoice="' + escapeHtml(invoice.id) + '">Details</button>',
         '<button class="btn btn-secondary invoice-match-action" data-invoice="' + escapeHtml(invoice.id) + '">Match</button>',
         invoice.status === 'matched' ? '<button class="btn btn-secondary invoice-unmatch-action" data-invoice="' + escapeHtml(invoice.id) + '">Unmatch</button>' : '',
         invoice.status !== 'ignored' ? '<button class="btn btn-secondary invoice-ignore-action" data-invoice="' + escapeHtml(invoice.id) + '">Ignore</button>' : '',
+        invoice.status === 'ignored' ? '<button class="btn btn-secondary invoice-restore-action" data-invoice="' + escapeHtml(invoice.id) + '">Restore</button>' : '',
       ].join('');
+      const checked = state.selectedIds.has(invoice.id) ? ' checked' : '';
       return [
         '<div class="farmer-card batch-card" style="cursor:default;">',
         '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;">',
+        '<div style="display:flex;gap:10px;align-items:flex-start;">',
+        '<input type="checkbox" class="invoice-select-row" data-invoice="' + escapeHtml(invoice.id) + '" aria-label="Select invoice ' + escapeHtml(invoice.invoice_no || '') + '"' + checked + '>',
         '<div>',
         '<div class="fc-name">Invoice ' + escapeHtml(invoice.invoice_no || '-') + '</div>',
         '<div class="fc-sub">' + escapeHtml(invoice.customer_name || 'Unknown customer') + ' | ID ' + escapeHtml(invoice.customer_id || '-') + ' | ' + escapeHtml(invoice.customer_phone || '-') + '</div>',
@@ -152,11 +166,26 @@
         invoice.balance_due_check ? '<div class="fc-sub">Balance check: ' + escapeHtml(invoice.balance_due_check) + '</div>' : '',
         invoice.review_notes ? '<div class="batch-warning" style="margin-top:8px;">' + escapeHtml(invoice.review_notes) + '</div>' : '',
         '</div>',
+        '</div>',
         '<div style="display:flex;gap:8px;flex-wrap:wrap;">' + actions + '</div>',
         '</div>',
         '</div>',
       ].join('');
     }).join('');
+    const visibleIds = new Set(invoices.map(function (invoice) { return invoice.id; }));
+    Array.from(state.selectedIds).forEach(function (invoiceId) {
+      if (!visibleIds.has(invoiceId)) state.selectedIds.delete(invoiceId);
+    });
+    target.querySelectorAll('.invoice-select-row').forEach(function (input) {
+      input.addEventListener('change', function () {
+        if (input.checked) state.selectedIds.add(input.dataset.invoice);
+        else state.selectedIds.delete(input.dataset.invoice);
+        updateBulkToolbar();
+      });
+    });
+    target.querySelectorAll('.invoice-detail-action').forEach(function (btn) {
+      btn.addEventListener('click', function () { openInvoiceDetail(btn.dataset.invoice); });
+    });
     target.querySelectorAll('.invoice-match-action').forEach(function (btn) {
       btn.addEventListener('click', function () {
         const invoice = invoices.find(function (item) { return item.id === btn.dataset.invoice; });
@@ -169,6 +198,10 @@
     target.querySelectorAll('.invoice-ignore-action').forEach(function (btn) {
       btn.addEventListener('click', function () { ignoreInvoice(btn.dataset.invoice); });
     });
+    target.querySelectorAll('.invoice-restore-action').forEach(function (btn) {
+      btn.addEventListener('click', function () { restoreInvoice(btn.dataset.invoice); });
+    });
+    updateBulkToolbar();
   }
 
   function renderPagination(pagination) {
@@ -239,6 +272,98 @@
   function closeMatchOverlay() {
     el('invoice-match-overlay')?.classList.remove('open');
     state.selectedInvoice = null;
+  }
+
+  function kv(label, value) {
+    return '<div class="batch-client-row"><div class="meta">' + escapeHtml(label) + '</div><div class="name">' + escapeHtml(value || '-') + '</div></div>';
+  }
+
+  function renderInvoiceDetail(data) {
+    const target = el('invoice-detail-content');
+    if (!target) return;
+    const invoice = data.invoice || {};
+    const batch = data.batch || {};
+    const events = data.events || [];
+    const duplicates = data.duplicates || [];
+    const readiness = invoice.payment_readiness || {};
+    const blocked = readiness.blocked || [];
+    const sourceLink = data.source_pdf_url
+      ? '<button class="btn btn-secondary invoice-drive-link" data-url="' + escapeHtml(data.source_pdf_url) + '">Open source PDF</button>'
+      : '<span class="badge badge-grey">No source PDF link</span>';
+    const duplicateHtml = duplicates.length
+      ? duplicates.map(function (dup) {
+        const reasons = (dup.duplicate_reasons || []).join(', ') || 'Possible duplicate';
+        return '<div class="batch-client-row"><div class="name">Invoice ' + escapeHtml(dup.invoice_no || '-') + '</div><div class="meta">' + escapeHtml(reasons) + ' | ' + escapeHtml(dup.customer_name || '-') + ' | ' + escapeHtml(dup.status || '-') + '</div></div>';
+      }).join('')
+      : '<div class="empty-state"><div class="es-title">No likely duplicates</div><div class="es-sub">Checked invoice no, ID, and phone.</div></div>';
+    const eventHtml = events.length
+      ? events.map(function (event) {
+        return '<div class="batch-client-row"><div class="name">' + escapeHtml(event.action || '-') + ' ' + (event.actor ? '<span class="meta">by ' + escapeHtml(event.actor) + '</span>' : '') + '</div><div class="meta">' + escapeHtml(fmtDate(event.created_at)) + (event.note ? ' | ' + escapeHtml(event.note) : '') + '</div></div>';
+      }).join('')
+      : '<div class="empty-state"><div class="es-title">No audit events yet</div></div>';
+    const blockedHtml = blocked.length
+      ? '<div class="batch-warning" style="margin-top:8px;">Blocked payment fields: ' + escapeHtml(blocked.map(function (item) { return item.customer_name || item.customer_no || item.id || 'record'; }).join(', ')) + '</div>'
+      : '';
+    target.innerHTML = [
+      '<div class="batch-client-list">',
+      '<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;flex-wrap:wrap;">',
+      '<div><div class="fc-name">Invoice ' + escapeHtml(invoice.invoice_no || '-') + '</div>',
+      '<div class="fc-sub">' + escapeHtml(invoice.customer_name || 'Unknown customer') + ' | ID ' + escapeHtml(invoice.customer_id || '-') + ' | ' + escapeHtml(invoice.customer_phone || '-') + '</div></div>',
+      '<span class="badge ' + badgeClass(invoice.status) + '">' + escapeHtml(invoice.status || '-') + '</span>',
+      '</div>',
+      '<div class="fc-badges" style="margin-top:10px;">',
+      '<span class="badge badge-grey">Amount: ' + money(invoice.invoice_amount) + '</span>',
+      '<span class="badge badge-grey">Payment: ' + money(invoice.payment) + '</span>',
+      '<span class="badge badge-grey">Balance: ' + money(invoice.balance_due) + '</span>',
+      readiness.error ? '<span class="badge badge-red">Readiness unavailable</span>' : '',
+      readiness.blocked_count > 0 ? '<span class="badge badge-orange">Payment blocked: ' + escapeHtml(readiness.blocked_count) + '</span>' : '',
+      readiness.ready_count > 0 && !readiness.blocked_count ? '<span class="badge badge-green">Payment ready</span>' : '',
+      '</div>',
+      blockedHtml,
+      '<div style="margin-top:10px;">' + sourceLink + '</div>',
+      '</div>',
+      '<div class="form-section">',
+      '<h3 style="font-size:14px;margin:0 0 8px;">Parsed fields</h3>',
+      kv('Batch', batch.original_filename || invoice.batch_filename),
+      kv('Page', invoice.page),
+      kv('Invoice date', invoice.invoice_date),
+      kv('Matched order', invoice.matched_order_number),
+      kv('Matched farmer', invoice.matched_farmer_name),
+      kv('Balance check', invoice.balance_due_check),
+      '</div>',
+      '<div class="form-section">',
+      '<h3 style="font-size:14px;margin:0 0 8px;">Duplicate check</h3>',
+      duplicateHtml,
+      '</div>',
+      '<div class="form-section">',
+      '<h3 style="font-size:14px;margin:0 0 8px;">Audit trail</h3>',
+      eventHtml,
+      '</div>',
+    ].join('');
+    target.querySelectorAll('.invoice-drive-link').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (deps.openPortalLink) deps.openPortalLink(btn.dataset.url);
+        else window.open(btn.dataset.url, '_blank', 'noopener');
+      });
+    });
+  }
+
+  async function openInvoiceDetail(invoiceId) {
+    const overlay = el('invoice-detail-overlay');
+    const target = el('invoice-detail-content');
+    if (!overlay || !invoiceId) return;
+    if (target) target.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
+    overlay.classList.add('open');
+    const result = await deps.apiFetch('/invoice-pool/' + encodeURIComponent(invoiceId) + '/');
+    if (!result.ok || !result.data?.ok) {
+      if (target) target.innerHTML = '<div class="empty-state"><div class="es-title">Could not load invoice</div><div class="es-sub">' + escapeHtml(result.data?.error || 'Refresh and try again.') + '</div></div>';
+      return;
+    }
+    renderInvoiceDetail(result.data);
+  }
+
+  function closeInvoiceDetail() {
+    el('invoice-detail-overlay')?.classList.remove('open');
   }
 
   async function searchCandidates() {
@@ -336,6 +461,41 @@
     load(state.page);
   }
 
+  async function restoreInvoice(invoiceId) {
+    const note = window.prompt('Optional restore note:', '') || '';
+    const response = await deps.apiFetch('/invoice-pool/' + encodeURIComponent(invoiceId) + '/restore/', {
+      method: 'POST',
+      body: JSON.stringify({ note: note }),
+    });
+    if (!response.ok || !response.data?.ok) {
+      deps.showToast(response.data?.error || 'Could not restore invoice.', 'error');
+      return;
+    }
+    deps.showToast('Invoice restored.', 'success');
+    load(state.page);
+  }
+
+  async function bulkInvoiceAction(action) {
+    const ids = Array.from(state.selectedIds);
+    if (!ids.length) return deps.showToast('Select at least one invoice first.', 'error');
+    const label = action === 'restore' ? 'restore' : 'ignore';
+    if (!window.confirm('Apply "' + label + '" to ' + ids.length + ' selected invoice(s)?')) return;
+    const note = window.prompt('Optional bulk action note:', '') || '';
+    const response = await deps.apiFetch('/invoice-pool/bulk-action/', {
+      method: 'POST',
+      body: JSON.stringify({ action: action, invoice_ids: ids, note: note }),
+    });
+    if (!response.ok || !response.data?.ok) {
+      deps.showToast(response.data?.error || 'Bulk action failed.', 'error');
+      return;
+    }
+    state.selectedIds.clear();
+    const changed = response.data.changed_count || 0;
+    const skipped = response.data.skipped_count || 0;
+    deps.showToast('Updated ' + changed + ' invoice(s)' + (skipped ? '; skipped ' + skipped : '') + '.', skipped ? 'warning' : 'success');
+    load(state.page);
+  }
+
   function bindFilters() {
     el('invoice-pool-status')?.addEventListener('change', function (event) {
       state.status = event.target.value || '';
@@ -363,6 +523,20 @@
     el('invoice-match-search')?.addEventListener('input', function () {
       clearTimeout(candidateTimer);
       candidateTimer = setTimeout(searchCandidates, 300);
+    });
+    el('invoice-detail-close')?.addEventListener('click', closeInvoiceDetail);
+    el('invoice-detail-overlay')?.addEventListener('click', function (event) {
+      if (event.target === el('invoice-detail-overlay')) closeInvoiceDetail();
+    });
+  }
+
+  function bindBulkActions() {
+    el('invoice-bulk-ignore')?.addEventListener('click', function () { bulkInvoiceAction('ignore'); });
+    el('invoice-bulk-restore')?.addEventListener('click', function () { bulkInvoiceAction('restore'); });
+    el('invoice-selection-clear')?.addEventListener('click', function () {
+      state.selectedIds.clear();
+      document.querySelectorAll('.invoice-select-row').forEach(function (input) { input.checked = false; });
+      updateBulkToolbar();
     });
   }
 
@@ -402,6 +576,7 @@
     bindFilters();
     bindUpload();
     bindMatchOverlay();
+    bindBulkActions();
   }
 
   window.PortalMiniAppInvoices = {

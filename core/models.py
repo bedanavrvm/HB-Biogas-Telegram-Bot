@@ -1642,6 +1642,40 @@ class ParsedInvoice(models.Model):
         return f"{self.invoice_no or self.id} ({self.status})"
 
 
+class ParsedInvoiceEvent(models.Model):
+    """Append-only operational event for manual invoice reconciliation."""
+
+    ACTION_CHOICES = [
+        ('uploaded', 'Uploaded'),
+        ('parsed', 'Parsed'),
+        ('matched', 'Matched'),
+        ('unmatched', 'Unmatched'),
+        ('ignored', 'Ignored'),
+        ('restored', 'Restored'),
+        ('note', 'Note'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    invoice = models.ForeignKey(ParsedInvoice, on_delete=models.CASCADE, related_name='events')
+    action = models.CharField(max_length=32, choices=ACTION_CHOICES, db_index=True)
+    actor = models.CharField(max_length=255, blank=True, default='')
+    note = models.TextField(blank=True, default='')
+    metadata = models.JSONField(blank=True, default=dict)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['invoice', 'created_at']),
+            models.Index(fields=['action', 'created_at']),
+        ]
+        verbose_name = 'Parsed invoice event'
+        verbose_name_plural = 'Parsed invoice events'
+
+    def __str__(self):
+        return f"{self.invoice_id} {self.action} by {self.actor or 'system'}"
+
+
 class PaymentDocument(models.Model):
     """Drive-backed payment workbook preview/final artifact."""
 

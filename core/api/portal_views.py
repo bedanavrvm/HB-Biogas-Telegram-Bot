@@ -1321,6 +1321,55 @@ def _serialize_parsed_invoice(invoice, payment_readiness_by_order: dict | None =
     }
 
 
+def _serialize_invoice_event(event) -> dict:
+    return {
+        'id': str(event.id),
+        'action': event.action,
+        'actor': event.actor,
+        'note': event.note,
+        'metadata': event.metadata or {},
+        'created_at': event.created_at.isoformat() if event.created_at else None,
+    }
+
+
+def _invoice_duplicate_candidates(invoice) -> list[dict]:
+    from django.db.models import Q
+    from core.models import ParsedInvoice
+
+    query = Q()
+    if invoice.invoice_no:
+        query |= Q(invoice_no__iexact=invoice.invoice_no)
+    if invoice.customer_id:
+        query |= Q(customer_id__iexact=invoice.customer_id)
+    phone_digits = re.sub(r'\D', '', invoice.customer_phone or '')
+    if phone_digits:
+        query |= Q(customer_phone__icontains=phone_digits[-9:])
+    if not query.children:
+        return []
+
+    candidates = (
+        ParsedInvoice.objects
+        .select_related('batch', 'matched_farmer')
+        .filter(query)
+        .exclude(pk=invoice.pk)
+        .order_by('-created_at')[:8]
+    )
+    rows = []
+    for candidate in candidates:
+        reasons = []
+        if invoice.invoice_no and str(candidate.invoice_no or '').strip().lower() == invoice.invoice_no.strip().lower():
+            reasons.append('Same invoice no')
+        if invoice.customer_id and str(candidate.customer_id or '').strip().lower() == invoice.customer_id.strip().lower():
+            reasons.append('Same ID')
+        candidate_phone = re.sub(r'\D', '', candidate.customer_phone or '')[-9:]
+        if phone_digits and candidate_phone and candidate_phone == phone_digits[-9:]:
+            reasons.append('Same phone')
+        serialized = _serialize_parsed_invoice(candidate)
+        serialized['duplicate_reasons'] = reasons
+        rows.append(serialized)
+    return rows
+
+
 @require_http_methods(["GET"])
 def portal_invoice_pool(request):
     """Return invoice upload batches and parsed invoice records for the invoice workspace."""
@@ -1392,6 +1441,44 @@ def portal_invoice_pool(request):
 
 
 @require_http_methods(["GET"])
+def portal_invoice_detail(request, invoice_id: str):
+    """Return one parsed invoice with audit events, duplicate signals, and source PDF context."""
+    from core.models import ParsedInvoice
+
+    try:
+        invoice = ParsedInvoice.objects.select_related('batch', 'matched_farmer').get(pk=invoice_id)
+    except ParsedInvoice.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Invoice not found.'}, status=404)
+
+    readiness_by_order = {}
+    order_number = invoice.matched_order_number or (invoice.matched_farmer.order_number if invoice.matched_farmer else '')
+    if order_number:
+        from core.services.payment_documents import payment_readiness
+        try:
+            readiness = payment_readiness(order_number)
+        except Exception as exc:
+            readiness_by_order[order_number] = {'ok': False, 'error': str(exc)}
+        else:
+            readiness_by_order[order_number] = {
+                'ready_count': readiness.get('ready_count', 0),
+                'blocked_count': readiness.get('blocked_count', 0),
+                'farmer_count': readiness.get('farmer_count', 0),
+                'blocked': readiness.get('blocked', []),
+            }
+
+    events = invoice.events.all().order_by('-created_at')[:25]
+    return JsonResponse({
+        'ok': True,
+        'invoice': _serialize_parsed_invoice(invoice, readiness_by_order),
+        'batch': _serialize_invoice_batch(invoice.batch),
+        'source_pdf_url': invoice.batch.drive_url,
+        'events': [_serialize_invoice_event(event) for event in events],
+        'duplicates': _invoice_duplicate_candidates(invoice),
+        'raw_payload': invoice.raw_payload or {},
+    })
+
+
+@require_http_methods(["GET"])
 def portal_invoice_farmer_candidates(request):
     """Search farmer records that an invoice can be manually linked to."""
     from django.db.models import Q
@@ -1423,6 +1510,8 @@ def portal_invoice_farmer_candidates(request):
         phone_digits = re.sub(r'\D', '', parsed_invoice.customer_phone or '')
         if phone_digits:
             query |= Q(primary_phone__icontains=phone_digits[-9:])
+    if not query.children:
+        return JsonResponse({'ok': True, 'farmers': []})
     qs = list(JawabuFarmerMaster.objects.filter(status='active').filter(query).order_by('customer_name')[:30])
 
     def score(farmer):
@@ -1556,6 +1645,70 @@ def portal_invoice_ignore(request, invoice_id: str):
 
     invoice = ignore_invoice(invoice, actor=_portal_sender_from_request(request), note=str(body.get('note') or '').strip())
     return JsonResponse({'ok': True, 'invoice': _serialize_parsed_invoice(invoice)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_invoice_restore(request, invoice_id: str):
+    """Restore an ignored parsed invoice to the unmatched review queue."""
+    from core.models import ParsedInvoice
+    from core.services.invoice_parser import restore_invoice
+
+    body = _json_body(request)
+    try:
+        invoice = ParsedInvoice.objects.get(pk=invoice_id)
+    except ParsedInvoice.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Invoice not found.'}, status=404)
+
+    invoice = restore_invoice(invoice, actor=_portal_sender_from_request(request), note=str(body.get('note') or '').strip())
+    return JsonResponse({'ok': True, 'invoice': _serialize_parsed_invoice(invoice)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_invoice_bulk_action(request):
+    """Apply safe review actions to selected invoice records."""
+    from core.models import ParsedInvoice
+    from core.services.invoice_parser import ignore_invoice, restore_invoice
+
+    body = _json_body(request)
+    action = str(body.get('action') or '').strip().lower()
+    invoice_ids = [str(item).strip() for item in (body.get('invoice_ids') or []) if str(item).strip()]
+    note = str(body.get('note') or '').strip()
+    if action not in {'ignore', 'restore'}:
+        return JsonResponse({'ok': False, 'error': 'Unsupported bulk invoice action.'}, status=400)
+    if not invoice_ids:
+        return JsonResponse({'ok': False, 'error': 'Select at least one invoice.'}, status=400)
+
+    actor = _portal_sender_from_request(request)
+    invoices = list(ParsedInvoice.objects.filter(pk__in=invoice_ids).select_related('batch', 'matched_farmer'))
+    changed = []
+    skipped = []
+    for invoice in invoices:
+        if action == 'ignore':
+            if invoice.status == 'matched':
+                skipped.append({'id': str(invoice.id), 'reason': 'matched invoices are not bulk ignored'})
+                continue
+            changed.append(ignore_invoice(invoice, actor=actor, note=note or 'Bulk ignored.'))
+        elif action == 'restore':
+            if invoice.status != 'ignored':
+                skipped.append({'id': str(invoice.id), 'reason': 'only ignored invoices can be restored'})
+                continue
+            changed.append(restore_invoice(invoice, actor=actor, note=note or 'Bulk restored.'))
+
+    found_ids = {str(invoice.id) for invoice in invoices}
+    for invoice_id in invoice_ids:
+        if invoice_id not in found_ids:
+            skipped.append({'id': invoice_id, 'reason': 'not found'})
+
+    return JsonResponse({
+        'ok': True,
+        'action': action,
+        'changed_count': len(changed),
+        'skipped_count': len(skipped),
+        'skipped': skipped,
+        'invoices': [_serialize_parsed_invoice(invoice) for invoice in changed[:25]],
+    })
 
 
 @require_http_methods(["GET"])

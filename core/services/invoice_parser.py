@@ -9,7 +9,7 @@ from django.utils import timezone
 from django.db import transaction
 from django.db.models import Count, Q
 
-from core.models import InvoiceUploadBatch, JawabuFarmerMaster, ParsedInvoice
+from core.models import InvoiceUploadBatch, JawabuFarmerMaster, ParsedInvoice, ParsedInvoiceEvent
 from core.services.jawabu_pipeline import sync_farmer_to_master_sheet
 
 logger = logging.getLogger(__name__)
@@ -48,12 +48,14 @@ def record_invoice_match_result(batch: InvoiceUploadBatch, result: dict) -> Invo
         if not item:
             continue
         status = str(item.get('status') or '').lower()
+        event_action = 'note'
         if status == 'matched':
             matched_count += 1
             parsed.status = 'matched'
             parsed.matched_farmer = farmers_by_id.get(str(item.get('matched_farmer_id') or '').strip())
             parsed.matched_order_number = str(item.get('matched_order_number') or result.get('order_number') or '').strip()
             parsed.review_notes = ''
+            event_action = 'matched'
         elif status == 'ambiguous':
             review_count += 1
             parsed.status = 'ambiguous'
@@ -64,6 +66,17 @@ def record_invoice_match_result(batch: InvoiceUploadBatch, result: dict) -> Invo
         parsed.save(update_fields=[
             'status', 'matched_farmer', 'matched_order_number', 'review_notes', 'updated_at',
         ])
+        record_invoice_event(
+            parsed,
+            event_action,
+            actor=str(batch.uploaded_by or 'system'),
+            note=parsed.review_notes,
+            metadata={
+                'source': 'order_invoice_upload',
+                'order_number': result.get('order_number') or parsed.matched_order_number,
+                'matched_farmer_id': str(parsed.matched_farmer_id or ''),
+            },
+        )
 
     total = batch.invoices.count()
     unmatched_count = max(0, total - matched_count)
@@ -89,6 +102,24 @@ def record_invoice_match_result(batch: InvoiceUploadBatch, result: dict) -> Invo
     }
     batch.save(update_fields=['matched_count', 'unmatched_count', 'status', 'metadata', 'updated_at'])
     return batch
+
+
+def record_invoice_event(
+    invoice: ParsedInvoice,
+    action: str,
+    *,
+    actor: str = '',
+    note: str = '',
+    metadata: dict | None = None,
+) -> ParsedInvoiceEvent:
+    """Append a reconciliation event without changing invoice state."""
+    return ParsedInvoiceEvent.objects.create(
+        invoice=invoice,
+        action=action,
+        actor=str(actor or '').strip(),
+        note=str(note or '').strip(),
+        metadata=metadata or {},
+    )
 
 
 AMOUNT_RE = re.compile(r"^(?:KES\s*)?-?\d[\d,]*(?:\.\d{2})$")
@@ -544,6 +575,21 @@ def ingest_invoice_upload_batch(
         ))
     if parsed_rows:
         ParsedInvoice.objects.bulk_create(parsed_rows)
+        ParsedInvoiceEvent.objects.bulk_create([
+            ParsedInvoiceEvent(
+                invoice=parsed,
+                action='parsed',
+                actor=str(uploaded_by or 'system'),
+                note='Invoice parsed from uploaded PDF.',
+                metadata={
+                    'batch_id': str(batch.id),
+                    'filename': safe_name,
+                    'page': parsed.page,
+                    'drive_file_id': drive_file_id,
+                },
+            )
+            for parsed in parsed_rows
+        ])
 
     batch.total_pages = total_pages
     batch.total_parsed = len(parsed_rows)
@@ -784,6 +830,17 @@ def manually_match_invoice(invoice: ParsedInvoice, farmer: JawabuFarmerMaster, *
         invoice.save(update_fields=[
             'status', 'matched_farmer', 'matched_order_number', 'review_notes', 'updated_at',
         ])
+        record_invoice_event(
+            invoice,
+            'matched',
+            actor=actor_text,
+            note=note_text,
+            metadata={
+                'farmer_id': str(farmer.id),
+                'order_number': farmer.order_number or '',
+                'customer_name': farmer.customer_name or '',
+            },
+        )
         refresh_invoice_batch_counts(invoice.batch)
     return invoice
 
@@ -819,6 +876,16 @@ def unmatch_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') 
         invoice.save(update_fields=[
             'status', 'matched_farmer', 'matched_order_number', 'review_notes', 'updated_at',
         ])
+        record_invoice_event(
+            invoice,
+            'unmatched',
+            actor=actor_text,
+            note=note_text,
+            metadata={
+                'old_farmer_id': str(old_farmer.id) if old_farmer else '',
+                'old_order_number': old_farmer.order_number if old_farmer else '',
+            },
+        )
         refresh_invoice_batch_counts(invoice.batch)
     return invoice
 
@@ -831,6 +898,22 @@ def ignore_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') -
         invoice.status = 'ignored'
         invoice.review_notes = f"Ignored by {actor_text}." + (f" {note_text}" if note_text else '')
         invoice.save(update_fields=['status', 'review_notes', 'updated_at'])
+        record_invoice_event(invoice, 'ignored', actor=actor_text, note=note_text)
+        refresh_invoice_batch_counts(invoice.batch)
+    return invoice
+
+
+def restore_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') -> ParsedInvoice:
+    with transaction.atomic():
+        invoice = ParsedInvoice.objects.select_for_update().select_related('batch').get(pk=invoice.pk)
+        if invoice.status != 'ignored':
+            return invoice
+        note_text = str(note or '').strip()
+        actor_text = str(actor or 'portal').strip()
+        invoice.status = 'unmatched'
+        invoice.review_notes = f"Restored by {actor_text}." + (f" {note_text}" if note_text else '')
+        invoice.save(update_fields=['status', 'review_notes', 'updated_at'])
+        record_invoice_event(invoice, 'restored', actor=actor_text, note=note_text)
         refresh_invoice_batch_counts(invoice.batch)
     return invoice
 

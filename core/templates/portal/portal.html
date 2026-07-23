@@ -280,6 +280,17 @@
       </div>
       <button class="btn-clear-filters" id="invoice-pool-clear" type="button" title="Clear invoice filters">-</button>
     </div>
+    <div class="batch-panel" id="invoice-bulk-toolbar" style="display:none;">
+      <div class="batch-title">
+        <span class="badge badge-blue" id="invoice-selected-count">0 selected</span>
+        <span>Bulk review actions</span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-secondary" id="invoice-bulk-ignore" type="button">Ignore selected</button>
+        <button class="btn btn-secondary" id="invoice-bulk-restore" type="button">Restore selected</button>
+        <button class="btn btn-secondary" id="invoice-selection-clear" type="button">Clear selection</button>
+      </div>
+    </div>
     <div class="batch-panel" style="display:block;">
       <div class="batch-title">
         <span class="badge">Recent uploads</span>
@@ -475,6 +486,24 @@
         </div>
       </div>
       <div id="invoice-match-candidates" class="farmer-list"></div>
+    </div>
+  </div>
+</div>
+
+<div class="sheet-overlay" id="invoice-detail-overlay" role="dialog" aria-modal="true">
+  <div class="sheet-panel">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+        <div>
+          <h2>Invoice Detail</h2>
+          <p class="sheet-sub">Parsed fields, duplicate checks, and reconciliation history</p>
+        </div>
+        <button id="invoice-detail-close" class="sheet-close-button" aria-label="Close">x</button>
+      </div>
+    </div>
+    <div class="sheet-body">
+      <div id="invoice-detail-content"></div>
     </div>
   </div>
 </div>

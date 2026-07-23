@@ -14,6 +14,7 @@ from core.models import (
     InvoiceUploadBatch,
     JawabuFarmerMaster,
     ParsedInvoice,
+    ParsedInvoiceEvent,
     PaymentDocument,
     PaymentDocumentTemplate,
 )
@@ -126,6 +127,10 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         parsed = batch.invoices.get()
         self.assertEqual(parsed.invoice_no, '9505')
         self.assertEqual(parsed.status, 'unmatched')
+        event = parsed.events.get()
+        self.assertEqual(event.action, 'parsed')
+        self.assertEqual(event.actor, 'Tester')
+        self.assertEqual(event.metadata['drive_file_id'], 'drive-id')
 
     def test_invoice_pool_endpoint_lists_batches_and_invoices_with_filters(self):
         farmer = self.farmer(order_number='ORDER-MATCHED')
@@ -183,6 +188,36 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         ids = {farmer['id'] for farmer in data['farmers']}
         self.assertIn(str(phone_match.id), ids)
 
+    def test_invoice_detail_exposes_audit_events_and_duplicates(self):
+        farmer = self.farmer(order_number='ORDER-MATCHED')
+        batch = self.invoice_batch(farmer)
+        invoice = batch.invoices.get()
+        duplicate_batch = self.invoice_batch()
+        duplicate = duplicate_batch.invoices.get()
+        duplicate.customer_id = invoice.customer_id
+        duplicate.customer_phone = invoice.customer_phone
+        duplicate.save(update_fields=['customer_id', 'customer_phone', 'updated_at'])
+        ParsedInvoiceEvent.objects.create(
+            invoice=invoice,
+            action='matched',
+            actor='Tester',
+            note='Confirmed from invoice detail test',
+        )
+
+        response = self.client.get(reverse('portal_invoice_detail', args=[str(invoice.id)]))
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['invoice']['id'], str(invoice.id))
+        self.assertEqual(data['batch']['id'], str(batch.id))
+        self.assertEqual(data['source_pdf_url'], batch.drive_url)
+        self.assertEqual(data['events'][0]['action'], 'matched')
+        duplicate_ids = {item['id'] for item in data['duplicates']}
+        self.assertIn(str(duplicate.id), duplicate_ids)
+        reasons = data['duplicates'][0]['duplicate_reasons']
+        self.assertTrue({'Same invoice no', 'Same ID', 'Same phone'} & set(reasons))
+
     @patch('core.services.invoice_parser.sync_farmer_to_master_sheet', return_value=True)
     def test_manual_invoice_match_endpoint_links_invoice_to_farmer(self, mock_sync):
         farmer = self.farmer(
@@ -212,6 +247,9 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(farmer.invoice_number, '9505')
         self.assertEqual(farmer.balance_due, Decimal('43500'))
         self.assertIn('Verified by phone', invoice.review_notes)
+        event = invoice.events.filter(action='matched').latest('created_at')
+        self.assertEqual(event.note, 'Verified by phone')
+        self.assertEqual(event.metadata['order_number'], 'ORDER-MANUAL')
         mock_sync.assert_called_once_with(farmer)
 
     @patch('core.services.invoice_parser.sync_farmer_to_master_sheet', return_value=True)
@@ -235,6 +273,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(farmer.invoice_number, '')
         self.assertIsNone(farmer.balance_due)
         self.assertIn('Wrong household', invoice.review_notes)
+        self.assertTrue(invoice.events.filter(action='unmatched', note='Wrong household').exists())
         mock_sync.assert_called_once_with(farmer)
 
     def test_manual_invoice_ignore_endpoint_marks_invoice_ignored(self):
@@ -252,7 +291,84 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         batch.refresh_from_db()
         self.assertEqual(invoice.status, 'ignored')
         self.assertIn('Duplicate PDF page', invoice.review_notes)
+        self.assertTrue(invoice.events.filter(action='ignored', note='Duplicate PDF page').exists())
         self.assertEqual(batch.unmatched_count, 0)
+
+    def test_manual_invoice_restore_endpoint_moves_ignored_invoice_back_to_unmatched(self):
+        batch = self.invoice_batch()
+        invoice = batch.invoices.get()
+        invoice.status = 'ignored'
+        invoice.review_notes = 'Ignored earlier'
+        invoice.save(update_fields=['status', 'review_notes', 'updated_at'])
+
+        response = self.client.post(
+            reverse('portal_invoice_restore', args=[str(invoice.id)]),
+            data=json.dumps({'note': 'Needs review again'}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        invoice.refresh_from_db()
+        batch.refresh_from_db()
+        self.assertEqual(invoice.status, 'unmatched')
+        self.assertIn('Needs review again', invoice.review_notes)
+        self.assertTrue(invoice.events.filter(action='restored', note='Needs review again').exists())
+        self.assertEqual(batch.unmatched_count, 1)
+
+    def test_bulk_invoice_ignore_skips_matched_invoices(self):
+        matched_farmer = self.farmer(order_number='ORDER-MATCHED')
+        matched_batch = self.invoice_batch(matched_farmer)
+        matched_invoice = matched_batch.invoices.get()
+        review_batch = self.invoice_batch()
+        review_invoice = review_batch.invoices.get()
+
+        response = self.client.post(
+            reverse('portal_invoice_bulk_action'),
+            data=json.dumps({
+                'action': 'ignore',
+                'invoice_ids': [str(matched_invoice.id), str(review_invoice.id)],
+                'note': 'Batch cleanup',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['changed_count'], 1)
+        self.assertEqual(data['skipped_count'], 1)
+        matched_invoice.refresh_from_db()
+        review_invoice.refresh_from_db()
+        self.assertEqual(matched_invoice.status, 'matched')
+        self.assertEqual(review_invoice.status, 'ignored')
+        self.assertTrue(review_invoice.events.filter(action='ignored', note='Batch cleanup').exists())
+
+    def test_bulk_invoice_restore_only_restores_ignored_invoices(self):
+        ignored_batch = self.invoice_batch()
+        ignored_invoice = ignored_batch.invoices.get()
+        ignored_invoice.status = 'ignored'
+        ignored_invoice.save(update_fields=['status', 'updated_at'])
+        unmatched_batch = self.invoice_batch()
+        unmatched_invoice = unmatched_batch.invoices.get()
+
+        response = self.client.post(
+            reverse('portal_invoice_bulk_action'),
+            data=json.dumps({
+                'action': 'restore',
+                'invoice_ids': [str(ignored_invoice.id), str(unmatched_invoice.id)],
+                'note': 'Back to review',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['changed_count'], 1)
+        self.assertEqual(data['skipped_count'], 1)
+        ignored_invoice.refresh_from_db()
+        unmatched_invoice.refresh_from_db()
+        self.assertEqual(ignored_invoice.status, 'unmatched')
+        self.assertEqual(unmatched_invoice.status, 'unmatched')
+        self.assertTrue(ignored_invoice.events.filter(action='restored', note='Back to review').exists())
 
     def test_payment_template_layout_uses_visible_sheet_when_config_is_stale(self):
         workbook = load_workbook('requisition/HB_PAYMENT__89__7__machine_ready (1).xlsx')
