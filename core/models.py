@@ -952,6 +952,34 @@ class JawabuFarmerMaster(models.Model):
         max_length=64, blank=True, default='', db_index=True,
         help_text='IMAB customer number required before Head of Rural review.',
     )
+    imab_customer_name = models.CharField(
+        max_length=255, blank=True, default='',
+        help_text='Customer name from the IMAB/system export used for payment documents.',
+    )
+    system_branch = models.CharField(
+        max_length=128, blank=True, default='', db_index=True,
+        help_text='Branch from the IMAB/system export used for payment documents.',
+    )
+    system_loan_officer = models.CharField(
+        max_length=255, blank=True, default='',
+        help_text='Loan officer from the IMAB/system export; JBL officer is used as fallback.',
+    )
+    system_deposit_paid_jbl = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+        help_text='Deposit paid to JBL from the IMAB/system export.',
+    )
+    repayment_date = models.CharField(
+        max_length=64, blank=True, default='',
+        help_text='Repayment date/day captured before order/payment generation.',
+    )
+    repayment_tenor = models.CharField(
+        max_length=64, blank=True, default='',
+        help_text='Loan tenor captured before order/payment generation.',
+    )
+    payment_product = models.CharField(
+        max_length=128, blank=True, default='',
+        help_text='Payment document product value captured before order/payment generation.',
+    )
 
     # Stage 4: Head of Rural final review. This is the order-readiness gate.
     final_decision = models.CharField(
@@ -1423,6 +1451,9 @@ class RequisitionBatch(models.Model):
         default='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     )
     file_content = models.BinaryField(blank=True, default=bytes)
+    drive_file_id = models.CharField(max_length=255, blank=True, default='')
+    drive_url = models.URLField(max_length=1000, blank=True, default='')
+    drive_upload_error = models.TextField(blank=True, default='')
     farmer_ids = models.JSONField(blank=True, default=list)
     farmer_count = models.PositiveIntegerField(default=0)
     status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='generated', db_index=True)
@@ -1461,3 +1492,152 @@ class RequisitionTemplate(models.Model):
 
     def __str__(self):
         return f"{self.name} ({'Active' if self.is_active else 'Inactive'})"
+
+
+class InvoiceUploadBatch(models.Model):
+    """Drive-backed invoice PDF upload batch kept before reconciliation."""
+
+    STATUS_CHOICES = [
+        ('uploaded', 'Uploaded'),
+        ('parsed', 'Parsed'),
+        ('parse_failed', 'Parse Failed'),
+        ('partially_matched', 'Partially Matched'),
+        ('matched', 'Matched'),
+        ('needs_review', 'Needs Review'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    original_filename = models.CharField(max_length=255, blank=True, default='')
+    content_type = models.CharField(max_length=255, blank=True, default='application/pdf')
+    size = models.PositiveIntegerField(default=0)
+    uploaded_by = models.CharField(max_length=255, blank=True, default='')
+    drive_file_id = models.CharField(max_length=255, blank=True, default='')
+    drive_url = models.URLField(max_length=1000, blank=True, default='')
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='uploaded', db_index=True)
+    total_pages = models.PositiveIntegerField(default=0)
+    total_parsed = models.PositiveIntegerField(default=0)
+    matched_count = models.PositiveIntegerField(default=0)
+    unmatched_count = models.PositiveIntegerField(default=0)
+    error = models.TextField(blank=True, default='')
+    metadata = models.JSONField(blank=True, default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['status', 'created_at']),
+            models.Index(fields=['uploaded_by', 'created_at']),
+        ]
+        verbose_name = 'Invoice upload batch'
+        verbose_name_plural = 'Invoice upload batches'
+
+    def __str__(self):
+        return f"{self.original_filename or self.id} ({self.status})"
+
+
+class ParsedInvoice(models.Model):
+    """One parsed invoice page/record from a Drive-backed invoice upload batch."""
+
+    STATUS_CHOICES = [
+        ('unmatched', 'Unmatched'),
+        ('matched', 'Matched'),
+        ('ambiguous', 'Ambiguous'),
+        ('ignored', 'Ignored'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    batch = models.ForeignKey(InvoiceUploadBatch, on_delete=models.CASCADE, related_name='invoices')
+    page = models.PositiveIntegerField(default=0)
+    invoice_no = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    invoice_date_raw = models.CharField(max_length=64, blank=True, default='')
+    invoice_date = models.DateField(null=True, blank=True)
+    customer_name = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    customer_id = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    customer_phone = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    invoice_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    total_after_discount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    discount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    payment = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    balance_due = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    balance_due_check = models.CharField(max_length=128, blank=True, default='')
+    calculated_balance_due = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    balance_due_difference = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    balance_due_check_basis = models.CharField(max_length=128, blank=True, default='')
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='unmatched', db_index=True)
+    matched_farmer = models.ForeignKey(
+        JawabuFarmerMaster,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='parsed_invoices',
+    )
+    matched_order_number = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    raw_payload = models.JSONField(blank=True, default=dict)
+    review_notes = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['invoice_no']),
+            models.Index(fields=['status', 'created_at']),
+            models.Index(fields=['matched_order_number', 'status']),
+        ]
+        verbose_name = 'Parsed invoice'
+        verbose_name_plural = 'Parsed invoices'
+
+    def __str__(self):
+        return f"{self.invoice_no or self.id} ({self.status})"
+
+
+class PaymentDocument(models.Model):
+    """Drive-backed payment workbook preview/final artifact."""
+
+    STATUS_CHOICES = [
+        ('preview', 'Preview'),
+        ('final', 'Final'),
+        ('failed', 'Failed'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    order_number = models.CharField(max_length=128, db_index=True)
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='preview', db_index=True)
+    version = models.PositiveIntegerField(default=1)
+    filename = models.CharField(max_length=255, blank=True, default='')
+    content_type = models.CharField(
+        max_length=255,
+        default='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+    drive_file_id = models.CharField(max_length=255, blank=True, default='')
+    drive_url = models.URLField(max_length=1000, blank=True, default='')
+    generated_by = models.CharField(max_length=255, blank=True, default='')
+    finalized_by = models.CharField(max_length=255, blank=True, default='')
+    row_count = models.PositiveIntegerField(default=0)
+    farmer_ids = models.JSONField(blank=True, default=list)
+    invoice_batch_ids = models.JSONField(blank=True, default=list)
+    validation_summary = models.JSONField(blank=True, default=dict)
+    error = models.TextField(blank=True, default='')
+    finalized_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['order_number', 'status']),
+            models.Index(fields=['status', 'created_at']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['order_number', 'version'],
+                condition=models.Q(status='final'),
+                name='unique_final_payment_document_version',
+            ),
+        ]
+        verbose_name = 'Payment document'
+        verbose_name_plural = 'Payment documents'
+
+    def __str__(self):
+        return f"{self.order_number} v{self.version} ({self.status})"

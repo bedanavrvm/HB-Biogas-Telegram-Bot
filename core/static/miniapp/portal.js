@@ -482,7 +482,7 @@
       const allInvoiced = farmerCount > 0 && invoicedCount === farmerCount;
       const invoiceProgress = farmerCount ? `${invoicedCount}/${farmerCount} invoiced` : '0 invoiced';
       const invoiceColor = allInvoiced ? 'badge-green' : invoicedCount > 0 ? 'badge-orange' : 'badge-grey';
-      const fileBadge = b.has_requisition_file ? '<span class="badge badge-green">Form saved</span>' : '<span class="badge badge-grey">No saved form</span>';
+      const fileBadge = (b.drive_url || b.has_requisition_file) ? '<span class="badge badge-green">Form saved</span>' : '<span class="badge badge-grey">No saved form</span>';
       const clients = (b.farmers || []).slice(0, 8).map(f => `
         <span class="badge ${f.invoiced ? 'badge-green' : 'badge-grey'}" title="${escapeHtml(f.invoice_number ? ('Invoice ' + f.invoice_number) : 'No invoice uploaded')}">
           ${escapeHtml(f.customer_name || 'Unnamed')} (${escapeHtml(f.county || 'N/A')})
@@ -503,7 +503,7 @@
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               <button class="btn btn-secondary btn-view-batch" data-order="${escapeHtml(b.order_number)}">View</button>
-              <button class="btn btn-primary btn-download-batch" data-url="${escapeHtml(b.download_url || '')}" ${b.download_url ? '' : 'disabled'}>Open Form</button>
+              <button class="btn btn-primary btn-download-batch" data-url="${escapeHtml(b.drive_url || b.download_url || '')}" ${(b.drive_url || b.download_url) ? '' : 'disabled'}>Open Form</button>
               <button class="btn btn-secondary btn-upload-invoices" data-order="${escapeHtml(b.order_number)}">Upload Invoices</button>
             </div>
           </div>

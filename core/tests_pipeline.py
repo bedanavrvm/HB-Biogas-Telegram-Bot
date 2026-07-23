@@ -296,14 +296,14 @@ class PortalMiniAppAuthTestCase(TestCase):
         ).hexdigest()
         return urlencode(payload)
 
-    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token')
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_portal_api_rejects_missing_telegram_init_data(self):
         response = self.client.get(reverse('portal_dashboard'))
         self.assertEqual(response.status_code, 403)
         self.assertFalse(response.json()['ok'])
         self.assertIn('authentication data is missing', response.json()['error'])
 
-    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token')
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_portal_api_accepts_valid_telegram_init_data(self):
         response = self.client.get(
             reverse('portal_dashboard'),
@@ -641,8 +641,10 @@ class JblPipelineApiTestCase(TestCase):
 
     @patch('core.services.requisition.generate_requisition_excel', return_value=b'xlsx-bytes')
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
-    def test_portal_requisition_generate_success(self, mock_sync, mock_generate):
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_portal_requisition_generate_success(self, mock_storage, mock_sync, mock_generate):
         """Verify requisition generation view succeeds and downloads Excel file."""
+        mock_storage.return_value.upload.return_value = ('drive-xlsx', 'https://drive.test/requisition')
         self.farmer.final_decision = 'Approved'
         self.farmer.imab_created = 'Yes'
         self.farmer.customer_no = '15124'
@@ -660,8 +662,9 @@ class JblPipelineApiTestCase(TestCase):
         data = response.json()
         self.assertTrue(data['ok'])
         self.assertEqual(data['filename'], 'JBL_Requisition_Form_REQ-BATCH-99.xlsx')
+        self.assertEqual(data['drive_url'], 'https://drive.test/requisition')
         self.assertIn('/api/portal/requisition-batches/REQ-BATCH-99/download/', data['download_url'])
-        self.assertTrue(RequisitionBatch.objects.filter(order_number='REQ-BATCH-99').exists())
+        self.assertTrue(RequisitionBatch.objects.filter(order_number='REQ-BATCH-99', drive_file_id='drive-xlsx').exists())
 
         download_response = self.client.get(data['download_url'])
         self.assertEqual(download_response.status_code, 200)
@@ -850,9 +853,20 @@ class JblPipelineApiTestCase(TestCase):
         self.assertIn('too large', payload['error'])
 
     @patch('core.services.invoice_parser.match_and_update_invoices')
-    def test_invoice_upload_updates_requisition_batch_status(self, mock_match):
+    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_invoice_upload_updates_requisition_batch_status(self, mock_storage, mock_parse_pdf, mock_match):
         from core.api.portal_views import portal_upload_batch_invoices
 
+        mock_storage.return_value.upload.return_value = ('drive-id', 'https://drive.test/invoices')
+        mock_parse_pdf.return_value = ([{
+            'page': 1,
+            'invoice_no': 'INV-1',
+            'customer_name': self.farmer.customer_name,
+            'customer_id': self.farmer.national_id,
+            'customer_phone': self.farmer.primary_phone,
+            'invoice_amount': '54000',
+        }], 1)
         self.farmer.order_number = 'B-1234'
         self.farmer.save(update_fields=['order_number'])
         RequisitionBatch.objects.create(
@@ -866,7 +880,20 @@ class JblPipelineApiTestCase(TestCase):
         def mark_invoice(order_number, pdf_bytes):
             self.farmer.invoice_number = 'INV-1'
             self.farmer.save(update_fields=['invoice_number'])
-            return {'ok': True, 'total_parsed': 1, 'matched_count': 1, 'candidate_count': 1}
+            return {
+                'ok': True,
+                'order_number': order_number,
+                'total_parsed': 1,
+                'matched_count': 1,
+                'candidate_count': 1,
+                'results': [{
+                    'status': 'Matched',
+                    'invoice_no': 'INV-1',
+                    'matched_farmer_id': str(self.farmer.id),
+                    'matched_order_number': order_number,
+                    'customer_name': self.farmer.customer_name,
+                }],
+            }
 
         mock_match.side_effect = mark_invoice
         request = RequestFactory().post(

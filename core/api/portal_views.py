@@ -192,6 +192,21 @@ def _batch_download_url(request, order_number: str) -> str:
     )
 
 
+def _upload_generated_workbook_to_drive(data: bytes, filename: str) -> tuple[str, str]:
+    """Store a generated workbook in the shared Google Drive media folder."""
+    from django.utils import timezone
+    from core.services.order_approval import GoogleDriveMediaStorage
+
+    return GoogleDriveMediaStorage().upload(
+        data,
+        filename=filename,
+        mime_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        id_number='generated_workbooks',
+        received_at=timezone.now(),
+        group_config=None,
+    )
+
+
 def _invoice_summary_for_farmers(farmers) -> dict:
     total = len(farmers)
     invoiced = sum(1 for farmer in farmers if getattr(farmer, 'invoice_number', ''))
@@ -278,6 +293,9 @@ def _serialize_batch(batch, farmers, request, include_farmers: bool = True) -> d
         'filename': batch.filename,
         'has_requisition_file': bool(batch.file_content),
         'download_url': _batch_download_url(request, batch.order_number) if batch.file_content else '',
+        'drive_url': getattr(batch, 'drive_url', '') or '',
+        'drive_file_id': getattr(batch, 'drive_file_id', '') or '',
+        'drive_upload_error': getattr(batch, 'drive_upload_error', '') or '',
         'farmer_count': batch.farmer_count or len(farmers),
         'invoiced_count': summary.get('invoiced_count', 0),
         'status': batch.status,
@@ -688,6 +706,9 @@ def portal_assign_order(request, farmer_id: str):
         farmer,
         order_number=order_number,
         requisition_date=requisition_date,
+        repayment_date=body.get('repayment_date'),
+        repayment_tenor=body.get('repayment_tenor'),
+        payment_product=body.get('payment_product'),
         sender=sender,
     )
     if not ok:
@@ -876,6 +897,16 @@ def portal_requisition_generate(request):
             )
 
     filename = f"JBL_Requisition_Form_{order_number}.xlsx"
+    try:
+        drive_file_id, drive_url = _upload_generated_workbook_to_drive(xlsx_bytes, filename)
+        drive_upload_error = ''
+    except Exception as exc:
+        logger.exception('Generated requisition workbook was not stored in Google Drive.')
+        return JsonResponse({
+            'ok': False,
+            'error': f'Generated requisition workbook was not stored in Google Drive: {exc}',
+        }, status=502)
+
     summary = _invoice_summary_for_farmers(farmers)
     batch, _created = RequisitionBatch.objects.update_or_create(
         order_number=order_number,
@@ -884,6 +915,9 @@ def portal_requisition_generate(request):
             'generated_by': sender,
             'filename': filename,
             'file_content': xlsx_bytes,
+            'drive_file_id': drive_file_id,
+            'drive_url': drive_url,
+            'drive_upload_error': drive_upload_error,
             'farmer_ids': [str(farmer.id) for farmer in farmers],
             'farmer_count': len(farmers),
             'status': summary.get('status') or 'generated',
@@ -895,6 +929,7 @@ def portal_requisition_generate(request):
         return JsonResponse({
             'ok': True,
             'filename': filename,
+            'drive_url': drive_url,
             'download_url': _batch_download_url(request, order_number),
             'batch': _serialize_batch(batch, farmers, request),
         })
@@ -1002,8 +1037,6 @@ def portal_requisition_batch_download(request, order_number: str):
 def portal_upload_batch_invoices(request):
     """POST /api/portal/requisition-batches/upload-invoices/ — upload a combined PDF of invoices for a batch/order."""
     order_number = request.POST.get('order_number') or request.GET.get('order_number')
-    if not order_number:
-        return JsonResponse({'ok': False, 'error': 'order_number is required.'}, status=400)
     
     pdf_file = request.FILES.get('file')
     if not pdf_file:
@@ -1021,16 +1054,46 @@ def portal_upload_batch_invoices(request):
             'max_file_size_mb': max_mb,
         }, status=413)
 
+    from core.services.invoice_parser import InvoiceUploadStorageError
+
     try:
+        pdf_bytes = pdf_file.read()
         logger.info(
             'Invoice upload received: order=%s filename=%s size=%s bytes',
-            order_number,
+            order_number or 'invoice_pool',
             getattr(pdf_file, 'name', ''),
             getattr(pdf_file, 'size', ''),
         )
         from core.models import RequisitionBatch
-        from core.services.invoice_parser import match_and_update_invoices
-        result = match_and_update_invoices(order_number, pdf_file.read())
+        from core.services.invoice_parser import (
+            ingest_invoice_upload_batch,
+            match_and_update_invoices,
+            record_invoice_match_result,
+        )
+        upload_batch = ingest_invoice_upload_batch(
+            pdf_bytes=pdf_bytes,
+            filename=getattr(pdf_file, 'name', '') or 'hb_invoices.pdf',
+            content_type=getattr(pdf_file, 'content_type', '') or 'application/pdf',
+            uploaded_by=_portal_sender_from_request(request),
+        )
+        if not order_number:
+            return JsonResponse({
+                'ok': upload_batch.total_parsed > 0,
+                'invoice_batch_id': str(upload_batch.id),
+                'drive_url': upload_batch.drive_url,
+                'status': upload_batch.status,
+                'total_pages': upload_batch.total_pages,
+                'total_parsed': upload_batch.total_parsed,
+                'matched_count': upload_batch.matched_count,
+                'unmatched_count': upload_batch.unmatched_count,
+                'max_file_size_mb': max_mb,
+            })
+
+        result = match_and_update_invoices(order_number, pdf_bytes)
+        upload_batch = record_invoice_match_result(upload_batch, result)
+        result['invoice_batch_id'] = str(upload_batch.id)
+        result['invoice_batch_status'] = upload_batch.status
+        result['drive_url'] = upload_batch.drive_url
         result['max_file_size_mb'] = max_mb
         try:
             batch = RequisitionBatch.objects.get(order_number=order_number)
@@ -1053,6 +1116,102 @@ def portal_upload_batch_invoices(request):
         except RequisitionBatch.DoesNotExist:
             pass
         return JsonResponse(result)
+    except InvoiceUploadStorageError as e:
+        return JsonResponse({'ok': False, 'error': f'Invoice PDF was not stored in Google Drive: {e}'}, status=502)
     except Exception as e:
         logger.exception("Error processing invoice PDF: %s", e)
         return JsonResponse({'ok': False, 'error': f"Failed to parse PDF: {str(e)}"}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_invoice_pool_upload(request):
+    """Upload an HB invoice PDF into the general unmatched invoice pool."""
+    pdf_file = request.FILES.get('file')
+    if not pdf_file:
+        return JsonResponse({'ok': False, 'error': 'No file uploaded under key "file".'}, status=400)
+    if not str(pdf_file.name or '').lower().endswith('.pdf'):
+        return JsonResponse({'ok': False, 'error': 'Only PDF files are supported.'}, status=400)
+
+    max_mb = max(1, int(getattr(settings, 'INVOICE_UPLOAD_MAX_FILE_SIZE_MB', 8) or 8))
+    max_bytes = max_mb * 1024 * 1024
+    if getattr(pdf_file, 'size', 0) and pdf_file.size > max_bytes:
+        return JsonResponse({
+            'ok': False,
+            'error': f'Invoice PDF is too large for this Mini App upload. Maximum size is {max_mb} MB.',
+            'max_file_size_mb': max_mb,
+        }, status=413)
+
+    from core.services.invoice_parser import InvoiceUploadStorageError, ingest_invoice_upload_batch
+
+    try:
+        batch = ingest_invoice_upload_batch(
+            pdf_bytes=pdf_file.read(),
+            filename=getattr(pdf_file, 'name', '') or 'hb_invoices.pdf',
+            content_type=getattr(pdf_file, 'content_type', '') or 'application/pdf',
+            uploaded_by=_portal_sender_from_request(request),
+        )
+    except InvoiceUploadStorageError as exc:
+        return JsonResponse({'ok': False, 'error': f'Invoice PDF was not stored in Google Drive: {exc}'}, status=502)
+    except Exception as exc:
+        logger.exception("Invoice pool upload failed")
+        return JsonResponse({'ok': False, 'error': f'Failed to parse PDF: {exc}'}, status=500)
+
+    return JsonResponse({
+        'ok': batch.total_parsed > 0,
+        'invoice_batch_id': str(batch.id),
+        'drive_url': batch.drive_url,
+        'status': batch.status,
+        'total_pages': batch.total_pages,
+        'total_parsed': batch.total_parsed,
+        'unmatched_count': batch.unmatched_count,
+        'max_file_size_mb': max_mb,
+    })
+
+
+@require_http_methods(["GET"])
+def portal_payment_readiness(request, order_number: str):
+    """Return readiness status for payment document generation."""
+    from core.services.payment_documents import payment_readiness
+
+    return JsonResponse({'ok': True, 'data': payment_readiness(order_number)})
+
+
+@require_http_methods(["POST"])
+def portal_payment_document_preview(request, order_number: str):
+    """Create a Drive-backed payment workbook preview."""
+    from core.services.payment_documents import (
+        PaymentTemplateError,
+        create_payment_document,
+        payment_readiness,
+        serialize_payment_document,
+    )
+
+    try:
+        doc = create_payment_document(order_number, actor=_portal_sender_from_request(request), final=False)
+    except PaymentTemplateError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'readiness': payment_readiness(order_number)}, status=400)
+    except Exception as exc:
+        logger.exception("Payment preview generation failed for order %s", order_number)
+        return JsonResponse({'ok': False, 'error': f'Payment preview was not stored in Google Drive: {exc}'}, status=502)
+    return JsonResponse({'ok': True, 'document': serialize_payment_document(doc)})
+
+
+@require_http_methods(["POST"])
+def portal_payment_document_finalize(request, order_number: str):
+    """Create an immutable Drive-backed final payment workbook."""
+    from core.services.payment_documents import (
+        PaymentTemplateError,
+        create_payment_document,
+        payment_readiness,
+        serialize_payment_document,
+    )
+
+    try:
+        doc = create_payment_document(order_number, actor=_portal_sender_from_request(request), final=True)
+    except PaymentTemplateError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'readiness': payment_readiness(order_number)}, status=400)
+    except Exception as exc:
+        logger.exception("Payment final generation failed for order %s", order_number)
+        return JsonResponse({'ok': False, 'error': f'Payment final was not stored in Google Drive: {exc}'}, status=502)
+    return JsonResponse({'ok': True, 'document': serialize_payment_document(doc)})

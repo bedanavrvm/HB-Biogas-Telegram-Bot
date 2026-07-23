@@ -360,6 +360,9 @@ def assign_order(
     *,
     order_number: str,
     requisition_date: date | None = None,
+    repayment_date: str | None = None,
+    repayment_tenor: str | None = None,
+    payment_product: str | None = None,
     sender: str = '',
 ) -> tuple[bool, str]:
     """
@@ -380,7 +383,17 @@ def assign_order(
 
     farmer.order_number = order_number
     farmer.requisition_date = requisition_date or date.today()
-    farmer.save(update_fields=['order_number', 'requisition_date', 'updated_at'])
+    update_fields = ['order_number', 'requisition_date', 'updated_at']
+    if repayment_date is not None:
+        farmer.repayment_date = str(repayment_date or '').strip()
+        update_fields.append('repayment_date')
+    if repayment_tenor is not None:
+        farmer.repayment_tenor = str(repayment_tenor or '').strip()
+        update_fields.append('repayment_tenor')
+    if payment_product is not None:
+        farmer.payment_product = str(payment_product or '').strip()
+        update_fields.append('payment_product')
+    farmer.save(update_fields=update_fields)
     logger.info(
         'Order %s assigned to farmer %s by %s',
         order_number, farmer.id, sender,
@@ -411,6 +424,13 @@ def farmer_to_card(farmer: JawabuFarmerMaster) -> dict[str, Any]:
         'credit_decision': farmer.credit_decision,
         'imab_created': farmer.imab_created,
         'customer_no': farmer.customer_no,
+        'imab_customer_name': farmer.imab_customer_name,
+        'system_branch': farmer.system_branch,
+        'system_loan_officer': farmer.system_loan_officer,
+        'system_deposit_paid_jbl': str(farmer.system_deposit_paid_jbl) if farmer.system_deposit_paid_jbl is not None else None,
+        'repayment_date': farmer.repayment_date,
+        'repayment_tenor': farmer.repayment_tenor,
+        'payment_product': farmer.payment_product,
         'credit_decided_by': farmer.credit_decided_by,
         'credit_decided_at': (
             farmer.credit_decided_at.isoformat() if farmer.credit_decided_at else None
@@ -578,6 +598,13 @@ def sync_farmer_to_master_sheet(farmer: JawabuFarmerMaster) -> bool:
             'credit_decision': (['Credit Analysis', 'Credit Decision'], farmer.credit_decision),
             'imab_created': (['IS CUSTOMER CREATED ON IMAB?', 'IMAB Created', 'Customer Created On IMAB'], farmer.imab_created),
             'customer_no': (['CUSTOMER NO', 'Customer No', 'Customer Number'], farmer.customer_no),
+            'imab_customer_name': (['NAME (IMAB)', 'IMAB Name', 'Customer Name (IMAB)'], farmer.imab_customer_name),
+            'system_branch': (['System Branch', 'IMAB Branch'], farmer.system_branch),
+            'system_loan_officer': (['Loan Officer', 'System Loan Officer'], farmer.system_loan_officer),
+            'system_deposit_paid_jbl': (['Deposit Paid to JBL'], _sheet_number(farmer.system_deposit_paid_jbl)),
+            'repayment_date': (['Repayment Dates', 'Repayment Date'], farmer.repayment_date),
+            'repayment_tenor': (['Tenor'], farmer.repayment_tenor),
+            'payment_product': (['Payment Product', 'Product'], farmer.payment_product),
             'jbl_media_urls': (['Media URLs', 'Media URLS', 'Drive Links'], farmer.jbl_media_urls),
             'final_decision_comment': (['Decision Comment', 'Final Decision Comment', 'Additional Comments'], farmer.final_decision_comment),
             'final_decision': (['Final Decision', 'Head of Rural Decision'], farmer.final_decision),

@@ -63,6 +63,88 @@
     overlay.classList.add('open');
   }
 
+  function paymentReadinessRows(items) {
+    if (!items || !items.length) return '';
+    return items.map(item => `
+      <div class="batch-client-row">
+        <div class="name">${deps.escapeHtml(item.customer_name || 'Unnamed client')}</div>
+        <div class="meta">ID ${deps.escapeHtml(item.national_id || '-')} | ${deps.escapeHtml(item.primary_phone || '-')}</div>
+        <div class="batch-warning" style="margin-top:8px;">Missing: ${(item.missing || []).map(deps.escapeHtml).join(', ')}</div>
+      </div>
+    `).join('');
+  }
+
+  function renderPaymentResult(target, payload) {
+    if (!target) return;
+    if (!payload) {
+      target.innerHTML = '';
+      return;
+    }
+    if (payload.document) {
+      const doc = payload.document;
+      const label = doc.status === 'final' ? 'Final payment document' : 'Payment preview';
+      target.innerHTML = `
+        <div class="batch-warning" style="background:#f0fdf4;border-color:#bbf7d0;color:#166534;margin-top:10px;">
+          ${label} generated: ${deps.escapeHtml(doc.filename || '')}
+          ${doc.drive_url ? `<button type="button" class="btn btn-secondary" id="batch-payment-open" style="margin-top:8px;width:100%;justify-content:center;">Open in Drive</button>` : ''}
+        </div>
+      `;
+      el('batch-payment-open')?.addEventListener('click', () => deps.openPortalLink(doc.drive_url));
+      return;
+    }
+    const readiness = payload.readiness || payload.data || {};
+    const blocked = readiness.blocked || [];
+    if (blocked.length) {
+      target.innerHTML = `
+        <div class="batch-warning-list" style="margin-top:10px;">
+          <div class="batch-warning">Payment document is blocked for ${blocked.length} client(s). Resolve the missing fields below.</div>
+          ${paymentReadinessRows(blocked)}
+        </div>
+      `;
+      return;
+    }
+    target.innerHTML = `
+      <div class="batch-warning" style="background:#f8fafc;border-color:#cbd5e1;color:#334155;margin-top:10px;">
+        Payment document ready for ${readiness.ready_count || 0} client(s).
+      </div>
+    `;
+  }
+
+  async function checkPaymentReadiness(orderNumber) {
+    const target = el('batch-detail-payment-result');
+    if (!target) return;
+    target.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
+    try {
+      const { ok, data } = await deps.apiFetch('/payment-documents/' + encodeURIComponent(orderNumber) + '/readiness/');
+      if (!ok || !data.ok) throw new Error(data.error || 'Could not check payment readiness.');
+      renderPaymentResult(target, data);
+    } catch (err) {
+      target.innerHTML = `<div class="batch-warning">${deps.escapeHtml(err.message || 'Could not check payment readiness.')}</div>`;
+    }
+  }
+
+  async function generatePaymentDocument(orderNumber, final, button) {
+    const target = el('batch-detail-payment-result');
+    const label = final ? 'Generating Final...' : 'Generating Preview...';
+    deps.setButtonLoading(button, true, label);
+    try {
+      const path = '/payment-documents/' + encodeURIComponent(orderNumber) + '/' + (final ? 'finalize/' : 'preview/');
+      const response = await deps.portalApi.postJson(path, {}, deps.tg, csrfHeader());
+      const data = response.data || {};
+      if (!response.ok || !data.ok) {
+        renderPaymentResult(target, data);
+        deps.showToast(data.error || 'Payment document is not ready.', 'error');
+        return;
+      }
+      renderPaymentResult(target, data);
+      deps.showToast(final ? 'Final payment document stored in Drive.' : 'Payment preview stored in Drive.', 'success');
+    } catch (err) {
+      deps.showToast(err.message || 'Payment document generation failed.', 'error');
+    } finally {
+      deps.setButtonLoading(button, false);
+    }
+  }
+
   async function openBatchDetail(orderNumber) {
     if (!orderNumber) return;
     const overlay = el('batch-detail-overlay');
@@ -71,12 +153,14 @@
     const summary = el('batch-detail-summary');
     const actions = el('batch-detail-actions');
     const invoiceResult = el('batch-detail-invoice-result');
+    const paymentResult = el('batch-detail-payment-result');
     const clients = el('batch-detail-clients');
     title.textContent = `Order ${orderNumber}`;
     sub.textContent = 'Loading batch details...';
     summary.innerHTML = '';
     actions.innerHTML = '';
     invoiceResult.innerHTML = '';
+    if (paymentResult) paymentResult.innerHTML = '';
     clients.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
     overlay.classList.add('open');
 
@@ -94,11 +178,17 @@
       { label: 'Pending invoices', value: String(inv.pending_invoice_count ?? 0) },
     ]);
     actions.innerHTML = `
-      ${batch.download_url ? `<button class="btn btn-primary" id="batch-detail-download">Open Requisition Form</button>` : '<span class="badge badge-grey">No saved requisition file</span>'}
+      ${(batch.drive_url || batch.download_url) ? `<button class="btn btn-primary" id="batch-detail-download">Open Requisition Form</button>` : '<span class="badge badge-grey">No saved requisition file</span>'}
       <button class="btn btn-secondary" id="batch-detail-upload">Upload Invoices</button>
+      <button class="btn btn-secondary" id="batch-payment-readiness">Check Payment</button>
+      <button class="btn btn-secondary" id="batch-payment-preview">Payment Preview</button>
+      <button class="btn btn-primary" id="batch-payment-final">Generate Final Payment</button>
     `;
-    el('batch-detail-download')?.addEventListener('click', () => deps.openPortalLink(batch.download_url));
+    el('batch-detail-download')?.addEventListener('click', () => deps.openPortalLink(batch.drive_url || batch.download_url));
     el('batch-detail-upload')?.addEventListener('click', () => openInvoiceOverlay(batch.order_number));
+    el('batch-payment-readiness')?.addEventListener('click', () => checkPaymentReadiness(batch.order_number));
+    el('batch-payment-preview')?.addEventListener('click', e => generatePaymentDocument(batch.order_number, false, e.currentTarget));
+    el('batch-payment-final')?.addEventListener('click', e => generatePaymentDocument(batch.order_number, true, e.currentTarget));
 
     if (inv.last_invoice_upload_status) {
       const cls = inv.last_invoice_upload_status === 'success' ? 'badge-green' : inv.last_invoice_upload_status === 'partial' ? 'badge-orange' : 'badge-red';
@@ -161,11 +251,11 @@
     try {
       const response = await deps.portalApi.postJson('/requisition-queue/generate/', payload, deps.tg, csrfHeader());
       const result = response.data || {};
-      if (!response.ok || !result.ok || !result.download_url) {
+      if (!response.ok || !result.ok || !(result.drive_url || result.download_url)) {
         deps.showToast(result.error || 'Requisition generation failed.', 'error');
         return;
       }
-      deps.openPortalLink(result.download_url);
+      deps.openPortalLink(result.drive_url || result.download_url);
       deps.showToast('Requisition generated and saved to Batches.', 'success');
       state().selectedRequisitions.clear();
       state().pendingRequisitionPayload = null;

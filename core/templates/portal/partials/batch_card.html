@@ -7,7 +7,7 @@
         <span class="badge {% if batch.farmer_count and batch.invoiced_count == batch.farmer_count %}badge-green{% elif batch.invoiced_count %}badge-orange{% else %}badge-grey{% endif %}" style="margin-left:4px;">
           {{ batch.invoiced_count|default:0 }}/{{ batch.farmer_count|default:0 }} invoiced
         </span>
-        {% if batch.has_requisition_file %}
+        {% if batch.drive_url or batch.has_requisition_file %}
           <span class="badge badge-green">Form saved</span>
         {% else %}
           <span class="badge badge-grey">No saved form</span>
@@ -19,7 +19,7 @@
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-secondary btn-view-batch" data-order="{{ batch.order_number }}">View</button>
-      <button class="btn btn-primary btn-download-batch" data-url="{{ batch.download_url|default:'' }}" {% if not batch.download_url %}disabled{% endif %}>Open Form</button>
+      <button class="btn btn-primary btn-download-batch" data-url="{{ batch.drive_url|default:batch.download_url }}" {% if not batch.drive_url and not batch.download_url %}disabled{% endif %}>Open Form</button>
       <button class="btn btn-secondary btn-upload-invoices" data-order="{{ batch.order_number }}">Upload Invoices</button>
     </div>
   </div>

@@ -3,11 +3,13 @@ import logging
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
+from pathlib import Path
 from pypdf import PdfReader
+from django.utils import timezone
 from django.db import transaction
 from django.db.models import Q
 
-from core.models import JawabuFarmerMaster
+from core.models import InvoiceUploadBatch, JawabuFarmerMaster, ParsedInvoice
 from core.services.jawabu_pipeline import sync_farmer_to_master_sheet
 
 logger = logging.getLogger(__name__)
@@ -15,6 +17,78 @@ logger = logging.getLogger(__name__)
 
 class InvoiceSheetSyncError(RuntimeError):
     pass
+
+
+class InvoiceUploadStorageError(RuntimeError):
+    pass
+
+
+def record_invoice_match_result(batch: InvoiceUploadBatch, result: dict) -> InvoiceUploadBatch:
+    """Apply order-specific matching output to the stored invoice upload batch."""
+    results = result.get('results') or []
+    by_invoice_no = {
+        str(item.get('invoice_no') or '').strip(): item
+        for item in results
+        if str(item.get('invoice_no') or '').strip()
+    }
+    farmer_ids = {
+        str(item.get('matched_farmer_id') or '').strip()
+        for item in results
+        if item.get('matched_farmer_id')
+    }
+    farmers_by_id = {
+        str(farmer.id): farmer
+        for farmer in JawabuFarmerMaster.objects.filter(id__in=farmer_ids)
+    }
+
+    matched_count = 0
+    review_count = 0
+    for parsed in batch.invoices.all():
+        item = by_invoice_no.get(parsed.invoice_no)
+        if not item:
+            continue
+        status = str(item.get('status') or '').lower()
+        if status == 'matched':
+            matched_count += 1
+            parsed.status = 'matched'
+            parsed.matched_farmer = farmers_by_id.get(str(item.get('matched_farmer_id') or '').strip())
+            parsed.matched_order_number = str(item.get('matched_order_number') or result.get('order_number') or '').strip()
+            parsed.review_notes = ''
+        elif status == 'ambiguous':
+            review_count += 1
+            parsed.status = 'ambiguous'
+            parsed.review_notes = str(item.get('reason') or '').strip()
+        else:
+            parsed.status = 'unmatched'
+            parsed.review_notes = str(item.get('reason') or '').strip()
+        parsed.save(update_fields=[
+            'status', 'matched_farmer', 'matched_order_number', 'review_notes', 'updated_at',
+        ])
+
+    total = batch.invoices.count()
+    unmatched_count = max(0, total - matched_count)
+    batch.matched_count = matched_count
+    batch.unmatched_count = unmatched_count
+    if total and matched_count == total:
+        batch.status = 'matched'
+    elif matched_count:
+        batch.status = 'partially_matched'
+    elif review_count:
+        batch.status = 'needs_review'
+    else:
+        batch.status = 'parsed' if total else 'needs_review'
+    batch.metadata = {
+        **(batch.metadata or {}),
+        'last_match_result': {
+            'order_number': result.get('order_number', ''),
+            'ok': bool(result.get('ok')),
+            'matched_count': matched_count,
+            'review_count': review_count,
+            'unmatched_count': unmatched_count,
+        },
+    }
+    batch.save(update_fields=['matched_count', 'unmatched_count', 'status', 'metadata', 'updated_at'])
+    return batch
 
 
 AMOUNT_RE = re.compile(r"^(?:KES\s*)?-?\d[\d,]*(?:\.\d{2})$")
@@ -35,6 +109,14 @@ def clean_amount(val: str) -> Decimal | None:
 def clean_discount_amount(val: str) -> Decimal | None:
     parsed = clean_amount(val)
     return abs(parsed) if parsed is not None else None
+
+
+def _decimal_or_none(value) -> Decimal | None:
+    if value is None or value == '':
+        return None
+    if isinstance(value, Decimal):
+        return value
+    return clean_amount(str(value))
 
 
 def _positive_amount_text(val: str) -> str:
@@ -365,6 +447,116 @@ def parse_invoice_text(text: str, page_number: int) -> dict | None:
     }
 
 
+def parse_invoice_pdf_bytes(pdf_bytes: bytes) -> tuple[list[dict], int]:
+    """Parse invoice records from a PDF without tying them to an order."""
+    reader = PdfReader(BytesIO(pdf_bytes))
+    invoices = []
+    for page_number, page in enumerate(reader.pages, start=1):
+        text = page.extract_text() or ""
+        parsed = parse_invoice_text(text, page_number)
+        if parsed:
+            invoices.append(parsed)
+        else:
+            logger.warning(
+                "Invoice page %s was not parsed. Text preview: %s",
+                page_number,
+                " ".join(text.split())[:300],
+            )
+    return invoices, len(reader.pages)
+
+
+def ingest_invoice_upload_batch(
+    *,
+    pdf_bytes: bytes,
+    filename: str,
+    content_type: str = 'application/pdf',
+    uploaded_by: str = '',
+    group_config=None,
+) -> InvoiceUploadBatch:
+    """
+    Store an invoice PDF in Drive and create parsed invoice-pool records.
+
+    This is intentionally not order-bound. Reconciliation to farmers/orders is a
+    later workflow because invoice identity can differ from the borrower.
+    """
+    if not pdf_bytes:
+        raise ValueError('Invoice PDF is empty.')
+    safe_name = Path(filename or 'hb_invoices.pdf').name or 'hb_invoices.pdf'
+    if not safe_name.lower().endswith('.pdf'):
+        raise ValueError('Only PDF files are supported.')
+
+    received_at = timezone.now()
+    try:
+        from core.services.order_approval import GoogleDriveMediaStorage
+
+        drive_file_id, drive_url = GoogleDriveMediaStorage().upload(
+            pdf_bytes,
+            filename=safe_name,
+            mime_type=content_type or 'application/pdf',
+            id_number='invoice_pool',
+            received_at=received_at,
+            group_config=group_config,
+        )
+    except Exception as exc:
+        logger.error("Invoice PDF Drive upload failed: %s", exc, exc_info=True)
+        raise InvoiceUploadStorageError(str(exc)) from exc
+
+    batch = InvoiceUploadBatch.objects.create(
+        original_filename=safe_name,
+        content_type=content_type or 'application/pdf',
+        size=len(pdf_bytes),
+        uploaded_by=uploaded_by,
+        drive_file_id=drive_file_id,
+        drive_url=drive_url,
+        status='uploaded',
+    )
+
+    try:
+        invoices, total_pages = parse_invoice_pdf_bytes(pdf_bytes)
+    except Exception as exc:
+        batch.status = 'parse_failed'
+        batch.error = str(exc)
+        batch.save(update_fields=['status', 'error', 'updated_at'])
+        raise
+
+    parsed_rows = []
+    for inv in invoices:
+        parsed_rows.append(ParsedInvoice(
+            batch=batch,
+            page=int(inv.get('page') or 0),
+            invoice_no=str(inv.get('invoice_no') or '').strip(),
+            invoice_date_raw=str(inv.get('invoice_date') or '').strip(),
+            invoice_date=parse_invoice_date(str(inv.get('invoice_date') or '')),
+            customer_name=str(inv.get('customer_name') or '').strip(),
+            customer_id=str(inv.get('customer_id') or '').strip(),
+            customer_phone=str(inv.get('customer_phone') or '').strip(),
+            invoice_amount=_decimal_or_none(inv.get('invoice_amount')),
+            total_after_discount=_decimal_or_none(inv.get('total_after_discount')),
+            discount=clean_discount_amount(str(inv.get('discount') or '')),
+            payment=_decimal_or_none(inv.get('payment')),
+            balance_due=_decimal_or_none(inv.get('balance_due')),
+            balance_due_check=str(inv.get('balance_due_check') or '').strip(),
+            calculated_balance_due=_decimal_or_none(inv.get('calculated_balance_due')),
+            balance_due_difference=_decimal_or_none(inv.get('balance_due_difference')),
+            balance_due_check_basis=str(inv.get('balance_due_check_basis') or '').strip(),
+            status='unmatched',
+            raw_payload=inv,
+        ))
+    if parsed_rows:
+        ParsedInvoice.objects.bulk_create(parsed_rows)
+
+    batch.total_pages = total_pages
+    batch.total_parsed = len(parsed_rows)
+    batch.unmatched_count = len(parsed_rows)
+    batch.status = 'parsed' if parsed_rows else 'needs_review'
+    if not parsed_rows:
+        batch.error = 'No valid HomeBiogas invoices found in the PDF.'
+    batch.save(update_fields=[
+        'total_pages', 'total_parsed', 'unmatched_count', 'status', 'error', 'updated_at',
+    ])
+    return batch
+
+
 
 def verify_balance_due(invoice_amount: str, discount: str, total_after_discount: str, payment: str, balance_due: str) -> dict:
     """Compare printed BALANCE DUE with calculated balance without replacing it."""
@@ -525,34 +717,22 @@ def _match_invoice_to_farmer(inv: dict, farmers: list[JawabuFarmerMaster]):
 
 
 def match_and_update_invoices(order_number: str, pdf_bytes: bytes) -> dict:
-    reader = PdfReader(BytesIO(pdf_bytes))
-    invoices = []
-    
-    for i, page in enumerate(reader.pages, start=1):
-        text = page.extract_text() or ""
-        parsed = parse_invoice_text(text, i)
-        if parsed:
-            logger.info(
-                "Extracted invoice page=%s invoice_no=%s name=%s national_id=%s phone=%s date=%s invoice_amount=%s total_after_discount=%s payment=%s balance_due=%s balance_check=%s",
-                parsed.get("page"),
-                parsed.get("invoice_no"),
-                parsed.get("customer_name"),
-                parsed.get("customer_id"),
-                parsed.get("customer_phone"),
-                parsed.get("invoice_date"),
-                parsed.get("invoice_amount"),
-                parsed.get("total_after_discount"),
-                parsed.get("payment"),
-                parsed.get("balance_due"),
-                parsed.get("balance_due_check"),
-            )
-            invoices.append(parsed)
-        else:
-            logger.warning(
-                "Invoice page %s was not parsed. Text preview: %s",
-                i,
-                " ".join(text.split())[:300],
-            )
+    invoices, _total_pages = parse_invoice_pdf_bytes(pdf_bytes)
+    for parsed in invoices:
+        logger.info(
+            "Extracted invoice page=%s invoice_no=%s name=%s national_id=%s phone=%s date=%s invoice_amount=%s total_after_discount=%s payment=%s balance_due=%s balance_check=%s",
+            parsed.get("page"),
+            parsed.get("invoice_no"),
+            parsed.get("customer_name"),
+            parsed.get("customer_id"),
+            parsed.get("customer_phone"),
+            parsed.get("invoice_date"),
+            parsed.get("invoice_amount"),
+            parsed.get("total_after_discount"),
+            parsed.get("payment"),
+            parsed.get("balance_due"),
+            parsed.get("balance_due_check"),
+        )
 
     if not invoices:
         logger.warning("Invoice upload for order %s found no parseable invoices", order_number)

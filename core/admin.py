@@ -45,6 +45,9 @@ from .models import (
     LiveSheetRecordChange,
     MediaAttachment,
     OrderApprovalUpdate,
+    InvoiceUploadBatch,
+    ParsedInvoice,
+    PaymentDocument,
     RawMessage,
     ProcessedMessage,
     ParsedMessage,
@@ -1819,10 +1822,43 @@ class RequisitionTemplateAdmin(ModelAdmin):
 class RequisitionBatchAdmin(ReadOnlyAuditAdmin):
     list_display = (
         'order_number', 'requisition_date', 'farmer_count', 'status',
-        'generated_by', 'created_at', 'updated_at',
+        'generated_by', 'drive_url', 'created_at', 'updated_at',
     )
     list_filter = ('status', 'requisition_date', 'created_at')
-    search_fields = ('order_number', 'generated_by', 'filename')
+    search_fields = ('order_number', 'generated_by', 'filename', 'drive_file_id', 'drive_url')
+
+
+@admin.register(InvoiceUploadBatch)
+class InvoiceUploadBatchAdmin(ReadOnlyAuditAdmin):
+    list_display = (
+        'original_filename', 'status', 'total_pages', 'total_parsed',
+        'matched_count', 'unmatched_count', 'uploaded_by', 'created_at',
+    )
+    list_filter = ('status', 'created_at')
+    search_fields = ('original_filename', 'uploaded_by', 'drive_file_id', 'drive_url')
+
+
+@admin.register(ParsedInvoice)
+class ParsedInvoiceAdmin(ReadOnlyAuditAdmin):
+    list_display = (
+        'invoice_no', 'status', 'customer_name', 'customer_id',
+        'customer_phone', 'matched_order_number', 'created_at',
+    )
+    list_filter = ('status', 'created_at')
+    search_fields = (
+        'invoice_no', 'customer_name', 'customer_id', 'customer_phone',
+        'matched_order_number', 'batch__original_filename',
+    )
+
+
+@admin.register(PaymentDocument)
+class PaymentDocumentAdmin(ReadOnlyAuditAdmin):
+    list_display = (
+        'order_number', 'status', 'version', 'row_count',
+        'generated_by', 'finalized_by', 'created_at',
+    )
+    list_filter = ('status', 'created_at')
+    search_fields = ('order_number', 'filename', 'generated_by', 'finalized_by', 'drive_file_id', 'drive_url')
 
 @admin.register(SpinCreditRequest)
 class SpinCreditRequestAdmin(TestDataDeleteAdmin):

@@ -260,6 +260,9 @@
       <div class="form-section">
         <div class="form-row"><label>Order Number</label><input type="text" id="req-order" placeholder="e.g. JBL-2026-001" value="${deps.escapeHtml(farmer.order_number || '')}"></div>
         <div class="form-row"><label>Requisition Date</label><input type="date" id="req-date" value="${deps.escapeHtml(farmer.requisition_date || today)}"></div>
+        <div class="form-row"><label>Repayment Date</label><input type="text" id="req-repayment-date" placeholder="e.g. 10TH" value="${deps.escapeHtml(farmer.repayment_date || '')}"></div>
+        <div class="form-row"><label>Tenor</label><input type="text" id="req-tenor" placeholder="e.g. 6" value="${deps.escapeHtml(farmer.repayment_tenor || '')}"></div>
+        <div class="form-row"><label>Payment Product</label><input type="text" id="req-product" placeholder="Optional" value="${deps.escapeHtml(farmer.payment_product || '')}"></div>
       </div>
     `;
   }
@@ -387,13 +390,24 @@
     if (!farmer) return;
     const orderNumber = (el('req-order')?.value || '').trim();
     const reqDate = el('req-date')?.value || '';
+    const repaymentDate = (el('req-repayment-date')?.value || '').trim();
+    const repaymentTenor = (el('req-tenor')?.value || '').trim();
+    const paymentProduct = (el('req-product')?.value || '').trim();
     if (!orderNumber) return deps.showToast('Order number is required', 'error');
+    if (!repaymentDate) return deps.showToast('Repayment date is required for payment documents', 'error');
+    if (!repaymentTenor) return deps.showToast('Tenor is required for payment documents', 'error');
 
     const btn = el('btn-submit-req');
     deps.setButtonLoading(btn, true, 'Saving...');
     const { ok, status, data } = await deps.apiFetch('/requisition-queue/' + farmer.id + '/', {
       method: 'POST',
-      body: JSON.stringify({ order_number: orderNumber, requisition_date: reqDate }),
+      body: JSON.stringify({
+        order_number: orderNumber,
+        requisition_date: reqDate,
+        repayment_date: repaymentDate,
+        repayment_tenor: repaymentTenor,
+        payment_product: paymentProduct,
+      }),
     });
     deps.setButtonLoading(btn, false);
     if (!ok) {
