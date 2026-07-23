@@ -145,6 +145,61 @@
     }
   }
 
+  async function generateRequisitionForBatch(batch, button) {
+    const farmers = batch.farmers || [];
+    const farmerIds = farmers.map(farmer => farmer.id).filter(Boolean);
+    if (!farmerIds.length) {
+      deps.showToast('No clients are linked to this order.', 'error');
+      return;
+    }
+    const reqDate = batch.requisition_date || new Date().toISOString().split('T')[0];
+    const payload = {
+      farmer_ids: farmerIds,
+      order_number: batch.order_number,
+      requisition_date: reqDate,
+      return_url: true,
+    };
+    deps.setButtonLoading(button, true, 'Generating...');
+    try {
+      const response = await deps.portalApi.postJson('/requisition-queue/generate/', payload, deps.tg, csrfHeader());
+      const result = response.data || {};
+      if (!response.ok || !result.ok) {
+        deps.showToast(result.error || 'Could not generate the requisition form.', 'error');
+        return;
+      }
+      deps.showToast('Requisition form generated and stored.', 'success');
+      if (result.drive_url || result.download_url) {
+        deps.openPortalLink(result.drive_url || result.download_url);
+      }
+      deps.loadQueue('batches', state().pages.batches || 1);
+      openBatchDetail(batch.order_number);
+    } catch (err) {
+      deps.showToast(err.message || 'Could not generate the requisition form.', 'error');
+    } finally {
+      deps.setButtonLoading(button, false);
+    }
+  }
+
+  async function previewRequisitionWorkbook(payload, button) {
+    if (!payload) return;
+    deps.setButtonLoading(button, true, 'Previewing...');
+    try {
+      const response = await deps.portalApi.postJson('/requisition-queue/preview-workbook/', payload, deps.tg, csrfHeader());
+      const result = response.data || {};
+      if (!response.ok || !result.ok || !result.drive_url) {
+        deps.showToast(result.error || 'Could not generate workbook preview.', 'error');
+        return;
+      }
+      deps.openPortalLink(result.drive_url);
+      deps.showToast('Workbook preview stored in Drive.', 'success');
+      deps.loadQueue('batches', state().pages.batches || 1);
+    } catch (err) {
+      deps.showToast(err.message || 'Could not generate workbook preview.', 'error');
+    } finally {
+      deps.setButtonLoading(button, false);
+    }
+  }
+
   async function openBatchDetail(orderNumber) {
     if (!orderNumber) return;
     const overlay = el('batch-detail-overlay');
@@ -177,14 +232,26 @@
       { label: 'Invoiced', value: String(inv.invoiced_count || 0) },
       { label: 'Pending invoices', value: String(inv.pending_invoice_count ?? 0) },
     ]);
+    const hasRequisitionOutput = batch.drive_url || batch.download_url;
     actions.innerHTML = `
-      ${(batch.drive_url || batch.download_url) ? `<button class="btn btn-primary" id="batch-detail-download">Open Requisition Form</button>` : '<span class="badge badge-grey">No saved requisition file</span>'}
+      ${hasRequisitionOutput ? `<button class="btn btn-primary" id="batch-detail-download">Open Requisition Form</button>` : '<button class="btn btn-primary" id="batch-detail-generate">Generate Requisition Form</button><span class="badge badge-grey">No generated requisition form yet</span>'}
+      <button class="btn btn-secondary" id="batch-detail-preview">Preview Requisition Form</button>
       <button class="btn btn-secondary" id="batch-detail-upload">Upload Invoices</button>
       <button class="btn btn-secondary" id="batch-payment-readiness">Check Payment</button>
       <button class="btn btn-secondary" id="batch-payment-preview">Payment Preview</button>
       <button class="btn btn-primary" id="batch-payment-final">Generate Final Payment</button>
     `;
     el('batch-detail-download')?.addEventListener('click', () => deps.openPortalLink(batch.drive_url || batch.download_url));
+    el('batch-detail-generate')?.addEventListener('click', e => generateRequisitionForBatch(batch, e.currentTarget));
+    el('batch-detail-preview')?.addEventListener('click', e => {
+      const farmerIds = (batch.farmers || []).map(farmer => farmer.id).filter(Boolean);
+      previewRequisitionWorkbook({
+        farmer_ids: farmerIds,
+        order_number: batch.order_number,
+        requisition_date: batch.requisition_date || new Date().toISOString().split('T')[0],
+        return_url: true,
+      }, e.currentTarget);
+    });
     el('batch-detail-upload')?.addEventListener('click', () => openInvoiceOverlay(batch.order_number));
     el('batch-payment-readiness')?.addEventListener('click', () => checkPaymentReadiness(batch.order_number));
     el('batch-payment-preview')?.addEventListener('click', e => generatePaymentDocument(batch.order_number, false, e.currentTarget));
@@ -240,7 +307,18 @@
     list.innerHTML = deps.batchClientRows(allFarmers, blockedById);
     confirm.disabled = (data.blocked_count || 0) > 0 || !(data.ready_count || 0);
     confirm.textContent = confirm.disabled ? 'Resolve Blocked Items' : 'Generate Requisition';
+    const preview = el('requisition-preview-workbook');
+    if (preview) {
+      preview.disabled = confirm.disabled;
+      preview.textContent = confirm.disabled ? 'Resolve Blocked Items' : 'Open Workbook Preview';
+    }
     overlay.classList.add('open');
+  }
+
+  async function generateWorkbookPreviewFromSelection() {
+    const payload = state().pendingRequisitionPayload;
+    if (!payload) return;
+    await previewRequisitionWorkbook(payload, el('requisition-preview-workbook'));
   }
 
   async function generateRequisitionFromPreview() {
@@ -376,6 +454,7 @@
   function bindEvents() {
     el('btn-generate-requisition')?.addEventListener('click', requestRequisitionPreview);
     el('requisition-preview-confirm')?.addEventListener('click', generateRequisitionFromPreview);
+    el('requisition-preview-workbook')?.addEventListener('click', generateWorkbookPreviewFromSelection);
     el('requisition-preview-close')?.addEventListener('click', () => el('requisition-preview-overlay').classList.remove('open'));
     el('requisition-preview-cancel')?.addEventListener('click', () => el('requisition-preview-overlay').classList.remove('open'));
     el('requisition-preview-overlay')?.addEventListener('click', e => {

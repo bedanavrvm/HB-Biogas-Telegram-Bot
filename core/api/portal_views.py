@@ -296,6 +296,12 @@ def _serialize_batch(batch, farmers, request, include_farmers: bool = True) -> d
         'drive_url': getattr(batch, 'drive_url', '') or '',
         'drive_file_id': getattr(batch, 'drive_file_id', '') or '',
         'drive_upload_error': getattr(batch, 'drive_upload_error', '') or '',
+        'preview_filename': getattr(batch, 'preview_filename', '') or '',
+        'preview_drive_url': getattr(batch, 'preview_drive_url', '') or '',
+        'preview_drive_file_id': getattr(batch, 'preview_drive_file_id', '') or '',
+        'preview_generated_by': getattr(batch, 'preview_generated_by', '') or '',
+        'preview_generated_at': batch.preview_generated_at.isoformat() if getattr(batch, 'preview_generated_at', None) else None,
+        'preview_error': getattr(batch, 'preview_error', '') or '',
         'farmer_count': batch.farmer_count or len(farmers),
         'invoiced_count': summary.get('invoiced_count', 0),
         'status': batch.status,
@@ -303,6 +309,59 @@ def _serialize_batch(batch, farmers, request, include_farmers: bool = True) -> d
         'last_invoice_result': batch.last_invoice_result or {},
         'farmers': farmers_payload,
     }
+
+
+def _parse_requisition_workbook_payload(request):
+    from datetime import date as _date
+    from core.models import JawabuFarmerMaster
+
+    try:
+        body = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return None, JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
+
+    farmer_ids = body.get('farmer_ids') or []
+    order_number = str(body.get('order_number') or '').strip()
+    requisition_date_raw = str(body.get('requisition_date') or '').strip()
+
+    if not farmer_ids:
+        return None, JsonResponse({'ok': False, 'error': 'No farmers selected.'}, status=400)
+    if not order_number:
+        return None, JsonResponse({'ok': False, 'error': 'Order Number / Batch Ref is required.'}, status=400)
+    if not requisition_date_raw:
+        return None, JsonResponse({'ok': False, 'error': 'Requisition Date is required.'}, status=400)
+
+    try:
+        requisition_date = _date.fromisoformat(requisition_date_raw)
+    except ValueError:
+        return None, JsonResponse(
+            {'ok': False, 'error': f"Invalid requisition_date '{requisition_date_raw}'. Use YYYY-MM-DD."},
+            status=400,
+        )
+
+    farmers = list(JawabuFarmerMaster.objects.filter(id__in=farmer_ids))
+    if len(farmers) != len(farmer_ids):
+        return None, JsonResponse({'ok': False, 'error': 'One or more selected farmers not found.'}, status=404)
+
+    ready, blocked, warnings = _validate_requisition_farmers(farmers)
+    if blocked:
+        first = blocked[0]
+        name = first['farmer'].get('customer_name') or first['farmer'].get('national_id') or 'Selected client'
+        return None, JsonResponse({
+            'ok': False,
+            'error': f"{name} is not ready for requisition: {', '.join(first['missing'])}.",
+            'blocked': blocked,
+            'warnings': warnings,
+        }, status=403)
+
+    return {
+        'body': body,
+        'farmers': farmers,
+        'farmer_ids': farmer_ids,
+        'order_number': order_number,
+        'requisition_date': requisition_date,
+        'warnings': warnings,
+    }, None
 
 
 def _portal_requisition_batches_payload(request) -> tuple[list[dict], dict]:
@@ -354,6 +413,8 @@ def _portal_requisition_batches_payload(request) -> tuple[list[dict], dict]:
             'filename': '',
             'has_requisition_file': False,
             'download_url': '',
+            'preview_drive_url': '',
+            'preview_generated_at': None,
             'last_invoice_result': {},
         })
         batches_list.append(payload)
@@ -824,55 +885,86 @@ def portal_requisition_preview(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+def portal_requisition_workbook_preview(request):
+    """Generate a Drive-backed requisition workbook preview without finalizing the batch."""
+    from django.utils import timezone
+    from core.models import RequisitionBatch
+    from core.services.requisition import RequisitionTemplateError, generate_requisition_excel
+
+    parsed, error_response = _parse_requisition_workbook_payload(request)
+    if error_response:
+        return error_response
+
+    farmers = parsed['farmers']
+    order_number = parsed['order_number']
+    requisition_date = parsed['requisition_date']
+    try:
+        xlsx_bytes = generate_requisition_excel(farmers, order_number, requisition_date)
+    except RequisitionTemplateError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    except FileNotFoundError:
+        logger.exception('Requisition template file is missing.')
+        return JsonResponse({
+            'ok': False,
+            'error': 'The requisition Excel template file is missing. Upload it in Django Admin > Requisition templates and mark it active.',
+        }, status=400)
+
+    filename = f"JBL_Requisition_Form_{order_number}_preview.xlsx"
+    sender = _portal_sender_from_request(request)
+    try:
+        drive_file_id, drive_url = _upload_generated_workbook_to_drive(xlsx_bytes, filename)
+        preview_error = ''
+    except Exception as exc:
+        logger.exception('Requisition preview workbook was not stored in Google Drive.')
+        return JsonResponse({
+            'ok': False,
+            'error': f'Requisition preview was not stored in Google Drive: {exc}',
+        }, status=502)
+
+    summary = _invoice_summary_for_farmers(farmers)
+    batch, _created = RequisitionBatch.objects.update_or_create(
+        order_number=order_number,
+        defaults={
+            'requisition_date': requisition_date,
+            'preview_filename': filename,
+            'preview_drive_file_id': drive_file_id,
+            'preview_drive_url': drive_url,
+            'preview_generated_by': sender,
+            'preview_generated_at': timezone.now(),
+            'preview_error': preview_error,
+            'farmer_ids': [str(farmer.id) for farmer in farmers],
+            'farmer_count': len(farmers),
+            'status': 'preview',
+            'invoice_summary': summary,
+        },
+    )
+
+    return JsonResponse({
+        'ok': True,
+        'filename': filename,
+        'drive_url': drive_url,
+        'batch': _serialize_batch(batch, farmers, request),
+    })
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
 def portal_requisition_generate(request):
     """
     POST /api/portal/requisition-queue/generate/
     Body: { farmer_ids: [...], order_number: "...", requisition_date: "..." }
     """
-    from datetime import date as _date
-    from core.models import JawabuFarmerMaster, RequisitionBatch
+    from core.models import RequisitionBatch
     from core.services.jawabu_pipeline import assign_order, sync_farmer_to_master_sheet
     from core.services.requisition import RequisitionTemplateError, generate_requisition_excel
-    import json
 
-    try:
-        body = json.loads(request.body)
-    except (json.JSONDecodeError, ValueError):
-        return JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
-
-    farmer_ids = body.get('farmer_ids') or []
-    order_number = str(body.get('order_number') or '').strip()
-    requisition_date_raw = str(body.get('requisition_date') or '').strip()
-
-    if not farmer_ids:
-        return JsonResponse({'ok': False, 'error': 'No farmers selected.'}, status=400)
-    if not order_number:
-        return JsonResponse({'ok': False, 'error': 'Order Number / Batch Ref is required.'}, status=400)
-    if not requisition_date_raw:
-        return JsonResponse({'ok': False, 'error': 'Requisition Date is required.'}, status=400)
-
-    try:
-        requisition_date = _date.fromisoformat(requisition_date_raw)
-    except ValueError:
-        return JsonResponse(
-            {'ok': False, 'error': f"Invalid requisition_date '{requisition_date_raw}'. Use YYYY-MM-DD."},
-            status=400,
-        )
-
-    farmers = list(JawabuFarmerMaster.objects.filter(id__in=farmer_ids))
-    if len(farmers) != len(farmer_ids):
-        return JsonResponse({'ok': False, 'error': 'One or more selected farmers not found.'}, status=404)
-
-    ready, blocked, warnings = _validate_requisition_farmers(farmers)
-    if blocked:
-        first = blocked[0]
-        name = first['farmer'].get('customer_name') or first['farmer'].get('national_id') or 'Selected client'
-        return JsonResponse({
-            'ok': False,
-            'error': f"{name} is not ready for requisition: {', '.join(first['missing'])}.",
-            'blocked': blocked,
-            'warnings': warnings,
-        }, status=403)
+    parsed, error_response = _parse_requisition_workbook_payload(request)
+    if error_response:
+        return error_response
+    body = parsed['body']
+    farmers = parsed['farmers']
+    order_number = parsed['order_number']
+    requisition_date = parsed['requisition_date']
 
     try:
         xlsx_bytes = generate_requisition_excel(farmers, order_number, requisition_date)

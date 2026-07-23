@@ -49,6 +49,7 @@ from .portal_views import (
     portal_set_final_decision,
     portal_requisition_queue,
     portal_requisition_preview,
+    portal_requisition_workbook_preview,
     portal_assign_order,
     portal_requisition_generate,
     portal_requisition_download,
@@ -145,6 +146,7 @@ urlpatterns = [
     # Stage 4 - Requisition / Order (GATED)
     path('portal/requisition-queue/', portal_auth_required(portal_requisition_queue), name='portal_requisition_queue'),
     path('portal/requisition-queue/preview/', portal_auth_required(portal_requisition_preview), name='portal_requisition_preview'),
+    path('portal/requisition-queue/preview-workbook/', portal_auth_required(portal_requisition_workbook_preview), name='portal_requisition_workbook_preview'),
     path('portal/requisition-queue/generate/', portal_auth_required(portal_requisition_generate), name='portal_requisition_generate'),
     path('portal/requisition-download/<str:token>/', portal_requisition_download, name='portal_requisition_download'),
     path('portal/requisition-queue/<str:farmer_id>/', portal_auth_required(portal_assign_order), name='portal_assign_order'),

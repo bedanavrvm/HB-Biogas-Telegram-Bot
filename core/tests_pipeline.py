@@ -680,6 +680,38 @@ class JblPipelineApiTestCase(TestCase):
         mock_sync.assert_called_once_with(self.farmer)
         mock_generate.assert_called_once()
 
+    @patch('core.services.requisition.generate_requisition_excel', return_value=b'preview-xlsx')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_portal_requisition_workbook_preview_stores_drive_preview(self, mock_storage, mock_generate):
+        mock_storage.return_value.upload.return_value = ('preview-drive-id', 'https://drive.test/requisition-preview')
+        self.farmer.final_decision = 'Approved'
+        self.farmer.imab_created = 'Yes'
+        self.farmer.customer_no = '15124'
+        self.farmer.save()
+
+        payload = {
+            'farmer_ids': [str(self.farmer.id)],
+            'order_number': 'REQ-PREVIEW-99',
+            'requisition_date': '2026-07-06',
+        }
+        response = self.client.post(
+            reverse('portal_requisition_workbook_preview'),
+            json.dumps(payload),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['drive_url'], 'https://drive.test/requisition-preview')
+        batch = RequisitionBatch.objects.get(order_number='REQ-PREVIEW-99')
+        self.assertEqual(batch.status, 'preview')
+        self.assertEqual(batch.preview_drive_file_id, 'preview-drive-id')
+        self.assertEqual(batch.preview_drive_url, 'https://drive.test/requisition-preview')
+        self.farmer.refresh_from_db()
+        self.assertEqual(self.farmer.order_number, '')
+        mock_generate.assert_called_once()
+
     def test_portal_requisition_batch_detail_and_download(self):
         self.farmer.order_number = 'REQ-DETAIL-1'
         self.farmer.requisition_date = date(2026, 7, 6)

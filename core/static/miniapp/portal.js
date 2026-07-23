@@ -482,7 +482,7 @@
       const allInvoiced = farmerCount > 0 && invoicedCount === farmerCount;
       const invoiceProgress = farmerCount ? `${invoicedCount}/${farmerCount} invoiced` : '0 invoiced';
       const invoiceColor = allInvoiced ? 'badge-green' : invoicedCount > 0 ? 'badge-orange' : 'badge-grey';
-      const fileBadge = (b.drive_url || b.has_requisition_file) ? '<span class="badge badge-green">Form saved</span>' : '<span class="badge badge-grey">No saved form</span>';
+      const fileBadge = (b.drive_url || b.has_requisition_file) ? '<span class="badge badge-green">Form saved</span>' : '<span class="badge badge-grey">No generated form yet</span>';
       const clients = (b.farmers || []).slice(0, 8).map(f => `
         <span class="badge ${f.invoiced ? 'badge-green' : 'badge-grey'}" title="${escapeHtml(f.invoice_number ? ('Invoice ' + f.invoice_number) : 'No invoice uploaded')}">
           ${escapeHtml(f.customer_name || 'Unnamed')} (${escapeHtml(f.county || 'N/A')})

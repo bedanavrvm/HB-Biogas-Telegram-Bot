@@ -1434,6 +1434,7 @@ class RequisitionBatch(models.Model):
     """Generated requisition/order batch output kept for portal reference."""
 
     STATUS_CHOICES = [
+        ('preview', 'Preview'),
         ('generated', 'Generated'),
         ('invoices_uploaded', 'Invoices Uploaded'),
         ('partially_invoiced', 'Partially Invoiced'),
@@ -1454,6 +1455,12 @@ class RequisitionBatch(models.Model):
     drive_file_id = models.CharField(max_length=255, blank=True, default='')
     drive_url = models.URLField(max_length=1000, blank=True, default='')
     drive_upload_error = models.TextField(blank=True, default='')
+    preview_filename = models.CharField(max_length=255, blank=True, default='')
+    preview_drive_file_id = models.CharField(max_length=255, blank=True, default='')
+    preview_drive_url = models.URLField(max_length=1000, blank=True, default='')
+    preview_generated_by = models.CharField(max_length=255, blank=True, default='')
+    preview_generated_at = models.DateTimeField(null=True, blank=True)
+    preview_error = models.TextField(blank=True, default='')
     farmer_ids = models.JSONField(blank=True, default=list)
     farmer_count = models.PositiveIntegerField(default=0)
     status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='generated', db_index=True)
