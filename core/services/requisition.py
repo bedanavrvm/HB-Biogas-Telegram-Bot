@@ -132,6 +132,8 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
             col_mapping["id"] = c
         elif "CREDIT" in words:
             col_mapping["credit"] = c
+        elif "CALLUP" in words or ("CALL" in words and "COMMENT" in words):
+            col_mapping["callup"] = c
         elif "COUNTY" in words:
             col_mapping["county"] = c
         elif "LANDMARK" in words or "LOCATION" in words:
@@ -148,6 +150,7 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
     col_phone = col_mapping.get("phone", 3)
     col_id = col_mapping.get("id", 4)
     col_credit = col_mapping.get("credit", 5)
+    col_callup = col_mapping.get("callup", 6)
     col_county = col_mapping.get("county", 7)
     col_landmark = col_mapping.get("landmark", 8)
     col_hbg = col_mapping.get("hbg", 9)
@@ -202,7 +205,7 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
         ws.cell(row=r, column=col_phone, value=farmer.primary_phone)  # CONTACT NO.
         ws.cell(row=r, column=col_id, value=farmer.national_id)  # ID NO.
         ws.cell(row=r, column=col_credit, value=farmer.credit_decision)  # CREDIT ANALYSIS
-        ws.cell(row=r, column=6, value="")  # CALLUP COMMENT (blank)
+        ws.cell(row=r, column=col_callup, value="")  # CALLUP COMMENT (blank)
         ws.cell(row=r, column=col_county, value=farmer.county)  # COUNTY
         ws.cell(row=r, column=col_landmark, value=farmer.landmark)  # LOCATION & NEAREST LANDMARK
         
