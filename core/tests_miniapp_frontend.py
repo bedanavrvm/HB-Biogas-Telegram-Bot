@@ -35,6 +35,10 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         self.assertLess(html.index('miniapp/utils.js'), html.index('miniapp/portal_helpers.js'))
         self.assertLess(html.index('miniapp/portal_helpers.js'), html.index('miniapp/portal.js'))
+        self.assertLess(html.index('miniapp/portal_helpers.js'), html.index('miniapp/portal_api.js'))
+        self.assertLess(html.index('miniapp/portal_api.js'), html.index('miniapp/portal.js'))
+        self.assertLess(html.index('miniapp/portal_api.js'), html.index('miniapp/portal_queues.js'))
+        self.assertLess(html.index('miniapp/portal_queues.js'), html.index('miniapp/portal.js'))
 
     def test_shared_utils_expose_frontend_primitives(self):
         source = Path('core/static/miniapp/utils.js').read_text(encoding='utf-8')
@@ -67,6 +71,31 @@ class MiniAppFrontendSmokeTests(TestCase):
         ):
             self.assertIn(expected, source)
 
+    def test_portal_api_exposes_request_primitives(self):
+        source = Path('core/static/miniapp/portal_api.js').read_text(encoding='utf-8')
+
+        for expected in (
+            'window.PortalMiniAppApi',
+            'apiBase',
+            'initDataHeader',
+            'apiFetch',
+            'fetchHtml',
+        ):
+            self.assertIn(expected, source)
+
+    def test_portal_queues_expose_queue_primitives(self):
+        source = Path('core/static/miniapp/portal_queues.js').read_text(encoding='utf-8')
+
+        for expected in (
+            'window.PortalMiniAppQueues',
+            'QUEUE_CONFIG',
+            'queueKeyForList',
+            'queueUrl',
+            'fragmentPath',
+            'renderFragment',
+        ):
+            self.assertIn(expected, source)
+
     def test_queue_apps_keep_fragment_fallback_paths(self):
         expectations = {
             'core/static/miniapp/complaint_cases.js': (
@@ -85,6 +114,10 @@ class MiniAppFrontendSmokeTests(TestCase):
                 'function setButtonLoading(button, loading, label)',
                 'utils.setButtonLoading',
                 'window.PortalMiniAppHelpers',
+                'window.PortalMiniAppApi',
+                'portalApi.fetchHtml',
+                'window.PortalMiniAppQueues',
+                'portalQueues.renderFragment',
             ),
         }
 

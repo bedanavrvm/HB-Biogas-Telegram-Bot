@@ -5,6 +5,8 @@
   // Init Telegram Web App
   const utils = window.MiniAppUtils || {};
   const portalHelpers = window.PortalMiniAppHelpers || {};
+  const portalApi = window.PortalMiniAppApi || {};
+  const portalQueues = window.PortalMiniAppQueues || {};
   const tg = utils.initTelegram ? utils.initTelegram({ closingConfirmation: false }) : window.Telegram?.WebApp;
   if (tg && !utils.initTelegram) {
     tg.ready();
@@ -34,9 +36,10 @@
   // Helpers
   function el(id) { return document.getElementById(id); }
 
-  function apiBase() { return '/api/portal'; }
+  function apiBase() { return portalApi.apiBase ? portalApi.apiBase() : '/api/portal'; }
 
   function initDataHeader() {
+    if (portalApi.initDataHeader) return portalApi.initDataHeader(tg);
     const raw = tg?.initData || '';
     return utils.initDataHeader ? utils.initDataHeader(raw) : (raw ? { 'X-Telegram-Init-Data': raw } : {});
   }
@@ -60,6 +63,7 @@
   }
 
   async function apiFetch(path, opts = {}) {
+    if (portalApi.apiFetch) return portalApi.apiFetch(path, opts, tg);
     const headers = { 'Content-Type': 'application/json', ...initDataHeader(), ...(opts.headers || {}) };
     const res = await fetch(apiBase() + path, { ...opts, headers });
     const data = await res.json();
@@ -280,7 +284,7 @@
     });
   });
   // Generic queue loader
-  const queueConfig = {
+  const queueConfig = portalQueues.config ? portalQueues.config() : {
     jbl: { endpoint: '/jbl-queue/', fragmentEndpoint: '/queues/jbl/fragment/', listId: 'jbl-list', pageKey: 'jbl', mode: 'jbl_visit', emptyTitle: 'All caught up!', emptySub: 'No farmers are waiting for a JBL visit.' },
     credit: { endpoint: '/credit-queue/', fragmentEndpoint: '/queues/credit/fragment/', listId: 'credit-list', pageKey: 'credit', mode: 'credit', emptyTitle: 'No BRO analysis cases', emptySub: 'No farmers are awaiting BRO credit analysis.' },
     final: { endpoint: '/final-review-queue/', fragmentEndpoint: '/queues/final/fragment/', listId: 'final-list', pageKey: 'final', mode: 'final_review', emptyTitle: 'No final review cases', emptySub: 'No clients are awaiting Head of Rural review.' },
@@ -291,6 +295,7 @@
   };
 
   function queueKeyForList(listId) {
+    if (portalQueues.queueKeyForList) return portalQueues.queueKeyForList(listId);
     if (!listId) return null;
     const entry = Object.entries(queueConfig).find(([, cfg]) => cfg.listId === listId && cfg.fragmentEndpoint);
     return entry ? entry[0] : null;
@@ -302,16 +307,7 @@
     const listEl = el(cfg.listId);
     listEl.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
 
-    let url = cfg.endpoint + '?page=' + page;
-    if (qKey === 'all') {
-      const searchVal = state.search || '';
-      if (searchVal) url += '&search=' + encodeURIComponent(searchVal);
-      if (state.filters.county) url += '&county=' + encodeURIComponent(state.filters.county);
-      if (state.filters.branch) url += '&branch=' + encodeURIComponent(state.filters.branch);
-    } else if (cfg.fragmentEndpoint) {
-      if (state.filters.county) url += '&county=' + encodeURIComponent(state.filters.county);
-      if (state.filters.branch) url += '&branch=' + encodeURIComponent(state.filters.branch);
-    }
+    const url = portalQueues.queueUrl ? portalQueues.queueUrl(qKey, page, state) : cfg.endpoint + '?page=' + page;
 
     const { ok, data } = await apiFetch(url);
     if (!ok) { listEl.innerHTML = `<div class="empty-state"><div class="es-icon">!</div><div class="es-title">Error loading queue</div></div>`; return; }
@@ -370,6 +366,22 @@
   }
 
   async function renderQueueFragment(qKey, page = 1) {
+    if (portalQueues.renderFragment) {
+      return portalQueues.renderFragment(qKey, page, {
+        el,
+        fetchHtml: async (path) => {
+          const response = await fetch(apiBase() + path, { headers: initDataHeader() });
+          const text = await response.text();
+          if (!response.ok) throw new Error(text || 'Could not load queue.');
+          return text;
+        },
+        hydrateBatchCards: hydrateHtmxBatchCards,
+        hydrateFarmerCards: hydrateHtmxFarmerCards,
+        portalApi,
+        state,
+        tg,
+      });
+    }
     const cfg = queueConfig[qKey];
     const list = cfg ? el(cfg.listId) : null;
     if (!cfg?.fragmentEndpoint || !window.htmx || !list) return false;
@@ -378,8 +390,11 @@
     if (state.filters.county) params.set('county', state.filters.county);
     if (state.filters.branch) params.set('branch', state.filters.branch);
     try {
-      const html = utils.fetchHtml
-        ? await utils.fetchHtml(apiBase() + cfg.fragmentEndpoint + '?' + params.toString(), { headers: initDataHeader() })
+      const fragmentPath = cfg.fragmentEndpoint + '?' + params.toString();
+      const html = portalApi.fetchHtml
+        ? await portalApi.fetchHtml(fragmentPath, {}, tg)
+        : utils.fetchHtml
+          ? await utils.fetchHtml(apiBase() + fragmentPath, { headers: initDataHeader() })
         : await fetch(apiBase() + cfg.fragmentEndpoint + '?' + params.toString(), { headers: initDataHeader() }).then(async (response) => {
           const text = await response.text();
           if (!response.ok) throw new Error(text || 'Could not load queue.');
