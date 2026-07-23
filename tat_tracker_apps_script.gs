@@ -135,9 +135,9 @@ const PRODUCT_LAYOUTS = {
   'TRACKER-MICRO-ASSET': null,
 };
 
-PRODUCT_LAYOUTS['TRACKER-MJENGO'] = noValuationLayout('mjengo', 'TAT TRACKER - MJENGO', 50000, 500000);
+PRODUCT_LAYOUTS['TRACKER-MJENGO'] = noValuationLayout('mjengo', 'TAT TRACKER - MJENGO', 10000, 500000);
 PRODUCT_LAYOUTS['TRACKER-KILIMO'] = noValuationLayout('kilimo', 'TAT TRACKER - KILIMO', 50000, 300000);
-PRODUCT_LAYOUTS['TRACKER-MICRO-ASSET'] = noValuationLayout('micro_asset', 'TAT TRACKER - MICRO-ASSET', 50000, 300000);
+PRODUCT_LAYOUTS['TRACKER-MICRO-ASSET'] = noValuationLayout('micro_asset', 'TAT TRACKER - MICRO-ASSET', 10000, 300000);
 
 function noValuationLayout(productKey, title, minAmount, maxAmount) {
   return {

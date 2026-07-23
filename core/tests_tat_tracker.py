@@ -114,7 +114,9 @@ class TatTrackerWorkflowTest(TestCase):
 
     def test_product_amount_limits_match_current_tat_policy(self):
         self.assertEqual(product_by_key('logbook').max_amount, Decimal('700000'))
+        self.assertEqual(product_by_key('mjengo').min_amount, Decimal('10000'))
         self.assertEqual(product_by_key('mjengo').max_amount, Decimal('500000'))
+        self.assertEqual(product_by_key('micro_asset').min_amount, Decimal('10000'))
 
     def test_home_lists_paginate_independently(self):
         for index in range(12):

@@ -151,9 +151,9 @@ BASE_STAGES_BUSINESS = (
 
 PRODUCTS: dict[str, ProductConfig] = {
     'logbook': ProductConfig('logbook', 'Logbook', 'TRACKER-LOGBOOK', 'JBL-LB', Decimal('50000'), Decimal('700000'), 28, 27, 29, {'created': 8, 'decision_ts': 18, 'sanctions_ts': 21, 'register_ts': 24}, BASE_STAGES_LOGBOOK),
-    'mjengo': ProductConfig('mjengo', 'Mjengo', 'TRACKER-MJENGO', 'JBL-MJ', Decimal('50000'), Decimal('500000'), 27, 26, 28, {'created': 8, 'decision_ts': 17, 'sanctions_ts': 20, 'register_ts': 23}, BASE_STAGES_OTHER),
+    'mjengo': ProductConfig('mjengo', 'Mjengo', 'TRACKER-MJENGO', 'JBL-MJ', Decimal('10000'), Decimal('500000'), 27, 26, 28, {'created': 8, 'decision_ts': 17, 'sanctions_ts': 20, 'register_ts': 23}, BASE_STAGES_OTHER),
     'kilimo': ProductConfig('kilimo', 'Kilimo', 'TRACKER-KILIMO', 'JBL-KI', Decimal('50000'), Decimal('300000'), 27, 26, 28, {'created': 8, 'decision_ts': 17, 'sanctions_ts': 20, 'register_ts': 23}, BASE_STAGES_OTHER),
-    'micro_asset': ProductConfig('micro_asset', 'Micro Asset', 'TRACKER-MICRO-ASSET', 'JBL-MA', Decimal('50000'), Decimal('300000'), 27, 26, 28, {'created': 8, 'decision_ts': 17, 'sanctions_ts': 20, 'register_ts': 23}, BASE_STAGES_OTHER),
+    'micro_asset': ProductConfig('micro_asset', 'Micro Asset', 'TRACKER-MICRO-ASSET', 'JBL-MA', Decimal('10000'), Decimal('300000'), 27, 26, 28, {'created': 8, 'decision_ts': 17, 'sanctions_ts': 20, 'register_ts': 23}, BASE_STAGES_OTHER),
     'business': ProductConfig('business', 'Business', 'TRACKER-Business', 'JBL-BS', Decimal('5000'), None, 20, 19, 21, {'created': 8, 'register_ts': 16}, BASE_STAGES_BUSINESS),
 }
 
