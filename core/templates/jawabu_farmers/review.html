@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Review Farmers Upload</title>
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}">
-  <link rel="stylesheet" href="{% static 'miniapp/farmup_review.css' %}">
+  <link rel="stylesheet" href="{% static 'miniapp/farmup_review.css' %}?v=2">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=14">
 </head>
@@ -30,14 +30,14 @@
   <section class="summary" aria-label="Upload summary">
     <div class="metric"><strong id="totalCount">0</strong><span>Total rows</span></div>
     <div class="metric"><strong id="approvedCount">0</strong><span>Approved</span></div>
-    <div class="metric"><strong id="reviewCount">0</strong><span>Need review</span></div>
+    <button type="button" class="metric metric-button" id="reviewMetricFilter" aria-pressed="false"><strong id="reviewCount">0</strong><span>Need review</span></button>
     <div class="metric"><strong id="skippedCount">0</strong><span>Skipped</span></div>
   </section>
 
   <section class="review-search" aria-label="Search upload rows">
     <label for="rowSearch">Search rows</label>
-    <input id="rowSearch" type="search" placeholder="Name, ID, phone, county, sales person, notes..." autocomplete="off">
     <button type="button" id="reviewOnlyFilter" class="filter-toggle" aria-pressed="false">Need review only</button>
+    <input id="rowSearch" type="search" placeholder="Name, ID, phone, county, sales person, notes..." autocomplete="off">
     <button type="button" id="clearSearch">Clear</button>
     <span id="visibleCount" class="visible-count">Showing all rows</span>
   </section>
@@ -64,6 +64,6 @@
 </main>
 <script id="batch-data" type="application/json">{{ batch_json|safe }}</script>
 <script src="{% static 'miniapp/telegram.js' %}"></script>
-<script src="{% static 'miniapp/farmup_review.js' %}"></script>
+<script src="{% static 'miniapp/farmup_review.js' %}?v=2"></script>
 </body>
 </html>

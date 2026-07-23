@@ -12,6 +12,7 @@
   const statusEl = document.getElementById('status');
   const rowSearch = document.getElementById('rowSearch');
   const reviewOnlyFilter = document.getElementById('reviewOnlyFilter');
+  const reviewMetricFilter = document.getElementById('reviewMetricFilter');
   const visibleCount = document.getElementById('visibleCount');
   let searchText = '';
   let reviewOnly = false;
@@ -145,6 +146,10 @@
       reviewOnlyFilter.classList.toggle('active', reviewOnly);
       reviewOnlyFilter.setAttribute('aria-pressed', reviewOnly ? 'true' : 'false');
     }
+    if (reviewMetricFilter) {
+      reviewMetricFilter.classList.toggle('active', reviewOnly);
+      reviewMetricFilter.setAttribute('aria-pressed', reviewOnly ? 'true' : 'false');
+    }
   }
 
   function setStatus(text, kind) {
@@ -216,6 +221,11 @@
   });
 
   reviewOnlyFilter?.addEventListener('click', () => {
+    reviewOnly = !reviewOnly;
+    render();
+  });
+
+  reviewMetricFilter?.addEventListener('click', () => {
     reviewOnly = !reviewOnly;
     render();
   });
