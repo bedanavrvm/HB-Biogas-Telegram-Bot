@@ -274,6 +274,15 @@
           <option value="ignored">Ignored</option>
         </select>
       </div>
+      <div class="filter-item">
+        <label for="invoice-pool-review">Review</label>
+        <select id="invoice-pool-review">
+          <option value="">All records</option>
+          <option value="duplicates">Possible duplicates</option>
+          <option value="payment_blocked">Payment blocked</option>
+          <option value="payment_ready">Payment ready</option>
+        </select>
+      </div>
       <div class="filter-item" style="flex:1;">
         <label for="invoice-pool-search">Search</label>
         <input type="search" id="invoice-pool-search" placeholder="Invoice no, name, ID, phone, order, filename">

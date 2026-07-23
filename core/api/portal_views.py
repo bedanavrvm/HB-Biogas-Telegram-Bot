@@ -1407,6 +1407,7 @@ def portal_invoice_pool(request):
     status = str(request.GET.get('status') or '').strip()
     search = str(request.GET.get('search') or '').strip()
     batch_id = str(request.GET.get('batch_id') or '').strip()
+    review = str(request.GET.get('review') or '').strip()
 
     invoices = ParsedInvoice.objects.select_related('batch', 'matched_farmer').all()
     if status:
@@ -1423,7 +1424,42 @@ def portal_invoice_pool(request):
             | Q(batch__original_filename__icontains=search)
         )
     invoices = invoices.order_by('-created_at')
-    paged_invoices, invoice_pagination = _paginate_qs(invoices, request, page_size=25)
+
+    review_filtered = None
+    if review == 'duplicates':
+        review_filtered = [
+            invoice for invoice in invoices[:300]
+            if _invoice_duplicate_count(invoice) > 0
+        ]
+    elif review in {'payment_blocked', 'payment_ready'}:
+        from core.services.payment_documents import payment_readiness
+        matched_invoices = [
+            invoice for invoice in invoices[:300]
+            if invoice.status == 'matched' and (
+                invoice.matched_order_number or (invoice.matched_farmer and invoice.matched_farmer.order_number)
+            )
+        ]
+        readiness_cache = {}
+        selected = []
+        for invoice in matched_invoices:
+            order_number = invoice.matched_order_number or invoice.matched_farmer.order_number
+            if order_number not in readiness_cache:
+                try:
+                    readiness_cache[order_number] = payment_readiness(order_number)
+                except Exception as exc:
+                    readiness_cache[order_number] = {'error': str(exc), 'blocked_count': 1, 'ready_count': 0}
+            readiness = readiness_cache[order_number]
+            blocked_count = int(readiness.get('blocked_count') or 0)
+            if review == 'payment_blocked' and blocked_count > 0:
+                selected.append(invoice)
+            elif review == 'payment_ready' and blocked_count == 0 and int(readiness.get('ready_count') or 0) > 0:
+                selected.append(invoice)
+        review_filtered = selected
+
+    if review_filtered is not None:
+        paged_invoices, invoice_pagination = _paginate_list(review_filtered, request, page_size=25)
+    else:
+        paged_invoices, invoice_pagination = _paginate_qs(invoices, request, page_size=25)
     readiness_by_order = {}
     order_numbers = sorted({
         invoice.matched_order_number or (invoice.matched_farmer.order_number if invoice.matched_farmer else '')
@@ -1467,6 +1503,7 @@ def portal_invoice_pool(request):
             'status': status,
             'search': search,
             'batch_id': batch_id,
+            'review': review,
         },
     })
 

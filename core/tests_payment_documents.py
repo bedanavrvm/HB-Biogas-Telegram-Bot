@@ -156,6 +156,47 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertIn(str(batch.id), batch_ids)
         self.assertIn(str(unmatched_batch.id), batch_ids)
 
+    def test_invoice_pool_review_filter_returns_duplicates(self):
+        farmer = self.farmer(order_number='ORDER-MATCHED')
+        batch = self.invoice_batch(farmer)
+        duplicate_batch = self.invoice_batch()
+
+        response = self.client.get(reverse('portal_invoice_pool'), {'review': 'duplicates'})
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['ok'])
+        invoice_ids = {item['id'] for item in data['invoices']}
+        self.assertEqual(invoice_ids, {
+            str(batch.invoices.get().id),
+            str(duplicate_batch.invoices.get().id),
+        })
+
+    def test_invoice_pool_review_filter_returns_payment_ready_and_blocked(self):
+        ready_farmer = self.farmer(order_number='ORDER-READY')
+        self.invoice_batch(ready_farmer)
+        blocked_farmer = self.farmer(
+            order_number='ORDER-BLOCKED',
+            customer_name='Blocked Customer',
+            national_id='88887777',
+            primary_phone='254722222222',
+            repayment_date='',
+            repayment_tenor='',
+        )
+        self.invoice_batch(blocked_farmer)
+
+        ready_response = self.client.get(reverse('portal_invoice_pool'), {'review': 'payment_ready'})
+        blocked_response = self.client.get(reverse('portal_invoice_pool'), {'review': 'payment_blocked'})
+
+        self.assertEqual(ready_response.status_code, 200)
+        self.assertEqual(blocked_response.status_code, 200)
+        ready_orders = {item['matched_order_number'] for item in ready_response.json()['invoices']}
+        blocked_orders = {item['matched_order_number'] for item in blocked_response.json()['invoices']}
+        self.assertIn('ORDER-READY', ready_orders)
+        self.assertNotIn('ORDER-BLOCKED', ready_orders)
+        self.assertIn('ORDER-BLOCKED', blocked_orders)
+        self.assertNotIn('ORDER-READY', blocked_orders)
+
     def test_invoice_farmer_candidate_search(self):
         farmer = self.farmer(customer_name='Searchable Client', national_id='99887766')
 

@@ -5,6 +5,7 @@
   let state = {
     page: 1,
     status: '',
+    review: '',
     search: '',
     loading: false,
     selectedInvoice: null,
@@ -233,6 +234,7 @@
     if (list) list.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
     const params = new URLSearchParams({ page: String(state.page) });
     if (state.status) params.set('status', state.status);
+    if (state.review) params.set('review', state.review);
     if (state.search) params.set('search', state.search);
     if (extra && extra.batch_id) params.set('batch_id', extra.batch_id);
     const result = await deps.apiFetch('/invoice-pool/?' + params.toString());
@@ -533,6 +535,10 @@
       state.status = event.target.value || '';
       load(1);
     });
+    el('invoice-pool-review')?.addEventListener('change', function (event) {
+      state.review = event.target.value || '';
+      load(1);
+    });
     el('invoice-pool-search')?.addEventListener('input', function (event) {
       clearTimeout(searchTimer);
       state.search = event.target.value.trim();
@@ -540,8 +546,10 @@
     });
     el('invoice-pool-clear')?.addEventListener('click', function () {
       state.status = '';
+      state.review = '';
       state.search = '';
       if (el('invoice-pool-status')) el('invoice-pool-status').value = '';
+      if (el('invoice-pool-review')) el('invoice-pool-review').value = '';
       if (el('invoice-pool-search')) el('invoice-pool-search').value = '';
       load(1);
     });
