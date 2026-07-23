@@ -442,10 +442,12 @@ def commit_farmup_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict],
             row['Cleaning Notes'] = append_note(row.get('Cleaning Notes', ''), 'Customer Name is required')
             remaining_rows.append(row)
             continue
-        if not cleaned['national_id'] and not cleaned['primary_phone']:
-            errors.append(f"Row {index}: National ID or Primary Phone is required.")
+        validation_notes = farmup_review_validation_notes(row, cleaned)
+        if validation_notes:
+            errors.append(f"Row {index}: {'; '.join(validation_notes)}.")
             row['Import Status'] = 'review_needed'
-            row['Cleaning Notes'] = append_note(row.get('Cleaning Notes', ''), 'National ID or Primary Phone is required')
+            for note in validation_notes:
+                row['Cleaning Notes'] = append_note(row.get('Cleaning Notes', ''), note)
             remaining_rows.append(row)
             continue
         if cleaned['primary_phone'] and not is_valid_phone(cleaned['primary_phone']):
@@ -987,6 +989,26 @@ def cleaned_master_row_from_review(
         'raw_data': raw_data,
         'last_imported_at': imported_at,
     }
+
+
+def farmup_review_validation_notes(row: dict, cleaned: dict) -> list[str]:
+    notes = []
+    raw_national_id = clean_text(row.get('National ID', ''))
+    if raw_national_id and not clean_national_id(raw_national_id):
+        notes.append('National ID must be 5-12 digits only')
+    required = [
+        ('National ID', 'national_id'),
+        ('Primary Phone', 'primary_phone'),
+        ('Secondary Phone', 'secondary_phone'),
+        ('County', 'county'),
+        ('HBG Visit Date', 'sign_date'),
+        ('Deposit Paid to HB', 'actual_receipts'),
+        ('HB Sales Person', 'hb_sales_person'),
+    ]
+    for label, field in required:
+        if not cleaned.get(field):
+            notes.append(f'Missing {label}')
+    return notes
 
 
 def append_note(existing: str, note: str) -> str:

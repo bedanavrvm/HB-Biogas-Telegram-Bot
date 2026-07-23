@@ -1329,8 +1329,8 @@ Mary Njeri njihia
         )
 
         csv_text = (
-            "Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Sign Date,Sign Date,Created Date,HBG Contract Name\n"
-            "David Mugambi [23215888],,Embu,+254721997481,+254704408281,5000,01/05/2026,24/06/2026,30/06/2026,HBGC-14560\n"
+            "Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Sign Date,Sign Date,Created Date,HBG Contract Name,Sales Person\n"
+            "David Mugambi [23215888],,Embu,+254721997481,+254704408281,5000,01/05/2026,24/06/2026,30/06/2026,HBGC-14560,Jane Sales\n"
         )
         batch, stats = create_farmup_review_batch(
             group_id=self.group.group_id,
@@ -1366,9 +1366,9 @@ Mary Njeri njihia
         )
 
         csv_text = (
-            "Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Sign Date,Sign Date\n"
-            "David Mugambi [23215888],,Embu,+254721997481,,5000,01/05/2026,24/06/2026\n"
-            "Mary Njeri [12345678],,Meru,+254722000000,,0,01/05/2026,25/06/2026\n"
+            "Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Sign Date,Sign Date,Sales Person\n"
+            "David Mugambi [23215888],,Embu,+254721997481,+254704408281,5000,01/05/2026,24/06/2026,Jane Sales\n"
+            "Mary Njeri [12345678],,Meru,+254722000000,+254704408282,0,01/05/2026,25/06/2026,Jane Sales\n"
         )
         batch, _stats = create_farmup_review_batch(
             group_id=self.group.group_id,
@@ -1391,6 +1391,66 @@ Mary Njeri njihia
         self.assertEqual(batch.skipped_count, 1)
         self.assertEqual(len(batch.parsed_rows), 0)
         self.assertEqual(JawabuFarmerMaster.objects.count(), 1)
+
+    def test_jawabu_farmup_commit_blocks_blank_deposit_with_correct_reason(self):
+        from core.services.jawabu_master import (
+            commit_farmup_review_batch,
+            create_farmup_review_batch,
+        )
+
+        csv_text = (
+            "Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Sign Date,Sales Person\n"
+            "Peter Matomu Karina,12345678,Embu,+254721997481,+254704408281,5000,24/06/2026,Jane Sales\n"
+        )
+        batch, _stats = create_farmup_review_batch(
+            group_id=self.group.group_id,
+            telegram_message_id='farmup_missing_deposit',
+            sender='Uploader',
+            source_filename='farmers.csv',
+            csv_text=csv_text,
+        )
+        rows = list(batch.parsed_rows)
+        rows[0]['Deposit Paid to HB'] = ''
+        rows[0]['approved'] = True
+
+        result = commit_farmup_review_batch(batch, rows)
+
+        batch.refresh_from_db()
+        self.assertFalse(result['success'])
+        self.assertEqual(result['committed'], 0)
+        self.assertEqual(batch.review_needed, 1)
+        self.assertIn('Missing Deposit Paid to HB', batch.parsed_rows[0]['Cleaning Notes'])
+        self.assertNotIn('Missing National ID', batch.parsed_rows[0]['Cleaning Notes'])
+
+    def test_jawabu_farmup_commit_blocks_blank_national_id_with_correct_reason(self):
+        from core.services.jawabu_master import (
+            commit_farmup_review_batch,
+            create_farmup_review_batch,
+        )
+
+        csv_text = (
+            "Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Sign Date,Sales Person\n"
+            "George Nyaga W,12345678,Embu,+254721997481,+254704408281,5000,24/06/2026,Jane Sales\n"
+        )
+        batch, _stats = create_farmup_review_batch(
+            group_id=self.group.group_id,
+            telegram_message_id='farmup_missing_id',
+            sender='Uploader',
+            source_filename='farmers.csv',
+            csv_text=csv_text,
+        )
+        rows = list(batch.parsed_rows)
+        rows[0]['National ID'] = ''
+        rows[0]['approved'] = True
+
+        result = commit_farmup_review_batch(batch, rows)
+
+        batch.refresh_from_db()
+        self.assertFalse(result['success'])
+        self.assertEqual(result['committed'], 0)
+        self.assertEqual(batch.review_needed, 1)
+        self.assertIn('Missing National ID', batch.parsed_rows[0]['Cleaning Notes'])
+        self.assertNotIn('Missing Deposit Paid to HB', batch.parsed_rows[0]['Cleaning Notes'])
 
     def test_farmup_master_sheet_writer_appends_system_columns_at_far_right(self):
         from core.services.jawabu_master import (
