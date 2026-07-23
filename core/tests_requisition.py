@@ -124,6 +124,14 @@ class RequisitionTemplateGenerationTests(TestCase):
         ]))
         ws = load_workbook(output_path, data_only=False).active
 
+        self.assertEqual(ws['M5'].alignment.horizontal, 'center')
+        self.assertEqual(ws['M5'].alignment.vertical, 'center')
+        self.assertTrue(ws['M5'].font.bold)
+        self.assertEqual(ws['M5'].font.sz, ws['L5'].font.sz)
+        self.assertEqual(ws['M7'].alignment.horizontal, 'center')
+        self.assertEqual(ws['M7'].alignment.vertical, 'center')
+        self.assertTrue(ws['M7'].font.bold)
+        self.assertEqual(ws['M7'].font.sz, ws['L7'].font.sz)
         self.assertEqual(ws['D14'].value, 'Mary Wanjiku')
         self.assertEqual(ws['F14'].value, '12345678')
         self.assertIsNone(ws['H14'].value)

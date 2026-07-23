@@ -40,7 +40,7 @@ def _center_written_cell(cell: Any) -> None:
     alignment = copy.copy(cell.alignment)
     cell.alignment = openpyxl.styles.Alignment(
         horizontal='center',
-        vertical=alignment.vertical or 'center',
+        vertical='center',
         text_rotation=alignment.text_rotation,
         wrap_text=alignment.wrap_text,
         shrink_to_fit=alignment.shrink_to_fit,
