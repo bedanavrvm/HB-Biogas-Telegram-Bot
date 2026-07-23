@@ -10,14 +10,48 @@
   const fields = ['Customer Name', 'National ID', 'Primary Phone', 'Secondary Phone', 'County', 'HBG Visit Date', 'Deposit Paid to HB', 'HB Sales Person', 'Cleaning Notes'];
   const body = document.getElementById('rowsBody');
   const statusEl = document.getElementById('status');
+  const rowSearch = document.getElementById('rowSearch');
+  const visibleCount = document.getElementById('visibleCount');
+  let searchText = '';
 
   function isReview(row) {
-    return row['Import Status'] === 'review_needed' || String(row['Cleaning Notes'] || '').trim();
+    return row['Import Status'] === 'review_needed';
+  }
+
+  function rowSearchText(row) {
+    const values = [
+      row['Customer Name'],
+      row['National ID'],
+      row['Primary Phone'],
+      row['Secondary Phone'],
+      row['County'],
+      row['Constituency'],
+      row['Village'],
+      row['HBG Visit Date'],
+      row['Deposit Paid to HB'],
+      row['HB Sales Person'],
+      row['Import Status'],
+      row['Cleaning Notes'],
+      row['Source Row'],
+      row['Source File'],
+    ];
+    return values.map((value) => String(value || '').toLowerCase()).join(' ');
+  }
+
+  function visibleRows() {
+    const needle = searchText.trim().toLowerCase();
+    if (!needle) return rows;
+    const terms = needle.split(/\s+/).filter(Boolean);
+    return rows.filter((row) => {
+      const haystack = rowSearchText(row);
+      return terms.every((term) => haystack.includes(term));
+    });
   }
 
   function render() {
     body.innerHTML = '';
-    rows.forEach((row) => {
+    const filteredRows = visibleRows();
+    filteredRows.forEach((row) => {
       const tr = document.createElement('tr');
       tr.className = !row.approved ? 'row-skipped' : (isReview(row) ? 'row-review' : '');
       const use = document.createElement('td');
@@ -43,6 +77,15 @@
       });
       body.appendChild(tr);
     });
+    if (!filteredRows.length) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = fields.length + 1;
+      td.className = 'no-results';
+      td.textContent = 'No rows match the current search.';
+      tr.appendChild(td);
+      body.appendChild(tr);
+    }
     renderCounts();
   }
 
@@ -51,6 +94,12 @@
     document.getElementById('approvedCount').textContent = rows.filter((row) => row.approved).length;
     document.getElementById('reviewCount').textContent = rows.filter((row) => row.approved && isReview(row)).length;
     document.getElementById('skippedCount').textContent = rows.filter((row) => !row.approved).length;
+    const shown = visibleRows().length;
+    if (visibleCount) {
+      visibleCount.textContent = searchText.trim()
+        ? `Showing ${shown} of ${rows.length} row(s)`
+        : 'Showing all rows';
+    }
   }
 
   function setStatus(text, kind) {
@@ -114,6 +163,18 @@
     rows.forEach((row) => { if (isReview(row)) row.approved = false; });
     saveDraft();
     render();
+  });
+
+  rowSearch?.addEventListener('input', () => {
+    searchText = rowSearch.value || '';
+    render();
+  });
+
+  document.getElementById('clearSearch')?.addEventListener('click', () => {
+    searchText = '';
+    if (rowSearch) rowSearch.value = '';
+    render();
+    rowSearch?.focus();
   });
 
   document.getElementById('commitBtn').addEventListener('click', async () => {

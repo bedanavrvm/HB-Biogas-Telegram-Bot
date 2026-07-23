@@ -765,7 +765,7 @@ def merge_master_row_values(
             continue
         idx = header_lookup[normalize_header(target_header)] - 1
         current = row_values[idx] if idx < len(row_values) else ''
-        if values_equivalent(current, new_value):
+        if master_values_equivalent(field, current, new_value, cleaned):
             row_values[idx] = new_value
         elif not str(current or '').strip():
             row_values[idx] = new_value
@@ -903,6 +903,21 @@ def update_master_sheet_row(sheet, row_number: int, row_values: list) -> None:
 
 def values_equivalent(left, right) -> bool:
     return clean_text(left).casefold() == clean_text(right).casefold()
+
+
+def master_values_equivalent(field: str, current, new_value, cleaned: dict) -> bool:
+    if values_equivalent(current, new_value):
+        return True
+    if field != 'customer_name':
+        return False
+    current_text = clean_text(current)
+    bracketed_id = extract_bracketed_id(current_text)
+    if not bracketed_id:
+        return False
+    upload_id = clean_national_id(cleaned.get('national_id', ''))
+    if not upload_id or bracketed_id != upload_id:
+        return False
+    return values_equivalent(remove_bracketed_id(current_text), new_value)
 
 
 def positive_int(value, default: int) -> int:
@@ -1163,10 +1178,7 @@ def clean_farmer_row(raw_row: dict, header_map: dict[str, str]) -> dict:
     secondary_phone = normalise_phone(values['secondary_phone'])
     county = normalise_county(values['county']).upper()
     duplicate_key = jawabu_duplicate_key(national_id, primary_phone, customer_name)
-    info_notes = []
     review_notes = []
-    if bracketed_id and not clean_national_id(values['national_id']):
-        info_notes.append('National ID extracted from Full Name brackets')
     if not customer_name:
         review_notes.append('Missing customer name')
     if not national_id and not primary_phone:
@@ -1180,7 +1192,6 @@ def clean_farmer_row(raw_row: dict, header_map: dict[str, str]) -> dict:
     status = clean_status(values['status'])
     if review_notes and status == 'active':
         status = 'review_needed'
-    notes = info_notes + review_notes
 
     return {
         'source': 'jawabu_farmers_csv',
@@ -1212,7 +1223,7 @@ def clean_farmer_row(raw_row: dict, header_map: dict[str, str]) -> dict:
         'comments': clean_text(values['comments']),
         'duplicate_key': duplicate_key,
         'status': status,
-        'cleaning_notes': '; '.join(notes),
+        'cleaning_notes': '; '.join(review_notes),
         'raw_data': raw_data,
     }
 

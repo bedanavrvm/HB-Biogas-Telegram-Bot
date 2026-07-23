@@ -44,6 +44,35 @@ button {
   margin: 8px 0 12px;
 }
 
+.review-search {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  margin: 8px 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+}
+
+.review-search label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.review-search input {
+  flex: 1;
+  min-width: 180px;
+}
+
+.visible-count {
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .metric {
   min-height: 28px;
   padding: 4px 8px;
@@ -86,6 +115,12 @@ textarea {
   min-height: 28px;
 }
 
+.no-results {
+  color: var(--text-muted);
+  font-weight: 700;
+  text-align: center;
+}
+
 @media (max-width: 520px) {
   main {
     padding: 6px 6px 40px;
@@ -99,6 +134,14 @@ textarea {
   }
   .summary {
     margin: 6px 0 8px;
+  }
+  .review-search {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .visible-count {
+    white-space: normal;
   }
   th {
     top: 0;

@@ -1626,6 +1626,88 @@ Mary Njeri njihia
         self.assertEqual(sheet.update_options, ['RAW'])
         self.assertIn('County', sheet.values[4][headers.index('Review Notes')])
 
+    def test_farmup_master_sheet_writer_accepts_name_with_separated_bracketed_id(self):
+        from core.services.jawabu_master import ensure_master_system_headers, write_rows_to_master_sheet
+
+        class FakeSpreadsheet:
+            def batch_update(self, payload):
+                pass
+
+        class FakeSheet:
+            id = 123
+            spreadsheet = FakeSpreadsheet()
+            col_count = 10
+
+            def __init__(self):
+                self.update_options = []
+                self.values = [
+                    [],
+                    [],
+                    ['No.', 'Customer Name', 'National ID', 'Primary Phone', 'County', 'Duplicate Key'],
+                    [],
+                    ['1', 'DAVID MUGAMBI [23215888]', '', '254721997481', 'EMBU', '23215888|254721997481'],
+                ]
+
+            def row_values(self, row):
+                return list(self.values[row - 1])
+
+            def add_cols(self, count):
+                self.col_count += count
+
+            def update_cell(self, row, col, value):
+                while len(self.values[row - 1]) < col:
+                    self.values[row - 1].append('')
+                self.values[row - 1][col - 1] = value
+
+            def update_cells(self, cells, value_input_option=None):
+                for cell in cells:
+                    self.update_cell(cell.row, cell.col, cell.value)
+
+            def get_all_values(self):
+                return [list(row) for row in self.values]
+
+            def update(self, range_name, rows, value_input_option=None):
+                self.update_options.append(value_input_option)
+                row_number = int(range_name.split(':', 1)[0][1:])
+                self.values[row_number - 1] = list(rows[0])
+
+            def batch_update(self, payload, value_input_option=None, **kwargs):
+                self.update_options.append(value_input_option)
+                for item in payload:
+                    row_number = int(item['range'].split(':', 1)[0][1:])
+                    for offset, row in enumerate(item['values']):
+                        self.values[row_number + offset - 1] = list(row)
+
+        batch = JawabuFarmerUploadBatch.objects.create(
+            group_id=self.group.group_id,
+            sender='Reviewer',
+            source_filename='farmers.csv',
+            total_rows=1,
+        )
+        sheet = FakeSheet()
+        headers = ensure_master_system_headers(sheet, 3)
+        result = write_rows_to_master_sheet(
+            sheet=sheet,
+            headers=headers,
+            data_start_row=5,
+            batch=batch,
+            cleaned_rows=[{
+                'customer_name': 'DAVID MUGAMBI',
+                'national_id': '23215888',
+                'primary_phone': '254721997481',
+                'county': 'EMBU',
+                'duplicate_key': '23215888|254721997481',
+                'source_row_number': 2,
+            }],
+        )
+
+        self.assertEqual(result['updated'], 1)
+        self.assertEqual(result['conflicts'], 0)
+        self.assertEqual(result['conflict_details'], [])
+        self.assertEqual(sheet.values[4][1], 'DAVID MUGAMBI')
+        self.assertEqual(sheet.values[4][2], '23215888')
+        self.assertEqual(sheet.values[4][headers.index('Import Status')], 'updated')
+
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
     def test_farmup_review_batch_flags_master_sheet_conflicts_before_commit(self, mock_service):
         from core.services.jawabu_master import create_farmup_review_batch
@@ -1663,6 +1745,60 @@ Mary Njeri njihia
         self.assertEqual(row['Import Status'], 'review_needed')
         self.assertIn('Master Data conflict before commit', row['Cleaning Notes'])
         self.assertIn('County', row['Cleaning Notes'])
+
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_farmup_review_batch_does_not_flag_separated_bracketed_id(self, mock_service):
+        from core.services.jawabu_master import create_farmup_review_batch
+
+        headers = ['No.', 'Customer Name', 'National ID', 'Primary Phone', 'County', 'Duplicate Key']
+        existing = ['1', 'DAVID MUGAMBI [23215888]', '', '254721997481', 'EMBU', '23215888|254721997481']
+        fake_sheet = FakeMasterDataSheet(headers, existing)
+        mock_service.return_value = FakeJawabuService(fake_sheet)
+        self.group.workflow = {
+            **(self.group.workflow or {}),
+            'master_sync_enabled': True,
+            'master_sheet_id': 'sheet',
+            'master_sheet_name': 'Master Data',
+            'master_header_row': 3,
+            'master_data_start_row': 5,
+        }
+        csv_text = (
+            'Full Name,ID NUMBER,Mobile,HBG Hub,Actual Receipts\n'
+            'David Mugambi,23215888,0721997481,EMBU,5000\n'
+        )
+
+        batch, stats = create_farmup_review_batch(
+            group_id=self.group.group_id,
+            telegram_message_id='101',
+            sender='Reviewer',
+            source_filename='farmers.csv',
+            csv_text=csv_text,
+            group_config=self.group,
+        )
+
+        row = batch.parsed_rows[0]
+        self.assertNotIn('master_sheet_preflight', stats)
+        self.assertEqual(batch.review_needed, 0)
+        self.assertTrue(row['approved'])
+        self.assertEqual(row['Import Status'], 'active')
+        self.assertNotIn('Master Data conflict before commit', row['Cleaning Notes'])
+
+    def test_farmup_preview_extracts_bracketed_id_without_review_note(self):
+        import io
+        from core.services.jawabu_master import build_cleaned_master_preview
+
+        csv_text = (
+            'Full Name,Mobile,HBG Hub,Actual Receipts\n'
+            'David Mugambi [23215888],0721997481,EMBU,5000\n'
+        )
+
+        rows, stats = build_cleaned_master_preview(io.StringIO(csv_text), source_name='farmers.csv')
+
+        self.assertEqual(stats['review_needed'], 0)
+        self.assertEqual(rows[0]['Customer Name'], 'DAVID MUGAMBI')
+        self.assertEqual(rows[0]['National ID'], '23215888')
+        self.assertEqual(rows[0]['Import Status'], 'active')
+        self.assertEqual(rows[0]['Cleaning Notes'], '')
 class FcaWorkflowServiceTest(TestCase):
     """Tests for FCA Excel batch imports."""
 
