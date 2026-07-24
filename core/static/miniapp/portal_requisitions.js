@@ -4,6 +4,8 @@
   let deps = null;
   let invoiceUploadInProgress = false;
   let activeBatch = null;
+  let activeRequisitionPrintPayload = null;
+  let activePaymentPrintPayload = null;
 
   function el(id) { return deps.el(id); }
   function state() { return deps.state; }
@@ -19,6 +21,7 @@
     if (!sheets.length) return '<div class="empty-state">Workbook preview is unavailable.</div>';
     const active = workbook.active_sheet || 0;
     const renderedSheets = sheets.map((sheet, index) => {
+      const images = new Map((sheet.images || []).map(image => [`${image.row}:${image.column}`, image]));
       const columns = (sheet.columns || []).map(col => `<col style="width:${col.hidden ? 0 : Math.max(24, col.width * 7)}px">`).join('');
       const rows = (sheet.rows || []).filter(row => !row.hidden).map(row => {
         const cells = (row.cells || []).map(cell => {
@@ -31,7 +34,9 @@
             `white-space:${s.wrap ? 'normal' : 'nowrap'}`, `border-top:${workbookBorder(s.border_top)}`,
             `border-right:${workbookBorder(s.border_right)}`, `border-bottom:${workbookBorder(s.border_bottom)}`,
             `border-left:${workbookBorder(s.border_left)}`].join(';');
-          return `<td colspan="${cell.col_span || 1}" rowspan="${cell.row_span || 1}" style="${css}">${deps.escapeHtml(cell.value || '')}</td>`;
+          const image = images.get(`${row.number}:${cell.column}`);
+          const imageHtml = image ? `<img class="workbook-cell-image" src="${image.data_url}" alt="" style="width:${Math.max(1, image.width || 1)}px;height:${Math.max(1, image.height || 1)}px">` : '';
+          return `<td colspan="${cell.col_span || 1}" rowspan="${cell.row_span || 1}" style="${css}">${imageHtml}${deps.escapeHtml(cell.value || '')}</td>`;
         }).join('');
         return `<tr style="height:${Math.max(10, row.height || 18)}px">${cells}</tr>`;
       }).join('');
@@ -134,6 +139,7 @@
         return;
       }
       target.innerHTML = renderPrintablePayment(preview);
+      activePaymentPrintPayload = { orderNumber, paymentNumber };
       deps.showToast('Payment preview shown in the Mini App.', 'success');
     } catch (err) {
       target.innerHTML = `<div class="batch-warning">${deps.escapeHtml(err.message || 'Could not load payment preview.')}</div>`;
@@ -156,7 +162,53 @@
     };
     window.addEventListener('afterprint', cleanup);
     window.print();
-    window.setTimeout(cleanup, 1000);
+    // Some mobile webviews dispatch the native print dialog asynchronously.
+    // Keep the print DOM active until afterprint, with a long safety fallback.
+    window.setTimeout(cleanup, 60000);
+  }
+
+  function printWorkbookPreview(workbook) {
+    if (!workbook?.sheets?.length) return deps.showToast('The generated sheet print area is unavailable.', 'error');
+    document.getElementById('workbook-print-host')?.remove();
+    const host = document.createElement('div');
+    host.id = 'workbook-print-host';
+    host.className = 'workbook-print-document';
+    host.innerHTML = renderWorkbookPreview(workbook);
+    document.body.appendChild(host);
+    printDocument('#workbook-print-host');
+  }
+
+  async function printRequisitionWorkbook(button) {
+    if (!activeRequisitionPrintPayload) return deps.showToast('No requisition is open to print.', 'error');
+    deps.setButtonLoading(button, true, 'Preparing Sheet...');
+    try {
+      const response = await deps.portalApi.postJson('/requisition-queue/preview/', {
+        ...activeRequisitionPrintPayload,
+        preview_format: 'print',
+      }, deps.tg, csrfHeader());
+      if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not prepare the generated sheet.');
+      printWorkbookPreview(response.data.workbook_preview);
+    } catch (error) {
+      deps.showToast(error.message || 'Could not prepare the generated sheet.', 'error');
+    } finally {
+      deps.setButtonLoading(button, false);
+    }
+  }
+
+  async function printPaymentWorkbook(button) {
+    if (!activePaymentPrintPayload) return deps.showToast('No payment schedule is open to print.', 'error');
+    deps.setButtonLoading(button, true, 'Preparing Sheet...');
+    try {
+      const { orderNumber, paymentNumber } = activePaymentPrintPayload;
+      const response = await deps.apiFetch('/payment-documents/' + encodeURIComponent(orderNumber)
+        + '/preview-data/?payment_number=' + encodeURIComponent(paymentNumber) + '&format=print');
+      if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not prepare the generated sheet.');
+      printWorkbookPreview(response.data.workbook_preview);
+    } catch (error) {
+      deps.showToast(error.message || 'Could not prepare the generated sheet.', 'error');
+    } finally {
+      deps.setButtonLoading(button, false);
+    }
   }
 
   async function openFinalOrderHistory(orderNumber) {
@@ -180,6 +232,7 @@
     const overlay = el('payment-preview-overlay');
     if (el('payment-preview-sub')) el('payment-preview-sub').textContent = `Payment #${preview.payment_number || '-'} - Order ${preview.order_number || '-'}`;
     if (el('payment-preview-content')) el('payment-preview-content').innerHTML = renderPrintablePayment(preview);
+    activePaymentPrintPayload = { orderNumber: preview.order_number, paymentNumber: preview.payment_number };
     overlay?.classList.add('open');
   }
 
@@ -502,6 +555,11 @@
     ]);
     deps.renderWarnings(warnings, data.warnings || []);
     const allFarmers = [...(data.ready || []), ...(data.blocked || []).map(item => item.farmer)];
+    activeRequisitionPrintPayload = {
+      farmer_ids: (data.ready || []).map(farmer => farmer.id).filter(Boolean),
+      order_number: data.order_number,
+      requisition_date: data.requisition_date,
+    };
     list.innerHTML = readOnly
       ? renderPrintableRequisition(data)
       : (data.workbook_preview
@@ -730,8 +788,10 @@
         const batchOverlay = event.target.closest('#batch-detail-overlay');
         if (batchOverlay && event.target === batchOverlay) batchOverlay.classList.remove('open');
         if (event.target.closest('#payment-preview-close, #payment-preview-done')) el('payment-preview-overlay')?.classList.remove('open');
-        if (event.target.closest('#payment-preview-print')) printDocument('#payment-preview-content .payment-print-preview');
-        if (event.target.closest('#requisition-preview-print')) printDocument('#requisition-preview-list .requisition-print-preview');
+        const paymentPrint = event.target.closest('#payment-preview-print');
+        if (paymentPrint) printPaymentWorkbook(paymentPrint);
+        const requisitionPrint = event.target.closest('#requisition-preview-print');
+        if (requisitionPrint) printRequisitionWorkbook(requisitionPrint);
         const paymentOverlay = event.target.closest('#payment-preview-overlay');
         if (paymentOverlay && event.target === paymentOverlay) paymentOverlay.classList.remove('open');
       });

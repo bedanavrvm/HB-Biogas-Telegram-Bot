@@ -1033,12 +1033,13 @@ def portal_requisition_preview(request):
             'message': f"Order number {order_number} already exists on {existing_order} other client(s). Generating will add/update this same batch.",
         })
     workbook_preview = None
-    if not blocked and preview_format == 'workbook':
+    if not blocked and preview_format in {'workbook', 'print'}:
         from core.services.requisition import RequisitionTemplateError, generate_requisition_excel
         from core.services.workbook_preview import serialize_workbook_preview
         try:
             workbook_preview = serialize_workbook_preview(
-                generate_requisition_excel(farmers, order_number, requisition_date)
+                generate_requisition_excel(farmers, order_number, requisition_date),
+                print_only=preview_format == 'print',
             )
         except (RequisitionTemplateError, FileNotFoundError) as exc:
             warnings.append({'message': f'Excel preview unavailable: {exc}'})
@@ -2024,7 +2025,7 @@ def portal_payment_readiness(request, order_number: str):
 @require_http_methods(["GET"])
 def portal_payment_preview_data(request, order_number: str):
     """Return canonical payment rows for the printable in-app preview."""
-    from core.services.payment_documents import PaymentTemplateError, normalize_payment_number, payment_readiness
+    from core.services.payment_documents import PaymentTemplateError, generate_payment_workbook, normalize_payment_number, payment_readiness
 
     try:
         payment_number = normalize_payment_number(request.GET.get('payment_number'))
@@ -2038,10 +2039,18 @@ def portal_payment_preview_data(request, order_number: str):
     for key in amount_keys:
         values = [row.get(key) for row in rows if row.get(key) not in (None, '')]
         totals[key] = str(sum(values)) if values else None
+    workbook_preview = None
+    if readiness.get('blocked_count', 0) == 0 and request.GET.get('format') == 'print':
+        from core.services.workbook_preview import serialize_workbook_preview
+        try:
+            workbook_bytes, _summary = generate_payment_workbook(order_number, payment_number)
+            workbook_preview = serialize_workbook_preview(workbook_bytes, print_only=True)
+        except PaymentTemplateError as exc:
+            return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     return JsonResponse({'ok': readiness.get('blocked_count', 0) == 0, 'preview': {
         'order_number': order_number, 'payment_number': payment_number, 'rows': rows, 'totals': totals,
         'ready_count': readiness.get('ready_count', 0), 'blocked': readiness.get('blocked', []),
-    }})
+    }, 'workbook_preview': workbook_preview})
 
 
 @csrf_exempt

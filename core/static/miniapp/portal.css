@@ -875,6 +875,8 @@
   line-height: 1.2;
   overflow: hidden;
 }
+.workbook-cell-image { display: block; object-fit: contain; max-width: 100%; }
+.workbook-print-document { position: fixed; left: -100000px; top: 0; background: white; }
 
 .workbook-tabs {
   display: flex;
@@ -956,6 +958,11 @@
   body.printing-document .print-active { position: absolute; inset: 0; width: 100%; box-shadow: none; border: 0; overflow: visible; }
   body.printing-document .payment-print-scroll,
   body.printing-document .requisition-print-scroll { overflow: visible; }
+  body.printing-document .workbook-print-document { left: 0; position: absolute; }
+  body.printing-document .workbook-print-document .workbook-preview,
+  body.printing-document .workbook-print-document .workbook-preview-scroll { border: 0; max-height: none; overflow: visible; padding: 0; background: white; }
+  body.printing-document .workbook-print-document .workbook-sheet { box-shadow: none; min-width: 0; }
+  body.printing-document .workbook-print-document .workbook-tabs { display: none; }
 }
 @media (max-width: 420px) {
   .batch-summary-grid { grid-template-columns: 1fr 1fr; }
