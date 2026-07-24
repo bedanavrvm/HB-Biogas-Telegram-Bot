@@ -2,6 +2,12 @@
   const tg = window.MiniAppTelegram ? window.MiniAppTelegram.init() : null;
   const payload = JSON.parse(document.getElementById('batch-data').textContent);
   let rows = payload.rows || [];
+  // Batches created before Application Action was introduced have no stored
+  // value. Normalize them before review/highlight calculations so the visible
+  // default is also the actual row value.
+  rows.forEach((row) => {
+    if (isBlank(row['Application Action'])) row['Application Action'] = 'update_existing';
+  });
   const batchId = payload.batch_id;
   const token = payload.token;
   const initData = tg ? tg.initData : '';
@@ -23,7 +29,7 @@
 
   function isReview(row) {
     return row['Import Status'] === 'review_needed' || fields.some((fieldName) => (
-      fieldName !== 'Cleaning Notes' && isBlank(row[fieldName])
+      !['Cleaning Notes', 'Application Action'].includes(fieldName) && isBlank(row[fieldName])
     ));
   }
 
@@ -32,6 +38,7 @@
   }
 
   function fieldHasProblem(row, fieldName) {
+    if (fieldName === 'Application Action') return false;
     if (fieldName !== 'Cleaning Notes' && isBlank(row[fieldName])) return true;
     if (!isReview(row)) return false;
     const notes = rowNotes(row);

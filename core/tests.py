@@ -1903,6 +1903,7 @@ Mary Njeri njihia
         self.assertEqual(stats['review_needed'], 0)
         self.assertEqual(rows[0]['Customer Name'], 'DAVID MUGAMBI')
         self.assertEqual(rows[0]['National ID'], '23215888')
+        self.assertEqual(rows[0]['Application Action'], 'update_existing')
         self.assertEqual(rows[0]['Import Status'], 'active')
         self.assertEqual(rows[0]['Cleaning Notes'], '')
 

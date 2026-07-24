@@ -1288,6 +1288,10 @@ def master_preview_row(cleaned: dict, source_name: str, source_row_number: int) 
         'National ID': cleaned.get('national_id', ''),
         'Primary Phone': cleaned.get('primary_phone', ''),
         'Secondary Phone': cleaned.get('secondary_phone', ''),
+        # This is a workflow choice, not a source-file field. New uploads
+        # default to updating the first/existing unit; staff only change it
+        # when the same customer is explicitly applying for another unit.
+        'Application Action': 'update_existing',
         'County': cleaned.get('county', ''),
         'Constituency': cleaned.get('sub_county', ''),
         'Village': cleaned.get('village') or cleaned.get('landmark', ''),
