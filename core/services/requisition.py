@@ -2,6 +2,7 @@ import re
 import copy
 import io
 import os
+import math
 import openpyxl
 from datetime import date, datetime
 from typing import Any
@@ -37,19 +38,22 @@ def copy_row_formatting(ws: Any, src_row: int, dst_row: int) -> None:
         dst_cell.number_format = src_cell.number_format
 
 
-def _center_written_cell(cell: Any) -> None:
+def _center_written_cell(cell: Any, *, wrap: bool = False) -> None:
     alignment = copy.copy(cell.alignment)
     cell.alignment = openpyxl.styles.Alignment(
         horizontal='center',
         vertical='center',
         text_rotation=alignment.text_rotation,
-        wrap_text=alignment.wrap_text,
+        wrap_text=wrap or alignment.wrap_text,
         shrink_to_fit=alignment.shrink_to_fit,
         indent=alignment.indent,
     )
 
 
-def _write_system_value(ws: Any, row: int, column: int, value: Any, *, style_from: Any = None, bold: bool = False) -> None:
+def _write_system_value(
+    ws: Any, row: int, column: int, value: Any, *,
+    style_from: Any = None, bold: bool = False, wrap: bool = False,
+) -> None:
     cell = ws.cell(row=row, column=column, value=value)
     if style_from is not None:
         cell.font = copy.copy(style_from.font)
@@ -57,7 +61,7 @@ def _write_system_value(ws: Any, row: int, column: int, value: Any, *, style_fro
         base_font = copy.copy(cell.font)
         base_font.bold = True
         cell.font = base_font
-    _center_written_cell(cell)
+    _center_written_cell(cell, wrap=wrap)
 
 
 def requisition_location_text(farmer: Any) -> str:
@@ -94,6 +98,7 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
         ws = requisition_worksheet(wb)
     except UnsafeTemplateError as exc:
         raise RequisitionTemplateError(str(exc)) from exc
+    wb.active = wb.index(ws)
     
     # 1. Search for date and order ref cell placeholders in rows 1 to 7
     date_cell = None
@@ -233,13 +238,14 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
     for idx, farmer in enumerate(farmers):
         r = first_data_row + idx
         _write_system_value(ws, r, col_no, idx + 1)  # NO.
-        _write_system_value(ws, r, col_name, farmer.customer_name)  # NAME OF THE CUSTOMER
+        _write_system_value(ws, r, col_name, farmer.customer_name, wrap=True)  # NAME OF THE CUSTOMER
         _write_system_value(ws, r, col_phone, farmer.primary_phone)  # CONTACT NO.
         _write_system_value(ws, r, col_id, farmer.national_id)  # ID NO.
         _write_system_value(ws, r, col_credit, farmer.credit_decision)  # CREDIT ANALYSIS
-        _write_system_value(ws, r, col_callup, "")  # CALLUP COMMENT (blank)
-        _write_system_value(ws, r, col_county, farmer.county)  # COUNTY
-        _write_system_value(ws, r, col_landmark, requisition_location_text(farmer))  # LOCATION & NEAREST LANDMARK
+        _write_system_value(ws, r, col_callup, "", wrap=True)  # CALLUP COMMENT (blank)
+        _write_system_value(ws, r, col_county, farmer.county, wrap=True)  # COUNTY
+        location_text = requisition_location_text(farmer)
+        _write_system_value(ws, r, col_landmark, location_text, wrap=True)  # LOCATION & NEAREST LANDMARK
         
         deposit = (
             float(farmer.deposit_paid_hbg)
@@ -257,7 +263,17 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
             _write_system_value(ws, r, col_hbg, "")  # HBG
             _write_system_value(ws, r, col_jbl, deposit)  # JBL
             
-        _write_system_value(ws, r, col_sales, farmer.hb_sales_person)  # HB SALES PERSON
+        _write_system_value(ws, r, col_sales, farmer.hb_sales_person, wrap=True)  # HB SALES PERSON
+
+        line_count = max(
+            1,
+            math.ceil(len(str(farmer.customer_name or '')) / 24),
+            math.ceil(len(str(farmer.county or '')) / 14),
+            math.ceil(len(location_text) / 30),
+            math.ceil(len(str(farmer.hb_sales_person or '')) / 20),
+        )
+        current_height = float(ws.row_dimensions[r].height or 18)
+        ws.row_dimensions[r].height = max(current_height, min(60, 15 * line_count))
 
     # 7. Remove the template totals row; staff requested no total-customer/deposit summary row.
     new_totals_row = first_data_row + N

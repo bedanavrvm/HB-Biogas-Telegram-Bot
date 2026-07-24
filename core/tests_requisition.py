@@ -10,6 +10,7 @@ from openpyxl.drawing.image import Image as XlsxImage
 from PIL import Image as PilImage
 
 from core.services.requisition import RequisitionTemplateError, generate_requisition_excel
+from core.services.workbook_preview import serialize_workbook_preview
 
 
 class RequisitionTemplateGenerationTests(TestCase):
@@ -100,6 +101,9 @@ class RequisitionTemplateGenerationTests(TestCase):
         self.assertEqual(ws['J14'].value, 'Kieni - Mweiga')
         self.assertEqual(ws['K14'].value, 25000)
         self.assertEqual(ws['M14'].value, 'Sales One')
+        self.assertTrue(ws['D14'].alignment.wrap_text)
+        self.assertTrue(ws['I14'].alignment.wrap_text)
+        self.assertTrue(ws['J14'].alignment.wrap_text)
         self.assertIn(ws['D15'].value, (None, ''))
         self.assertIn(ws['E15'].value, (None, ''))
         self.assertNotIn('TOTAL', str(ws['D15'].value or '').upper())
@@ -135,8 +139,12 @@ class RequisitionTemplateGenerationTests(TestCase):
         output_path.write_bytes(self.generate_with_template(template_path, [self.farmer()]))
         generated = load_workbook(output_path, data_only=False)
 
+        self.assertEqual(generated.active.title, 'Requisition Form')
         self.assertEqual(generated['Instructions']['A1'].value, 'Do not write customer data on this sheet.')
         self.assertEqual(generated['Requisition Form']['D14'].value, 'Mary Wanjiku')
+        preview = serialize_workbook_preview(output_path.read_bytes())
+        self.assertEqual(preview['sheets'][preview['active_sheet']]['name'], 'Requisition Form')
+        self.assertEqual(preview['sheets'][preview['active_sheet']]['rows'][13]['cells'][3]['value'], 'Mary Wanjiku')
 
     def test_supplied_reconciled_template_is_supported_when_present(self):
         template_path = Path('requisition/JBL_Requisition_Form_Reconciled.xlsx')
