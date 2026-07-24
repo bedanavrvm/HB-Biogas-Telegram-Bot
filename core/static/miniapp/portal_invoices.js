@@ -340,20 +340,8 @@
 
   async function generatePaymentPreview(orderNumber) {
     if (!orderNumber) return;
-    const response = await deps.apiFetch('/payment-documents/' + encodeURIComponent(orderNumber) + '/preview/', {
-      method: 'POST',
-      body: JSON.stringify({}),
-    });
-    if (!response.ok || !response.data?.ok) {
-      deps.showToast(response.data?.error || 'Payment preview failed.', 'error');
-      return;
-    }
-    const doc = response.data.document || {};
-    deps.showToast('Payment preview generated.', 'success');
-    if (doc.drive_url) {
-      if (deps.openPortalLink) deps.openPortalLink(doc.drive_url);
-      else window.open(doc.drive_url, '_blank', 'noopener');
-    }
+    if (deps.previewPayment) deps.previewPayment(orderNumber);
+    else deps.showToast('Payment preview is unavailable.', 'error');
   }
 
   async function searchCandidates() {

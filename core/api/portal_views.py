@@ -325,7 +325,9 @@ def _serialize_batch(batch, farmers, request, include_farmers: bool = True) -> d
     summary = _invoice_summary_for_farmers(farmers)
     stored_summary = batch.invoice_summary or {}
     if stored_summary:
-        summary = {**summary, **stored_summary}
+        # Counts come from current farmer records. Keep upload metadata from the
+        # stored snapshot, but never let stale snapshot counts override reality.
+        summary = {**stored_summary, **summary}
     farmers_payload = []
     if include_farmers:
         for farmer in farmers:
@@ -2021,7 +2023,7 @@ def portal_payment_readiness(request, order_number: str):
 
 @require_http_methods(["GET"])
 def portal_payment_preview_data(request, order_number: str):
-    """Return the exact payment rows for an in-Mini-App preview without a Drive write."""
+    """Return canonical payment rows for the printable in-app preview."""
     from core.services.payment_documents import payment_readiness
 
     readiness = payment_readiness(order_number)
@@ -2031,20 +2033,9 @@ def portal_payment_preview_data(request, order_number: str):
     for key in amount_keys:
         values = [row.get(key) for row in rows if row.get(key) not in (None, '')]
         totals[key] = str(sum(values)) if values else None
-    workbook_preview = None
-    if readiness.get('blocked_count', 0) == 0:
-        from core.services.payment_documents import generate_payment_workbook
-        from core.services.workbook_preview import serialize_workbook_preview
-        try:
-            workbook_bytes, _summary = generate_payment_workbook(order_number)
-            workbook_preview = serialize_workbook_preview(workbook_bytes)
-        except Exception as exc:
-            logger.exception('Payment workbook preview generation failed for order %s', order_number)
-            return JsonResponse({'ok': False, 'error': str(exc), 'preview': readiness}, status=400)
     return JsonResponse({'ok': readiness.get('blocked_count', 0) == 0, 'preview': {
         'order_number': order_number, 'rows': rows, 'totals': totals,
         'ready_count': readiness.get('ready_count', 0), 'blocked': readiness.get('blocked', []),
-        'workbook_preview': workbook_preview,
     }})
 
 

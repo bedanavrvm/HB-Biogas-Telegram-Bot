@@ -18,6 +18,7 @@ from core.models import (
     ParsedInvoiceEvent,
     PaymentDocument,
     PaymentDocumentTemplate,
+    RequisitionBatch,
 )
 from core.services.invoice_parser import ingest_invoice_upload_batch
 from core.services.payment_documents import (
@@ -552,6 +553,37 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         prepared_rows = [row for row in range(1, ws.max_row + 1) if ws.cell(row=row, column=3).value == 'PREPARED BY:']
         self.assertTrue(prepared_rows)
         self.assertGreater(prepared_rows[0], summary['totals_row'])
+
+    def test_payment_preview_data_returns_rows_without_generating_workbook(self):
+        farmer = self.farmer()
+        self.invoice_batch(farmer)
+
+        with patch('core.services.payment_documents.generate_payment_workbook') as generate:
+            response = self.client.get(reverse('portal_payment_preview_data', args=['ORDER-001']))
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['preview']['rows'][0]['cust_no'], '15357')
+        self.assertNotIn('workbook_preview', data['preview'])
+        generate.assert_not_called()
+
+    def test_batch_detail_uses_live_invoice_count_over_stored_snapshot(self):
+        farmer = self.farmer()
+        RequisitionBatch.objects.create(
+            order_number='ORDER-001',
+            requisition_date=date(2026, 7, 23),
+            farmer_ids=[str(farmer.id)],
+            farmer_count=1,
+            invoice_summary={'invoiced_count': 0, 'pending_invoice_count': 1},
+        )
+
+        response = self.client.get(reverse('portal_requisition_batch_detail', args=['ORDER-001']))
+
+        self.assertEqual(response.status_code, 200)
+        summary = response.json()['batch']['invoice_summary']
+        self.assertEqual(summary['invoiced_count'], 1)
+        self.assertEqual(summary['pending_invoice_count'], 0)
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_payment_preview_endpoint_returns_drive_document(self, storage):

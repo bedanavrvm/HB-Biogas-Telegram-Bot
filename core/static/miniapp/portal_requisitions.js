@@ -69,6 +69,58 @@
     </article>`;
   }
 
+  function paymentValue(value) {
+    return value === null || value === undefined || value === '' ? '' : deps.escapeHtml(value);
+  }
+
+  function renderPrintablePayment(preview) {
+    const rows = (preview.rows || []).map((row, index) => `<tr>
+      <td>${index + 1}</td><td>${paymentValue(row.requisition_date)}</td><td>${paymentValue(row.order_no)}</td>
+      <td>${paymentValue(row.cust_no)}</td><td>${paymentValue(row.name_imab)}</td><td>${paymentValue(row.name)}</td>
+      <td>${paymentValue(row.mobile_no)}</td><td>${paymentValue(row.branch)}</td><td>${paymentValue(row.loan_officer)}</td>
+      <td class="amount">${paymentValue(row.hb_invoice_amount)}</td><td class="amount">${paymentValue(row.discount)}</td>
+      <td class="amount">${paymentValue(row.deposit_paid_hbg)}</td><td class="amount">${paymentValue(row.deposit_paid_jbl)}</td>
+      <td>${paymentValue(row.repayment_dates)}</td><td>${paymentValue(row.tenor)}</td><td>${paymentValue(row.product)}</td>
+    </tr>`).join('');
+    const totals = preview.totals || {};
+    return `<article class="payment-print-preview">
+      <header><h3>JBL Payment Schedule</h3><div><strong>Order No:</strong> ${deps.escapeHtml(preview.order_number || '-')}</div><div><strong>Clients:</strong> ${deps.escapeHtml(preview.ready_count || 0)}</div></header>
+      <div class="payment-print-scroll"><table>
+        <thead><tr><th>No.</th><th>Requisition date</th><th>Order No.</th><th>Customer No.</th><th>Name in IMAB</th><th>Customer name</th><th>Mobile No.</th><th>Branch</th><th>Loan officer</th><th>HB invoice amount</th><th>Discount</th><th>HBG deposit</th><th>JBL deposit</th><th>Repayment date</th><th>Tenor</th><th>Product</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="16">No payment rows available.</td></tr>'}</tbody>
+        <tfoot><tr><th colspan="9">Totals</th><th>${paymentValue(totals.hb_invoice_amount)}</th><th>${paymentValue(totals.discount)}</th><th>${paymentValue(totals.deposit_paid_hbg)}</th><th>${paymentValue(totals.deposit_paid_jbl)}</th><th colspan="3"></th></tr></tfoot>
+      </table></div>
+      <footer><span><strong>Prepared by:</strong> __________________</span><span><strong>Checked by:</strong> __________________</span><span><strong>Authorized by:</strong> __________________</span><span><strong>Date:</strong> __________________</span></footer>
+    </article>`;
+  }
+
+  async function openPaymentPreview(orderNumber, button) {
+    const overlay = el('payment-preview-overlay');
+    const target = el('payment-preview-content');
+    const sub = el('payment-preview-sub');
+    if (!overlay || !target || !orderNumber) return;
+    overlay.classList.add('open');
+    if (sub) sub.textContent = `Order ${orderNumber}`;
+    target.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
+    if (button) deps.setButtonLoading(button, true, 'Loading Preview...');
+    try {
+      const response = await deps.apiFetch('/payment-documents/' + encodeURIComponent(orderNumber) + '/preview-data/');
+      const preview = response.data?.preview || {};
+      if (!response.ok || !response.data?.ok) {
+        renderPaymentResult(target, { readiness: { blocked: preview.blocked || [], ready_count: preview.ready_count || 0 } });
+        deps.showToast(response.data?.error || 'Payment preview is blocked.', 'error');
+        return;
+      }
+      target.innerHTML = renderPrintablePayment(preview);
+      deps.showToast('Payment preview shown in the Mini App.', 'success');
+    } catch (err) {
+      target.innerHTML = `<div class="batch-warning">${deps.escapeHtml(err.message || 'Could not load payment preview.')}</div>`;
+      deps.showToast('Could not load payment preview.', 'error');
+    } finally {
+      if (button) deps.setButtonLoading(button, false);
+    }
+  }
+
   function activateWorkbookTabs(container) {
     container?.querySelectorAll('.workbook-tab').forEach(tab => tab.addEventListener('click', () => {
       const index = tab.dataset.sheetIndex;
@@ -601,7 +653,7 @@
           }
           else if (action.id === 'batch-detail-upload') openInvoiceOverlay(activeBatch.order_number);
           else if (action.id === 'batch-payment-readiness') checkPaymentReadiness(activeBatch.order_number);
-          else if (action.id === 'batch-payment-preview') generatePaymentDocument(activeBatch.order_number, false, action);
+          else if (action.id === 'batch-payment-preview') openPaymentPreview(activeBatch.order_number, action);
           else if (action.id === 'batch-payment-final') generatePaymentDocument(activeBatch.order_number, true, action);
           else el('requisition-preview-overlay')?.classList.remove('open');
           return;
@@ -610,6 +662,9 @@
         if (requisitionOverlay && event.target === requisitionOverlay) requisitionOverlay.classList.remove('open');
         const batchOverlay = event.target.closest('#batch-detail-overlay');
         if (batchOverlay && event.target === batchOverlay) batchOverlay.classList.remove('open');
+        if (event.target.closest('#payment-preview-close, #payment-preview-done')) el('payment-preview-overlay')?.classList.remove('open');
+        const paymentOverlay = event.target.closest('#payment-preview-overlay');
+        if (paymentOverlay && event.target === paymentOverlay) paymentOverlay.classList.remove('open');
       });
     }
     bindInvoiceUpload();
@@ -624,6 +679,7 @@
     init,
     openBatchDetail,
     openInvoiceOverlay,
+    openPaymentPreview,
     updateBatchPanel,
   };
 })();

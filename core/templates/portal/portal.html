@@ -438,6 +438,25 @@
   </div>
 </div>
 
+<div class="sheet-overlay" id="payment-preview-overlay" role="dialog" aria-modal="true">
+  <div class="sheet-panel workbook-preview-panel">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+        <div>
+          <h2>Payment Preview</h2>
+          <p class="sheet-sub" id="payment-preview-sub">Printable payment details</p>
+        </div>
+        <button id="payment-preview-close" class="sheet-close-button" aria-label="Close">x</button>
+      </div>
+    </div>
+    <div class="sheet-body" id="payment-preview-content"></div>
+    <div class="sheet-footer">
+      <button class="btn" id="payment-preview-done" type="button">Close Preview</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 </div>
