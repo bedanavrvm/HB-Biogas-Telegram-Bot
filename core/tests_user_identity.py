@@ -87,6 +87,9 @@ class LegacyStaffMigrationCommandTests(TestCase):
         self.assertEqual(preview.status_code, 200)
         self.assertContains(preview, 'Dry-run preview')
         self.assertContains(preview, 'High-confidence users: 1')
+        self.assertContains(preview, 'class="identity-form-grid"')
+        self.assertContains(preview, 'name="display_name"')
+        self.assertContains(preview, 'name="confirmation"')
         self.assertFalse(UserProfile.objects.filter(telegram_id='12345').exists())
 
         applied = self.client.post(url, {'confirmation': 'MIGRATE'})
