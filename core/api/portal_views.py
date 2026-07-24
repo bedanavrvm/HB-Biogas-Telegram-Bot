@@ -521,15 +521,16 @@ def portal_home(request):
     return portal_screen(request, 'dashboard')
 
 
-def _portal_screen_context(screen: str) -> dict:
+def _portal_screen_context(screen: str, **extra) -> dict:
     return {
         'active_screen': screen,
         'invoice_upload_max_file_size_mb': int(getattr(settings, 'INVOICE_UPLOAD_MAX_FILE_SIZE_MB', 8) or 8),
+        **extra,
     }
 
 
 @portal_auth_required
-def _portal_screen_fragment(request, screen: str):
+def _portal_screen_fragment(request, screen: str, context: dict | None = None):
     from core.services.portal_navigation import portal_screen_allowed
     if not portal_screen_allowed(getattr(request, 'portal_user', None), screen, access=getattr(request, 'portal_access', None)):
         return HttpResponse(
@@ -537,7 +538,7 @@ def _portal_screen_fragment(request, screen: str):
             '<p>Your Portal role cannot open this screen.</p></section>',
             status=403,
         )
-    return render(request, 'portal/portal.html', _portal_screen_context(screen))
+    return render(request, 'portal/portal.html', context or _portal_screen_context(screen))
 
 
 @require_http_methods(["GET", "HEAD"])
@@ -555,6 +556,15 @@ def portal_screen(request, screen: str):
     if request.htmx:
         return _portal_screen_fragment(request, screen)
     return render(request, 'portal/portal_screen_full.html', _portal_screen_context(screen))
+
+
+@require_http_methods(["GET", "HEAD"])
+def portal_case_history_detail(request, farmer_id: str):
+    """Render one customer's Case 360 as a dedicated navigable screen."""
+    context = _portal_screen_context('case_history', case_history_farmer_id=farmer_id)
+    if request.htmx:
+        return _portal_screen_fragment(request, 'case_history', context=context)
+    return render(request, 'portal/portal_screen_full.html', context)
 
 
 @portal_auth_required

@@ -38,6 +38,7 @@ from .views import (
 from .portal_views import (
     portal_home,
     portal_screen,
+    portal_case_history_detail,
     portal_navigation,
     portal_dashboard,
     portal_meta,
@@ -147,6 +148,7 @@ urlpatterns = [
 
     # JBL Pipeline Portal
     path('portal/', portal_home, name='portal_home'),
+    path('portal/cases/<str:farmer_id>/', portal_case_history_detail, name='portal_case_history_detail'),
     path('portal/s/<str:screen>/', portal_screen, name='portal_screen'),
     path('portal/navigation/', portal_navigation, name='portal_navigation'),
     path('portal/dashboard/', portal_auth_required(portal_dashboard), name='portal_dashboard'),

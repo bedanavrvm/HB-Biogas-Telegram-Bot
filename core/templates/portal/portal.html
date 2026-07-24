@@ -1,4 +1,4 @@
-<div id="portal-screen" data-screen="{{ active_screen }}" data-top-level="true">
+<div id="portal-screen" data-screen="{{ active_screen }}" data-case-farmer-id="{{ case_history_farmer_id|default:'' }}" data-top-level="{% if case_history_farmer_id %}false{% else %}true{% endif %}">
 
   <div id="portal-offline-banner" style="display:none; position:sticky; top:0; z-index:80; margin:0 0 10px; padding:10px 12px; border:1px solid rgba(255,59,48,.25); border-radius:8px; background:#ffe5e5; color:#b42318; font-size:13px; font-weight:600;">Offline. You can view already loaded data, but uploads and updates need a connection.</div>
   <!-- Shared Filter Bar -->
@@ -277,6 +277,15 @@
 
   <!-- Case History / Case 360 -->
   <section id="page-case_history" class="page{% if active_screen == 'case_history' %} active{% endif %}">
+    {% if case_history_farmer_id %}
+    <header class="case-history-page-header">
+      <a href="{% url 'portal_screen' screen='case_history' %}" class="btn btn-secondary">Back to Case Search</a>
+      <div><h1>Complete Case History</h1><p class="meta">Full customer record, workflow timeline, TAT, documents, and data quality</p></div>
+    </header>
+    <div id="case-history-selected">
+      <div id="case-history-content" class="case360"><div class="empty-state"><div class="spinner-inline"></div></div></div>
+    </div>
+    {% else %}
     <header>
       <h1>Case History</h1>
       <p class="meta">Timeline, turnaround time, documents, and internally collected case data</p>
@@ -292,6 +301,7 @@
       <button type="button" id="case-history-back" class="btn btn-secondary">Back to search</button>
       <div id="case-history-content" class="case360"></div>
     </div>
+    {% endif %}
   </section>
 
   <section id="page-history" class="page{% if active_screen == 'history' %} active{% endif %}">

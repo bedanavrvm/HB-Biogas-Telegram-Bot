@@ -444,6 +444,26 @@ class JblPipelineApiTestCase(TestCase):
         self.assertContains(response, 'id="case-history-content"')
         self.assertNotContains(response, 'id="case360"')
 
+    def test_case_history_customer_has_its_own_page(self):
+        response = self.client.get(reverse('portal_case_history_detail', kwargs={'farmer_id': self.farmer.id}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, '<html')
+        self.assertContains(response, f'data-case-farmer-id="{self.farmer.id}"')
+        self.assertContains(response, 'data-top-level="false"')
+        self.assertContains(response, 'Complete Case History')
+        self.assertNotContains(response, 'id="case-history-search-form"')
+
+    def test_case_history_customer_fragment_omits_shell(self):
+        response = self.client.get(
+            reverse('portal_case_history_detail', kwargs={'farmer_id': self.farmer.id}),
+            HTTP_HX_REQUEST='true',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, '<html')
+        self.assertContains(response, f'data-case-farmer-id="{self.farmer.id}"')
+
     def test_portal_jbl_queue_fragment_renders_cards(self):
         """Verify the htmx JBL queue fragment renders useful farmer cards."""
         response = self.client.get(reverse('portal_jbl_queue_fragment'))

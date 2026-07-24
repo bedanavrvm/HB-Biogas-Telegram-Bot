@@ -751,8 +751,9 @@
   }
 
   function caseHistoryUrl(farmerId) {
-    const base = '/portal/s/case_history/';
-    return farmerId ? `${base}?farmer=${encodeURIComponent(farmerId)}` : base;
+    return farmerId
+      ? `/portal/cases/${encodeURIComponent(farmerId)}/`
+      : '/portal/s/case_history/';
   }
 
   function showCaseHistorySearch() {
@@ -808,7 +809,7 @@
   }
 
   function loadCaseHistory() {
-    const farmerId = new URLSearchParams(window.location.search).get('farmer');
+    const farmerId = document.getElementById('portal-screen')?.dataset.caseFarmerId;
     if (farmerId) loadCaseHistoryFarmer(farmerId);
     else showCaseHistorySearch();
   }
@@ -843,7 +844,7 @@
     const openCaseHistoryButton = event.target.closest('.case-history-open');
     if (openCaseHistoryButton) {
       event.preventDefault();
-      loadCaseHistoryFarmer(openCaseHistoryButton.dataset.farmerId, { pushUrl: true });
+      window.location.assign(caseHistoryUrl(openCaseHistoryButton.dataset.farmerId));
       return;
     }
     if (event.target.closest('#case-history-back')) {
@@ -872,7 +873,7 @@
   });
 
   window.addEventListener('popstate', () => {
-    if (window.location.pathname.includes('/portal/s/case_history/')) loadCaseHistory();
+    if (window.location.pathname.includes('/portal/s/case_history/') || window.location.pathname.includes('/portal/cases/')) loadCaseHistory();
   });
 
   window.PortalAppShell = {
@@ -884,9 +885,7 @@
     },
     openCaseHistory(farmerId) {
       portalFarmerSheet.closeSheet?.();
-      switchPage('case_history');
-      loadCaseHistoryFarmer(farmerId, { pushUrl: true });
-      if (window.lucide) window.lucide.createIcons();
+      window.location.assign(caseHistoryUrl(farmerId));
     },
   };
 

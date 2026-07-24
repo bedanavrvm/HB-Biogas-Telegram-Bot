@@ -816,6 +816,9 @@
 }
 
 .case360 { margin-top: 14px; color: var(--text-primary); }
+.case-history-page-header { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 12px; margin-bottom: 12px; }
+.case-history-page-header .btn { min-height: 40px; }
+.case-history-page-header h1 { margin: 0; }
 .case360-toggle { width: 100%; margin-top: 10px; }
 .case360-hero { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 12px; border: 1px solid var(--border-color); border-radius: 14px 14px 0 0; background: linear-gradient(135deg, color-mix(in srgb, var(--color-primary) 12%, var(--bg-surface)), var(--bg-surface)); padding: 15px; }
 .case360-avatar { display: grid; width: 52px; height: 52px; place-items: center; border-radius: 13px; background: var(--color-primary); color: white; font-size: 17px; font-weight: 800; letter-spacing: .04em; }
@@ -881,7 +884,7 @@
 .case360-valid { display: grid; gap: 3px; border: 1px solid rgba(16,185,129,.25); border-radius: 10px; padding: 12px; background: rgba(16,185,129,.10); color: #047857; }
 .case360-valid span { font-size: 10px; }
 @media (max-width: 700px) { .case360-sections { grid-template-columns: 1fr; } .case360-documents { grid-template-columns: 1fr; } }
-@media (max-width: 520px) { .case360-hero { grid-template-columns: 44px minmax(0, 1fr); } .case360-avatar { width: 44px; height: 44px; } .case360-status { grid-column: 1 / -1; max-width: none; } .case360-tabs { display: flex; overflow-x: auto; } .case360-tabs button { flex: 0 0 auto; min-width: 84px; } .case360-timeline article { grid-template-columns: 1fr; gap: 3px; } }
+@media (max-width: 520px) { .case-history-page-header { grid-template-columns: 1fr; } .case-history-page-header .btn { justify-self: start; } .case360-hero { grid-template-columns: 44px minmax(0, 1fr); } .case360-avatar { width: 44px; height: 44px; } .case360-status { grid-column: 1 / -1; max-width: none; } .case360-tabs { display: flex; overflow-x: auto; } .case360-tabs button { flex: 0 0 auto; min-width: 84px; } .case360-timeline article { grid-template-columns: 1fr; gap: 3px; } }
 
 .workbook-preview {
   border: 1px solid var(--border, #d8dee8);
