@@ -79,13 +79,11 @@
 .page {
   display: none;
   opacity: 0;
-  transform: translateY(8px);
-  transition: opacity 0.22s cubic-bezier(0.34, 1.56, 0.64, 1), transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: opacity 0.12s ease-out;
 }
 .page.active {
   display: block;
   opacity: 1;
-  transform: translateY(0);
 }
 
 /* ── Dashboard count cards ──────────────────────────────────────────────────── */
@@ -223,7 +221,8 @@
   inset: 0;
   z-index: 200;
   background: rgba(0,0,0,0.35);
-  align-items: flex-end;
+  align-items: stretch;
+  justify-content: flex-end;
   animation: fadeInOverlay 0.2s ease;
 }
 .sheet-overlay.open { display: flex; }
@@ -235,27 +234,31 @@
 
 .sheet-panel {
   width: 100%;
-  max-height: 88vh;
+  height: 100dvh;
+  max-height: none;
   background: var(--bg-surface);
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  border-radius: 0;
   padding: 0 0 env(safe-area-inset-bottom, 16px);
   display: flex;
   flex-direction: column;
-  animation: slideUpPanel 0.25s cubic-bezier(0.32,0.72,0,1);
+  animation: slideInPanel 0.16s ease-out;
 }
 
-@keyframes slideUpPanel {
-  from { transform: translateY(40px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+@keyframes slideInPanel {
+  from { transform: translateX(20px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
 }
 
 .sheet-handle {
-  width: 36px;
-  height: 4px;
-  background: var(--border-color);
-  border-radius: 2px;
-  margin: 10px auto 6px;
-  flex-shrink: 0;
+  display: none;
+}
+
+@media (min-width: 760px) {
+  .sheet-panel { max-width: 720px; box-shadow: -8px 0 28px rgba(0,0,0,.18); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page, .sheet-overlay, .sheet-panel { animation: none; transition: none; }
 }
 
 .sheet-header {
