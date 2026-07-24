@@ -289,7 +289,7 @@ def _row_payload(farmer: JawabuFarmerMaster) -> tuple[dict[str, Any], list[str],
     missing = []
     if not farmer.customer_no:
         missing.append('Cust No')
-    if not farmer.invoice_number:
+    if not invoice:
         missing.append('Matched invoice')
     if farmer.balance_due is None:
         missing.append('Balance Due')
@@ -330,12 +330,13 @@ def _row_payload(farmer: JawabuFarmerMaster) -> tuple[dict[str, Any], list[str],
     return row, missing, invoice
 
 
-def payment_readiness(order_number: str) -> dict[str, Any]:
-    farmers = list(
-        JawabuFarmerMaster.objects
-        .filter(order_number=order_number, status='active')
-        .order_by('customer_name')
-    )
+def payment_readiness(order_number: str = '', farmer_ids: list[str] | None = None) -> dict[str, Any]:
+    queryset = JawabuFarmerMaster.objects.filter(status='active')
+    if farmer_ids is not None:
+        queryset = queryset.filter(id__in=farmer_ids)
+    else:
+        queryset = queryset.filter(order_number=order_number)
+    farmers = list(queryset.order_by('customer_name'))
     ready = []
     blocked = []
     invoice_batch_ids = set()
@@ -352,6 +353,7 @@ def payment_readiness(order_number: str) -> dict[str, Any]:
         if invoice:
             invoice_batch_ids.add(str(invoice.batch_id))
             item['invoice_id'] = str(invoice.id)
+            item['invoice_number'] = invoice.invoice_no
             item['invoice_batch_id'] = str(invoice.batch_id)
         if missing:
             blocked.append(item)
@@ -359,6 +361,7 @@ def payment_readiness(order_number: str) -> dict[str, Any]:
             ready.append(item)
     return {
         'order_number': order_number,
+        'order_numbers': sorted({item['row'].get('order_no') for item in ready if item['row'].get('order_no')}),
         'total_clients': len(farmers),
         'ready_count': len(ready),
         'blocked_count': len(blocked),
@@ -432,9 +435,13 @@ def _write_payment_rows(ws, layout: PaymentTemplateLayout, rows: list[dict[str, 
     return totals_row
 
 
-def generate_payment_workbook(order_number: str, payment_number: str) -> tuple[bytes, dict[str, Any]]:
+def generate_payment_workbook(order_number: str, payment_number: str, farmer_ids: list[str] | None = None) -> tuple[bytes, dict[str, Any]]:
     payment_number = normalize_payment_number(payment_number)
-    readiness = payment_readiness(order_number)
+    readiness = payment_readiness(order_number, farmer_ids=farmer_ids)
+    if farmer_ids is not None and len(readiness['ready']) + len(readiness['blocked']) != len(set(farmer_ids)):
+        raise PaymentTemplateError('One or more selected payment cases was not found or is inactive.')
+    if not readiness['ready']:
+        raise PaymentTemplateError('Select at least one invoice-matched case for this payment batch.')
     if readiness['blocked_count']:
         raise PaymentTemplateError('Payment document has blocked rows. Resolve missing fields before generating.')
     from core.services.template_validation import template_source_bytes, validate_template_bytes, UnsafeTemplateError
@@ -488,9 +495,15 @@ def _upload_payment_workbook(data: bytes, filename: str, actor: str, order_numbe
 
 
 @transaction.atomic
-def create_payment_document(order_number: str, payment_number: str, actor: str = '', final: bool = False) -> PaymentDocument:
+def create_payment_document(
+    order_number: str,
+    payment_number: str,
+    actor: str = '',
+    final: bool = False,
+    farmer_ids: list[str] | None = None,
+) -> PaymentDocument:
     payment_number = normalize_payment_number(payment_number)
-    xlsx, summary = generate_payment_workbook(order_number, payment_number)
+    xlsx, summary = generate_payment_workbook(order_number, payment_number, farmer_ids=farmer_ids)
     status = 'final' if final else 'preview'
     version = 1
     if final:
@@ -498,7 +511,7 @@ def create_payment_document(order_number: str, payment_number: str, actor: str =
         version = (latest.version + 1) if latest else 1
     filename = f"HB_Payment_{payment_number}_{order_number}_{status}_v{version}.xlsx"
     drive_file_id, drive_url = _upload_payment_workbook(xlsx, filename, actor, order_number)
-    readiness_snapshot = payment_readiness(order_number)
+    readiness_snapshot = payment_readiness(order_number, farmer_ids=farmer_ids)
     from django.core.serializers.json import DjangoJSONEncoder
     import json
     printable_rows = json.loads(json.dumps(
@@ -527,7 +540,7 @@ def create_payment_document(order_number: str, payment_number: str, actor: str =
             record_pipeline_event(
                 farmer, action='payment_finalized', stage_key='payment', actor=actor,
                 request_id=f'payment-document:{doc.id}:{farmer.id}', source='payment_document',
-                new_values={'order_number': order_number, 'payment_number': payment_number, 'version': version},
+                new_values={'order_number': farmer.order_number, 'payment_number': payment_number, 'version': version},
                 metadata={'payment_document_id': str(doc.id)},
             )
     return doc

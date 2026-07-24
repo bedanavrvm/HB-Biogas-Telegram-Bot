@@ -14,6 +14,7 @@ PORTAL_NAV_ITEMS = (
     ('case_history', 'Case History', 'route', ('JBL_OFFICER', 'CREDIT_ANALYST', 'HB_STAFF', 'ADMIN')),
     ('batches', 'Batches', 'layers', ('HB_STAFF', 'ADMIN')),
     ('invoices', 'Invoices', 'receipt-text', ('HB_STAFF', 'ADMIN')),
+    ('payments', 'Payments', 'banknote', ('HB_STAFF', 'ADMIN')),
     ('history', 'Documents', 'history', ('HB_STAFF', 'ADMIN')),
 )
 

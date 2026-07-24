@@ -149,7 +149,7 @@
     }
   }
 
-  function printDocument(selector) {
+  async function printDocument(selector) {
     const documentNode = document.querySelector(selector);
     if (!documentNode) return deps.showToast('No document is open to print.', 'error');
     document.querySelectorAll('.print-active').forEach(node => node.classList.remove('print-active'));
@@ -161,6 +161,8 @@
       window.removeEventListener('afterprint', cleanup);
     };
     window.addEventListener('afterprint', cleanup);
+    if (document.fonts?.ready) await document.fonts.ready;
+    await new Promise(resolve => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
     window.print();
     // Some mobile webviews dispatch the native print dialog asynchronously.
     // Keep the print DOM active until afterprint, with a long safety fallback.
@@ -811,6 +813,8 @@
     openPaymentPreview,
     openFinalOrderHistory,
     openFinalPaymentHistory,
+    renderWorkbookPreview,
+    printWorkbookPreview,
     updateBatchPanel,
   };
 })();

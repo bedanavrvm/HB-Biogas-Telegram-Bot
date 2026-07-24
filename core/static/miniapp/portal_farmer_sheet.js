@@ -41,7 +41,12 @@
     const current = steps.findIndex(([, complete]) => !complete);
     return `<ol class="case360-flow" aria-label="Case progress">${steps.map(([label, complete], index) => {
       const status = complete ? 'complete' : index === current ? 'current' : 'pending';
-      return `<li class="${status}"><span>${complete ? '&#10003;' : index + 1}</span><small>${deps.escapeHtml(label)}</small></li>`;
+      const icon = complete
+        ? '<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>'
+        : status === 'current'
+          ? '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>'
+          : '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg>';
+      return `<li class="${status}"><span>${icon}</span><small>${deps.escapeHtml(label)}</small></li>`;
     }).join('')}</ol>`;
   }
 
@@ -81,9 +86,9 @@
       ['documents', 'Documents', docLinks.length],
       ['quality', 'Data Quality', validation.length],
     ];
-    const sectionCards = Object.entries(sections).map(([name, values], index) => {
+    const sectionCards = Object.entries(sections).map(([name, values]) => {
       const meta = CASE_SECTION_META[name] || [humanLabel(name), ''];
-      return `<article class="case360-section"><header><span>${String(index + 1).padStart(2, '0')}</span><div><h3>${deps.escapeHtml(meta[0])}</h3><p>${deps.escapeHtml(meta[1])}</p></div></header>${renderBusinessSection(values)}</article>`;
+      return `<details class="case360-section"><summary><div><h3>${deps.escapeHtml(meta[0])}</h3><p>${deps.escapeHtml(meta[1])}</p></div><span class="case360-chevron" aria-hidden="true"></span></summary>${renderBusinessSection(values)}</details>`;
     }).join('');
     root.innerHTML = `
       ${caseHeader(sections)}

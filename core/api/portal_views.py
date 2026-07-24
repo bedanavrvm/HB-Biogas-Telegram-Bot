@@ -2033,6 +2033,72 @@ def portal_payment_readiness(request, order_number: str):
 
 
 @require_http_methods(["GET"])
+def portal_payment_candidates(request):
+    """List active invoice-matched cases available for a selected payment batch."""
+    from core.models import JawabuFarmerMaster
+    from core.services.payment_documents import payment_readiness
+    from django.db.models import Q
+
+    search = request.GET.get('search', '').strip()
+    queryset = JawabuFarmerMaster.objects.filter(
+        status='active', parsed_invoices__status='matched', parsed_invoices__matched_farmer__isnull=False,
+    ).exclude(pipeline_events__action='payment_finalized').distinct().order_by('customer_name')
+    if search:
+        queryset = queryset.filter(
+            Q(customer_name__icontains=search)
+            | Q(national_id__icontains=search)
+            | Q(primary_phone__icontains=search)
+            | Q(order_number__icontains=search)
+            | Q(invoice_number__icontains=search)
+        )
+    farmers = list(queryset[:250])
+    readiness = payment_readiness(farmer_ids=[str(farmer.id) for farmer in farmers]) if farmers else {'ready': [], 'blocked': []}
+    return JsonResponse({'ok': True, 'ready': readiness['ready'], 'blocked': readiness['blocked']})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_payment_selection(request):
+    """Preview or finalize an explicitly selected set of invoice-matched cases."""
+    from core.services.payment_documents import (
+        PaymentTemplateError, create_payment_document, generate_payment_workbook,
+        normalize_payment_number, payment_readiness, serialize_payment_document,
+    )
+    body = _json_body(request)
+    farmer_ids = [str(value) for value in (body.get('farmer_ids') or []) if value]
+    final = bool(body.get('final'))
+    try:
+        payment_number = normalize_payment_number(body.get('payment_number'))
+        if final:
+            from core.models import JawabuFarmerMaster
+            already_paid = JawabuFarmerMaster.objects.filter(
+                id__in=farmer_ids, pipeline_events__action='payment_finalized',
+            ).values_list('customer_name', flat=True)
+            already_paid = list(already_paid)
+            if already_paid:
+                raise PaymentTemplateError(
+                    'Already finalized in a payment batch: ' + ', '.join(already_paid[:5])
+                )
+        scope = f'PAYMENT-{payment_number}'
+        readiness = payment_readiness(scope, farmer_ids=farmer_ids)
+        if final:
+            document = create_payment_document(
+                scope, payment_number, actor=_portal_sender_from_request(request),
+                final=True, farmer_ids=farmer_ids,
+            )
+            return JsonResponse({'ok': True, 'document': serialize_payment_document(document)})
+        workbook_bytes, _summary = generate_payment_workbook(scope, payment_number, farmer_ids=farmer_ids)
+        from core.services.workbook_preview import serialize_workbook_preview
+        return JsonResponse({
+            'ok': True,
+            'readiness': readiness,
+            'workbook_preview': serialize_workbook_preview(workbook_bytes, print_only=True),
+        })
+    except PaymentTemplateError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+
+
+@require_http_methods(["GET"])
 def portal_payment_preview_data(request, order_number: str):
     """Return canonical payment rows for the printable in-app preview."""
     from core.services.payment_documents import PaymentTemplateError, generate_payment_workbook, normalize_payment_number, payment_readiness

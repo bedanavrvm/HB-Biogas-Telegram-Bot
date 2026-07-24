@@ -43,6 +43,8 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertLess(html.index('miniapp/portal_farmer_sheet.js'), html.index('miniapp/portal_filters.js'))
         self.assertLess(html.index('miniapp/portal_filters.js'), html.index('miniapp/portal_requisitions.js'))
         self.assertLess(html.index('miniapp/portal_requisitions.js'), html.index('miniapp/portal.js'))
+        self.assertLess(html.index('miniapp/portal_requisitions.js'), html.index('miniapp/portal_payments.js'))
+        self.assertLess(html.index('miniapp/portal_payments.js'), html.index('miniapp/portal.js'))
 
         spin_response = self.client.get(reverse('spin_form') + '?group_id=-100spin&token=test-token')
         spin_html = spin_response.content.decode('utf-8')
@@ -228,6 +230,19 @@ class MiniAppFrontendSmokeTests(TestCase):
         ):
             self.assertIn(expected, source)
 
+    def test_portal_payments_exposes_selection_primitives(self):
+        source = Path('core/static/miniapp/portal_payments.js').read_text(encoding='utf-8')
+
+        for expected in (
+            'window.PortalMiniAppPayments',
+            'payment-candidate-checkbox',
+            '/payments/candidates/',
+            '/payments/selection/',
+            'farmer_ids',
+            'printWorkbookPreview',
+        ):
+            self.assertIn(expected, source)
+
     def test_queue_apps_keep_fragment_fallback_paths(self):
         expectations = {
             'core/static/miniapp/complaint_cases.js': (
@@ -301,5 +316,5 @@ class MiniAppFrontendSmokeTests(TestCase):
         stylesheet = Path('core/static/miniapp/portal.css').read_text(encoding='utf-8')
         response = self.client.get(reverse('portal_home'))
 
-        self.assertContains(response, 'miniapp/portal.css?v=20')
+        self.assertContains(response, 'miniapp/portal.css?v=22')
         self.assertIn('#requisition-preview-overlay { z-index: 240; }', stylesheet)

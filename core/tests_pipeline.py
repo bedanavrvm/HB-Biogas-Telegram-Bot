@@ -427,7 +427,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertContains(response, 'data-screen="credit"')
 
     def test_each_portal_screen_cold_load_includes_shell(self):
-        for screen in ('dashboard', 'jbl', 'credit', 'final', 'requisition', 'deferred', 'all', 'case_history', 'batches', 'invoices', 'history'):
+        for screen in ('dashboard', 'jbl', 'credit', 'final', 'requisition', 'deferred', 'all', 'case_history', 'batches', 'invoices', 'payments', 'history'):
             with self.subTest(screen=screen):
                 response = self.client.get(reverse('portal_screen', kwargs={'screen': screen}))
                 self.assertEqual(response.status_code, 200)
@@ -463,6 +463,32 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, '<html')
         self.assertContains(response, f'data-case-farmer-id="{self.farmer.id}"')
+
+    def test_payment_candidates_include_only_cases_with_matched_invoices(self):
+        delayed = JawabuFarmerMaster.objects.create(
+            customer_name='Invoice Delayed Customer', national_id='10000001',
+            primary_phone='254700000001', order_number='ORDER-DELAYED', status='active',
+        )
+        invoiced = JawabuFarmerMaster.objects.create(
+            customer_name='Invoice Received Customer', national_id='10000002',
+            primary_phone='254700000002', order_number='ORDER-RECEIVED', status='active',
+        )
+        batch = InvoiceUploadBatch.objects.create(order_number='ORDER-RECEIVED', status='matched')
+        ParsedInvoice.objects.create(
+            batch=batch, status='matched', matched_farmer=invoiced,
+            invoice_no='INV-RECEIVED', balance_due='49000.00',
+        )
+
+        response = self.client.get(reverse('portal_payment_candidates'))
+        payload = response.json()
+        returned_ids = {
+            item['farmer_id']
+            for item in [*(payload.get('ready') or []), *(payload.get('blocked') or [])]
+        }
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(str(invoiced.id), returned_ids)
+        self.assertNotIn(str(delayed.id), returned_ids)
 
     def test_portal_jbl_queue_fragment_renders_cards(self):
         """Verify the htmx JBL queue fragment renders useful farmer cards."""

@@ -233,6 +233,27 @@
     <div class="pagination" id="pg-invoices"></div>
   </section>
 
+  <!-- Payment batch selection -->
+  <section id="page-payments" class="page{% if active_screen == 'payments' %} active{% endif %}">
+    <header><h1>Payments</h1><p class="meta">Select invoice-matched cases for a numbered payment batch</p></header>
+    <div class="payment-builder-toolbar">
+      <label><span>Payment No.</span><input id="payments-number" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 89"></label>
+      <label class="payment-builder-search"><span>Find a case</span><input id="payments-search" type="search" placeholder="Name, ID, phone, invoice, or order"></label>
+      <button type="button" class="btn btn-secondary" id="payments-search-button">Search</button>
+    </div>
+    <div class="payment-builder-actions">
+      <div><strong id="payments-selected-count">0 selected</strong><span id="payments-ready-summary">Loading invoiced cases...</span></div>
+      <button type="button" class="btn btn-secondary" id="payments-select-ready">Select all ready</button>
+      <button type="button" class="btn btn-secondary" id="payments-preview">Preview selected</button>
+      <button type="button" class="btn btn-primary" id="payments-finalize">Generate final payment</button>
+    </div>
+    <div id="payments-list" class="payment-candidate-list"><div class="empty-state"><div class="spinner-inline"></div></div></div>
+    <section id="payments-workbook-preview" class="payment-selection-preview" hidden>
+      <header><div><h2>Selected Payment Sheet</h2><p>Generated print area for the selected cases</p></div><button type="button" class="btn btn-secondary" id="payments-print">Print sheet</button></header>
+      <div id="payments-workbook-content"></div>
+    </section>
+  </section>
+
   <!-- Deferred -->
   <section id="page-deferred" class="page{% if active_screen == 'deferred' %} active{% endif %}">
     <header>
