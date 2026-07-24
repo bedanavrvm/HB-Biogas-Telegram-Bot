@@ -73,6 +73,18 @@
     return value === null || value === undefined || value === '' ? '' : deps.escapeHtml(value);
   }
 
+  function requestedPaymentNumber() {
+    const input = el('batch-payment-number');
+    let value = String(input?.value || '').trim().replace(/^#/, '');
+    if (!value) value = String(window.prompt('Enter the payment number (for example, 89):', '') || '').trim().replace(/^#/, '');
+    if (!/^\d{1,20}$/.test(value)) {
+      deps.showToast('Enter a valid payment number using digits only.', 'error');
+      return '';
+    }
+    if (input) input.value = value;
+    return value;
+  }
+
   function renderPrintablePayment(preview) {
     const rows = (preview.rows || []).map((row, index) => `<tr>
       <td>${index + 1}</td>
@@ -85,7 +97,7 @@
     </tr>`).join('');
     const totals = preview.totals || {};
     return `<article class="payment-print-preview">
-      <header><h3>JBL Payment Schedule</h3><div><strong>Order No:</strong> ${deps.escapeHtml(preview.order_number || '-')}</div><div><strong>Clients:</strong> ${deps.escapeHtml(preview.ready_count || 0)}</div></header>
+      <header><h3>JBL Payment Schedule #${deps.escapeHtml(preview.payment_number || '-')}</h3><div><strong>Order No:</strong> ${deps.escapeHtml(preview.order_number || '-')}</div><div><strong>Clients:</strong> ${deps.escapeHtml(preview.ready_count || 0)}</div></header>
       <div class="payment-total-strip"><span>Invoice <strong>${paymentValue(totals.hb_invoice_amount) || '0'}</strong></span><span>Discount <strong>${paymentValue(totals.discount) || '0'}</strong></span><span>HBG deposit <strong>${paymentValue(totals.deposit_paid_hbg) || '0'}</strong></span><span>JBL deposit <strong>${paymentValue(totals.deposit_paid_jbl) || '0'}</strong></span></div>
       <div class="payment-print-scroll"><table>
         <thead><tr><th>No.</th><th>Customer</th><th>Branch / loan officer</th><th>Invoice amount</th><th>Discount</th><th>Deposits</th><th>Product / repayment</th><th>Requisition / order</th></tr></thead>
@@ -100,12 +112,14 @@
     const target = el('payment-preview-content');
     const sub = el('payment-preview-sub');
     if (!overlay || !target || !orderNumber) return;
+    const paymentNumber = requestedPaymentNumber();
+    if (!paymentNumber) return;
     overlay.classList.add('open');
-    if (sub) sub.textContent = `Order ${orderNumber}`;
+    if (sub) sub.textContent = `Payment #${paymentNumber} - Order ${orderNumber}`;
     target.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
     if (button) deps.setButtonLoading(button, true, 'Loading Preview...');
     try {
-      const response = await deps.apiFetch('/payment-documents/' + encodeURIComponent(orderNumber) + '/preview-data/');
+      const response = await deps.apiFetch('/payment-documents/' + encodeURIComponent(orderNumber) + '/preview-data/?payment_number=' + encodeURIComponent(paymentNumber));
       const preview = response.data?.preview || {};
       if (!response.ok || !response.data?.ok) {
         renderPaymentResult(target, { readiness: { blocked: preview.blocked || [], ready_count: preview.ready_count || 0 } });
@@ -247,6 +261,8 @@
 
   async function generatePaymentDocument(orderNumber, final, button) {
     const target = el('batch-detail-payment-result');
+    const paymentNumber = requestedPaymentNumber();
+    if (!paymentNumber) return;
     const label = final ? 'Generating Final...' : 'Loading Preview...';
     deps.setButtonLoading(button, true, label);
     try {
@@ -266,7 +282,7 @@
         return;
       }
       const path = '/payment-documents/' + encodeURIComponent(orderNumber) + '/' + (final ? 'finalize/' : 'preview/');
-      const response = await deps.portalApi.postJson(path, {}, deps.tg, csrfHeader());
+      const response = await deps.portalApi.postJson(path, { payment_number: paymentNumber }, deps.tg, csrfHeader());
       const data = response.data || {};
       if (!response.ok || !data.ok) {
         renderPaymentResult(target, data);
@@ -386,6 +402,7 @@
       <button class="btn btn-secondary" id="batch-detail-preview">Preview in App</button>
       <button class="btn btn-secondary" id="batch-detail-upload">Upload Invoices</button>
       <button class="btn btn-secondary" id="batch-payment-readiness">Check Payment</button>
+      <label class="payment-number-field"><span>Payment No.</span><input id="batch-payment-number" inputmode="numeric" pattern="[0-9]*" maxlength="20" placeholder="e.g. 89" aria-label="Payment number"></label>
       <button class="btn btn-secondary" id="batch-payment-preview">Preview Payment in App</button>
       <button class="btn btn-primary" id="batch-payment-final">Generate Final Payment</button>
     `;

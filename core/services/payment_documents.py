@@ -29,6 +29,15 @@ class PaymentTemplateError(RuntimeError):
     pass
 
 
+def normalize_payment_number(value: Any) -> str:
+    payment_number = str(value or '').strip().lstrip('#').strip()
+    if not payment_number:
+        raise PaymentTemplateError('Payment number is required.')
+    if not payment_number.isdigit() or len(payment_number) > 20:
+        raise PaymentTemplateError('Payment number must contain digits only (for example, 89).')
+    return payment_number
+
+
 @dataclass(frozen=True)
 class PaymentTemplateLayout:
     sheet_name: str
@@ -420,7 +429,8 @@ def _write_payment_rows(ws, layout: PaymentTemplateLayout, rows: list[dict[str, 
     return totals_row
 
 
-def generate_payment_workbook(order_number: str) -> tuple[bytes, dict[str, Any]]:
+def generate_payment_workbook(order_number: str, payment_number: str) -> tuple[bytes, dict[str, Any]]:
+    payment_number = normalize_payment_number(payment_number)
     readiness = payment_readiness(order_number)
     if readiness['blocked_count']:
         raise PaymentTemplateError('Payment document has blocked rows. Resolve missing fields before generating.')
@@ -435,11 +445,21 @@ def generate_payment_workbook(order_number: str) -> tuple[bytes, dict[str, Any]]
     ws = wb[layout.sheet_name]
     rows = [item['row'] for item in readiness['ready']]
     totals_row = _write_payment_rows(ws, layout, rows)
+    payment_label = f'#{payment_number}'
+    ws['H4'] = payment_label
+    ws.title = payment_label
+    config = wb['_TEMPLATE_CONFIG'] if '_TEMPLATE_CONFIG' in wb.sheetnames else None
+    if config:
+        for row in range(2, config.max_row + 1):
+            if str(config.cell(row=row, column=1).value or '').strip() == 'sheet_name':
+                config.cell(row=row, column=2, value=payment_label)
+                break
     out = io.BytesIO()
     wb.save(out)
     summary = {
         **{key: value for key, value in readiness.items() if key not in {'ready', 'blocked'}},
         'template_sheet': layout.sheet_name,
+        'payment_number': payment_number,
         'header_row': layout.header_row,
         'data_start_row': layout.data_start_row,
         'totals_row': totals_row,
@@ -465,17 +485,19 @@ def _upload_payment_workbook(data: bytes, filename: str, actor: str, order_numbe
 
 
 @transaction.atomic
-def create_payment_document(order_number: str, actor: str = '', final: bool = False) -> PaymentDocument:
-    xlsx, summary = generate_payment_workbook(order_number)
+def create_payment_document(order_number: str, payment_number: str, actor: str = '', final: bool = False) -> PaymentDocument:
+    payment_number = normalize_payment_number(payment_number)
+    xlsx, summary = generate_payment_workbook(order_number, payment_number)
     status = 'final' if final else 'preview'
     version = 1
     if final:
         latest = PaymentDocument.objects.filter(order_number=order_number, status='final').order_by('-version').first()
         version = (latest.version + 1) if latest else 1
-    filename = f"HB_Payment_{order_number}_{status}_v{version}.xlsx"
+    filename = f"HB_Payment_{payment_number}_{order_number}_{status}_v{version}.xlsx"
     drive_file_id, drive_url = _upload_payment_workbook(xlsx, filename, actor, order_number)
     doc = PaymentDocument.objects.create(
         order_number=order_number,
+        payment_number=payment_number,
         status=status,
         version=version,
         filename=filename,
@@ -496,7 +518,7 @@ def create_payment_document(order_number: str, actor: str = '', final: bool = Fa
             record_pipeline_event(
                 farmer, action='payment_finalized', stage_key='payment', actor=actor,
                 request_id=f'payment-document:{doc.id}:{farmer.id}', source='payment_document',
-                new_values={'order_number': order_number, 'version': version},
+                new_values={'order_number': order_number, 'payment_number': payment_number, 'version': version},
                 metadata={'payment_document_id': str(doc.id)},
             )
     return doc
@@ -506,6 +528,7 @@ def serialize_payment_document(doc: PaymentDocument) -> dict[str, Any]:
     return {
         'id': str(doc.id),
         'order_number': doc.order_number,
+        'payment_number': doc.payment_number,
         'status': doc.status,
         'version': doc.version,
         'filename': doc.filename,

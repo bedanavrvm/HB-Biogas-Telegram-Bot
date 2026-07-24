@@ -1993,6 +1993,7 @@ class PaymentDocument(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     order_number = models.CharField(max_length=128, db_index=True)
+    payment_number = models.CharField(max_length=32, blank=True, default='', db_index=True)
     status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='preview', db_index=True)
     version = models.PositiveIntegerField(default=1)
     filename = models.CharField(max_length=255, blank=True, default='')
@@ -2030,4 +2031,5 @@ class PaymentDocument(models.Model):
         verbose_name_plural = 'Payment documents'
 
     def __str__(self):
-        return f"{self.order_number} v{self.version} ({self.status})"
+        payment_label = f" #{self.payment_number}" if self.payment_number else ''
+        return f"{self.order_number}{payment_label} v{self.version} ({self.status})"

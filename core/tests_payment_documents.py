@@ -487,7 +487,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
                 with open('requisition/HB_PAYMENT__89__7__machine_ready (1).xlsx', 'rb') as handle:
                     template.file.save('uploaded_payment_template.xlsx', File(handle), save=True)
 
-                xlsx, summary = generate_payment_workbook('ORDER-UPLOADED')
+                xlsx, summary = generate_payment_workbook('ORDER-UPLOADED', '91')
 
         self.assertTrue(xlsx)
         self.assertEqual(summary['ready_count'], 1)
@@ -506,7 +506,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
             'core.services.payment_documents.workbook_source_from_template',
             return_value=io.BytesIO(template_bytes),
         ) as source:
-            xlsx, summary = generate_payment_workbook('ORDER-DRIVE-TEMPLATE')
+            xlsx, summary = generate_payment_workbook('ORDER-DRIVE-TEMPLATE', '92')
 
         source.assert_called_once()
         self.assertTrue(xlsx)
@@ -527,12 +527,16 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         farmer = self.farmer()
         self.invoice_batch(farmer)
 
-        xlsx, summary = generate_payment_workbook('ORDER-001')
+        xlsx, summary = generate_payment_workbook('ORDER-001', '105')
         path = 'tmp_payment_output.xlsx'
         self.addCleanup(lambda: __import__('pathlib').Path(path).exists() and __import__('pathlib').Path(path).unlink())
         with open(path, 'wb') as handle:
             handle.write(xlsx)
-        ws = load_workbook(path, data_only=False)['#89']
+        workbook = load_workbook(path, data_only=False)
+        ws = workbook['#105']
+
+        self.assertEqual(ws['H4'].value, '#105')
+        self.assertEqual(summary['payment_number'], '105')
 
         self.assertEqual(summary['ready_count'], 1)
         self.assertEqual(ws['C8'].value.date(), date(2026, 7, 23))
@@ -559,14 +563,29 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.invoice_batch(farmer)
 
         with patch('core.services.payment_documents.generate_payment_workbook') as generate:
-            response = self.client.get(reverse('portal_payment_preview_data', args=['ORDER-001']))
+            response = self.client.get(reverse('portal_payment_preview_data', args=['ORDER-001']), {'payment_number': '89'})
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertTrue(data['ok'])
         self.assertEqual(data['preview']['rows'][0]['cust_no'], '15357')
+        self.assertEqual(data['preview']['payment_number'], '89')
         self.assertNotIn('workbook_preview', data['preview'])
         generate.assert_not_called()
+
+    def test_payment_preview_requires_numeric_payment_number(self):
+        self.farmer()
+
+        missing = self.client.get(reverse('portal_payment_preview_data', args=['ORDER-001']))
+        invalid = self.client.get(
+            reverse('portal_payment_preview_data', args=['ORDER-001']),
+            {'payment_number': 'PAY/89'},
+        )
+
+        self.assertEqual(missing.status_code, 400)
+        self.assertEqual(missing.json()['error'], 'Payment number is required.')
+        self.assertEqual(invalid.status_code, 400)
+        self.assertIn('digits only', invalid.json()['error'])
 
     def test_batch_detail_uses_live_invoice_count_over_stored_snapshot(self):
         farmer = self.farmer()
@@ -591,12 +610,16 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.invoice_batch(farmer)
         storage.return_value.upload.return_value = ('drive-xlsx', 'https://drive.test/payment')
 
-        response = self.client.post(reverse('portal_payment_document_preview', args=['ORDER-001']))
+        response = self.client.post(
+            reverse('portal_payment_document_preview', args=['ORDER-001']),
+            data=json.dumps({'payment_number': '89'}), content_type='application/json',
+        )
 
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertTrue(data['ok'])
         self.assertEqual(data['document']['drive_url'], 'https://drive.test/payment')
+        self.assertEqual(data['document']['payment_number'], '89')
         self.assertEqual(PaymentDocument.objects.get().status, 'preview')
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
@@ -606,7 +629,10 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         storage.return_value.upload.return_value = ('drive-xlsx', 'https://drive.test/payment')
         csrf_client = Client(enforce_csrf_checks=True)
 
-        response = csrf_client.post(reverse('portal_payment_document_preview', args=['ORDER-001']))
+        response = csrf_client.post(
+            reverse('portal_payment_document_preview', args=['ORDER-001']),
+            data=json.dumps({'payment_number': '89'}), content_type='application/json',
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['ok'])
@@ -614,7 +640,10 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
     def test_payment_preview_endpoint_returns_readiness_when_blocked(self):
         self.farmer(repayment_date='')
 
-        response = self.client.post(reverse('portal_payment_document_preview', args=['ORDER-001']))
+        response = self.client.post(
+            reverse('portal_payment_document_preview', args=['ORDER-001']),
+            data=json.dumps({'payment_number': '89'}), content_type='application/json',
+        )
 
         self.assertEqual(response.status_code, 400)
         data = response.json()

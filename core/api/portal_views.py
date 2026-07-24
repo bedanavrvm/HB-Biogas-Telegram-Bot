@@ -2024,7 +2024,12 @@ def portal_payment_readiness(request, order_number: str):
 @require_http_methods(["GET"])
 def portal_payment_preview_data(request, order_number: str):
     """Return canonical payment rows for the printable in-app preview."""
-    from core.services.payment_documents import payment_readiness
+    from core.services.payment_documents import PaymentTemplateError, normalize_payment_number, payment_readiness
+
+    try:
+        payment_number = normalize_payment_number(request.GET.get('payment_number'))
+    except PaymentTemplateError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 
     readiness = payment_readiness(order_number)
     rows = [item.get('row') or {} for item in readiness.get('ready', [])]
@@ -2034,7 +2039,7 @@ def portal_payment_preview_data(request, order_number: str):
         values = [row.get(key) for row in rows if row.get(key) not in (None, '')]
         totals[key] = str(sum(values)) if values else None
     return JsonResponse({'ok': readiness.get('blocked_count', 0) == 0, 'preview': {
-        'order_number': order_number, 'rows': rows, 'totals': totals,
+        'order_number': order_number, 'payment_number': payment_number, 'rows': rows, 'totals': totals,
         'ready_count': readiness.get('ready_count', 0), 'blocked': readiness.get('blocked', []),
     }})
 
@@ -2051,7 +2056,12 @@ def portal_payment_document_preview(request, order_number: str):
     )
 
     try:
-        doc = create_payment_document(order_number, actor=_portal_sender_from_request(request), final=False)
+        doc = create_payment_document(
+            order_number,
+            payment_number=_json_body(request).get('payment_number'),
+            actor=_portal_sender_from_request(request),
+            final=False,
+        )
     except PaymentTemplateError as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'readiness': payment_readiness(order_number)}, status=400)
     except Exception as exc:
@@ -2072,7 +2082,12 @@ def portal_payment_document_finalize(request, order_number: str):
     )
 
     try:
-        doc = create_payment_document(order_number, actor=_portal_sender_from_request(request), final=True)
+        doc = create_payment_document(
+            order_number,
+            payment_number=_json_body(request).get('payment_number'),
+            actor=_portal_sender_from_request(request),
+            final=True,
+        )
     except PaymentTemplateError as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'readiness': payment_readiness(order_number)}, status=400)
     except Exception as exc:

@@ -1994,11 +1994,11 @@ class ParsedInvoiceAdmin(ReadOnlyAuditAdmin):
 @admin.register(PaymentDocument)
 class PaymentDocumentAdmin(ReadOnlyAuditAdmin):
     list_display = (
-        'order_number', 'status', 'version', 'row_count',
+        'order_number', 'payment_number', 'status', 'version', 'row_count',
         'generated_by', 'finalized_by', 'created_at',
     )
     list_filter = ('status', 'created_at')
-    search_fields = ('order_number', 'filename', 'generated_by', 'finalized_by', 'drive_file_id', 'drive_url')
+    search_fields = ('order_number', 'payment_number', 'filename', 'generated_by', 'finalized_by', 'drive_file_id', 'drive_url')
 
 @admin.register(SpinCreditRequest)
 class SpinCreditRequestAdmin(TestDataDeleteAdmin):
