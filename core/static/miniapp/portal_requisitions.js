@@ -3,6 +3,7 @@
 
   let deps = null;
   let invoiceUploadInProgress = false;
+  let activeBatch = null;
 
   function el(id) { return deps.el(id); }
   function state() { return deps.state; }
@@ -290,6 +291,7 @@
       return;
     }
     const batch = data.batch;
+    activeBatch = batch;
     const inv = batch.invoice_summary || {};
     sub.textContent = `${batch.requisition_date || 'No date'} - ${batch.farmer_count || 0} client(s)`;
     summary.innerHTML = deps.summaryGrid([
@@ -306,22 +308,6 @@
       <button class="btn btn-secondary" id="batch-payment-preview">Preview Payment in App</button>
       <button class="btn btn-primary" id="batch-payment-final">Generate Final Payment</button>
     `;
-    el('batch-detail-download')?.addEventListener('click', () => deps.openPortalLink(batch.drive_url || batch.download_url));
-    el('batch-detail-generate')?.addEventListener('click', e => generateRequisitionForBatch(batch, e.currentTarget));
-    el('batch-detail-preview')?.addEventListener('click', e => {
-      const farmerIds = (batch.farmers || []).map(farmer => farmer.id).filter(Boolean);
-      previewRequisitionInApp({
-        farmer_ids: farmerIds,
-        order_number: batch.order_number,
-        requisition_date: batch.requisition_date || new Date().toISOString().split('T')[0],
-        return_url: true,
-      }, e.currentTarget);
-    });
-    el('batch-detail-upload')?.addEventListener('click', () => openInvoiceOverlay(batch.order_number));
-    el('batch-payment-readiness')?.addEventListener('click', () => checkPaymentReadiness(batch.order_number));
-    el('batch-payment-preview')?.addEventListener('click', e => generatePaymentDocument(batch.order_number, false, e.currentTarget));
-    el('batch-payment-final')?.addEventListener('click', e => generatePaymentDocument(batch.order_number, true, e.currentTarget));
-
     if (inv.last_invoice_upload_status) {
       const cls = inv.last_invoice_upload_status === 'success' ? 'badge-green' : inv.last_invoice_upload_status === 'partial' ? 'badge-orange' : 'badge-red';
       invoiceResult.innerHTML = `<span class="badge ${cls}">Last invoice upload: ${deps.escapeHtml(inv.last_invoice_upload_status)}</span>${inv.last_invoice_upload_error ? `<div class="batch-warning" style="margin-top:8px;">${deps.escapeHtml(inv.last_invoice_upload_error)}</div>` : ''}`;
@@ -559,7 +545,10 @@
         const action = event.target.closest(
           '#btn-generate-requisition, #requisition-preview-confirm, '
           + '#requisition-preview-workbook, #requisition-preview-close, '
-          + '#requisition-preview-cancel, #batch-detail-close'
+          + '#requisition-preview-cancel, #batch-detail-close, '
+          + '#batch-detail-download, #batch-detail-generate, #batch-detail-preview, '
+          + '#batch-detail-upload, #batch-payment-readiness, '
+          + '#batch-payment-preview, #batch-payment-final'
         );
         if (action) {
           event.preventDefault();
@@ -567,6 +556,22 @@
           else if (action.id === 'requisition-preview-confirm') generateRequisitionFromPreview();
           else if (action.id === 'requisition-preview-workbook') generateWorkbookPreviewFromSelection();
           else if (action.id === 'batch-detail-close') el('batch-detail-overlay')?.classList.remove('open');
+          else if (!activeBatch) deps.showToast('Batch details are unavailable. Close and reopen this batch.', 'error');
+          else if (action.id === 'batch-detail-download') deps.openPortalLink(activeBatch.drive_url || activeBatch.download_url);
+          else if (action.id === 'batch-detail-generate') generateRequisitionForBatch(activeBatch, action);
+          else if (action.id === 'batch-detail-preview') {
+            const farmerIds = (activeBatch.farmers || []).map(farmer => farmer.id).filter(Boolean);
+            previewRequisitionInApp({
+              farmer_ids: farmerIds,
+              order_number: activeBatch.order_number,
+              requisition_date: activeBatch.requisition_date || new Date().toISOString().split('T')[0],
+              return_url: false,
+            }, action);
+          }
+          else if (action.id === 'batch-detail-upload') openInvoiceOverlay(activeBatch.order_number);
+          else if (action.id === 'batch-payment-readiness') checkPaymentReadiness(activeBatch.order_number);
+          else if (action.id === 'batch-payment-preview') generatePaymentDocument(activeBatch.order_number, false, action);
+          else if (action.id === 'batch-payment-final') generatePaymentDocument(activeBatch.order_number, true, action);
           else el('requisition-preview-overlay')?.classList.remove('open');
           return;
         }
