@@ -18,7 +18,7 @@
   }
   // State
   let state = {
-    activePage: 'dashboard',
+    activePage: document.getElementById('portal-screen')?.dataset.screen || 'dashboard',
     counts: {},
     queues: { jbl: [], credit: [], final: [], requisition: [], deferred: [], all: [], batches: [] },
     pagination: {},
@@ -723,8 +723,9 @@
   async function init() {
     configureHtmx();
     await loadMeta();
-    switchPage('dashboard');
-    loadDashboard();
+    const initialPage = document.getElementById('portal-screen')?.dataset.screen || state.activePage || 'dashboard';
+    switchPage(initialPage);
+    loadPage(initialPage);
     if (window.lucide) {
       window.lucide.createIcons();
     }
@@ -735,6 +736,15 @@
       portalRequisitions.updateBatchPanel();
     }
   }
+
+  window.PortalAppShell = {
+    activate(page) {
+      if (!page) return;
+      switchPage(page);
+      loadPage(page);
+      if (window.lucide) window.lucide.createIcons();
+    },
+  };
 
   function getCookie(name) {
     let cookieValue = null;

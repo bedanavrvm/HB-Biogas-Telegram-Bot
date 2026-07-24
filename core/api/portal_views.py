@@ -502,9 +502,53 @@ def _portal_requisition_batches_payload(request) -> tuple[list[dict], dict]:
 
 @require_http_methods(["GET", "HEAD"])
 def portal_home(request):
-    """Render the main JBL Pipeline Portal Mini App page."""
-    return render(request, 'portal/portal.html', {
+    return portal_screen(request, 'dashboard')
+
+
+def _portal_screen_context(screen: str) -> dict:
+    return {
+        'active_screen': screen,
         'invoice_upload_max_file_size_mb': int(getattr(settings, 'INVOICE_UPLOAD_MAX_FILE_SIZE_MB', 8) or 8),
+    }
+
+
+@portal_auth_required
+def _portal_screen_fragment(request, screen: str):
+    from core.services.portal_navigation import portal_screen_allowed
+    if not portal_screen_allowed(getattr(request, 'portal_staff', None), screen):
+        return HttpResponse(
+            '<section class="shell-error" role="alert"><h2>Access denied</h2>'
+            '<p>Your Portal role cannot open this screen.</p></section>',
+            status=403,
+        )
+    return render(request, 'portal/portal.html', _portal_screen_context(screen))
+
+
+@require_http_methods(["GET", "HEAD"])
+def portal_screen(request, screen: str):
+    """Return the persistent shell on cold loads and authenticated content to htmx.
+
+    The Portal's tabs intentionally share one fragment because its existing
+    workflow overlays and client state span queues. The screen URL selects the
+    active section while keeping that shared markup as the single source.
+    """
+    from core.services.portal_navigation import PORTAL_NAV_ITEMS
+    known_screens = {item[0] for item in PORTAL_NAV_ITEMS}
+    if screen not in known_screens:
+        return HttpResponse('Unknown portal screen.', status=404)
+    if request.htmx:
+        return _portal_screen_fragment(request, screen)
+    return render(request, 'portal/portal_screen_full.html', _portal_screen_context(screen))
+
+
+@portal_auth_required
+@require_http_methods(["GET"])
+def portal_navigation(request):
+    """Render only links authorized for the authenticated Telegram staff member."""
+    from core.services.portal_navigation import get_portal_nav_items
+    return render(request, 'portal/partials/navigation.html', {
+        'nav_items': get_portal_nav_items(getattr(request, 'portal_staff', None)),
+        'active_screen': request.GET.get('active', 'dashboard'),
     })
 
 

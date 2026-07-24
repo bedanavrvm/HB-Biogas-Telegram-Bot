@@ -36,6 +36,8 @@ from .views import (
 )
 from .portal_views import (
     portal_home,
+    portal_screen,
+    portal_navigation,
     portal_dashboard,
     portal_meta,
     portal_jbl_queue,
@@ -141,6 +143,8 @@ urlpatterns = [
 
     # JBL Pipeline Portal
     path('portal/', portal_home, name='portal_home'),
+    path('portal/s/<str:screen>/', portal_screen, name='portal_screen'),
+    path('portal/navigation/', portal_navigation, name='portal_navigation'),
     path('portal/dashboard/', portal_auth_required(portal_dashboard), name='portal_dashboard'),
     path('portal/meta/', portal_auth_required(portal_meta), name='portal_meta'),
     # Stage 2 - JBL Visit

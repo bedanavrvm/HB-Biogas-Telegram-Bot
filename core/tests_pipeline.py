@@ -358,6 +358,21 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['ok'])
 
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
+    def test_portal_navigation_omits_links_disallowed_for_role(self):
+        JawabuPortalStaffMember.objects.create(
+            telegram_id='12345', display_name='JBL Officer', roles=['jbl_officer'],
+        )
+        response = self.client.get(
+            reverse('portal_navigation'),
+            HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'JBL Queue')
+        self.assertNotContains(response, 'Credit')
+        self.assertNotContains(response, 'Invoices')
+
 @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, SECURE_SSL_REDIRECT=False)
 class JblPipelineApiTestCase(TestCase):
     """Test suite for the portal Mini App API endpoints."""
@@ -383,9 +398,32 @@ class JblPipelineApiTestCase(TestCase):
         """Verify that the home page view resolves and renders the template."""
         response = self.client.get(reverse('portal_home'))
         self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'base_shell.html')
+        self.assertTemplateUsed(response, 'portal/portal_screen_full.html')
         self.assertTemplateUsed(response, 'portal/portal.html')
         self.assertContains(response, 'htmx.org')
         self.assertContains(response, 'miniapp/utils.js')
+
+    def test_portal_screen_fragment_omits_shell(self):
+        response = self.client.get(
+            reverse('portal_screen', kwargs={'screen': 'credit'}),
+            HTTP_HX_REQUEST='true',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'portal/portal.html')
+        self.assertNotContains(response, '<html')
+        self.assertNotContains(response, 'id="bottom-tabs"')
+        self.assertContains(response, 'data-screen="credit"')
+
+    def test_each_portal_screen_cold_load_includes_shell(self):
+        for screen in ('dashboard', 'jbl', 'credit', 'final', 'requisition', 'deferred', 'all', 'batches', 'invoices'):
+            with self.subTest(screen=screen):
+                response = self.client.get(reverse('portal_screen', kwargs={'screen': screen}))
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, '<html')
+                self.assertContains(response, 'id="content"')
+                self.assertContains(response, f'data-screen="{screen}"')
 
     def test_portal_jbl_queue_fragment_renders_cards(self):
         """Verify the htmx JBL queue fragment renders useful farmer cards."""

@@ -1,0 +1,15 @@
+{% for item in nav_items %}
+  <a class="shell-nav-link{% if item.key == active_screen %} active{% endif %}"
+     href="{{ item.url }}"
+     hx-get="{{ item.url }}"
+     hx-target="#content"
+     hx-select="#portal-screen"
+     hx-swap="innerHTML transition:true"
+     hx-push-url="true"
+     data-screen="{{ item.key }}">
+    <i data-lucide="{{ item.icon }}" aria-hidden="true"></i>
+    <span>{{ item.label }}</span>
+  </a>
+{% empty %}
+  <span class="shell-nav-status">No screens available</span>
+{% endfor %}
