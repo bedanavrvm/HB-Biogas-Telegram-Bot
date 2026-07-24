@@ -1623,12 +1623,15 @@ class JawabuCase360Tests(TestCase):
         farmer = JawabuFarmerMaster.objects.create(
             customer_name='Case 360 Customer', national_id='12345678',
             primary_phone='254712345678', raw_data={'private_parser_value': 'hidden'},
+            deposit_paid_hbg='5000.00', jbl_visit_date=date(2026, 7, 24),
         )
         record_pipeline_event(farmer, action='tracking_started', stage_key='tracking')
 
         payload = serialize_case360(farmer)
 
         self.assertEqual(payload['sections']['identity']['national_id'], '12345678')
+        self.assertEqual(payload['sections']['intake']['deposit_paid_hbg'], '5000')
+        self.assertEqual(payload['sections']['jbl_visit']['visit_date'], '24-July-2026')
         self.assertEqual(payload['timeline'][0]['action'], 'tracking_started')
         self.assertNotIn('raw_data', str(payload))
 

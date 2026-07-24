@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -17,7 +17,7 @@ from core.models import (
     PaymentDocument,
     RequisitionBatch,
 )
-from core.services.jawabu_validation import validation_warnings
+from core.services.jawabu_validation import parse_business_date, parse_money, validation_warnings
 
 
 MILESTONES = (
@@ -29,6 +29,29 @@ MILESTONES = (
     ('invoice_confirmed', 'Invoice confirmed'),
     ('payment_finalized', 'Payment finalized'),
 )
+
+
+def _case_date(value: Any) -> str | None:
+    parsed = value if isinstance(value, date) else parse_business_date(value)
+    return parsed.strftime('%d-%B-%Y') if parsed else None
+
+
+def _case_datetime(value: Any) -> str | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        displayed = timezone.localtime(value) if timezone.is_aware(value) else value
+        return displayed.strftime('%d-%B-%Y %H:%M')
+    parsed = parse_business_date(value)
+    return parsed.strftime('%d-%B-%Y') if parsed else None
+
+
+def _case_amount(value: Any) -> str | None:
+    amount = value if isinstance(value, Decimal) else parse_money(value)
+    if amount is None:
+        return None
+    text = format(amount, 'f')
+    return text.rstrip('0').rstrip('.') if '.' in text else text
 
 
 def event_request_already_processed(farmer: JawabuFarmerMaster, request_id: str) -> bool:
@@ -204,12 +227,12 @@ def serialize_case360(farmer: JawabuFarmerMaster) -> dict[str, Any]:
     return {
         'sections': {
             'identity': {'customer_name': farmer.customer_name, 'national_id': farmer.national_id, 'primary_phone': farmer.primary_phone, 'secondary_phone': farmer.secondary_phone, 'customer_no': farmer.customer_no, 'unit_number': farmer.unit_number},
-            'intake': {'hbg_visit_date': farmer.hbg_visit_date.isoformat() if farmer.hbg_visit_date else farmer.sign_date, 'county': farmer.county, 'constituency': farmer.sub_county, 'ward': farmer.ward, 'village': farmer.village, 'branch': farmer.branch, 'lead_source': farmer.lead_source, 'hb_sales_person': farmer.hb_sales_person, 'deposit_paid_hbg': str(farmer.deposit_paid_hbg) if farmer.deposit_paid_hbg is not None else farmer.actual_receipts},
-            'jbl_visit': {'visit_date': farmer.jbl_visit_date.isoformat() if farmer.jbl_visit_date else None, 'officer': farmer.jbl_officer, 'status': farmer.jbl_visit_status, 'comment': farmer.jbl_visit_comment, 'gps_link': farmer.gps_link},
-            'credit': {'decision': farmer.credit_decision, 'decided_by': farmer.credit_decided_by, 'decided_at': farmer.credit_decided_at.isoformat() if farmer.credit_decided_at else None, 'imab_created': farmer.imab_created, 'customer_no': farmer.customer_no},
-            'final_review': {'decision': farmer.final_decision, 'comment': farmer.final_decision_comment, 'decided_by': farmer.final_decided_by, 'decided_at': farmer.final_decided_at.isoformat() if farmer.final_decided_at else None, 'repayment_day': farmer.repayment_day, 'tenor_months': farmer.repayment_tenor_months},
-            'order': {'order_number': farmer.order_number, 'requisition_date': farmer.requisition_date.isoformat() if farmer.requisition_date else None, 'payment_product': farmer.payment_product},
-            'invoice': {'number': farmer.invoice_number, 'date': farmer.invoice_date.isoformat() if farmer.invoice_date else None, 'amount': str(farmer.invoice_amount) if farmer.invoice_amount is not None else None, 'discount': str(farmer.discount) if farmer.discount is not None else None, 'payment': str(farmer.payment) if farmer.payment is not None else None, 'balance_due': str(farmer.balance_due) if farmer.balance_due is not None else None},
+            'intake': {'hbg_visit_date': _case_date(farmer.hbg_visit_date or farmer.sign_date), 'county': farmer.county, 'constituency': farmer.sub_county, 'ward': farmer.ward, 'village': farmer.village, 'branch': farmer.branch, 'lead_source': farmer.lead_source, 'hb_sales_person': farmer.hb_sales_person, 'deposit_paid_hbg': _case_amount(farmer.deposit_paid_hbg if farmer.deposit_paid_hbg is not None else farmer.actual_receipts)},
+            'jbl_visit': {'visit_date': _case_date(farmer.jbl_visit_date), 'officer': farmer.jbl_officer, 'status': farmer.jbl_visit_status, 'comment': farmer.jbl_visit_comment, 'gps_link': farmer.gps_link},
+            'credit': {'decision': farmer.credit_decision, 'decided_by': farmer.credit_decided_by, 'decided_at': _case_datetime(farmer.credit_decided_at), 'imab_created': farmer.imab_created, 'customer_no': farmer.customer_no},
+            'final_review': {'decision': farmer.final_decision, 'comment': farmer.final_decision_comment, 'decided_by': farmer.final_decided_by, 'decided_at': _case_datetime(farmer.final_decided_at), 'repayment_day': farmer.repayment_day, 'tenor_months': farmer.repayment_tenor_months},
+            'order': {'order_number': farmer.order_number, 'requisition_date': _case_date(farmer.requisition_date), 'payment_product': farmer.payment_product},
+            'invoice': {'number': farmer.invoice_number, 'date': _case_date(farmer.invoice_date), 'amount': _case_amount(farmer.invoice_amount), 'discount': _case_amount(farmer.discount), 'payment': _case_amount(farmer.payment), 'balance_due': _case_amount(farmer.balance_due)},
         },
         'timeline': [{
             'id': str(event.id), 'action': event.action, 'stage': event.stage_key,
