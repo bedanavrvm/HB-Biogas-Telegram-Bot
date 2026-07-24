@@ -815,28 +815,73 @@
   #invoice-pool-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
 }
 
-.case360 { margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 12px; }
+.case360 { margin-top: 14px; color: var(--text-primary); }
 .case360-toggle { width: 100%; margin-top: 10px; }
-.case360-tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 10px; }
-.case360-tabs button { min-height: 32px; padding: 0 10px; white-space: nowrap; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 999px; color: var(--text-muted); }
-.case360-tabs button.active { background: var(--color-primary); border-color: var(--color-primary); color: white; }
-.case360 h3 { margin: 14px 0 7px; font-size: 13px; }
-.case360-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
-.case360-field { min-width: 0; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-surface); padding: 8px; }
-.case360-field span, .case360-timeline small, .case360-tat-row small { display: block; color: var(--text-muted); font-size: 10px; }
-.case360-field strong { display: block; margin-top: 3px; overflow-wrap: anywhere; font-size: 12px; }
-.case360-timeline { border-left: 2px solid var(--border-color); margin-left: 7px; padding-left: 14px; }
-.case360-timeline article { position: relative; display: grid; grid-template-columns: 100px 1fr; gap: 8px; padding: 8px 0; }
-.case360-timeline article::before { content: ''; position: absolute; left: -20px; top: 13px; width: 9px; height: 9px; border-radius: 50%; background: var(--color-primary); }
-.case360-timeline time { color: var(--text-muted); font-size: 10px; }
-.case360-tat-total, .case360-tat-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--border-color); padding: 9px 2px; }
+.case360-hero { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 12px; border: 1px solid var(--border-color); border-radius: 14px 14px 0 0; background: linear-gradient(135deg, color-mix(in srgb, var(--color-primary) 12%, var(--bg-surface)), var(--bg-surface)); padding: 15px; }
+.case360-avatar { display: grid; width: 52px; height: 52px; place-items: center; border-radius: 13px; background: var(--color-primary); color: white; font-size: 17px; font-weight: 800; letter-spacing: .04em; }
+.case360-identity { min-width: 0; }
+.case360-eyebrow { color: var(--color-primary); font-size: 9px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.case360-identity h2 { margin: 2px 0 3px; overflow-wrap: anywhere; font-size: 18px; line-height: 1.15; }
+.case360-identity p { margin: 0; color: var(--text-muted); font-size: 11px; }
+.case360-status { max-width: 140px; border-radius: 999px; background: color-mix(in srgb, var(--color-primary) 13%, transparent); color: var(--color-primary); padding: 6px 9px; font-size: 10px; font-weight: 800; text-align: center; }
+.case360-flow { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); margin: 0 0 14px; border: 1px solid var(--border-color); border-top: 0; border-radius: 0 0 14px 14px; background: var(--bg-surface); padding: 11px 7px 9px; list-style: none; }
+.case360-flow li { position: relative; display: grid; justify-items: center; gap: 4px; min-width: 0; text-align: center; }
+.case360-flow li:not(:last-child)::after { content: ''; position: absolute; top: 11px; left: calc(50% + 13px); right: calc(-50% + 13px); height: 2px; background: var(--border-color); }
+.case360-flow li.complete:not(:last-child)::after { background: var(--color-primary); }
+.case360-flow li > span { position: relative; z-index: 1; display: grid; width: 23px; height: 23px; place-items: center; border: 2px solid var(--border-color); border-radius: 50%; background: var(--bg-surface); color: var(--text-muted); font-size: 9px; font-weight: 800; }
+.case360-flow li.complete > span { border-color: var(--color-primary); background: var(--color-primary); color: white; }
+.case360-flow li.current > span { border-color: var(--color-primary); color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 14%, transparent); }
+.case360-flow small { max-width: 100%; overflow: hidden; color: var(--text-muted); font-size: 8px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.case360-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; margin-bottom: 12px; border: 1px solid var(--border-color); border-radius: 11px; background: var(--bg-muted); padding: 4px; }
+.case360-tabs button { display: flex; min-width: 0; min-height: 38px; align-items: center; justify-content: center; gap: 5px; border: 0; border-radius: 8px; background: transparent; color: var(--text-muted); padding: 5px 6px; font-size: 10px; font-weight: 700; }
+.case360-tabs button b { display: grid; min-width: 17px; height: 17px; place-items: center; border-radius: 999px; background: var(--border-color); font-size: 8px; }
+.case360-tabs button.active { background: var(--bg-surface); color: var(--color-primary); box-shadow: 0 1px 5px rgba(15,23,42,.12); }
+.case360-tabs button.active b { background: color-mix(in srgb, var(--color-primary) 14%, transparent); }
+.case360-panel[hidden] { display: none; }
+.case360-sections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: start; }
+.case360-section { min-width: 0; overflow: hidden; border: 1px solid var(--border-color); border-radius: 12px; background: var(--bg-surface); }
+.case360-section > header { display: flex; align-items: center; gap: 9px; border-bottom: 1px solid var(--border-color); background: var(--bg-muted); padding: 10px 11px; }
+.case360-section > header > span { color: var(--color-primary); font-size: 10px; font-weight: 900; }
+.case360-section h3, .case360-panel-heading h3 { margin: 0; font-size: 12px; }
+.case360-section header p, .case360-panel-heading p { margin: 2px 0 0; color: var(--text-muted); font-size: 9px; line-height: 1.25; }
+.case360-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.case360-field { min-width: 0; min-height: 61px; border-right: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); padding: 9px 10px; }
+.case360-field:nth-child(even), .case360-field.wide { border-right: 0; }
+.case360-field.wide { grid-column: 1 / -1; }
+.case360-field.empty strong { color: var(--text-muted); font-weight: 500; }
+.case360-field span, .case360-timeline small, .case360-tat-row small { display: block; color: var(--text-muted); font-size: 9px; }
+.case360-field strong { display: block; margin-top: 4px; overflow-wrap: anywhere; font-size: 11px; line-height: 1.3; }
+.case360-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.case360-panel-heading > strong { border-radius: 999px; background: var(--bg-muted); padding: 5px 8px; color: var(--text-muted); font-size: 9px; }
+.case360-timeline { margin-left: 9px; border-left: 2px solid var(--border-color); padding-left: 18px; }
+.case360-timeline article { position: relative; display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 10px; border-bottom: 1px solid var(--border-color); padding: 11px 0; }
+.case360-timeline article::before { content: ''; position: absolute; left: -24px; top: 14px; width: 10px; height: 10px; border: 2px solid var(--bg-surface); border-radius: 50%; background: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary); }
+.case360-timeline time { color: var(--text-muted); font-size: 9px; }
+.case360-tat-total { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-radius: 11px; background: color-mix(in srgb, var(--color-primary) 10%, var(--bg-surface)); padding: 12px; }
+.case360-tat-total span { display: block; color: var(--text-muted); font-size: 9px; }
+.case360-tat-total strong { display: block; margin-top: 2px; font-size: 18px; }
+.case360-tat-list { margin-top: 8px; border: 1px solid var(--border-color); border-radius: 11px; overflow: hidden; }
+.case360-tat-row { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; gap: 9px; border-bottom: 1px solid var(--border-color); padding: 10px; }
+.case360-tat-row:last-child { border-bottom: 0; }
+.case360-stage-number { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 7px; background: var(--bg-muted); color: var(--text-muted); font-size: 9px; font-weight: 800; }
 .case360-tat-row > div:last-child { text-align: right; }
 .case360-sla { display: inline-flex; margin-left: 5px; border-radius: 999px; padding: 2px 6px; background: var(--bg-muted); color: var(--text-muted); font-size: 9px; font-weight: 800; }
 .case360-sla.within { background: rgba(16,185,129,.14); color: #059669; }
 .case360-sla.near { background: rgba(245,158,11,.16); color: #b45309; }
 .case360-sla.over { background: rgba(239,68,68,.14); color: #dc2626; }
-.case360-document { display: block; margin-bottom: 7px; border: 1px solid var(--border-color); border-radius: 8px; padding: 9px; color: var(--color-primary); font-weight: 700; text-decoration: none; }
-.case360-valid { border-radius: 8px; padding: 10px; background: rgba(16,185,129,.12); color: #047857; font-weight: 700; }
+.case360-documents { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.case360-document { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 9px; border: 1px solid var(--border-color); border-radius: 10px; padding: 10px; color: var(--text-primary); text-decoration: none; }
+.case360-document > span { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; background: color-mix(in srgb, var(--color-primary) 12%, transparent); color: var(--color-primary); font-size: 8px; font-weight: 900; }
+.case360-document > strong { min-width: 0; overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.case360-document > b { color: var(--color-primary); font-size: 9px; }
+.case360-quality-list { display: grid; gap: 7px; }
+.case360-quality-list article { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 9px; border: 1px solid rgba(245,158,11,.32); border-radius: 9px; background: rgba(245,158,11,.08); padding: 9px; }
+.case360-quality-list article > span { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 50%; background: #f59e0b; color: white; font-weight: 900; }
+.case360-quality-list p { margin: 2px 0 0; color: var(--text-muted); font-size: 10px; }
+.case360-valid { display: grid; gap: 3px; border: 1px solid rgba(16,185,129,.25); border-radius: 10px; padding: 12px; background: rgba(16,185,129,.10); color: #047857; }
+.case360-valid span { font-size: 10px; }
+@media (max-width: 700px) { .case360-sections { grid-template-columns: 1fr; } .case360-documents { grid-template-columns: 1fr; } }
+@media (max-width: 520px) { .case360-hero { grid-template-columns: 44px minmax(0, 1fr); } .case360-avatar { width: 44px; height: 44px; } .case360-status { grid-column: 1 / -1; max-width: none; } .case360-tabs { display: flex; overflow-x: auto; } .case360-tabs button { flex: 0 0 auto; min-width: 84px; } .case360-timeline article { grid-template-columns: 1fr; gap: 3px; } }
 
 .workbook-preview {
   border: 1px solid var(--border, #d8dee8);

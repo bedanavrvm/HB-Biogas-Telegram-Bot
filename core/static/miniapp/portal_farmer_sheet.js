@@ -13,10 +13,50 @@
     return String(value || '').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
   }
 
+  const CASE_SECTION_META = {
+    identity: ['Customer Identity', 'Core identifiers and contact details'],
+    intake: ['Application & Intake', 'Origin, location, sales, and deposit information'],
+    jbl_visit: ['JBL Visit', 'Field visit outcome and officer notes'],
+    credit: ['Credit Analysis', 'Credit decision and IMAB preparation'],
+    final_review: ['Final Review', 'Final decision and repayment terms'],
+    order: ['Order', 'Requisition and product details'],
+    invoice: ['Invoice & Balance', 'Confirmed invoice and payment amounts'],
+  };
+
   function renderBusinessSection(section) {
     return `<div class="case360-grid">${Object.entries(section || {}).map(([key, value]) =>
-      `<div class="case360-field"><span>${deps.escapeHtml(humanLabel(key))}</span><strong>${deps.escapeHtml(value ?? '-')}</strong></div>`
+      `<div class="case360-field ${['comment', 'gps_link'].includes(key) ? 'wide' : ''} ${value === null || value === '' ? 'empty' : ''}"><span>${deps.escapeHtml(humanLabel(key))}</span><strong>${deps.escapeHtml(value ?? '-')}</strong></div>`
     ).join('')}</div>`;
+  }
+
+  function caseStageFlow(sections) {
+    const steps = [
+      ['Application', Boolean(sections.identity?.customer_name || sections.intake?.hbg_visit_date)],
+      ['JBL Visit', Boolean(sections.jbl_visit?.visit_date || sections.jbl_visit?.status)],
+      ['Credit', Boolean(sections.credit?.decision)],
+      ['Final Review', Boolean(sections.final_review?.decision)],
+      ['Order', Boolean(sections.order?.order_number)],
+      ['Invoice', Boolean(sections.invoice?.number)],
+    ];
+    const current = steps.findIndex(([, complete]) => !complete);
+    return `<ol class="case360-flow" aria-label="Case progress">${steps.map(([label, complete], index) => {
+      const status = complete ? 'complete' : index === current ? 'current' : 'pending';
+      return `<li class="${status}"><span>${complete ? '&#10003;' : index + 1}</span><small>${deps.escapeHtml(label)}</small></li>`;
+    }).join('')}</ol>`;
+  }
+
+  function caseHeader(sections) {
+    const identity = sections.identity || {};
+    const intake = sections.intake || {};
+    const status = sections.invoice?.number ? 'Invoiced'
+      : sections.order?.order_number ? 'Ordered'
+      : sections.final_review?.decision || sections.credit?.decision || sections.jbl_visit?.status || 'Application received';
+    const initials = String(identity.customer_name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase();
+    return `<header class="case360-hero">
+      <div class="case360-avatar" aria-hidden="true">${deps.escapeHtml(initials)}</div>
+      <div class="case360-identity"><span class="case360-eyebrow">Customer case</span><h2>${deps.escapeHtml(identity.customer_name || 'Unnamed customer')}</h2><p>${deps.escapeHtml([identity.national_id && `ID ${identity.national_id}`, identity.primary_phone, intake.branch].filter(Boolean).join('  |  ') || 'Identifiers not recorded')}</p></div>
+      <span class="case360-status">${deps.escapeHtml(status)}</span>
+    </header>${caseStageFlow(sections)}`;
   }
 
   function renderCase360(data, target) {
@@ -27,30 +67,47 @@
     const tat = data.tat || {};
     const documents = data.documents || {};
     const validation = data.validation || [];
-    const stageRows = (tat.stages || []).map(stage => `<div class="case360-tat-row"><div><strong>${deps.escapeHtml(stage.label)}</strong><small>${stage.completed_at ? 'Completed' : stage.started_at ? 'In progress' : 'Not tracked'}</small></div><div><strong>${stage.minutes == null ? '-' : deps.escapeHtml(stage.minutes + ' min')}</strong><span class="case360-sla ${deps.escapeHtml(stage.status || '')}">${deps.escapeHtml(humanLabel(stage.status || ''))}</span></div></div>`).join('');
+    const stageRows = (tat.stages || []).map((stage, index) => `<article class="case360-tat-row"><span class="case360-stage-number">${index + 1}</span><div><strong>${deps.escapeHtml(stage.label)}</strong><small>${stage.completed_at ? 'Completed' : stage.started_at ? 'In progress' : 'Not tracked'}</small></div><div><strong>${stage.minutes == null ? '-' : deps.escapeHtml(stage.minutes + ' min')}</strong><span class="case360-sla ${deps.escapeHtml(stage.status || '')}">${deps.escapeHtml(humanLabel(stage.status || ''))}</span></div></article>`).join('');
     const docLinks = [
       ...(documents.visit_media || []).map((url, index) => ({ name: `Visit media ${index + 1}`, url })),
       documents.requisition,
       documents.invoice,
       ...(documents.payments || []),
     ].filter(Boolean);
+    const tabs = [
+      ['overview', 'Overview', ''],
+      ['timeline', 'Timeline', timeline.length],
+      ['tat', 'TAT', (tat.stages || []).length],
+      ['documents', 'Documents', docLinks.length],
+      ['quality', 'Data Quality', validation.length],
+    ];
+    const sectionCards = Object.entries(sections).map(([name, values], index) => {
+      const meta = CASE_SECTION_META[name] || [humanLabel(name), ''];
+      return `<article class="case360-section"><header><span>${String(index + 1).padStart(2, '0')}</span><div><h3>${deps.escapeHtml(meta[0])}</h3><p>${deps.escapeHtml(meta[1])}</p></div></header>${renderBusinessSection(values)}</article>`;
+    }).join('');
     root.innerHTML = `
+      ${caseHeader(sections)}
       <div class="case360-tabs" role="tablist">
-        ${['overview', 'timeline', 'tat', 'documents', 'quality'].map((tab, index) => `<button type="button" data-case360-tab="${tab}" class="${index ? '' : 'active'}">${humanLabel(tab === 'quality' ? 'data quality' : tab)}</button>`).join('')}
+        ${tabs.map(([key, label, count], index) => `<button type="button" role="tab" aria-selected="${index ? 'false' : 'true'}" data-case360-tab="${key}" class="${index ? '' : 'active'}"><span>${label}</span>${count !== '' ? `<b>${count}</b>` : ''}</button>`).join('')}
       </div>
-      <section data-case360-panel="overview">${Object.entries(sections).map(([name, values]) => `<h3>${deps.escapeHtml(humanLabel(name))}</h3>${renderBusinessSection(values)}`).join('')}</section>
-      <section data-case360-panel="timeline" hidden>
+      <section class="case360-panel" role="tabpanel" data-case360-panel="overview"><div class="case360-sections">${sectionCards}</div></section>
+      <section class="case360-panel" role="tabpanel" data-case360-panel="timeline" hidden>
+        <div class="case360-panel-heading"><div><h3>Case Timeline</h3><p>Recorded actions in chronological order</p></div><strong>${timeline.length} events</strong></div>
         ${timeline.length ? `<div class="case360-timeline">${timeline.map(event => `<article><time>${deps.escapeHtml(deps.fmtDate(event.occurred_at))}</time><div><strong>${deps.escapeHtml(humanLabel(event.action))}</strong><small>${deps.escapeHtml([event.actor, event.stage].filter(Boolean).join(' - ') || 'System')}</small></div></article>`).join('')}</div>` : '<div class="empty-state">No exact events recorded yet.</div>'}
       </section>
-      <section data-case360-panel="tat" hidden>
+      <section class="case360-panel" role="tabpanel" data-case360-panel="tat" hidden>
+        <div class="case360-panel-heading"><div><h3>Turnaround Time</h3><p>Time spent at each tracked workflow stage</p></div></div>
         ${tat.historical_timestamps_available ? '' : '<div class="batch-warning">Historical stage timestamps were not inferred. TAT begins with exact events recorded after tracking was enabled.</div>'}
-        <div class="case360-tat-total"><span>Total tracked TAT</span><strong>${tat.total_minutes == null ? '-' : deps.escapeHtml(tat.total_minutes + ' min')}</strong><span class="case360-sla ${deps.escapeHtml(tat.status || '')}">${deps.escapeHtml(humanLabel(tat.status || ''))}</span></div>${stageRows}
+        <div class="case360-tat-total"><div><span>Total tracked TAT</span><strong>${tat.total_minutes == null ? '-' : deps.escapeHtml(tat.total_minutes + ' min')}</strong></div><span class="case360-sla ${deps.escapeHtml(tat.status || '')}">${deps.escapeHtml(humanLabel(tat.status || ''))}</span></div><div class="case360-tat-list">${stageRows}</div>
       </section>
-      <section data-case360-panel="documents" hidden>${docLinks.length ? docLinks.map(doc => `<a class="case360-document" href="${deps.escapeHtml(doc.url)}" target="_blank" rel="noopener">${deps.escapeHtml(doc.name || 'Document')}</a>`).join('') : '<div class="empty-state">No linked documents.</div>'}</section>
-      <section data-case360-panel="quality" hidden>${validation.length ? validation.map(issue => `<div class="batch-warning"><strong>${deps.escapeHtml(humanLabel(issue.field))}</strong><br>${deps.escapeHtml(issue.message)}</div>`).join('') : '<div class="case360-valid">All checked business fields are valid.</div>'}</section>`;
+      <section class="case360-panel" role="tabpanel" data-case360-panel="documents" hidden><div class="case360-panel-heading"><div><h3>Case Documents</h3><p>Files connected to this customer and order</p></div></div><div class="case360-documents">${docLinks.length ? docLinks.map(doc => `<a class="case360-document" href="${deps.escapeHtml(doc.url)}" target="_blank" rel="noopener"><span>DOC</span><strong>${deps.escapeHtml(doc.name || 'Document')}</strong><b>Open</b></a>`).join('') : '<div class="empty-state">No linked documents.</div>'}</div></section>
+      <section class="case360-panel" role="tabpanel" data-case360-panel="quality" hidden><div class="case360-panel-heading"><div><h3>Data Quality</h3><p>Validation checks requiring staff attention</p></div></div>${validation.length ? `<div class="case360-quality-list">${validation.map(issue => `<article><span>!</span><div><strong>${deps.escapeHtml(humanLabel(issue.field))}</strong><p>${deps.escapeHtml(issue.message)}</p></div></article>`).join('')}</div>` : '<div class="case360-valid"><strong>All checks passed</strong><span>All monitored business fields are valid.</span></div>'}</section>`;
     root.hidden = false;
     root.querySelectorAll('[data-case360-tab]').forEach(button => button.addEventListener('click', () => {
-      root.querySelectorAll('[data-case360-tab]').forEach(item => item.classList.toggle('active', item === button));
+      root.querySelectorAll('[data-case360-tab]').forEach(item => {
+        item.classList.toggle('active', item === button);
+        item.setAttribute('aria-selected', String(item === button));
+      });
       root.querySelectorAll('[data-case360-panel]').forEach(panel => { panel.hidden = panel.dataset.case360Panel !== button.dataset.case360Tab; });
     }));
   }
