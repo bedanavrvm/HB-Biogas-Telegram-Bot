@@ -280,6 +280,15 @@ def _validate_requisition_farmers(farmers) -> tuple[list[dict], list[dict], list
     warnings = []
     for farmer in farmers:
         card = farmer_to_card(farmer)
+        deposit = farmer.deposit_paid_hbg if farmer.deposit_paid_hbg is not None else farmer.actual_receipts
+        paid_to_jbl = bool(farmer.lead_source and 'jbl' in farmer.lead_source.lower())
+        card['requisition_preview'] = {
+            'location': ' - '.join(part for part in (
+                str(farmer.sub_county or '').strip(), str(farmer.village or '').strip(),
+            ) if part),
+            'hbg_deposit': '' if paid_to_jbl else str(deposit or ''),
+            'jbl_deposit': str(deposit or '') if paid_to_jbl else '',
+        }
         missing = []
         if farmer.final_decision != 'Approved':
             missing.append(f"Final Decision is {farmer.final_decision or 'not set'}")
@@ -994,6 +1003,7 @@ def portal_requisition_preview(request):
     farmer_ids = body.get('farmer_ids') or []
     order_number = str(body.get('order_number') or '').strip()
     requisition_date_raw = str(body.get('requisition_date') or '').strip()
+    preview_format = str(body.get('preview_format') or 'workbook').strip().lower()
     if not farmer_ids:
         return JsonResponse({'ok': False, 'error': 'No farmers selected.'}, status=400)
     if not order_number:
@@ -1021,7 +1031,7 @@ def portal_requisition_preview(request):
             'message': f"Order number {order_number} already exists on {existing_order} other client(s). Generating will add/update this same batch.",
         })
     workbook_preview = None
-    if not blocked:
+    if not blocked and preview_format == 'workbook':
         from core.services.requisition import RequisitionTemplateError, generate_requisition_excel
         from core.services.workbook_preview import serialize_workbook_preview
         try:
@@ -1041,6 +1051,7 @@ def portal_requisition_preview(request):
         'blocked': blocked,
         'warnings': warnings,
         'workbook_preview': workbook_preview,
+        'preview_format': preview_format,
     })
 
 @csrf_exempt

@@ -41,6 +41,34 @@
     return `<div class="workbook-preview"><div class="workbook-preview-scroll">${renderedSheets}</div>${tabs}</div>`;
   }
 
+  function renderPrintableRequisition(data) {
+    const farmers = [...(data.ready || []), ...(data.blocked || []).map(item => item.farmer)];
+    const rows = farmers.map((farmer, index) => {
+      const preview = farmer.requisition_preview || {};
+      return `<tr>
+        <td>${index + 1}</td>
+        <td>${deps.escapeHtml(farmer.customer_name || '-')}</td>
+        <td>${deps.escapeHtml(farmer.primary_phone || '-')}</td>
+        <td>${deps.escapeHtml(farmer.national_id || '-')}</td>
+        <td>${deps.escapeHtml(farmer.credit_decision || '-')}</td>
+        <td></td>
+        <td>${deps.escapeHtml(farmer.county || '-')}</td>
+        <td>${deps.escapeHtml(preview.location || '-')}</td>
+        <td>${deps.escapeHtml(preview.hbg_deposit || '')}</td>
+        <td>${deps.escapeHtml(preview.jbl_deposit || '')}</td>
+        <td>${deps.escapeHtml(farmer.hb_sales_person || '-')}</td>
+      </tr>`;
+    }).join('');
+    return `<article class="requisition-print-preview">
+      <header><h3>JBL Requisition Form</h3><div><strong>Order No:</strong> ${deps.escapeHtml(data.order_number || '-')}</div><div><strong>Date:</strong> ${deps.escapeHtml(data.requisition_date || '-')}</div></header>
+      <div class="requisition-print-scroll"><table>
+        <thead><tr><th>No.</th><th>Customer name</th><th>Contact</th><th>ID No.</th><th>Credit analysis</th><th>Callup comment</th><th>County</th><th>Location & nearest landmark</th><th>HBG deposit</th><th>JBL deposit</th><th>HB salesperson</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="11">No clients selected.</td></tr>'}</tbody>
+      </table></div>
+      <footer><span><strong>Requisitioned by:</strong> __________________</span><span><strong>Signature:</strong> __________________</span><span><strong>Date:</strong> __________________</span><span><strong>Jawabu stamp:</strong> __________________</span></footer>
+    </article>`;
+  }
+
   function activateWorkbookTabs(container) {
     container?.querySelectorAll('.workbook-tab').forEach(tab => tab.addEventListener('click', () => {
       const index = tab.dataset.sheetIndex;
@@ -356,10 +384,12 @@
     ]);
     deps.renderWarnings(warnings, data.warnings || []);
     const allFarmers = [...(data.ready || []), ...(data.blocked || []).map(item => item.farmer)];
-    list.innerHTML = data.workbook_preview
-      ? `<h3 class="workbook-preview-title">Excel Preview</h3>${renderWorkbookPreview(data.workbook_preview)}`
-      : deps.batchClientRows(allFarmers, blockedById);
-    activateWorkbookTabs(list);
+    list.innerHTML = readOnly
+      ? renderPrintableRequisition(data)
+      : (data.workbook_preview
+        ? `<h3 class="workbook-preview-title">Excel Preview</h3>${renderWorkbookPreview(data.workbook_preview)}`
+        : deps.batchClientRows(allFarmers, blockedById));
+    if (!readOnly) activateWorkbookTabs(list);
     confirm.hidden = readOnly;
     confirm.disabled = readOnly || (data.blocked_count || 0) > 0 || !(data.ready_count || 0);
     confirm.textContent = confirm.disabled && !readOnly ? 'Resolve Blocked Items' : 'Generate and Save Excel';
@@ -566,6 +596,7 @@
               order_number: activeBatch.order_number,
               requisition_date: activeBatch.requisition_date || new Date().toISOString().split('T')[0],
               return_url: false,
+              preview_format: 'document',
             }, action);
           }
           else if (action.id === 'batch-detail-upload') openInvoiceOverlay(activeBatch.order_number);

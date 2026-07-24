@@ -722,6 +722,29 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(data['ready_count'], 1)
         self.assertEqual(data['blocked_count'], 0)
 
+    def test_portal_document_preview_returns_printable_rows_without_workbook_canvas(self):
+        self.farmer.final_decision = 'Approved'
+        self.farmer.imab_created = 'Yes'
+        self.farmer.customer_no = '15124'
+        self.farmer.deposit_paid_hbg = 5000
+        self.farmer.save()
+        self.mark_requisition_location_ready()
+        payload = {
+            'farmer_ids': [str(self.farmer.id)], 'order_number': 'REQ-DOCUMENT-1',
+            'requisition_date': '2026-07-06', 'preview_format': 'document',
+        }
+
+        response = self.client.post(
+            reverse('portal_requisition_preview'), json.dumps(payload),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['preview_format'], 'document')
+        self.assertIsNone(data['workbook_preview'])
+        self.assertEqual(data['ready'][0]['requisition_preview']['hbg_deposit'], '5000.00')
+
     def test_portal_requisition_preview_blocks_missing_customer_no(self):
         self.farmer.final_decision = 'Approved'
         self.farmer.imab_created = 'Yes'

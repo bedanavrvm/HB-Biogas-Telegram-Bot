@@ -750,6 +750,20 @@
   margin: 14px 0 8px;
 }
 
+.requisition-print-preview { background: #fff; color: #111827; border: 1px solid #cbd5e1; box-shadow: 0 2px 12px rgba(15,23,42,.12); padding: 14px; }
+.requisition-print-preview > header { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 14px; margin: 0 0 12px; padding: 0; color: #111827; }
+.requisition-print-preview > header h3 { margin: 0; font-size: 16px; text-transform: uppercase; }
+.requisition-print-scroll { overflow: auto; }
+.requisition-print-preview table { width: 100%; min-width: 1050px; table-layout: fixed; border-collapse: collapse; }
+.requisition-print-preview th, .requisition-print-preview td { border: 1px solid #111827; padding: 6px; vertical-align: middle; text-align: center; overflow-wrap: anywhere; white-space: normal; }
+.requisition-print-preview th { background: #f1f5f9; font-size: 10px; text-transform: uppercase; }
+.requisition-print-preview td { font-size: 11px; }
+.requisition-print-preview th:nth-child(1) { width: 38px; }
+.requisition-print-preview th:nth-child(2) { width: 145px; }
+.requisition-print-preview th:nth-child(8) { width: 180px; }
+.requisition-print-preview > footer { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 24px; color: #111827; font-size: 11px; }
+@media (max-width: 600px) { .requisition-print-preview > header, .requisition-print-preview > footer { grid-template-columns: 1fr; gap: 8px; } }
+
 .case360 { margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 12px; }
 .case360-toggle { width: 100%; margin-top: 10px; }
 .case360-tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 10px; }
