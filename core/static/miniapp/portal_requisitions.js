@@ -551,18 +551,29 @@
   }
 
   function bindEvents() {
-    el('btn-generate-requisition')?.addEventListener('click', requestRequisitionPreview);
-    el('requisition-preview-confirm')?.addEventListener('click', generateRequisitionFromPreview);
-    el('requisition-preview-workbook')?.addEventListener('click', generateWorkbookPreviewFromSelection);
-    el('requisition-preview-close')?.addEventListener('click', () => el('requisition-preview-overlay').classList.remove('open'));
-    el('requisition-preview-cancel')?.addEventListener('click', () => el('requisition-preview-overlay').classList.remove('open'));
-    el('requisition-preview-overlay')?.addEventListener('click', e => {
-      if (e.target === el('requisition-preview-overlay')) el('requisition-preview-overlay').classList.remove('open');
-    });
-    el('batch-detail-close')?.addEventListener('click', () => el('batch-detail-overlay').classList.remove('open'));
-    el('batch-detail-overlay')?.addEventListener('click', e => {
-      if (e.target === el('batch-detail-overlay')) el('batch-detail-overlay').classList.remove('open');
-    });
+    if (!document.documentElement.dataset.portalRequisitionEventsBound) {
+      document.documentElement.dataset.portalRequisitionEventsBound = 'true';
+      document.addEventListener('click', event => {
+        const action = event.target.closest(
+          '#btn-generate-requisition, #requisition-preview-confirm, '
+          + '#requisition-preview-workbook, #requisition-preview-close, '
+          + '#requisition-preview-cancel, #batch-detail-close'
+        );
+        if (action) {
+          event.preventDefault();
+          if (action.id === 'btn-generate-requisition') requestRequisitionPreview();
+          else if (action.id === 'requisition-preview-confirm') generateRequisitionFromPreview();
+          else if (action.id === 'requisition-preview-workbook') generateWorkbookPreviewFromSelection();
+          else if (action.id === 'batch-detail-close') el('batch-detail-overlay')?.classList.remove('open');
+          else el('requisition-preview-overlay')?.classList.remove('open');
+          return;
+        }
+        const requisitionOverlay = event.target.closest('#requisition-preview-overlay');
+        if (requisitionOverlay && event.target === requisitionOverlay) requisitionOverlay.classList.remove('open');
+        const batchOverlay = event.target.closest('#batch-detail-overlay');
+        if (batchOverlay && event.target === batchOverlay) batchOverlay.classList.remove('open');
+      });
+    }
     bindInvoiceUpload();
   }
 
