@@ -54,8 +54,8 @@
         <td>${deps.escapeHtml(farmer.final_decision_comment || '')}</td>
         <td>${deps.escapeHtml(farmer.county || '-')}</td>
         <td>${deps.escapeHtml(preview.location || '-')}</td>
-        <td>${deps.escapeHtml(preview.hbg_deposit || '')}</td>
-        <td>${deps.escapeHtml(preview.jbl_deposit || '')}</td>
+        <td>${paymentAmount(preview.hbg_deposit)}</td>
+        <td>${paymentAmount(preview.jbl_deposit)}</td>
         <td>${deps.escapeHtml(farmer.hb_sales_person || '-')}</td>
       </tr>`;
     }).join('');
@@ -71,6 +71,13 @@
 
   function paymentValue(value) {
     return value === null || value === undefined || value === '' ? '' : deps.escapeHtml(value);
+  }
+
+  function paymentAmount(value) {
+    if (value === null || value === undefined || value === '') return '';
+    const number = Number(String(value).replace(/,/g, ''));
+    if (!Number.isFinite(number)) return deps.escapeHtml(value);
+    return deps.escapeHtml(Number.isInteger(number) ? String(number) : String(number).replace(/\.0+$/, ''));
   }
 
   function requestedPaymentNumber() {
@@ -90,15 +97,15 @@
       <td>${index + 1}</td>
       <td class="payment-customer"><strong>${paymentValue(row.name)}</strong><small>IMAB: ${paymentValue(row.name_imab) || '-'}</small><small>Customer: ${paymentValue(row.cust_no) || '-'}</small><small>${paymentValue(row.mobile_no) || '-'}</small></td>
       <td><strong>${paymentValue(row.branch)}</strong><small>${paymentValue(row.loan_officer)}</small></td>
-      <td class="amount">${paymentValue(row.hb_invoice_amount)}</td><td class="amount">${paymentValue(row.discount)}</td>
-      <td class="amount"><strong>HBG: ${paymentValue(row.deposit_paid_hbg) || '-'}</strong><small>JBL: ${paymentValue(row.deposit_paid_jbl) || '-'}</small></td>
+      <td class="amount">${paymentAmount(row.hb_invoice_amount)}</td><td class="amount">${paymentAmount(row.discount)}</td>
+      <td class="amount"><strong>HBG: ${paymentAmount(row.deposit_paid_hbg) || '-'}</strong><small>JBL: ${paymentAmount(row.deposit_paid_jbl) || '-'}</small></td>
       <td><strong>${paymentValue(row.product)}</strong><small>${deps.escapeHtml(deps.fmtDate(row.repayment_dates))} / ${paymentValue(row.tenor)} months</small></td>
       <td>${deps.escapeHtml(deps.fmtDate(row.requisition_date))}<small>Order ${paymentValue(row.order_no)}</small></td>
     </tr>`).join('');
     const totals = preview.totals || {};
     return `<article class="payment-print-preview">
       <header><h3>JBL Payment Schedule #${deps.escapeHtml(preview.payment_number || '-')}</h3><div><strong>Order No:</strong> ${deps.escapeHtml(preview.order_number || '-')}</div><div><strong>Clients:</strong> ${deps.escapeHtml(preview.ready_count || 0)}</div></header>
-      <div class="payment-total-strip"><span>Balance due <strong>${paymentValue(totals.hb_invoice_amount) || '0'}</strong></span><span>Discount <strong>${paymentValue(totals.discount) || '0'}</strong></span><span>HBG deposit <strong>${paymentValue(totals.deposit_paid_hbg) || '0'}</strong></span><span>JBL deposit <strong>${paymentValue(totals.deposit_paid_jbl) || '0'}</strong></span></div>
+      <div class="payment-total-strip"><span>Balance due <strong>${paymentAmount(totals.hb_invoice_amount) || '0'}</strong></span><span>Discount <strong>${paymentAmount(totals.discount) || '0'}</strong></span><span>HBG deposit <strong>${paymentAmount(totals.deposit_paid_hbg) || '0'}</strong></span><span>JBL deposit <strong>${paymentAmount(totals.deposit_paid_jbl) || '0'}</strong></span></div>
       <div class="payment-print-scroll"><table>
         <thead><tr><th>No.</th><th>Customer</th><th>Branch / loan officer</th><th>Balance due</th><th>Discount</th><th>Deposits</th><th>Product / repayment</th><th>Requisition / order</th></tr></thead>
         <tbody>${rows || '<tr><td colspan="8">No payment rows available.</td></tr>'}</tbody>
@@ -275,7 +282,7 @@
         }
         const rows = preview.rows || [];
         target.innerHTML = `<div class="form-section"><h3>Payment Preview — Order ${deps.escapeHtml(orderNumber)}</h3>
-          <div class="batch-client-list">${rows.map(row => `<div class="batch-client-row"><div class="name">${deps.escapeHtml(row.name || row.name_imab || '-')}</div><div class="meta">Customer ${deps.escapeHtml(row.cust_no || '-')} | Balance due ${deps.escapeHtml(row.hb_invoice_amount ?? '-')} | Discount ${deps.escapeHtml(row.discount ?? '-')} | HB deposit ${deps.escapeHtml(row.deposit_paid_hbg ?? '-')} | JBL deposit ${deps.escapeHtml(row.deposit_paid_jbl ?? '-')}</div></div>`).join('')}</div></div>`;
+          <div class="batch-client-list">${rows.map(row => `<div class="batch-client-row"><div class="name">${deps.escapeHtml(row.name || row.name_imab || '-')}</div><div class="meta">Customer ${deps.escapeHtml(row.cust_no || '-')} | Balance due ${paymentAmount(row.hb_invoice_amount) || '-'} | Discount ${paymentAmount(row.discount) || '-'} | HB deposit ${paymentAmount(row.deposit_paid_hbg) || '-'} | JBL deposit ${paymentAmount(row.deposit_paid_jbl) || '-'}</div></div>`).join('')}</div></div>`;
         target.innerHTML = `<div class="form-section"><h3>Excel Preview - Order ${deps.escapeHtml(orderNumber)}</h3>${renderWorkbookPreview(preview.workbook_preview)}</div>`;
         activateWorkbookTabs(target);
         deps.showToast('Payment Excel preview shown in the Mini App.', 'success');

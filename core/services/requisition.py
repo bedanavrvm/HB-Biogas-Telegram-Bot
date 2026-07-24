@@ -263,6 +263,8 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
         else:
             _write_system_value(ws, r, col_hbg, "")  # HBG
             _write_system_value(ws, r, col_jbl, deposit)  # JBL
+        ws.cell(row=r, column=col_hbg).number_format = '0'
+        ws.cell(row=r, column=col_jbl).number_format = '0'
             
         _write_system_value(ws, r, col_sales, farmer.hb_sales_person, wrap=True)  # HB SALES PERSON
 

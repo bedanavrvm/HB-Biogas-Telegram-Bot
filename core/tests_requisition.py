@@ -101,6 +101,7 @@ class RequisitionTemplateGenerationTests(TestCase):
         self.assertEqual(ws['I14'].value, 'Nakuru')
         self.assertEqual(ws['J14'].value, 'Kieni - Mweiga')
         self.assertEqual(ws['K14'].value, 25000)
+        self.assertEqual(ws['K14'].number_format, '0')
         self.assertEqual(ws['M14'].value, 'Sales One')
         self.assertTrue(ws['D14'].alignment.wrap_text)
         self.assertTrue(ws['I14'].alignment.wrap_text)

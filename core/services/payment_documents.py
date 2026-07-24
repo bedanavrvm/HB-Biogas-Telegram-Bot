@@ -411,17 +411,24 @@ def _write_payment_rows(ws, layout: PaymentTemplateLayout, rows: list[dict[str, 
         _set_cell(ws, row, layout.columns.get('no'), index)
         for key, value in payload.items():
             _set_cell(ws, row, layout.columns.get(key), value)
+            if key in {
+                'hb_invoice_amount', 'expected_invoice_amount', 'discount',
+                'deposit_paid_hbg', 'deposit_paid_jbl', 'loan_amount',
+            } and layout.columns.get(key):
+                ws.cell(row=row, column=layout.columns[key]).number_format = '0'
 
     totals_row = first_data_row + count
     for col in layout.sum_columns:
         if col == layout.columns.get('expected_invoice_amount'):
             ws.cell(row=totals_row, column=col, value='')
+            ws.cell(row=totals_row, column=col).number_format = '0'
             continue
         letter = get_column_letter(col)
         if count:
             ws.cell(row=totals_row, column=col, value=f'=SUM({letter}{first_data_row}:{letter}{first_data_row + count - 1})')
         else:
             ws.cell(row=totals_row, column=col, value=0)
+        ws.cell(row=totals_row, column=col).number_format = '0'
     return totals_row
 
 
