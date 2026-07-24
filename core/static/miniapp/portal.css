@@ -758,6 +758,9 @@
 .requisition-print-preview th, .requisition-print-preview td { border: 1px solid #111827; padding: 6px; vertical-align: middle; text-align: center; overflow-wrap: anywhere; white-space: normal; }
 .requisition-print-preview th { background: #f1f5f9; font-size: 10px; text-transform: uppercase; }
 .requisition-print-preview td { font-size: 11px; }
+.requisition-print-preview th,
+.requisition-print-preview td:first-child,
+.requisition-print-preview th:first-child { position: static; inset: auto; z-index: auto; }
 .requisition-print-preview th:nth-child(1) { width: 38px; }
 .requisition-print-preview th:nth-child(2) { width: 145px; }
 .requisition-print-preview th:nth-child(8) { width: 180px; }
