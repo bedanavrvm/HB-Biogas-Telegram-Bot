@@ -199,6 +199,7 @@
   function switchPage(page) {
     state.activePage = page;
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.page === page));
+    document.querySelectorAll('.shell-nav-link').forEach(link => link.classList.toggle('active', link.dataset.screen === page));
 
     if (page !== 'requisition') {
       state.selectedRequisitions.clear();
@@ -208,7 +209,7 @@
     // Show filter bar on farmer list views.
     const filterBar = el('portal-filter-bar');
     if (filterBar) {
-      if (page === 'dashboard' || page === 'batches' || page === 'invoices') {
+      if (page === 'dashboard' || page === 'batches' || page === 'invoices' || page === 'history' || page === 'case_history') {
         filterBar.style.display = 'none';
       } else {
         filterBar.style.display = 'flex';
@@ -748,11 +749,76 @@
     }
     renderDocumentHistory(data.documents || [], kind);
   }
+
+  function caseHistoryUrl(farmerId) {
+    const base = '/portal/s/case_history/';
+    return farmerId ? `${base}?farmer=${encodeURIComponent(farmerId)}` : base;
+  }
+
+  function showCaseHistorySearch() {
+    const results = el('case-history-results');
+    const selected = el('case-history-selected');
+    if (results) results.hidden = false;
+    if (selected) selected.hidden = true;
+  }
+
+  async function loadCaseHistoryFarmer(farmerId, { pushUrl = false } = {}) {
+    if (!farmerId) {
+      showCaseHistorySearch();
+      return;
+    }
+    const results = el('case-history-results');
+    const selected = el('case-history-selected');
+    const content = el('case-history-content');
+    if (!selected || !content) return;
+    if (results) results.hidden = true;
+    selected.hidden = false;
+    if (pushUrl) window.history.pushState({ screen: 'case_history', farmerId }, '', caseHistoryUrl(farmerId));
+    content.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading complete case history...</div></div>';
+    const { ok, data } = await apiFetch('/farmers/' + encodeURIComponent(farmerId) + '/');
+    if (!ok || !data?.ok) {
+      content.innerHTML = `<div class="batch-warning">${escapeHtml(data?.error || 'Could not load case history.')}</div>`;
+      return;
+    }
+    portalFarmerSheet.renderCase360?.(data.case360, content);
+  }
+
+  async function searchCaseHistory(query) {
+    const target = el('case-history-results');
+    if (!target) return;
+    const normalized = String(query || '').trim();
+    if (!normalized) {
+      target.innerHTML = '<div class="empty-state"><div class="es-title">Enter a search term</div><div class="es-sub">Use a customer name, telephone number, or national ID.</div></div>';
+      return;
+    }
+    showCaseHistorySearch();
+    target.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
+    const { ok, data } = await apiFetch('/farmers/?search=' + encodeURIComponent(normalized));
+    if (!ok || !data?.ok) {
+      target.innerHTML = `<div class="batch-warning">${escapeHtml(data?.error || 'Could not search cases.')}</div>`;
+      return;
+    }
+    const farmers = data.farmers || [];
+    target.innerHTML = farmers.length ? farmers.map(farmer => `
+      <article class="farmer-card case-history-result">
+        <div class="fc-top"><div><div class="fc-name">${escapeHtml(farmer.customer_name || 'Unnamed customer')}</div><div class="fc-sub">${escapeHtml([farmer.national_id, farmer.primary_phone].filter(Boolean).join(' | ') || 'No ID or telephone recorded')}</div></div></div>
+        <div class="fc-sub">${escapeHtml([farmer.branch, farmer.county].filter(Boolean).join(' | ') || 'Branch not recorded')}</div>
+        <button type="button" class="btn btn-primary case-history-open" data-farmer-id="${escapeHtml(farmer.id)}">Open Case History</button>
+      </article>`).join('') : '<div class="empty-state"><div class="es-title">No matching cases</div><div class="es-sub">Check the spelling, telephone number, or national ID.</div></div>';
+  }
+
+  function loadCaseHistory() {
+    const farmerId = new URLSearchParams(window.location.search).get('farmer');
+    if (farmerId) loadCaseHistoryFarmer(farmerId);
+    else showCaseHistorySearch();
+  }
+
   // Page router
   function loadPage(page) {
     if (page === 'dashboard') loadDashboard();
     else if (page === 'invoices' && portalInvoices.load) portalInvoices.load(1);
     else if (page === 'history') loadHistory();
+    else if (page === 'case_history') loadCaseHistory();
     else if (queueConfig[page]) loadQueue(page, 1);
   }
   // Bootstrap
@@ -774,6 +840,18 @@
   }
 
   document.addEventListener('click', event => {
+    const openCaseHistoryButton = event.target.closest('.case-history-open');
+    if (openCaseHistoryButton) {
+      event.preventDefault();
+      loadCaseHistoryFarmer(openCaseHistoryButton.dataset.farmerId, { pushUrl: true });
+      return;
+    }
+    if (event.target.closest('#case-history-back')) {
+      event.preventDefault();
+      window.history.pushState({ screen: 'case_history' }, '', caseHistoryUrl());
+      showCaseHistorySearch();
+      return;
+    }
     const kindButton = event.target.closest('.history-kind');
     if (kindButton) {
       event.preventDefault();
@@ -787,11 +865,27 @@
     else portalRequisitions.openFinalOrderHistory?.(viewButton.dataset.order);
   });
 
+  document.addEventListener('submit', event => {
+    if (!event.target.matches('#case-history-search-form')) return;
+    event.preventDefault();
+    searchCaseHistory(el('case-history-search')?.value);
+  });
+
+  window.addEventListener('popstate', () => {
+    if (window.location.pathname.includes('/portal/s/case_history/')) loadCaseHistory();
+  });
+
   window.PortalAppShell = {
     activate(page) {
       if (!page) return;
       switchPage(page);
       loadPage(page);
+      if (window.lucide) window.lucide.createIcons();
+    },
+    openCaseHistory(farmerId) {
+      portalFarmerSheet.closeSheet?.();
+      switchPage('case_history');
+      loadCaseHistoryFarmer(farmerId, { pushUrl: true });
       if (window.lucide) window.lucide.createIcons();
     },
   };

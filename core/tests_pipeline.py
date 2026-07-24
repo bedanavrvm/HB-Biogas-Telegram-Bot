@@ -427,13 +427,22 @@ class JblPipelineApiTestCase(TestCase):
         self.assertContains(response, 'data-screen="credit"')
 
     def test_each_portal_screen_cold_load_includes_shell(self):
-        for screen in ('dashboard', 'jbl', 'credit', 'final', 'requisition', 'deferred', 'all', 'batches', 'invoices', 'history'):
+        for screen in ('dashboard', 'jbl', 'credit', 'final', 'requisition', 'deferred', 'all', 'case_history', 'batches', 'invoices', 'history'):
             with self.subTest(screen=screen):
                 response = self.client.get(reverse('portal_screen', kwargs={'screen': screen}))
                 self.assertEqual(response.status_code, 200)
                 self.assertContains(response, '<html')
                 self.assertContains(response, 'id="content"')
                 self.assertContains(response, f'data-screen="{screen}"')
+
+    def test_case_history_is_a_dedicated_screen(self):
+        response = self.client.get(reverse('portal_screen', kwargs={'screen': 'case_history'}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="page-case_history"')
+        self.assertContains(response, 'id="case-history-search-form"')
+        self.assertContains(response, 'id="case-history-content"')
+        self.assertNotContains(response, 'id="case360"')
 
     def test_portal_jbl_queue_fragment_renders_cards(self):
         """Verify the htmx JBL queue fragment renders useful farmer cards."""

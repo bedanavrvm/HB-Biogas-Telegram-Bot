@@ -183,6 +183,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         for expected in (
             'window.PortalMiniAppFarmerSheet',
             'openFarmerSheet',
+            'renderCase360',
             'buildJblForm',
             'submitJblVisit',
             'uploadJblMediaIfSelected',

@@ -19,8 +19,8 @@
     ).join('')}</div>`;
   }
 
-  function renderCase360(data) {
-    const root = el('case360');
+  function renderCase360(data, target) {
+    const root = target || el('case360');
     if (!root || !data) return;
     const sections = data.sections || {};
     const timeline = data.timeline || [];
@@ -113,19 +113,10 @@
     el('sheet-info').innerHTML = infoFields.map(([label, value]) =>
       `<li class="info-row"><span class="ir-label">${deps.escapeHtml(label)}</span><span class="ir-value">${value}</span></li>`
     ).join('');
-    const caseRoot = el('case360');
-    caseRoot.hidden = true;
-    caseRoot.innerHTML = '';
     const caseToggle = el('case360-toggle');
-    caseToggle.textContent = 'View full case history';
-    caseToggle.onclick = async () => {
-      if (!caseRoot.hidden) {
-        caseRoot.hidden = true;
-        caseToggle.textContent = 'View full case history';
-        return;
-      }
-      caseToggle.textContent = 'Hide full case history';
-      await loadCase360(farmer);
+    caseToggle.textContent = 'Open Case History';
+    caseToggle.onclick = () => {
+      window.PortalAppShell?.openCaseHistory(farmer.id);
     };
 
     const formEl = el('sheet-form');
@@ -535,5 +526,6 @@
     init,
     openFarmerSheet,
     closeSheet,
+    renderCase360,
   };
 })();

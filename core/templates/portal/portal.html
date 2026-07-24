@@ -275,6 +275,25 @@
     <div class="pagination" id="pg-batches"></div>
   </section>
 
+  <!-- Case History / Case 360 -->
+  <section id="page-case_history" class="page{% if active_screen == 'case_history' %} active{% endif %}">
+    <header>
+      <h1>Case History</h1>
+      <p class="meta">Timeline, turnaround time, documents, and internally collected case data</p>
+    </header>
+    <form id="case-history-search-form" class="search-bar" role="search">
+      <input id="case-history-search" type="search" placeholder="Search name, phone, or ID..." autocomplete="off" enterkeyhint="search">
+      <button type="submit" class="btn btn-primary">Search</button>
+    </form>
+    <div id="case-history-results" class="farmer-list">
+      <div class="empty-state"><div class="es-title">Find a case</div><div class="es-sub">Search by customer name, telephone number, or national ID.</div></div>
+    </div>
+    <div id="case-history-selected" hidden>
+      <button type="button" id="case-history-back" class="btn btn-secondary">Back to search</button>
+      <div id="case-history-content" class="case360"></div>
+    </div>
+  </section>
+
   <section id="page-history" class="page{% if active_screen == 'history' %} active{% endif %}">
     <header><h1>Document History</h1><p class="meta">Final generated orders and payment schedules</p></header>
     <div class="history-tabs" role="tablist">
@@ -300,8 +319,7 @@
     <div class="sheet-body">
       <div class="gate-warning" id="sheet-gate-warning" style="display:none;"></div>
       <ul class="info-list" id="sheet-info"></ul>
-      <button type="button" id="case360-toggle" class="btn btn-secondary case360-toggle">View full case history</button>
-      <div id="case360" class="case360" hidden></div>
+      <button type="button" id="case360-toggle" class="btn btn-secondary case360-toggle">Open Case History</button>
       <div id="sheet-map-container" style="display:none; margin: 12px 0;">
         <div id="sheet-map"></div>
       </div>
