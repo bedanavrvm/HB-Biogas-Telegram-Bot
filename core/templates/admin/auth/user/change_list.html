@@ -1,16 +1,32 @@
 {% extends "admin/change_list.html" %}
 
-{% block object-tools-items %}
+{% block content %}
   {% if request.user.is_superuser %}
-    <a href="{% url 'admin:auth_user_migrate_legacy_staff' %}" class="button">
-      Migrate existing staff
-    </a>
-    <a href="{% url 'admin:auth_user_migrate_legacy_staff' %}#enroll-telegram-user" class="button">
-      Enroll Telegram user
-    </a>
-    <a href="{% url 'admin:auth_user_add' %}?account_type=django" class="button">
-      Add Django login user
-    </a>
+    <section class="mb-6 rounded border border-base-200 bg-white p-5 shadow-sm dark:border-base-800 dark:bg-base-900" data-testid="user-actions-panel">
+      <div class="mb-4">
+        <h2 class="font-semibold text-font-important-light text-lg dark:text-font-important-dark">User actions</h2>
+        <p class="mt-1 text-font-subtle-light text-sm dark:text-font-subtle-dark">
+          Enroll Telegram staff, migrate existing workflow staff, or create a password-based Django administrator.
+        </p>
+      </div>
+      <div class="grid gap-3 md:grid-cols-3">
+        <a href="{% url 'admin:auth_user_migrate_legacy_staff' %}#enroll-telegram-user"
+           class="flex min-h-20 flex-col justify-center rounded bg-primary-600 px-5 py-4 text-white shadow-sm transition hover:bg-primary-700">
+          <strong>Enroll Telegram user</strong>
+          <span class="mt-1 text-sm opacity-90">Use their @username; ID binds automatically.</span>
+        </a>
+        <a href="{% url 'admin:auth_user_migrate_legacy_staff' %}"
+           class="flex min-h-20 flex-col justify-center rounded border border-base-300 px-5 py-4 text-font-important-light transition hover:border-primary-500 dark:border-base-700 dark:text-font-important-dark">
+          <strong>Migrate existing staff</strong>
+          <span class="mt-1 text-font-subtle-light text-sm dark:text-font-subtle-dark">Preview mappings and run parity checks.</span>
+        </a>
+        <a href="{% url 'admin:auth_user_add' %}?account_type=django"
+           class="flex min-h-20 flex-col justify-center rounded border border-base-300 px-5 py-4 text-font-important-light transition hover:border-primary-500 dark:border-base-700 dark:text-font-important-dark">
+          <strong>Add Django login user</strong>
+          <span class="mt-1 text-font-subtle-light text-sm dark:text-font-subtle-dark">For staff who need password-based Admin access.</span>
+        </a>
+      </div>
+    </section>
   {% endif %}
   {{ block.super }}
 {% endblock %}
