@@ -233,11 +233,11 @@
   }
 
   function renderEvidence(evidence) {
-    $('evidenceList').innerHTML = evidence.length ? evidence.map((item) => `<div class="evidence-row"><span>${escapeHtml(item.name || 'Evidence file')}<br><small>${escapeHtml(item.created_at)} · ${escapeHtml(item.status)}</small></span>${item.url ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener">Open ↗</a>` : ''}</div>`).join('') : '<p class="empty-copy">No evidence has been uploaded yet.</p>';
+    $('evidenceList').innerHTML = evidence.length ? evidence.map((item) => `<div class="evidence-row"><span>${escapeHtml(item.name || 'Evidence file')}<br><small>${escapeHtml(utils.formatDateTime ? utils.formatDateTime(item.created_at) : item.created_at)} · ${escapeHtml(item.status)}</small></span>${item.url ? `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener">Open ↗</a>` : ''}</div>`).join('') : '<p class="empty-copy">No evidence has been uploaded yet.</p>';
   }
 
   function renderActivity(updates) {
-    $('activityList').innerHTML = updates.length ? updates.map((item) => `<article class="activity-row"><strong>${escapeHtml(item.status || 'Case updated')} · ${escapeHtml(item.updated_by || 'Staff')}</strong>${item.note ? `<p>${escapeHtml(item.note)}</p>` : ''}<small>${escapeHtml(item.created_at)}</small></article>`).join('') : '<p class="empty-copy">No staff updates have been recorded yet.</p>';
+    $('activityList').innerHTML = updates.length ? updates.map((item) => `<article class="activity-row"><strong>${escapeHtml(item.status || 'Case updated')} · ${escapeHtml(item.updated_by || 'Staff')}</strong>${item.note ? `<p>${escapeHtml(item.note)}</p>` : ''}<small>${escapeHtml(utils.formatDateTime ? utils.formatDateTime(item.created_at) : item.created_at)}</small></article>`).join('') : '<p class="empty-copy">No staff updates have been recorded yet.</p>';
   }
 
   async function loadDetail(caseId) {

@@ -60,7 +60,7 @@
       </tr>`;
     }).join('');
     return `<article class="requisition-print-preview">
-      <header><h3>JBL Requisition Form</h3><div><strong>Order No:</strong> ${deps.escapeHtml(data.order_number || '-')}</div><div><strong>Date:</strong> ${deps.escapeHtml(data.requisition_date || '-')}</div></header>
+      <header><h3>JBL Requisition Form</h3><div><strong>Order No:</strong> ${deps.escapeHtml(data.order_number || '-')}</div><div><strong>Date:</strong> ${deps.escapeHtml(deps.fmtDate(data.requisition_date))}</div></header>
       <div class="requisition-print-scroll"><table>
         <thead><tr><th>No.</th><th>Customer name</th><th>Contact</th><th>ID No.</th><th>Credit analysis</th><th>Callup comment</th><th>County</th><th>Location & nearest landmark</th><th>HBG deposit</th><th>JBL deposit</th><th>HB salesperson</th></tr></thead>
         <tbody>${rows || '<tr><td colspan="11">No clients selected.</td></tr>'}</tbody>
@@ -75,7 +75,7 @@
 
   function renderPrintablePayment(preview) {
     const rows = (preview.rows || []).map((row, index) => `<tr>
-      <td>${index + 1}</td><td>${paymentValue(row.requisition_date)}</td><td>${paymentValue(row.order_no)}</td>
+      <td>${index + 1}</td><td>${deps.escapeHtml(deps.fmtDate(row.requisition_date))}</td><td>${paymentValue(row.order_no)}</td>
       <td>${paymentValue(row.cust_no)}</td><td>${paymentValue(row.name_imab)}</td><td>${paymentValue(row.name)}</td>
       <td>${paymentValue(row.mobile_no)}</td><td>${paymentValue(row.branch)}</td><td>${paymentValue(row.loan_officer)}</td>
       <td class="amount">${paymentValue(row.hb_invoice_amount)}</td><td class="amount">${paymentValue(row.discount)}</td>
@@ -428,7 +428,7 @@
     (data.blocked || []).forEach(item => {
       if (item.farmer?.id) blockedById[item.farmer.id] = item.missing || [];
     });
-    sub.textContent = `Order ${data.order_number} - ${data.requisition_date}`;
+    sub.textContent = `Order ${data.order_number} - ${deps.fmtDate(data.requisition_date)}`;
     summary.innerHTML = deps.summaryGrid([
       { label: 'Ready', value: String(data.ready_count || 0) },
       { label: 'Blocked', value: String(data.blocked_count || 0) },

@@ -256,7 +256,7 @@
             <circle cx="12" cy="12" r="10"/>
             <polyline points="12 6 12 12 16 14"/>
           </svg>
-          ${escapeHtml(item.updated_at || '')}
+          ${escapeHtml(utils.formatDateTime ? utils.formatDateTime(item.updated_at) : (item.updated_at || ''))}
         </span>
       </div>`;
     button.addEventListener('click', () => openCase(item.case_id));
@@ -534,8 +534,8 @@
         <div class="fact fact-activity">
           <small>Activity</small>
           <div class="activity-times">
-            <div><small>Created</small><span>${escapeHtml(summary.created_at || '')}</span></div>
-            <div><small>Updated</small><span>${escapeHtml(summary.updated_at || '')}</span></div>
+            <div><small>Created</small><span>${escapeHtml(utils.formatDateTime ? utils.formatDateTime(summary.created_at) : (summary.created_at || ''))}</span></div>
+            <div><small>Updated</small><span>${escapeHtml(utils.formatDateTime ? utils.formatDateTime(summary.updated_at) : (summary.updated_at || ''))}</span></div>
           </div>
         </div>
       </div>`;

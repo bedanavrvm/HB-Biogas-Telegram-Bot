@@ -421,7 +421,7 @@
           <span class="card-title-group">
             <span class="card-customer-name">${escapeHtml(identity)}</span>
             <span class="card-summary-meta">${escapeHtml(category)}${item.source_sender ? ` / ${escapeHtml(item.source_sender)}` : ''}</span>
-            <span class="card-date">${escapeHtml(item.source_received_at || 'Batch message date not set')}</span>
+            <span class="card-date">${escapeHtml(item.source_received_at ? (utils.formatDateTime ? utils.formatDateTime(item.source_received_at) : item.source_received_at) : 'Batch message date not set')}</span>
           </span>
           <span class="card-header-right"><span class="badge status-review_needed">Batch review</span><i data-lucide="chevron-down" class="card-chevron"></i></span>
         </summary>
@@ -528,7 +528,7 @@
             <span class="card-title-group">
               <span class="card-customer-name">${escapeHtml(customerName)}</span>
               <span class="card-summary-meta">${escapeHtml(r.national_id || 'No ID')} / ${escapeHtml(r.primary_phone || 'No phone')} / KES ${formatAmount(r.requested_amount)}</span>
-              <span class="card-date">${escapeHtml(r.request_datetime || 'Date not set')} / ${escapeHtml(r.request_id || '')}</span>
+              <span class="card-date">${escapeHtml(r.request_datetime ? (utils.formatDateTime ? utils.formatDateTime(r.request_datetime) : r.request_datetime) : 'Date not set')} / ${escapeHtml(r.request_id || '')}</span>
             </span>
             <span class="card-header-right">
               <span class="badge status-${statusClass}">${getStatusLabel(r.import_status)}</span>

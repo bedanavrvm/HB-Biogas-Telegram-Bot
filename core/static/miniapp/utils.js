@@ -26,6 +26,33 @@
     return new URLSearchParams(payload || {}).toString();
   }
 
+  function parseDisplayDate(value) {
+    if (!value) return null;
+    const text = String(value).trim();
+    const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})(.*)$/);
+    if (iso) {
+      const date = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+    const date = new Date(text);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  function formatDate(value) {
+    const date = parseDisplayDate(value);
+    if (!date) return value ? String(value) : '-';
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][date.getMonth()];
+    return day + '-' + month + '-' + date.getFullYear();
+  }
+
+  function formatDateTime(value) {
+    const date = parseDisplayDate(value);
+    if (!date) return value ? String(value) : '-';
+    const time = String(value).match(/(?:T|\s)(\d{1,2}):(\d{2})/);
+    return formatDate(value) + (time ? ' ' + String(time[1]).padStart(2, '0') + ':' + time[2] : '');
+  }
+
   async function fetchJson(url, options) {
     const response = await fetch(url, options || {});
     const data = await response.json().catch(function () { return {}; });
@@ -72,6 +99,8 @@
     escapeHtml: escapeHtml,
     fetchHtml: fetchHtml,
     fetchJson: fetchJson,
+    formatDate: formatDate,
+    formatDateTime: formatDateTime,
     formBody: formBody,
     initDataHeader: initDataHeader,
     initTelegram: initTelegram,
