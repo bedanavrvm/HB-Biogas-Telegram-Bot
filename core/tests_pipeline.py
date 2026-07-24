@@ -1522,6 +1522,26 @@ class JawabuIntegrityRulesTests(TestCase):
 
 
 class JawabuCase360Tests(TestCase):
+    def test_case360_data_migration_is_idempotent(self):
+        import importlib
+        from django.apps import apps
+
+        migration = importlib.import_module('core.migrations.0053_initialize_jawabu_case360')
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Legacy Customer', sign_date='24-June-2026', actual_receipts='KES 5,000',
+        )
+
+        migration.initialize_case360(apps, None)
+        migration.initialize_case360(apps, None)
+        farmer.refresh_from_db()
+
+        self.assertEqual(str(farmer.deposit_paid_hbg), '5000.00')
+        self.assertEqual(farmer.hbg_visit_date.isoformat(), '2026-06-24')
+        self.assertEqual(
+            farmer.pipeline_events.filter(action='tracking_started', source='migration').count(),
+            1,
+        )
+
     def test_tat_excludes_formal_deferral_minutes(self):
         from core.services.jawabu_case360 import calculate_case_tat, record_pipeline_event
 

@@ -1,47 +1,8 @@
-from decimal import Decimal, InvalidOperation
-from datetime import datetime
-import re
 import uuid
 
 from django.db import migrations, models
 import django.db.models.deletion
 import django.utils.timezone
-
-
-def initialize_case360(apps, schema_editor):
-    Farmer = apps.get_model('core', 'JawabuFarmerMaster')
-    Event = apps.get_model('core', 'JawabuPipelineEvent')
-    now = django.utils.timezone.now()
-    events = []
-    for farmer in Farmer.objects.iterator(chunk_size=500):
-        updates = []
-        for fmt in ('%Y-%m-%d', '%d-%B-%Y', '%d-%b-%Y', '%d/%m/%Y', '%d/%m/%y'):
-            try:
-                farmer.hbg_visit_date = datetime.strptime(str(farmer.sign_date or '').strip(), fmt).date()
-                updates.append('hbg_visit_date')
-                break
-            except ValueError:
-                continue
-        try:
-            text = re.sub(r'[^0-9.\-]', '', str(farmer.actual_receipts or ''))
-            amount = Decimal(text) if text else None
-            if amount is not None and amount >= 0:
-                farmer.deposit_paid_hbg = amount.quantize(Decimal('0.01'))
-                updates.append('deposit_paid_hbg')
-        except (InvalidOperation, ValueError):
-            pass
-        if updates:
-            farmer.save(update_fields=updates)
-        events.append(Event(
-            id=uuid.uuid4(), farmer_id=farmer.id, action='tracking_started',
-            stage_key='tracking', source='migration', occurred_at=now,
-            metadata={'historical_transitions_inferred': False},
-        ))
-        if len(events) >= 500:
-            Event.objects.bulk_create(events)
-            events = []
-    if events:
-        Event.objects.bulk_create(events)
 
 
 class Migration(migrations.Migration):
@@ -95,5 +56,4 @@ class Migration(migrations.Migration):
         migrations.AddIndex(model_name='jawabupipelineevent', index=models.Index(fields=['farmer', 'stage_key'], name='jawabu_farmer_stage_idx')),
         migrations.AddConstraint(model_name='jawabupipelineevent', constraint=models.UniqueConstraint(condition=~models.Q(request_id=''), fields=('farmer', 'request_id'), name='jawabu_unique_event_request')),
         migrations.AddConstraint(model_name='jawabudataqualityissue', constraint=models.UniqueConstraint(fields=('farmer', 'field_name', 'code'), name='jawabu_unique_quality_issue')),
-        migrations.RunPython(initialize_case360, migrations.RunPython.noop),
     ]
