@@ -74,6 +74,14 @@ class MiniAppFrontendSmokeTests(TestCase):
         ):
             self.assertIn(expected, source)
 
+    def test_miniapp_navigation_maps_case_detail_route_to_case_history(self):
+        source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
+        response = self.client.get(reverse('portal_home'))
+
+        self.assertIn('/\\/portal\\/cases\\/[^/]+\\//', source)
+        self.assertIn("return 'case_history'", source)
+        self.assertContains(response, 'miniapp/miniapp-nav.js?v=3')
+
     def test_portal_helpers_expose_pure_ui_primitives(self):
         source = Path('core/static/miniapp/portal_helpers.js').read_text(encoding='utf-8')
 

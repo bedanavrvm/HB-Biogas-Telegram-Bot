@@ -24,6 +24,7 @@
   }
 
   function currentScreen() {
+    if (/\/portal\/cases\/[^/]+\//.test(window.location.pathname)) return 'case_history';
     const match = window.location.pathname.match(/\/portal\/s\/([^/]+)\//);
     return match ? match[1] : 'dashboard';
   }
