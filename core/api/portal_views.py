@@ -21,6 +21,7 @@ from django.contrib.auth import login
 from django.core.cache import cache
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
+from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
@@ -2096,6 +2097,67 @@ def portal_payment_selection(request):
         })
     except PaymentTemplateError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_payment_selection_pdf(request):
+    """Build a short-lived PDF for printing outside Telegram's embedded WebView."""
+    from core.services.payment_documents import (
+        PaymentTemplateError, generate_payment_workbook, normalize_payment_number,
+    )
+    from core.services.workbook_pdf import workbook_preview_to_pdf
+    from core.services.workbook_preview import serialize_workbook_preview
+
+    body = _json_body(request)
+    farmer_ids = [str(value) for value in (body.get('farmer_ids') or []) if value]
+    try:
+        payment_number = normalize_payment_number(body.get('payment_number'))
+        if not farmer_ids:
+            raise PaymentTemplateError('Select at least one ready invoiced case.')
+        scope = f'PAYMENT-{payment_number}'
+        workbook_bytes, _summary = generate_payment_workbook(
+            scope, payment_number, farmer_ids=farmer_ids,
+        )
+        preview = serialize_workbook_preview(workbook_bytes, print_only=True)
+        pdf_bytes = workbook_preview_to_pdf(preview)
+    except PaymentTemplateError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    except Exception:
+        logger.exception('Could not render payment PDF')
+        return JsonResponse({
+            'ok': False,
+            'error': 'The printable payment PDF could not be prepared. Please try again.',
+        }, status=500)
+
+    token = uuid.uuid4().hex
+    cache.set(
+        f'portal-payment-pdf:{token}',
+        {'content': pdf_bytes, 'filename': f'HB_Payment_{payment_number}.pdf'},
+        timeout=300,
+    )
+    return JsonResponse({
+        'ok': True,
+        'pdf_url': request.build_absolute_uri(
+            reverse('portal_payment_pdf_download', kwargs={'token': token})
+        ),
+        'expires_in_seconds': 300,
+    })
+
+
+@require_http_methods(["GET"])
+def portal_payment_pdf_download(request, token: str):
+    """Serve a bearer-token PDF briefly so a system browser can open it."""
+    if not re.fullmatch(r'[0-9a-f]{32}', token or ''):
+        return HttpResponse(status=404)
+    document = cache.get(f'portal-payment-pdf:{token}')
+    if not document:
+        return HttpResponse('This printable PDF link has expired.', status=410, content_type='text/plain')
+    response = HttpResponse(document['content'], content_type='application/pdf')
+    response['Content-Disposition'] = f'inline; filename="{document["filename"]}"'
+    response['Cache-Control'] = 'private, no-store, max-age=0'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
 
 
 @require_http_methods(["GET"])

@@ -4,8 +4,11 @@ Unit tests for the JBL Pipeline Portal and its services.
 from __future__ import annotations
 
 import json
+import io
 from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
+
+import openpyxl
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, TestCase, override_settings
@@ -489,6 +492,42 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(str(invoiced.id), returned_ids)
         self.assertNotIn(str(delayed.id), returned_ids)
+
+    @patch('core.services.payment_documents.generate_payment_workbook')
+    def test_payment_pdf_uses_short_lived_download_url(self, generate_workbook):
+        workbook = openpyxl.Workbook()
+        worksheet = workbook.active
+        worksheet['A1'] = 'JBL PAYMENT SCHEDULE'
+        worksheet['A2'] = 'Synthetic Customer'
+        worksheet.print_area = 'A1:C4'
+        output = io.BytesIO()
+        workbook.save(output)
+        generate_workbook.return_value = (output.getvalue(), {})
+
+        response = self.client.post(
+            reverse('portal_payment_selection_pdf'),
+            data=json.dumps({'payment_number': '89', 'farmer_ids': [str(self.farmer.id)]}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload['expires_in_seconds'], 300)
+        pdf_response = self.client.get(payload['pdf_url'])
+        self.assertEqual(pdf_response.status_code, 200)
+        self.assertEqual(pdf_response['Content-Type'], 'application/pdf')
+        self.assertTrue(pdf_response.content.startswith(b'%PDF-'))
+        self.assertEqual(pdf_response['Cache-Control'], 'private, no-store, max-age=0')
+
+    def test_payment_pdf_requires_a_selection(self):
+        response = self.client.post(
+            reverse('portal_payment_selection_pdf'),
+            data=json.dumps({'payment_number': '89', 'farmer_ids': []}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Select at least one', response.json()['error'])
 
     def test_portal_jbl_queue_fragment_renders_cards(self):
         """Verify the htmx JBL queue fragment renders useful farmer cards."""

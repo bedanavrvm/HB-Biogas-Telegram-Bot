@@ -108,6 +108,23 @@
     }
   }
 
+  async function openPrintablePdf(button) {
+    const body = payload(false);
+    if (!body) return;
+    deps.setButtonLoading(button, true, 'Preparing PDF...');
+    try {
+      const response = await deps.portalApi.postJson('/payments/selection/pdf/', body, deps.tg, {'X-CSRFToken': deps.getCookie('csrftoken') || ''});
+      if (!response.ok || !response.data?.ok || !response.data.pdf_url) {
+        throw new Error(response.data?.error || 'Could not prepare printable PDF.');
+      }
+      deps.openPortalLink(response.data.pdf_url);
+    } catch (error) {
+      deps.showToast(error.message || 'Could not prepare printable PDF.', 'error');
+    } finally {
+      deps.setButtonLoading(button, false);
+    }
+  }
+
   function bind() {
     if (document.documentElement.dataset.portalPaymentsBound) return;
     document.documentElement.dataset.portalPaymentsBound = 'true';
@@ -126,7 +143,7 @@
         updateSelection();
       } else if (target.closest('#payments-preview')) preview(target.closest('#payments-preview'));
       else if (target.closest('#payments-finalize')) finalize(target.closest('#payments-finalize'));
-      else if (target.closest('#payments-print')) deps.requisitions.printWorkbookPreview(activeWorkbook);
+      else if (target.closest('#payments-print')) openPrintablePdf(target.closest('#payments-print'));
     });
     document.addEventListener('keydown', event => {
       if (event.key === 'Enter' && event.target.matches('#payments-search')) { event.preventDefault(); load(); }
