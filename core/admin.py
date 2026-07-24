@@ -42,6 +42,8 @@ from .models import (
     JawabuFarmerMaster,
     JawabuCustomer,
     JawabuPipelineEvent,
+    JawabuDataQualityIssue,
+    JawabuPortalStaffMember,
     JawabuFarmerUploadBatch,
     JawabuVisitRecord,
     LiveSheetRecordChange,
@@ -75,10 +77,26 @@ class JawabuCustomerAdmin(ModelAdmin):
 
 @admin.register(JawabuPipelineEvent)
 class JawabuPipelineEventAdmin(ModelAdmin):
-    list_display = ('farmer', 'action', 'actor', 'created_at')
-    list_filter = ('action', 'created_at')
+    list_display = ('farmer', 'action', 'stage_key', 'actor', 'occurred_at')
+    list_filter = ('action', 'stage_key', 'source', 'occurred_at')
     search_fields = ('farmer__national_id', 'farmer__primary_phone', 'actor')
-    readonly_fields = ('farmer', 'action', 'actor', 'metadata', 'created_at')
+    readonly_fields = ('farmer', 'action', 'stage_key', 'actor', 'actor_telegram_id', 'source', 'request_id', 'old_values', 'new_values', 'metadata', 'occurred_at', 'created_at')
+
+
+@admin.register(JawabuDataQualityIssue)
+class JawabuDataQualityIssueAdmin(ModelAdmin):
+    list_display = ('farmer', 'field_name', 'severity', 'active', 'detected_at', 'resolved_at')
+    list_filter = ('active', 'severity', 'field_name')
+    search_fields = ('farmer__customer_name', 'farmer__national_id', 'message')
+    readonly_fields = ('detected_at', 'resolved_at')
+
+
+@admin.register(JawabuPortalStaffMember)
+class JawabuPortalStaffMemberAdmin(ModelAdmin):
+    list_display = ('display_name', 'telegram_id', 'active', 'updated_at')
+    list_filter = ('active',)
+    search_fields = ('display_name', 'telegram_id')
+    readonly_fields = ('created_at', 'updated_at')
 
 
 def _tat_target_field_name(product_key: str, target_key: str) -> str:
@@ -152,6 +170,13 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
             'Select a preset to generate workflow JSON automatically. '
             'Choose Manual JSON for custom workflows.'
         ),
+    )
+    jawabu_tat_targets_minutes = forms.JSONField(
+        required=False,
+        initial={'overall': None, 'stages': {}},
+        label='Jawabu Portal TAT targets (minutes)',
+        help_text='Optional overall and per-stage targets, stored as minutes.',
+        widget=forms.Textarea(attrs={'rows': 5, 'cols': 80}),
     )
     case_header_row = forms.IntegerField(
         required=False,
@@ -399,6 +424,7 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
         if preset_key == 'jawabu_homebiogas':
             self.fields['workflow_preset'].initial = 'jawabu_homebiogas'
             defaults = defaults_for_preset('jawabu_homebiogas')['workflow']
+            self.fields['jawabu_tat_targets_minutes'].initial = workflow.get('jawabu_tat_targets_minutes') or {'overall': None, 'stages': {}}
             self.fields['jawabu_import_start_date'].initial = (
                 workflow.get('import_start_date')
                 or defaults.get('import_start_date')
@@ -513,6 +539,8 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
             workflow = dict(self.cleaned_data.get('workflow') or {})
             existing_workflow = getattr(self.instance, 'workflow', None) or {}
             self._apply_selected_launchers(workflow)
+            if workflow.get('type') in {'jawabu', 'jawabu_homebiogas'} or workflow.get('master_sync_enabled'):
+                workflow['jawabu_tat_targets_minutes'] = self.cleaned_data.get('jawabu_tat_targets_minutes') or {'overall': None, 'stages': {}}
             if (
                 workflow.get('type') == 'tat_tracker'
                 or existing_workflow.get('type') == 'tat_tracker'
@@ -555,6 +583,8 @@ class GroupSheetConfigurationAdminForm(forms.ModelForm):
             },
         )
         self._apply_selected_launchers(workflow)
+        if preset_key == 'jawabu_homebiogas':
+            workflow['jawabu_tat_targets_minutes'] = self.cleaned_data.get('jawabu_tat_targets_minutes') or {'overall': None, 'stages': {}}
         return workflow
 
     def _apply_selected_launchers(self, workflow: dict) -> None:
@@ -1153,6 +1183,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 'jawabu_internal_order_header_row',
                 'jawabu_internal_order_data_start_row',
                 'jawabu_internal_order_record_id_prefix',
+                'jawabu_tat_targets_minutes',
             ),
             'description': 'Master Data sync plus optional downstream internal Order Sheet sync for the Jawabu HomeBiogas workflow.',
             'classes': ('tab', 'preset-section', 'preset-jawabu_homebiogas'),

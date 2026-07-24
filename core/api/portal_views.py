@@ -88,6 +88,17 @@ def portal_auth_required(view_func):
         if not is_valid:
             return JsonResponse({'ok': False, 'error': error}, status=403)
         request.portal_auth_payload = payload
+        if getattr(settings, 'PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH', True):
+            from core.models import JawabuPortalStaffMember
+            try:
+                user = json.loads(payload.get('user') or '{}')
+            except (TypeError, ValueError):
+                user = {}
+            telegram_id = str(user.get('id') or '')
+            staff = JawabuPortalStaffMember.objects.filter(telegram_id=telegram_id, active=True).first()
+            if not staff:
+                return JsonResponse({'ok': False, 'error': 'Your Telegram account is not authorized for the Jawabu Portal.'}, status=403)
+            request.portal_staff = staff
         return view_func(request, *args, **kwargs)
     return wrapper
 
@@ -114,6 +125,15 @@ def _portal_sender_from_request(request) -> str:
     except Exception:
         pass
     return ''
+
+
+def _portal_request_id(request, body: dict | None = None) -> str:
+    return str(request.headers.get('X-Request-ID') or (body or {}).get('request_id') or '').strip()[:128]
+
+
+def _portal_actor_telegram_id(request) -> str:
+    staff = getattr(request, 'portal_staff', None)
+    return str(getattr(staff, 'telegram_id', '') or '')
 
 
 def _pagination_window(request, total: int, page_size: int = 30):
@@ -152,7 +172,24 @@ def _apply_county_branch_filters(qs, request):
         qs = qs.filter(county__iexact=county)
     if branch:
         qs = qs.filter(branch__iexact=branch)
+    staff = getattr(request, 'portal_staff', None)
+    staff_branches = [str(value).strip() for value in (getattr(staff, 'branches', None) or []) if str(value).strip()]
+    if staff_branches:
+        qs = qs.filter(branch__in=staff_branches)
     return qs
+
+
+def _portal_role_error(request, allowed_roles: set[str], farmer=None):
+    staff = getattr(request, 'portal_staff', None)
+    if staff is None:  # Authentication is intentionally disabled in local/test environments.
+        return None
+    roles = {str(value).strip().lower() for value in (staff.roles or [])}
+    if 'admin' not in roles and roles.isdisjoint(allowed_roles):
+        return JsonResponse({'ok': False, 'error': 'You are not authorized for this Jawabu workflow action.'}, status=403)
+    branches = {str(value).strip().casefold() for value in (staff.branches or []) if str(value).strip()}
+    if farmer is not None and branches and str(farmer.branch or '').strip().casefold() not in branches:
+        return JsonResponse({'ok': False, 'error': 'This case is outside your authorized branch scope.'}, status=403)
+    return None
 
 
 PORTAL_QUEUE_FRAGMENT_CONFIG = {
@@ -178,6 +215,7 @@ def _portal_queue_queryset(queue_key: str, request):
             county=request.GET.get('county', '').strip(),
             branch=request.GET.get('branch', '').strip(),
         )
+        qs = _apply_county_branch_filters(qs, request)
     else:
         qs = getattr(jawabu_pipeline, config['service'])()
         qs = _apply_county_branch_filters(qs, request)
@@ -561,6 +599,10 @@ def portal_log_jbl_visit(request, farmer_id: str):
     except JawabuFarmerMaster.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
 
+    role_error = _portal_role_error(request, {'jbl_officer'}, farmer)
+    if role_error:
+        return role_error
+
     try:
         body = json.loads(request.body)
     except (json.JSONDecodeError, ValueError):
@@ -606,6 +648,7 @@ def portal_log_jbl_visit(request, farmer_id: str):
         county=county,
         sub_county=sub_county,
         village=village,
+        request_id=_portal_request_id(request, body),
     )
     if not ok:
         return JsonResponse({'ok': False, 'error': error}, status=400)
@@ -669,6 +712,10 @@ def portal_set_credit_decision(request, farmer_id: str):
     except JawabuFarmerMaster.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
 
+    role_error = _portal_role_error(request, {'credit_analyst'}, farmer)
+    if role_error:
+        return role_error
+
     try:
         body = json.loads(request.body)
     except (json.JSONDecodeError, ValueError):
@@ -687,6 +734,7 @@ def portal_set_credit_decision(request, farmer_id: str):
         imab_created=imab_created,
         customer_no=customer_no,
         sender=sender,
+        request_id=_portal_request_id(request, body),
     )
     if not ok:
         return JsonResponse({'ok': False, 'error': error}, status=400)
@@ -726,6 +774,10 @@ def portal_set_final_decision(request, farmer_id: str):
     except JawabuFarmerMaster.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
 
+    role_error = _portal_role_error(request, {'head_rural'}, farmer)
+    if role_error:
+        return role_error
+
     try:
         body = json.loads(request.body)
     except (json.JSONDecodeError, ValueError):
@@ -746,6 +798,7 @@ def portal_set_final_decision(request, farmer_id: str):
         repayment_date=repayment_date,
         repayment_tenor=repayment_tenor,
         sender=sender,
+        request_id=_portal_request_id(request, body),
     )
     if not ok:
         return JsonResponse({'ok': False, 'error': error}, status=400)
@@ -786,6 +839,10 @@ def portal_assign_order(request, farmer_id: str):
     except JawabuFarmerMaster.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
 
+    role_error = _portal_role_error(request, {'operations'}, farmer)
+    if role_error:
+        return role_error
+
     try:
         body = json.loads(request.body)
     except (json.JSONDecodeError, ValueError):
@@ -812,6 +869,7 @@ def portal_assign_order(request, farmer_id: str):
         repayment_tenor=body.get('repayment_tenor'),
         payment_product=body.get('payment_product'),
         sender=sender,
+        request_id=_portal_request_id(request, body),
     )
     if not ok:
         # Gate failure → 403 Forbidden
@@ -867,7 +925,8 @@ def portal_farmer_detail(request, farmer_id: str):
         farmer = JawabuFarmerMaster.objects.get(pk=farmer_id)
     except JawabuFarmerMaster.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
-    return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer)})
+    from core.services.jawabu_case360 import serialize_case360
+    return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer), 'case360': serialize_case360(farmer)})
 
 
 
@@ -1031,6 +1090,7 @@ def portal_requisition_generate(request):
 
     # Assign order details only after the Excel has been generated successfully.
     sender = _portal_sender_from_request(request)
+    batch_request_id = _portal_request_id(request, body)
     for farmer in farmers:
         if farmer.order_number != order_number or farmer.requisition_date != requisition_date:
             assign_order(
@@ -1038,6 +1098,7 @@ def portal_requisition_generate(request):
                 order_number=order_number,
                 requisition_date=requisition_date,
                 sender=sender,
+                request_id=f'{batch_request_id}:{farmer.id}' if batch_request_id else '',
             )
 
     filename = f"JBL_Requisition_Form_{order_number}.xlsx"
@@ -1770,6 +1831,9 @@ def portal_invoice_match(request, invoice_id: str):
         return JsonResponse({'ok': False, 'error': 'Invoice not found.'}, status=404)
     except JawabuFarmerMaster.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
+    role_error = _portal_role_error(request, {'viewer', 'jbl_officer', 'credit_analyst', 'head_rural', 'operations'}, farmer)
+    if role_error:
+        return role_error
 
     try:
         invoice = manually_match_invoice(invoice, farmer, actor=_portal_sender_from_request(request), note=note)

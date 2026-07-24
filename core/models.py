@@ -967,14 +967,18 @@ class JawabuFarmerMaster(models.Model):
     installation_status = models.CharField(max_length=128, blank=True, default='', db_index=True)
     actual_receipts_currency = models.CharField(max_length=16, blank=True, default='')
     actual_receipts = models.CharField(max_length=64, blank=True, default='')
+    deposit_paid_hbg = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     hb_sales_person = models.CharField(max_length=255, blank=True, default='', db_index=True)
     sign_date = models.CharField(max_length=32, blank=True, default='')
+    hbg_visit_date = models.DateField(null=True, blank=True, db_index=True)
     created_date = models.CharField(max_length=32, blank=True, default='')
     comments = models.TextField(blank=True, default='')
 
     gps_link = models.URLField(max_length=1000, blank=True, default='')
     latitude = models.CharField(max_length=64, blank=True, default='')
     longitude = models.CharField(max_length=64, blank=True, default='')
+    latitude_value = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    longitude_value = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
 
     # Ã¢â€â‚¬Ã¢â€â‚¬ Stage 2: JBL visit Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
     jbl_visit_date = models.DateField(
@@ -1038,10 +1042,12 @@ class JawabuFarmerMaster(models.Model):
         max_length=64, blank=True, default='',
         help_text='Repayment date/day captured before order/payment generation.',
     )
+    repayment_day = models.PositiveSmallIntegerField(null=True, blank=True)
     repayment_tenor = models.CharField(
         max_length=64, blank=True, default='',
         help_text='Loan tenor captured before order/payment generation.',
     )
+    repayment_tenor_months = models.PositiveSmallIntegerField(null=True, blank=True)
     payment_product = models.CharField(
         max_length=128, blank=True, default='',
         help_text='Payment document product value captured before order/payment generation.',
@@ -1141,13 +1147,66 @@ class JawabuPipelineEvent(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     farmer = models.ForeignKey(JawabuFarmerMaster, on_delete=models.PROTECT, related_name='pipeline_events')
     action = models.CharField(max_length=40, db_index=True)
+    stage_key = models.CharField(max_length=40, blank=True, default='', db_index=True)
     actor = models.CharField(max_length=255, blank=True, default='')
+    actor_telegram_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
+    source = models.CharField(max_length=40, blank=True, default='system', db_index=True)
+    request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    old_values = models.JSONField(blank=True, default=dict)
+    new_values = models.JSONField(blank=True, default=dict)
     metadata = models.JSONField(blank=True, default=dict)
+    occurred_at = models.DateTimeField(default=timezone.now, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
         ordering = ['-created_at']
-        indexes = [models.Index(fields=['farmer', 'created_at'])]
+        indexes = [
+            models.Index(fields=['farmer', 'occurred_at'], name='jawabu_farmer_timeline_idx'),
+            models.Index(fields=['farmer', 'stage_key'], name='jawabu_farmer_stage_idx'),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['farmer', 'request_id'],
+                condition=~models.Q(request_id=''),
+                name='jawabu_unique_event_request',
+            ),
+        ]
+
+
+class JawabuDataQualityIssue(models.Model):
+    """Active/resolved canonical-data warning for a Jawabu application."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    farmer = models.ForeignKey(JawabuFarmerMaster, on_delete=models.CASCADE, related_name='data_quality_issues')
+    field_name = models.CharField(max_length=80, db_index=True)
+    code = models.CharField(max_length=80, db_index=True)
+    severity = models.CharField(max_length=20, default='warning', db_index=True)
+    message = models.TextField()
+    active = models.BooleanField(default=True, db_index=True)
+    detected_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['field_name', 'code']
+        constraints = [
+            models.UniqueConstraint(fields=['farmer', 'field_name', 'code'], name='jawabu_unique_quality_issue'),
+        ]
+
+
+class JawabuPortalStaffMember(models.Model):
+    """Business authorization for the aggregated Jawabu Portal Mini App."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    telegram_id = models.CharField(max_length=100, unique=True, db_index=True)
+    display_name = models.CharField(max_length=255, blank=True, default='')
+    roles = models.JSONField(blank=True, default=list)
+    branches = models.JSONField(blank=True, default=list)
+    active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['display_name', 'telegram_id']
 
 class JawabuFarmerUploadBatch(models.Model):
     """Staged CSV upload for staff review before updating Jawabu farmer master data."""

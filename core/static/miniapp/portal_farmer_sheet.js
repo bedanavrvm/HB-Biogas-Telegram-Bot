@@ -7,6 +7,68 @@
 
   function el(id) { return deps.el(id); }
   function state() { return deps.state; }
+  function requestId() { return window.crypto?.randomUUID?.() || `portal-${Date.now()}-${Math.random().toString(16).slice(2)}`; }
+
+  function humanLabel(value) {
+    return String(value || '').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
+  }
+
+  function renderBusinessSection(section) {
+    return `<div class="case360-grid">${Object.entries(section || {}).map(([key, value]) =>
+      `<div class="case360-field"><span>${deps.escapeHtml(humanLabel(key))}</span><strong>${deps.escapeHtml(value ?? '-')}</strong></div>`
+    ).join('')}</div>`;
+  }
+
+  function renderCase360(data) {
+    const root = el('case360');
+    if (!root || !data) return;
+    const sections = data.sections || {};
+    const timeline = data.timeline || [];
+    const tat = data.tat || {};
+    const documents = data.documents || {};
+    const validation = data.validation || [];
+    const stageRows = (tat.stages || []).map(stage => `<div class="case360-tat-row"><div><strong>${deps.escapeHtml(stage.label)}</strong><small>${stage.completed_at ? 'Completed' : stage.started_at ? 'In progress' : 'Not tracked'}</small></div><div><strong>${stage.minutes == null ? '-' : deps.escapeHtml(stage.minutes + ' min')}</strong><span class="case360-sla ${deps.escapeHtml(stage.status || '')}">${deps.escapeHtml(humanLabel(stage.status || ''))}</span></div></div>`).join('');
+    const docLinks = [
+      ...(documents.visit_media || []).map((url, index) => ({ name: `Visit media ${index + 1}`, url })),
+      documents.requisition,
+      documents.invoice,
+      ...(documents.payments || []),
+    ].filter(Boolean);
+    root.innerHTML = `
+      <div class="case360-tabs" role="tablist">
+        ${['overview', 'timeline', 'tat', 'documents', 'quality'].map((tab, index) => `<button type="button" data-case360-tab="${tab}" class="${index ? '' : 'active'}">${humanLabel(tab === 'quality' ? 'data quality' : tab)}</button>`).join('')}
+      </div>
+      <section data-case360-panel="overview">${Object.entries(sections).map(([name, values]) => `<h3>${deps.escapeHtml(humanLabel(name))}</h3>${renderBusinessSection(values)}`).join('')}</section>
+      <section data-case360-panel="timeline" hidden>
+        ${timeline.length ? `<div class="case360-timeline">${timeline.map(event => `<article><time>${deps.escapeHtml(deps.fmtDate(event.occurred_at))}</time><div><strong>${deps.escapeHtml(humanLabel(event.action))}</strong><small>${deps.escapeHtml([event.actor, event.stage].filter(Boolean).join(' - ') || 'System')}</small></div></article>`).join('')}</div>` : '<div class="empty-state">No exact events recorded yet.</div>'}
+      </section>
+      <section data-case360-panel="tat" hidden>
+        ${tat.historical_timestamps_available ? '' : '<div class="batch-warning">Historical stage timestamps were not inferred. TAT begins with exact events recorded after tracking was enabled.</div>'}
+        <div class="case360-tat-total"><span>Total tracked TAT</span><strong>${tat.total_minutes == null ? '-' : deps.escapeHtml(tat.total_minutes + ' min')}</strong><span class="case360-sla ${deps.escapeHtml(tat.status || '')}">${deps.escapeHtml(humanLabel(tat.status || ''))}</span></div>${stageRows}
+      </section>
+      <section data-case360-panel="documents" hidden>${docLinks.length ? docLinks.map(doc => `<a class="case360-document" href="${deps.escapeHtml(doc.url)}" target="_blank" rel="noopener">${deps.escapeHtml(doc.name || 'Document')}</a>`).join('') : '<div class="empty-state">No linked documents.</div>'}</section>
+      <section data-case360-panel="quality" hidden>${validation.length ? validation.map(issue => `<div class="batch-warning"><strong>${deps.escapeHtml(humanLabel(issue.field))}</strong><br>${deps.escapeHtml(issue.message)}</div>`).join('') : '<div class="case360-valid">All checked business fields are valid.</div>'}</section>`;
+    root.hidden = false;
+    root.querySelectorAll('[data-case360-tab]').forEach(button => button.addEventListener('click', () => {
+      root.querySelectorAll('[data-case360-tab]').forEach(item => item.classList.toggle('active', item === button));
+      root.querySelectorAll('[data-case360-panel]').forEach(panel => { panel.hidden = panel.dataset.case360Panel !== button.dataset.case360Tab; });
+    }));
+  }
+
+  async function loadCase360(farmer) {
+    const root = el('case360');
+    if (!root) return;
+    root.hidden = false;
+    root.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
+    if (farmer.case360) return renderCase360(farmer.case360);
+    try {
+      const response = await deps.apiFetch('/farmers/' + farmer.id + '/');
+      if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not load Case 360.');
+      renderCase360(response.data.case360);
+    } catch (error) {
+      root.innerHTML = `<div class="batch-warning">${deps.escapeHtml(error.message || 'Could not load Case 360.')}</div>`;
+    }
+  }
 
   function openFarmerSheet(farmer, mode) {
     state().selectedFarmer = farmer;
@@ -46,6 +108,7 @@
     el('sheet-info').innerHTML = infoFields.map(([label, value]) =>
       `<li class="info-row"><span class="ir-label">${deps.escapeHtml(label)}</span><span class="ir-value">${value}</span></li>`
     ).join('');
+    loadCase360(farmer);
 
     const formEl = el('sheet-form');
     const footerEl = el('sheet-footer');
@@ -290,6 +353,7 @@
     const { ok, data } = await deps.apiFetch('/jbl-queue/' + farmer.id + '/', {
       method: 'POST',
       body: JSON.stringify({
+        request_id: requestId(),
         visit_date: el('jbl-date')?.value || '',
         visit_status: visitStatus,
         officer: el('jbl-officer')?.value || '',
@@ -356,7 +420,7 @@
     deps.setButtonLoading(btn, true, 'Saving...');
     const { ok, data } = await deps.apiFetch('/credit-queue/' + farmer.id + '/', {
       method: 'POST',
-      body: JSON.stringify({ decision, imab_created: imabCreated, customer_no: customerNo }),
+      body: JSON.stringify({ request_id: requestId(), decision, imab_created: imabCreated, customer_no: customerNo }),
     });
     deps.setButtonLoading(btn, false);
     if (!ok) return deps.showToast(data.error || 'Save failed', 'error');
@@ -380,6 +444,7 @@
     const { ok, data } = await deps.apiFetch('/final-review-queue/' + farmer.id + '/', {
       method: 'POST',
       body: JSON.stringify({
+        request_id: requestId(),
         final_decision: finalDecision,
         decision_comment: decisionComment,
         repayment_date: repaymentDate,
@@ -411,6 +476,7 @@
     const { ok, status, data } = await deps.apiFetch('/requisition-queue/' + farmer.id + '/', {
       method: 'POST',
       body: JSON.stringify({
+        request_id: requestId(),
         order_number: orderNumber,
         requisition_date: reqDate,
         repayment_date: repaymentDate,

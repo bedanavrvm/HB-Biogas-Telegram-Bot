@@ -1447,12 +1447,35 @@ def upsert_farmer(cleaned: dict) -> tuple[bool, str]:
     defaults['customer'] = customer
     defaults['unit_number'] = unit_number
     if existing:
-        restart_expired_reappraisal(existing, fresh_sign_date=cleaned.get('sign_date', ''))
+        restarted = restart_expired_reappraisal(existing, fresh_sign_date=cleaned.get('sign_date', ''))
         for field, value in defaults.items():
             setattr(existing, field, value)
+        from core.services.jawabu_validation import canonicalize_farmer
+        canonicalize_farmer(existing, strict=True)
         existing.save()
+        from core.services.jawabu_validation import refresh_data_quality_issues
+        refresh_data_quality_issues(existing)
+        from core.services.jawabu_case360 import record_pipeline_event
+        record_pipeline_event(
+            existing,
+            action='application_imported' if restarted else 'application_updated',
+            stage_key='intake',
+            source='farmup',
+            metadata={'reappraisal_cycle': bool(restarted)},
+        )
         return False, existing.status
     farmer = JawabuFarmerMaster.objects.create(**defaults)
+    from core.services.jawabu_validation import canonicalize_farmer
+    canonicalize_farmer(farmer, strict=True)
+    farmer.save(update_fields=[
+        'national_id', 'primary_phone', 'secondary_phone', 'hbg_visit_date',
+        'deposit_paid_hbg', 'latitude_value', 'longitude_value',
+        'repayment_day', 'repayment_tenor_months', 'updated_at',
+    ])
+    from core.services.jawabu_validation import refresh_data_quality_issues
+    refresh_data_quality_issues(farmer)
+    from core.services.jawabu_case360 import record_pipeline_event
+    record_pipeline_event(farmer, action='application_imported', stage_key='intake', source='farmup')
     if action == 'create_additional_unit':
         record_additional_unit(farmer)
     return True, defaults['status']

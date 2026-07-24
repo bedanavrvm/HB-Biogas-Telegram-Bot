@@ -287,10 +287,11 @@ def _row_payload(farmer: JawabuFarmerMaster) -> tuple[dict[str, Any], list[str],
     if not farmer.repayment_tenor:
         missing.append('Tenor')
 
-    hbg_deposit = _amount(farmer.actual_receipts) if not (farmer.lead_source and 'jbl' in farmer.lead_source.lower()) else None
+    canonical_deposit = farmer.deposit_paid_hbg if farmer.deposit_paid_hbg is not None else _amount(farmer.actual_receipts)
+    hbg_deposit = canonical_deposit if not (farmer.lead_source and 'jbl' in farmer.lead_source.lower()) else None
     jbl_deposit = farmer.system_deposit_paid_jbl
     if jbl_deposit is None and farmer.lead_source and 'jbl' in farmer.lead_source.lower():
-        jbl_deposit = _amount(farmer.actual_receipts)
+        jbl_deposit = canonical_deposit
 
     row = {
         'requisition_date': farmer.requisition_date,
@@ -488,6 +489,16 @@ def create_payment_document(order_number: str, actor: str = '', final: bool = Fa
         invoice_batch_ids=summary.get('invoice_batch_ids', []),
         validation_summary=summary,
     )
+    if final:
+        from core.models import JawabuFarmerMaster
+        from core.services.jawabu_case360 import record_pipeline_event
+        for farmer in JawabuFarmerMaster.objects.filter(id__in=doc.farmer_ids):
+            record_pipeline_event(
+                farmer, action='payment_finalized', stage_key='payment', actor=actor,
+                request_id=f'payment-document:{doc.id}:{farmer.id}', source='payment_document',
+                new_values={'order_number': order_number, 'version': version},
+                metadata={'payment_document_id': str(doc.id)},
+            )
     return doc
 
 

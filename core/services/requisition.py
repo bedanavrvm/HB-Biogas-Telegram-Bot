@@ -235,7 +235,11 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
         _write_system_value(ws, r, col_county, farmer.county)  # COUNTY
         _write_system_value(ws, r, col_landmark, requisition_location_text(farmer))  # LOCATION & NEAREST LANDMARK
         
-        deposit = clean_deposit_float(farmer.actual_receipts)
+        deposit = (
+            float(farmer.deposit_paid_hbg)
+            if farmer.deposit_paid_hbg is not None
+            else clean_deposit_float(farmer.actual_receipts)
+        )
         is_hbg = True
         if farmer.lead_source and 'jbl' in farmer.lead_source.lower():
             is_hbg = False

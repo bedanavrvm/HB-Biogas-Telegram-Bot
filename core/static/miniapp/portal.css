@@ -743,6 +743,28 @@
   margin: 14px 0 8px;
 }
 
+.case360 { margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 12px; }
+.case360-tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 10px; }
+.case360-tabs button { min-height: 32px; padding: 0 10px; white-space: nowrap; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 999px; color: var(--text-muted); }
+.case360-tabs button.active { background: var(--color-primary); border-color: var(--color-primary); color: white; }
+.case360 h3 { margin: 14px 0 7px; font-size: 13px; }
+.case360-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.case360-field { min-width: 0; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-surface); padding: 8px; }
+.case360-field span, .case360-timeline small, .case360-tat-row small { display: block; color: var(--text-muted); font-size: 10px; }
+.case360-field strong { display: block; margin-top: 3px; overflow-wrap: anywhere; font-size: 12px; }
+.case360-timeline { border-left: 2px solid var(--border-color); margin-left: 7px; padding-left: 14px; }
+.case360-timeline article { position: relative; display: grid; grid-template-columns: 100px 1fr; gap: 8px; padding: 8px 0; }
+.case360-timeline article::before { content: ''; position: absolute; left: -20px; top: 13px; width: 9px; height: 9px; border-radius: 50%; background: var(--color-primary); }
+.case360-timeline time { color: var(--text-muted); font-size: 10px; }
+.case360-tat-total, .case360-tat-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--border-color); padding: 9px 2px; }
+.case360-tat-row > div:last-child { text-align: right; }
+.case360-sla { display: inline-flex; margin-left: 5px; border-radius: 999px; padding: 2px 6px; background: var(--bg-muted); color: var(--text-muted); font-size: 9px; font-weight: 800; }
+.case360-sla.within { background: rgba(16,185,129,.14); color: #059669; }
+.case360-sla.near { background: rgba(245,158,11,.16); color: #b45309; }
+.case360-sla.over { background: rgba(239,68,68,.14); color: #dc2626; }
+.case360-document { display: block; margin-bottom: 7px; border: 1px solid var(--border-color); border-radius: 8px; padding: 9px; color: var(--color-primary); font-weight: 700; text-decoration: none; }
+.case360-valid { border-radius: 8px; padding: 10px; background: rgba(16,185,129,.12); color: #047857; font-weight: 700; }
+
 .workbook-preview {
   border: 1px solid var(--border, #d8dee8);
   border-radius: 10px;

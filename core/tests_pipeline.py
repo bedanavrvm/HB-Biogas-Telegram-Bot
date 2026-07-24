@@ -12,7 +12,7 @@ from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import GroupSheetConfiguration, InvoiceUploadBatch, JawabuFarmerMaster, LiveSheetRecordChange, ParsedInvoice, RequisitionBatch
+from core.models import GroupSheetConfiguration, InvoiceUploadBatch, JawabuFarmerMaster, JawabuPortalStaffMember, LiveSheetRecordChange, ParsedInvoice, RequisitionBatch
 from core.services.jawabu_pipeline import (
     assign_order,
     all_cases,
@@ -348,6 +348,9 @@ class PortalMiniAppAuthTestCase(TestCase):
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_portal_api_accepts_valid_telegram_init_data(self):
+        JawabuPortalStaffMember.objects.create(
+            telegram_id='12345', display_name='Portal User', roles=['admin'],
+        )
         response = self.client.get(
             reverse('portal_dashboard'),
             HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
@@ -1478,3 +1481,64 @@ class JawabuIntegrityRulesTests(TestCase):
         self.assertEqual(farmer.invoice_number, 'INV-1')
         self.assertEqual(batch.status, 'matched')
         self.assertEqual(batch.sync_status, 'success')
+
+
+class JawabuCase360Tests(TestCase):
+    def test_tat_excludes_formal_deferral_minutes(self):
+        from core.services.jawabu_case360 import calculate_case_tat, record_pipeline_event
+
+        farmer = JawabuFarmerMaster.objects.create(customer_name='Timeline Customer')
+        start = timezone.now() - timedelta(hours=3)
+        record_pipeline_event(farmer, action='application_imported', stage_key='intake', occurred_at=start)
+        record_pipeline_event(farmer, action='deferral_started', stage_key='jbl_visit', occurred_at=start + timedelta(minutes=30))
+        record_pipeline_event(farmer, action='deferral_ended', stage_key='jbl_visit', occurred_at=start + timedelta(minutes=90))
+        record_pipeline_event(farmer, action='jbl_visit_completed', stage_key='jbl_visit', occurred_at=start + timedelta(minutes=120))
+
+        tat = calculate_case_tat(farmer, now=start + timedelta(minutes=180))
+
+        self.assertEqual(tat['stages'][0]['minutes'], '60.00')
+        self.assertEqual(tat['stages'][0]['excluded_deferred_minutes'], '60.00')
+
+    def test_new_unit_application_starts_a_fresh_tat_cycle(self):
+        from core.services.jawabu_case360 import calculate_case_tat, record_pipeline_event
+
+        farmer = JawabuFarmerMaster.objects.create(customer_name='Repeat Customer')
+        old_start = timezone.now() - timedelta(days=10)
+        record_pipeline_event(farmer, action='application_imported', stage_key='intake', occurred_at=old_start)
+        record_pipeline_event(farmer, action='jbl_visit_completed', stage_key='jbl_visit', occurred_at=old_start + timedelta(days=1))
+        new_start = timezone.now() - timedelta(hours=2)
+        record_pipeline_event(farmer, action='application_imported', stage_key='intake', occurred_at=new_start)
+
+        tat = calculate_case_tat(farmer, now=new_start + timedelta(hours=2))
+
+        self.assertEqual(tat['previous_cycle_count'], 1)
+        self.assertEqual(tat['stages'][0]['completed_at'], None)
+        self.assertEqual(tat['stages'][0]['minutes'], '120.00')
+
+    def test_case360_exposes_business_sections_without_raw_payload(self):
+        from core.services.jawabu_case360 import record_pipeline_event, serialize_case360
+
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Case 360 Customer', national_id='12345678',
+            primary_phone='254712345678', raw_data={'private_parser_value': 'hidden'},
+        )
+        record_pipeline_event(farmer, action='tracking_started', stage_key='tracking')
+
+        payload = serialize_case360(farmer)
+
+        self.assertEqual(payload['sections']['identity']['national_id'], '12345678')
+        self.assertEqual(payload['timeline'][0]['action'], 'tracking_started')
+        self.assertNotIn('raw_data', str(payload))
+
+    def test_order_request_id_is_idempotent(self):
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Idempotent Customer', final_decision='Approved',
+        )
+        first = assign_order(farmer, order_number='ORDER-IDEMP', request_id='request-1')
+        second = assign_order(farmer, order_number='ORDER-CHANGED', request_id='request-1')
+        farmer.refresh_from_db()
+
+        self.assertEqual(first, (True, ''))
+        self.assertEqual(second, (True, ''))
+        self.assertEqual(farmer.order_number, 'ORDER-IDEMP')
+        self.assertEqual(farmer.pipeline_events.filter(request_id='request-1').count(), 1)

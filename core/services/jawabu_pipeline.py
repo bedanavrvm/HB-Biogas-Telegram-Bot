@@ -19,6 +19,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from django.utils import timezone
+from django.db import transaction
 from django.db.models import Q
 
 from core.models import JawabuFarmerMaster, JawabuPipelineEvent
@@ -42,23 +43,32 @@ def is_reappraisal_required(farmer: JawabuFarmerMaster, *, today=None) -> bool:
     return bool(farmer.deferred_until and today >= farmer.deferred_until)
 
 
-def _set_deferral(farmer: JawabuFarmerMaster, stage: str, actor: str) -> None:
+def _set_deferral(farmer: JawabuFarmerMaster, stage: str, actor: str, request_id: str = '') -> None:
     now = timezone.now()
     farmer.deferred_at = now
     farmer.deferred_stage = stage
     farmer.deferred_until = timezone.localdate(now) + timedelta(days=90)
-    JawabuPipelineEvent.objects.create(
-        farmer=farmer,
-        action='deferred',
-        actor=str(actor or ''),
-        metadata={'stage': stage, 'deferred_until': farmer.deferred_until.isoformat()},
+    from core.services.jawabu_case360 import record_pipeline_event
+    record_pipeline_event(
+        farmer, action='deferral_started', stage_key=stage, actor=actor,
+        request_id=f'{request_id}:deferred' if request_id else '',
+        new_values={'deferred_until': farmer.deferred_until.isoformat()},
     )
 
 
-def _clear_deferral(farmer: JawabuFarmerMaster) -> None:
+def _clear_deferral(farmer: JawabuFarmerMaster, actor: str = '', request_id: str = '') -> None:
+    prior_stage = farmer.deferred_stage
+    prior_until = farmer.deferred_until
     farmer.deferred_at = None
     farmer.deferred_stage = ''
     farmer.deferred_until = None
+    if prior_stage:
+        from core.services.jawabu_case360 import record_pipeline_event
+        record_pipeline_event(
+            farmer, action='deferral_ended', stage_key=prior_stage, actor=actor,
+            request_id=f'{request_id}:deferral-ended' if request_id else '',
+            old_values={'deferred_until': prior_until.isoformat() if prior_until else None},
+        )
 
 
 def reappraisal_required_queue():
@@ -179,6 +189,7 @@ def pipeline_counts() -> dict[str, int]:
         'total': all_cases().count(),
     }
 
+@transaction.atomic
 def log_jbl_visit(
     farmer: JawabuFarmerMaster,
     *,
@@ -192,12 +203,16 @@ def log_jbl_visit(
     county: str | None = None,
     sub_county: str | None = None,
     village: str | None = None,
+    request_id: str = '',
 ) -> tuple[bool, str]:
     """
     Record that a JBL officer has visited the farmer (Stage 2 advance).
 
     Returns (success, error_message).
     """
+    from core.services.jawabu_case360 import event_request_already_processed
+    if event_request_already_processed(farmer, request_id):
+        return True, ''
     # Validate status value
     valid_statuses = {choice[0] for choice in JawabuFarmerMaster.JBL_VISIT_STATUS_CHOICES}
     if visit_status and visit_status not in valid_statuses:
@@ -209,9 +224,9 @@ def log_jbl_visit(
     farmer.jbl_visit_comment = str(comment or '').strip()
 
     if visit_status == 'Deferred / On Hold':
-        _set_deferral(farmer, 'jbl_visit', sender or officer)
+        _set_deferral(farmer, 'jbl_visit', sender or officer, request_id)
     elif farmer.deferred_stage == 'jbl_visit':
-        _clear_deferral(farmer)
+        _clear_deferral(farmer, sender or officer, request_id)
 
     update_fields = [
         'jbl_visit_date', 'jbl_officer', 'jbl_visit_status',
@@ -230,12 +245,25 @@ def log_jbl_visit(
         update_fields.append('village')
 
     if latitude is not None and longitude is not None:
+        from core.services.jawabu_validation import parse_coordinate
+        latitude_value = parse_coordinate(latitude, latitude=True)
+        longitude_value = parse_coordinate(longitude, latitude=False)
+        if latitude_value is None or longitude_value is None:
+            return False, 'Coordinates are outside valid latitude/longitude ranges.'
         farmer.latitude = latitude
         farmer.longitude = longitude
+        farmer.latitude_value = latitude_value
+        farmer.longitude_value = longitude_value
         farmer.gps_link = f"https://maps.google.com/?q={latitude},{longitude}"
-        update_fields.extend(['latitude', 'longitude', 'gps_link'])
+        update_fields.extend(['latitude', 'longitude', 'latitude_value', 'longitude_value', 'gps_link'])
 
     farmer.save(update_fields=update_fields)
+    from core.services.jawabu_case360 import record_pipeline_event
+    record_pipeline_event(
+        farmer, action='jbl_visit_completed', stage_key='jbl_visit', actor=sender or officer,
+        request_id=request_id,
+        new_values={'visit_date': visit_date.isoformat(), 'status': visit_status},
+    )
     logger.info(
         'JBL visit logged for farmer %s by %s: %s (coordinates: %s, %s)',
         farmer.id, sender or officer, visit_status, latitude, longitude,
@@ -246,6 +274,7 @@ def log_jbl_visit(
     return True, ''
 
 
+@transaction.atomic
 def set_credit_decision(
     farmer: JawabuFarmerMaster,
     *,
@@ -253,12 +282,16 @@ def set_credit_decision(
     imab_created: str = '',
     customer_no: str = '',
     sender: str = '',
+    request_id: str = '',
 ) -> tuple[bool, str]:
     """
     Record the credit analyst's decision (Stage 3 advance).
 
     Returns (success, error_message).
     """
+    from core.services.jawabu_case360 import event_request_already_processed
+    if event_request_already_processed(farmer, request_id):
+        return True, ''
     if is_reappraisal_required(farmer):
         return False, 'This deferral has expired. Fresh preappraisal and visit records are required.'
     valid_decisions = {choice[0] for choice in JawabuFarmerMaster.CREDIT_DECISION_CHOICES}
@@ -267,6 +300,8 @@ def set_credit_decision(
 
     imab_created = str(imab_created or '').strip()
     customer_no = str(customer_no or '').strip()
+    if customer_no and not customer_no.isdigit():
+        return False, 'CUSTOMER NO must contain digits only.'
     if decision in CREDIT_TERMINAL:
         if imab_created != 'Yes':
             return False, 'Customer must be created in IMAB before the case can reach Head of Rural review.'
@@ -285,14 +320,20 @@ def set_credit_decision(
     farmer.credit_decided_by = str(sender or '').strip()
     farmer.credit_decided_at = timezone.now()
     if decision == 'Deferred':
-        _set_deferral(farmer, 'credit', sender)
+        _set_deferral(farmer, 'credit', sender, request_id)
     elif farmer.deferred_stage == 'credit':
-        _clear_deferral(farmer)
+        _clear_deferral(farmer, sender, request_id)
     farmer.save(update_fields=[
         'credit_decision', 'imab_created', 'customer_no',
         'credit_decided_by', 'credit_decided_at', 'updated_at',
         'deferred_at', 'deferred_stage', 'deferred_until',
     ])
+    from core.services.jawabu_case360 import record_pipeline_event
+    record_pipeline_event(
+        farmer, action='credit_decision_recorded', stage_key='credit', actor=sender,
+        request_id=request_id,
+        new_values={'decision': decision, 'imab_created': imab_created, 'customer_no': customer_no},
+    )
     logger.info(
         'Credit decision %s set for farmer %s by %s',
         decision, farmer.id, sender,
@@ -305,6 +346,7 @@ def set_credit_decision(
 
 
 
+@transaction.atomic
 def set_final_decision(
     farmer: JawabuFarmerMaster,
     *,
@@ -313,12 +355,16 @@ def set_final_decision(
     repayment_date: str | None = None,
     repayment_tenor: str | None = None,
     sender: str = '',
+    request_id: str = '',
 ) -> tuple[bool, str]:
     """
     Record Head of Rural final decision. Approved records enter the order queue.
 
     Returns (success, error_message).
     """
+    from core.services.jawabu_case360 import event_request_already_processed
+    if event_request_already_processed(farmer, request_id):
+        return True, ''
     if is_reappraisal_required(farmer):
         return False, 'This deferral has expired. Fresh preappraisal and visit records are required.'
     valid_decisions = {choice[0] for choice in JawabuFarmerMaster.FINAL_DECISION_CHOICES}
@@ -332,15 +378,23 @@ def set_final_decision(
     if not farmer.imab_created or not farmer.customer_no:
         return False, 'Cannot set final decision before IS CUSTOMER CREATED ON IMAB and CUSTOMER NO are completed in the credit stage.'
 
+    from core.services.jawabu_validation import parse_repayment_day, parse_tenor_months
+    repayment_day = parse_repayment_day(repayment_date) if repayment_date is not None else farmer.repayment_day
+    tenor_months = parse_tenor_months(repayment_tenor) if repayment_tenor is not None else farmer.repayment_tenor_months
+    if repayment_date and repayment_day is None:
+        return False, 'Repayment day must be between 1 and 31.'
+    if repayment_tenor and tenor_months is None:
+        return False, 'Repayment tenor must be 1 to 120 months.'
+
     old_decision = farmer.final_decision
     farmer.final_decision = final_decision
     farmer.final_decision_comment = str(decision_comment or '').strip()
     farmer.final_decided_by = str(sender or '').strip()
     farmer.final_decided_at = timezone.now()
     if final_decision == 'Deferred':
-        _set_deferral(farmer, 'final', sender)
+        _set_deferral(farmer, 'final', sender, request_id)
     elif farmer.deferred_stage == 'final':
-        _clear_deferral(farmer)
+        _clear_deferral(farmer, sender, request_id)
 
     update_fields = [
         'final_decision', 'final_decision_comment', 'final_decided_by',
@@ -349,12 +403,20 @@ def set_final_decision(
     ]
     if repayment_date is not None:
         farmer.repayment_date = str(repayment_date or '').strip()
-        update_fields.append('repayment_date')
+        farmer.repayment_day = repayment_day
+        update_fields.extend(['repayment_date', 'repayment_day'])
     if repayment_tenor is not None:
         farmer.repayment_tenor = str(repayment_tenor or '').strip()
-        update_fields.append('repayment_tenor')
+        farmer.repayment_tenor_months = tenor_months
+        update_fields.extend(['repayment_tenor', 'repayment_tenor_months'])
 
     farmer.save(update_fields=update_fields)
+    from core.services.jawabu_case360 import record_pipeline_event
+    record_pipeline_event(
+        farmer, action='final_decision_recorded', stage_key='final_review', actor=sender,
+        request_id=request_id,
+        old_values={'decision': old_decision}, new_values={'decision': final_decision},
+    )
     logger.info(
         'Final decision %s set for farmer %s by %s',
         final_decision, farmer.id, sender,
@@ -423,6 +485,7 @@ def append_jbl_media_links(
     }
 
 
+@transaction.atomic
 def assign_order(
     farmer: JawabuFarmerMaster,
     *,
@@ -432,12 +495,16 @@ def assign_order(
     repayment_tenor: str | None = None,
     payment_product: str | None = None,
     sender: str = '',
+    request_id: str = '',
 ) -> tuple[bool, str]:
     """
     Assign an order number and requisition date.
 
     GATE: Final Decision must be Approved. Returns (success, error_message).
     """
+    from core.services.jawabu_case360 import event_request_already_processed
+    if event_request_already_processed(farmer, request_id):
+        return True, ''
     if farmer.final_decision != FINAL_DECISION_APPROVED:
         return (
             False,
@@ -449,19 +516,35 @@ def assign_order(
     if not order_number:
         return False, 'Order number is required.'
 
+    from core.services.jawabu_validation import parse_repayment_day, parse_tenor_months
+    repayment_day = parse_repayment_day(repayment_date) if repayment_date is not None else farmer.repayment_day
+    tenor_months = parse_tenor_months(repayment_tenor) if repayment_tenor is not None else farmer.repayment_tenor_months
+    if repayment_date and repayment_day is None:
+        return False, 'Repayment day must be between 1 and 31.'
+    if repayment_tenor and tenor_months is None:
+        return False, 'Repayment tenor must be 1 to 120 months.'
+
     farmer.order_number = order_number
-    farmer.requisition_date = requisition_date or date.today()
+    farmer.requisition_date = requisition_date or timezone.localdate()
     update_fields = ['order_number', 'requisition_date', 'updated_at']
     if repayment_date is not None:
         farmer.repayment_date = str(repayment_date or '').strip()
-        update_fields.append('repayment_date')
+        farmer.repayment_day = repayment_day
+        update_fields.extend(['repayment_date', 'repayment_day'])
     if repayment_tenor is not None:
         farmer.repayment_tenor = str(repayment_tenor or '').strip()
-        update_fields.append('repayment_tenor')
+        farmer.repayment_tenor_months = tenor_months
+        update_fields.extend(['repayment_tenor', 'repayment_tenor_months'])
     if payment_product is not None:
         farmer.payment_product = str(payment_product or '').strip()
         update_fields.append('payment_product')
     farmer.save(update_fields=update_fields)
+    from core.services.jawabu_case360 import record_pipeline_event
+    record_pipeline_event(
+        farmer, action='order_assigned', stage_key='order', actor=sender,
+        request_id=request_id,
+        new_values={'order_number': order_number, 'requisition_date': farmer.requisition_date.isoformat()},
+    )
     logger.info(
         'Order %s assigned to farmer %s by %s',
         order_number, farmer.id, sender,

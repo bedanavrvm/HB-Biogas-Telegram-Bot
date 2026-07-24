@@ -887,6 +887,13 @@ def confirm_invoice_batch(batch: InvoiceUploadBatch, *, actor: str = '') -> Invo
             farmer.payment = invoice.payment
             farmer.balance_due = invoice.balance_due
             farmer.save(update_fields=['invoice_number', 'invoice_date', 'invoice_amount', 'discount', 'payment', 'balance_due', 'updated_at'])
+            from core.services.jawabu_case360 import record_pipeline_event
+            record_pipeline_event(
+                farmer, action='invoice_confirmed', stage_key='invoice', actor=actor,
+                request_id=f'invoice-batch:{batch.id}:{invoice.id}', source='invoice_confirmation',
+                new_values={'invoice_number': invoice.invoice_no, 'invoice_date': invoice.invoice_date.isoformat()},
+                metadata={'invoice_id': str(invoice.id), 'batch_id': str(batch.id)},
+            )
             invoice.status = 'matched'
             invoice.matched_farmer = farmer
             invoice.matched_order_number = farmer.order_number or batch.order_number
