@@ -2036,6 +2036,9 @@ class UserProfileAdminForm(forms.ModelForm):
         model = UserProfile
         fields = ('telegram_username', 'telegram_id', 'phone_number', 'telegram_metadata')
 
+    def clean_telegram_username(self):
+        return str(self.cleaned_data.get('telegram_username') or '').strip().lstrip('@').lower()
+
 
 class UserProfileInline(StackedInline):
     model = UserProfile
@@ -2079,6 +2082,14 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
     list_fullwidth = True
     inlines = (UserProfileInline, AccessGrantInline)
     change_list_template = 'admin/auth/user/change_list.html'
+
+    def add_view(self, request, form_url='', extra_context=None):
+        """Make the default plus button follow the common Telegram enrollment path."""
+        if request.GET.get('account_type') != 'django':
+            return HttpResponseRedirect(
+                reverse('admin:auth_user_migrate_legacy_staff') + '#enroll-telegram-user'
+            )
+        return super().add_view(request, form_url=form_url, extra_context=extra_context)
 
     def get_urls(self):
         custom_urls = [

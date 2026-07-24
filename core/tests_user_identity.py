@@ -81,6 +81,7 @@ class LegacyStaffMigrationCommandTests(TestCase):
 
         user_list = self.client.get(reverse('admin:auth_user_changelist'))
         self.assertContains(user_list, 'Migrate existing staff')
+        self.assertContains(user_list, 'Add Django login user')
 
         preview = self.client.get(url)
         self.assertEqual(preview.status_code, 200)
@@ -92,6 +93,24 @@ class LegacyStaffMigrationCommandTests(TestCase):
         self.assertEqual(applied.status_code, 200)
         self.assertContains(applied, 'Migration result')
         self.assertTrue(UserProfile.objects.filter(telegram_id='12345').exists())
+
+    def test_default_user_add_redirects_to_telegram_enrollment(self):
+        superuser = get_user_model().objects.create_superuser(
+            username='redirect-admin', email='admin@example.test', password='test-password',
+        )
+        self.client.force_login(superuser)
+
+        response = self.client.get(reverse('admin:auth_user_add'))
+        self.assertRedirects(
+            response,
+            reverse('admin:auth_user_migrate_legacy_staff') + '#enroll-telegram-user',
+            fetch_redirect_response=False,
+        )
+
+        django_user_form = self.client.get(
+            reverse('admin:auth_user_add') + '?account_type=django',
+        )
+        self.assertEqual(django_user_form.status_code, 200)
 
     def test_non_superuser_cannot_open_admin_migration_panel(self):
         staff_user = get_user_model().objects.create_user(
