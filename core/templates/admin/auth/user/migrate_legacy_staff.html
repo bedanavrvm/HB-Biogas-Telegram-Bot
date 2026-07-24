@@ -1,0 +1,39 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+  <div class="max-w-4xl">
+    <h1>{{ title }}</h1>
+    <p>
+      This tool merges exact Telegram-ID matches into canonical Django Users.
+      Name-only records are sent to the manual identity-review queue and are never merged automatically.
+    </p>
+
+    <section class="module" style="margin-top: 24px; padding: 20px;">
+      <h2>{% if applied %}Migration result{% else %}Dry-run preview{% endif %}</h2>
+      <pre style="white-space: pre-wrap; overflow-wrap: anywhere;">{{ migration_output }}</pre>
+    </section>
+
+    <section class="module" style="margin-top: 20px; padding: 20px;">
+      <h2>Compatibility parity</h2>
+      <p>{% if parity_passed %}All records pass strict parity.{% else %}Parity issues or unresolved identity reviews remain; review the report below.{% endif %}</p>
+      <pre style="white-space: pre-wrap; overflow-wrap: anywhere;">{{ parity_output }}</pre>
+    </section>
+
+    {% if not applied %}
+      <form method="post" style="margin-top: 24px;">
+        {% csrf_token %}
+        <div class="form-row">
+          <label for="migration-confirmation"><strong>Type MIGRATE to confirm</strong></label>
+          <input id="migration-confirmation" name="confirmation" type="text" autocomplete="off" required>
+        </div>
+        <button type="submit" class="button default" style="margin-top: 12px;">
+          Migrate existing staff into Users
+        </button>
+      </form>
+    {% endif %}
+
+    <p style="margin-top: 24px;">
+      <a href="{% url 'admin:auth_user_changelist' %}">Return to Users</a>
+    </p>
+  </div>
+{% endblock %}

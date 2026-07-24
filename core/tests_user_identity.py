@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 from django.contrib.auth import get_user_model
 from django.contrib import admin
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
@@ -32,6 +33,7 @@ def signed_init_data(telegram_id='12345', token='test-token'):
     return urlencode(payload)
 
 
+@override_settings(SECURE_SSL_REDIRECT=False)
 class LegacyStaffMigrationCommandTests(TestCase):
     def setUp(self):
         self.config = GroupSheetConfiguration.objects.create(
@@ -63,6 +65,36 @@ class LegacyStaffMigrationCommandTests(TestCase):
         self.assertNotIn(ComplaintCaseStaffMember, admin.site._registry)
         self.assertNotIn(TatTrackerStaffMember, admin.site._registry)
 
+    def test_superuser_can_preview_and_apply_migration_from_user_admin(self):
+        superuser = get_user_model().objects.create_superuser(
+            username='identity-admin', email='admin@example.test', password='test-password',
+        )
+        self.client.force_login(superuser)
+        url = reverse('admin:auth_user_migrate_legacy_staff')
+
+        user_list = self.client.get(reverse('admin:auth_user_changelist'))
+        self.assertContains(user_list, 'Migrate existing staff')
+
+        preview = self.client.get(url)
+        self.assertEqual(preview.status_code, 200)
+        self.assertContains(preview, 'Dry-run preview')
+        self.assertContains(preview, 'High-confidence users: 1')
+        self.assertFalse(UserProfile.objects.filter(telegram_id='12345').exists())
+
+        applied = self.client.post(url, {'confirmation': 'MIGRATE'})
+        self.assertEqual(applied.status_code, 200)
+        self.assertContains(applied, 'Migration result')
+        self.assertTrue(UserProfile.objects.filter(telegram_id='12345').exists())
+
+    def test_non_superuser_cannot_open_admin_migration_panel(self):
+        staff_user = get_user_model().objects.create_user(
+            username='ordinary-admin', password='test-password', is_staff=True,
+        )
+        self.client.force_login(staff_user)
+
+        response = self.client.get(reverse('admin:auth_user_migrate_legacy_staff'))
+        self.assertEqual(response.status_code, 403)
+
     def test_apply_merges_exact_telegram_id_and_routes_name_only_to_review(self):
         call_command('migrate_legacy_staff', '--apply', stdout=io.StringIO())
 
@@ -81,6 +113,27 @@ class LegacyStaffMigrationCommandTests(TestCase):
         call_command('migrate_legacy_staff', '--apply', stdout=io.StringIO())
         self.assertEqual(get_user_model().objects.filter(username='tg_12345').count(), 1)
         self.assertEqual(AccessGrant.objects.filter(user=user).count(), 2)
+
+    def test_parity_check_fails_before_migration_and_passes_after_review_override(self):
+        with self.assertRaises(CommandError):
+            call_command('check_staff_identity_parity', stdout=io.StringIO())
+
+        call_command('migrate_legacy_staff', '--apply', stdout=io.StringIO())
+
+        call_command(
+            'check_staff_identity_parity', '--allow-pending-reviews',
+            stdout=io.StringIO(),
+        )
+
+    def test_parity_check_detects_missing_grant(self):
+        call_command('migrate_legacy_staff', '--apply', stdout=io.StringIO())
+        AccessGrant.objects.filter(workflow='jawabu_portal').delete()
+
+        with self.assertRaises(CommandError):
+            call_command(
+                'check_staff_identity_parity', '--allow-pending-reviews',
+                stdout=io.StringIO(),
+            )
 
 
 @override_settings(

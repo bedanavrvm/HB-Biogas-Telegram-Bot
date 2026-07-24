@@ -1,3 +1,5 @@
+import io
+
 from django import forms
 from django.contrib import admin
 from django.contrib import messages
@@ -9,6 +11,8 @@ from django.conf import settings
 from django.http import HttpResponseRedirect, JsonResponse
 from django.template.response import TemplateResponse
 from django.core.exceptions import PermissionDenied
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.db import transaction
 from django.urls import path, reverse
 from django.utils.html import format_html
@@ -2035,6 +2039,53 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
     list_filter_submit = True
     list_fullwidth = True
     inlines = (UserProfileInline, AccessGrantInline)
+    change_list_template = 'admin/auth/user/change_list.html'
+
+    def get_urls(self):
+        custom_urls = [
+            path(
+                'migrate-legacy-staff/',
+                self.admin_site.admin_view(self.migrate_legacy_staff_view),
+                name='auth_user_migrate_legacy_staff',
+            ),
+        ]
+        return custom_urls + super().get_urls()
+
+    def migrate_legacy_staff_view(self, request):
+        """Superuser-only UI for the dry-run-first staff identity migration."""
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        migration_output = io.StringIO()
+        parity_output = io.StringIO()
+        applied = False
+        if request.method == 'POST':
+            if request.POST.get('confirmation', '').strip() != 'MIGRATE':
+                messages.error(request, 'Type MIGRATE exactly to confirm the user migration.')
+            else:
+                call_command('migrate_legacy_staff', '--apply', stdout=migration_output)
+                applied = True
+                messages.success(request, 'Existing staff records were migrated to Django Users.')
+        else:
+            call_command('migrate_legacy_staff', stdout=migration_output)
+        try:
+            call_command(
+                'check_staff_identity_parity',
+                stdout=parity_output,
+            )
+            parity_passed = True
+        except CommandError as exc:
+            parity_output.write(f'\n{exc}')
+            parity_passed = False
+        context = {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': 'Migrate existing staff to Users',
+            'migration_output': migration_output.getvalue(),
+            'parity_output': parity_output.getvalue(),
+            'parity_passed': parity_passed,
+            'applied': applied,
+        }
+        return TemplateResponse(request, 'admin/auth/user/migrate_legacy_staff.html', context)
 
 
 @admin.register(LegacyStaffUserMapping)
