@@ -40,6 +40,8 @@ from .models import (
     FcaImportRecord,
     GroupSheetConfiguration,
     JawabuFarmerMaster,
+    JawabuCustomer,
+    JawabuPipelineEvent,
     JawabuFarmerUploadBatch,
     JawabuVisitRecord,
     LiveSheetRecordChange,
@@ -60,6 +62,22 @@ from .models import (
     TatTrackerEvent,
     TatTrackerStaffMember,
 )
+
+
+@admin.register(JawabuCustomer)
+class JawabuCustomerAdmin(ModelAdmin):
+    list_display = ('national_id', 'primary_phone', 'customer_no', 'identity_enforced', 'updated_at')
+    list_filter = ('identity_enforced',)
+    search_fields = ('national_id', 'primary_phone', 'customer_no')
+    readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(JawabuPipelineEvent)
+class JawabuPipelineEventAdmin(ModelAdmin):
+    list_display = ('farmer', 'action', 'actor', 'created_at')
+    list_filter = ('action', 'created_at')
+    search_fields = ('farmer__national_id', 'farmer__primary_phone', 'actor')
+    readonly_fields = ('farmer', 'action', 'actor', 'metadata', 'created_at')
 
 
 def _tat_target_field_name(product_key: str, target_key: str) -> str:
@@ -1813,8 +1831,39 @@ class TatTrackerStaffMemberAdmin(ModelAdmin):
         super().delete_queryset(request, queryset)
         GroupSheetConfigurationAdmin._clear_runtime_config_cache()
 
+class RequisitionTemplateForm(forms.ModelForm):
+    class Meta:
+        model = RequisitionTemplate
+        fields = '__all__'
+
+    def clean_file(self):
+        upload = self.cleaned_data.get('file')
+        if upload and ('file' in self.changed_data or not self.instance.pk):
+            from core.services.template_validation import validate_template_bytes
+            data = upload.read()
+            upload.seek(0)
+            validate_template_bytes(data, 'requisition')
+        return upload
+
+
+class PaymentDocumentTemplateForm(forms.ModelForm):
+    class Meta:
+        model = PaymentDocumentTemplate
+        fields = '__all__'
+
+    def clean_file(self):
+        upload = self.cleaned_data.get('file')
+        if upload and ('file' in self.changed_data or not self.instance.pk):
+            from core.services.template_validation import validate_template_bytes
+            data = upload.read()
+            upload.seek(0)
+            validate_template_bytes(data, 'payment')
+        return upload
+
+
 @admin.register(RequisitionTemplate)
 class RequisitionTemplateAdmin(ModelAdmin):
+    form = RequisitionTemplateForm
     compressed_fields = True
     list_filter_submit = True
     list_fullwidth = True
@@ -1836,6 +1885,7 @@ class RequisitionTemplateAdmin(ModelAdmin):
 
 @admin.register(PaymentDocumentTemplate)
 class PaymentDocumentTemplateAdmin(ModelAdmin):
+    form = PaymentDocumentTemplateForm
     compressed_fields = True
     list_filter_submit = True
     list_fullwidth = True

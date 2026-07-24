@@ -512,6 +512,9 @@ def store_evidence_file(group_config, case, update, actor, file_obj, index: int)
             id_number=f'CASE_{case.message_id}',
             received_at=timezone.now(),
             group_config=group_config,
+            workflow_key='Complaint Cases',
+            record_type='Case',
+            record_key=case.message_id,
         )
     except Exception:
         evidence.upload_status = 'failed'

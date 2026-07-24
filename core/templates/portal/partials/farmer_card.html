@@ -21,6 +21,8 @@
       <div class="fc-sub fc-visit-date">HB visit: {{ farmer.sign_date }}</div>
     {% endif %}
     <div class="fc-badges">
+      {% if farmer.reappraisal_required %}<span class="badge badge-red">Reappraisal required since {{ farmer.deferred_until }}</span>{% endif %}
+      {% if farmer.unit_number %}<span class="badge badge-grey">Unit {{ farmer.unit_number }}</span>{% endif %}
       {% if farmer.stage_label %}
         <span class="badge badge-blue">{{ farmer.stage_label }}</span>
       {% endif %}

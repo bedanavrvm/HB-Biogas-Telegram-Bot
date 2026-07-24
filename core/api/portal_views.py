@@ -193,7 +193,7 @@ def _batch_download_url(request, order_number: str) -> str:
     )
 
 
-def _upload_generated_workbook_to_drive(data: bytes, filename: str) -> tuple[str, str]:
+def _upload_generated_workbook_to_drive(data: bytes, filename: str, order_number: str) -> tuple[str, str]:
     """Store a generated workbook in the shared Google Drive media folder."""
     from django.utils import timezone
     from core.services.order_approval import GoogleDriveMediaStorage
@@ -205,6 +205,9 @@ def _upload_generated_workbook_to_drive(data: bytes, filename: str) -> tuple[str
         id_number='generated_workbooks',
         received_at=timezone.now(),
         group_config=None,
+        workflow_key='Jawabu/Requisitions',
+        record_type='Order',
+        record_key=order_number,
     )
 
 
@@ -311,9 +314,38 @@ def _serialize_batch(batch, farmers, request, include_farmers: bool = True) -> d
         'invoiced_count': summary.get('invoiced_count', 0),
         'status': batch.status,
         'invoice_summary': summary,
+        'amount_summary': _batch_amount_summary(farmers),
         'last_invoice_result': batch.last_invoice_result or {},
         'farmers': farmers_payload,
     }
+
+
+def _batch_amount_summary(farmers) -> dict:
+    from decimal import Decimal, InvalidOperation
+
+    keys = ('deposit_hb', 'deposit_jbl', 'invoice_amount', 'discount', 'payment', 'balance_due')
+    totals = {key: Decimal('0') for key in keys}
+    present = {key: False for key in keys}
+    for farmer in farmers:
+        is_jbl = bool(farmer.lead_source and 'jbl' in farmer.lead_source.lower())
+        raw = {
+            'deposit_hb': None if is_jbl else farmer.actual_receipts,
+            'deposit_jbl': farmer.system_deposit_paid_jbl if farmer.system_deposit_paid_jbl is not None else (farmer.actual_receipts if is_jbl else None),
+            'invoice_amount': farmer.invoice_amount,
+            'discount': farmer.discount,
+            'payment': farmer.payment,
+            'balance_due': farmer.balance_due,
+        }
+        for key, value in raw.items():
+            if value in (None, ''):
+                continue
+            try:
+                amount = Decimal(str(value).replace(',', ''))
+            except InvalidOperation:
+                continue
+            totals[key] += amount
+            present[key] = True
+    return {key: str(totals[key]) if present[key] else None for key in keys}
 
 
 def _parse_requisition_workbook_payload(request):
@@ -814,8 +846,8 @@ def portal_all_cases(request):
 @require_http_methods(["GET"])
 def portal_deferred(request):
     """GET /api/portal/deferred/ — deferred/rejected/flagged farmers."""
-    from core.services.jawabu_pipeline import deferred_queue, farmer_to_card
-    qs = _apply_county_branch_filters(deferred_queue(), request)
+    from core.services.jawabu_pipeline import deferred_queue, reappraisal_required_queue, farmer_to_card
+    qs = _apply_county_branch_filters((deferred_queue() | reappraisal_required_queue()).distinct(), request)
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
@@ -921,7 +953,7 @@ def portal_requisition_workbook_preview(request):
     filename = f"JBL_Requisition_Form_{order_number}_preview.xlsx"
     sender = _portal_sender_from_request(request)
     try:
-        drive_file_id, drive_url = _upload_generated_workbook_to_drive(xlsx_bytes, filename)
+        drive_file_id, drive_url = _upload_generated_workbook_to_drive(xlsx_bytes, filename, order_number)
         preview_error = ''
     except Exception as exc:
         logger.exception('Requisition preview workbook was not stored in Google Drive.')
@@ -999,7 +1031,7 @@ def portal_requisition_generate(request):
 
     filename = f"JBL_Requisition_Form_{order_number}.xlsx"
     try:
-        drive_file_id, drive_url = _upload_generated_workbook_to_drive(xlsx_bytes, filename)
+        drive_file_id, drive_url = _upload_generated_workbook_to_drive(xlsx_bytes, filename, order_number)
         drive_upload_error = ''
     except Exception as exc:
         logger.exception('Generated requisition workbook was not stored in Google Drive.')
@@ -1168,14 +1200,14 @@ def portal_upload_batch_invoices(request):
         from core.models import RequisitionBatch
         from core.services.invoice_parser import (
             ingest_invoice_upload_batch,
-            match_and_update_invoices,
-            record_invoice_match_result,
+            propose_invoice_batch_matches,
         )
         upload_batch = ingest_invoice_upload_batch(
             pdf_bytes=pdf_bytes,
             filename=getattr(pdf_file, 'name', '') or 'hb_invoices.pdf',
             content_type=getattr(pdf_file, 'content_type', '') or 'application/pdf',
             uploaded_by=_portal_sender_from_request(request),
+            order_number=order_number or '',
         )
         if not order_number:
             return JsonResponse({
@@ -1190,27 +1222,26 @@ def portal_upload_batch_invoices(request):
                 'max_file_size_mb': max_mb,
             })
 
-        result = match_and_update_invoices(order_number, pdf_bytes)
-        upload_batch = record_invoice_match_result(upload_batch, result)
-        result['invoice_batch_id'] = str(upload_batch.id)
-        result['invoice_batch_status'] = upload_batch.status
-        result['drive_url'] = upload_batch.drive_url
-        result['max_file_size_mb'] = max_mb
+        upload_batch = propose_invoice_batch_matches(upload_batch)
+        result = {
+            'ok': upload_batch.total_parsed > 0,
+            'requires_confirmation': True,
+            'invoice_batch_id': str(upload_batch.id),
+            'invoice_batch_status': upload_batch.status,
+            'drive_url': upload_batch.drive_url,
+            'total_parsed': upload_batch.total_parsed,
+            'matched_count': 0,
+            'max_file_size_mb': max_mb,
+            'results': [_serialize_parsed_invoice(item) for item in upload_batch.invoices.select_related('proposed_farmer')],
+        }
         try:
             batch = RequisitionBatch.objects.get(order_number=order_number)
             farmers = _farmers_for_batch(order_number, batch.farmer_ids or None)
             summary = _invoice_summary_for_farmers(farmers)
-            summary.update({
-                'total_parsed': result.get('total_parsed', 0),
-                'matched_count': result.get('matched_count', 0),
-                'candidate_count': result.get('candidate_count', 0),
-            })
-            if result.get('ok') and summary.get('pending_invoice_count') == 0:
-                batch.status = 'completed'
-            elif result.get('matched_count'):
-                batch.status = 'partially_invoiced'
-            else:
-                batch.status = 'needs_review'
+            summary.update({'total_parsed': upload_batch.total_parsed, 'matched_count': 0,
+                            'last_invoice_upload_status': 'awaiting_confirmation',
+                            'last_invoice_upload_error': '', 'invoice_batch_id': str(upload_batch.id)})
+            batch.status = 'needs_review'
             batch.invoice_summary = summary
             batch.last_invoice_result = result
             batch.save(update_fields=['status', 'invoice_summary', 'last_invoice_result', 'updated_at'])
@@ -1349,6 +1380,9 @@ def _serialize_parsed_invoice(
         'matched_farmer_id': str(farmer.id) if farmer else '',
         'matched_farmer_name': farmer.customer_name if farmer else '',
         'matched_order_number': order_number,
+        'proposed_farmer_id': str(invoice.proposed_farmer_id or ''),
+        'proposed_farmer_name': invoice.proposed_farmer.customer_name if invoice.proposed_farmer_id else '',
+        'proposed_order_number': invoice.proposed_order_number,
         'payment_readiness': readiness or {},
         'review_notes': invoice.review_notes,
         'created_at': invoice.created_at.isoformat() if invoice.created_at else None,
@@ -1357,6 +1391,39 @@ def _serialize_parsed_invoice(
     if include_duplicate_summary:
         data['duplicate_count'] = _invoice_duplicate_count(invoice)
     return data
+
+
+@csrf_exempt
+@require_http_methods(["PATCH", "POST"])
+def portal_invoice_draft_edit(request, invoice_id: str):
+    from core.models import ParsedInvoice
+    from core.services.invoice_parser import edit_draft_invoice
+
+    try:
+        payload = json.loads(request.body or b'{}')
+        invoice = ParsedInvoice.objects.select_related('batch').get(pk=invoice_id)
+        invoice = edit_draft_invoice(invoice, payload, actor=_portal_sender_from_request(request))
+    except ParsedInvoice.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Invoice draft not found.'}, status=404)
+    except (ValueError, json.JSONDecodeError) as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({'ok': True, 'invoice': _serialize_parsed_invoice(invoice)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_invoice_batch_confirm(request, batch_id: str):
+    from core.models import InvoiceUploadBatch
+    from core.services.invoice_parser import confirm_invoice_batch
+
+    try:
+        batch = InvoiceUploadBatch.objects.get(pk=batch_id)
+        batch = confirm_invoice_batch(batch, actor=_portal_sender_from_request(request))
+    except InvoiceUploadBatch.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Invoice batch not found.'}, status=404)
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({'ok': batch.sync_status == 'success', 'batch': _serialize_invoice_batch(batch)}, status=200 if batch.sync_status == 'success' else 202)
 
 
 def _serialize_invoice_event(event) -> dict:
@@ -1815,6 +1882,24 @@ def portal_payment_readiness(request, order_number: str):
     from core.services.payment_documents import payment_readiness
 
     return JsonResponse({'ok': True, 'data': payment_readiness(order_number)})
+
+
+@require_http_methods(["GET"])
+def portal_payment_preview_data(request, order_number: str):
+    """Return the exact payment rows for an in-Mini-App preview without a Drive write."""
+    from core.services.payment_documents import payment_readiness
+
+    readiness = payment_readiness(order_number)
+    rows = [item.get('row') or {} for item in readiness.get('ready', [])]
+    amount_keys = ('hb_invoice_amount', 'expected_invoice_amount', 'discount', 'deposit_paid_hbg', 'deposit_paid_jbl', 'loan_amount')
+    totals = {}
+    for key in amount_keys:
+        values = [row.get(key) for row in rows if row.get(key) not in (None, '')]
+        totals[key] = str(sum(values)) if values else None
+    return JsonResponse({'ok': readiness.get('blocked_count', 0) == 0, 'preview': {
+        'order_number': order_number, 'rows': rows, 'totals': totals,
+        'ready_count': readiness.get('ready_count', 0), 'blocked': readiness.get('blocked', []),
+    }})
 
 
 @csrf_exempt

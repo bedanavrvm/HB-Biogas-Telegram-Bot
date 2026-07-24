@@ -839,6 +839,28 @@ class JawabuVisitRecord(models.Model):
         )
 
 
+class JawabuCustomer(models.Model):
+    """Canonical Jawabu identity shared by one or more unit applications."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    national_id = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    primary_phone = models.CharField(max_length=32, blank=True, default='', db_index=True)
+    customer_no = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    identity_enforced = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['national_id'], condition=models.Q(identity_enforced=True) & ~models.Q(national_id=''), name='jawabu_customer_unique_national_id'),
+            models.UniqueConstraint(fields=['primary_phone'], condition=models.Q(identity_enforced=True) & ~models.Q(primary_phone=''), name='jawabu_customer_unique_primary_phone'),
+            models.UniqueConstraint(fields=['customer_no'], condition=models.Q(identity_enforced=True) & ~models.Q(customer_no=''), name='jawabu_customer_unique_customer_no'),
+        ]
+
+    def __str__(self):
+        return self.national_id or self.primary_phone or self.customer_no or str(self.id)
+
+
 class JawabuFarmerMaster(models.Model):
     """Clean internal master data for Jawabu farmers used by visit forms."""
 
@@ -877,6 +899,8 @@ class JawabuFarmerMaster(models.Model):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    customer = models.ForeignKey(JawabuCustomer, on_delete=models.PROTECT, null=True, blank=True, related_name='applications')
+    unit_number = models.PositiveIntegerField(default=1)
     source = models.CharField(max_length=100, default='jawabu_farmers_csv', db_index=True)
     source_name = models.CharField(max_length=255, blank=True, default='')
     source_row_number = models.PositiveIntegerField(null=True, blank=True)
@@ -999,6 +1023,9 @@ class JawabuFarmerMaster(models.Model):
         null=True, blank=True,
         help_text='Timestamp when the final decision was recorded.',
     )
+    deferred_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    deferred_stage = models.CharField(max_length=32, blank=True, default='', db_index=True)
+    deferred_until = models.DateField(null=True, blank=True, db_index=True)
 
     jbl_media_urls = models.TextField(
         blank=True, default='',
@@ -1052,6 +1079,11 @@ class JawabuFarmerMaster(models.Model):
             models.Index(fields=['customer_no']),
             models.Index(fields=['final_decision']),
             models.Index(fields=['order_number']),
+            models.Index(fields=['customer', 'unit_number']),
+            models.Index(fields=['deferred_until', 'status']),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=['customer', 'unit_number'], condition=models.Q(customer__isnull=False), name='jawabu_unique_customer_unit'),
         ]
         verbose_name = 'Jawabu farmer master record'
         verbose_name_plural = 'Jawabu farmer master data'
@@ -1059,6 +1091,21 @@ class JawabuFarmerMaster(models.Model):
     def __str__(self):
         label = self.customer_name or self.national_id or self.primary_phone or 'unknown farmer'
         return f"{label} ({self.status})"
+
+
+class JawabuPipelineEvent(models.Model):
+    """Append-only audit event for Jawabu application state changes."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    farmer = models.ForeignKey(JawabuFarmerMaster, on_delete=models.PROTECT, related_name='pipeline_events')
+    action = models.CharField(max_length=40, db_index=True)
+    actor = models.CharField(max_length=255, blank=True, default='')
+    metadata = models.JSONField(blank=True, default=dict)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['farmer', 'created_at'])]
 
 class JawabuFarmerUploadBatch(models.Model):
     """Staged CSV upload for staff review before updating Jawabu farmer master data."""
@@ -1549,6 +1596,7 @@ class InvoiceUploadBatch(models.Model):
 
     STATUS_CHOICES = [
         ('uploaded', 'Uploaded'),
+        ('awaiting_confirmation', 'Awaiting Confirmation'),
         ('parsed', 'Parsed'),
         ('parse_failed', 'Parse Failed'),
         ('partially_matched', 'Partially Matched'),
@@ -1561,6 +1609,7 @@ class InvoiceUploadBatch(models.Model):
     content_type = models.CharField(max_length=255, blank=True, default='application/pdf')
     size = models.PositiveIntegerField(default=0)
     uploaded_by = models.CharField(max_length=255, blank=True, default='')
+    order_number = models.CharField(max_length=128, blank=True, default='', db_index=True)
     drive_file_id = models.CharField(max_length=255, blank=True, default='')
     drive_url = models.URLField(max_length=1000, blank=True, default='')
     status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='uploaded', db_index=True)
@@ -1569,6 +1618,8 @@ class InvoiceUploadBatch(models.Model):
     matched_count = models.PositiveIntegerField(default=0)
     unmatched_count = models.PositiveIntegerField(default=0)
     error = models.TextField(blank=True, default='')
+    sync_status = models.CharField(max_length=32, blank=True, default='', db_index=True)
+    sync_error = models.TextField(blank=True, default='')
     metadata = models.JSONField(blank=True, default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1590,6 +1641,7 @@ class ParsedInvoice(models.Model):
     """One parsed invoice page/record from a Drive-backed invoice upload batch."""
 
     STATUS_CHOICES = [
+        ('draft', 'Draft'),
         ('unmatched', 'Unmatched'),
         ('matched', 'Matched'),
         ('ambiguous', 'Ambiguous'),
@@ -1622,6 +1674,14 @@ class ParsedInvoice(models.Model):
         blank=True,
         related_name='parsed_invoices',
     )
+    proposed_farmer = models.ForeignKey(
+        JawabuFarmerMaster,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='proposed_invoices',
+    )
+    proposed_order_number = models.CharField(max_length=128, blank=True, default='', db_index=True)
     matched_order_number = models.CharField(max_length=128, blank=True, default='', db_index=True)
     raw_payload = models.JSONField(blank=True, default=dict)
     review_notes = models.TextField(blank=True, default='')

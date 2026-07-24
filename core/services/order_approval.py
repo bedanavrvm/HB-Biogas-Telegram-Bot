@@ -1695,6 +1695,10 @@ def store_media_for_order(
                 file_type=file_type,
                 sequence_by_type=sequence_by_type,
             )
+            workflow = getattr(group_config, 'workflow', None) or {}
+            workflow_hint = str(workflow.get('preset') or workflow.get('workflow') or getattr(group_config, 'display_name', '') or 'Order Approval')
+            hint = workflow_hint.lower()
+            workflow_key = 'SPIN Credit' if 'spin' in hint else ('Jawabu/JBL Visits' if ('jawabu' in hint or 'visit' in hint) else 'Order Approval')
             drive_file_id, drive_url = storage.upload(
                 data=downloaded,
                 filename=build_storage_filename(
@@ -1707,6 +1711,9 @@ def store_media_for_order(
                 id_number=business_key_value,
                 received_at=received_at,
                 group_config=group_config,
+                workflow_key=workflow_key,
+                record_type='Customer',
+                record_key=business_key_value,
             )
             attachment.upload_status = 'success'
             attachment.drive_file_id = drive_file_id
@@ -1835,6 +1842,10 @@ def store_uploaded_files_for_order(
                 sequence_by_type=sequence_by_type,
             )
             storage = GoogleDriveMediaStorage()
+            workflow = getattr(group_config, 'workflow', None) or {}
+            workflow_hint = str(workflow.get('preset') or workflow.get('workflow') or getattr(group_config, 'display_name', '') or 'Order Approval')
+            hint = workflow_hint.lower()
+            workflow_key = 'SPIN Credit' if 'spin' in hint else ('Jawabu/JBL Visits' if ('jawabu' in hint or 'visit' in hint) else 'Order Approval')
             drive_file_id, drive_url = storage.upload(
                 data=file_obj,
                 filename=build_storage_filename(
@@ -1847,6 +1858,9 @@ def store_uploaded_files_for_order(
                 id_number=business_key_value,
                 received_at=received_at,
                 group_config=group_config,
+                workflow_key=workflow_key,
+                record_type='Customer',
+                record_key=business_key_value,
             )
             attachment.upload_status = 'success'
             attachment.drive_file_id = drive_file_id
@@ -2019,10 +2033,16 @@ class GoogleDriveMediaStorage:
         id_number: str,
         received_at: datetime,
         group_config=None,
+        workflow_key: str = '',
+        record_type: str = '',
+        record_key: str = '',
     ) -> tuple[str, str]:
         from googleapiclient.http import MediaIoBaseUpload
 
-        folder_id = self.ensure_folder_path(id_number, received_at, group_config)
+        folder_id = (
+            self.ensure_workflow_folder_path(workflow_key, record_type, record_key or id_number, received_at)
+            if workflow_key else self.ensure_folder_path(id_number, received_at, group_config)
+        )
         stream = io.BytesIO(data) if isinstance(data, bytes) else data
         try:
             stream.seek(0)
@@ -2046,6 +2066,20 @@ class GoogleDriveMediaStorage:
         )
         file_id = created['id']
         return file_id, created.get('webViewLink') or drive_file_url(file_id)
+
+    def ensure_workflow_folder_path(self, workflow_key: str, record_type: str, record_key: str, received_at: datetime) -> str:
+        """Canonical workflow-first hierarchy for all new Drive artifacts."""
+        local_time = timezone.localtime(received_at) if timezone.is_aware(received_at) else received_at
+        parts = [
+            sanitize_folder_name(workflow_key),
+            str(local_time.year),
+            f"{local_time.strftime('%m')}-{local_time.strftime('%B')}",
+            f"{sanitize_folder_name(record_type or 'Record')}_{sanitize_folder_name(record_key)}",
+        ]
+        parent = self.parent_folder_id
+        for part in parts:
+            parent = self.ensure_child_folder(parent, part)
+        return parent
 
     def ensure_folder_path(
         self,

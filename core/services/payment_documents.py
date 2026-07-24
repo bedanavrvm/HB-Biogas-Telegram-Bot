@@ -423,7 +423,13 @@ def generate_payment_workbook(order_number: str) -> tuple[bytes, dict[str, Any]]
     readiness = payment_readiness(order_number)
     if readiness['blocked_count']:
         raise PaymentTemplateError('Payment document has blocked rows. Resolve missing fields before generating.')
-    wb = openpyxl.load_workbook(_template_source())
+    from core.services.template_validation import template_source_bytes, validate_template_bytes, UnsafeTemplateError
+    template_bytes = template_source_bytes(_template_source())
+    try:
+        validate_template_bytes(template_bytes, 'payment')
+    except UnsafeTemplateError as exc:
+        raise PaymentTemplateError(str(exc)) from exc
+    wb = openpyxl.load_workbook(io.BytesIO(template_bytes))
     layout = payment_template_layout(wb)
     ws = wb[layout.sheet_name]
     rows = [item['row'] for item in readiness['ready']]
@@ -441,7 +447,7 @@ def generate_payment_workbook(order_number: str) -> tuple[bytes, dict[str, Any]]
     return out.getvalue(), summary
 
 
-def _upload_payment_workbook(data: bytes, filename: str, actor: str) -> tuple[str, str]:
+def _upload_payment_workbook(data: bytes, filename: str, actor: str, order_number: str) -> tuple[str, str]:
     from core.services.order_approval import GoogleDriveMediaStorage
 
     return GoogleDriveMediaStorage().upload(
@@ -451,6 +457,9 @@ def _upload_payment_workbook(data: bytes, filename: str, actor: str) -> tuple[st
         id_number='payment_documents',
         received_at=timezone.now(),
         group_config=None,
+        workflow_key='Jawabu/Payment Documents',
+        record_type='Order',
+        record_key=order_number,
     )
 
 
@@ -463,7 +472,7 @@ def create_payment_document(order_number: str, actor: str = '', final: bool = Fa
         latest = PaymentDocument.objects.filter(order_number=order_number, status='final').order_by('-version').first()
         version = (latest.version + 1) if latest else 1
     filename = f"HB_Payment_{order_number}_{status}_v{version}.xlsx"
-    drive_file_id, drive_url = _upload_payment_workbook(xlsx, filename, actor)
+    drive_file_id, drive_url = _upload_payment_workbook(xlsx, filename, actor, order_number)
     doc = PaymentDocument.objects.create(
         order_number=order_number,
         status=status,

@@ -4,7 +4,7 @@ Unit tests for the JBL Pipeline Portal and its services.
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -12,7 +12,7 @@ from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import GroupSheetConfiguration, JawabuFarmerMaster, LiveSheetRecordChange, RequisitionBatch
+from core.models import GroupSheetConfiguration, InvoiceUploadBatch, JawabuFarmerMaster, LiveSheetRecordChange, ParsedInvoice, RequisitionBatch
 from core.services.jawabu_pipeline import (
     assign_order,
     all_cases,
@@ -1024,10 +1024,11 @@ class JblPipelineApiTestCase(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(payload['ok'])
-        self.assertEqual(batch.status, 'completed')
-        self.assertEqual(batch.invoice_summary['matched_count'], 1)
-        self.assertEqual(batch.invoice_summary['pending_invoice_count'], 0)
-        self.assertEqual(batch.last_invoice_result['total_parsed'], 1)
+        self.assertEqual(batch.status, 'needs_review')
+        self.assertTrue(payload['requires_confirmation'])
+        self.assertEqual(batch.invoice_summary['last_invoice_upload_status'], 'awaiting_confirmation')
+        self.assertEqual(batch.invoice_summary['pending_invoice_count'], 1)
+        self.assertEqual(batch.last_invoice_result['invoice_batch_status'], 'awaiting_confirmation')
 
     @patch('core.services.invoice_parser.PdfReader')
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
@@ -1202,7 +1203,6 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(parsed['calculated_balance_due'], '46000.00')
         self.assertEqual(parsed['discount'], '3000.00')
         self.assertEqual(parsed['balance_due_check'], 'OK')
-
         res = match_and_update_invoices('076', b'dummy')
         self.assertTrue(res['ok'], msg=str(res))
         self.assertEqual(res['matched_count'], 1)
@@ -1417,3 +1417,64 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(parsed['discount'], '3000.00')
         self.assertEqual(parsed['balance_due'], '46,000.00')
         self.assertEqual(parsed['balance_due_check'], 'OK')
+
+
+class JawabuIntegrityRulesTests(TestCase):
+    def test_additional_unit_reuses_customer_and_allocates_next_number(self):
+        from core.services.jawabu_identity import resolve_application_identity
+
+        cleaned = {'national_id': '12345678', 'primary_phone': '254712345678'}
+        customer, unit, _existing = resolve_application_identity(cleaned)
+        self.assertEqual(unit, 1)
+        first = JawabuFarmerMaster.objects.create(
+            customer=customer,
+            unit_number=unit,
+            national_id='12345678',
+            primary_phone='254712345678',
+        )
+        same_customer, second_unit, second_existing = resolve_application_identity(
+            cleaned,
+            action='create_additional_unit',
+        )
+        self.assertEqual(same_customer, customer)
+        self.assertEqual(second_unit, 2)
+        self.assertIsNone(second_existing)
+        self.assertEqual(first.unit_number, 1)
+
+    def test_reappraisal_starts_at_beginning_of_day_91(self):
+        from core.services.jawabu_pipeline import is_reappraisal_required
+
+        farmer = JawabuFarmerMaster(deferred_until=timezone.localdate() + timedelta(days=1))
+        self.assertFalse(is_reappraisal_required(farmer, today=timezone.localdate()))
+        self.assertTrue(is_reappraisal_required(farmer, today=farmer.deferred_until))
+
+    @patch('core.services.invoice_parser.sync_farmer_to_master_sheet', return_value=True)
+    def test_invoice_batch_does_not_update_farmer_until_whole_batch_confirmed(self, _sync):
+        from core.services.invoice_parser import confirm_invoice_batch
+
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Draft Customer',
+            order_number='ORDER-1',
+        )
+        batch = InvoiceUploadBatch.objects.create(
+            order_number='ORDER-1',
+            status='awaiting_confirmation',
+            total_parsed=1,
+        )
+        ParsedInvoice.objects.create(
+            batch=batch,
+            status='draft',
+            invoice_no='INV-1',
+            invoice_date=date(2026, 7, 24),
+            proposed_farmer=farmer,
+            proposed_order_number='ORDER-1',
+            invoice_amount='54000.00',
+        )
+        farmer.refresh_from_db()
+        self.assertEqual(farmer.invoice_number, '')
+        confirm_invoice_batch(batch, actor='tester')
+        farmer.refresh_from_db()
+        batch.refresh_from_db()
+        self.assertEqual(farmer.invoice_number, 'INV-1')
+        self.assertEqual(batch.status, 'matched')
+        self.assertEqual(batch.sync_status, 'success')

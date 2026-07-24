@@ -127,7 +127,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(batch.unmatched_count, 1)
         parsed = batch.invoices.get()
         self.assertEqual(parsed.invoice_no, '9505')
-        self.assertEqual(parsed.status, 'unmatched')
+        self.assertEqual(parsed.status, 'draft')
         event = parsed.events.get()
         self.assertEqual(event.action, 'parsed')
         self.assertEqual(event.actor, 'Tester')

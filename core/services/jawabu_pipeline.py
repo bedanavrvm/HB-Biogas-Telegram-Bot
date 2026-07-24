@@ -15,13 +15,13 @@ Stage overview:
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from django.utils import timezone
 from django.db.models import Q
 
-from core.models import JawabuFarmerMaster
+from core.models import JawabuFarmerMaster, JawabuPipelineEvent
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,36 @@ CREDIT_APPROVED = 'Approved'
 CREDIT_TERMINAL = frozenset({'Approved', 'Rejected', 'Deferred', 'Exemption Approved'})
 FINAL_DECISION_APPROVED = 'Approved'
 FINAL_DECISION_TERMINAL = frozenset({'Approved', 'Rejected', 'Deferred'})
+
+
+def is_reappraisal_required(farmer: JawabuFarmerMaster, *, today=None) -> bool:
+    today = today or timezone.localdate()
+    return bool(farmer.deferred_until and today >= farmer.deferred_until)
+
+
+def _set_deferral(farmer: JawabuFarmerMaster, stage: str, actor: str) -> None:
+    now = timezone.now()
+    farmer.deferred_at = now
+    farmer.deferred_stage = stage
+    farmer.deferred_until = timezone.localdate(now) + timedelta(days=90)
+    JawabuPipelineEvent.objects.create(
+        farmer=farmer,
+        action='deferred',
+        actor=str(actor or ''),
+        metadata={'stage': stage, 'deferred_until': farmer.deferred_until.isoformat()},
+    )
+
+
+def _clear_deferral(farmer: JawabuFarmerMaster) -> None:
+    farmer.deferred_at = None
+    farmer.deferred_stage = ''
+    farmer.deferred_until = None
+
+
+def reappraisal_required_queue():
+    return JawabuFarmerMaster.objects.filter(
+        status='active', deferred_until__lte=timezone.localdate(),
+    ).order_by('deferred_until', 'customer_name')
 
 
 # ── Queue filters ─────────────────────────────────────────────────────────────
@@ -112,7 +142,7 @@ def deferred_queue():
         Q(final_decision__in=['Rejected', 'Deferred']) |
         Q(credit_decision__in=['Rejected', 'Deferred']) |
         Q(jbl_visit_status__in=['Rejected by JBL', 'Cancelled', 'Client Withdrew', 'Opted for Cash'])
-    ).order_by('-updated_at')
+    ).exclude(deferred_until__lte=timezone.localdate()).order_by('-updated_at')
 
 def all_cases(search: str = '', county: str = '', branch: str = ''):
     """
@@ -144,7 +174,8 @@ def pipeline_counts() -> dict[str, int]:
         'credit_queue': credit_queue().count(),
         'final_review_queue': final_review_queue().count(),
         'requisition_queue': requisition_queue().count(),
-        'deferred': deferred_queue().count(),
+        'deferred': deferred_queue().count() + reappraisal_required_queue().count(),
+        'reappraisal_required': reappraisal_required_queue().count(),
         'total': all_cases().count(),
     }
 
@@ -177,9 +208,15 @@ def log_jbl_visit(
     farmer.jbl_visit_status = visit_status
     farmer.jbl_visit_comment = str(comment or '').strip()
 
+    if visit_status == 'Deferred / On Hold':
+        _set_deferral(farmer, 'jbl_visit', sender or officer)
+    elif farmer.deferred_stage == 'jbl_visit':
+        _clear_deferral(farmer)
+
     update_fields = [
         'jbl_visit_date', 'jbl_officer', 'jbl_visit_status',
         'jbl_visit_comment', 'updated_at',
+        'deferred_at', 'deferred_stage', 'deferred_until',
     ]
 
     if county is not None:
@@ -222,6 +259,8 @@ def set_credit_decision(
 
     Returns (success, error_message).
     """
+    if is_reappraisal_required(farmer):
+        return False, 'This deferral has expired. Fresh preappraisal and visit records are required.'
     valid_decisions = {choice[0] for choice in JawabuFarmerMaster.CREDIT_DECISION_CHOICES}
     if decision not in valid_decisions:
         return False, f"Invalid credit decision: '{decision}'. Must be one of: {', '.join(sorted(valid_decisions))}"
@@ -234,14 +273,25 @@ def set_credit_decision(
         if not customer_no:
             return False, 'CUSTOMER NO is required once the customer is created in IMAB.'
 
+    from core.services.jawabu_identity import JawabuIdentityConflict, set_customer_number
+    try:
+        set_customer_number(farmer, customer_no)
+    except JawabuIdentityConflict as exc:
+        return False, str(exc)
+
     farmer.credit_decision = decision
     farmer.imab_created = imab_created
     farmer.customer_no = customer_no
     farmer.credit_decided_by = str(sender or '').strip()
     farmer.credit_decided_at = timezone.now()
+    if decision == 'Deferred':
+        _set_deferral(farmer, 'credit', sender)
+    elif farmer.deferred_stage == 'credit':
+        _clear_deferral(farmer)
     farmer.save(update_fields=[
         'credit_decision', 'imab_created', 'customer_no',
         'credit_decided_by', 'credit_decided_at', 'updated_at',
+        'deferred_at', 'deferred_stage', 'deferred_until',
     ])
     logger.info(
         'Credit decision %s set for farmer %s by %s',
@@ -269,6 +319,8 @@ def set_final_decision(
 
     Returns (success, error_message).
     """
+    if is_reappraisal_required(farmer):
+        return False, 'This deferral has expired. Fresh preappraisal and visit records are required.'
     valid_decisions = {choice[0] for choice in JawabuFarmerMaster.FINAL_DECISION_CHOICES}
     if final_decision not in valid_decisions:
         return False, f"Invalid final decision: '{final_decision}'. Must be one of: {', '.join(sorted(valid_decisions))}"
@@ -285,10 +337,15 @@ def set_final_decision(
     farmer.final_decision_comment = str(decision_comment or '').strip()
     farmer.final_decided_by = str(sender or '').strip()
     farmer.final_decided_at = timezone.now()
+    if final_decision == 'Deferred':
+        _set_deferral(farmer, 'final', sender)
+    elif farmer.deferred_stage == 'final':
+        _clear_deferral(farmer)
 
     update_fields = [
         'final_decision', 'final_decision_comment', 'final_decided_by',
         'final_decided_at', 'updated_at',
+        'deferred_at', 'deferred_stage', 'deferred_until',
     ]
     if repayment_date is not None:
         farmer.repayment_date = str(repayment_date or '').strip()
@@ -417,6 +474,8 @@ def farmer_to_card(farmer: JawabuFarmerMaster) -> dict[str, Any]:
     """Compact farmer representation for queue cards in the portal Mini App."""
     return {
         'id': str(farmer.id),
+        'customer_id': str(farmer.customer_id or ''),
+        'unit_number': farmer.unit_number,
         'customer_name': farmer.customer_name,
         'national_id': farmer.national_id,
         'primary_phone': farmer.primary_phone,
@@ -453,6 +512,10 @@ def farmer_to_card(farmer: JawabuFarmerMaster) -> dict[str, Any]:
         'final_decided_at': (
             farmer.final_decided_at.isoformat() if farmer.final_decided_at else None
         ),
+        'deferred_at': farmer.deferred_at.isoformat() if farmer.deferred_at else None,
+        'deferred_stage': farmer.deferred_stage,
+        'deferred_until': farmer.deferred_until.isoformat() if farmer.deferred_until else None,
+        'reappraisal_required': is_reappraisal_required(farmer),
         # Stage 5
         'requisition_date': farmer.requisition_date.isoformat() if farmer.requisition_date else None,
         'order_number': farmer.order_number,
@@ -478,6 +541,8 @@ def _pipeline_stage(farmer: JawabuFarmerMaster) -> int:
     Returns the current pipeline stage number (1-7).
     Stage 7 means an invoice has been uploaded for this farmer.
     """
+    if is_reappraisal_required(farmer):
+        return 1
     if farmer.invoice_number:
         return 7
     if farmer.order_number:
@@ -602,6 +667,7 @@ def sync_farmer_to_master_sheet(farmer: JawabuFarmerMaster) -> bool:
         changes = {}
 
         pipeline_fields = {
+            'unit_number': (['Unit Number'], farmer.unit_number),
             'jbl_visit_date': (['Jawabu Visit Date', 'JBL Visit Date'], farmer.jbl_visit_date.strftime('%d-%B-%Y') if farmer.jbl_visit_date else ''),
             'jbl_officer': (['JBL BRO', 'JBL Officer'], farmer.jbl_officer),
             'jbl_visit_status': (['Jawabu Comment After Visit', 'JBL Visit Status'], farmer.jbl_visit_status),

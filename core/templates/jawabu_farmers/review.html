@@ -51,6 +51,7 @@
           <th class="id-col">National ID</th>
           <th class="phone">Primary Phone</th>
           <th class="phone">Secondary Phone</th>
+          <th class="staff-col">Application</th>
           <th class="hub-col">County</th>
           <th class="date">HBG Visit Date</th>
           <th class="deposit-col">Deposit Paid to HB</th>
@@ -64,6 +65,6 @@
 </main>
 <script id="batch-data" type="application/json">{{ batch_json|safe }}</script>
 <script src="{% static 'miniapp/telegram.js' %}"></script>
-<script src="{% static 'miniapp/farmup_review.js' %}?v=2"></script>
+<script src="{% static 'miniapp/farmup_review.js' %}?v=3"></script>
 </body>
 </html>

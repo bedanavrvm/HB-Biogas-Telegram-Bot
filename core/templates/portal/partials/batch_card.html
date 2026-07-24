@@ -19,9 +19,17 @@
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-secondary btn-view-batch" data-order="{{ batch.order_number }}">View</button>
-      <button class="btn btn-primary btn-download-batch" data-url="{{ batch.drive_url|default:batch.download_url }}" {% if not batch.drive_url and not batch.download_url %}disabled{% endif %}>Open Form</button>
+      <button class="btn btn-primary btn-download-batch" data-url="{{ batch.drive_url|default:batch.download_url }}" {% if not batch.drive_url and not batch.download_url %}disabled{% endif %}>Open Saved Excel</button>
       <button class="btn btn-secondary btn-upload-invoices" data-order="{{ batch.order_number }}">Upload Invoices</button>
     </div>
+  </div>
+  <div style="border-top:1px solid var(--border-color);padding-top:8px;margin-top:8px;display:flex;gap:4px;flex-wrap:wrap;">
+    <span class="badge badge-grey">HB deposit: {% if batch.amount_summary.deposit_hb != None %}KES {{ batch.amount_summary.deposit_hb }}{% else %}—{% endif %}</span>
+    <span class="badge badge-grey">JBL deposit: {% if batch.amount_summary.deposit_jbl != None %}KES {{ batch.amount_summary.deposit_jbl }}{% else %}—{% endif %}</span>
+    <span class="badge badge-grey">Invoice: {% if batch.amount_summary.invoice_amount != None %}KES {{ batch.amount_summary.invoice_amount }}{% else %}—{% endif %}</span>
+    <span class="badge badge-grey">Discount: {% if batch.amount_summary.discount != None %}KES {{ batch.amount_summary.discount }}{% else %}—{% endif %}</span>
+    <span class="badge badge-grey">Payment: {% if batch.amount_summary.payment != None %}KES {{ batch.amount_summary.payment }}{% else %}—{% endif %}</span>
+    <span class="badge badge-grey">Balance: {% if batch.amount_summary.balance_due != None %}KES {{ batch.amount_summary.balance_due }}{% else %}—{% endif %}</span>
   </div>
   <div style="border-top:1px solid var(--border-color);padding-top:8px;margin-top:8px;display:flex;gap:4px;flex-wrap:wrap;">
     {% for farmer in batch.farmers|slice:":8" %}

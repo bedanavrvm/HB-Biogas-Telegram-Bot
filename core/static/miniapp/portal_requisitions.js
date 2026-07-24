@@ -125,9 +125,22 @@
 
   async function generatePaymentDocument(orderNumber, final, button) {
     const target = el('batch-detail-payment-result');
-    const label = final ? 'Generating Final...' : 'Generating Preview...';
+    const label = final ? 'Generating Final...' : 'Loading Preview...';
     deps.setButtonLoading(button, true, label);
     try {
+      if (!final) {
+        const response = await deps.apiFetch('/payment-documents/' + encodeURIComponent(orderNumber) + '/preview-data/');
+        const preview = response.data?.preview || {};
+        if (!response.ok || !response.data?.ok) {
+          renderPaymentResult(target, { readiness: { blocked: preview.blocked || [], ready_count: preview.ready_count || 0 } });
+          throw new Error('Payment preview is blocked. Resolve the listed fields.');
+        }
+        const rows = preview.rows || [];
+        target.innerHTML = `<div class="form-section"><h3>Payment Preview — Order ${deps.escapeHtml(orderNumber)}</h3>
+          <div class="batch-client-list">${rows.map(row => `<div class="batch-client-row"><div class="name">${deps.escapeHtml(row.name || row.name_imab || '-')}</div><div class="meta">Customer ${deps.escapeHtml(row.cust_no || '-')} | Invoice ${deps.escapeHtml(row.hb_invoice_amount ?? '-')} | Discount ${deps.escapeHtml(row.discount ?? '-')} | HB deposit ${deps.escapeHtml(row.deposit_paid_hbg ?? '-')} | JBL deposit ${deps.escapeHtml(row.deposit_paid_jbl ?? '-')}</div></div>`).join('')}</div></div>`;
+        deps.showToast('Payment preview shown in the Mini App.', 'success');
+        return;
+      }
       const path = '/payment-documents/' + encodeURIComponent(orderNumber) + '/' + (final ? 'finalize/' : 'preview/');
       const response = await deps.portalApi.postJson(path, {}, deps.tg, csrfHeader());
       const data = response.data || {};
@@ -137,7 +150,7 @@
         return;
       }
       renderPaymentResult(target, data);
-      deps.showToast(final ? 'Final payment document stored in Drive.' : 'Payment preview stored in Drive.', 'success');
+      deps.showToast('Final payment document stored in Drive.', 'success');
     } catch (err) {
       deps.showToast(err.message || 'Payment document generation failed.', 'error');
     } finally {
@@ -200,6 +213,17 @@
     }
   }
 
+  async function previewRequisitionInApp(payload, button) {
+    deps.setButtonLoading(button, true, 'Loading Preview...');
+    try {
+      const response = await deps.portalApi.postJson('/requisition-queue/preview/', payload, deps.tg, csrfHeader());
+      if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not load preview.');
+      state().pendingRequisitionPayload = payload;
+      openRequisitionPreview(response.data);
+    } catch (err) { deps.showToast(err.message, 'error'); }
+    finally { deps.setButtonLoading(button, false); }
+  }
+
   async function openBatchDetail(orderNumber) {
     if (!orderNumber) return;
     const overlay = el('batch-detail-overlay');
@@ -234,18 +258,18 @@
     ]);
     const hasRequisitionOutput = batch.drive_url || batch.download_url;
     actions.innerHTML = `
-      ${hasRequisitionOutput ? `<button class="btn btn-primary" id="batch-detail-download">Open Requisition Form</button>` : '<button class="btn btn-primary" id="batch-detail-generate">Generate Requisition Form</button><span class="badge badge-grey">No generated requisition form yet</span>'}
-      <button class="btn btn-secondary" id="batch-detail-preview">Preview Requisition Form</button>
+      ${hasRequisitionOutput ? `<button class="btn btn-primary" id="batch-detail-download">Open Saved Excel</button>` : '<button class="btn btn-primary" id="batch-detail-generate">Generate and Save Excel</button><span class="badge badge-grey">No generated requisition form yet</span>'}
+      <button class="btn btn-secondary" id="batch-detail-preview">Preview in App</button>
       <button class="btn btn-secondary" id="batch-detail-upload">Upload Invoices</button>
       <button class="btn btn-secondary" id="batch-payment-readiness">Check Payment</button>
-      <button class="btn btn-secondary" id="batch-payment-preview">Payment Preview</button>
+      <button class="btn btn-secondary" id="batch-payment-preview">Preview Payment in App</button>
       <button class="btn btn-primary" id="batch-payment-final">Generate Final Payment</button>
     `;
     el('batch-detail-download')?.addEventListener('click', () => deps.openPortalLink(batch.drive_url || batch.download_url));
     el('batch-detail-generate')?.addEventListener('click', e => generateRequisitionForBatch(batch, e.currentTarget));
     el('batch-detail-preview')?.addEventListener('click', e => {
       const farmerIds = (batch.farmers || []).map(farmer => farmer.id).filter(Boolean);
-      previewRequisitionWorkbook({
+      previewRequisitionInApp({
         farmer_ids: farmerIds,
         order_number: batch.order_number,
         requisition_date: batch.requisition_date || new Date().toISOString().split('T')[0],
@@ -308,10 +332,7 @@
     confirm.disabled = (data.blocked_count || 0) > 0 || !(data.ready_count || 0);
     confirm.textContent = confirm.disabled ? 'Resolve Blocked Items' : 'Generate Requisition';
     const preview = el('requisition-preview-workbook');
-    if (preview) {
-      preview.disabled = confirm.disabled;
-      preview.textContent = confirm.disabled ? 'Resolve Blocked Items' : 'Open Workbook Preview';
-    }
+    if (preview) preview.hidden = true;
     overlay.classList.add('open');
   }
 
@@ -437,8 +458,41 @@
           res.ok ? `Invoices processed successfully! Matched ${res.matched_count} of ${res.total_parsed}.` : (res.error || 'No invoice matched. Review the details below.'),
           res.ok ? 'success' : 'error'
         );
-        invoiceResultsSummary.textContent = deps.portalHelpers.invoiceResultsSummary(res);
-        invoiceResultsList.innerHTML = deps.portalHelpers.invoiceResultRows(res);
+        if (res.requires_confirmation) {
+          invoiceResultsSummary.textContent = `Review ${res.total_parsed || 0} extracted invoice(s). No farmer or Sheet has been updated yet.`;
+          invoiceResultsList.innerHTML = (res.results || []).map(row => `
+            <div class="batch-client-row invoice-draft-row" data-invoice="${deps.escapeHtml(row.id)}">
+              <label>Invoice no<input data-field="invoice_no" value="${deps.escapeHtml(row.invoice_no || '')}"></label>
+              <label>Date<input type="date" data-field="invoice_date" value="${deps.escapeHtml(row.invoice_date || '')}"></label>
+              <label>Customer<input data-field="customer_name" value="${deps.escapeHtml(row.customer_name || '')}"></label>
+              <label>ID<input data-field="customer_id" value="${deps.escapeHtml(row.customer_id || '')}"></label>
+              <label>Phone<input data-field="customer_phone" value="${deps.escapeHtml(row.customer_phone || '')}"></label>
+              <label>Invoice amount<input inputmode="decimal" data-field="invoice_amount" value="${deps.escapeHtml(row.invoice_amount || '')}"></label>
+              <label>Discount<input inputmode="decimal" data-field="discount" value="${deps.escapeHtml(row.discount || '')}"></label>
+              <label>Payment<input inputmode="decimal" data-field="payment" value="${deps.escapeHtml(row.payment || '')}"></label>
+              <label>Balance due<input inputmode="decimal" data-field="balance_due" value="${deps.escapeHtml(row.balance_due || '')}"></label>
+              <div class="meta">Proposed match: ${deps.escapeHtml(row.proposed_farmer_name || 'Unresolved')} ${row.proposed_order_number ? `| Order ${deps.escapeHtml(row.proposed_order_number)}` : ''}</div>
+            </div>`).join('') + '<button class="btn btn-primary" type="button" id="invoice-confirm-batch">Confirm Entire Batch</button>';
+          el('invoice-confirm-batch')?.addEventListener('click', async event => {
+            deps.setButtonLoading(event.currentTarget, true, 'Confirming...');
+            try {
+              for (const draft of invoiceResultsList.querySelectorAll('.invoice-draft-row')) {
+                const body = {};
+                draft.querySelectorAll('[data-field]').forEach(input => { body[input.dataset.field] = input.value; });
+                const saved = await deps.apiFetch('/invoice-pool/' + encodeURIComponent(draft.dataset.invoice) + '/draft/', { method: 'POST', body: JSON.stringify(body) });
+                if (!saved.ok || !saved.data?.ok) throw new Error(saved.data?.error || 'Could not save an invoice draft.');
+              }
+              const confirmed = await deps.apiFetch('/invoice-batches/' + encodeURIComponent(res.invoice_batch_id) + '/confirm/', { method: 'POST', body: JSON.stringify({}) });
+              if (!confirmed.ok && confirmed.status !== 202) throw new Error(confirmed.data?.error || 'Batch confirmation failed.');
+              deps.showToast(confirmed.data?.batch?.sync_status === 'success' ? 'Invoice batch confirmed and synchronized.' : 'Batch committed; Sheet synchronization needs retry.', confirmed.data?.batch?.sync_status === 'success' ? 'success' : 'warning');
+              deps.loadQueue('batches', state().pages.batches || 1);
+            } catch (err) { deps.showToast(err.message, 'error'); }
+            finally { deps.setButtonLoading(event.currentTarget, false); }
+          });
+        } else {
+          invoiceResultsSummary.textContent = deps.portalHelpers.invoiceResultsSummary(res);
+          invoiceResultsList.innerHTML = deps.portalHelpers.invoiceResultRows(res);
+        }
         invoiceResults.style.display = 'block';
         deps.loadQueue('batches', state().pages.batches || 1);
       } catch (err) {

@@ -74,6 +74,8 @@
             <div class="fc-sub">${deps.escapeHtml(farmer.primary_phone || '')}</div>
             ${qKey === 'jbl' && farmer.sign_date ? `<div class="fc-sub fc-visit-date">HB visit: ${deps.escapeHtml(deps.fmtDate(farmer.sign_date))}</div>` : ''}
             <div class="fc-badges">
+              ${farmer.reappraisal_required ? `<span class="badge badge-red">Reappraisal required since ${deps.escapeHtml(farmer.deferred_until || '')}</span>` : ''}
+              ${farmer.unit_number ? `<span class="badge badge-grey">Unit ${deps.escapeHtml(farmer.unit_number)}</span>` : ''}
               ${deps.stageBadge(farmer)}
               ${deps.jblBadge(farmer)}
               ${deps.creditBadge(farmer)}

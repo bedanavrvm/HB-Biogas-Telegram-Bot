@@ -502,6 +502,7 @@ def ingest_invoice_upload_batch(
     filename: str,
     content_type: str = 'application/pdf',
     uploaded_by: str = '',
+    order_number: str = '',
     group_config=None,
 ) -> InvoiceUploadBatch:
     """
@@ -527,6 +528,9 @@ def ingest_invoice_upload_batch(
             id_number='invoice_pool',
             received_at=received_at,
             group_config=group_config,
+            workflow_key='Jawabu/Invoices',
+            record_type='Order' if order_number else 'Unassigned',
+            record_key=order_number or safe_name,
         )
     except Exception as exc:
         logger.error("Invoice PDF Drive upload failed: %s", exc, exc_info=True)
@@ -537,6 +541,7 @@ def ingest_invoice_upload_batch(
         content_type=content_type or 'application/pdf',
         size=len(pdf_bytes),
         uploaded_by=uploaded_by,
+        order_number=str(order_number or '').strip(),
         drive_file_id=drive_file_id,
         drive_url=drive_url,
         status='uploaded',
@@ -570,7 +575,7 @@ def ingest_invoice_upload_batch(
             calculated_balance_due=_decimal_or_none(inv.get('calculated_balance_due')),
             balance_due_difference=_decimal_or_none(inv.get('balance_due_difference')),
             balance_due_check_basis=str(inv.get('balance_due_check_basis') or '').strip(),
-            status='unmatched',
+            status='draft',
             raw_payload=inv,
         ))
     if parsed_rows:
@@ -594,7 +599,7 @@ def ingest_invoice_upload_batch(
     batch.total_pages = total_pages
     batch.total_parsed = len(parsed_rows)
     batch.unmatched_count = len(parsed_rows)
-    batch.status = 'parsed' if parsed_rows else 'needs_review'
+    batch.status = 'awaiting_confirmation' if parsed_rows else 'needs_review'
     if not parsed_rows:
         batch.error = 'No valid HomeBiogas invoices found in the PDF.'
     batch.save(update_fields=[
@@ -771,6 +776,139 @@ def _invoice_dict_from_parsed(invoice: ParsedInvoice) -> dict:
         'payment': str(invoice.payment or ''),
         'balance_due': str(invoice.balance_due or ''),
     }
+
+
+def propose_invoice_batch_matches(batch: InvoiceUploadBatch) -> InvoiceUploadBatch:
+    """Populate suggestions only; never mutate farmer workflow data."""
+    farmers = list(JawabuFarmerMaster.objects.filter(order_number=batch.order_number, status='active')) if batch.order_number else []
+    for invoice in batch.invoices.filter(status='draft'):
+        payload = {
+            'customer_id': invoice.customer_id,
+            'customer_phone': invoice.customer_phone,
+            'customer_name': invoice.customer_name,
+        }
+        farmer, reason = _match_invoice_to_farmer(payload, farmers)
+        invoice.proposed_farmer = farmer
+        invoice.proposed_order_number = farmer.order_number if farmer else ''
+        invoice.review_notes = reason
+        invoice.save(update_fields=['proposed_farmer', 'proposed_order_number', 'review_notes', 'updated_at'])
+    return batch
+
+
+@transaction.atomic
+def edit_draft_invoice(invoice: ParsedInvoice, values: dict, *, actor: str = '') -> ParsedInvoice:
+    invoice = ParsedInvoice.objects.select_for_update().get(pk=invoice.pk)
+    if invoice.batch.status != 'awaiting_confirmation' or invoice.status not in {'draft', 'ignored'}:
+        raise ValueError('Only an unconfirmed invoice draft can be edited.')
+    text_fields = ('invoice_no', 'customer_name', 'customer_id', 'customer_phone', 'invoice_date_raw')
+    amount_fields = ('invoice_amount', 'total_after_discount', 'discount', 'payment', 'balance_due')
+    for field in text_fields:
+        if field in values:
+            setattr(invoice, field, str(values.get(field) or '').strip())
+    for field in amount_fields:
+        if field in values:
+            value = _decimal_or_none(values.get(field))
+            setattr(invoice, field, abs(value) if field == 'discount' and value is not None else value)
+    if 'invoice_date' in values or 'invoice_date_raw' in values:
+        invoice.invoice_date_raw = str(values.get('invoice_date') or values.get('invoice_date_raw') or '').strip()
+        invoice.invoice_date = parse_invoice_date(invoice.invoice_date_raw)
+    if 'farmer_id' in values:
+        farmer_id = str(values.get('farmer_id') or '').strip()
+        farmer = JawabuFarmerMaster.objects.filter(pk=farmer_id, status='active').first() if farmer_id else None
+        if farmer_id and not farmer:
+            raise ValueError('Selected farmer was not found.')
+        invoice.proposed_farmer = farmer
+        invoice.proposed_order_number = farmer.order_number if farmer else ''
+    if 'ignored' in values:
+        invoice.status = 'ignored' if values.get('ignored') else 'draft'
+    check = verify_balance_due(
+        str(invoice.invoice_amount or ''), str(invoice.discount or ''),
+        str(invoice.total_after_discount or ''), str(invoice.payment or ''), str(invoice.balance_due or ''),
+    )
+    invoice.balance_due_check = check['balance_due_check']
+    invoice.calculated_balance_due = _decimal_or_none(check['calculated_balance_due'])
+    invoice.balance_due_difference = _decimal_or_none(check['balance_due_difference'])
+    invoice.balance_due_check_basis = check['balance_due_check_basis']
+    invoice.save()
+    record_invoice_event(invoice, 'note', actor=actor, note='Invoice extraction draft edited.')
+    return invoice
+
+
+def _refresh_requisition_batch(order_number: str, upload_batch: InvoiceUploadBatch) -> None:
+    from core.models import RequisitionBatch
+
+    req = RequisitionBatch.objects.filter(order_number=order_number).first()
+    if not req:
+        return
+    farmers = list(JawabuFarmerMaster.objects.filter(order_number=order_number))
+    invoiced = sum(1 for farmer in farmers if farmer.invoice_number)
+    pending = max(len(farmers) - invoiced, 0)
+    req.status = 'completed' if farmers and not pending else ('partially_invoiced' if invoiced else 'needs_review')
+    req.invoice_summary = {
+        'total_clients': len(farmers), 'invoiced_count': invoiced,
+        'pending_invoice_count': pending, 'status': req.status,
+        'last_invoice_upload_status': upload_batch.sync_status or upload_batch.status,
+        'last_invoice_upload_error': upload_batch.sync_error or upload_batch.error,
+        'invoice_batch_id': str(upload_batch.id),
+    }
+    req.last_invoice_result = {
+        'invoice_batch_id': str(upload_batch.id), 'status': upload_batch.status,
+        'matched_count': upload_batch.matched_count, 'unmatched_count': upload_batch.unmatched_count,
+        'sync_status': upload_batch.sync_status, 'sync_error': upload_batch.sync_error,
+    }
+    req.save(update_fields=['status', 'invoice_summary', 'last_invoice_result', 'updated_at'])
+
+
+def confirm_invoice_batch(batch: InvoiceUploadBatch, *, actor: str = '') -> InvoiceUploadBatch:
+    """Commit every resolved row atomically locally, then track external sync separately."""
+    affected = []
+    with transaction.atomic():
+        batch = InvoiceUploadBatch.objects.select_for_update().get(pk=batch.pk)
+        if batch.status == 'matched':
+            return batch
+        if batch.status != 'awaiting_confirmation':
+            raise ValueError('This invoice batch is not awaiting confirmation.')
+        invoices = list(batch.invoices.select_for_update().select_related('proposed_farmer'))
+        unresolved = [item for item in invoices if item.status != 'ignored' and (not item.proposed_farmer_id or not item.invoice_no or not item.invoice_date)]
+        if unresolved:
+            raise ValueError('Every invoice must have an invoice number, valid date, and farmer match, or be marked ignored.')
+        farmer_ids = [item.proposed_farmer_id for item in invoices if item.status != 'ignored']
+        if len(farmer_ids) != len(set(farmer_ids)):
+            raise ValueError('Two invoices in this batch propose the same farmer. Resolve the duplicate before confirming.')
+        farmers = {f.id: f for f in JawabuFarmerMaster.objects.select_for_update().filter(id__in=farmer_ids)}
+        for invoice in invoices:
+            if invoice.status == 'ignored':
+                continue
+            farmer = farmers[invoice.proposed_farmer_id]
+            farmer.invoice_number = invoice.invoice_no
+            farmer.invoice_date = invoice.invoice_date
+            farmer.invoice_amount = invoice.invoice_amount
+            farmer.discount = invoice.discount
+            farmer.payment = invoice.payment
+            farmer.balance_due = invoice.balance_due
+            farmer.save(update_fields=['invoice_number', 'invoice_date', 'invoice_amount', 'discount', 'payment', 'balance_due', 'updated_at'])
+            invoice.status = 'matched'
+            invoice.matched_farmer = farmer
+            invoice.matched_order_number = farmer.order_number or batch.order_number
+            invoice.save(update_fields=['status', 'matched_farmer', 'matched_order_number', 'updated_at'])
+            record_invoice_event(invoice, 'matched', actor=actor, note='Confirmed from editable extraction review.')
+            affected.append(farmer)
+        batch.matched_count = len(affected)
+        batch.unmatched_count = 0
+        batch.status = 'matched'
+        batch.sync_status = 'pending'
+        batch.sync_error = ''
+        batch.save(update_fields=['matched_count', 'unmatched_count', 'status', 'sync_status', 'sync_error', 'updated_at'])
+
+    errors = []
+    for farmer in affected:
+        if not sync_farmer_to_master_sheet(farmer):
+            errors.append(farmer.customer_name or str(farmer.id))
+    batch.sync_status = 'failed' if errors else 'success'
+    batch.sync_error = ('Master Data sync failed for: ' + ', '.join(errors)) if errors else ''
+    batch.save(update_fields=['sync_status', 'sync_error', 'updated_at'])
+    _refresh_requisition_batch(batch.order_number, batch)
+    return batch
 
 
 def _apply_invoice_to_farmer(farmer: JawabuFarmerMaster, invoice: ParsedInvoice) -> None:

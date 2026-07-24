@@ -200,6 +200,7 @@ MASTER_SYSTEM_HEADERS = [
 ]
 
 MASTER_FIELD_HEADERS = {
+    'unit_number': ['Unit Number'],
     'customer_name': ['Customer Name'],
     'national_id': ['National ID'],
     'primary_phone': ['Primary Phone'],
@@ -216,7 +217,7 @@ MASTER_FIELD_HEADERS = {
 }
 
 MASTER_NORMAL_WRITE_FIELDS = [
-    'customer_name', 'national_id', 'primary_phone', 'secondary_phone', 'county',
+    'unit_number', 'customer_name', 'national_id', 'primary_phone', 'secondary_phone', 'county',
     'sub_county', 'village', 'lead_source', 'hb_sales_person', 'sign_date',
     'comments', 'actual_receipts', 'installation_status',
 ]
@@ -460,7 +461,14 @@ def commit_farmup_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict],
             row['Cleaning Notes'] = append_note(row.get('Cleaning Notes', ''), 'Secondary Phone must be in 254 format')
             remaining_rows.append(row)
             continue
-        farmer_created, farmer_status = upsert_farmer(cleaned)
+        try:
+            farmer_created, farmer_status = upsert_farmer(cleaned)
+        except ValueError as exc:
+            errors.append(f"Row {index}: {exc}")
+            row['Import Status'] = 'review_needed'
+            row['Cleaning Notes'] = append_note(row.get('Cleaning Notes', ''), str(exc))
+            remaining_rows.append(row)
+            continue
         cleaned['_farmer_created'] = farmer_created
         cleaned['_farmer_status'] = farmer_status
         committed_cleaned_rows.append(cleaned)
@@ -565,6 +573,13 @@ def sync_committed_farmup_rows_to_master_sheet(
 
 def ensure_master_system_headers(sheet, header_row: int) -> list[str]:
     headers = list(sheet.row_values(header_row))
+    unit_col = 44  # AR. Visible backend-owned application sequence.
+    if len(headers) < unit_col:
+        headers.extend([''] * (unit_col - len(headers)))
+    if not first_existing_header(header_lookup_from_headers(headers), ['Unit Number']) and not str(headers[unit_col - 1] or '').strip():
+        sheet.update_cell(header_row, unit_col, 'Unit Number')
+        sheet.update_cell(header_row + 1, unit_col, 'BACKEND-OWNED: 1st, 2nd, 3rd unit application number.')
+        headers[unit_col - 1] = 'Unit Number'
     start_col = 45  # AS. Keep system metadata at the far-right fixed block.
     end_col = start_col + len(MASTER_SYSTEM_HEADERS) - 1
     if end_col > getattr(sheet, 'col_count', end_col):
@@ -986,6 +1001,7 @@ def cleaned_master_row_from_review(
         'cleaning_notes': clean_text(row.get('Cleaning Notes', '')),
         'raw_data': raw_data,
         'last_imported_at': imported_at,
+        'application_action': str(row.get('Application Action') or 'update_existing').strip(),
     }
 
 
@@ -1417,15 +1433,24 @@ def row_fingerprint(row: dict) -> str:
 
 @transaction.atomic
 def upsert_farmer(cleaned: dict) -> tuple[bool, str]:
+    from core.services.jawabu_identity import resolve_application_identity, record_additional_unit, restart_expired_reappraisal
+
+    action = str(cleaned.pop('application_action', '') or 'update_existing').strip()
+    customer, unit_number, identity_existing = resolve_application_identity(cleaned, action=action)
     lookup = farmer_lookup(cleaned)
-    existing = JawabuFarmerMaster.objects.filter(**lookup).order_by('-updated_at').first()
+    existing = identity_existing or JawabuFarmerMaster.objects.filter(**lookup).order_by('-updated_at').first()
     defaults = model_fields(cleaned)
+    defaults['customer'] = customer
+    defaults['unit_number'] = unit_number
     if existing:
+        restart_expired_reappraisal(existing, fresh_sign_date=cleaned.get('sign_date', ''))
         for field, value in defaults.items():
             setattr(existing, field, value)
         existing.save()
         return False, existing.status
-    JawabuFarmerMaster.objects.create(**defaults)
+    farmer = JawabuFarmerMaster.objects.create(**defaults)
+    if action == 'create_additional_unit':
+        record_additional_unit(farmer)
     return True, defaults['status']
 
 

@@ -7,7 +7,7 @@
   const initData = tg ? tg.initData : '';
   const draftKey = 'farmupReviewDraft:' + batchId;
   const draftMaxAgeMs = 7 * 24 * 60 * 60 * 1000;
-  const fields = ['Customer Name', 'National ID', 'Primary Phone', 'Secondary Phone', 'County', 'HBG Visit Date', 'Deposit Paid to HB', 'HB Sales Person', 'Cleaning Notes'];
+  const fields = ['Customer Name', 'National ID', 'Primary Phone', 'Secondary Phone', 'Application Action', 'County', 'HBG Visit Date', 'Deposit Paid to HB', 'HB Sales Person', 'Cleaning Notes'];
   const body = document.getElementById('rowsBody');
   const statusEl = document.getElementById('status');
   const rowSearch = document.getElementById('rowSearch');
@@ -105,13 +105,21 @@
 
       fields.forEach((name) => {
         const td = document.createElement('td');
-        const input = name === 'Cleaning Notes' ? document.createElement('textarea') : document.createElement('input');
+        let input;
+        if (name === 'Application Action') {
+          input = document.createElement('select');
+          [['update_existing', 'Update existing / first unit'], ['create_additional_unit', 'Create next linked unit']].forEach(([value, label]) => {
+            const option = document.createElement('option'); option.value = value; option.textContent = label; input.appendChild(option);
+          });
+        } else {
+          input = name === 'Cleaning Notes' ? document.createElement('textarea') : document.createElement('input');
+        }
         if (fieldHasProblem(row, name)) {
           td.classList.add('field-error');
           input.classList.add('field-error-input');
           input.setAttribute('aria-invalid', 'true');
         }
-        input.value = row[name] || '';
+        input.value = row[name] || (name === 'Application Action' ? 'update_existing' : '');
         input.addEventListener('input', () => { row[name] = input.value; saveDraft(); });
         td.appendChild(input);
         tr.appendChild(td);
