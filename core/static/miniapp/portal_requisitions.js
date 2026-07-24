@@ -260,8 +260,7 @@
     try {
       const response = await deps.portalApi.postJson('/requisition-queue/preview/', payload, deps.tg, csrfHeader());
       if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not load preview.');
-      state().pendingRequisitionPayload = payload;
-      openRequisitionPreview(response.data);
+      openRequisitionPreview(response.data, { readOnly: true });
     } catch (err) { deps.showToast(err.message, 'error'); }
     finally { deps.setButtonLoading(button, false); }
   }
@@ -344,20 +343,21 @@
         return;
       }
       state().pendingRequisitionPayload = payload;
-      openRequisitionPreview(data);
+      openRequisitionPreview(data, { readOnly: false });
     } catch (err) {
       console.error(err);
       deps.showToast('Could not prepare preview.', 'error');
     }
   }
 
-  function openRequisitionPreview(data) {
+  function openRequisitionPreview(data, { readOnly = false } = {}) {
     const overlay = el('requisition-preview-overlay');
     const sub = el('requisition-preview-sub');
     const summary = el('requisition-preview-summary');
     const warnings = el('requisition-preview-warnings');
     const list = el('requisition-preview-list');
     const confirm = el('requisition-preview-confirm');
+    const cancel = el('requisition-preview-cancel');
     const blockedById = {};
     (data.blocked || []).forEach(item => {
       if (item.farmer?.id) blockedById[item.farmer.id] = item.missing || [];
@@ -374,8 +374,10 @@
       ? `<h3 class="workbook-preview-title">Excel Preview</h3>${renderWorkbookPreview(data.workbook_preview)}`
       : deps.batchClientRows(allFarmers, blockedById);
     activateWorkbookTabs(list);
-    confirm.disabled = (data.blocked_count || 0) > 0 || !(data.ready_count || 0);
-    confirm.textContent = confirm.disabled ? 'Resolve Blocked Items' : 'Generate Requisition';
+    confirm.hidden = readOnly;
+    confirm.disabled = readOnly || (data.blocked_count || 0) > 0 || !(data.ready_count || 0);
+    confirm.textContent = confirm.disabled && !readOnly ? 'Resolve Blocked Items' : 'Generate and Save Excel';
+    if (cancel) cancel.textContent = readOnly ? 'Close Preview' : 'Back';
     const preview = el('requisition-preview-workbook');
     if (preview) preview.hidden = true;
     overlay.classList.add('open');

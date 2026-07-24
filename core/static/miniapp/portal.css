@@ -379,6 +379,7 @@
   font-size: 11px;
   line-height: 1.35;
 }
+.sheet-footer [hidden] { display: none !important; }
 .phone-call-button {
   flex: 0 0 38px;
   width: 38px;
