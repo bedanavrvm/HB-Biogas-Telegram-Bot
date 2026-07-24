@@ -1,10 +1,58 @@
 from django.test import TestCase
 
-from core.models import SpinCreditRequest
+from core.models import (
+    JawabuCustomer,
+    JawabuFarmerMaster,
+    JawabuFarmerUploadBatch,
+    JawabuPipelineEvent,
+    SpinCreditRequest,
+)
 from core.services.group_reset import group_data_counts, reset_group_data
 
 
 class GroupResetSpinTests(TestCase):
+    def test_clear_all_farmer_master_works_without_upload_batch_option(self):
+        upload = JawabuFarmerUploadBatch.objects.create(
+            group_id='-100jawabureset',
+            source_filename='application-review.csv',
+            parsed_rows=[{
+                'National ID': 'RESET-TEST-ID',
+                'Application Action': 'create_additional_unit',
+                '_review_required': True,
+            }],
+            review_needed=1,
+        )
+        customer = JawabuCustomer.objects.create(
+            national_id='RESET-TEST-ID',
+            primary_phone='254700000099',
+        )
+        farmer = JawabuFarmerMaster.objects.create(
+            customer=customer,
+            national_id='RESET-TEST-ID',
+            primary_phone='254700000099',
+            credit_decision='Deferred',
+            status='active',
+            raw_data={'upload_batch_id': str(upload.id)},
+        )
+        JawabuPipelineEvent.objects.create(
+            farmer=farmer,
+            action='deferred',
+            actor='reset-test',
+        )
+
+        result = reset_group_data(
+            '-100jawabureset',
+            include_all_farmer_master=True,
+            include_farmer_uploads=False,
+        )
+
+        self.assertEqual(result['after']['all_farmer_master_records'], 0)
+        self.assertEqual(result['after']['all_jawabu_customers'], 0)
+        self.assertEqual(result['after']['all_jawabu_pipeline_events'], 0)
+        self.assertEqual(result['after']['farmer_upload_batches'], 0)
+        self.assertFalse(JawabuFarmerMaster.objects.exists())
+        self.assertFalse(JawabuFarmerUploadBatch.objects.exists())
+
     def test_reset_group_data_keeps_spin_legacy_batch_unless_requested(self):
         SpinCreditRequest.objects.create(
             group_id='-100spinreset',

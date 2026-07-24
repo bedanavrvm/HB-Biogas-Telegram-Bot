@@ -10,8 +10,10 @@ from core.models import (
     ComplaintCaseEvidence,
     FcaImportRecord,
     InvoiceUploadBatch,
+    JawabuCustomer,
     JawabuFarmerMaster,
     JawabuFarmerUploadBatch,
+    JawabuPipelineEvent,
     JawabuVisitRecord,
     LiveSheetRecordChange,
     MediaAttachment,
@@ -49,6 +51,8 @@ def group_data_counts(
         'farmer_upload_batches': JawabuFarmerUploadBatch.objects.filter(group_id=group_id).count(),
         'linked_farmer_master_records': _linked_farmer_master_queryset(group_id).count(),
         'all_farmer_master_records': JawabuFarmerMaster.objects.count(),
+        'all_jawabu_customers': JawabuCustomer.objects.count(),
+        'all_jawabu_pipeline_events': JawabuPipelineEvent.objects.count(),
         'requisition_batches': RequisitionBatch.objects.count(),
         'invoice_upload_batches': InvoiceUploadBatch.objects.count(),
         'payment_documents': PaymentDocument.objects.count(),
@@ -92,11 +96,21 @@ def reset_group_data(
         RequisitionBatch.objects.all().delete()
     OrderApprovalUpdate.objects.filter(group_id=group_id).delete()
     JawabuVisitRecord.objects.filter(group_id=group_id).delete()
-    if include_farmer_uploads:
-        if include_all_farmer_master:
-            JawabuFarmerMaster.objects.all().delete()
-        else:
-            _linked_farmer_master_queryset(group_id).delete()
+    # Master rows feed every Jawabu portal queue, including flagged/deferred.
+    # `include_all_farmer_master` must work independently of the upload-batch
+    # checkbox; the old nested condition silently ignored it. Audit events use
+    # PROTECT deliberately, so remove them explicitly as part of an authorized
+    # destructive reset before deleting their farmer records.
+    if include_all_farmer_master:
+        JawabuPipelineEvent.objects.all().delete()
+        JawabuFarmerMaster.objects.all().delete()
+        JawabuCustomer.objects.all().delete()
+    elif include_farmer_uploads:
+        linked_farmers = _linked_farmer_master_queryset(group_id)
+        JawabuPipelineEvent.objects.filter(farmer__in=linked_farmers).delete()
+        linked_farmers.delete()
+
+    if include_farmer_uploads or include_all_farmer_master:
         JawabuFarmerUploadBatch.objects.filter(group_id=group_id).delete()
     FcaImportRecord.objects.filter(group_id=group_id).delete()
     _spin_live_queryset(group_id, spin_legacy_name).delete()

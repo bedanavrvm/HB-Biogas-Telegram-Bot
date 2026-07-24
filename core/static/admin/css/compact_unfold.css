@@ -98,6 +98,100 @@ body.change-list #changelist-filter > div:last-child {
     margin-right: 1rem !important;
 }
 
+/*
+ * Django's legacy admin templates and custom display methods emit `.button`,
+ * `.default`, and `.deletelink` controls. Unfold intentionally styles its own
+ * utility-class buttons, so these compatibility controls otherwise resemble
+ * ordinary text links.
+ */
+body[class*='app-'] a.button,
+body[class*='app-'] button.button,
+body[class*='app-'] input[type='submit'],
+body[class*='app-'] input[type='button'],
+body[class*='app-'] .submit-row a.button,
+body[class*='app-'] .submit-row button {
+    align-items: center !important;
+    background-color: rgb(var(--color-base-50)) !important;
+    border: 1px solid rgb(var(--color-base-300)) !important;
+    border-radius: .375rem !important;
+    box-shadow: 0 1px 2px rgb(15 23 42 / .08) !important;
+    color: rgb(var(--color-base-700)) !important;
+    cursor: pointer !important;
+    display: inline-flex !important;
+    font-size: .8125rem !important;
+    font-weight: 600 !important;
+    gap: .375rem !important;
+    justify-content: center !important;
+    line-height: 1.25rem !important;
+    min-height: 2.25rem !important;
+    padding: .45rem .8rem !important;
+    text-decoration: none !important;
+    transition: background-color .15s ease, border-color .15s ease, box-shadow .15s ease !important;
+}
+
+body[class*='app-'] a.button:hover,
+body[class*='app-'] button.button:hover,
+body[class*='app-'] input[type='submit']:hover,
+body[class*='app-'] input[type='button']:hover,
+body[class*='app-'] .submit-row button:hover {
+    background-color: rgb(var(--color-base-100)) !important;
+    border-color: rgb(var(--color-primary-500)) !important;
+    color: rgb(var(--color-primary-700)) !important;
+}
+
+body[class*='app-'] a.button:focus-visible,
+body[class*='app-'] button.button:focus-visible,
+body[class*='app-'] input[type='submit']:focus-visible,
+body[class*='app-'] input[type='button']:focus-visible {
+    outline: 2px solid rgb(var(--color-primary-500)) !important;
+    outline-offset: 2px !important;
+}
+
+body[class*='app-'] input.default,
+body[class*='app-'] button.default,
+body[class*='app-'] .submit-row input[type='submit']:not(.deletelink) {
+    background-color: rgb(var(--color-primary-600)) !important;
+    border-color: rgb(var(--color-primary-600)) !important;
+    color: white !important;
+}
+
+body[class*='app-'] input.default:hover,
+body[class*='app-'] button.default:hover,
+body[class*='app-'] .submit-row input[type='submit']:not(.deletelink):hover {
+    background-color: rgb(var(--color-primary-700)) !important;
+    border-color: rgb(var(--color-primary-700)) !important;
+    color: white !important;
+}
+
+body[class*='app-'] a.deletelink,
+body[class*='app-'] button.deletelink,
+body[class*='app-'] input.deletelink {
+    background-color: rgb(254 242 242) !important;
+    border-color: rgb(252 165 165) !important;
+    color: rgb(185 28 28) !important;
+}
+
+body[class*='app-'] a.cancel-link {
+    background-color: transparent !important;
+}
+
+.dark body[class*='app-'] a.button,
+.dark body[class*='app-'] button.button,
+.dark body[class*='app-'] input[type='button'],
+.dark body[class*='app-'] .submit-row a.button {
+    background-color: rgb(var(--color-base-800)) !important;
+    border-color: rgb(var(--color-base-600)) !important;
+    color: rgb(var(--color-base-100)) !important;
+}
+
+.dark body[class*='app-'] a.deletelink,
+.dark body[class*='app-'] button.deletelink,
+.dark body[class*='app-'] input.deletelink {
+    background-color: rgb(127 29 29 / .35) !important;
+    border-color: rgb(185 28 28) !important;
+    color: rgb(254 202 202) !important;
+}
+
 @media (min-width: 1536px) {
     body.change-list #changelist .changelist-form-container {
         flex-direction: row !important;
