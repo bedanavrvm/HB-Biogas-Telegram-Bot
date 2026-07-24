@@ -771,13 +771,23 @@
 .payment-print-preview > header { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 14px; margin: 0 0 12px; color: #111827; }
 .payment-print-preview > header h3 { margin: 0; font-size: 16px; text-transform: uppercase; }
 .payment-print-scroll { overflow: auto; -webkit-overflow-scrolling: touch; }
-.payment-print-preview table { width: 100%; min-width: 1500px; table-layout: fixed; border-collapse: collapse; }
+.payment-total-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-bottom: 8px; }
+.payment-total-strip span { border: 1px solid #cbd5e1; border-radius: 6px; background: #f8fafc; padding: 7px; font-size: 10px; }
+.payment-total-strip strong { display: block; margin-top: 2px; font-size: 12px; }
+.payment-print-preview table { width: 100%; min-width: 880px; table-layout: fixed; border-collapse: collapse; }
 .payment-print-preview th, .payment-print-preview td { border: 1px solid #111827; padding: 5px; vertical-align: middle; text-align: center; overflow-wrap: anywhere; white-space: normal; }
 .payment-print-preview th { background: #f1f5f9; font-size: 9px; text-transform: uppercase; }
 .payment-print-preview td { font-size: 10px; }
+.payment-print-preview th, .payment-print-preview td:first-child, .payment-print-preview th:first-child { position: static; inset: auto; z-index: auto; }
+.payment-print-preview td small { display: block; margin-top: 2px; color: #475569; font-size: 9px; }
+.payment-print-preview th:nth-child(1) { width: 34px; }
+.payment-print-preview th:nth-child(2) { width: 180px; }
+.payment-print-preview th:nth-child(3) { width: 125px; }
+.payment-print-preview th:nth-child(7) { width: 145px; }
+.payment-print-preview th:nth-child(8) { width: 115px; }
 .payment-print-preview td.amount { text-align: right; }
 .payment-print-preview > footer { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 24px; color: #111827; font-size: 11px; }
-@media (max-width: 600px) { .payment-print-preview > header, .payment-print-preview > footer { grid-template-columns: 1fr; gap: 8px; } }
+@media (max-width: 600px) { .payment-print-preview > header, .payment-print-preview > footer { grid-template-columns: 1fr; gap: 8px; } .payment-total-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .invoice-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .invoice-detail-field { min-width: 0; border: 1px solid var(--border-color); border-radius: 8px; padding: 9px; background: var(--bg-surface); }

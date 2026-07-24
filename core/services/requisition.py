@@ -113,7 +113,7 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
             elif "ORDERNO:" in val_clean or "BATCH/ORDERREF:" in val_clean or "ORDERREF:" in val_clean:
                 order_ref_cell = cell
 
-    date_str = requisition_date.strftime('%d-%b-%Y') if isinstance(requisition_date, (date, datetime)) else str(requisition_date)
+    date_str = requisition_date.strftime('%d-%B-%Y') if isinstance(requisition_date, (date, datetime)) else str(requisition_date)
     if date_cell:
         date_cell.value = str(date_cell.value or '').split(':')[0] + ':'
         _write_system_value(ws, date_cell.row, date_cell.column + 1, date_str, style_from=date_cell, bold=True)
@@ -242,7 +242,8 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
         _write_system_value(ws, r, col_phone, farmer.primary_phone)  # CONTACT NO.
         _write_system_value(ws, r, col_id, farmer.national_id)  # ID NO.
         _write_system_value(ws, r, col_credit, farmer.credit_decision)  # CREDIT ANALYSIS
-        _write_system_value(ws, r, col_callup, "", wrap=True)  # CALLUP COMMENT (blank)
+        callup_comment = str(getattr(farmer, 'final_decision_comment', '') or '').strip()
+        _write_system_value(ws, r, col_callup, callup_comment, wrap=True)  # HEAD OF URBAN CALLUP COMMENT
         _write_system_value(ws, r, col_county, farmer.county, wrap=True)  # COUNTY
         location_text = requisition_location_text(farmer)
         _write_system_value(ws, r, col_landmark, location_text, wrap=True)  # LOCATION & NEAREST LANDMARK
@@ -270,6 +271,7 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
             math.ceil(len(str(farmer.customer_name or '')) / 24),
             math.ceil(len(str(farmer.county or '')) / 14),
             math.ceil(len(location_text) / 30),
+            math.ceil(len(callup_comment) / 24),
             math.ceil(len(str(farmer.hb_sales_person or '')) / 20),
         )
         current_height = float(ws.row_dimensions[r].height or 18)

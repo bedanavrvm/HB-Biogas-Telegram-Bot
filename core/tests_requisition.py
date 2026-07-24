@@ -28,6 +28,7 @@ class RequisitionTemplateGenerationTests(TestCase):
             'deposit_paid_hbg': None,
             'lead_source': 'HomeBiogas',
             'hb_sales_person': 'Sales One',
+            'final_decision_comment': 'Called client; ready for order.',
         }
         data.update(overrides)
         return SimpleNamespace(**data)
@@ -83,7 +84,7 @@ class RequisitionTemplateGenerationTests(TestCase):
         ws = load_workbook(output_path, data_only=False).active
 
         self.assertEqual(ws['L5'].value, 'Date:')
-        self.assertEqual(ws['M5'].value, '23-Jul-2026')
+        self.assertEqual(ws['M5'].value, '23-July-2026')
         self.assertEqual(ws['L7'].value, 'Order No:')
         self.assertEqual(ws['M7'].value, 'REQ-TEST-001')
         self.assertTrue(ws['M5'].font.bold)
@@ -96,7 +97,7 @@ class RequisitionTemplateGenerationTests(TestCase):
         self.assertEqual(ws['E14'].value, '254712345678')
         self.assertEqual(ws['F14'].value, '12345678')
         self.assertEqual(ws['G14'].value, 'Approved')
-        self.assertIsNone(ws['H14'].value)
+        self.assertEqual(ws['H14'].value, 'Called client; ready for order.')
         self.assertEqual(ws['I14'].value, 'Nakuru')
         self.assertEqual(ws['J14'].value, 'Kieni - Mweiga')
         self.assertEqual(ws['K14'].value, 25000)
@@ -180,7 +181,7 @@ class RequisitionTemplateGenerationTests(TestCase):
         self.assertEqual(ws['M7'].font.sz, ws['L7'].font.sz)
         self.assertEqual(ws['D14'].value, 'Mary Wanjiku')
         self.assertEqual(ws['F14'].value, '12345678')
-        self.assertIsNone(ws['H14'].value)
+        self.assertEqual(ws['H14'].value, 'Called client; ready for order.')
         self.assertEqual(ws['K14'].value, 25000)
         self.assertEqual(ws['D15'].value, 'John Kamau')
         self.assertEqual(ws['F15'].value, '87654321')

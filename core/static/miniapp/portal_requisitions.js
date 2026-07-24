@@ -51,7 +51,7 @@
         <td>${deps.escapeHtml(farmer.primary_phone || '-')}</td>
         <td>${deps.escapeHtml(farmer.national_id || '-')}</td>
         <td>${deps.escapeHtml(farmer.credit_decision || '-')}</td>
-        <td></td>
+        <td>${deps.escapeHtml(farmer.final_decision_comment || '')}</td>
         <td>${deps.escapeHtml(farmer.county || '-')}</td>
         <td>${deps.escapeHtml(preview.location || '-')}</td>
         <td>${deps.escapeHtml(preview.hbg_deposit || '')}</td>
@@ -75,20 +75,21 @@
 
   function renderPrintablePayment(preview) {
     const rows = (preview.rows || []).map((row, index) => `<tr>
-      <td>${index + 1}</td><td>${deps.escapeHtml(deps.fmtDate(row.requisition_date))}</td><td>${paymentValue(row.order_no)}</td>
-      <td>${paymentValue(row.cust_no)}</td><td>${paymentValue(row.name_imab)}</td><td>${paymentValue(row.name)}</td>
-      <td>${paymentValue(row.mobile_no)}</td><td>${paymentValue(row.branch)}</td><td>${paymentValue(row.loan_officer)}</td>
+      <td>${index + 1}</td>
+      <td class="payment-customer"><strong>${paymentValue(row.name)}</strong><small>IMAB: ${paymentValue(row.name_imab) || '-'}</small><small>Customer: ${paymentValue(row.cust_no) || '-'}</small><small>${paymentValue(row.mobile_no) || '-'}</small></td>
+      <td><strong>${paymentValue(row.branch)}</strong><small>${paymentValue(row.loan_officer)}</small></td>
       <td class="amount">${paymentValue(row.hb_invoice_amount)}</td><td class="amount">${paymentValue(row.discount)}</td>
-      <td class="amount">${paymentValue(row.deposit_paid_hbg)}</td><td class="amount">${paymentValue(row.deposit_paid_jbl)}</td>
-      <td>${paymentValue(row.repayment_dates)}</td><td>${paymentValue(row.tenor)}</td><td>${paymentValue(row.product)}</td>
+      <td class="amount"><strong>HBG: ${paymentValue(row.deposit_paid_hbg) || '-'}</strong><small>JBL: ${paymentValue(row.deposit_paid_jbl) || '-'}</small></td>
+      <td><strong>${paymentValue(row.product)}</strong><small>${deps.escapeHtml(deps.fmtDate(row.repayment_dates))} / ${paymentValue(row.tenor)} months</small></td>
+      <td>${deps.escapeHtml(deps.fmtDate(row.requisition_date))}<small>Order ${paymentValue(row.order_no)}</small></td>
     </tr>`).join('');
     const totals = preview.totals || {};
     return `<article class="payment-print-preview">
       <header><h3>JBL Payment Schedule</h3><div><strong>Order No:</strong> ${deps.escapeHtml(preview.order_number || '-')}</div><div><strong>Clients:</strong> ${deps.escapeHtml(preview.ready_count || 0)}</div></header>
+      <div class="payment-total-strip"><span>Invoice <strong>${paymentValue(totals.hb_invoice_amount) || '0'}</strong></span><span>Discount <strong>${paymentValue(totals.discount) || '0'}</strong></span><span>HBG deposit <strong>${paymentValue(totals.deposit_paid_hbg) || '0'}</strong></span><span>JBL deposit <strong>${paymentValue(totals.deposit_paid_jbl) || '0'}</strong></span></div>
       <div class="payment-print-scroll"><table>
-        <thead><tr><th>No.</th><th>Requisition date</th><th>Order No.</th><th>Customer No.</th><th>Name in IMAB</th><th>Customer name</th><th>Mobile No.</th><th>Branch</th><th>Loan officer</th><th>HB invoice amount</th><th>Discount</th><th>HBG deposit</th><th>JBL deposit</th><th>Repayment date</th><th>Tenor</th><th>Product</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="16">No payment rows available.</td></tr>'}</tbody>
-        <tfoot><tr><th colspan="9">Totals</th><th>${paymentValue(totals.hb_invoice_amount)}</th><th>${paymentValue(totals.discount)}</th><th>${paymentValue(totals.deposit_paid_hbg)}</th><th>${paymentValue(totals.deposit_paid_jbl)}</th><th colspan="3"></th></tr></tfoot>
+        <thead><tr><th>No.</th><th>Customer</th><th>Branch / loan officer</th><th>Invoice amount</th><th>Discount</th><th>Deposits</th><th>Product / repayment</th><th>Requisition / order</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="8">No payment rows available.</td></tr>'}</tbody>
       </table></div>
       <footer><span><strong>Prepared by:</strong> __________________</span><span><strong>Checked by:</strong> __________________</span><span><strong>Authorized by:</strong> __________________</span><span><strong>Date:</strong> __________________</span></footer>
     </article>`;

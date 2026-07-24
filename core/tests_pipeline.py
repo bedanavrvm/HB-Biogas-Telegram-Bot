@@ -702,6 +702,7 @@ class JblPipelineApiTestCase(TestCase):
 
     def test_portal_requisition_preview_reports_ready_clients(self):
         self.farmer.final_decision = 'Approved'
+        self.farmer.final_decision_comment = 'Customer confirmed during callup.'
         self.farmer.imab_created = 'Yes'
         self.farmer.customer_no = '15124'
         self.farmer.save()
@@ -721,6 +722,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertTrue(data['ok'])
         self.assertEqual(data['ready_count'], 1)
         self.assertEqual(data['blocked_count'], 0)
+        self.assertEqual(data['ready'][0]['final_decision_comment'], 'Customer confirmed during callup.')
 
     def test_portal_document_preview_returns_printable_rows_without_workbook_canvas(self):
         self.farmer.final_decision = 'Approved'
