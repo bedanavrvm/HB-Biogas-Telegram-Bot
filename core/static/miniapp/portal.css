@@ -227,6 +227,9 @@
 }
 .sheet-overlay.open { display: flex; }
 
+/* Batch preview is launched from inside Batch Detail and must sit above it. */
+#requisition-preview-overlay { z-index: 240; }
+
 @keyframes fadeInOverlay {
   from { opacity: 0; }
   to { opacity: 1; }

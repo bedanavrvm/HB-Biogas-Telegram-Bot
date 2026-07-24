@@ -284,3 +284,10 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('-webkit-overflow-scrolling: touch', stylesheet)
         self.assertIn('.workflow-standard.portal-app .tab-btn', stylesheet)
         self.assertIn('flex: 0 0 auto', stylesheet)
+
+    def test_requisition_preview_stacks_above_batch_detail(self):
+        stylesheet = Path('core/static/miniapp/portal.css').read_text(encoding='utf-8')
+        response = self.client.get(reverse('portal_home'))
+
+        self.assertContains(response, 'miniapp/portal.css?v=9')
+        self.assertIn('#requisition-preview-overlay { z-index: 240; }', stylesheet)
