@@ -2024,8 +2024,22 @@ class SpinBatchReviewItemAdmin(ReadOnlyAuditAdmin):
     readonly_fields = [field.name for field in SpinBatchReviewItem._meta.fields]
 
 
+class UserProfileAdminForm(forms.ModelForm):
+    telegram_id = forms.CharField(
+        required=False,
+        disabled=True,
+        label='Telegram ID',
+        help_text='Stored automatically after the user first opens a Mini App with verified Telegram authentication.',
+    )
+
+    class Meta:
+        model = UserProfile
+        fields = ('telegram_username', 'telegram_id', 'phone_number', 'telegram_metadata')
+
+
 class UserProfileInline(StackedInline):
     model = UserProfile
+    form = UserProfileAdminForm
     extra = 0
     max_num = 1
 

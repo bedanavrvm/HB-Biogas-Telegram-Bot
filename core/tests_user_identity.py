@@ -62,12 +62,15 @@ class LegacyStaffMigrationCommandTests(TestCase):
         self.assertFalse(LegacyStaffUserMapping.objects.exists())
 
     def test_user_admin_is_the_only_staff_management_surface(self):
+        from core.admin import UserProfileAdminForm
         from core.models import TatTrackerStaffMember
 
         self.assertIn(get_user_model(), admin.site._registry)
         self.assertNotIn(JawabuPortalStaffMember, admin.site._registry)
         self.assertNotIn(ComplaintCaseStaffMember, admin.site._registry)
         self.assertNotIn(TatTrackerStaffMember, admin.site._registry)
+        self.assertFalse(UserProfileAdminForm().fields['telegram_id'].required)
+        self.assertTrue(UserProfileAdminForm().fields['telegram_id'].disabled)
 
     def test_superuser_can_preview_and_apply_migration_from_user_admin(self):
         superuser = get_user_model().objects.create_superuser(
