@@ -98,9 +98,9 @@
     const totals = preview.totals || {};
     return `<article class="payment-print-preview">
       <header><h3>JBL Payment Schedule #${deps.escapeHtml(preview.payment_number || '-')}</h3><div><strong>Order No:</strong> ${deps.escapeHtml(preview.order_number || '-')}</div><div><strong>Clients:</strong> ${deps.escapeHtml(preview.ready_count || 0)}</div></header>
-      <div class="payment-total-strip"><span>Invoice <strong>${paymentValue(totals.hb_invoice_amount) || '0'}</strong></span><span>Discount <strong>${paymentValue(totals.discount) || '0'}</strong></span><span>HBG deposit <strong>${paymentValue(totals.deposit_paid_hbg) || '0'}</strong></span><span>JBL deposit <strong>${paymentValue(totals.deposit_paid_jbl) || '0'}</strong></span></div>
+      <div class="payment-total-strip"><span>Balance due <strong>${paymentValue(totals.hb_invoice_amount) || '0'}</strong></span><span>Discount <strong>${paymentValue(totals.discount) || '0'}</strong></span><span>HBG deposit <strong>${paymentValue(totals.deposit_paid_hbg) || '0'}</strong></span><span>JBL deposit <strong>${paymentValue(totals.deposit_paid_jbl) || '0'}</strong></span></div>
       <div class="payment-print-scroll"><table>
-        <thead><tr><th>No.</th><th>Customer</th><th>Branch / loan officer</th><th>Invoice amount</th><th>Discount</th><th>Deposits</th><th>Product / repayment</th><th>Requisition / order</th></tr></thead>
+        <thead><tr><th>No.</th><th>Customer</th><th>Branch / loan officer</th><th>Balance due</th><th>Discount</th><th>Deposits</th><th>Product / repayment</th><th>Requisition / order</th></tr></thead>
         <tbody>${rows || '<tr><td colspan="8">No payment rows available.</td></tr>'}</tbody>
       </table></div>
       <footer><span><strong>Prepared by:</strong> __________________</span><span><strong>Checked by:</strong> __________________</span><span><strong>Authorized by:</strong> __________________</span><span><strong>Date:</strong> __________________</span></footer>
@@ -275,7 +275,7 @@
         }
         const rows = preview.rows || [];
         target.innerHTML = `<div class="form-section"><h3>Payment Preview — Order ${deps.escapeHtml(orderNumber)}</h3>
-          <div class="batch-client-list">${rows.map(row => `<div class="batch-client-row"><div class="name">${deps.escapeHtml(row.name || row.name_imab || '-')}</div><div class="meta">Customer ${deps.escapeHtml(row.cust_no || '-')} | Invoice ${deps.escapeHtml(row.hb_invoice_amount ?? '-')} | Discount ${deps.escapeHtml(row.discount ?? '-')} | HB deposit ${deps.escapeHtml(row.deposit_paid_hbg ?? '-')} | JBL deposit ${deps.escapeHtml(row.deposit_paid_jbl ?? '-')}</div></div>`).join('')}</div></div>`;
+          <div class="batch-client-list">${rows.map(row => `<div class="batch-client-row"><div class="name">${deps.escapeHtml(row.name || row.name_imab || '-')}</div><div class="meta">Customer ${deps.escapeHtml(row.cust_no || '-')} | Balance due ${deps.escapeHtml(row.hb_invoice_amount ?? '-')} | Discount ${deps.escapeHtml(row.discount ?? '-')} | HB deposit ${deps.escapeHtml(row.deposit_paid_hbg ?? '-')} | JBL deposit ${deps.escapeHtml(row.deposit_paid_jbl ?? '-')}</div></div>`).join('')}</div></div>`;
         target.innerHTML = `<div class="form-section"><h3>Excel Preview - Order ${deps.escapeHtml(orderNumber)}</h3>${renderWorkbookPreview(preview.workbook_preview)}</div>`;
         activateWorkbookTabs(target);
         deps.showToast('Payment Excel preview shown in the Mini App.', 'success');

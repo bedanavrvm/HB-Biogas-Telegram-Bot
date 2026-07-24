@@ -523,6 +523,15 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertIn('Repayment Dates', readiness['blocked'][0]['missing'])
         self.assertIn('Tenor', readiness['blocked'][0]['missing'])
 
+    def test_payment_readiness_blocks_missing_invoice_balance_due(self):
+        farmer = self.farmer(balance_due=None)
+        self.invoice_batch(farmer)
+
+        readiness = payment_readiness('ORDER-001')
+
+        self.assertEqual(readiness['ready_count'], 0)
+        self.assertIn('Balance Due', readiness['blocked'][0]['missing'])
+
     def test_payment_workbook_generation_uses_ready_farmer_and_preserves_signatures(self):
         farmer = self.farmer()
         self.invoice_batch(farmer)
@@ -546,14 +555,15 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(ws['H8'].value, 'Mary Wanjiku')
         self.assertEqual(ws['K8'].value, 'Nakuru Branch')
         self.assertEqual(ws['L8'].value, 'Officer Jane')
-        self.assertEqual(ws['M8'].value, 54000)
-        self.assertTrue(str(ws['N8'].value or '').startswith('='))
+        self.assertEqual(ws['M8'].value, 43500)
+        self.assertIn(ws['N8'].value, (None, ''))
         self.assertEqual(ws['O8'].value, 4500)
         self.assertEqual(ws['P8'].value, 6000)
         self.assertIsNone(ws['R8'].value)
         self.assertEqual(ws['S8'].value, '10TH')
         self.assertEqual(ws['T8'].value, '6')
         self.assertEqual(ws['U8'].value, 'BIOGAS PREMIUM')
+        self.assertIn(ws.cell(row=summary['totals_row'], column=14).value, (None, ''))
         prepared_rows = [row for row in range(1, ws.max_row + 1) if ws.cell(row=row, column=3).value == 'PREPARED BY:']
         self.assertTrue(prepared_rows)
         self.assertGreater(prepared_rows[0], summary['totals_row'])
@@ -569,6 +579,8 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         data = response.json()
         self.assertTrue(data['ok'])
         self.assertEqual(data['preview']['rows'][0]['cust_no'], '15357')
+        self.assertEqual(data['preview']['rows'][0]['hb_invoice_amount'], '43500.00')
+        self.assertIsNone(data['preview']['rows'][0]['expected_invoice_amount'])
         self.assertEqual(data['preview']['payment_number'], '89')
         self.assertNotIn('workbook_preview', data['preview'])
         generate.assert_not_called()

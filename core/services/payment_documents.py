@@ -291,6 +291,8 @@ def _row_payload(farmer: JawabuFarmerMaster) -> tuple[dict[str, Any], list[str],
         missing.append('Cust No')
     if not farmer.invoice_number:
         missing.append('Matched invoice')
+    if farmer.balance_due is None:
+        missing.append('Balance Due')
     if not farmer.repayment_date:
         missing.append('Repayment Dates')
     if not farmer.repayment_tenor:
@@ -312,7 +314,9 @@ def _row_payload(farmer: JawabuFarmerMaster) -> tuple[dict[str, Any], list[str],
         'secondary_mobile': farmer.secondary_phone,
         'branch': farmer.system_branch or farmer.branch,
         'loan_officer': farmer.system_loan_officer or farmer.jbl_officer,
-        'hb_invoice_amount': farmer.invoice_amount,
+        # BALANCE DUE from the source invoice is the amount used for payment.
+        # Expected Invoice Amount stays blank until its formula is agreed.
+        'hb_invoice_amount': farmer.balance_due,
         'expected_invoice_amount': None,
         'discount': farmer.discount,
         'deposit_paid_hbg': hbg_deposit,
@@ -406,21 +410,13 @@ def _write_payment_rows(ws, layout: PaymentTemplateLayout, rows: list[dict[str, 
         row = first_data_row + index - 1
         _set_cell(ws, row, layout.columns.get('no'), index)
         for key, value in payload.items():
-            if key == 'expected_invoice_amount' and value is None:
-                expected_col = layout.columns.get('expected_invoice_amount')
-                hb_col = layout.columns.get('hb_invoice_amount')
-                discount_col = layout.columns.get('discount')
-                hbg_deposit_col = layout.columns.get('deposit_paid_hbg')
-                if expected_col and hb_col and discount_col and hbg_deposit_col:
-                    ws.cell(row=row, column=expected_col, value=(
-                        f'={get_column_letter(hb_col)}{row}-'
-                        f'({get_column_letter(discount_col)}{row}+{get_column_letter(hbg_deposit_col)}{row})'
-                    ))
-                continue
             _set_cell(ws, row, layout.columns.get(key), value)
 
     totals_row = first_data_row + count
     for col in layout.sum_columns:
+        if col == layout.columns.get('expected_invoice_amount'):
+            ws.cell(row=totals_row, column=col, value='')
+            continue
         letter = get_column_letter(col)
         if count:
             ws.cell(row=totals_row, column=col, value=f'=SUM({letter}{first_data_row}:{letter}{first_data_row + count - 1})')
