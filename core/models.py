@@ -1278,6 +1278,17 @@ class AccessGrant(models.Model):
     def __str__(self):
         return f'{self.user} - {self.workflow}: {self.role}'
 
+    def clean(self):
+        super().clean()
+        from core.services.access_policies import validate_access_scope
+        self.role = validate_access_scope(
+            workflow=self.workflow,
+            role=self.role,
+            branch=self.branch,
+            product=self.product,
+            group_configuration=self.group_configuration,
+        )
+
 
 class LegacyStaffUserMapping(models.Model):
     """Auditable compatibility mapping from a legacy staff row to User."""

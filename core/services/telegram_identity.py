@@ -133,6 +133,7 @@ def resolve_or_bind_telegram_user(identity: TelegramIdentity):
 def user_access(user, workflow: str, *, group_configuration=None) -> dict:
     """Return normalized roles and scopes from Groups plus active AccessGrants."""
     from core.models import AccessGrant
+    from core.services.access_policies import canonical_access_role
     if not user or not user.is_active:
         return {'authorized': False, 'roles': [], 'branches': [], 'products': [], 'grants': []}
     grants = AccessGrant.objects.filter(user=user, workflow=workflow, active=True)
@@ -144,7 +145,7 @@ def user_access(user, workflow: str, *, group_configuration=None) -> dict:
             grants = grants.filter(group_configuration__in=[None, database_group])
     grants = list(grants.select_related('group_configuration'))
     roles = {name for name in user.groups.values_list('name', flat=True)}
-    roles.update(grant.role for grant in grants if grant.role)
+    roles.update(canonical_access_role(workflow, grant.role) for grant in grants if grant.role)
     if user.is_superuser:
         roles.add({
             'jawabu_portal': 'ADMIN',

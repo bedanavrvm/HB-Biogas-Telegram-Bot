@@ -187,6 +187,8 @@ def _portal_role_error(request, allowed_roles: set[str], farmer=None):
     if access is None:  # Authentication is intentionally disabled in local/test environments.
         return None
     roles = {str(value).strip().lower() for value in access.get('roles', [])}
+    if 'hb_staff' in roles:
+        roles.add('operations')
     if 'admin' not in roles and roles.isdisjoint(allowed_roles):
         return JsonResponse({'ok': False, 'error': 'You are not authorized for this Jawabu workflow action.'}, status=403)
     branches = {str(value).strip().casefold() for value in access.get('branches', []) if str(value).strip()}

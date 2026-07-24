@@ -136,7 +136,7 @@ class LegacyStaffMigrationCommandTests(TestCase):
             'telegram_username': '@pending_user',
             'workflow': 'jawabu_portal',
             'role': 'JBL_OFFICER',
-            'branch': 'Nairobi',
+            'branch': 'Nakuru',
             'product': '',
             'group_configuration': '',
         })
@@ -149,6 +149,25 @@ class LegacyStaffMigrationCommandTests(TestCase):
         self.assertFalse(profile.user.has_usable_password())
         self.assertTrue(AccessGrant.objects.filter(user=profile.user, role='JBL_OFFICER').exists())
 
+    def test_access_grant_forms_offer_choices_and_reject_scope_mismatches(self):
+        from core.admin import TelegramUserEnrollmentForm
+
+        tat_group = GroupSheetConfiguration.objects.create(
+            group_id='-100-form-tat', sheet_id='tat-sheet', enabled=True,
+            workflow={'type': 'tat_tracker'},
+        )
+        form = TelegramUserEnrollmentForm({
+            'display_name': 'Scoped User', 'telegram_username': 'scoped_user',
+            'workflow': 'complaint_cases', 'role': 'OFFICER',
+            'branch': '', 'product': 'business',
+            'group_configuration': str(tat_group.pk),
+        })
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('product', form.errors)
+        self.assertIn('group_configuration', form.errors)
+        self.assertIn(('JBL_OFFICER', 'JBL Officer — Jawabu Portal'), form.fields['role'].choices)
+
     def test_apply_merges_exact_telegram_id_and_routes_name_only_to_review(self):
         call_command('migrate_legacy_staff', '--apply', stdout=io.StringIO())
 
@@ -158,7 +177,7 @@ class LegacyStaffMigrationCommandTests(TestCase):
         self.assertFalse(user.has_usable_password())
         self.assertEqual(user.staff_profile.telegram_id, '12345')
         self.assertEqual(LegacyStaffUserMapping.objects.filter(user=user).count(), 2)
-        self.assertTrue(AccessGrant.objects.filter(user=user, workflow='jawabu_portal', role='admin').exists())
+        self.assertTrue(AccessGrant.objects.filter(user=user, workflow='jawabu_portal', role='ADMIN').exists())
         self.assertTrue(AccessGrant.objects.filter(user=user, workflow='complaint_cases', role='MANAGER').exists())
         self.assertEqual(self.portal.as_user, user)
         self.assertEqual(self.complaint.as_user, user)

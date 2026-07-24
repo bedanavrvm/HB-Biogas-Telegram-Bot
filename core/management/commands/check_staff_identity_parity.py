@@ -5,6 +5,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from core.management.commands.migrate_legacy_staff import _legacy_records
 from core.models import AccessGrant, LegacyStaffUserMapping, StaffIdentityReview
+from core.services.access_policies import canonical_access_role
 
 
 class Command(BaseCommand):
@@ -68,6 +69,7 @@ class Command(BaseCommand):
             expected_branches = record['branches'] or ['']
             expected_products = record['products'] or ['']
             for role in expected_roles:
+                role = canonical_access_role(record['workflow'], role)
                 for branch in expected_branches:
                     for product in expected_products:
                         grant_exists = AccessGrant.objects.filter(

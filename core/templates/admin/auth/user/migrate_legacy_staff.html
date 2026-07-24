@@ -1,5 +1,7 @@
 {% extends "admin/base_site.html" %}
 
+{% block extrahead %}{{ block.super }}{{ media }}{% endblock %}
+
 {% block content %}
   <style>
     .identity-admin { max-width: 1100px; color: var(--body-fg, #1f2937); }

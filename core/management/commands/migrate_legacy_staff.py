@@ -11,6 +11,7 @@ from core.models import (
     AccessGrant, ComplaintCaseStaffMember, JawabuPortalStaffMember,
     LegacyStaffUserMapping, StaffIdentityReview, TatTrackerStaffMember, UserProfile,
 )
+from core.services.access_policies import canonical_access_role
 from core.services.telegram_identity import username_for_telegram_id
 
 
@@ -167,6 +168,7 @@ class Command(BaseCommand):
                     defaults={'user': user, 'match_method': 'telegram_id', 'confidence': 'high'},
                 )
                 for role in row['roles'] or ['USER']:
+                    role = canonical_access_role(row['workflow'], role)
                     Group.objects.get_or_create(name=role)
                     user.groups.add(Group.objects.get(name=role))
                     for branch in row['branches'] or ['']:
@@ -214,6 +216,7 @@ class Command(BaseCommand):
                     },
                 )
                 for role in row['roles'] or ['USER']:
+                    role = canonical_access_role(row['workflow'], role)
                     group, _ = Group.objects.get_or_create(name=role)
                     user.groups.add(group)
                     for branch in row['branches'] or ['']:

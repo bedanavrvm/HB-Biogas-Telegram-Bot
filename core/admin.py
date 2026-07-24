@@ -2034,7 +2034,7 @@ class UserProfileAdminForm(forms.ModelForm):
 
     class Meta:
         model = UserProfile
-        fields = ('telegram_username', 'telegram_id', 'phone_number', 'telegram_metadata')
+        fields = ('telegram_username', 'telegram_id', 'phone_number')
 
     def clean_telegram_username(self):
         return str(self.cleaned_data.get('telegram_username') or '').strip().lstrip('@').lower()
@@ -2045,26 +2045,141 @@ class UserProfileInline(StackedInline):
     form = UserProfileAdminForm
     extra = 0
     max_num = 1
+    fields = (('telegram_username', 'telegram_id'), 'phone_number')
 
 
-class AccessGrantInline(TabularInline):
+class WorkflowScopedSelect(forms.Select):
+    def __init__(self, *args, workflow_map=None, **kwargs):
+        self.workflow_map = workflow_map or {}
+        super().__init__(*args, **kwargs)
+
+    def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
+        option = super().create_option(name, value, label, selected, index, subindex, attrs)
+        raw_value = str(getattr(value, 'value', value) or '')
+        workflows = self.workflow_map.get(raw_value)
+        if workflows:
+            option['attrs']['data-workflows'] = ','.join(sorted(workflows))
+        return option
+
+
+class GroupConfigurationAccessSelect(forms.Select):
+    def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
+        option = super().create_option(name, value, label, selected, index, subindex, attrs)
+        instance = getattr(value, 'instance', None)
+        if instance is not None:
+            option['attrs']['data-workflow-type'] = str((instance.workflow or {}).get('type') or '')
+        return option
+
+
+class GroupConfigurationAccessField(forms.ModelChoiceField):
+    def label_from_instance(self, obj):
+        workflow_type = str((obj.workflow or {}).get('type') or 'unconfigured')
+        label = obj.display_name or obj.group_id
+        return f'[{workflow_type}] {label}'
+
+
+class AccessGrantAdminForm(forms.ModelForm):
+    from core.services.access_policies import (
+        branch_choices, product_choices, role_choices, role_workflow_map,
+    )
+
+    role_workflows = role_workflow_map()
+    role = forms.ChoiceField(
+        choices=role_choices(),
+        widget=WorkflowScopedSelect(workflow_map=role_workflows),
+    )
+    branch = forms.ChoiceField(
+        choices=branch_choices(), required=False,
+        widget=WorkflowScopedSelect(workflow_map={
+            '': {'jawabu_portal', 'complaint_cases', 'tat_tracker'},
+            **{value: {'jawabu_portal', 'tat_tracker'} for value, _ in branch_choices() if value},
+        }),
+    )
+    product = forms.ChoiceField(
+        choices=product_choices(), required=False,
+        widget=WorkflowScopedSelect(workflow_map={
+            '': {'jawabu_portal', 'complaint_cases', 'tat_tracker'},
+            **{value: {'tat_tracker'} for value, _ in product_choices() if value},
+        }),
+    )
+    group_configuration = GroupConfigurationAccessField(
+        queryset=GroupSheetConfiguration.objects.filter(enabled=True),
+        required=False,
+        empty_label='All compatible groups',
+        widget=GroupConfigurationAccessSelect,
+    )
+
+    class Meta:
+        model = AccessGrant
+        fields = ('active', 'workflow', 'role', 'branch', 'product', 'group_configuration')
+
+    def clean(self):
+        cleaned = super().clean()
+        if self.errors:
+            return cleaned
+        from django.core.exceptions import ValidationError
+        from core.services.access_policies import validate_access_scope
+        try:
+            cleaned['role'] = validate_access_scope(
+                workflow=cleaned.get('workflow'), role=cleaned.get('role'),
+                branch=cleaned.get('branch', ''), product=cleaned.get('product', ''),
+                group_configuration=cleaned.get('group_configuration'),
+            )
+        except ValidationError as exc:
+            for field, messages_list in exc.message_dict.items():
+                for message in messages_list:
+                    self.add_error(field, message)
+        return cleaned
+
+    class Media:
+        js = ('admin/js/access_grant_inline.js',)
+
+
+class AccessGrantInline(StackedInline):
     model = AccessGrant
+    form = AccessGrantAdminForm
     extra = 0
-    fields = ('active', 'workflow', 'role', 'branch', 'product', 'group_configuration', 'source')
+    fields = (
+        ('active', 'workflow', 'role'),
+        ('branch', 'product', 'group_configuration'),
+        'source',
+    )
+    readonly_fields = ('source',)
 
 
 class TelegramUserEnrollmentForm(forms.Form):
+    from core.services.access_policies import (
+        branch_choices, product_choices, role_choices, role_workflow_map,
+    )
+
+    role_workflows = role_workflow_map()
     display_name = forms.CharField(max_length=255)
     telegram_username = forms.CharField(
         max_length=100,
         help_text='Enter the current Telegram username. The numeric ID is bound after the first signed Mini App login.',
     )
     workflow = forms.ChoiceField(choices=AccessGrant.WORKFLOW_CHOICES)
-    role = forms.CharField(max_length=80)
-    branch = forms.CharField(max_length=120, required=False)
-    product = forms.CharField(max_length=120, required=False)
-    group_configuration = forms.ModelChoiceField(
-        queryset=GroupSheetConfiguration.objects.all(), required=False,
+    role = forms.ChoiceField(
+        choices=role_choices(),
+        widget=WorkflowScopedSelect(workflow_map=role_workflows),
+    )
+    branch = forms.ChoiceField(
+        choices=branch_choices(), required=False,
+        widget=WorkflowScopedSelect(workflow_map={
+            '': {'jawabu_portal', 'complaint_cases', 'tat_tracker'},
+            **{value: {'jawabu_portal', 'tat_tracker'} for value, _ in branch_choices() if value},
+        }),
+    )
+    product = forms.ChoiceField(
+        choices=product_choices(), required=False,
+        widget=WorkflowScopedSelect(workflow_map={
+            '': {'jawabu_portal', 'complaint_cases', 'tat_tracker'},
+            **{value: {'tat_tracker'} for value, _ in product_choices() if value},
+        }),
+    )
+    group_configuration = GroupConfigurationAccessField(
+        queryset=GroupSheetConfiguration.objects.filter(enabled=True), required=False,
+        empty_label='All compatible groups', widget=GroupConfigurationAccessSelect,
     )
 
     def clean_telegram_username(self):
@@ -2074,6 +2189,27 @@ class TelegramUserEnrollmentForm(forms.Form):
         if UserProfile.objects.filter(telegram_username__iexact=username).exists():
             raise forms.ValidationError('That Telegram username is already enrolled.')
         return username
+
+    def clean(self):
+        cleaned = super().clean()
+        if self.errors:
+            return cleaned
+        from django.core.exceptions import ValidationError
+        from core.services.access_policies import validate_access_scope
+        try:
+            cleaned['role'] = validate_access_scope(
+                workflow=cleaned.get('workflow'), role=cleaned.get('role'),
+                branch=cleaned.get('branch', ''), product=cleaned.get('product', ''),
+                group_configuration=cleaned.get('group_configuration'),
+            )
+        except ValidationError as exc:
+            for field, messages_list in exc.message_dict.items():
+                for message in messages_list:
+                    self.add_error(field, message)
+        return cleaned
+
+    class Media:
+        js = ('admin/js/access_grant_inline.js',)
 
 
 class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
@@ -2147,6 +2283,7 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
             'parity_passed': parity_passed,
             'applied': applied,
             'enrollment_form': enrollment_form,
+            'media': self.media + enrollment_form.media,
         }
         return TemplateResponse(request, 'admin/auth/user/migrate_legacy_staff.html', context)
 
