@@ -16,22 +16,23 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=3">
-  <link rel="stylesheet" href="{% static 'miniapp/portal.css' %}?v=6">
+  <link rel="stylesheet" href="{% static 'miniapp/portal.css' %}?v=7">
   <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=16">
-  <link rel="stylesheet" href="{% static 'miniapp/theme.css' %}?v=1">
-  <script defer src="{% static 'miniapp/miniapp-nav.js' %}?v=1"></script>
+  <link rel="stylesheet" href="{% static 'miniapp/theme.css' %}?v=2">
+  <script defer src="{% static 'miniapp/miniapp-nav.js' %}?v=2"></script>
 </head>
-<body class="workflow-standard portal-app" x-data="{ sidebarOpen: false }">
+<body class="workflow-standard portal-app">
   <div id="shell-progress" class="shell-progress htmx-indicator" role="progressbar" aria-label="Loading"></div>
   <header class="app-shell-header">
-    <button class="shell-menu-button" type="button" @click="sidebarOpen = !sidebarOpen" aria-label="Toggle navigation">
+    <button id="shell-menu-button" class="shell-menu-button" type="button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">
       <i data-lucide="menu"></i>
     </button>
-    <img class="workflow-brand" src="{% static 'miniapp/jawabu-logo.png' %}" alt="Jawabu">
-    <div><h1>Pipeline Portal</h1><p>JBL HomeBiogas workflow</p></div>
+    <div class="shell-title"><h1>Pipeline Portal</h1><p>JBL HomeBiogas</p></div>
   </header>
 
-  <aside id="sidebar" class="app-sidebar" :class="{ 'open': sidebarOpen }" @click.outside="sidebarOpen = false">
+  <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="Close navigation" tabindex="-1"></button>
+
+  <aside id="sidebar" class="app-sidebar">
     <nav aria-label="Portal screens"
          hx-get="{% url 'portal_navigation' %}?active={{ active_screen }}"
          hx-trigger="load"
@@ -58,7 +59,7 @@
   <script src="{% static 'miniapp/portal_helpers.js' %}?v=1"></script>
   <script src="{% static 'miniapp/portal_api.js' %}?v=1"></script>
   <script src="{% static 'miniapp/portal_queues.js' %}?v=1"></script>
-  <script src="{% static 'miniapp/portal_farmer_sheet.js' %}?v=4"></script>
+  <script src="{% static 'miniapp/portal_farmer_sheet.js' %}?v=5"></script>
   <script src="{% static 'miniapp/portal_filters.js' %}?v=1"></script>
   <script src="{% static 'miniapp/portal_requisitions.js' %}?v=5"></script>
   <script src="{% static 'miniapp/portal_invoices.js' %}?v=1"></script>

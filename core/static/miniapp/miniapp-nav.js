@@ -4,6 +4,17 @@
   let backHandler = null;
   let mainHandler = null;
 
+  function setSidebar(open) {
+    const sidebar = document.getElementById('sidebar');
+    const backdrop = document.getElementById('sidebar-backdrop');
+    const button = document.getElementById('shell-menu-button');
+    if (!sidebar) return;
+    sidebar.classList.toggle('open', open);
+    backdrop?.classList.toggle('open', open);
+    button?.setAttribute('aria-expanded', String(open));
+    document.body.classList.toggle('sidebar-is-open', open);
+  }
+
   function syncTheme() {
     const params = tg?.themeParams || {};
     Object.entries(params).forEach(([key, value]) => {
@@ -80,6 +91,16 @@
     if (tg?.initData) event.detail.headers['X-Telegram-Init-Data'] = tg.initData;
   });
   document.body.addEventListener('htmx:afterSwap', activateScreen);
+  document.addEventListener('click', event => {
+    if (event.target.closest('#shell-menu-button')) {
+      setSidebar(!document.getElementById('sidebar')?.classList.contains('open'));
+      return;
+    }
+    if (event.target.closest('#sidebar-backdrop, #sidebar .shell-nav-link')) setSidebar(false);
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') setSidebar(false);
+  });
   document.body.addEventListener('htmx:responseError', event => {
     const target = event.detail.target;
     if (!target) return;

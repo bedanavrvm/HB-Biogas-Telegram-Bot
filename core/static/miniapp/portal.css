@@ -744,6 +744,7 @@
 }
 
 .case360 { margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 12px; }
+.case360-toggle { width: 100%; margin-top: 10px; }
 .case360-tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 10px; }
 .case360-tabs button { min-height: 32px; padding: 0 10px; white-space: nowrap; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 999px; color: var(--text-muted); }
 .case360-tabs button.active { background: var(--color-primary); border-color: var(--color-primary); color: white; }

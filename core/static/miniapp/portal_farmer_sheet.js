@@ -70,6 +70,37 @@
     }
   }
 
+  function summaryFields(farmer, mode) {
+    const common = [
+      ['National ID', deps.fmt(farmer.national_id)],
+      ['Phone', deps.fmt(farmer.primary_phone)],
+    ];
+    const byMode = {
+      jbl_visit: [
+        ['HBG Visit', deps.fmtDate(farmer.sign_date)],
+        ['HB Sales Person', deps.fmt(farmer.hb_sales_person)],
+        ['Current JBL Status', deps.fmt(farmer.jbl_visit_status)],
+      ],
+      credit: [
+        ['JBL Visit', deps.fmtDate(farmer.jbl_visit_date)],
+        ['JBL Officer', deps.fmt(farmer.jbl_officer)],
+        ['JBL Status', deps.fmt(farmer.jbl_visit_status)],
+        ['Customer No.', deps.fmt(farmer.customer_no)],
+      ],
+      final_review: [
+        ['Credit Decision', deps.fmt(farmer.credit_decision)],
+        ['IMAB Created', deps.fmt(farmer.imab_created)],
+        ['Customer No.', deps.fmt(farmer.customer_no)],
+      ],
+      requisition: [
+        ['Final Decision', deps.fmt(farmer.final_decision)],
+        ['Customer No.', deps.fmt(farmer.customer_no)],
+        ['Current Order No.', deps.fmt(farmer.order_number)],
+      ],
+    };
+    return common.concat(byMode[mode] || []);
+  }
+
   function openFarmerSheet(farmer, mode) {
     state().selectedFarmer = farmer;
     state().activeMode = mode;
@@ -77,38 +108,25 @@
     el('sheet-name').textContent = farmer.customer_name || 'Unknown Farmer';
     el('sheet-sub').textContent = [farmer.county, farmer.sub_county, farmer.branch].filter(Boolean).join(' | ') || farmer.primary_phone || '';
 
-    const infoFields = [
-      ['National ID', deps.fmt(farmer.national_id)],
-      ['Phone', deps.fmt(farmer.primary_phone)],
-      ['HBG Visit', deps.fmtDate(farmer.sign_date)],
-      ['JBL Visit', deps.fmtDate(farmer.jbl_visit_date)],
-      ['JBL Officer', deps.fmt(farmer.jbl_officer)],
-      ['JBL Status', farmer.jbl_visit_status ? `<span class="badge badge-blue">${deps.escapeHtml(farmer.jbl_visit_status)}</span>` : '-'],
-      ['Credit Decision', farmer.credit_decision ? `<span class="badge ${farmer.credit_decision === 'Approved' ? 'badge-green' : 'badge-orange'}">${deps.escapeHtml(farmer.credit_decision)}</span>` : '-'],
-      ['IMAB Created', deps.fmt(farmer.imab_created)],
-      ['Customer No.', deps.fmt(farmer.customer_no)],
-      ['Visit Media', farmer.jbl_media_count ? `${farmer.jbl_media_count} file link${farmer.jbl_media_count === 1 ? '' : 's'}` : '-'],
-      ['Order No.', farmer.order_number ? `<strong>${deps.escapeHtml(farmer.order_number)}</strong>` : '-'],
-      ['Requisition Date', deps.fmtDate(farmer.requisition_date)],
-      ['HB Sales Person', deps.fmt(farmer.hb_sales_person)],
-      ['Village', deps.fmt(farmer.village)],
-      ...(farmer.invoice_number || farmer.invoice_amount || farmer.balance_due ? [
-        ['Invoice', ''],
-        ['Invoice No.', farmer.invoice_number ? `<code style="font-size:12px;">${deps.escapeHtml(farmer.invoice_number)}</code>` : '-'],
-        ['Invoice Date', deps.fmtDate(farmer.invoice_date)],
-        ['Invoice Amount', farmer.invoice_amount ? `<strong>KES ${deps.escapeHtml(farmer.invoice_amount)}</strong>` : '-'],
-        ['Discount', farmer.discount ? `KES ${deps.escapeHtml(farmer.discount)}` : '-'],
-        ['Payment', farmer.payment ? `KES ${deps.escapeHtml(farmer.payment)}` : '-'],
-        ['Balance Due', farmer.balance_due
-          ? `<span class="badge ${parseFloat(farmer.balance_due) === 0 ? 'badge-green' : 'badge-orange'}">KES ${deps.escapeHtml(farmer.balance_due)}</span>`
-          : '-'],
-      ] : []),
-    ];
+    const infoFields = summaryFields(farmer, mode);
 
     el('sheet-info').innerHTML = infoFields.map(([label, value]) =>
       `<li class="info-row"><span class="ir-label">${deps.escapeHtml(label)}</span><span class="ir-value">${value}</span></li>`
     ).join('');
-    loadCase360(farmer);
+    const caseRoot = el('case360');
+    caseRoot.hidden = true;
+    caseRoot.innerHTML = '';
+    const caseToggle = el('case360-toggle');
+    caseToggle.textContent = 'View full case history';
+    caseToggle.onclick = async () => {
+      if (!caseRoot.hidden) {
+        caseRoot.hidden = true;
+        caseToggle.textContent = 'View full case history';
+        return;
+      }
+      caseToggle.textContent = 'Hide full case history';
+      await loadCase360(farmer);
+    };
 
     const formEl = el('sheet-form');
     const footerEl = el('sheet-footer');
@@ -333,7 +351,7 @@
   }
 
   function closeSheet() {
-    el('sheet-overlay').classList.remove('open');
+    el('sheet-overlay')?.classList.remove('open');
     state().selectedFarmer = null;
     state().activeMode = null;
     destroyMap();
@@ -496,10 +514,16 @@
   }
 
   function bindEvents() {
-    el('sheet-overlay')?.addEventListener('click', event => {
-      if (event.target === el('sheet-overlay')) closeSheet();
+    if (document.documentElement.dataset.portalSheetCloseBound) return;
+    document.documentElement.dataset.portalSheetCloseBound = 'true';
+    document.addEventListener('click', event => {
+      if (event.target.closest('#sheet-close')) {
+        closeSheet();
+        return;
+      }
+      const overlay = event.target.closest('#sheet-overlay');
+      if (overlay && event.target === overlay) closeSheet();
     });
-    el('sheet-close')?.addEventListener('click', closeSheet);
   }
 
   function init(initialDeps) {
