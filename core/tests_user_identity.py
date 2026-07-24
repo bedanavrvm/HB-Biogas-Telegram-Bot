@@ -69,35 +69,29 @@ class LegacyStaffMigrationCommandTests(TestCase):
         self.assertNotIn(JawabuPortalStaffMember, admin.site._registry)
         self.assertNotIn(ComplaintCaseStaffMember, admin.site._registry)
         self.assertNotIn(TatTrackerStaffMember, admin.site._registry)
+        self.assertNotIn(LegacyStaffUserMapping, admin.site._registry)
+        self.assertNotIn(StaffIdentityReview, admin.site._registry)
         self.assertFalse(UserProfileAdminForm().fields['telegram_id'].required)
         self.assertTrue(UserProfileAdminForm().fields['telegram_id'].disabled)
 
-    def test_superuser_can_preview_and_apply_migration_from_user_admin(self):
+    def test_user_admin_has_one_guided_staff_creation_action(self):
         superuser = get_user_model().objects.create_superuser(
             username='identity-admin', email='admin@example.test', password='test-password',
         )
         self.client.force_login(superuser)
-        url = reverse('admin:auth_user_migrate_legacy_staff')
+        url = reverse('admin:auth_user_add_staff')
 
         user_list = self.client.get(reverse('admin:auth_user_changelist'))
-        self.assertContains(user_list, 'Migrate existing staff')
-        self.assertContains(user_list, 'Add Django login user')
+        self.assertContains(user_list, 'Add staff user')
+        self.assertNotContains(user_list, 'Migrate existing staff')
 
-        preview = self.client.get(url)
-        self.assertEqual(preview.status_code, 200)
-        self.assertContains(preview, 'Dry-run preview')
-        self.assertContains(preview, 'High-confidence users: 1')
-        self.assertContains(preview, 'class="identity-form-grid"')
-        self.assertContains(preview, 'name="display_name"')
-        self.assertContains(preview, 'name="confirmation"')
-        self.assertFalse(UserProfile.objects.filter(telegram_id='12345').exists())
+        creation = self.client.get(url)
+        self.assertEqual(creation.status_code, 200)
+        self.assertContains(creation, 'Create user and grant access')
+        self.assertContains(creation, 'name="login_method"')
+        self.assertNotContains(creation, 'Dry-run preview')
 
-        applied = self.client.post(url, {'confirmation': 'MIGRATE'})
-        self.assertEqual(applied.status_code, 200)
-        self.assertContains(applied, 'Migration result')
-        self.assertTrue(UserProfile.objects.filter(telegram_id='12345').exists())
-
-    def test_default_user_add_redirects_to_telegram_enrollment(self):
+    def test_default_user_add_redirects_to_guided_creation(self):
         superuser = get_user_model().objects.create_superuser(
             username='redirect-admin', email='admin@example.test', password='test-password',
         )
@@ -106,22 +100,17 @@ class LegacyStaffMigrationCommandTests(TestCase):
         response = self.client.get(reverse('admin:auth_user_add'))
         self.assertRedirects(
             response,
-            reverse('admin:auth_user_migrate_legacy_staff') + '#enroll-telegram-user',
+            reverse('admin:auth_user_add_staff'),
             fetch_redirect_response=False,
         )
 
-        django_user_form = self.client.get(
-            reverse('admin:auth_user_add') + '?account_type=django',
-        )
-        self.assertEqual(django_user_form.status_code, 200)
-
-    def test_non_superuser_cannot_open_admin_migration_panel(self):
+    def test_non_superuser_cannot_open_staff_creation(self):
         staff_user = get_user_model().objects.create_user(
             username='ordinary-admin', password='test-password', is_staff=True,
         )
         self.client.force_login(staff_user)
 
-        response = self.client.get(reverse('admin:auth_user_migrate_legacy_staff'))
+        response = self.client.get(reverse('admin:auth_user_add_staff'))
         self.assertEqual(response.status_code, 403)
 
     def test_superuser_can_enroll_username_without_knowing_telegram_id(self):
@@ -130,8 +119,8 @@ class LegacyStaffMigrationCommandTests(TestCase):
         )
         self.client.force_login(superuser)
 
-        response = self.client.post(reverse('admin:auth_user_migrate_legacy_staff'), {
-            'operation': 'enroll',
+        response = self.client.post(reverse('admin:auth_user_add_staff'), {
+            'login_method': 'telegram',
             'display_name': 'Pending Telegram User',
             'telegram_username': '@pending_user',
             'workflow': 'jawabu_portal',
@@ -141,7 +130,7 @@ class LegacyStaffMigrationCommandTests(TestCase):
             'group_configuration': '',
         })
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 302)
         profile = UserProfile.objects.get(telegram_username='pending_user')
         self.assertEqual(profile.telegram_id, '')
         self.assertTrue(profile.user.is_active)
@@ -149,14 +138,35 @@ class LegacyStaffMigrationCommandTests(TestCase):
         self.assertFalse(profile.user.has_usable_password())
         self.assertTrue(AccessGrant.objects.filter(user=profile.user, role='JBL_OFFICER').exists())
 
+    def test_superuser_can_create_password_user_with_initial_access(self):
+        superuser = get_user_model().objects.create_superuser(
+            username='password-admin', email='admin@example.test', password='test-password',
+        )
+        self.client.force_login(superuser)
+
+        response = self.client.post(reverse('admin:auth_user_add_staff'), {
+            'login_method': 'django', 'display_name': 'Portal Administrator',
+            'telegram_username': '', 'django_username': 'portal-admin',
+            'email': 'portal-admin@example.test', 'password': 'secure-test-password',
+            'workflow': 'jawabu_portal', 'role': 'ADMIN',
+            'branch': '', 'product': '', 'group_configuration': '',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        user = get_user_model().objects.get(username='portal-admin')
+        self.assertTrue(user.is_staff)
+        self.assertTrue(user.check_password('secure-test-password'))
+        self.assertTrue(AccessGrant.objects.filter(user=user, workflow='jawabu_portal', role='ADMIN').exists())
+
     def test_access_grant_forms_offer_choices_and_reject_scope_mismatches(self):
-        from core.admin import TelegramUserEnrollmentForm
+        from core.admin import StaffUserCreationForm
 
         tat_group = GroupSheetConfiguration.objects.create(
             group_id='-100-form-tat', sheet_id='tat-sheet', enabled=True,
             workflow={'type': 'tat_tracker'},
         )
-        form = TelegramUserEnrollmentForm({
+        form = StaffUserCreationForm({
+            'login_method': 'telegram',
             'display_name': 'Scoped User', 'telegram_username': 'scoped_user',
             'workflow': 'complaint_cases', 'role': 'OFFICER',
             'branch': '', 'product': 'business',

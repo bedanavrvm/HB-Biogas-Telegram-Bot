@@ -1,0 +1,67 @@
+{% extends "admin/base_site.html" %}
+
+{% block extrahead %}{{ block.super }}{{ media }}{% endblock %}
+
+{% block content %}
+  <style>
+    .staff-create { max-width: 920px; color: var(--body-fg, #1f2937); }
+    .staff-create h1 { font-size: 24px; font-weight: 700; margin: 0 0 8px; }
+    .staff-intro { color: var(--body-quiet-color, #64748b); margin: 0 0 22px; }
+    .staff-card { background: var(--body-bg, #fff); border: 1px solid var(--hairline-color, #d7dde5); border-radius: 12px; margin-bottom: 18px; padding: 22px; }
+    .staff-card h2 { font-size: 17px; font-weight: 700; margin: 0 0 16px; }
+    .staff-grid { display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .staff-field label { display: block; font-weight: 650; margin-bottom: 6px; }
+    .staff-field input, .staff-field select { box-sizing: border-box; width: 100%; min-height: 44px; border: 1px solid var(--border-color, #aeb7c4); border-radius: 8px; background: var(--darkened-bg, #fff); color: var(--body-fg, #111827); padding: 9px 12px; }
+    .staff-help { color: var(--body-quiet-color, #64748b); display: block; font-size: 12px; line-height: 1.4; margin-top: 5px; }
+    .staff-errors { color: #dc2626; font-size: 13px; margin-top: 5px; }
+    .staff-submit { background: #0f9488; border: 0; border-radius: 8px; color: #fff; cursor: pointer; font-weight: 700; min-height: 44px; padding: 11px 18px; }
+    .staff-actions { align-items: center; display: flex; gap: 16px; }
+    @media (max-width: 720px) { .staff-grid { grid-template-columns: 1fr; } .staff-card { padding: 16px; } }
+    .dark .staff-card { background: #18181b; border-color: #34343a; }
+    .dark .staff-field input, .dark .staff-field select { background: #111214; border-color: #45464d; color: #f4f4f5; }
+  </style>
+
+  <div class="staff-create" id="staff-user-creation">
+    <h1>Add staff user</h1>
+    <p class="staff-intro">Create the account and its first workflow access grant together. More workflow grants can be added from the saved user.</p>
+    <form method="post">
+      {% csrf_token %}
+      {% if creation_form.non_field_errors %}<div class="staff-errors">{{ creation_form.non_field_errors }}</div>{% endif %}
+
+      <section class="staff-card">
+        <h2>1. Staff identity and login</h2>
+        <div class="staff-grid">
+          {% for field in creation_form %}
+            {% if field.name == 'login_method' or field.name == 'display_name' or field.name == 'telegram_username' or field.name == 'django_username' or field.name == 'email' or field.name == 'password' %}
+              <div class="staff-field" data-staff-field="{{ field.name }}">
+                <label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}
+                {% if field.help_text %}<span class="staff-help">{{ field.help_text }}</span>{% endif %}
+                {% if field.errors %}<div class="staff-errors">{{ field.errors }}</div>{% endif %}
+              </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </section>
+
+      <section class="staff-card inline-related">
+        <h2>2. Initial workflow access</h2>
+        <div class="staff-grid">
+          {% for field in creation_form %}
+            {% if field.name == 'workflow' or field.name == 'role' or field.name == 'branch' or field.name == 'product' or field.name == 'group_configuration' %}
+              <div class="staff-field">
+                <label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}
+                {% if field.help_text %}<span class="staff-help">{{ field.help_text }}</span>{% endif %}
+                {% if field.errors %}<div class="staff-errors">{{ field.errors }}</div>{% endif %}
+              </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </section>
+
+      <div class="staff-actions">
+        <button class="staff-submit" type="submit">Create user and grant access</button>
+        <a href="{% url 'admin:auth_user_changelist' %}">Cancel</a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

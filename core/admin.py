@@ -1,4 +1,3 @@
-import io
 import re
 import uuid
 
@@ -13,8 +12,6 @@ from django.conf import settings
 from django.http import HttpResponseRedirect, JsonResponse
 from django.template.response import TemplateResponse
 from django.core.exceptions import PermissionDenied
-from django.core.management import call_command
-from django.core.management.base import CommandError
 from django.db import transaction
 from django.urls import path, reverse
 from django.utils.html import format_html
@@ -2147,16 +2144,31 @@ class AccessGrantInline(StackedInline):
     readonly_fields = ('source',)
 
 
-class TelegramUserEnrollmentForm(forms.Form):
+class StaffUserCreationForm(forms.Form):
     from core.services.access_policies import (
         branch_choices, product_choices, role_choices, role_workflow_map,
     )
 
     role_workflows = role_workflow_map()
-    display_name = forms.CharField(max_length=255)
+    LOGIN_TELEGRAM = 'telegram'
+    LOGIN_DJANGO = 'django'
+    login_method = forms.ChoiceField(choices=(
+        (LOGIN_TELEGRAM, 'Telegram Mini App'),
+        (LOGIN_DJANGO, 'Django Admin login'),
+    ))
+    display_name = forms.CharField(max_length=255, help_text='The staff member’s full name.')
     telegram_username = forms.CharField(
-        max_length=100,
+        max_length=100, required=False,
         help_text='Enter the current Telegram username. The numeric ID is bound after the first signed Mini App login.',
+    )
+    django_username = forms.CharField(
+        max_length=150, required=False,
+        help_text='Required only for a password-based Django Admin account.',
+    )
+    email = forms.EmailField(required=False)
+    password = forms.CharField(
+        required=False, widget=forms.PasswordInput(render_value=False),
+        help_text='Required only for a Django Admin account.',
     )
     workflow = forms.ChoiceField(choices=AccessGrant.WORKFLOW_CHOICES)
     role = forms.ChoiceField(
@@ -2183,15 +2195,26 @@ class TelegramUserEnrollmentForm(forms.Form):
     )
 
     def clean_telegram_username(self):
-        username = self.cleaned_data['telegram_username'].strip().lstrip('@').lower()
-        if not username:
-            raise forms.ValidationError('Enter a Telegram username.')
-        if UserProfile.objects.filter(telegram_username__iexact=username).exists():
+        username = self.cleaned_data.get('telegram_username', '').strip().lstrip('@').lower()
+        if username and UserProfile.objects.filter(telegram_username__iexact=username).exists():
             raise forms.ValidationError('That Telegram username is already enrolled.')
         return username
 
     def clean(self):
         cleaned = super().clean()
+        if self.errors:
+            return cleaned
+        if cleaned.get('login_method') == self.LOGIN_TELEGRAM:
+            if not cleaned.get('telegram_username'):
+                self.add_error('telegram_username', 'Enter the staff member’s Telegram username.')
+        else:
+            username = str(cleaned.get('django_username') or '').strip()
+            if not username:
+                self.add_error('django_username', 'Enter a Django username.')
+            elif get_user_model().objects.filter(username__iexact=username).exists():
+                self.add_error('django_username', 'That Django username already exists.')
+            if not cleaned.get('password'):
+                self.add_error('password', 'Enter a password for the Django Admin account.')
         if self.errors:
             return cleaned
         from django.core.exceptions import ValidationError
@@ -2220,91 +2243,62 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
     change_list_template = 'admin/auth/user/change_list.html'
 
     def add_view(self, request, form_url='', extra_context=None):
-        """Make the default plus button follow the common Telegram enrollment path."""
-        if request.GET.get('account_type') != 'django':
-            return HttpResponseRedirect(
-                reverse('admin:auth_user_migrate_legacy_staff') + '#enroll-telegram-user'
-            )
-        return super().add_view(request, form_url=form_url, extra_context=extra_context)
+        """Use one guided flow for identity and initial workflow access."""
+        return HttpResponseRedirect(reverse('admin:auth_user_add_staff'))
 
     def get_urls(self):
         custom_urls = [
             path(
-                'migrate-legacy-staff/',
-                self.admin_site.admin_view(self.migrate_legacy_staff_view),
-                name='auth_user_migrate_legacy_staff',
+                'add-staff/',
+                self.admin_site.admin_view(self.add_staff_view),
+                name='auth_user_add_staff',
             ),
         ]
         return custom_urls + super().get_urls()
 
-    def migrate_legacy_staff_view(self, request):
-        """Superuser-only UI for the dry-run-first staff identity migration."""
+    def add_staff_view(self, request):
+        """Create a canonical user and initial workflow grant in one operation."""
         if not request.user.is_superuser:
             raise PermissionDenied
-        migration_output = io.StringIO()
-        parity_output = io.StringIO()
-        applied = False
-        enrollment_form = TelegramUserEnrollmentForm(
-            request.POST if request.method == 'POST' and request.POST.get('operation') == 'enroll' else None,
-        )
-        if request.method == 'POST' and request.POST.get('operation') == 'enroll':
-            if enrollment_form.is_valid():
-                self._enroll_telegram_user(enrollment_form.cleaned_data)
-                messages.success(
-                    request,
-                    'Telegram user enrolled. Their numeric Telegram ID will be stored on first signed login.',
-                )
-                enrollment_form = TelegramUserEnrollmentForm()
-            call_command('migrate_legacy_staff', stdout=migration_output)
-        elif request.method == 'POST':
-            if request.POST.get('confirmation', '').strip() != 'MIGRATE':
-                messages.error(request, 'Type MIGRATE exactly to confirm the user migration.')
-            else:
-                call_command('migrate_legacy_staff', '--apply', stdout=migration_output)
-                applied = True
-                messages.success(request, 'Existing staff records were migrated to Django Users.')
-        else:
-            call_command('migrate_legacy_staff', stdout=migration_output)
-        try:
-            call_command(
-                'check_staff_identity_parity',
-                stdout=parity_output,
-            )
-            parity_passed = True
-        except CommandError as exc:
-            parity_output.write(f'\n{exc}')
-            parity_passed = False
+        creation_form = StaffUserCreationForm(request.POST or None)
+        if request.method == 'POST' and creation_form.is_valid():
+            user = self._create_staff_user(creation_form.cleaned_data)
+            messages.success(request, f'{user.get_full_name() or user.get_username()} was created with workflow access.')
+            return HttpResponseRedirect(reverse('admin:auth_user_change', args=(user.pk,)))
         context = {
             **self.admin_site.each_context(request),
             'opts': self.model._meta,
-            'title': 'Migrate existing staff to Users',
-            'migration_output': migration_output.getvalue(),
-            'parity_output': parity_output.getvalue(),
-            'parity_passed': parity_passed,
-            'applied': applied,
-            'enrollment_form': enrollment_form,
-            'media': self.media + enrollment_form.media,
+            'title': 'Add staff user',
+            'creation_form': creation_form,
+            'media': self.media + creation_form.media,
         }
-        return TemplateResponse(request, 'admin/auth/user/migrate_legacy_staff.html', context)
+        return TemplateResponse(request, 'admin/auth/user/add_staff.html', context)
 
     @staticmethod
     @transaction.atomic
-    def _enroll_telegram_user(data):
+    def _create_staff_user(data):
         User = get_user_model()
-        telegram_username = data['telegram_username']
-        safe_username = re.sub(r'[^a-z0-9_]', '_', telegram_username)[:100]
-        django_username = f'tg_pending_{safe_username}'
-        if User.objects.filter(username=django_username).exists():
-            django_username = f'{django_username}_{uuid.uuid4().hex[:8]}'
+        telegram_username = data.get('telegram_username', '')
+        if data['login_method'] == StaffUserCreationForm.LOGIN_TELEGRAM:
+            safe_username = re.sub(r'[^a-z0-9_]', '_', telegram_username)[:100]
+            django_username = f'tg_pending_{safe_username}'
+            if User.objects.filter(username=django_username).exists():
+                django_username = f'{django_username}_{uuid.uuid4().hex[:8]}'
+        else:
+            django_username = data['django_username'].strip()
         name_parts = data['display_name'].strip().split(None, 1)
         user = User(
             username=django_username,
             first_name=name_parts[0] if name_parts else '',
             last_name=name_parts[1] if len(name_parts) > 1 else '',
+            email=data.get('email', ''),
             is_active=True,
-            is_staff=False,
+            is_staff=data['login_method'] == StaffUserCreationForm.LOGIN_DJANGO,
         )
-        user.set_unusable_password()
+        if data['login_method'] == StaffUserCreationForm.LOGIN_DJANGO:
+            user.set_password(data['password'])
+        else:
+            user.set_unusable_password()
         user.save()
         UserProfile.objects.create(user=user, telegram_username=telegram_username)
         group, _ = Group.objects.get_or_create(name=data['role'])
@@ -2316,8 +2310,9 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
             branch=data.get('branch', ''),
             product=data.get('product', ''),
             group_configuration=data.get('group_configuration'),
-            source='username_enrollment',
+            source='admin_user_creation',
         )
+        return user
 
 
 @admin.register(LegacyStaffUserMapping)
@@ -2364,6 +2359,7 @@ AUTO_REGISTERED_MODELS = auto_register_unregistered_models()
 # identity and permission management now happens through the User admin.
 for legacy_staff_model in (
     JawabuPortalStaffMember, ComplaintCaseStaffMember, TatTrackerStaffMember,
+    LegacyStaffUserMapping, StaffIdentityReview,
 ):
     try:
         admin.site.unregister(legacy_staff_model)
