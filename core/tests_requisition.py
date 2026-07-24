@@ -9,7 +9,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.drawing.image import Image as XlsxImage
 from PIL import Image as PilImage
 
-from core.services.requisition import generate_requisition_excel
+from core.services.requisition import RequisitionTemplateError, generate_requisition_excel
 
 
 class RequisitionTemplateGenerationTests(TestCase):
@@ -24,6 +24,7 @@ class RequisitionTemplateGenerationTests(TestCase):
             'village': 'Mweiga',
             'landmark': 'Near town centre',
             'actual_receipts': '25,000',
+            'deposit_paid_hbg': None,
             'lead_source': 'HomeBiogas',
             'hb_sales_person': 'Sales One',
         }
@@ -104,6 +105,38 @@ class RequisitionTemplateGenerationTests(TestCase):
         self.assertNotIn('TOTAL', str(ws['D15'].value or '').upper())
         for cell_ref in ('C14', 'D14', 'E14', 'F14', 'G14', 'H14', 'I14', 'J14', 'K14', 'L14', 'M14'):
             self.assertEqual(ws[cell_ref].alignment.horizontal, 'center')
+
+    def test_template_validation_rejects_customer_data_but_allows_numbers_and_footer_labels(self):
+        template_path = Path('tmp_requisition_validation.xlsx')
+        self.addCleanup(lambda: template_path.exists() and template_path.unlink())
+        self.write_reconciled_shape_template(template_path)
+
+        # The normal template contains sequence numbers and fixed footer captions.
+        self.generate_with_template(template_path, [self.farmer()])
+
+        workbook = load_workbook(template_path)
+        workbook.active['D14'] = 'Previous Customer Name'
+        workbook.save(template_path)
+        with self.assertRaisesRegex(RequisitionTemplateError, 'Requisition Form!D14'):
+            self.generate_with_template(template_path, [self.farmer()])
+
+    def test_generation_uses_requisition_form_sheet_not_unrelated_active_sheet(self):
+        template_path = Path('tmp_requisition_multisheet.xlsx')
+        output_path = Path('tmp_requisition_multisheet_output.xlsx')
+        self.addCleanup(lambda: template_path.exists() and template_path.unlink())
+        self.addCleanup(lambda: output_path.exists() and output_path.unlink())
+        self.write_reconciled_shape_template(template_path)
+        workbook = load_workbook(template_path)
+        cover = workbook.create_sheet('Instructions', 0)
+        cover['A1'] = 'Do not write customer data on this sheet.'
+        workbook.active = 0
+        workbook.save(template_path)
+
+        output_path.write_bytes(self.generate_with_template(template_path, [self.farmer()]))
+        generated = load_workbook(output_path, data_only=False)
+
+        self.assertEqual(generated['Instructions']['A1'].value, 'Do not write customer data on this sheet.')
+        self.assertEqual(generated['Requisition Form']['D14'].value, 'Mary Wanjiku')
 
     def test_supplied_reconciled_template_is_supported_when_present(self):
         template_path = Path('requisition/JBL_Requisition_Form_Reconciled.xlsx')

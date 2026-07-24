@@ -80,14 +80,20 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
             'Django Admin > Requisition templates and confirm it was stored in Google Drive.'
         ) from exc
 
-    from core.services.template_validation import template_source_bytes, validate_template_bytes, UnsafeTemplateError
+    from core.services.template_validation import (
+        UnsafeTemplateError, requisition_worksheet, template_source_bytes,
+        validate_template_bytes,
+    )
     template_bytes = template_source_bytes(template_source)
     try:
         validate_template_bytes(template_bytes, 'requisition')
     except UnsafeTemplateError as exc:
         raise RequisitionTemplateError(str(exc)) from exc
     wb = openpyxl.load_workbook(io.BytesIO(template_bytes))
-    ws = wb.active
+    try:
+        ws = requisition_worksheet(wb)
+    except UnsafeTemplateError as exc:
+        raise RequisitionTemplateError(str(exc)) from exc
     
     # 1. Search for date and order ref cell placeholders in rows 1 to 7
     date_cell = None
