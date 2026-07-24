@@ -2,6 +2,7 @@
 URL routing for the core API.
 """
 from django.urls import path
+from .auth_views import telegram_session_login
 from .views import (
     telegram_webhook,
     health_check,
@@ -91,6 +92,7 @@ from .complaint_case_views import (
 )
 
 urlpatterns = [
+    path('auth/telegram/', telegram_session_login, name='telegram_session_login'),
     path('health/', health_check, name='health_check'),
     path('order-approval/', order_approval_form, name='order_approval_form'),
     path('jawabu-farmers/review/', jawabu_farmers_review, name='jawabu_farmers_review'),

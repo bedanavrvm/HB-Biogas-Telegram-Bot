@@ -234,9 +234,14 @@
     loading.style.display = 'block';
     loading.setAttribute('aria-busy', 'true');
     el('dash-counts').style.display = 'none';
-    const { ok, data } = await apiFetch('/dashboard/');
+    const { ok, status, data } = await apiFetch('/dashboard/');
     if (!ok) {
-      loading.innerHTML = '<strong>Dashboard unavailable</strong><span>Check your Telegram access, then refresh.</span>';
+      const message = data?.error || data?.message || 'The dashboard request failed.';
+      const guidance = status === 403
+        ? 'Ask an administrator to add your Telegram account to Jawabu Portal Staff, then refresh.'
+        : 'Check your connection and try again.';
+      loading.innerHTML = '<strong>Dashboard unavailable</strong><span>'
+        + escapeHtml(message) + '</span><span>' + escapeHtml(guidance) + '</span>';
       loading.setAttribute('aria-busy', 'false');
       loading.style.display = 'block';
       return;

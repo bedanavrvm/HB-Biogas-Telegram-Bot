@@ -26,6 +26,11 @@ NOISE_FIELD_NAMES = {
 }
 NOISE_FIELD_SUFFIXES = ('_hash', '_token', '_payload')
 DEFAULT_MAX_LIST_COLUMNS = 6
+INLINE_ONLY_MODEL_LABELS = {
+    'core.UserProfile', 'core.AccessGrant',
+    'core.JawabuPortalStaffMember', 'core.ComplaintCaseStaffMember',
+    'core.TatTrackerStaffMember',
+}
 
 AUTO_ADMIN_OVERRIDES = {
     'admin.LogEntry': {
@@ -161,6 +166,8 @@ def auto_register_unregistered_models() -> list[type[models.Model]]:
     """Register models missing from Django admin without replacing custom admins."""
     registered: list[type[models.Model]] = []
     for model in apps.get_models():
+        if model._meta.label in INLINE_ONLY_MODEL_LABELS:
+            continue
         if model in admin.site._registry:
             continue
         list_display = lightweight_list_display(model)

@@ -87,6 +87,12 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'config.urls'
 
+AUTHENTICATION_BACKENDS = [
+    'core.auth_backends.TelegramMiniAppBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
+TELEGRAM_AUTH_MAX_AGE_SECONDS = config('TELEGRAM_AUTH_MAX_AGE_SECONDS', default=86400, cast=int)
+
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',

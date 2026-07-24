@@ -4,6 +4,7 @@ Provides full traceability and deduplication support.
 """
 import uuid
 import re
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
@@ -12,6 +13,15 @@ def bot_display_name() -> str:
     from django.conf import settings
 
     return getattr(settings, 'TELEGRAM_BOT_DISPLAY_NAME', 'Telegram Bot')
+
+
+def mapped_legacy_staff_user(instance):
+    """Resolve a legacy staff row through the auditable compatibility map."""
+    mapping_model = instance._meta.apps.get_model('core', 'LegacyStaffUserMapping')
+    mapping = mapping_model.objects.select_related('user').filter(
+        legacy_model=instance.__class__.__name__, legacy_id=str(instance.pk),
+    ).first()
+    return mapping.user if mapping else None
 
 
 class RawMessage(models.Model):
@@ -1193,6 +1203,107 @@ class JawabuDataQualityIssue(models.Model):
         ]
 
 
+class UserProfile(models.Model):
+    """Telegram identity attached to Django's canonical staff account."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='staff_profile',
+    )
+    telegram_id = models.CharField(max_length=100, unique=True, db_index=True)
+    telegram_username = models.CharField(max_length=100, blank=True, default='', db_index=True)
+    phone_number = models.CharField(max_length=20, blank=True, default='', db_index=True)
+    telegram_metadata = models.JSONField(blank=True, default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['user__first_name', 'user__last_name', 'telegram_id']
+
+    def __str__(self):
+        return self.user.get_full_name() or self.user.get_username()
+
+
+class AccessGrant(models.Model):
+    """Workflow-specific scope supplementing Django Groups/Permissions."""
+
+    WORKFLOW_CHOICES = [
+        ('jawabu_portal', 'Jawabu Portal'),
+        ('complaint_cases', 'Complaint Cases'),
+        ('tat_tracker', 'TAT Tracker'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='access_grants',
+    )
+    workflow = models.CharField(max_length=40, choices=WORKFLOW_CHOICES, db_index=True)
+    role = models.CharField(max_length=80, db_index=True)
+    branch = models.CharField(max_length=120, blank=True, default='', db_index=True)
+    product = models.CharField(max_length=120, blank=True, default='', db_index=True)
+    group_configuration = models.ForeignKey(
+        'GroupSheetConfiguration', on_delete=models.CASCADE, null=True, blank=True,
+        related_name='user_access_grants',
+    )
+    active = models.BooleanField(default=True, db_index=True)
+    source = models.CharField(max_length=40, default='admin')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['workflow', 'role', 'branch', 'product']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'workflow', 'role', 'branch', 'product', 'group_configuration'],
+                condition=models.Q(group_configuration__isnull=False),
+                name='unique_user_group_access_scope',
+            ),
+            models.UniqueConstraint(
+                fields=['user', 'workflow', 'role', 'branch', 'product'],
+                condition=models.Q(group_configuration__isnull=True),
+                name='unique_user_global_access_scope',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.user} - {self.workflow}: {self.role}'
+
+
+class LegacyStaffUserMapping(models.Model):
+    """Auditable compatibility mapping from a legacy staff row to User."""
+
+    legacy_model = models.CharField(max_length=80)
+    legacy_id = models.CharField(max_length=100)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='legacy_staff_mappings',
+    )
+    match_method = models.CharField(max_length=40)
+    confidence = models.CharField(max_length=20, default='high')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['legacy_model', 'legacy_id'], name='unique_legacy_staff_mapping',
+            ),
+        ]
+
+
+class StaffIdentityReview(models.Model):
+    """Name-only or conflicting legacy identities requiring manual resolution."""
+
+    STATUS_CHOICES = [('pending', 'Pending'), ('resolved', 'Resolved'), ('ignored', 'Ignored')]
+    identity_key = models.CharField(max_length=255, db_index=True)
+    candidate_records = models.JSONField(default=list)
+    reason = models.TextField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', db_index=True)
+    resolved_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='resolved_identity_reviews',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+
 class JawabuPortalStaffMember(models.Model):
     """Business authorization for the aggregated Jawabu Portal Mini App."""
 
@@ -1207,6 +1318,10 @@ class JawabuPortalStaffMember(models.Model):
 
     class Meta:
         ordering = ['display_name', 'telegram_id']
+
+    @property
+    def as_user(self):
+        return mapped_legacy_staff_user(self)
 
 class JawabuFarmerUploadBatch(models.Model):
     """Staged CSV upload for staff review before updating Jawabu farmer master data."""
@@ -1444,6 +1559,10 @@ class ComplaintCaseStaffMember(models.Model):
     def __str__(self):
         return f'{self.name} ({self.role})'
 
+    @property
+    def as_user(self):
+        return mapped_legacy_staff_user(self)
+
 
 class TatTrackerStaffMember(models.Model):
     """GUI-managed staff permissions for the TAT Tracker Mini App."""
@@ -1551,6 +1670,10 @@ class TatTrackerStaffMember(models.Model):
 
     def __str__(self):
         return f'{self.name} ({self.telegram_username or self.telegram_user_id})'
+
+    @property
+    def as_user(self):
+        return mapped_legacy_staff_user(self)
 
 
 class TatTrackerApprovalCertificate(models.Model):

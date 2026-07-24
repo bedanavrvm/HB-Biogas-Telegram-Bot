@@ -359,6 +359,16 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertTrue(response.json()['ok'])
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
+    def test_portal_api_rejects_valid_but_unregistered_telegram_user(self):
+        response = self.client.get(
+            reverse('portal_dashboard'),
+            HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertIn('not authorized for the Jawabu Portal', response.json()['error'])
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_portal_navigation_omits_links_disallowed_for_role(self):
         JawabuPortalStaffMember.objects.create(
             telegram_id='12345', display_name='JBL Officer', roles=['jbl_officer'],

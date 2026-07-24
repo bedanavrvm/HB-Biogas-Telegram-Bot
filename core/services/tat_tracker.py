@@ -327,6 +327,20 @@ def staff_user_for_payload(group_config, user_payload: dict, fallback_name: str 
     telegram_id = str(user_payload.get('id') or '').strip()
     username = str(user_payload.get('username') or '').strip().lower().lstrip('@')
     full_name = _telegram_name(user_payload) or fallback_name or username or telegram_id or 'Unknown user'
+    from core.services.telegram_identity import resolve_user_by_telegram_id, user_access
+    canonical_user = resolve_user_by_telegram_id(telegram_id) if telegram_id else None
+    access = user_access(canonical_user, 'tat_tracker', group_configuration=group_config)
+    if access['authorized']:
+        return {
+            'authorized': True,
+            'telegram_id': telegram_id,
+            'username': username,
+            'name': canonical_user.get_full_name() or canonical_user.get_username(),
+            'roles': access['roles'] or ['BRO'],
+            'branches': access['branches'],
+            'products': access['products'],
+        }
+    # Compatibility read for workflow.staff until parity is verified.
     for row in staff:
         if not isinstance(row, dict) or row.get('active') is False:
             continue
@@ -340,7 +354,7 @@ def staff_user_for_payload(group_config, user_payload: dict, fallback_name: str 
     return {'authorized': False, 'telegram_id': telegram_id, 'username': username, 'name': full_name, 'roles': [], 'branches': [], 'products': [], 'reason': 'Your Telegram account is not configured for the TAT Tracker. Ask admin to add you under workflow.staff.'}
 
 
-def configured_bro_names(workflow: dict | None) -> list[str]:
+def configured_bro_names(workflow: dict | None, group_config=None) -> list[str]:
     """Return active BRO names configured for the tracker group."""
     names = {
         str(row.get('name') or '').strip()
@@ -350,6 +364,17 @@ def configured_bro_names(workflow: dict | None) -> list[str]:
         and 'BRO' in _normalize_list(row.get('roles') or row.get('role'))
         and str(row.get('name') or '').strip()
     }
+    if group_config is not None:
+        from core.models import AccessGrant
+        grants = AccessGrant.objects.filter(
+            workflow='tat_tracker', role__iexact='BRO', active=True,
+            user__is_active=True,
+            group_configuration__in=[None, group_config],
+        ).select_related('user')
+        names.update(
+            grant.user.get_full_name() or grant.user.get_username()
+            for grant in grants
+        )
     return sorted(names, key=str.casefold)
 def bootstrap(group_config, user_payload: dict) -> dict:
     user = staff_user_for_payload(group_config, user_payload)
@@ -363,7 +388,7 @@ def bootstrap(group_config, user_payload: dict) -> dict:
         'user': public_user(user),
         'products': products,
         'branches': _allowed_branches(workflow, user),
-        'bro_names': configured_bro_names(workflow),
+        'bro_names': configured_bro_names(workflow, group_config),
         'statuses': STATUS_VALUES,
         'recent': home['recent'],
         'action_required': home['action_required'],

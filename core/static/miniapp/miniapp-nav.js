@@ -81,8 +81,19 @@
   });
   document.body.addEventListener('htmx:afterSwap', activateScreen);
   document.body.addEventListener('htmx:responseError', event => {
-    if (event.detail.target?.id !== 'content') return;
-    event.detail.target.innerHTML = '<section class="shell-error" role="alert"><h2>Screen unavailable</h2><p>The request failed. Check your connection and try again.</p></section>';
+    const target = event.detail.target;
+    if (!target) return;
+    if (target.id === 'content') {
+      target.innerHTML = '<section class="shell-error" role="alert"><h2>Screen unavailable</h2><p>'
+        + (event.detail.xhr?.status === 403
+          ? 'Your Telegram account is not authorized for this Portal screen.'
+          : 'The request failed. Check your connection and try again.')
+        + '</p></section>';
+    } else if (target.closest?.('#sidebar, #bottom-tabs')) {
+      target.innerHTML = '<span class="shell-nav-status">Navigation unavailable: '
+        + (event.detail.xhr?.status === 403 ? 'Telegram access is not authorized.' : 'request failed.')
+        + '</span>';
+    }
   });
   document.addEventListener('DOMContentLoaded', activateScreen);
   new MutationObserver(() => {

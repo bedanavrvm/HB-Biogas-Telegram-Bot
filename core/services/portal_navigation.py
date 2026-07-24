@@ -24,18 +24,21 @@ ROLE_ALIASES = {
 }
 
 
-def normalized_portal_roles(staff) -> set[str]:
-    """Translate persisted workflow roles to the four shell navigation roles."""
-    if staff is None:
+def normalized_portal_roles(user, *, access=None) -> set[str]:
+    """Translate canonical Groups/AccessGrants to shell navigation roles."""
+    if user is None and access is None:
         return {'ADMIN'}
+    if access is None:
+        from core.services.telegram_identity import user_access
+        access = user_access(user, 'jawabu_portal')
     return {
         ROLE_ALIASES.get(str(role).strip(), str(role).strip().upper())
-        for role in (staff.roles or [])
+        for role in access.get('roles', [])
     }
 
 
-def get_portal_nav_items(staff) -> list[dict]:
-    roles = normalized_portal_roles(staff)
+def get_portal_nav_items(user, *, access=None) -> list[dict]:
+    roles = normalized_portal_roles(user, access=access)
     return [
         {
             'key': key,
@@ -48,5 +51,5 @@ def get_portal_nav_items(staff) -> list[dict]:
     ]
 
 
-def portal_screen_allowed(staff, screen: str) -> bool:
-    return any(item['key'] == screen for item in get_portal_nav_items(staff))
+def portal_screen_allowed(user, screen: str, *, access=None) -> bool:
+    return any(item['key'] == screen for item in get_portal_nav_items(user, access=access))

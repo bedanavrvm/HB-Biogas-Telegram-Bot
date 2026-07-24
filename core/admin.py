@@ -12,7 +12,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.urls import path, reverse
 from django.utils.html import format_html
-from unfold.admin import ModelAdmin, StackedInline
+from unfold.admin import ModelAdmin, StackedInline, TabularInline
 from urllib.parse import urlencode
 
 from core.services.workflow_presets import (
@@ -64,6 +64,10 @@ from .models import (
     TatTrackerEvent,
     TatRepairJob,
     TatTrackerStaffMember,
+    UserProfile,
+    AccessGrant,
+    LegacyStaffUserMapping,
+    StaffIdentityReview,
 )
 
 
@@ -1369,11 +1373,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                     level=messages.ERROR,
                 )
     def get_inlines(self, request, obj=None):
-        workflow_type = str(((obj.workflow if obj else {}) or {}).get('type') or '')
-        if workflow_type == 'case':
-            return [ComplaintCaseStaffMemberInline]
-        if workflow_type == 'tat_tracker':
-            return [TatTrackerStaffMemberInline]
+        # Staff identity and scope are managed centrally on Django Users.
         return []
 
     @admin.display(description='Group')
@@ -2018,10 +2018,39 @@ class SpinBatchReviewItemAdmin(ReadOnlyAuditAdmin):
     readonly_fields = [field.name for field in SpinBatchReviewItem._meta.fields]
 
 
+class UserProfileInline(StackedInline):
+    model = UserProfile
+    extra = 0
+    max_num = 1
+
+
+class AccessGrantInline(TabularInline):
+    model = AccessGrant
+    extra = 0
+    fields = ('active', 'workflow', 'role', 'branch', 'product', 'group_configuration', 'source')
+
+
 class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
     compressed_fields = True
     list_filter_submit = True
     list_fullwidth = True
+    inlines = (UserProfileInline, AccessGrantInline)
+
+
+@admin.register(LegacyStaffUserMapping)
+class LegacyStaffUserMappingAdmin(ModelAdmin):
+    list_display = ('legacy_model', 'legacy_id', 'user', 'match_method', 'confidence', 'created_at')
+    list_filter = ('legacy_model', 'match_method', 'confidence')
+    search_fields = ('legacy_id', 'user__username', 'user__first_name', 'user__last_name')
+    readonly_fields = ('legacy_model', 'legacy_id', 'user', 'match_method', 'confidence', 'created_at')
+
+
+@admin.register(StaffIdentityReview)
+class StaffIdentityReviewAdmin(ModelAdmin):
+    list_display = ('identity_key', 'status', 'resolved_user', 'created_at', 'resolved_at')
+    list_filter = ('status',)
+    search_fields = ('identity_key', 'reason')
+    readonly_fields = ('identity_key', 'candidate_records', 'reason', 'created_at')
 
 
 class UnfoldGroupAdmin(ModelAdmin, DjangoGroupAdmin):
@@ -2047,3 +2076,13 @@ from core.admin_utils import auto_register_unregistered_models
 
 
 AUTO_REGISTERED_MODELS = auto_register_unregistered_models()
+
+# Legacy staff tables remain queryable during compatibility rollout, but all
+# identity and permission management now happens through the User admin.
+for legacy_staff_model in (
+    JawabuPortalStaffMember, ComplaintCaseStaffMember, TatTrackerStaffMember,
+):
+    try:
+        admin.site.unregister(legacy_staff_model)
+    except admin.sites.NotRegistered:
+        pass

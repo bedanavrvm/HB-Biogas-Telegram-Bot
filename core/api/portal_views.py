@@ -9,17 +9,15 @@ Scope: all groups are aggregated by default.
 """
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 import logging
 import re
-import time
 import uuid
 from functools import wraps
 from urllib.parse import parse_qsl, quote
 
 from django.conf import settings
+from django.contrib.auth import login
 from django.core.cache import cache
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
@@ -39,44 +37,15 @@ def validate_portal_telegram_init_data(init_data: str) -> tuple[bool, str, dict]
     """Validate Telegram Mini App initData before portal API access."""
     if not getattr(settings, 'PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH', True):
         return True, '', {}
-
-    bot_token = getattr(settings, 'TELEGRAM_BOT_TOKEN', '')
-    if not bot_token:
-        return False, 'TELEGRAM_BOT_TOKEN is not configured.', {}
-    if not init_data:
-        return False, 'Telegram Mini App authentication data is missing.', {}
-
-    pairs = dict(parse_qsl(init_data, keep_blank_values=True))
-    received_hash = pairs.pop('hash', '')
-    if not received_hash:
-        return False, 'Telegram Mini App hash is missing.', {}
-
-    data_check_string = "\n".join(
-        f"{key}={value}" for key, value in sorted(pairs.items())
-    )
-    secret_key = hmac.new(
-        b'WebAppData',
-        bot_token.encode('utf-8'),
-        hashlib.sha256,
-    ).digest()
-    calculated_hash = hmac.new(
-        secret_key,
-        data_check_string.encode('utf-8'),
-        hashlib.sha256,
-    ).hexdigest()
-    if not hmac.compare_digest(calculated_hash, received_hash):
-        return False, 'Telegram Mini App authentication failed.', {}
-
-    auth_date = pairs.get('auth_date')
-    max_age = int(getattr(settings, 'PORTAL_WEBAPP_AUTH_MAX_AGE_SECONDS', 86400))
-    if auth_date and max_age > 0:
-        try:
-            if time.time() - int(auth_date) > max_age:
-                return False, 'Telegram Mini App authentication expired.', {}
-        except ValueError:
-            return False, 'Telegram Mini App auth_date is invalid.', {}
-
-    return True, '', pairs
+    from core.services.telegram_identity import TelegramAuthenticationError, validate_telegram_init_data
+    try:
+        payload, _ = validate_telegram_init_data(
+            init_data,
+            max_age_seconds=int(getattr(settings, 'PORTAL_WEBAPP_AUTH_MAX_AGE_SECONDS', 86400)),
+        )
+        return True, '', payload
+    except TelegramAuthenticationError as exc:
+        return False, str(exc), {}
 
 
 def portal_auth_required(view_func):
@@ -89,16 +58,36 @@ def portal_auth_required(view_func):
             return JsonResponse({'ok': False, 'error': error}, status=403)
         request.portal_auth_payload = payload
         if getattr(settings, 'PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH', True):
+            from core.services.telegram_identity import resolve_user_by_telegram_id, user_access
             from core.models import JawabuPortalStaffMember
             try:
                 user = json.loads(payload.get('user') or '{}')
             except (TypeError, ValueError):
                 user = {}
             telegram_id = str(user.get('id') or '')
-            staff = JawabuPortalStaffMember.objects.filter(telegram_id=telegram_id, active=True).first()
-            if not staff:
-                return JsonResponse({'ok': False, 'error': 'Your Telegram account is not authorized for the Jawabu Portal.'}, status=403)
-            request.portal_staff = staff
+            canonical_user = resolve_user_by_telegram_id(telegram_id)
+            access = user_access(canonical_user, 'jawabu_portal') if canonical_user else None
+            legacy_staff = JawabuPortalStaffMember.objects.filter(telegram_id=telegram_id, active=True).first()
+            if not (access and access['authorized']) and not legacy_staff:
+                account_label = f' (ID {telegram_id})' if telegram_id else ''
+                return JsonResponse({
+                    'ok': False,
+                    'error': f'Your Telegram account{account_label} is not authorized for the Jawabu Portal.',
+                }, status=403)
+            if access and access['authorized']:
+                login(request, canonical_user, backend='core.auth_backends.TelegramMiniAppBackend')
+                request.portal_user = canonical_user
+                request.portal_access = access
+            else:
+                # Compatibility path until migrate_legacy_staff --apply maps this row.
+                request.portal_user = None
+                request.portal_access = {
+                    'authorized': True,
+                    'roles': list(legacy_staff.roles or []),
+                    'branches': list(legacy_staff.branches or []),
+                    'products': [],
+                    'grants': [],
+                }
         return view_func(request, *args, **kwargs)
     return wrapper
 
@@ -132,8 +121,14 @@ def _portal_request_id(request, body: dict | None = None) -> str:
 
 
 def _portal_actor_telegram_id(request) -> str:
-    staff = getattr(request, 'portal_staff', None)
-    return str(getattr(staff, 'telegram_id', '') or '')
+    profile = getattr(getattr(request, 'portal_user', None), 'staff_profile', None)
+    if profile:
+        return str(profile.telegram_id)
+    payload = getattr(request, 'portal_auth_payload', {})
+    try:
+        return str(json.loads(payload.get('user') or '{}').get('id') or '')
+    except (TypeError, ValueError):
+        return ''
 
 
 def _pagination_window(request, total: int, page_size: int = 30):
@@ -172,21 +167,21 @@ def _apply_county_branch_filters(qs, request):
         qs = qs.filter(county__iexact=county)
     if branch:
         qs = qs.filter(branch__iexact=branch)
-    staff = getattr(request, 'portal_staff', None)
-    staff_branches = [str(value).strip() for value in (getattr(staff, 'branches', None) or []) if str(value).strip()]
+    access = getattr(request, 'portal_access', {})
+    staff_branches = [str(value).strip() for value in access.get('branches', []) if str(value).strip()]
     if staff_branches:
         qs = qs.filter(branch__in=staff_branches)
     return qs
 
 
 def _portal_role_error(request, allowed_roles: set[str], farmer=None):
-    staff = getattr(request, 'portal_staff', None)
-    if staff is None:  # Authentication is intentionally disabled in local/test environments.
+    access = getattr(request, 'portal_access', None)
+    if access is None:  # Authentication is intentionally disabled in local/test environments.
         return None
-    roles = {str(value).strip().lower() for value in (staff.roles or [])}
+    roles = {str(value).strip().lower() for value in access.get('roles', [])}
     if 'admin' not in roles and roles.isdisjoint(allowed_roles):
         return JsonResponse({'ok': False, 'error': 'You are not authorized for this Jawabu workflow action.'}, status=403)
-    branches = {str(value).strip().casefold() for value in (staff.branches or []) if str(value).strip()}
+    branches = {str(value).strip().casefold() for value in access.get('branches', []) if str(value).strip()}
     if farmer is not None and branches and str(farmer.branch or '').strip().casefold() not in branches:
         return JsonResponse({'ok': False, 'error': 'This case is outside your authorized branch scope.'}, status=403)
     return None
@@ -515,7 +510,7 @@ def _portal_screen_context(screen: str) -> dict:
 @portal_auth_required
 def _portal_screen_fragment(request, screen: str):
     from core.services.portal_navigation import portal_screen_allowed
-    if not portal_screen_allowed(getattr(request, 'portal_staff', None), screen):
+    if not portal_screen_allowed(getattr(request, 'portal_user', None), screen, access=getattr(request, 'portal_access', None)):
         return HttpResponse(
             '<section class="shell-error" role="alert"><h2>Access denied</h2>'
             '<p>Your Portal role cannot open this screen.</p></section>',
@@ -547,7 +542,7 @@ def portal_navigation(request):
     """Render only links authorized for the authenticated Telegram staff member."""
     from core.services.portal_navigation import get_portal_nav_items
     return render(request, 'portal/partials/navigation.html', {
-        'nav_items': get_portal_nav_items(getattr(request, 'portal_staff', None)),
+        'nav_items': get_portal_nav_items(getattr(request, 'portal_user', None), access=getattr(request, 'portal_access', None)),
         'active_screen': request.GET.get('active', 'dashboard'),
     })
 
