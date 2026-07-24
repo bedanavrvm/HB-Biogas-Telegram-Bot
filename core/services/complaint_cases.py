@@ -67,8 +67,8 @@ def staff_actor_for_payload(group_config, auth_payload: dict) -> ComplaintCaseAc
     username = str(user.get('username') or '').strip().lower().lstrip('@')
     if not telegram_id and not username:
         raise ComplaintCaseError('Telegram identity is missing. Reopen Complaint Cases from Telegram.')
-    from core.services.telegram_identity import resolve_user_by_telegram_id, user_access
-    canonical_user = resolve_user_by_telegram_id(telegram_id) if telegram_id else None
+    from core.services.telegram_identity import identity_from_user_payload, resolve_or_bind_telegram_user, user_access
+    canonical_user = resolve_or_bind_telegram_user(identity_from_user_payload(user)) if telegram_id else None
     access = user_access(canonical_user, 'complaint_cases', group_configuration=group_config)
     if access['authorized']:
         roles = {str(role).upper() for role in access['roles']}

@@ -1209,7 +1209,7 @@ class UserProfile(models.Model):
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='staff_profile',
     )
-    telegram_id = models.CharField(max_length=100, unique=True, db_index=True)
+    telegram_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
     telegram_username = models.CharField(max_length=100, blank=True, default='', db_index=True)
     phone_number = models.CharField(max_length=20, blank=True, default='', db_index=True)
     telegram_metadata = models.JSONField(blank=True, default=dict)
@@ -1218,6 +1218,17 @@ class UserProfile(models.Model):
 
     class Meta:
         ordering = ['user__first_name', 'user__last_name', 'telegram_id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['telegram_id'], condition=models.Q(telegram_id__gt=''),
+                name='unique_bound_telegram_id',
+            ),
+            models.UniqueConstraint(
+                models.functions.Lower('telegram_username'),
+                condition=models.Q(telegram_username__gt=''),
+                name='unique_enrolled_telegram_username',
+            ),
+        ]
 
     def __str__(self):
         return self.user.get_full_name() or self.user.get_username()

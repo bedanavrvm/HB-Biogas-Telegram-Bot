@@ -327,8 +327,8 @@ def staff_user_for_payload(group_config, user_payload: dict, fallback_name: str 
     telegram_id = str(user_payload.get('id') or '').strip()
     username = str(user_payload.get('username') or '').strip().lower().lstrip('@')
     full_name = _telegram_name(user_payload) or fallback_name or username or telegram_id or 'Unknown user'
-    from core.services.telegram_identity import resolve_user_by_telegram_id, user_access
-    canonical_user = resolve_user_by_telegram_id(telegram_id) if telegram_id else None
+    from core.services.telegram_identity import identity_from_user_payload, resolve_or_bind_telegram_user, user_access
+    canonical_user = resolve_or_bind_telegram_user(identity_from_user_payload(user_payload)) if telegram_id else None
     access = user_access(canonical_user, 'tat_tracker', group_configuration=group_config)
     if access['authorized']:
         return {

@@ -11,6 +11,7 @@ from urllib.parse import parse_qsl
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.db import transaction
 
 
 class TelegramAuthenticationError(ValueError):
@@ -24,6 +25,16 @@ class TelegramIdentity:
     first_name: str
     last_name: str
     payload: dict
+
+
+def identity_from_user_payload(user_payload: dict) -> TelegramIdentity:
+    return TelegramIdentity(
+        telegram_id=str(user_payload.get('id') or '').strip(),
+        username=str(user_payload.get('username') or '').strip().lstrip('@'),
+        first_name=str(user_payload.get('first_name') or '').strip(),
+        last_name=str(user_payload.get('last_name') or '').strip(),
+        payload=user_payload,
+    )
 
 
 def validate_telegram_init_data(
@@ -58,13 +69,7 @@ def validate_telegram_init_data(
     telegram_id = str(user_payload.get('id') or '').strip()
     if not telegram_id:
         raise TelegramAuthenticationError('Telegram Mini App user ID is missing.')
-    return pairs, TelegramIdentity(
-        telegram_id=telegram_id,
-        username=str(user_payload.get('username') or '').strip().lstrip('@'),
-        first_name=str(user_payload.get('first_name') or '').strip(),
-        last_name=str(user_payload.get('last_name') or '').strip(),
-        payload=user_payload,
-    )
+    return pairs, identity_from_user_payload(user_payload)
 
 
 def resolve_user_by_telegram_id(telegram_id: str):
@@ -95,6 +100,34 @@ def resolve_user_by_telegram_id(telegram_id: str):
         legacy_id__in=[item[1] for item in legacy_ids],
     ).first()
     return mapping.user if mapping and mapping.user.is_active else None
+
+
+@transaction.atomic
+def resolve_or_bind_telegram_user(identity: TelegramIdentity):
+    """Resolve by immutable ID, or bind one pre-enrolled username exactly once."""
+    from core.models import UserProfile
+    user = resolve_user_by_telegram_id(identity.telegram_id)
+    if user:
+        return user
+    if not identity.username:
+        return None
+    profile = UserProfile.objects.select_for_update().select_related('user').filter(
+        telegram_id='', telegram_username__iexact=identity.username,
+    ).first()
+    if not profile or not profile.user.is_active:
+        return None
+    if UserProfile.objects.filter(telegram_id=identity.telegram_id).exclude(pk=profile.pk).exists():
+        return None
+    profile.telegram_id = identity.telegram_id
+    profile.telegram_username = identity.username
+    profile.telegram_metadata = {
+        **(profile.telegram_metadata or {}),
+        'first_name': identity.first_name,
+        'last_name': identity.last_name,
+        'bound_from_signed_init_data': True,
+    }
+    profile.save(update_fields=['telegram_id', 'telegram_username', 'telegram_metadata', 'updated_at'])
+    return profile.user
 
 
 def user_access(user, workflow: str, *, group_configuration=None) -> dict:

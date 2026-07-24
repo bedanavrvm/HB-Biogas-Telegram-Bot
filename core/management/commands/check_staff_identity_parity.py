@@ -55,6 +55,14 @@ class Command(BaseCommand):
                     'record': label, 'issue': 'telegram_id_mismatch',
                     'legacy': telegram_id, 'canonical': profile.telegram_id,
                 })
+            elif not telegram_id and record.get('username') and (
+                profile.telegram_username.casefold()
+                != str(record['username']).strip().lstrip('@').casefold()
+            ):
+                failures.append({
+                    'record': label, 'issue': 'telegram_username_mismatch',
+                    'legacy': record['username'], 'canonical': profile.telegram_username,
+                })
 
             expected_roles = record['roles'] or ['USER']
             expected_branches = record['branches'] or ['']

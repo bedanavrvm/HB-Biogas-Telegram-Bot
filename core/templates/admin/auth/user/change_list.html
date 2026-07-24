@@ -5,6 +5,9 @@
     <a href="{% url 'admin:auth_user_migrate_legacy_staff' %}" class="button">
       Migrate existing staff
     </a>
+    <a href="{% url 'admin:auth_user_migrate_legacy_staff' %}#enroll-telegram-user" class="button">
+      Enroll Telegram user
+    </a>
   {% endif %}
   {{ block.super }}
 {% endblock %}

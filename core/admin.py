@@ -1,4 +1,6 @@
 import io
+import re
+import uuid
 
 from django import forms
 from django.contrib import admin
@@ -2034,6 +2036,29 @@ class AccessGrantInline(TabularInline):
     fields = ('active', 'workflow', 'role', 'branch', 'product', 'group_configuration', 'source')
 
 
+class TelegramUserEnrollmentForm(forms.Form):
+    display_name = forms.CharField(max_length=255)
+    telegram_username = forms.CharField(
+        max_length=100,
+        help_text='Enter the current Telegram username. The numeric ID is bound after the first signed Mini App login.',
+    )
+    workflow = forms.ChoiceField(choices=AccessGrant.WORKFLOW_CHOICES)
+    role = forms.CharField(max_length=80)
+    branch = forms.CharField(max_length=120, required=False)
+    product = forms.CharField(max_length=120, required=False)
+    group_configuration = forms.ModelChoiceField(
+        queryset=GroupSheetConfiguration.objects.all(), required=False,
+    )
+
+    def clean_telegram_username(self):
+        username = self.cleaned_data['telegram_username'].strip().lstrip('@').lower()
+        if not username:
+            raise forms.ValidationError('Enter a Telegram username.')
+        if UserProfile.objects.filter(telegram_username__iexact=username).exists():
+            raise forms.ValidationError('That Telegram username is already enrolled.')
+        return username
+
+
 class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
     compressed_fields = True
     list_filter_submit = True
@@ -2058,7 +2083,19 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
         migration_output = io.StringIO()
         parity_output = io.StringIO()
         applied = False
-        if request.method == 'POST':
+        enrollment_form = TelegramUserEnrollmentForm(
+            request.POST if request.method == 'POST' and request.POST.get('operation') == 'enroll' else None,
+        )
+        if request.method == 'POST' and request.POST.get('operation') == 'enroll':
+            if enrollment_form.is_valid():
+                self._enroll_telegram_user(enrollment_form.cleaned_data)
+                messages.success(
+                    request,
+                    'Telegram user enrolled. Their numeric Telegram ID will be stored on first signed login.',
+                )
+                enrollment_form = TelegramUserEnrollmentForm()
+            call_command('migrate_legacy_staff', stdout=migration_output)
+        elif request.method == 'POST':
             if request.POST.get('confirmation', '').strip() != 'MIGRATE':
                 messages.error(request, 'Type MIGRATE exactly to confirm the user migration.')
             else:
@@ -2084,8 +2121,41 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
             'parity_output': parity_output.getvalue(),
             'parity_passed': parity_passed,
             'applied': applied,
+            'enrollment_form': enrollment_form,
         }
         return TemplateResponse(request, 'admin/auth/user/migrate_legacy_staff.html', context)
+
+    @staticmethod
+    @transaction.atomic
+    def _enroll_telegram_user(data):
+        User = get_user_model()
+        telegram_username = data['telegram_username']
+        safe_username = re.sub(r'[^a-z0-9_]', '_', telegram_username)[:100]
+        django_username = f'tg_pending_{safe_username}'
+        if User.objects.filter(username=django_username).exists():
+            django_username = f'{django_username}_{uuid.uuid4().hex[:8]}'
+        name_parts = data['display_name'].strip().split(None, 1)
+        user = User(
+            username=django_username,
+            first_name=name_parts[0] if name_parts else '',
+            last_name=name_parts[1] if len(name_parts) > 1 else '',
+            is_active=True,
+            is_staff=False,
+        )
+        user.set_unusable_password()
+        user.save()
+        UserProfile.objects.create(user=user, telegram_username=telegram_username)
+        group, _ = Group.objects.get_or_create(name=data['role'])
+        user.groups.add(group)
+        AccessGrant.objects.create(
+            user=user,
+            workflow=data['workflow'],
+            role=data['role'],
+            branch=data.get('branch', ''),
+            product=data.get('product', ''),
+            group_configuration=data.get('group_configuration'),
+            source='username_enrollment',
+        )
 
 
 @admin.register(LegacyStaffUserMapping)

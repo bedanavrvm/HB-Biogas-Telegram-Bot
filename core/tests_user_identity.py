@@ -18,13 +18,13 @@ from core.models import (
 )
 
 
-def signed_init_data(telegram_id='12345', token='test-token'):
+def signed_init_data(telegram_id='12345', token='test-token', username='unified_user'):
     payload = {
         'auth_date': str(int(time.time())),
         'query_id': 'identity-test',
         'user': json.dumps({
             'id': int(telegram_id), 'first_name': 'Unified', 'last_name': 'User',
-            'username': 'unified_user',
+            'username': username,
         }, separators=(',', ':')),
     }
     check = '\n'.join(f'{key}={value}' for key, value in sorted(payload.items()))
@@ -46,7 +46,11 @@ class LegacyStaffMigrationCommandTests(TestCase):
             group_configuration=self.config, name='Unified User', telegram_user_id='12345', role='MANAGER',
         )
         ComplaintCaseStaffMember.objects.create(
-            group_configuration=self.config, name='Name Only', telegram_username='name_only', role='OFFICER',
+            group_configuration=self.config, name='Name Only', telegram_username='', role='OFFICER',
+        )
+        ComplaintCaseStaffMember.objects.create(
+            group_configuration=self.config, name='Username Only',
+            telegram_username='username_only', role='OFFICER',
         )
 
     def test_dry_run_does_not_write(self):
@@ -95,6 +99,31 @@ class LegacyStaffMigrationCommandTests(TestCase):
         response = self.client.get(reverse('admin:auth_user_migrate_legacy_staff'))
         self.assertEqual(response.status_code, 403)
 
+    def test_superuser_can_enroll_username_without_knowing_telegram_id(self):
+        superuser = get_user_model().objects.create_superuser(
+            username='enrollment-admin', email='admin@example.test', password='test-password',
+        )
+        self.client.force_login(superuser)
+
+        response = self.client.post(reverse('admin:auth_user_migrate_legacy_staff'), {
+            'operation': 'enroll',
+            'display_name': 'Pending Telegram User',
+            'telegram_username': '@pending_user',
+            'workflow': 'jawabu_portal',
+            'role': 'JBL_OFFICER',
+            'branch': 'Nairobi',
+            'product': '',
+            'group_configuration': '',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        profile = UserProfile.objects.get(telegram_username='pending_user')
+        self.assertEqual(profile.telegram_id, '')
+        self.assertTrue(profile.user.is_active)
+        self.assertFalse(profile.user.is_staff)
+        self.assertFalse(profile.user.has_usable_password())
+        self.assertTrue(AccessGrant.objects.filter(user=profile.user, role='JBL_OFFICER').exists())
+
     def test_apply_merges_exact_telegram_id_and_routes_name_only_to_review(self):
         call_command('migrate_legacy_staff', '--apply', stdout=io.StringIO())
 
@@ -109,6 +138,9 @@ class LegacyStaffMigrationCommandTests(TestCase):
         self.assertEqual(self.portal.as_user, user)
         self.assertEqual(self.complaint.as_user, user)
         self.assertTrue(StaffIdentityReview.objects.filter(identity_key='nameonly', status='pending').exists())
+        pending_profile = UserProfile.objects.get(telegram_username='username_only')
+        self.assertEqual(pending_profile.telegram_id, '')
+        self.assertFalse(pending_profile.user.has_usable_password())
 
         call_command('migrate_legacy_staff', '--apply', stdout=io.StringIO())
         self.assertEqual(get_user_model().objects.filter(username='tg_12345').count(), 1)
@@ -165,6 +197,37 @@ class TelegramUserAuthenticationTests(TestCase):
             HTTP_X_TELEGRAM_INIT_DATA=signed_init_data() + 'tampered',
         )
         self.assertEqual(response.status_code, 403)
+
+    def test_first_signed_login_binds_pre_enrolled_username_to_numeric_id(self):
+        pending = get_user_model().objects.create(username='tg_pending_first_login', is_active=True)
+        pending.set_unusable_password()
+        pending.save()
+        profile = UserProfile.objects.create(
+            user=pending, telegram_username='first_login_user', telegram_id='',
+        )
+        AccessGrant.objects.create(user=pending, workflow='jawabu_portal', role='JBL_OFFICER')
+
+        response = self.client.post(
+            reverse('telegram_session_login'),
+            HTTP_X_TELEGRAM_INIT_DATA=signed_init_data(
+                telegram_id='98765', username='first_login_user',
+            ),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        profile.refresh_from_db()
+        self.assertEqual(profile.telegram_id, '98765')
+        self.assertTrue(profile.telegram_metadata['bound_from_signed_init_data'])
+
+    def test_unmatched_username_cannot_create_or_claim_an_account(self):
+        response = self.client.post(
+            reverse('telegram_session_login'),
+            HTTP_X_TELEGRAM_INIT_DATA=signed_init_data(
+                telegram_id='98765', username='not_enrolled',
+            ),
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(UserProfile.objects.filter(telegram_id='98765').exists())
 
     def test_portal_uses_access_grants_and_server_filters_navigation(self):
         auth = signed_init_data()

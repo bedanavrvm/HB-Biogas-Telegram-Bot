@@ -58,14 +58,22 @@ def portal_auth_required(view_func):
             return JsonResponse({'ok': False, 'error': error}, status=403)
         request.portal_auth_payload = payload
         if getattr(settings, 'PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH', True):
-            from core.services.telegram_identity import resolve_user_by_telegram_id, user_access
+            from core.services.telegram_identity import (
+                TelegramIdentity, resolve_or_bind_telegram_user, user_access,
+            )
             from core.models import JawabuPortalStaffMember
             try:
                 user = json.loads(payload.get('user') or '{}')
             except (TypeError, ValueError):
                 user = {}
             telegram_id = str(user.get('id') or '')
-            canonical_user = resolve_user_by_telegram_id(telegram_id)
+            canonical_user = resolve_or_bind_telegram_user(TelegramIdentity(
+                telegram_id=telegram_id,
+                username=str(user.get('username') or '').strip().lstrip('@'),
+                first_name=str(user.get('first_name') or '').strip(),
+                last_name=str(user.get('last_name') or '').strip(),
+                payload=user,
+            ))
             access = user_access(canonical_user, 'jawabu_portal') if canonical_user else None
             legacy_staff = JawabuPortalStaffMember.objects.filter(telegram_id=telegram_id, active=True).first()
             if not (access and access['authorized']) and not legacy_staff:

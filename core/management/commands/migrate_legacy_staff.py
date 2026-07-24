@@ -61,11 +61,14 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         records = _legacy_records()
         by_telegram_id = defaultdict(list)
+        by_username = defaultdict(list)
         name_only = defaultdict(list)
         for record in records:
             telegram_id = str(record['telegram_id'] or '').strip()
             if telegram_id:
                 by_telegram_id[telegram_id].append(record)
+            elif str(record.get('username') or '').strip():
+                by_username[str(record['username']).strip().lower().lstrip('@')].append(record)
             else:
                 name_only[_name_key(record['name'])].append(record)
         plan = {
@@ -78,6 +81,15 @@ class Command(BaseCommand):
                     'grants': self._grant_plan(rows),
                 }
                 for telegram_id, rows in sorted(by_telegram_id.items())
+            ],
+            'pending_username_users': [
+                {
+                    'telegram_username': username,
+                    'username': f'tg_pending_{username}',
+                    'records': [{'model': row['model'], 'id': row['id']} for row in rows],
+                    'grants': self._grant_plan(rows),
+                }
+                for username, rows in sorted(by_username.items())
             ],
             'manual_review': [
                 {
@@ -93,16 +105,19 @@ class Command(BaseCommand):
         else:
             self.stdout.write(f"Mode: {plan['mode']}")
             self.stdout.write(f"High-confidence users: {len(plan['users'])}")
+            self.stdout.write(f"Pending username enrollments: {len(plan['pending_username_users'])}")
             self.stdout.write(f"Manual-review identities: {len(plan['manual_review'])}")
             for item in plan['users']:
                 self.stdout.write(f"  {item['username']}: {len(item['records'])} legacy row(s), {len(item['grants'])} grant(s)")
+            for item in plan['pending_username_users']:
+                self.stdout.write(f"  PENDING @{item['telegram_username']}: {len(item['records'])} legacy row(s), ID binds on first login")
             for item in plan['manual_review']:
                 self.stdout.write(f"  REVIEW {item['identity_key']}: {len(item['records'])} row(s)")
         if not options['apply']:
             self.stdout.write(self.style.WARNING('Dry run only. Re-run with --apply after reviewing this plan.'))
             return
         with transaction.atomic():
-            self._apply(by_telegram_id, plan['manual_review'])
+            self._apply(by_telegram_id, by_username, plan['manual_review'])
         self.stdout.write(self.style.SUCCESS('Legacy staff migration applied.'))
 
     @staticmethod
@@ -121,7 +136,7 @@ class Command(BaseCommand):
             for item in sorted(grants)
         ]
 
-    def _apply(self, by_telegram_id, manual_review):
+    def _apply(self, by_telegram_id, by_username, manual_review):
         User = get_user_model()
         for telegram_id, rows in by_telegram_id.items():
             username = username_for_telegram_id(telegram_id)
@@ -161,6 +176,53 @@ class Command(BaseCommand):
                                 branch=branch, product=product,
                                 group_configuration=row['group'],
                                 defaults={'source': 'legacy_migration'},
+                            )
+        for telegram_username, rows in by_username.items():
+            profile = UserProfile.objects.select_related('user').filter(
+                telegram_username__iexact=telegram_username,
+            ).first()
+            if profile:
+                user = profile.user
+            else:
+                base_username = f'tg_pending_{telegram_username}'[:150]
+                django_username = base_username
+                suffix = 1
+                while User.objects.filter(username=django_username).exists():
+                    suffix += 1
+                    django_username = f'{base_username[:140]}_{suffix}'
+                names = next((row['name'] for row in rows if row['name']), '')
+                parts = str(names).strip().split(None, 1)
+                user = User(
+                    username=django_username,
+                    first_name=parts[0] if parts else '',
+                    last_name=parts[1] if len(parts) > 1 else '',
+                    is_active=True,
+                    is_staff=False,
+                )
+                user.set_unusable_password()
+                user.save()
+                UserProfile.objects.create(
+                    user=user, telegram_username=telegram_username, telegram_id='',
+                )
+            for row in rows:
+                LegacyStaffUserMapping.objects.update_or_create(
+                    legacy_model=row['model'], legacy_id=row['id'],
+                    defaults={
+                        'user': user,
+                        'match_method': 'telegram_username_pending_binding',
+                        'confidence': 'medium',
+                    },
+                )
+                for role in row['roles'] or ['USER']:
+                    group, _ = Group.objects.get_or_create(name=role)
+                    user.groups.add(group)
+                    for branch in row['branches'] or ['']:
+                        for product in row['products'] or ['']:
+                            AccessGrant.objects.get_or_create(
+                                user=user, workflow=row['workflow'], role=role,
+                                branch=branch, product=product,
+                                group_configuration=row['group'],
+                                defaults={'source': 'legacy_username_enrollment'},
                             )
         for item in manual_review:
             StaffIdentityReview.objects.update_or_create(

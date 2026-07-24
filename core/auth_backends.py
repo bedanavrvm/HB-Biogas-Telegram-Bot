@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.contrib.auth.backends import ModelBackend
 
-from core.services.telegram_identity import resolve_user_by_telegram_id, validate_telegram_init_data
+from core.services.telegram_identity import resolve_or_bind_telegram_user, validate_telegram_init_data
 
 
 class TelegramMiniAppBackend(ModelBackend):
@@ -14,4 +14,4 @@ class TelegramMiniAppBackend(ModelBackend):
             init_data,
             max_age_seconds=int(getattr(settings, 'TELEGRAM_AUTH_MAX_AGE_SECONDS', 86400)),
         )
-        return resolve_user_by_telegram_id(identity.telegram_id)
+        return resolve_or_bind_telegram_user(identity)

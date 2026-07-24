@@ -8,6 +8,17 @@
       Name-only records are sent to the manual identity-review queue and are never merged automatically.
     </p>
 
+    <section id="enroll-telegram-user" class="module" style="margin-top: 24px; padding: 20px;">
+      <h2>Enroll a Telegram user by username</h2>
+      <p>The immutable numeric Telegram ID will be verified and stored automatically on their first Mini App login.</p>
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="operation" value="enroll">
+        {{ enrollment_form.as_p }}
+        <button type="submit" class="button default">Enroll Telegram user</button>
+      </form>
+    </section>
+
     <section class="module" style="margin-top: 24px; padding: 20px;">
       <h2>{% if applied %}Migration result{% else %}Dry-run preview{% endif %}</h2>
       <pre style="white-space: pre-wrap; overflow-wrap: anywhere;">{{ migration_output }}</pre>
@@ -22,6 +33,7 @@
     {% if not applied %}
       <form method="post" style="margin-top: 24px;">
         {% csrf_token %}
+        <input type="hidden" name="operation" value="migrate">
         <div class="form-row">
           <label for="migration-confirmation"><strong>Type MIGRATE to confirm</strong></label>
           <input id="migration-confirmation" name="confirmation" type="text" autocomplete="off" required>
