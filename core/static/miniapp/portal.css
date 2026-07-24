@@ -947,6 +947,16 @@
 .payment-number-field { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-surface); padding: 4px 8px; }
 .payment-number-field span { white-space: nowrap; color: var(--text-muted); font-size: 11px; font-weight: 700; }
 .payment-number-field input { width: 74px; min-height: 28px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-base); padding: 3px 6px; }
+.history-tabs { display: flex; gap: 8px; margin: 0 4px 10px; }
+.history-document-card { cursor: default; }
+@media print {
+  body.printing-document * { visibility: hidden !important; }
+  body.printing-document .print-active,
+  body.printing-document .print-active * { visibility: visible !important; }
+  body.printing-document .print-active { position: absolute; inset: 0; width: 100%; box-shadow: none; border: 0; overflow: visible; }
+  body.printing-document .payment-print-scroll,
+  body.printing-document .requisition-print-scroll { overflow: visible; }
+}
 @media (max-width: 420px) {
   .batch-summary-grid { grid-template-columns: 1fr 1fr; }
 }

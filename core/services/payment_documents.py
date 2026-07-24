@@ -498,6 +498,12 @@ def create_payment_document(order_number: str, payment_number: str, actor: str =
         version = (latest.version + 1) if latest else 1
     filename = f"HB_Payment_{payment_number}_{order_number}_{status}_v{version}.xlsx"
     drive_file_id, drive_url = _upload_payment_workbook(xlsx, filename, actor, order_number)
+    readiness_snapshot = payment_readiness(order_number)
+    from django.core.serializers.json import DjangoJSONEncoder
+    import json
+    printable_rows = json.loads(json.dumps(
+        [item['row'] for item in readiness_snapshot['ready']], cls=DjangoJSONEncoder,
+    ))
     doc = PaymentDocument.objects.create(
         order_number=order_number,
         payment_number=payment_number,
@@ -510,9 +516,9 @@ def create_payment_document(order_number: str, payment_number: str, actor: str =
         finalized_by=actor if final else '',
         finalized_at=timezone.now() if final else None,
         row_count=summary.get('ready_count', 0),
-        farmer_ids=[item['farmer_id'] for item in payment_readiness(order_number)['ready']],
+        farmer_ids=[item['farmer_id'] for item in readiness_snapshot['ready']],
         invoice_batch_ids=summary.get('invoice_batch_ids', []),
-        validation_summary=summary,
+        validation_summary={**summary, 'preview_rows': printable_rows},
     )
     if final:
         from core.models import JawabuFarmerMaster

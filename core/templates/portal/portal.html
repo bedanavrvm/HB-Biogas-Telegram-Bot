@@ -275,6 +275,15 @@
     <div class="pagination" id="pg-batches"></div>
   </section>
 
+  <section id="page-history" class="page{% if active_screen == 'history' %} active{% endif %}">
+    <header><h1>Document History</h1><p class="meta">Final generated orders and payment schedules</p></header>
+    <div class="history-tabs" role="tablist">
+      <button type="button" class="btn btn-primary history-kind" data-kind="orders">Final Orders</button>
+      <button type="button" class="btn btn-secondary history-kind" data-kind="payments">Final Payments</button>
+    </div>
+    <div id="history-list" class="farmer-list"><div class="empty-state"><div class="spinner-inline"></div></div></div>
+  </section>
+
 <!-- Farmer detail sheet -->
 <div class="sheet-overlay" id="sheet-overlay" role="dialog" aria-modal="true">
   <div class="sheet-panel">
@@ -324,6 +333,7 @@
     </div>
     <div class="sheet-footer">
       <button class="btn" id="requisition-preview-cancel" type="button">Back</button>
+      <button class="btn btn-secondary" id="requisition-preview-print" type="button" hidden>Print / Save PDF</button>
       <button class="btn" id="requisition-preview-workbook" type="button" hidden>Legacy Drive Preview</button>
       <button class="primary" id="requisition-preview-confirm" type="button" data-main-action="Generate and Save Excel">Generate and Save Excel</button>
     </div>
@@ -452,6 +462,7 @@
     </div>
     <div class="sheet-body" id="payment-preview-content"></div>
     <div class="sheet-footer">
+      <button class="btn btn-secondary" id="payment-preview-print" type="button">Print / Save PDF</button>
       <button class="btn" id="payment-preview-done" type="button">Close Preview</button>
     </div>
   </div>

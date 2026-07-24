@@ -2094,3 +2094,56 @@ def portal_payment_document_finalize(request, order_number: str):
         logger.exception("Payment final generation failed for order %s", order_number)
         return JsonResponse({'ok': False, 'error': f'Payment final was not stored in Google Drive: {exc}'}, status=502)
     return JsonResponse({'ok': True, 'document': serialize_payment_document(doc)})
+
+
+@require_http_methods(["GET"])
+def portal_document_history(request):
+    """List generated final order and payment documents for the History screen."""
+    from core.models import PaymentDocument, RequisitionBatch
+
+    kind = request.GET.get('kind', 'orders')
+    if kind == 'payments':
+        documents = PaymentDocument.objects.filter(status='final').order_by('-finalized_at', '-created_at')[:100]
+        return JsonResponse({'ok': True, 'kind': kind, 'documents': [
+            {
+                'id': str(doc.id), 'order_number': doc.order_number,
+                'payment_number': doc.payment_number, 'row_count': doc.row_count,
+                'generated_by': doc.finalized_by or doc.generated_by,
+                'generated_at': (doc.finalized_at or doc.created_at).isoformat(),
+            }
+            for doc in documents
+        ]})
+    documents = RequisitionBatch.objects.exclude(status='preview').order_by('-updated_at')[:100]
+    return JsonResponse({'ok': True, 'kind': 'orders', 'documents': [
+        {
+            'id': str(doc.id), 'order_number': doc.order_number,
+            'row_count': doc.farmer_count, 'generated_by': doc.generated_by,
+            'generated_at': doc.updated_at.isoformat(),
+            'requisition_date': doc.requisition_date.isoformat() if doc.requisition_date else None,
+        }
+        for doc in documents
+    ]})
+
+
+@require_http_methods(["GET"])
+def portal_payment_document_detail(request, document_id: str):
+    """Return the immutable printable snapshot for a finalized payment."""
+    from django.shortcuts import get_object_or_404
+    from core.models import PaymentDocument
+    from core.services.payment_documents import payment_readiness, serialize_payment_document
+
+    doc = get_object_or_404(PaymentDocument, pk=document_id, status='final')
+    summary = doc.validation_summary or {}
+    rows = summary.get('preview_rows')
+    if rows is None:  # Compatibility for final documents generated before snapshots existed.
+        rows = [item['row'] for item in payment_readiness(doc.order_number).get('ready', [])]
+    amount_keys = ('hb_invoice_amount', 'discount', 'deposit_paid_hbg', 'deposit_paid_jbl')
+    totals = {}
+    for key in amount_keys:
+        values = [row.get(key) for row in rows if row.get(key) not in (None, '')]
+        from decimal import Decimal
+        totals[key] = str(sum(Decimal(str(value)) for value in values)) if values else None
+    return JsonResponse({'ok': True, 'document': serialize_payment_document(doc), 'preview': {
+        'order_number': doc.order_number, 'payment_number': doc.payment_number,
+        'ready_count': len(rows), 'rows': rows, 'totals': totals,
+    }})

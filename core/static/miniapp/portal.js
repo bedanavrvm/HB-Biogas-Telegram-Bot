@@ -34,6 +34,7 @@
     selectedRequisitions: new Set(),
     pendingRequisitionPayload: null
   };
+  let historyKind = 'orders';
 
   // Helpers
   function el(id) { return document.getElementById(id); }
@@ -718,10 +719,40 @@
     state.metaImabOptions = data.imab_created_options || [];
     state.metaFinalDecisions = data.final_decisions || [];
   }
+  function renderDocumentHistory(documents, kind) {
+    const target = el('history-list');
+    if (!target) return;
+    if (!documents.length) {
+      target.innerHTML = `<div class="empty-state"><div class="es-title">No final ${kind} yet</div><div class="es-sub">Generated final documents will appear here.</div></div>`;
+      return;
+    }
+    target.innerHTML = documents.map(doc => `<article class="farmer-card history-document-card">
+      <div class="fc-name">${kind === 'payments' ? `Payment #${escapeHtml(doc.payment_number || '-')}` : `Order ${escapeHtml(doc.order_number || '-')}`}</div>
+      <div class="fc-sub">${kind === 'payments' ? `Order ${escapeHtml(doc.order_number || '-')} | ` : ''}${escapeHtml(doc.row_count || 0)} client(s)</div>
+      <div class="fc-sub">${escapeHtml(fmtDate(doc.generated_at))}${doc.generated_by ? ` | ${escapeHtml(doc.generated_by)}` : ''}</div>
+      <div><button type="button" class="btn btn-secondary history-view-document" data-kind="${kind}" data-id="${escapeHtml(doc.id)}" data-order="${escapeHtml(doc.order_number || '')}">View / Print</button></div>
+    </article>`).join('');
+  }
+  async function loadHistory(kind = historyKind) {
+    historyKind = kind;
+    const target = el('history-list');
+    if (target) target.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
+    document.querySelectorAll('.history-kind').forEach(button => {
+      button.classList.toggle('btn-primary', button.dataset.kind === kind);
+      button.classList.toggle('btn-secondary', button.dataset.kind !== kind);
+    });
+    const { ok, data } = await apiFetch('/document-history/?kind=' + encodeURIComponent(kind));
+    if (!ok || !data.ok) {
+      if (target) target.innerHTML = '<div class="empty-state"><div class="es-title">Could not load document history</div></div>';
+      return;
+    }
+    renderDocumentHistory(data.documents || [], kind);
+  }
   // Page router
   function loadPage(page) {
     if (page === 'dashboard') loadDashboard();
     else if (page === 'invoices' && portalInvoices.load) portalInvoices.load(1);
+    else if (page === 'history') loadHistory();
     else if (queueConfig[page]) loadQueue(page, 1);
   }
   // Bootstrap
@@ -741,6 +772,20 @@
       portalRequisitions.updateBatchPanel();
     }
   }
+
+  document.addEventListener('click', event => {
+    const kindButton = event.target.closest('.history-kind');
+    if (kindButton) {
+      event.preventDefault();
+      loadHistory(kindButton.dataset.kind || 'orders');
+      return;
+    }
+    const viewButton = event.target.closest('.history-view-document');
+    if (!viewButton) return;
+    event.preventDefault();
+    if (viewButton.dataset.kind === 'payments') portalRequisitions.openFinalPaymentHistory?.(viewButton.dataset.id);
+    else portalRequisitions.openFinalOrderHistory?.(viewButton.dataset.order);
+  });
 
   window.PortalAppShell = {
     activate(page) {

@@ -427,7 +427,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertContains(response, 'data-screen="credit"')
 
     def test_each_portal_screen_cold_load_includes_shell(self):
-        for screen in ('dashboard', 'jbl', 'credit', 'final', 'requisition', 'deferred', 'all', 'batches', 'invoices'):
+        for screen in ('dashboard', 'jbl', 'credit', 'final', 'requisition', 'deferred', 'all', 'batches', 'invoices', 'history'):
             with self.subTest(screen=screen):
                 response = self.client.get(reverse('portal_screen', kwargs={'screen': screen}))
                 self.assertEqual(response.status_code, 200)

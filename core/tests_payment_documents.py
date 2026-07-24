@@ -601,6 +601,25 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(invalid.status_code, 400)
         self.assertIn('digits only', invalid.json()['error'])
 
+    def test_document_history_lists_and_opens_final_payment_snapshot(self):
+        doc = PaymentDocument.objects.create(
+            order_number='ORDER-001', payment_number='89', status='final', row_count=1,
+            validation_summary={'preview_rows': [{
+                'name': 'Mary Wanjiku', 'hb_invoice_amount': '43500.00',
+                'discount': '4500.00', 'deposit_paid_hbg': '6000.00',
+                'deposit_paid_jbl': None,
+            }]},
+        )
+
+        history = self.client.get(reverse('portal_document_history'), {'kind': 'payments'})
+        detail = self.client.get(reverse('portal_payment_document_detail', args=[str(doc.id)]))
+
+        self.assertEqual(history.status_code, 200)
+        self.assertEqual(history.json()['documents'][0]['payment_number'], '89')
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()['preview']['rows'][0]['hb_invoice_amount'], '43500.00')
+        self.assertEqual(detail.json()['preview']['totals']['hb_invoice_amount'], '43500.00')
+
     def test_batch_detail_uses_live_invoice_count_over_stored_snapshot(self):
         farmer = self.farmer()
         RequisitionBatch.objects.create(

@@ -143,6 +143,46 @@
     }
   }
 
+  function printDocument(selector) {
+    const documentNode = document.querySelector(selector);
+    if (!documentNode) return deps.showToast('No document is open to print.', 'error');
+    document.querySelectorAll('.print-active').forEach(node => node.classList.remove('print-active'));
+    documentNode.classList.add('print-active');
+    document.body.classList.add('printing-document');
+    const cleanup = () => {
+      document.body.classList.remove('printing-document');
+      documentNode.classList.remove('print-active');
+      window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+    window.print();
+    window.setTimeout(cleanup, 1000);
+  }
+
+  async function openFinalOrderHistory(orderNumber) {
+    const response = await deps.apiFetch('/requisition-batches/' + encodeURIComponent(orderNumber) + '/');
+    if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.error || 'Could not load final order.', 'error');
+    const batch = response.data.batch || {};
+    const previewResponse = await deps.portalApi.postJson('/requisition-queue/preview/', {
+      farmer_ids: (batch.farmers || []).map(farmer => farmer.id),
+      order_number: batch.order_number,
+      requisition_date: batch.requisition_date,
+      preview_format: 'document',
+    }, deps.tg, csrfHeader());
+    if (!previewResponse.ok || !previewResponse.data?.ok) return deps.showToast(previewResponse.data?.error || 'Could not reconstruct final order.', 'error');
+    openRequisitionPreview(previewResponse.data, { readOnly: true });
+  }
+
+  async function openFinalPaymentHistory(documentId) {
+    const response = await deps.apiFetch('/payment-document-history/' + encodeURIComponent(documentId) + '/');
+    if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.error || 'Could not load final payment.', 'error');
+    const preview = response.data.preview || {};
+    const overlay = el('payment-preview-overlay');
+    if (el('payment-preview-sub')) el('payment-preview-sub').textContent = `Payment #${preview.payment_number || '-'} - Order ${preview.order_number || '-'}`;
+    if (el('payment-preview-content')) el('payment-preview-content').innerHTML = renderPrintablePayment(preview);
+    overlay?.classList.add('open');
+  }
+
   function activateWorkbookTabs(container) {
     container?.querySelectorAll('.workbook-tab').forEach(tab => tab.addEventListener('click', () => {
       const index = tab.dataset.sheetIndex;
@@ -449,6 +489,7 @@
     const list = el('requisition-preview-list');
     const confirm = el('requisition-preview-confirm');
     const cancel = el('requisition-preview-cancel');
+    const print = el('requisition-preview-print');
     const blockedById = {};
     (data.blocked || []).forEach(item => {
       if (item.farmer?.id) blockedById[item.farmer.id] = item.missing || [];
@@ -468,6 +509,7 @@
         : deps.batchClientRows(allFarmers, blockedById));
     if (!readOnly) activateWorkbookTabs(list);
     confirm.hidden = readOnly;
+    if (print) print.hidden = !readOnly;
     confirm.disabled = readOnly || (data.blocked_count || 0) > 0 || !(data.ready_count || 0);
     confirm.textContent = confirm.disabled && !readOnly ? 'Resolve Blocked Items' : 'Generate and Save Excel';
     if (cancel) cancel.textContent = readOnly ? 'Close Preview' : 'Back';
@@ -688,6 +730,8 @@
         const batchOverlay = event.target.closest('#batch-detail-overlay');
         if (batchOverlay && event.target === batchOverlay) batchOverlay.classList.remove('open');
         if (event.target.closest('#payment-preview-close, #payment-preview-done')) el('payment-preview-overlay')?.classList.remove('open');
+        if (event.target.closest('#payment-preview-print')) printDocument('#payment-preview-content .payment-print-preview');
+        if (event.target.closest('#requisition-preview-print')) printDocument('#requisition-preview-list .requisition-print-preview');
         const paymentOverlay = event.target.closest('#payment-preview-overlay');
         if (paymentOverlay && event.target === paymentOverlay) paymentOverlay.classList.remove('open');
       });
@@ -705,6 +749,8 @@
     openBatchDetail,
     openInvoiceOverlay,
     openPaymentPreview,
+    openFinalOrderHistory,
+    openFinalPaymentHistory,
     updateBatchPanel,
   };
 })();

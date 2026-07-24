@@ -76,6 +76,8 @@ from .portal_views import (
     portal_payment_preview_data,
     portal_payment_document_preview,
     portal_payment_document_finalize,
+    portal_document_history,
+    portal_payment_document_detail,
     portal_all_cases,
     portal_deferred,
     portal_farmer_detail,
@@ -187,6 +189,8 @@ urlpatterns = [
     path('portal/payment-documents/<str:order_number>/preview-data/', portal_auth_required(portal_payment_preview_data), name='portal_payment_preview_data'),
     path('portal/payment-documents/<str:order_number>/preview/', portal_auth_required(portal_payment_document_preview), name='portal_payment_document_preview'),
     path('portal/payment-documents/<str:order_number>/finalize/', portal_auth_required(portal_payment_document_finalize), name='portal_payment_document_finalize'),
+    path('portal/document-history/', portal_auth_required(portal_document_history), name='portal_document_history'),
+    path('portal/payment-document-history/<str:document_id>/', portal_auth_required(portal_payment_document_detail), name='portal_payment_document_detail'),
     # All cases + deferred
     path('portal/farmers/', portal_auth_required(portal_all_cases), name='portal_all_cases'),
     path('portal/farmers/<str:farmer_id>/', portal_auth_required(portal_farmer_detail), name='portal_farmer_detail'),
