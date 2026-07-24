@@ -38,7 +38,9 @@
   }
 
   function fieldHasProblem(row, fieldName) {
-    if (fieldName === 'Application Action') return false;
+    // Application Action has a safe default and Cleaning Notes is purely
+    // informational. Neither field should receive validation highlighting.
+    if (['Application Action', 'Cleaning Notes'].includes(fieldName)) return false;
     if (fieldName !== 'Cleaning Notes' && isBlank(row[fieldName])) return true;
     if (!isReview(row)) return false;
     const notes = rowNotes(row);
@@ -53,9 +55,6 @@
     }
     if (fieldName === 'Secondary Phone') {
       return notes.includes('secondary phone');
-    }
-    if (fieldName === 'Cleaning Notes') {
-      return true;
     }
     return isBlank(row[fieldName]) && notes.includes(fieldName.toLowerCase());
   }
