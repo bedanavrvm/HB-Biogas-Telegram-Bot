@@ -970,7 +970,6 @@
       getCookie,
       openPortalLink,
       portalApi,
-      previewPayment: portalRequisitions.openPaymentPreview,
       setButtonLoading,
       showToast,
       summaryGrid,

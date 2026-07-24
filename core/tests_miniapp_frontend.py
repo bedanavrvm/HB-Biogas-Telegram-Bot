@@ -243,6 +243,16 @@ class MiniAppFrontendSmokeTests(TestCase):
         ):
             self.assertIn(expected, source)
 
+    def test_order_and_invoice_surfaces_do_not_expose_payment_actions(self):
+        requisitions = Path('core/static/miniapp/portal_requisitions.js').read_text(encoding='utf-8')
+        invoices = Path('core/static/miniapp/portal_invoices.js').read_text(encoding='utf-8')
+        template = Path('core/templates/portal/portal.html').read_text(encoding='utf-8')
+
+        for forbidden in ('id="batch-payment-readiness"', 'id="batch-payment-preview"', 'id="batch-payment-final"'):
+            self.assertNotIn(forbidden, requisitions)
+        self.assertNotIn('invoice-payment-preview-action', invoices)
+        self.assertNotIn('id="batch-detail-payment-result"', template)
+
     def test_queue_apps_keep_fragment_fallback_paths(self):
         expectations = {
             'core/static/miniapp/complaint_cases.js': (

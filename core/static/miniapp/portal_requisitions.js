@@ -473,14 +473,12 @@
     const summary = el('batch-detail-summary');
     const actions = el('batch-detail-actions');
     const invoiceResult = el('batch-detail-invoice-result');
-    const paymentResult = el('batch-detail-payment-result');
     const clients = el('batch-detail-clients');
     title.textContent = `Order ${orderNumber}`;
     sub.textContent = 'Loading batch details...';
     summary.innerHTML = '';
     actions.innerHTML = '';
     invoiceResult.innerHTML = '';
-    if (paymentResult) paymentResult.innerHTML = '';
     clients.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
     overlay.classList.add('open');
 
@@ -503,10 +501,6 @@
       ${hasRequisitionOutput ? `<button class="btn btn-primary" id="batch-detail-download">Open Saved Excel</button>` : '<button class="btn btn-primary" id="batch-detail-generate">Generate and Save Excel</button><span class="badge badge-grey">No generated requisition form yet</span>'}
       <button class="btn btn-secondary" id="batch-detail-preview">Preview in App</button>
       <button class="btn btn-secondary" id="batch-detail-upload">Upload Invoices</button>
-      <button class="btn btn-secondary" id="batch-payment-readiness">Check Payment</button>
-      <label class="payment-number-field"><span>Payment No.</span><input id="batch-payment-number" inputmode="numeric" pattern="[0-9]*" maxlength="20" placeholder="e.g. 89" aria-label="Payment number"></label>
-      <button class="btn btn-secondary" id="batch-payment-preview">Preview Payment in App</button>
-      <button class="btn btn-primary" id="batch-payment-final">Generate Final Payment</button>
     `;
     if (inv.last_invoice_upload_status) {
       const cls = inv.last_invoice_upload_status === 'success' ? 'badge-green' : inv.last_invoice_upload_status === 'partial' ? 'badge-orange' : 'badge-red';
@@ -756,8 +750,7 @@
           + '#requisition-preview-workbook, #requisition-preview-close, '
           + '#requisition-preview-cancel, #batch-detail-close, '
           + '#batch-detail-download, #batch-detail-generate, #batch-detail-preview, '
-          + '#batch-detail-upload, #batch-payment-readiness, '
-          + '#batch-payment-preview, #batch-payment-final'
+          + '#batch-detail-upload'
         );
         if (action) {
           event.preventDefault();
@@ -779,9 +772,6 @@
             }, action);
           }
           else if (action.id === 'batch-detail-upload') openInvoiceOverlay(activeBatch.order_number);
-          else if (action.id === 'batch-payment-readiness') checkPaymentReadiness(activeBatch.order_number);
-          else if (action.id === 'batch-payment-preview') openPaymentPreview(activeBatch.order_number, action);
-          else if (action.id === 'batch-payment-final') generatePaymentDocument(activeBatch.order_number, true, action);
           else el('requisition-preview-overlay')?.classList.remove('open');
           return;
         }

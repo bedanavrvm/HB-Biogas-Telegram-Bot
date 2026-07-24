@@ -241,12 +241,6 @@
     const batch = data.batch || {};
     const events = data.events || [];
     const duplicates = data.duplicates || [];
-    const readiness = invoice.payment_readiness || {};
-    const blocked = readiness.blocked || [];
-    const currentBlocked = blocked.filter(function (item) {
-      return String(item.farmer_id || '') === String(invoice.matched_farmer_id || '');
-    });
-    const otherBlockedCount = Math.max(0, blocked.length - currentBlocked.length);
     const sourceLink = data.source_pdf_url
       ? '<button class="btn btn-secondary invoice-drive-link" data-url="' + escapeHtml(data.source_pdf_url) + '">Open source PDF</button>'
       : '<span class="badge badge-grey">No source PDF link</span>';
@@ -261,15 +255,6 @@
         return '<div class="batch-client-row"><div class="name">' + escapeHtml(event.action || '-') + ' ' + (event.actor ? '<span class="meta">by ' + escapeHtml(event.actor) + '</span>' : '') + '</div><div class="meta">' + escapeHtml(fmtDate(event.created_at)) + (event.note ? ' | ' + escapeHtml(event.note) : '') + '</div></div>';
       }).join('')
       : '<div class="empty-state"><div class="es-title">No audit events yet</div></div>';
-    const blockedHtml = currentBlocked.length
-      ? '<div class="batch-warning" style="margin-top:8px;">' + currentBlocked.map(function (item) {
-        const missing = Array.isArray(item.missing) && item.missing.length ? item.missing.join(', ') : 'missing required fields';
-        return escapeHtml(missing);
-      }).join('<br>') + '</div>'
-      : '';
-    const paymentAction = invoice.matched_order_number
-      ? '<button class="btn btn-primary invoice-payment-preview-action" data-order="' + escapeHtml(invoice.matched_order_number) + '"' + (readiness.blocked_count > 0 || readiness.error ? ' disabled' : '') + '>Generate payment preview</button>'
-      : '';
     target.innerHTML = [
       '<div class="batch-client-list">',
       '<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;flex-wrap:wrap;">',
@@ -281,13 +266,8 @@
       '<span class="badge badge-grey">Amount: ' + money(invoice.invoice_amount) + '</span>',
       '<span class="badge badge-grey">Payment: ' + money(invoice.payment) + '</span>',
       '<span class="badge badge-grey">Balance: ' + money(invoice.balance_due) + '</span>',
-      readiness.error ? '<span class="badge badge-red">Readiness unavailable</span>' : '',
-      currentBlocked.length ? '<span class="badge badge-orange">This client blocks payment</span>' : '',
-      otherBlockedCount ? '<span class="badge badge-grey">' + escapeHtml(otherBlockedCount) + ' other client(s) still block the order payment</span>' : '',
-      readiness.ready_count > 0 && !readiness.blocked_count ? '<span class="badge badge-green">Payment ready</span>' : '',
       '</div>',
-      blockedHtml,
-      '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">' + sourceLink + paymentAction + '</div>',
+      '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">' + sourceLink + '</div>',
       '</div>',
       '<div class="form-section">',
       '<h3 style="font-size:14px;margin:0 0 8px;">Parsed fields</h3>',
@@ -315,9 +295,6 @@
         else window.open(btn.dataset.url, '_blank', 'noopener');
       });
     });
-    target.querySelectorAll('.invoice-payment-preview-action').forEach(function (btn) {
-      btn.addEventListener('click', function () { generatePaymentPreview(btn.dataset.order); });
-    });
   }
 
   async function openInvoiceDetail(invoiceId) {
@@ -336,12 +313,6 @@
 
   function closeInvoiceDetail() {
     el('invoice-detail-overlay')?.classList.remove('open');
-  }
-
-  async function generatePaymentPreview(orderNumber) {
-    if (!orderNumber) return;
-    if (deps.previewPayment) deps.previewPayment(orderNumber);
-    else deps.showToast('Payment preview is unavailable.', 'error');
   }
 
   async function searchCandidates() {
