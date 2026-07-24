@@ -136,11 +136,21 @@ def user_access(user, workflow: str, *, group_configuration=None) -> dict:
     if not user or not user.is_active:
         return {'authorized': False, 'roles': [], 'branches': [], 'products': [], 'grants': []}
     grants = AccessGrant.objects.filter(user=user, workflow=workflow, active=True)
+    database_group = database_group_configuration(group_configuration)
     if group_configuration is not None:
-        grants = grants.filter(group_configuration__in=[None, group_configuration])
+        if database_group is None:
+            grants = grants.filter(group_configuration__isnull=True)
+        else:
+            grants = grants.filter(group_configuration__in=[None, database_group])
     grants = list(grants.select_related('group_configuration'))
     roles = {name for name in user.groups.values_list('name', flat=True)}
     roles.update(grant.role for grant in grants if grant.role)
+    if user.is_superuser:
+        roles.add({
+            'jawabu_portal': 'ADMIN',
+            'complaint_cases': 'MANAGER',
+            'tat_tracker': 'ADMIN',
+        }.get(workflow, 'ADMIN'))
     return {
         'authorized': bool(user.is_superuser or grants),
         'roles': sorted(roles),
@@ -148,6 +158,19 @@ def user_access(user, workflow: str, *, group_configuration=None) -> dict:
         'products': sorted({grant.product for grant in grants if grant.product}),
         'grants': grants,
     }
+
+
+def database_group_configuration(group_configuration):
+    """Resolve runtime GroupConfig values to their database configuration row."""
+    if group_configuration is None:
+        return None
+    from core.models import GroupSheetConfiguration
+    if isinstance(group_configuration, GroupSheetConfiguration):
+        return group_configuration
+    group_id = str(getattr(group_configuration, 'group_id', '') or '').strip()
+    if not group_id:
+        return None
+    return GroupSheetConfiguration.objects.filter(group_id=group_id).first()
 
 
 def username_for_telegram_id(telegram_id: str) -> str:

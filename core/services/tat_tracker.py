@@ -366,11 +366,17 @@ def configured_bro_names(workflow: dict | None, group_config=None) -> list[str]:
     }
     if group_config is not None:
         from core.models import AccessGrant
+        from core.services.telegram_identity import database_group_configuration
+        database_group = database_group_configuration(group_config)
         grants = AccessGrant.objects.filter(
             workflow='tat_tracker', role__iexact='BRO', active=True,
             user__is_active=True,
-            group_configuration__in=[None, group_config],
-        ).select_related('user')
+        )
+        if database_group is None:
+            grants = grants.filter(group_configuration__isnull=True)
+        else:
+            grants = grants.filter(group_configuration__in=[None, database_group])
+        grants = grants.select_related('user')
         names.update(
             grant.user.get_full_name() or grant.user.get_username()
             for grant in grants

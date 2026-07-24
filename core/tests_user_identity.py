@@ -285,3 +285,37 @@ class TelegramUserAuthenticationTests(TestCase):
         self.assertIn('CA', tat_user['roles'])
         self.assertEqual(tat_user['branches'], ['Nairobi'])
         self.assertEqual(tat_user['products'], ['business'])
+
+    def test_tat_runtime_group_config_resolves_to_database_scope(self):
+        from core.services.group_config import GroupConfig
+        from core.services.tat_tracker import configured_bro_names, staff_user_for_payload
+
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100-runtime', sheet_id='runtime-sheet', sheet_name='TAT', enabled=True,
+        )
+        AccessGrant.objects.create(
+            user=self.user, workflow='tat_tracker', role='BRO', branch='Nairobi',
+            product='business', group_configuration=config,
+        )
+        runtime_config = GroupConfig(
+            group_id=config.group_id, sheet_id=config.sheet_id,
+            sheet_name=config.sheet_name, workflow={'type': 'tat_tracker'},
+        )
+
+        resolved = staff_user_for_payload(runtime_config, {'id': 12345, 'username': 'unified_user'})
+        names = configured_bro_names(runtime_config.workflow, runtime_config)
+
+        self.assertTrue(resolved['authorized'])
+        self.assertIn('BRO', resolved['roles'])
+        self.assertIn(self.user.get_full_name() or self.user.get_username(), names)
+
+    def test_superuser_receives_workflow_admin_roles_without_explicit_grants(self):
+        from core.services.telegram_identity import user_access
+
+        superuser = get_user_model().objects.create_superuser(
+            username='global-superuser', email='super@example.test', password='test-password',
+        )
+
+        self.assertIn('ADMIN', user_access(superuser, 'jawabu_portal')['roles'])
+        self.assertIn('MANAGER', user_access(superuser, 'complaint_cases')['roles'])
+        self.assertIn('ADMIN', user_access(superuser, 'tat_tracker')['roles'])
