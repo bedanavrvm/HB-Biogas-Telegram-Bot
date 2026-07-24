@@ -2,9 +2,9 @@
 
 {% block content %}
 <div id="content-main">
-  <h1>Repair TAT sheet values</h1>
+  <h1>Repair TAT event Sheet status</h1>
   <p><strong>{{ config.display_name|default:config.group_id }}</strong> &mdash; {{ config.group_id }}</p>
-  <p>This operation re-writes Django-owned TAT values only. It does not create rows; cases without a stored row number are skipped.</p>
+  <p>This operation re-writes each case's current Django-owned values to its primary product Sheet. After a successful write, pending events are marked as synced to that Sheet and row. It does not write to the unused AUDIT LOG, and cases without a stored row number are skipped.</p>
 
   {% if confirmation_error %}
     <p class="errornote" role="alert">{{ confirmation_error }}</p>

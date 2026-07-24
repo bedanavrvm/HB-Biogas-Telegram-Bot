@@ -884,6 +884,7 @@ def sync_tat_batch_created_cases(group_config, cases: list[TatTrackerCase]) -> d
             for case in product_cases:
                 case.sync_error = error
                 case.save(update_fields=['sync_error', 'updated_at'])
+                mark_case_events_sync_failed(case, error)
                 result['failed'].append(f'{case.case_id}: {error}')
             continue
         sheet = service._sheet
@@ -904,6 +905,7 @@ def sync_tat_batch_created_cases(group_config, cases: list[TatTrackerCase]) -> d
                 case.last_synced_at = now
                 case.sync_error = ''
                 case.save(update_fields=['row_number', 'sheet_name', 'last_synced_at', 'sync_error', 'updated_at'])
+                mark_case_events_synced(case, synced_at=now)
                 result['synced'] += 1
         except Exception as exc:
             logger.exception('TAT batch sheet sync failed for product %s', product_key)
@@ -911,6 +913,7 @@ def sync_tat_batch_created_cases(group_config, cases: list[TatTrackerCase]) -> d
             for case in product_cases:
                 case.sync_error = error
                 case.save(update_fields=['sync_error', 'updated_at'])
+                mark_case_events_sync_failed(case, error)
                 result['failed'].append(f'{case.case_id}: {error}')
     return result
 
@@ -1052,6 +1055,7 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
     if not service.is_available():
         case.sync_error = 'Google Sheets service unavailable.'
         case.save(update_fields=['sync_error', 'updated_at'])
+        mark_case_events_sync_failed(case, case.sync_error)
         raise RuntimeError(case.sync_error)
     sheet = service._sheet
     try:
@@ -1069,23 +1073,38 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
             row = append_case_row(sheet, row_data)
         case.row_number = row
         case.sheet_name = product.sheet_name
-        case.last_synced_at = timezone.now()
+        synced_at = timezone.now()
+        case.last_synced_at = synced_at
         case.sync_error = ''
         case.save(update_fields=['row_number', 'sheet_name', 'last_synced_at', 'sync_error', 'updated_at'])
+        mark_case_events_synced(case, synced_at=synced_at)
         if should_sync_secondary_sheets(group_config):
             try:
                 sync_case_index(group_config, case)
             except Exception as exc:
                 logger.warning('TAT tracker CASE_INDEX sync failed for %s: %s', case.case_id, exc, exc_info=True)
-            try:
-                sync_audit_log(group_config, case)
-            except Exception as exc:
-                logger.warning('TAT tracker AUDIT LOG sync failed for %s: %s', case.case_id, exc, exc_info=True)
     except Exception as exc:
         case.sync_error = str(exc)
         case.save(update_fields=['sync_error', 'updated_at'])
+        mark_case_events_sync_failed(case, case.sync_error)
         logger.exception('TAT tracker sheet sync failed for %s', case.case_id)
         raise
+
+
+def mark_case_events_synced(case: TatTrackerCase, *, synced_at=None) -> int:
+    """Mark pending events once their resulting case state reaches the primary sheet."""
+    return case.events.filter(synced_to_sheet=False).update(
+        synced_to_sheet=True,
+        synced_at=synced_at or timezone.now(),
+        sheet_name=case.sheet_name,
+        row_number=case.row_number,
+        sync_error='',
+    )
+
+
+def mark_case_events_sync_failed(case: TatTrackerCase, error: str) -> int:
+    """Keep pending events retryable and expose the primary-sheet failure reason."""
+    return case.events.filter(synced_to_sheet=False).update(sync_error=str(error or 'Sheet sync failed.'))
 
 
 def build_tat_sheet_row_data(

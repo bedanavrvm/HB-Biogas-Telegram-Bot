@@ -1041,7 +1041,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
     list_display = [
         'display_label', 'group_id', 'enabled', 'sheet_name',
         'sheet_link', 'live_records_link', 'data_records_link',
-        'media_records_link', 'updated_at',
+        'media_records_link', 'tat_repair_link', 'updated_at',
     ]
     list_filter = ['enabled', 'sheet_name', 'updated_at']
     search_fields = ['group_id', 'display_name', 'sheet_id', 'sheet_name']
@@ -1198,7 +1198,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
 
         context = {
             **self.admin_site.each_context(request),
-            'title': 'Repair TAT sheet values',
+            'title': 'Repair TAT event Sheet status',
             'opts': self.model._meta,
             'config': config,
             'product_options': product_options,
@@ -1262,12 +1262,12 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
             actions.pop('publish_jbl_apps_launchers', None)
         return actions
 
-    @admin.display(description='Repair TAT values')
+    @admin.display(description='Repair TAT event sync')
     def tat_repair_link(self, obj):
         if not obj or not obj.pk or not is_tat_tracker_workflow(obj):
             return '-'
         url = reverse('admin:core_groupsheetconfiguration_tat_repair', args=[obj.pk])
-        return format_html('<a class="button" href="{}">Preview / repair TAT values</a>', url)
+        return format_html('<a class="button" href="{}">Repair event Sheet status</a>', url)
 
     @admin.action(description='Publish / refresh JBL Apps launcher')
     def publish_jbl_apps_launchers(self, request, queryset):

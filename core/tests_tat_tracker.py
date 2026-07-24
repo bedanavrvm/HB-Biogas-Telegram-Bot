@@ -1089,6 +1089,50 @@ class TatTrackerWorkflowTest(TestCase):
             sync_case_to_sheet(self.config, case)
 
         self.assertEqual(sheet.updates[0][1][0][29], 60.0)
+        event.refresh_from_db()
+        self.assertTrue(event.synced_to_sheet)
+        self.assertIsNotNone(event.synced_at)
+        self.assertEqual(event.sheet_name, 'TRACKER-Business')
+        self.assertEqual(event.row_number, 5)
+        self.assertEqual(event.sync_error, '')
+
+    def test_primary_sheet_failure_keeps_event_unsynced_with_error(self):
+        class UnavailableService:
+            def is_available(self):
+                return False
+
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-Business',
+            case_id='JBL-BS-2026-SYNC-FAIL',
+            product_key='business',
+            product_label='Business',
+            client_name='Sync Failure Client',
+            national_id='12345678',
+            primary_phone='254712345678',
+            branch='Nakuru',
+            bro_name='BRO User',
+            amount='10000',
+            stage_values={'created': timezone.now().isoformat()},
+            status='Active',
+        )
+        event = TatTrackerEvent.objects.create(
+            case=case,
+            group_id=case.group_id,
+            stage_key='created',
+            stage_label='Case Created',
+            new_value='Created',
+        )
+
+        with patch('core.services.tat_tracker.get_sheets_service', return_value=UnavailableService()):
+            with self.assertRaisesRegex(RuntimeError, 'Google Sheets service unavailable'):
+                sync_case_to_sheet(self.config, case)
+
+        event.refresh_from_db()
+        self.assertFalse(event.synced_to_sheet)
+        self.assertIsNone(event.synced_at)
+        self.assertEqual(event.sync_error, 'Google Sheets service unavailable.')
 
     def test_sync_case_to_sheet_writes_mjengo_dropdown_values_not_stage_timestamps(self):
         class FakeSheet:
@@ -1432,7 +1476,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(sheet.updates[0][1][0][33], 25.0)
 
     @override_settings(TAT_TRACKER_SYNC_SECONDARY_SHEETS=False)
-    def test_sync_case_to_sheet_allows_workflow_secondary_sheet_override(self):
+    def test_secondary_sheet_override_syncs_index_but_not_unused_audit_log(self):
         class FakeSheet:
             def row_values(self, _row):
                 return [''] * 20
@@ -1471,7 +1515,7 @@ class TatTrackerWorkflowTest(TestCase):
             sync_case_to_sheet(self.config, case)
 
         index_mock.assert_called_once_with(self.config, case)
-        audit_mock.assert_called_once_with(self.config, case)
+        audit_mock.assert_not_called()
 
     def test_calculated_tat_values_use_aware_datetimes_and_ongoing_now(self):
         case = TatTrackerCase(
