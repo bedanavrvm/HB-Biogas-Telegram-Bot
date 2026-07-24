@@ -66,52 +66,6 @@
       }).join('');
   }
 
-  function renderBatches(batches) {
-    const target = el('invoice-pool-batches');
-    if (!target) return;
-    if (!batches.length) {
-      target.innerHTML = '<div class="empty-state"><div class="es-title">No invoice uploads yet</div><div class="es-sub">Upload an HB invoice PDF to start the pool.</div></div>';
-      return;
-    }
-    target.innerHTML = batches.map(function (batch) {
-      const drive = batch.drive_url
-        ? '<button class="btn btn-secondary invoice-drive-link" data-url="' + escapeHtml(batch.drive_url) + '">Open PDF</button>'
-        : '<span class="badge badge-grey">No Drive link</span>';
-      return [
-        '<div class="farmer-card batch-card" style="cursor:default;">',
-        '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;">',
-        '<div>',
-        '<div class="fc-name">' + escapeHtml(batch.original_filename || 'Invoice upload') + '</div>',
-        '<div class="fc-sub">' + escapeHtml(fmtDate(batch.created_at)) + (batch.uploaded_by ? ' | ' + escapeHtml(batch.uploaded_by) : '') + '</div>',
-        '<div class="fc-badges">',
-        '<span class="badge ' + badgeClass(batch.status) + '">' + escapeHtml(batch.status || '-') + '</span>',
-        '<span class="badge badge-grey">' + escapeHtml(batch.total_parsed || 0) + ' parsed</span>',
-        '<span class="badge badge-green">' + escapeHtml(batch.matched_count || 0) + ' matched</span>',
-        '<span class="badge badge-orange">' + escapeHtml(batch.unmatched_count || 0) + ' unmatched</span>',
-        '</div>',
-        batch.error ? '<div class="batch-warning" style="margin-top:8px;">' + escapeHtml(batch.error) + '</div>' : '',
-        '</div>',
-        '<div style="display:flex;gap:8px;flex-wrap:wrap;">',
-        '<button class="btn btn-secondary invoice-batch-filter" data-batch="' + escapeHtml(batch.id) + '">View invoices</button>',
-        drive,
-        '</div>',
-        '</div>',
-        '</div>',
-      ].join('');
-    }).join('');
-    target.querySelectorAll('.invoice-drive-link').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        if (deps.openPortalLink) deps.openPortalLink(btn.dataset.url);
-        else window.open(btn.dataset.url, '_blank', 'noopener');
-      });
-    });
-    target.querySelectorAll('.invoice-batch-filter').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        load(1, { batch_id: btn.dataset.batch || '' });
-      });
-    });
-  }
-
   function updateBulkToolbar() {
     const toolbar = el('invoice-bulk-toolbar');
     const count = el('invoice-selected-count');
@@ -129,8 +83,8 @@
     }
     target.innerHTML = invoices.map(function (invoice) {
       const matched = invoice.matched_farmer_name || invoice.matched_order_number
-        ? '<div class="fc-sub">Matched: ' + escapeHtml(invoice.matched_farmer_name || '-') + (invoice.matched_order_number ? ' | Order ' + escapeHtml(invoice.matched_order_number) : '') + '</div>'
-        : '<div class="fc-sub">No customer/order match yet</div>';
+        ? '<span>Matched: ' + escapeHtml(invoice.matched_farmer_name || '-') + (invoice.matched_order_number ? ' | Order ' + escapeHtml(invoice.matched_order_number) : '') + '</span>'
+        : '';
       const readiness = invoice.payment_readiness || {};
       const readinessBadge = invoice.status === 'matched' && invoice.matched_order_number
         ? readiness.error
@@ -151,30 +105,27 @@
       ].join('');
       const checked = state.selectedIds.has(invoice.id) ? ' checked' : '';
       return [
-        '<div class="farmer-card batch-card" style="cursor:default;">',
-        '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;">',
-        '<div style="display:flex;gap:10px;align-items:flex-start;">',
+        '<article class="farmer-card invoice-pool-card">',
+        '<div class="invoice-card-main">',
         '<input type="checkbox" class="invoice-select-row" data-invoice="' + escapeHtml(invoice.id) + '" aria-label="Select invoice ' + escapeHtml(invoice.invoice_no || '') + '"' + checked + '>',
-        '<div>',
-        '<div class="fc-name">Invoice ' + escapeHtml(invoice.invoice_no || '-') + '</div>',
-        '<div class="fc-sub">' + escapeHtml(invoice.customer_name || 'Unknown customer') + ' | ID ' + escapeHtml(invoice.customer_id || '-') + ' | ' + escapeHtml(invoice.customer_phone || '-') + '</div>',
-        matched,
-        '<div class="fc-sub">' + escapeHtml(invoice.batch_filename || '-') + ' | Page ' + escapeHtml(invoice.page || '-') + ' | ' + escapeHtml(fmtDate(invoice.invoice_date)) + '</div>',
-        '<div class="fc-badges">',
-        '<span class="badge ' + badgeClass(invoice.status) + '">' + escapeHtml(invoice.status || '-') + '</span>',
+        '<div class="invoice-card-content">',
+        '<div class="invoice-card-heading"><div class="fc-name">Invoice ' + escapeHtml(invoice.invoice_no || '-') + '</div><span class="badge ' + badgeClass(invoice.status) + '">' + escapeHtml(invoice.status || '-') + '</span></div>',
+        '<div class="invoice-card-customer">' + escapeHtml(invoice.customer_name || 'Unknown customer') + '</div>',
+        '<div class="invoice-card-meta"><span>ID ' + escapeHtml(invoice.customer_id || '-') + '</span><span>' + escapeHtml(invoice.customer_phone || '-') + '</span>' + matched + '</div>',
+        '<div class="invoice-card-meta"><span>' + escapeHtml(invoice.batch_filename || '-') + '</span><span>Page ' + escapeHtml(invoice.page || '-') + '</span><span>' + escapeHtml(fmtDate(invoice.invoice_date)) + '</span></div>',
+        '<div class="fc-badges invoice-card-money">',
         '<span class="badge badge-grey">Amount: ' + money(invoice.invoice_amount) + '</span>',
         '<span class="badge badge-grey">Payment: ' + money(invoice.payment) + '</span>',
         '<span class="badge badge-grey">Balance: ' + money(invoice.balance_due) + '</span>',
         readinessBadge,
         duplicateBadge,
         '</div>',
-        invoice.balance_due_check ? '<div class="fc-sub">Balance check: ' + escapeHtml(invoice.balance_due_check) + '</div>' : '',
-        invoice.review_notes ? '<div class="batch-warning" style="margin-top:8px;">' + escapeHtml(invoice.review_notes) + '</div>' : '',
+        invoice.balance_due_check && String(invoice.balance_due_check).toLowerCase() !== 'ok' ? '<div class="invoice-card-warning">Balance check: ' + escapeHtml(invoice.balance_due_check) + '</div>' : '',
+        invoice.review_notes ? '<div class="invoice-card-warning">' + escapeHtml(invoice.review_notes) + '</div>' : '',
         '</div>',
         '</div>',
-        '<div style="display:flex;gap:8px;flex-wrap:wrap;">' + actions + '</div>',
-        '</div>',
-        '</div>',
+        '<div class="invoice-card-actions">' + actions + '</div>',
+        '</article>',
       ].join('');
     }).join('');
     const visibleIds = new Set(invoices.map(function (invoice) { return invoice.id; }));
@@ -244,7 +195,6 @@
       return;
     }
     renderSummary(result.data.summary || {});
-    renderBatches(result.data.batches || []);
     renderInvoices(result.data.invoices || []);
     renderPagination(result.data.pagination || {});
     if (window.lucide) window.lucide.createIcons();
@@ -281,7 +231,7 @@
   }
 
   function kv(label, value) {
-    return '<div class="batch-client-row"><div class="meta">' + escapeHtml(label) + '</div><div class="name">' + escapeHtml(value || '-') + '</div></div>';
+    return '<div class="invoice-detail-field"><div class="meta">' + escapeHtml(label) + '</div><div class="name">' + escapeHtml(value || '-') + '</div></div>';
   }
 
   function renderInvoiceDetail(data) {
@@ -293,6 +243,10 @@
     const duplicates = data.duplicates || [];
     const readiness = invoice.payment_readiness || {};
     const blocked = readiness.blocked || [];
+    const currentBlocked = blocked.filter(function (item) {
+      return String(item.farmer_id || '') === String(invoice.matched_farmer_id || '');
+    });
+    const otherBlockedCount = Math.max(0, blocked.length - currentBlocked.length);
     const sourceLink = data.source_pdf_url
       ? '<button class="btn btn-secondary invoice-drive-link" data-url="' + escapeHtml(data.source_pdf_url) + '">Open source PDF</button>'
       : '<span class="badge badge-grey">No source PDF link</span>';
@@ -307,11 +261,10 @@
         return '<div class="batch-client-row"><div class="name">' + escapeHtml(event.action || '-') + ' ' + (event.actor ? '<span class="meta">by ' + escapeHtml(event.actor) + '</span>' : '') + '</div><div class="meta">' + escapeHtml(fmtDate(event.created_at)) + (event.note ? ' | ' + escapeHtml(event.note) : '') + '</div></div>';
       }).join('')
       : '<div class="empty-state"><div class="es-title">No audit events yet</div></div>';
-    const blockedHtml = blocked.length
-      ? '<div class="batch-warning" style="margin-top:8px;">' + blocked.map(function (item) {
-        const name = item.customer_name || item.customer_no || item.farmer_id || 'record';
+    const blockedHtml = currentBlocked.length
+      ? '<div class="batch-warning" style="margin-top:8px;">' + currentBlocked.map(function (item) {
         const missing = Array.isArray(item.missing) && item.missing.length ? item.missing.join(', ') : 'missing required fields';
-        return escapeHtml(name + ': ' + missing);
+        return escapeHtml(missing);
       }).join('<br>') + '</div>'
       : '';
     const paymentAction = invoice.matched_order_number
@@ -329,7 +282,8 @@
       '<span class="badge badge-grey">Payment: ' + money(invoice.payment) + '</span>',
       '<span class="badge badge-grey">Balance: ' + money(invoice.balance_due) + '</span>',
       readiness.error ? '<span class="badge badge-red">Readiness unavailable</span>' : '',
-      readiness.blocked_count > 0 ? '<span class="badge badge-orange">Payment blocked: ' + escapeHtml(readiness.blocked_count) + '</span>' : '',
+      currentBlocked.length ? '<span class="badge badge-orange">This client blocks payment</span>' : '',
+      otherBlockedCount ? '<span class="badge badge-grey">' + escapeHtml(otherBlockedCount) + ' other client(s) still block the order payment</span>' : '',
       readiness.ready_count > 0 && !readiness.blocked_count ? '<span class="badge badge-green">Payment ready</span>' : '',
       '</div>',
       blockedHtml,
@@ -337,6 +291,7 @@
       '</div>',
       '<div class="form-section">',
       '<h3 style="font-size:14px;margin:0 0 8px;">Parsed fields</h3>',
+      '<div class="invoice-detail-grid">',
       kv('Batch', batch.original_filename || invoice.batch_filename),
       kv('Page', invoice.page),
       kv('Invoice date', invoice.invoice_date),
@@ -344,14 +299,15 @@
       kv('Matched farmer', invoice.matched_farmer_name),
       kv('Balance check', invoice.balance_due_check),
       '</div>',
-      '<div class="form-section">',
-      '<h3 style="font-size:14px;margin:0 0 8px;">Duplicate check</h3>',
+      '</div>',
+      '<details class="form-section"' + (duplicates.length ? ' open' : '') + '>',
+      '<summary>Duplicate check' + (duplicates.length ? ' (' + escapeHtml(duplicates.length) + ')' : '') + '</summary>',
       duplicateHtml,
-      '</div>',
-      '<div class="form-section">',
-      '<h3 style="font-size:14px;margin:0 0 8px;">Audit trail</h3>',
+      '</details>',
+      '<details class="form-section">',
+      '<summary>Audit trail (' + escapeHtml(events.length) + ')</summary>',
       eventHtml,
-      '</div>',
+      '</details>',
     ].join('');
     target.querySelectorAll('.invoice-drive-link').forEach(function (btn) {
       btn.addEventListener('click', function () {
@@ -531,20 +487,22 @@
   }
 
   function bindFilters() {
-    el('invoice-pool-status')?.addEventListener('change', function (event) {
-      state.status = event.target.value || '';
+    if (document.documentElement.dataset.invoiceFiltersBound === 'true') return;
+    document.documentElement.dataset.invoiceFiltersBound = 'true';
+    document.addEventListener('change', function (event) {
+      if (event.target.id === 'invoice-pool-status') state.status = event.target.value || '';
+      else if (event.target.id === 'invoice-pool-review') state.review = event.target.value || '';
+      else return;
       load(1);
     });
-    el('invoice-pool-review')?.addEventListener('change', function (event) {
-      state.review = event.target.value || '';
-      load(1);
-    });
-    el('invoice-pool-search')?.addEventListener('input', function (event) {
+    document.addEventListener('input', function (event) {
+      if (event.target.id !== 'invoice-pool-search') return;
       clearTimeout(searchTimer);
       state.search = event.target.value.trim();
       searchTimer = setTimeout(function () { load(1); }, 350);
     });
-    el('invoice-pool-clear')?.addEventListener('click', function () {
+    document.addEventListener('click', function (event) {
+      if (!event.target.closest('#invoice-pool-clear')) return;
       state.status = '';
       state.review = '';
       state.search = '';

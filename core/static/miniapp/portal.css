@@ -767,6 +767,32 @@
 .requisition-print-preview > footer { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 24px; color: #111827; font-size: 11px; }
 @media (max-width: 600px) { .requisition-print-preview > header, .requisition-print-preview > footer { grid-template-columns: 1fr; gap: 8px; } }
 
+.invoice-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.invoice-detail-field { min-width: 0; border: 1px solid var(--border-color); border-radius: 8px; padding: 9px; background: var(--bg-surface); }
+.invoice-detail-field .name { overflow-wrap: anywhere; }
+#invoice-detail-content details.form-section { padding: 0; overflow: hidden; }
+#invoice-detail-content details.form-section > summary { cursor: pointer; padding: 11px 12px; font-weight: 700; }
+#invoice-detail-content details.form-section > :not(summary) { margin: 0 10px 10px; }
+@media (max-width: 480px) { .invoice-detail-grid { grid-template-columns: 1fr 1fr; } }
+
+#invoice-pool-list { gap: 7px; }
+.invoice-pool-card { cursor: default; gap: 7px; padding: 10px 11px; }
+.invoice-card-main { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; align-items: start; }
+.invoice-card-main .invoice-select-row { margin: 2px 0 0; width: 18px; height: 18px; }
+.invoice-card-content { min-width: 0; }
+.invoice-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.invoice-card-customer { margin-top: 2px; color: var(--text-primary); font-size: 12px; font-weight: 650; }
+.invoice-card-meta { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 2px; color: var(--text-muted); font-size: 11px; line-height: 1.25; }
+.invoice-card-meta span { min-width: 0; overflow-wrap: anywhere; }
+.invoice-card-money { margin-top: 5px !important; }
+.invoice-card-warning { margin-top: 5px; border-left: 3px solid var(--color-warning); border-radius: 4px; background: rgba(255,149,0,.08); color: #8a5a00; padding: 5px 7px; font-size: 11px; line-height: 1.25; }
+.invoice-card-actions { display: flex; flex-wrap: wrap; gap: 6px; padding-left: 28px; }
+.invoice-card-actions .btn { min-height: 32px; padding: 5px 11px; font-size: 12px; }
+
+@media (min-width: 760px) {
+  #invoice-pool-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+}
+
 .case360 { margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 12px; }
 .case360-toggle { width: 100%; margin-top: 10px; }
 .case360-tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 10px; }
