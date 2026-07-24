@@ -28,6 +28,52 @@
     </ul>
   {% endif %}
 
+  {% if repair_job %}
+    <section class="module" id="repair-job" data-status-url="{{ repair_job_status_url }}">
+      <h2>Background repair progress</h2>
+      <p id="repair-job-status">Status: <strong>{{ repair_job.status }}</strong></p>
+      <progress id="repair-job-progress" value="{{ repair_job.processed_cases }}" max="{{ repair_job.total_cases|default:1 }}" style="width:100%;max-width:48rem"></progress>
+      <ul>
+        <li><span id="repair-processed">{{ repair_job.processed_cases }}</span> of <span id="repair-total">{{ repair_job.total_cases }}</span> case(s) processed.</li>
+        <li><span id="repair-synced">{{ repair_job.synced_cases }}</span> case(s) synced.</li>
+        <li><span id="repair-failed">{{ repair_job.failure_count }}</span> case(s) failed.</li>
+        <li>{{ repair_job.skipped_unlinked }} unlinked case(s) skipped.</li>
+      </ul>
+      <p id="repair-job-note">You may leave this page. Progress is saved after every case; reopening this job resumes an interrupted worker.</p>
+    </section>
+    <script>
+      (() => {
+        const root = document.getElementById('repair-job');
+        if (!root) return;
+        const poll = async () => {
+          try {
+            const response = await fetch(root.dataset.statusUrl, {headers: {'Accept': 'application/json'}});
+            const payload = await response.json();
+            if (!response.ok || !payload.ok) throw new Error(payload.error || 'Could not load repair status.');
+            const job = payload.job;
+            document.getElementById('repair-job-status').innerHTML = `Status: <strong>${job.status}</strong>`;
+            const progress = document.getElementById('repair-job-progress');
+            progress.max = Math.max(job.total_cases, 1); progress.value = job.processed_cases;
+            document.getElementById('repair-processed').textContent = job.processed_cases;
+            document.getElementById('repair-total').textContent = job.total_cases;
+            document.getElementById('repair-synced').textContent = job.synced_cases;
+            document.getElementById('repair-failed').textContent = job.failure_count;
+            if (job.complete) {
+              document.getElementById('repair-job-note').textContent = job.failure_count
+                ? 'Repair finished with failures. Review server logs for the affected case IDs.'
+                : 'Repair completed successfully.';
+              return;
+            }
+          } catch (error) {
+            document.getElementById('repair-job-note').textContent = error.message;
+          }
+          window.setTimeout(poll, 2000);
+        };
+        window.setTimeout(poll, 750);
+      })();
+    </script>
+  {% else %}
+
   <form method="get">
     <fieldset class="module aligned">
       <div class="form-row">
@@ -65,5 +111,6 @@
       <input type="submit" value="Re-sync this batch">
     </div>
   </form>
+  {% endif %}
 </div>
 {% endblock %}

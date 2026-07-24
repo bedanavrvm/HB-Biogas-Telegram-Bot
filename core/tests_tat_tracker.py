@@ -17,7 +17,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.admin import TatTrackerStaffMemberAdminForm
-from core.models import GroupSheetConfiguration, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, TatTrackerStaffMember
+from core.models import GroupSheetConfiguration, TatRepairJob, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, TatTrackerStaffMember
 from core.api.views import _dispatch_tat_approval_certificate, _process_telegram_message
 from core.services.group_config import GroupRegistry
 from core.services.tat_tracker import (
@@ -2121,6 +2121,42 @@ class TatTrackerRepairTest(TestCase):
         self.assertEqual(result['skipped_unlinked'], 1)
         sync_case.assert_not_called()
 
+    @patch('core.services.tat_tracker.resync_tat_tracker_cases')
+    def test_background_repair_checkpoints_each_case(self, resync):
+        from core.services.tat_repair_jobs import create_repair_job, run_repair_job
+
+        resync.return_value = {'synced': 1, 'failed': []}
+        job = create_repair_job(self.config, product_key='business', requested_by='admin')
+
+        run_repair_job(job.id)
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, 'completed')
+        self.assertEqual(job.cursor, 1)
+        self.assertEqual(job.synced_cases, 1)
+        resync.assert_called_once_with(
+            self.config,
+            product_key='business',
+            case_ids=[self.repairable_case.case_id],
+            dry_run=False,
+            limit=None,
+            offset=0,
+        )
+
+    @patch('core.services.tat_tracker.resync_tat_tracker_cases')
+    def test_background_repair_records_failure_and_completes(self, resync):
+        from core.services.tat_repair_jobs import create_repair_job, run_repair_job
+
+        resync.return_value = {'synced': 0, 'failed': [{'case_id': self.repairable_case.case_id, 'error': 'quota'}]}
+        job = create_repair_job(self.config, product_key='business')
+
+        run_repair_job(job.id)
+
+        job.refresh_from_db()
+        self.assertEqual(job.status, 'completed_with_errors')
+        self.assertEqual(job.cursor, 1)
+        self.assertEqual(len(job.failures), 1)
+
     def test_apps_script_contains_an_explicit_formula_only_repair(self):
         source = (Path(__file__).resolve().parent.parent / 'tat_tracker_apps_script.gs').read_text(encoding='utf-8')
 
@@ -2154,6 +2190,7 @@ class TatTrackerRepairTest(TestCase):
         self.assertIn("'synced': 0", output.getvalue())
 
 
+@override_settings(SECURE_SSL_REDIRECT=False)
 class TatTrackerRepairAdminTest(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_superuser(
@@ -2197,8 +2234,9 @@ class TatTrackerRepairAdminTest(TestCase):
         self.assertEqual(response.status_code, 200)
         resync.assert_not_called()
 
+    @patch('core.services.tat_repair_jobs.start_repair_job')
     @patch('core.admin.resync_tat_tracker_cases')
-    def test_repair_page_writes_only_after_typed_confirmation(self, resync):
+    def test_repair_page_starts_background_job_after_typed_confirmation(self, resync, start_job):
         resync.return_value = {
             'total_candidates': 1,
             'candidates': 1,
@@ -2210,20 +2248,15 @@ class TatTrackerRepairAdminTest(TestCase):
         }
         self.client.get(self.url + '?product=business')
         resync.reset_mock()
-        resync.return_value = {
-            'total_candidates': 1,
-            'candidates': 1,
-            'synced': 1,
-            'skipped_unlinked': 0,
-            'failed': [],
-            'offset': 0,
-            'next_offset': None,
-        }
-
         response = self.client.post(self.url, {'confirm': 'REPAIR', 'product': 'business', 'offset': '0'})
 
         self.assertEqual(response.status_code, 302)
-        resync.assert_called_once_with(self.config, dry_run=False, limit=25, offset=0, product_key='business')
+        resync.assert_not_called()
+        job = TatRepairJob.objects.get()
+        self.assertEqual(job.product_key, 'business')
+        self.assertEqual(job.status, 'queued')
+        start_job.assert_called_once_with(job.id)
+        self.assertIn(f'job={job.id}', response['Location'])
 
     @patch('core.admin.resync_tat_tracker_cases')
     def test_repair_page_rejects_a_write_without_matching_preview(self, resync):

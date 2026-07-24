@@ -6,7 +6,7 @@ from django.contrib.auth.admin import GroupAdmin as DjangoGroupAdmin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.contrib.auth.models import Group
 from django.conf import settings
-from django.http import HttpResponseRedirect
+from django.http import HttpResponseRedirect, JsonResponse
 from django.template.response import TemplateResponse
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
@@ -60,6 +60,7 @@ from .models import (
     SpinBatchReviewItem,
     TatTrackerCase,
     TatTrackerEvent,
+    TatRepairJob,
     TatTrackerStaffMember,
 )
 
@@ -1206,6 +1207,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
             'offset': offset,
             'batch_limit': 25,
             'change_url': reverse('admin:core_groupsheetconfiguration_change', args=[config.pk]),
+            'status_url_template': reverse('admin:core_groupsheetconfiguration_tat_repair_status', args=[config.pk, '00000000-0000-0000-0000-000000000000']),
         }
         if request.method == 'POST':
             if request.POST.get('confirm') != 'REPAIR':
@@ -1219,42 +1221,54 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
             if request.session.get('tat_repair_preview') != preview_key:
                 context['confirmation_error'] = 'Preview this exact batch before running its repair.'
                 return TemplateResponse(request, 'admin/core/groupsheetconfiguration/tat_repair.html', context)
-            result = resync_tat_tracker_cases(
+            from core.services.tat_repair_jobs import create_repair_job, start_repair_job
+            job = create_repair_job(
                 config,
-                dry_run=False,
-                limit=25,
-                offset=offset,
                 product_key=selected_product,
+                requested_by=request.user.get_username(),
             )
-            if result['failed']:
-                self.message_user(request, f"TAT repair completed with {len(result['failed'])} failure(s). Review the result below.", level=messages.ERROR)
-            else:
-                self.message_user(request, f"Re-synced {result['synced']} TAT case(s) from Django.", level=messages.SUCCESS)
-            if not result['failed']:
-                query = {}
-                if selected_product:
-                    query['product'] = selected_product
-                if result['next_offset'] is not None:
-                    query['offset'] = result['next_offset']
-                url = request.path
-                if query:
-                    url = f'{url}?{urlencode(query)}'
-                return HttpResponseRedirect(url)
-            context['result'] = result
+            start_repair_job(job.id)
+            self.message_user(request, 'TAT repair started in the background. Progress is checkpointed after every case.', level=messages.SUCCESS)
+            return HttpResponseRedirect(f'{request.path}?job={job.id}')
         else:
-            context['preview'] = resync_tat_tracker_cases(
-                config,
-                dry_run=True,
-                limit=25,
-                offset=offset,
-                product_key=selected_product,
-            )
-            request.session['tat_repair_preview'] = {
-                'config_id': str(config.pk),
-                'product': selected_product,
-                'offset': offset,
-            }
+            job_id = str(request.GET.get('job') or '').strip()
+            if job_id:
+                job = TatRepairJob.objects.filter(pk=job_id, group_configuration=config).first()
+                if job:
+                    from core.services.tat_repair_jobs import serialize_repair_job, start_repair_job
+                    if job.status in {'queued', 'running'}:
+                        start_repair_job(job.id)
+                    context['repair_job'] = serialize_repair_job(job)
+                    context['repair_job_status_url'] = reverse(
+                        'admin:core_groupsheetconfiguration_tat_repair_status',
+                        args=[config.pk, job.id],
+                    )
+            if not context.get('repair_job'):
+                context['preview'] = resync_tat_tracker_cases(
+                    config,
+                    dry_run=True,
+                    limit=25,
+                    offset=offset,
+                    product_key=selected_product,
+                )
+                request.session['tat_repair_preview'] = {
+                    'config_id': str(config.pk),
+                    'product': selected_product,
+                    'offset': offset,
+                }
         return TemplateResponse(request, 'admin/core/groupsheetconfiguration/tat_repair.html', context)
+
+    def tat_repair_status_view(self, request, object_id, job_id):
+        config = self.get_object(request, object_id)
+        if config is None or not request.user.is_superuser:
+            raise PermissionDenied('Only superusers can view TAT repair jobs.')
+        job = TatRepairJob.objects.filter(pk=job_id, group_configuration=config).first()
+        if job is None:
+            return JsonResponse({'ok': False, 'error': 'Repair job not found.'}, status=404)
+        from core.services.tat_repair_jobs import serialize_repair_job, start_repair_job
+        if job.status in {'queued', 'running'}:
+            start_repair_job(job.id)
+        return JsonResponse({'ok': True, 'job': serialize_repair_job(job)})
 
     def get_actions(self, request):
         actions = super().get_actions(request)
@@ -1429,6 +1443,11 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 '<path:object_id>/tat-repair/',
                 self.admin_site.admin_view(self.tat_repair_view),
                 name='core_groupsheetconfiguration_tat_repair',
+            ),
+            path(
+                '<path:object_id>/tat-repair/<uuid:job_id>/status/',
+                self.admin_site.admin_view(self.tat_repair_status_view),
+                name='core_groupsheetconfiguration_tat_repair_status',
             ),
             path(
                 '<path:object_id>/analyze-sheet/',

@@ -724,6 +724,48 @@ class TatTrackerEvent(models.Model):
     def __str__(self):
         return f"{self.case.case_id} {self.stage_label or self.stage_key}"
 
+
+class TatRepairJob(models.Model):
+    """Persistent progress for an asynchronous TAT Sheet repair."""
+
+    STATUS_CHOICES = [
+        ('queued', 'Queued'),
+        ('running', 'Running'),
+        ('completed', 'Completed'),
+        ('completed_with_errors', 'Completed with errors'),
+        ('failed', 'Failed'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    group_configuration = models.ForeignKey(
+        'GroupSheetConfiguration',
+        on_delete=models.CASCADE,
+        related_name='tat_repair_jobs',
+    )
+    product_key = models.CharField(max_length=80, blank=True, default='', db_index=True)
+    case_ids = models.JSONField(blank=True, default=list)
+    cursor = models.PositiveIntegerField(default=0)
+    total_cases = models.PositiveIntegerField(default=0)
+    synced_cases = models.PositiveIntegerField(default=0)
+    skipped_unlinked = models.PositiveIntegerField(default=0)
+    failures = models.JSONField(blank=True, default=list)
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='queued', db_index=True)
+    worker_token = models.UUIDField(null=True, blank=True, editable=False)
+    heartbeat_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    error = models.TextField(blank=True, default='')
+    requested_by = models.CharField(max_length=255, blank=True, default='')
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['status', 'updated_at'])]
+
+    def __str__(self):
+        return f"TAT repair {self.id} ({self.status})"
+
 class LiveSheetRecordChange(models.Model):
     """Audit trail for Django admin edits and deletes applied to live sheet rows."""
 
