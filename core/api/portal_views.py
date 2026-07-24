@@ -912,6 +912,16 @@ def portal_requisition_preview(request):
         warnings.append({
             'message': f"Order number {order_number} already exists on {existing_order} other client(s). Generating will add/update this same batch.",
         })
+    workbook_preview = None
+    if not blocked:
+        from core.services.requisition import RequisitionTemplateError, generate_requisition_excel
+        from core.services.workbook_preview import serialize_workbook_preview
+        try:
+            workbook_preview = serialize_workbook_preview(
+                generate_requisition_excel(farmers, order_number, requisition_date)
+            )
+        except (RequisitionTemplateError, FileNotFoundError) as exc:
+            warnings.append({'message': f'Excel preview unavailable: {exc}'})
     return JsonResponse({
         'ok': True,
         'order_number': order_number,
@@ -922,6 +932,7 @@ def portal_requisition_preview(request):
         'ready': ready,
         'blocked': blocked,
         'warnings': warnings,
+        'workbook_preview': workbook_preview,
     })
 
 @csrf_exempt
@@ -1896,9 +1907,20 @@ def portal_payment_preview_data(request, order_number: str):
     for key in amount_keys:
         values = [row.get(key) for row in rows if row.get(key) not in (None, '')]
         totals[key] = str(sum(values)) if values else None
+    workbook_preview = None
+    if readiness.get('blocked_count', 0) == 0:
+        from core.services.payment_documents import generate_payment_workbook
+        from core.services.workbook_preview import serialize_workbook_preview
+        try:
+            workbook_bytes, _summary = generate_payment_workbook(order_number)
+            workbook_preview = serialize_workbook_preview(workbook_bytes)
+        except Exception as exc:
+            logger.exception('Payment workbook preview generation failed for order %s', order_number)
+            return JsonResponse({'ok': False, 'error': str(exc), 'preview': readiness}, status=400)
     return JsonResponse({'ok': readiness.get('blocked_count', 0) == 0, 'preview': {
         'order_number': order_number, 'rows': rows, 'totals': totals,
         'ready_count': readiness.get('ready_count', 0), 'blocked': readiness.get('blocked', []),
+        'workbook_preview': workbook_preview,
     }})
 
 

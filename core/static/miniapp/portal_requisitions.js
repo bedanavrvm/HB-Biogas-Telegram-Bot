@@ -8,6 +8,46 @@
   function state() { return deps.state; }
   function csrfHeader() { return { 'X-CSRFToken': deps.getCookie('csrftoken') || '' }; }
 
+  function workbookBorder(style) {
+    if (!style) return 'none';
+    return `${style === 'medium' ? 2 : style === 'thick' ? 3 : 1}px solid #7d8793`;
+  }
+
+  function renderWorkbookPreview(workbook) {
+    const sheets = workbook?.sheets || [];
+    if (!sheets.length) return '<div class="empty-state">Workbook preview is unavailable.</div>';
+    const active = workbook.active_sheet || 0;
+    const renderedSheets = sheets.map((sheet, index) => {
+      const columns = (sheet.columns || []).map(col => `<col style="width:${col.hidden ? 0 : Math.max(24, col.width * 7)}px">`).join('');
+      const rows = (sheet.rows || []).filter(row => !row.hidden).map(row => {
+        const cells = (row.cells || []).map(cell => {
+          const s = cell.style || {};
+          const css = [`background:${s.background || '#fff'}`, `color:${s.color || '#111827'}`,
+            `font-weight:${s.bold ? '700' : '400'}`, `font-style:${s.italic ? 'italic' : 'normal'}`,
+            `font-size:${Math.max(8, s.font_size || 11)}px`,
+            `text-align:${s.horizontal === 'center' ? 'center' : s.horizontal === 'right' ? 'right' : 'left'}`,
+            `vertical-align:${s.vertical === 'top' ? 'top' : s.vertical === 'bottom' ? 'bottom' : 'middle'}`,
+            `white-space:${s.wrap ? 'normal' : 'nowrap'}`, `border-top:${workbookBorder(s.border_top)}`,
+            `border-right:${workbookBorder(s.border_right)}`, `border-bottom:${workbookBorder(s.border_bottom)}`,
+            `border-left:${workbookBorder(s.border_left)}`].join(';');
+          return `<td colspan="${cell.col_span || 1}" rowspan="${cell.row_span || 1}" style="${css}">${deps.escapeHtml(cell.value || '')}</td>`;
+        }).join('');
+        return `<tr style="height:${Math.max(10, row.height || 18)}px">${cells}</tr>`;
+      }).join('');
+      return `<section class="workbook-sheet" data-sheet-index="${index}" ${index === active ? '' : 'hidden'}><table><colgroup>${columns}</colgroup><tbody>${rows}</tbody></table>${sheet.truncated ? '<div class="batch-warning">Preview shortened for display. The saved Excel retains all cells.</div>' : ''}</section>`;
+    }).join('');
+    const tabs = sheets.length > 1 ? `<div class="workbook-tabs">${sheets.map((sheet, index) => `<button type="button" class="workbook-tab ${index === active ? 'active' : ''}" data-sheet-index="${index}">${deps.escapeHtml(sheet.name)}</button>`).join('')}</div>` : '';
+    return `<div class="workbook-preview"><div class="workbook-preview-scroll">${renderedSheets}</div>${tabs}</div>`;
+  }
+
+  function activateWorkbookTabs(container) {
+    container?.querySelectorAll('.workbook-tab').forEach(tab => tab.addEventListener('click', () => {
+      const index = tab.dataset.sheetIndex;
+      container.querySelectorAll('.workbook-tab').forEach(item => item.classList.toggle('active', item === tab));
+      container.querySelectorAll('.workbook-sheet').forEach(sheet => { sheet.hidden = sheet.dataset.sheetIndex !== index; });
+    }));
+  }
+
   function updateBatchPanel() {
     const panel = el('requisition-batch-panel');
     if (!panel) return;
@@ -138,7 +178,9 @@
         const rows = preview.rows || [];
         target.innerHTML = `<div class="form-section"><h3>Payment Preview — Order ${deps.escapeHtml(orderNumber)}</h3>
           <div class="batch-client-list">${rows.map(row => `<div class="batch-client-row"><div class="name">${deps.escapeHtml(row.name || row.name_imab || '-')}</div><div class="meta">Customer ${deps.escapeHtml(row.cust_no || '-')} | Invoice ${deps.escapeHtml(row.hb_invoice_amount ?? '-')} | Discount ${deps.escapeHtml(row.discount ?? '-')} | HB deposit ${deps.escapeHtml(row.deposit_paid_hbg ?? '-')} | JBL deposit ${deps.escapeHtml(row.deposit_paid_jbl ?? '-')}</div></div>`).join('')}</div></div>`;
-        deps.showToast('Payment preview shown in the Mini App.', 'success');
+        target.innerHTML = `<div class="form-section"><h3>Excel Preview - Order ${deps.escapeHtml(orderNumber)}</h3>${renderWorkbookPreview(preview.workbook_preview)}</div>`;
+        activateWorkbookTabs(target);
+        deps.showToast('Payment Excel preview shown in the Mini App.', 'success');
         return;
       }
       const path = '/payment-documents/' + encodeURIComponent(orderNumber) + '/' + (final ? 'finalize/' : 'preview/');
@@ -328,7 +370,10 @@
     ]);
     deps.renderWarnings(warnings, data.warnings || []);
     const allFarmers = [...(data.ready || []), ...(data.blocked || []).map(item => item.farmer)];
-    list.innerHTML = deps.batchClientRows(allFarmers, blockedById);
+    list.innerHTML = data.workbook_preview
+      ? `<h3 class="workbook-preview-title">Excel Preview</h3>${renderWorkbookPreview(data.workbook_preview)}`
+      : deps.batchClientRows(allFarmers, blockedById);
+    activateWorkbookTabs(list);
     confirm.disabled = (data.blocked_count || 0) > 0 || !(data.ready_count || 0);
     confirm.textContent = confirm.disabled ? 'Resolve Blocked Items' : 'Generate Requisition';
     const preview = el('requisition-preview-workbook');
