@@ -567,8 +567,15 @@
 
   function openPortalLink(url) {
     if (!url) return;
-    if (tg?.openLink) tg.openLink(url);
-    else window.open(url, '_blank', 'noopener');
+    try {
+      if (tg?.openLink) {
+        tg.openLink(url, {try_instant_view: false});
+        return;
+      }
+    } catch (error) {
+      // Older Telegram clients may reject the optional openLink arguments.
+    }
+    window.open(url, '_blank', 'noopener');
   }
 
   function summaryGrid(items) {

@@ -529,6 +529,37 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn('Select at least one', response.json()['error'])
 
+    @patch('core.api.portal_views._validate_requisition_farmers')
+    @patch('core.services.requisition.generate_requisition_excel')
+    def test_requisition_pdf_uses_short_lived_download_url(self, generate_workbook, validate_farmers):
+        workbook = openpyxl.Workbook()
+        worksheet = workbook.active
+        worksheet['A1'] = 'JBL REQUISITION FORM'
+        worksheet['A2'] = 'Synthetic Customer'
+        worksheet.print_area = 'A1:C4'
+        output = io.BytesIO()
+        workbook.save(output)
+        generate_workbook.return_value = output.getvalue()
+        validate_farmers.return_value = ([self.farmer], [], [])
+
+        response = self.client.post(
+            reverse('portal_requisition_pdf'),
+            data=json.dumps({
+                'farmer_ids': [str(self.farmer.id)],
+                'order_number': 'ORDER/TEST',
+                'requisition_date': '2026-07-25',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        pdf_response = self.client.get(payload['pdf_url'])
+        self.assertEqual(pdf_response.status_code, 200)
+        self.assertEqual(pdf_response['Content-Type'], 'application/pdf')
+        self.assertTrue(pdf_response.content.startswith(b'%PDF-'))
+        self.assertIn('JBL_Requisition_ORDER_TEST.pdf', pdf_response['Content-Disposition'])
+
     def test_portal_jbl_queue_fragment_renders_cards(self):
         """Verify the htmx JBL queue fragment renders useful farmer cards."""
         response = self.client.get(reverse('portal_jbl_queue_fragment'))

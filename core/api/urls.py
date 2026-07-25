@@ -53,6 +53,8 @@ from .portal_views import (
     portal_set_final_decision,
     portal_requisition_queue,
     portal_requisition_preview,
+    portal_requisition_pdf,
+    portal_requisition_pdf_download,
     portal_requisition_workbook_preview,
     portal_assign_order,
     portal_requisition_generate,
@@ -171,6 +173,8 @@ urlpatterns = [
     # Stage 4 - Requisition / Order (GATED)
     path('portal/requisition-queue/', portal_auth_required(portal_requisition_queue), name='portal_requisition_queue'),
     path('portal/requisition-queue/preview/', portal_auth_required(portal_requisition_preview), name='portal_requisition_preview'),
+    path('portal/requisition-queue/pdf/', portal_auth_required(portal_requisition_pdf), name='portal_requisition_pdf'),
+    path('portal/requisition-queue/pdf/<str:token>/', portal_requisition_pdf_download, name='portal_requisition_pdf_download'),
     path('portal/requisition-queue/preview-workbook/', portal_auth_required(portal_requisition_workbook_preview), name='portal_requisition_workbook_preview'),
     path('portal/requisition-queue/generate/', portal_auth_required(portal_requisition_generate), name='portal_requisition_generate'),
     path('portal/requisition-download/<str:token>/', portal_requisition_download, name='portal_requisition_download'),

@@ -117,7 +117,7 @@
       if (!response.ok || !response.data?.ok || !response.data.pdf_url) {
         throw new Error(response.data?.error || 'Could not prepare printable PDF.');
       }
-      deps.openPortalLink(response.data.pdf_url);
+      deps.openPortalLink(response.data.pdf_url + '?download=1');
     } catch (error) {
       deps.showToast(error.message || 'Could not prepare printable PDF.', 'error');
     } finally {

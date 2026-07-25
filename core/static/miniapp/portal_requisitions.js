@@ -139,7 +139,7 @@
         return;
       }
       target.innerHTML = renderPrintablePayment(preview);
-      activePaymentPrintPayload = { orderNumber, paymentNumber };
+      activePaymentPrintPayload = { orderNumber, paymentNumber, farmerIds: preview.farmer_ids || [] };
       deps.showToast('Payment preview shown in the Mini App.', 'success');
     } catch (err) {
       target.innerHTML = `<div class="batch-warning">${deps.escapeHtml(err.message || 'Could not load payment preview.')}</div>`;
@@ -149,47 +149,15 @@
     }
   }
 
-  async function printDocument(selector) {
-    const documentNode = document.querySelector(selector);
-    if (!documentNode) return deps.showToast('No document is open to print.', 'error');
-    document.querySelectorAll('.print-active').forEach(node => node.classList.remove('print-active'));
-    documentNode.classList.add('print-active');
-    document.body.classList.add('printing-document');
-    const cleanup = () => {
-      document.body.classList.remove('printing-document');
-      documentNode.classList.remove('print-active');
-      window.removeEventListener('afterprint', cleanup);
-    };
-    window.addEventListener('afterprint', cleanup);
-    if (document.fonts?.ready) await document.fonts.ready;
-    await new Promise(resolve => window.requestAnimationFrame(() => window.requestAnimationFrame(resolve)));
-    window.print();
-    // Some mobile webviews dispatch the native print dialog asynchronously.
-    // Keep the print DOM active until afterprint, with a long safety fallback.
-    window.setTimeout(cleanup, 60000);
-  }
-
-  function printWorkbookPreview(workbook) {
-    if (!workbook?.sheets?.length) return deps.showToast('The generated sheet print area is unavailable.', 'error');
-    document.getElementById('workbook-print-host')?.remove();
-    const host = document.createElement('div');
-    host.id = 'workbook-print-host';
-    host.className = 'workbook-print-document';
-    host.innerHTML = renderWorkbookPreview(workbook);
-    document.body.appendChild(host);
-    printDocument('#workbook-print-host');
-  }
-
   async function printRequisitionWorkbook(button) {
     if (!activeRequisitionPrintPayload) return deps.showToast('No requisition is open to print.', 'error');
     deps.setButtonLoading(button, true, 'Preparing Sheet...');
     try {
-      const response = await deps.portalApi.postJson('/requisition-queue/preview/', {
+      const response = await deps.portalApi.postJson('/requisition-queue/pdf/', {
         ...activeRequisitionPrintPayload,
-        preview_format: 'print',
       }, deps.tg, csrfHeader());
-      if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not prepare the generated sheet.');
-      printWorkbookPreview(response.data.workbook_preview);
+      if (!response.ok || !response.data?.ok || !response.data.pdf_url) throw new Error(response.data?.error || 'Could not prepare the generated PDF.');
+      deps.openPortalLink(response.data.pdf_url + '?download=1');
     } catch (error) {
       deps.showToast(error.message || 'Could not prepare the generated sheet.', 'error');
     } finally {
@@ -201,11 +169,13 @@
     if (!activePaymentPrintPayload) return deps.showToast('No payment schedule is open to print.', 'error');
     deps.setButtonLoading(button, true, 'Preparing Sheet...');
     try {
-      const { orderNumber, paymentNumber } = activePaymentPrintPayload;
-      const response = await deps.apiFetch('/payment-documents/' + encodeURIComponent(orderNumber)
-        + '/preview-data/?payment_number=' + encodeURIComponent(paymentNumber) + '&format=print');
-      if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not prepare the generated sheet.');
-      printWorkbookPreview(response.data.workbook_preview);
+      const { paymentNumber, farmerIds } = activePaymentPrintPayload;
+      if (!farmerIds?.length) throw new Error('This payment has no printable client selection.');
+      const response = await deps.portalApi.postJson('/payments/selection/pdf/', {
+        payment_number: paymentNumber, farmer_ids: farmerIds,
+      }, deps.tg, csrfHeader());
+      if (!response.ok || !response.data?.ok || !response.data.pdf_url) throw new Error(response.data?.error || 'Could not prepare the generated PDF.');
+      deps.openPortalLink(response.data.pdf_url + '?download=1');
     } catch (error) {
       deps.showToast(error.message || 'Could not prepare the generated sheet.', 'error');
     } finally {
@@ -234,7 +204,11 @@
     const overlay = el('payment-preview-overlay');
     if (el('payment-preview-sub')) el('payment-preview-sub').textContent = `Payment #${preview.payment_number || '-'} - Order ${preview.order_number || '-'}`;
     if (el('payment-preview-content')) el('payment-preview-content').innerHTML = renderPrintablePayment(preview);
-    activePaymentPrintPayload = { orderNumber: preview.order_number, paymentNumber: preview.payment_number };
+    activePaymentPrintPayload = {
+      orderNumber: preview.order_number,
+      paymentNumber: preview.payment_number,
+      farmerIds: preview.farmer_ids || [],
+    };
     overlay?.classList.add('open');
   }
 
@@ -804,7 +778,6 @@
     openFinalOrderHistory,
     openFinalPaymentHistory,
     renderWorkbookPreview,
-    printWorkbookPreview,
     updateBatchPanel,
   };
 })();

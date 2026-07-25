@@ -1068,6 +1068,75 @@ def portal_requisition_preview(request):
         'preview_format': preview_format,
     })
 
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_requisition_pdf(request):
+    """Render a selected requisition workbook as a short-lived printable PDF."""
+    from datetime import date as _date
+    from core.models import JawabuFarmerMaster
+    from core.services.requisition import RequisitionTemplateError, generate_requisition_excel
+    from core.services.workbook_pdf import workbook_preview_to_pdf
+    from core.services.workbook_preview import serialize_workbook_preview
+
+    body = _json_body(request)
+    farmer_ids = [str(value) for value in (body.get('farmer_ids') or []) if value]
+    order_number = str(body.get('order_number') or '').strip()
+    try:
+        requisition_date = _date.fromisoformat(str(body.get('requisition_date') or '').strip())
+    except ValueError:
+        return JsonResponse({'ok': False, 'error': 'Enter a valid requisition date.'}, status=400)
+    if not farmer_ids or not order_number:
+        return JsonResponse({'ok': False, 'error': 'Select clients and enter an order number.'}, status=400)
+    farmers = list(JawabuFarmerMaster.objects.filter(id__in=farmer_ids))
+    if len(farmers) != len(set(farmer_ids)):
+        return JsonResponse({'ok': False, 'error': 'One or more selected clients was not found.'}, status=404)
+    _ready, blocked, _warnings = _validate_requisition_farmers(farmers)
+    if blocked:
+        return JsonResponse({'ok': False, 'error': 'Resolve the blocked client details before printing.'}, status=400)
+    try:
+        workbook = generate_requisition_excel(farmers, order_number, requisition_date)
+        preview = serialize_workbook_preview(workbook, print_only=True)
+        pdf_bytes = workbook_preview_to_pdf(preview)
+    except (RequisitionTemplateError, FileNotFoundError) as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    except Exception:
+        logger.exception('Could not render requisition PDF')
+        return JsonResponse({
+            'ok': False, 'error': 'The printable requisition PDF could not be prepared. Please try again.',
+        }, status=500)
+
+    token = uuid.uuid4().hex
+    safe_order_number = re.sub(r'[^A-Za-z0-9._-]+', '_', order_number).strip('._') or 'Order'
+    cache.set(
+        f'portal-requisition-pdf:{token}',
+        {'content': pdf_bytes, 'filename': f'JBL_Requisition_{safe_order_number}.pdf'},
+        timeout=300,
+    )
+    return JsonResponse({
+        'ok': True,
+        'pdf_url': request.build_absolute_uri(
+            reverse('portal_requisition_pdf_download', kwargs={'token': token})
+        ),
+        'expires_in_seconds': 300,
+    })
+
+
+@require_http_methods(["GET"])
+def portal_requisition_pdf_download(request, token: str):
+    """Serve a short-lived requisition PDF to the system browser."""
+    if not re.fullmatch(r'[0-9a-f]{32}', token or ''):
+        return HttpResponse(status=404)
+    document = cache.get(f'portal-requisition-pdf:{token}')
+    if not document:
+        return HttpResponse('This printable PDF link has expired.', status=410, content_type='text/plain')
+    response = HttpResponse(document['content'], content_type='application/pdf')
+    disposition = 'attachment' if request.GET.get('download') == '1' else 'inline'
+    response['Content-Disposition'] = f'{disposition}; filename="{document["filename"]}"'
+    response['Cache-Control'] = 'private, no-store, max-age=0'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def portal_requisition_workbook_preview(request):
@@ -2154,7 +2223,8 @@ def portal_payment_pdf_download(request, token: str):
     if not document:
         return HttpResponse('This printable PDF link has expired.', status=410, content_type='text/plain')
     response = HttpResponse(document['content'], content_type='application/pdf')
-    response['Content-Disposition'] = f'inline; filename="{document["filename"]}"'
+    disposition = 'attachment' if request.GET.get('download') == '1' else 'inline'
+    response['Content-Disposition'] = f'{disposition}; filename="{document["filename"]}"'
     response['Cache-Control'] = 'private, no-store, max-age=0'
     response['X-Content-Type-Options'] = 'nosniff'
     return response
@@ -2187,6 +2257,7 @@ def portal_payment_preview_data(request, order_number: str):
             return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     return JsonResponse({'ok': readiness.get('blocked_count', 0) == 0, 'preview': {
         'order_number': order_number, 'payment_number': payment_number, 'rows': rows, 'totals': totals,
+        'farmer_ids': [item.get('farmer_id') for item in readiness.get('ready', []) if item.get('farmer_id')],
         'ready_count': readiness.get('ready_count', 0), 'blocked': readiness.get('blocked', []),
     }, 'workbook_preview': workbook_preview})
 
@@ -2292,5 +2363,6 @@ def portal_payment_document_detail(request, document_id: str):
         totals[key] = str(sum(Decimal(str(value)) for value in values)) if values else None
     return JsonResponse({'ok': True, 'document': serialize_payment_document(doc), 'preview': {
         'order_number': doc.order_number, 'payment_number': doc.payment_number,
+        'farmer_ids': list(doc.farmer_ids or []),
         'ready_count': len(rows), 'rows': rows, 'totals': totals,
     }})
