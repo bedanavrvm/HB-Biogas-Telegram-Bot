@@ -166,7 +166,12 @@
     const preview = response.data.preview || {};
     const overlay = el('payment-preview-overlay');
     if (el('payment-preview-sub')) el('payment-preview-sub').textContent = `Payment #${preview.payment_number || '-'} - Order ${preview.order_number || '-'}`;
-    if (el('payment-preview-content')) el('payment-preview-content').innerHTML = renderPrintablePayment(preview);
+    if (el('payment-preview-content')) {
+      el('payment-preview-content').innerHTML = response.data.workbook_preview
+        ? `<h3 class="workbook-preview-title">Payment Excel Preview</h3>${renderWorkbookPreview(response.data.workbook_preview)}`
+        : renderPrintablePayment(preview);
+      if (response.data.workbook_preview) activateWorkbookTabs(el('payment-preview-content'));
+    }
     activePaymentPrintPayload = { orderNumber: preview.order_number, paymentNumber: preview.payment_number };
     overlay?.classList.add('open');
   }
@@ -683,6 +688,9 @@
           if (action.id === 'btn-generate-requisition') requestRequisitionPreview();
           else if (action.id === 'requisition-preview-confirm') generateRequisitionFromPreview();
           else if (action.id === 'requisition-preview-workbook') generateWorkbookPreviewFromSelection();
+          else if (action.id === 'requisition-preview-close' || action.id === 'requisition-preview-cancel') {
+            el('requisition-preview-overlay')?.classList.remove('open');
+          }
           else if (action.id === 'batch-detail-close') el('batch-detail-overlay')?.classList.remove('open');
           else if (!activeBatch) deps.showToast('Batch details are unavailable. Close and reopen this batch.', 'error');
           else if (action.id === 'batch-detail-download') deps.openPortalLink(activeBatch.drive_url || activeBatch.download_url);

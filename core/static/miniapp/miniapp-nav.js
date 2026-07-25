@@ -92,6 +92,21 @@
     if (tg?.initData) event.detail.headers['X-Telegram-Init-Data'] = tg.initData;
   });
   document.body.addEventListener('htmx:afterSwap', activateScreen);
+  window.addEventListener('popstate', () => {
+    // htmx restores cached history entries when available. For Telegram's
+    // hardware/browser back on a cold or uncached entry, request the screen
+    // fragment explicitly so the shell does not remain on the old page.
+    if (!window.htmx) return;
+    const match = window.location.pathname.match(/\/portal\/s\/([^/]+)\//);
+    if (!match) return;
+    const target = document.getElementById('content');
+    if (!target) return;
+    window.htmx.ajax('GET', window.location.pathname, {
+      target: '#content',
+      swap: 'innerHTML transition:true',
+      pushURL: false,
+    });
+  });
   document.addEventListener('click', event => {
     if (event.target.closest('#shell-menu-button')) {
       setSidebar(!document.getElementById('sidebar')?.classList.contains('open'));

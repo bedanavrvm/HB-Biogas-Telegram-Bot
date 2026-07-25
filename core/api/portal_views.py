@@ -2215,7 +2215,7 @@ def portal_payment_document_detail(request, document_id: str):
     """Return the immutable printable snapshot for a finalized payment."""
     from django.shortcuts import get_object_or_404
     from core.models import PaymentDocument
-    from core.services.payment_documents import payment_readiness, serialize_payment_document
+    from core.services.payment_documents import generate_payment_workbook, payment_readiness, serialize_payment_document
 
     doc = get_object_or_404(PaymentDocument, pk=document_id, status='final')
     summary = doc.validation_summary or {}
@@ -2228,7 +2228,20 @@ def portal_payment_document_detail(request, document_id: str):
         values = [row.get(key) for row in rows if row.get(key) not in (None, '')]
         from decimal import Decimal
         totals[key] = str(sum(Decimal(str(value)) for value in values)) if values else None
+    workbook_preview = None
+    try:
+        from core.services.workbook_preview import serialize_workbook_preview
+        workbook_bytes, _summary = generate_payment_workbook(
+            doc.order_number, doc.payment_number, farmer_ids=list(doc.farmer_ids or []),
+        )
+        workbook_preview = serialize_workbook_preview(workbook_bytes, print_only=True)
+    except Exception:
+        # Older payment documents may not retain farmer IDs or may reference
+        # clients that have since been archived; keep the historical compact
+        # preview available without turning that compatibility case into a
+        # server error.
+        logger.info('Template preview unavailable for legacy payment document %s', doc.id)
     return JsonResponse({'ok': True, 'document': serialize_payment_document(doc), 'preview': {
         'order_number': doc.order_number, 'payment_number': doc.payment_number,
         'ready_count': len(rows), 'rows': rows, 'totals': totals,
-    }})
+    }, 'workbook_preview': workbook_preview})

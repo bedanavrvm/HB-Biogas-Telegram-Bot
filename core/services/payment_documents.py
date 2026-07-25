@@ -325,7 +325,14 @@ def _row_payload(farmer: JawabuFarmerMaster) -> tuple[dict[str, Any], list[str],
         'repayment_dates': farmer.repayment_date,
         'tenor': farmer.repayment_tenor,
         'product': farmer.payment_product,
-        'call_up_comments': '',
+        # Head of Rural's comment is the call-up comment on the payment
+        # template; retain earlier JBL/master comments as a fallback.
+        'call_up_comments': (
+            farmer.final_decision_comment
+            or farmer.jbl_visit_comment
+            or farmer.comments
+            or ''
+        ),
     }
     return row, missing, invoice
 

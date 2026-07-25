@@ -262,7 +262,11 @@ def log_jbl_visit(
     record_pipeline_event(
         farmer, action='jbl_visit_completed', stage_key='jbl_visit', actor=sender or officer,
         request_id=request_id,
-        new_values={'visit_date': visit_date.isoformat(), 'status': visit_status},
+        new_values={
+            'visit_date': visit_date.isoformat(),
+            'status': visit_status,
+            'comment': str(comment or '').strip(),
+        },
     )
     logger.info(
         'JBL visit logged for farmer %s by %s: %s (coordinates: %s, %s)',
