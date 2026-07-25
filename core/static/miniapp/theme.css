@@ -19,7 +19,7 @@ body { margin: 0; padding-bottom: calc(64px + env(safe-area-inset-bottom)); over
 .app-sidebar { box-sizing: border-box; position: fixed; inset: 0 auto 0 0; z-index: 100; width: min(78vw, 280px); max-width: calc(100vw - 24px); height: 100dvh; min-height: 0; padding: max(18px, env(safe-area-inset-top)) 10px calc(20px + env(safe-area-inset-bottom)); overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; background: var(--tg-secondary-bg); transform: translateX(-105%); visibility: hidden; transition: transform .2s ease, visibility .2s; box-shadow: 8px 0 30px rgba(0,0,0,.18); }
 .app-sidebar.open { transform: translateX(0); }
 .app-sidebar.open { visibility: visible; }
-.workflow-standard .sidebar-backdrop { position: fixed; inset: 0; z-index: 95; display: none; width: 100%; height: 100%; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: rgba(0,0,0,.36); }
+.workflow-standard .sidebar-backdrop { position: fixed; inset: 0; z-index: 95; display: none; width: 100%; height: 100%; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
 .sidebar-backdrop.open { display: block; }
 .app-sidebar nav { display: grid; gap: 4px; min-width: 0; }
 .shell-nav-link { min-height: 44px; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 6px 10px; border-radius: 10px; color: var(--tg-hint); text-decoration: none; font-size: 12px; }
@@ -29,6 +29,7 @@ body { margin: 0; padding-bottom: calc(64px + env(safe-area-inset-bottom)); over
 .shell-nav-link svg { width: 19px; height: 19px; }
 .app-bottom-tabs { box-sizing: border-box; position: fixed; z-index: 80; inset: auto 0 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 1px; width: 100%; overflow: hidden; padding: 4px max(3px, env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom)) max(3px, env(safe-area-inset-left)); background: var(--tg-secondary-bg); border-top: 1px solid color-mix(in srgb, var(--tg-hint) 25%, transparent); }
 .app-bottom-tabs .shell-nav-link { box-sizing: border-box; min-width: 0; min-height: 52px; flex-direction: column; gap: 2px; padding: 4px 1px; font-size: 10px; overflow: hidden; }
+.app-bottom-tabs .shell-nav-link:not([data-bottom-primary="true"]) { display: none; }
 .app-bottom-tabs .shell-nav-link span { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app-bottom-tabs .shell-nav-link svg { width: 17px; height: 17px; }
 #content { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; overflow-x: hidden; color: var(--tg-text); min-height: calc(100vh - 130px); }

@@ -798,6 +798,15 @@
 @media (max-width: 480px) { .invoice-detail-grid { grid-template-columns: 1fr 1fr; } }
 
 #invoice-pool-list { gap: 7px; }
+.invoice-upload-dropzone { display: grid; min-height: 76px; place-items: center; align-content: center; gap: 3px; border: 1px dashed var(--color-primary); border-radius: 10px; background: color-mix(in srgb, var(--color-primary) 5%, var(--bg-surface)); color: var(--text-primary); cursor: pointer; text-align: center; }
+.invoice-upload-dropzone small { color: var(--text-muted); font-size: 10px; }
+.invoice-upload-dropzone .upload-icon { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 50%; background: var(--color-primary); color: #fff; font-weight: 800; }
+.invoice-summary-unmatched.has-alert, .invoice-summary-ambiguous.has-alert { border-color: rgba(245,158,11,.55); background: rgba(245,158,11,.12); color: #9a5b00; }
+.invoice-summary-matched.has-positive { border-color: rgba(22,163,74,.35); background: rgba(22,163,74,.08); color: #15803d; }
+#page-invoices .filter-bar { align-items: center; gap: 6px; }
+#page-invoices .filter-item label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+#page-invoices .filter-item select, #page-invoices .filter-item input { min-height: 36px; border-radius: 999px; }
+#page-invoices #invoice-pool-clear { min-height: 36px; border-radius: 999px; padding: 0 12px; }
 .invoice-pool-card { cursor: default; gap: 7px; padding: 10px 11px; }
 .invoice-card-main { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; align-items: start; }
 .invoice-card-main .invoice-select-row { margin: 2px 0 0; width: 18px; height: 18px; }

@@ -56,9 +56,7 @@
     const status = sections.invoice?.number ? 'Invoiced'
       : sections.order?.order_number ? 'Ordered'
       : sections.final_review?.decision || sections.credit?.decision || sections.jbl_visit?.status || 'Application received';
-    const initials = String(identity.customer_name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase();
     return `<header class="case360-hero">
-      <div class="case360-avatar" aria-hidden="true">${deps.escapeHtml(initials)}</div>
       <div class="case360-identity"><span class="case360-eyebrow">Customer case</span><h2>${deps.escapeHtml(identity.customer_name || 'Unnamed customer')}</h2><p>${deps.escapeHtml([identity.national_id && `ID ${identity.national_id}`, identity.primary_phone, intake.branch].filter(Boolean).join('  |  ') || 'Identifiers not recorded')}</p></div>
       <span class="case360-status">${deps.escapeHtml(status)}</span>
     </header>${caseStageFlow(sections)}`;

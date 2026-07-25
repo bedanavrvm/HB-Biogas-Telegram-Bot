@@ -59,11 +59,12 @@
       { label: 'Matched', value: summary.matched_count || 0 },
       { label: 'Ambiguous', value: summary.ambiguous_count || 0 },
     ];
-    target.innerHTML = deps.summaryGrid
-      ? deps.summaryGrid(items)
-      : items.map(function (item) {
-        return '<div class="batch-summary-item"><strong>' + escapeHtml(item.value) + '</strong><span>' + escapeHtml(item.label) + '</span></div>';
-      }).join('');
+    target.innerHTML = items.map(function (item) {
+      const key = item.label.toLowerCase().replace(/\s+/g, '-');
+      const alert = (key === 'unmatched' || key === 'ambiguous') && Number(item.value) > 0;
+      const positive = key === 'matched' && Number(item.value) > 0;
+      return '<div class="batch-summary-item invoice-summary-' + key + (alert ? ' has-alert' : '') + (positive ? ' has-positive' : '') + '"><strong>' + escapeHtml(item.value) + '</strong><span>' + escapeHtml(item.label) + '</span></div>';
+    }).join('');
   }
 
   function updateBulkToolbar() {
@@ -98,7 +99,7 @@
         : '';
       const actions = [
         '<button class="btn btn-secondary invoice-detail-action" data-invoice="' + escapeHtml(invoice.id) + '">Details</button>',
-        '<button class="btn btn-secondary invoice-match-action" data-invoice="' + escapeHtml(invoice.id) + '">Match</button>',
+        invoice.status !== 'matched' ? '<button class="btn btn-secondary invoice-match-action" data-invoice="' + escapeHtml(invoice.id) + '">Match</button>' : '',
         invoice.status === 'matched' ? '<button class="btn btn-secondary invoice-unmatch-action" data-invoice="' + escapeHtml(invoice.id) + '">Unmatch</button>' : '',
         invoice.status !== 'ignored' ? '<button class="btn btn-secondary invoice-ignore-action" data-invoice="' + escapeHtml(invoice.id) + '">Ignore</button>' : '',
         invoice.status === 'ignored' ? '<button class="btn btn-secondary invoice-restore-action" data-invoice="' + escapeHtml(invoice.id) + '">Restore</button>' : '',
@@ -112,7 +113,6 @@
         '<div class="invoice-card-heading"><div class="fc-name">Invoice ' + escapeHtml(invoice.invoice_no || '-') + '</div><span class="badge ' + badgeClass(invoice.status) + '">' + escapeHtml(invoice.status || '-') + '</span></div>',
         '<div class="invoice-card-customer">' + escapeHtml(invoice.customer_name || 'Unknown customer') + '</div>',
         '<div class="invoice-card-meta"><span>ID ' + escapeHtml(invoice.customer_id || '-') + '</span><span>' + escapeHtml(invoice.customer_phone || '-') + '</span>' + matched + '</div>',
-        '<div class="invoice-card-meta"><span>' + escapeHtml(invoice.batch_filename || '-') + '</span><span>Page ' + escapeHtml(invoice.page || '-') + '</span><span>' + escapeHtml(fmtDate(invoice.invoice_date)) + '</span></div>',
         '<div class="fc-badges invoice-card-money">',
         '<span class="badge badge-grey">Amount: ' + money(invoice.invoice_amount) + '</span>',
         '<span class="badge badge-grey">Payment: ' + money(invoice.payment) + '</span>',

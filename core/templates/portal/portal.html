@@ -183,7 +183,8 @@
       <form id="invoice-pool-upload-form" class="batch-form" style="align-items:end;">
         <div class="field-group">
           <label for="invoice-pool-file">HB invoice PDFs</label>
-          <input type="file" id="invoice-pool-file" name="file" accept="application/pdf" multiple>
+          <label class="invoice-upload-dropzone" for="invoice-pool-file"><span class="upload-icon">↑</span><strong>Upload invoice PDFs</strong><small>Tap to select one or more PDF files</small></label>
+          <input type="file" id="invoice-pool-file" name="file" accept="application/pdf" multiple hidden>
         </div>
         <button class="btn btn-primary" id="invoice-pool-upload-submit" type="submit">Upload & Parse</button>
       </form>
@@ -214,7 +215,7 @@
         <label for="invoice-pool-search">Search</label>
         <input type="search" id="invoice-pool-search" placeholder="Invoice no, name, ID, phone, order, filename">
       </div>
-      <button class="btn-clear-filters" id="invoice-pool-clear" type="button" title="Clear invoice filters">-</button>
+      <button class="btn-clear-filters" id="invoice-pool-clear" type="button" title="Clear invoice filters" aria-label="Clear invoice filters">Clear</button>
     </div>
     <div class="batch-panel" id="invoice-bulk-toolbar" style="display:none;">
       <div class="batch-title">

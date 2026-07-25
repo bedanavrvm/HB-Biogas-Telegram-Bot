@@ -6,7 +6,8 @@
      hx-select="#portal-screen"
      hx-swap="innerHTML transition:true"
      hx-push-url="true"
-     data-screen="{{ item.key }}">
+     data-screen="{{ item.key }}"
+     {% if item.key == 'dashboard' or item.key == 'jbl' or item.key == 'credit' or item.key == 'invoices' or item.key == 'payments' %}data-bottom-primary="true"{% endif %}>
     <i data-lucide="{{ item.icon }}" aria-hidden="true"></i>
     <span>{{ item.label }}</span>
   </a>
