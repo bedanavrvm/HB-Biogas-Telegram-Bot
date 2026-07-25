@@ -2201,6 +2201,7 @@ def portal_document_history(request):
                 'payment_number': doc.payment_number, 'row_count': doc.row_count,
                 'generated_by': doc.finalized_by or doc.generated_by,
                 'generated_at': (doc.finalized_at or doc.created_at).isoformat(),
+                'drive_url': doc.drive_url,
             }
             for doc in documents
         ]})
@@ -2210,6 +2211,7 @@ def portal_document_history(request):
             'id': str(doc.id), 'order_number': doc.order_number,
             'row_count': doc.farmer_count, 'generated_by': doc.generated_by,
             'generated_at': doc.updated_at.isoformat(),
+            'drive_url': doc.drive_url,
             'requisition_date': doc.requisition_date.isoformat() if doc.requisition_date else None,
         }
         for doc in documents

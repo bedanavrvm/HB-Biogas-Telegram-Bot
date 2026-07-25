@@ -732,7 +732,7 @@
       <div class="fc-name">${kind === 'payments' ? `Payment #${escapeHtml(doc.payment_number || '-')}` : `Order ${escapeHtml(doc.order_number || '-')}`}</div>
       <div class="fc-sub">${kind === 'payments' ? `Order ${escapeHtml(doc.order_number || '-')} | ` : ''}${escapeHtml(doc.row_count || 0)} client(s)</div>
       <div class="fc-sub">${escapeHtml(fmtDate(doc.generated_at))}${doc.generated_by ? ` | ${escapeHtml(doc.generated_by)}` : ''}</div>
-      <div><button type="button" class="btn btn-secondary history-view-document" data-kind="${kind}" data-id="${escapeHtml(doc.id)}" data-order="${escapeHtml(doc.order_number || '')}">View / Print</button></div>
+      <div class="history-document-actions"><button type="button" class="btn btn-secondary history-view-document" data-kind="${kind}" data-id="${escapeHtml(doc.id)}" data-order="${escapeHtml(doc.order_number || '')}">View preview</button>${doc.drive_url || doc.download_url ? `<button type="button" class="btn btn-primary history-open-excel" data-url="${escapeHtml(doc.drive_url || doc.download_url)}">Open Excel</button>` : ''}</div>
     </article>`).join('');
   }
   async function loadHistory(kind = historyKind) {
@@ -859,6 +859,12 @@
     if (kindButton) {
       event.preventDefault();
       loadHistory(kindButton.dataset.kind || 'orders');
+      return;
+    }
+    const excelButton = event.target.closest('.history-open-excel');
+    if (excelButton) {
+      event.preventDefault();
+      deps.openPortalLink(excelButton.dataset.url || '');
       return;
     }
     const viewButton = event.target.closest('.history-view-document');
