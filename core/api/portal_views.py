@@ -746,7 +746,13 @@ def portal_upload_jbl_media(request, farmer_id: str):
         return JsonResponse({'ok': False, 'error': 'Select at least one document or image to upload.'}, status=400)
 
     sender = _portal_sender_from_request(request)
-    ok, error, result = append_jbl_media_links(farmer, uploaded_files=files, sender=sender)
+    media_category = request.POST.get('media_category', 'LAF')
+    ok, error, result = append_jbl_media_links(
+        farmer,
+        uploaded_files=files,
+        sender=sender,
+        media_category=media_category,
+    )
     if not ok:
         return JsonResponse({'ok': False, 'error': error, **result}, status=400)
     return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer), **result})

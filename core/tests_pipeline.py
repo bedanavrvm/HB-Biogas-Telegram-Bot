@@ -652,6 +652,23 @@ class JblPipelineApiTestCase(TestCase):
         self.assertTrue(data['ok'])
         self.assertEqual(data['stored_count'], 1)
         mock_upload.assert_called_once()
+        self.assertEqual(mock_upload.call_args.kwargs['media_category'], 'LAF')
+
+    @patch('core.services.jawabu_pipeline.append_jbl_media_links')
+    def test_upload_jbl_media_api_passes_selected_category(self, mock_upload):
+        mock_upload.return_value = (True, '', {'stored_count': 1, 'skipped_count': 0, 'warnings': [], 'links': []})
+        upload = SimpleUploadedFile('visit.pdf', b'pdf-bytes', content_type='application/pdf')
+        url = reverse('portal_upload_jbl_media', args=[self.farmer.id])
+        response = self.client.post(url, {'files': upload, 'media_category': 'JBL_VISIT_PHOTO'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_upload.call_args.kwargs['media_category'], 'JBL_VISIT_PHOTO')
+
+    def test_upload_jbl_media_api_rejects_unknown_category(self):
+        upload = SimpleUploadedFile('visit.pdf', b'pdf-bytes', content_type='application/pdf')
+        url = reverse('portal_upload_jbl_media', args=[self.farmer.id])
+        with patch('core.services.jawabu_pipeline.append_jbl_media_links', return_value=(False, 'Choose a valid visit media category.', {})):
+            response = self.client.post(url, {'files': upload, 'media_category': 'UNKNOWN'})
+        self.assertEqual(response.status_code, 400)
 
     def test_set_credit_decision_api(self):
         """Verify Stage 3 credit decision posting."""

@@ -1746,6 +1746,10 @@ def store_uploaded_files_for_order(
     received_at: datetime,
     business_key_value: str,
     order_update: OrderApprovalUpdate | None = None,
+    media_category: str = '',
+    workflow_key: str = '',
+    record_type: str = 'Customer',
+    record_key: str = '',
 ) -> UploadedMedia:
     links: list[str] = []
     warnings: list[str] = []
@@ -1759,7 +1763,10 @@ def store_uploaded_files_for_order(
         original_filename = getattr(file_obj, 'name', '') or ''
         mime_type = getattr(file_obj, 'content_type', '') or ''
         size = getattr(file_obj, 'size', None)
-        file_type = upload_item.file_type or infer_upload_file_type(mime_type)
+        # A caller may provide a workflow-specific category (for example LAF
+        # or JBL visit photo).  Keep it on the audit row so files can be
+        # queried and routed independently of their MIME type.
+        file_type = media_category or upload_item.file_type or infer_upload_file_type(mime_type)
         attachment = MediaAttachment.objects.create(
             order_update=order_update,
             group_id=group_config.group_id,
@@ -1842,10 +1849,11 @@ def store_uploaded_files_for_order(
                 sequence_by_type=sequence_by_type,
             )
             storage = GoogleDriveMediaStorage()
-            workflow = getattr(group_config, 'workflow', None) or {}
-            workflow_hint = str(workflow.get('preset') or workflow.get('workflow') or getattr(group_config, 'display_name', '') or 'Order Approval')
-            hint = workflow_hint.lower()
-            workflow_key = 'SPIN Credit' if 'spin' in hint else ('Jawabu/JBL Visits' if ('jawabu' in hint or 'visit' in hint) else 'Order Approval')
+            if not workflow_key:
+                workflow = getattr(group_config, 'workflow', None) or {}
+                workflow_hint = str(workflow.get('preset') or workflow.get('workflow') or getattr(group_config, 'display_name', '') or 'Order Approval')
+                hint = workflow_hint.lower()
+                workflow_key = 'SPIN Credit' if 'spin' in hint else ('Jawabu/JBL Visits' if ('jawabu' in hint or 'visit' in hint) else 'Order Approval')
             drive_file_id, drive_url = storage.upload(
                 data=file_obj,
                 filename=build_storage_filename(
@@ -1859,8 +1867,8 @@ def store_uploaded_files_for_order(
                 received_at=received_at,
                 group_config=group_config,
                 workflow_key=workflow_key,
-                record_type='Customer',
-                record_key=business_key_value,
+                record_type=record_type or 'Customer',
+                record_key=record_key or business_key_value,
             )
             attachment.upload_status = 'success'
             attachment.drive_file_id = drive_file_id

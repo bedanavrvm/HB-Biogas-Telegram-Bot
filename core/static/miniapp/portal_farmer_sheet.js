@@ -275,8 +275,12 @@
         <div class="form-row media-upload-row">
           <label>Visit Media</label>
           <div class="media-upload-control">
+            <select id="jbl-media-category" aria-label="Visit media category">
+              <option value="LAF">LAF document</option>
+              <option value="JBL_VISIT_PHOTO">JBL visit photo</option>
+            </select>
             <input type="file" id="jbl-media" name="files" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx">
-            <small>Optional. Upload visit photos, signed docs, or supporting files.</small>
+            <small>Choose a category first; it applies to every file selected in this upload. Files are stored in separate Drive folders.</small>
             ${farmer.jbl_media_count ? `<small>${farmer.jbl_media_count} existing Drive link${farmer.jbl_media_count === 1 ? '' : 's'} on this record.</small>` : ''}
           </div>
         </div>
@@ -459,6 +463,7 @@
     }
     const formData = new FormData();
     files.forEach(file => formData.append('files', file));
+    formData.append('media_category', el('jbl-media-category')?.value || 'LAF');
     deps.showToast('Uploading visit media...');
     try {
       const result = await deps.portalApi.postForm('/jbl-queue/' + farmerId + '/media/', formData, deps.tg, { 'X-CSRFToken': deps.getCookie('csrftoken') || '' });

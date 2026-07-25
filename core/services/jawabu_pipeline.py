@@ -24,6 +24,11 @@ from django.db.models import Q
 
 from core.models import JawabuFarmerMaster, JawabuPipelineEvent
 
+JBL_MEDIA_CATEGORIES = {
+    'LAF': 'LAF document',
+    'JBL_VISIT_PHOTO': 'JBL visit photo',
+}
+
 logger = logging.getLogger(__name__)
 
 # ── Approved statuses that signal a client may move to credit review ──────────
@@ -440,10 +445,16 @@ def append_jbl_media_links(
     *,
     uploaded_files: list,
     sender: str = '',
+    media_category: str = 'LAF',
 ) -> tuple[bool, str, dict[str, Any]]:
     """Upload JBL visit media to Drive, append links to farmer/order sheet, and audit uploads."""
     if not uploaded_files:
         return False, 'No files were uploaded.', {}
+    media_category = str(media_category or 'LAF').strip().upper()
+    if media_category not in JBL_MEDIA_CATEGORIES:
+        return False, 'Choose a valid visit media category.', {
+            'categories': [{'value': key, 'label': label} for key, label in JBL_MEDIA_CATEGORIES.items()],
+        }
     business_key = str(farmer.national_id or '').strip()
     if not business_key:
         return False, 'National ID is required before uploading JBL visit media.', {}
@@ -461,6 +472,10 @@ def append_jbl_media_links(
         received_at=timezone.now(),
         business_key_value=business_key,
         order_update=None,
+        media_category=media_category,
+        workflow_key='Jawabu/JBL Visits',
+        record_type=media_category,
+        record_key=business_key,
     )
     if uploaded.links:
         existing = [line.strip() for line in str(farmer.jbl_media_urls or '').splitlines() if line.strip()]
@@ -471,6 +486,19 @@ def append_jbl_media_links(
         farmer.save(update_fields=['jbl_media_urls', 'updated_at'])
         sync_farmer_to_master_sheet(farmer)
         sync_farmer_to_internal_order_sheet(farmer)
+
+    from core.models import MediaAttachment
+    category_rows = (
+        MediaAttachment.objects.filter(
+            business_key_type='id_number',
+            business_key_value=business_key,
+            upload_status='success',
+        )
+        .values_list('file_type', flat=True)
+    )
+    category_counts: dict[str, int] = {}
+    for category in category_rows:
+        category_counts[str(category)] = category_counts.get(str(category), 0) + 1
 
     if not uploaded.links and uploaded.warnings:
         return False, 'No media files were stored. ' + ' '.join(uploaded.warnings), {
@@ -486,6 +514,8 @@ def append_jbl_media_links(
         'warnings': uploaded.warnings,
         'links': uploaded.links,
         'media_count': len([line for line in str(farmer.jbl_media_urls or '').splitlines() if line.strip()]),
+        'media_category': media_category,
+        'media_categories': category_counts,
     }
 
 

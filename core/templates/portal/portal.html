@@ -300,7 +300,7 @@
   <section id="page-case_history" class="page{% if active_screen == 'case_history' %} active{% endif %}">
     {% if case_history_farmer_id %}
     <header class="case-history-page-header">
-      <a href="{% url 'portal_screen' screen='case_history' %}" class="btn btn-secondary">Back to Case Search</a>
+      <a href="{% url 'portal_screen' screen='case_history' %}" class="case-history-back" aria-label="Back to case search" title="Back to case search"><i data-lucide="arrow-left" aria-hidden="true"></i><span class="sr-only">Back to Case Search</span></a>
       <div><h1>Complete Case History</h1><p class="meta">Full customer record, workflow timeline, TAT, documents, and data quality</p></div>
     </header>
     <div id="case-history-selected">
