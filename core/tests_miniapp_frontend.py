@@ -239,7 +239,6 @@ class MiniAppFrontendSmokeTests(TestCase):
             '/payments/candidates/',
             '/payments/selection/',
             'farmer_ids',
-            'printWorkbookPreview',
         ):
             self.assertIn(expected, source)
 

@@ -6,7 +6,6 @@ from openpyxl.drawing.image import Image as WorkbookImage
 from PIL import Image
 
 from core.services.workbook_preview import serialize_workbook_preview
-from core.services.workbook_pdf import workbook_preview_to_pdf
 
 
 class WorkbookPrintPreviewTests(SimpleTestCase):
@@ -37,22 +36,3 @@ class WorkbookPrintPreviewTests(SimpleTestCase):
         self.assertEqual(sheet['images'][0]['row'], 1)
         self.assertEqual(sheet['images'][0]['column'], 1)
         self.assertTrue(sheet['images'][0]['data_url'].startswith('data:image/png;base64,'))
-
-    def test_print_preview_can_be_rendered_as_a_real_pdf(self):
-        workbook = openpyxl.Workbook()
-        worksheet = workbook.active
-        worksheet['A1'] = 'JBL PAYMENT SCHEDULE'
-        worksheet['A2'] = 'Customer'
-        worksheet['B2'] = 'Balance due'
-        worksheet['A3'] = 'Synthetic Customer'
-        worksheet['B3'] = 49000
-        worksheet.merge_cells('A1:B1')
-        worksheet.print_area = 'A1:B3'
-
-        output = io.BytesIO()
-        workbook.save(output)
-        preview = serialize_workbook_preview(output.getvalue(), print_only=True)
-        pdf = workbook_preview_to_pdf(preview)
-
-        self.assertTrue(pdf.startswith(b'%PDF-'))
-        self.assertGreater(len(pdf), 1000)

@@ -4,8 +4,6 @@
   let deps = null;
   let invoiceUploadInProgress = false;
   let activeBatch = null;
-  let activeRequisitionPrintPayload = null;
-  let activePaymentPrintPayload = null;
 
   function el(id) { return deps.el(id); }
   function state() { return deps.state; }
@@ -139,47 +137,12 @@
         return;
       }
       target.innerHTML = renderPrintablePayment(preview);
-      activePaymentPrintPayload = { orderNumber, paymentNumber, farmerIds: preview.farmer_ids || [] };
       deps.showToast('Payment preview shown in the Mini App.', 'success');
     } catch (err) {
       target.innerHTML = `<div class="batch-warning">${deps.escapeHtml(err.message || 'Could not load payment preview.')}</div>`;
       deps.showToast('Could not load payment preview.', 'error');
     } finally {
       if (button) deps.setButtonLoading(button, false);
-    }
-  }
-
-  async function printRequisitionWorkbook(button) {
-    if (!activeRequisitionPrintPayload) return deps.showToast('No requisition is open to print.', 'error');
-    deps.setButtonLoading(button, true, 'Preparing Sheet...');
-    try {
-      const response = await deps.portalApi.postJson('/requisition-queue/pdf/', {
-        ...activeRequisitionPrintPayload,
-      }, deps.tg, csrfHeader());
-      if (!response.ok || !response.data?.ok || !response.data.pdf_url) throw new Error(response.data?.error || 'Could not prepare the generated PDF.');
-      deps.openPortalLink(response.data.pdf_url + '?download=1');
-    } catch (error) {
-      deps.showToast(error.message || 'Could not prepare the generated sheet.', 'error');
-    } finally {
-      deps.setButtonLoading(button, false);
-    }
-  }
-
-  async function printPaymentWorkbook(button) {
-    if (!activePaymentPrintPayload) return deps.showToast('No payment schedule is open to print.', 'error');
-    deps.setButtonLoading(button, true, 'Preparing Sheet...');
-    try {
-      const { paymentNumber, farmerIds } = activePaymentPrintPayload;
-      if (!farmerIds?.length) throw new Error('This payment has no printable client selection.');
-      const response = await deps.portalApi.postJson('/payments/selection/pdf/', {
-        payment_number: paymentNumber, farmer_ids: farmerIds,
-      }, deps.tg, csrfHeader());
-      if (!response.ok || !response.data?.ok || !response.data.pdf_url) throw new Error(response.data?.error || 'Could not prepare the generated PDF.');
-      deps.openPortalLink(response.data.pdf_url + '?download=1');
-    } catch (error) {
-      deps.showToast(error.message || 'Could not prepare the generated sheet.', 'error');
-    } finally {
-      deps.setButtonLoading(button, false);
     }
   }
 
@@ -204,11 +167,7 @@
     const overlay = el('payment-preview-overlay');
     if (el('payment-preview-sub')) el('payment-preview-sub').textContent = `Payment #${preview.payment_number || '-'} - Order ${preview.order_number || '-'}`;
     if (el('payment-preview-content')) el('payment-preview-content').innerHTML = renderPrintablePayment(preview);
-    activePaymentPrintPayload = {
-      orderNumber: preview.order_number,
-      paymentNumber: preview.payment_number,
-      farmerIds: preview.farmer_ids || [],
-    };
+    activePaymentPrintPayload = { orderNumber: preview.order_number, paymentNumber: preview.payment_number };
     overlay?.classList.add('open');
   }
 
@@ -512,7 +471,6 @@
     const list = el('requisition-preview-list');
     const confirm = el('requisition-preview-confirm');
     const cancel = el('requisition-preview-cancel');
-    const print = el('requisition-preview-print');
     const blockedById = {};
     (data.blocked || []).forEach(item => {
       if (item.farmer?.id) blockedById[item.farmer.id] = item.missing || [];
@@ -525,11 +483,6 @@
     ]);
     deps.renderWarnings(warnings, data.warnings || []);
     const allFarmers = [...(data.ready || []), ...(data.blocked || []).map(item => item.farmer)];
-    activeRequisitionPrintPayload = {
-      farmer_ids: (data.ready || []).map(farmer => farmer.id).filter(Boolean),
-      order_number: data.order_number,
-      requisition_date: data.requisition_date,
-    };
     list.innerHTML = readOnly
       ? renderPrintableRequisition(data)
       : (data.workbook_preview
@@ -537,7 +490,6 @@
         : deps.batchClientRows(allFarmers, blockedById));
     if (!readOnly) activateWorkbookTabs(list);
     confirm.hidden = readOnly;
-    if (print) print.hidden = !readOnly;
     confirm.disabled = readOnly || (data.blocked_count || 0) > 0 || !(data.ready_count || 0);
     confirm.textContent = confirm.disabled && !readOnly ? 'Resolve Blocked Items' : 'Generate and Save Excel';
     if (cancel) cancel.textContent = readOnly ? 'Close Preview' : 'Back';
@@ -754,10 +706,6 @@
         const batchOverlay = event.target.closest('#batch-detail-overlay');
         if (batchOverlay && event.target === batchOverlay) batchOverlay.classList.remove('open');
         if (event.target.closest('#payment-preview-close, #payment-preview-done')) el('payment-preview-overlay')?.classList.remove('open');
-        const paymentPrint = event.target.closest('#payment-preview-print');
-        if (paymentPrint) printPaymentWorkbook(paymentPrint);
-        const requisitionPrint = event.target.closest('#requisition-preview-print');
-        if (requisitionPrint) printRequisitionWorkbook(requisitionPrint);
         const paymentOverlay = event.target.closest('#payment-preview-overlay');
         if (paymentOverlay && event.target === paymentOverlay) paymentOverlay.classList.remove('open');
       });
