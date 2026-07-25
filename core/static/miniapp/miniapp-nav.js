@@ -15,6 +15,21 @@
     document.body.classList.toggle('sidebar-is-open', open);
   }
 
+  // Overlay controls are delegated because several panels are rendered or
+  // replaced after the initial page load. This keeps close buttons reliable
+  // across htmx swaps and dynamically opened invoice/payment previews.
+  document.addEventListener('click', event => {
+    const close = event.target.closest?.('.sheet-overlay .sheet-close-button');
+    if (!close) return;
+    const overlay = close.closest('.sheet-overlay');
+    if (!overlay) return;
+    event.preventDefault();
+    event.stopPropagation();
+    overlay.classList.remove('open');
+    overlay.setAttribute('aria-hidden', 'true');
+    syncBackButton();
+  }, true);
+
   function syncTheme() {
     const params = tg?.themeParams || {};
     Object.entries(params).forEach(([key, value]) => {
