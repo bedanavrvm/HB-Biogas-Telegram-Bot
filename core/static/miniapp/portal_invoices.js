@@ -106,7 +106,7 @@
       ].join('');
       const checked = state.selectedIds.has(invoice.id) ? ' checked' : '';
       return [
-        '<article class="farmer-card invoice-pool-card">',
+        '<article class="farmer-card invoice-pool-card invoice-status-' + escapeHtml(invoice.status || 'unknown') + '">',
         '<div class="invoice-card-main">',
         '<input type="checkbox" class="invoice-select-row" data-invoice="' + escapeHtml(invoice.id) + '" aria-label="Select invoice ' + escapeHtml(invoice.invoice_no || '') + '"' + checked + '>',
         '<div class="invoice-card-content">',
