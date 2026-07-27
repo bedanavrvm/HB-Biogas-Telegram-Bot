@@ -6,14 +6,14 @@
       <div class="mb-4">
         <h2 class="font-semibold text-font-important-light text-lg dark:text-font-important-dark">User actions</h2>
         <p class="mt-1 text-font-subtle-light text-sm dark:text-font-subtle-dark">
-          Create a staff account and assign its initial workflow access in one guided form.
+          Create a staff account and assign its initial workflow role tag and access scope in one guided form.
         </p>
       </div>
       <div class="grid gap-3 md:grid-cols-1">
         <a href="{% url 'admin:auth_user_add_staff' %}"
            class="flex min-h-20 flex-col justify-center rounded bg-primary-600 px-5 py-4 text-white shadow-sm transition hover:bg-primary-700">
           <strong>Add staff user</strong>
-          <span class="mt-1 text-sm opacity-90">Choose Telegram or Django Admin login, then assign workflow access.</span>
+          <span class="mt-1 text-sm opacity-90">Choose Telegram or Django Admin login, then assign a workflow role tag and scope.</span>
         </a>
       </div>
     </section>

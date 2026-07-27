@@ -356,8 +356,15 @@ def staff_user_for_payload(group_config, user_payload: dict, fallback_name: str 
     }
 
 
-def configured_bro_names(workflow: dict | None, group_config=None) -> list[str]:
-    """Return active BRO names from canonical workflow grants only."""
+def configured_bro_users(workflow: dict | None, group_config=None) -> list[dict]:
+    """Return active users tagged with the TAT ``BRO`` role.
+
+    The role tag is the active ``AccessGrant`` for the TAT Tracker workflow,
+    rather than a legacy staff table or a free-text user field.  Returning the
+    canonical user id and username keeps the dropdown stable when two staff
+    members share a display name while retaining the existing name value sent
+    by the form for backwards compatibility.
+    """
     from core.models import AccessGrant
     from core.services.telegram_identity import database_group_configuration
     database_group = database_group_configuration(group_config) if group_config is not None else None
@@ -370,11 +377,24 @@ def configured_bro_names(workflow: dict | None, group_config=None) -> list[str]:
             grants = grants.filter(group_configuration__isnull=True)
         else:
             grants = grants.filter(group_configuration__in=[None, database_group])
-    names = {
-        grant.user.get_full_name() or grant.user.get_username()
-        for grant in grants.select_related('user')
-    }
-    return sorted(names, key=str.casefold)
+    users = {}
+    for grant in grants.select_related('user', 'user__staff_profile'):
+        user = grant.user
+        display_name = user.get_full_name() or user.get_username()
+        users[user.pk] = {
+            'id': user.pk,
+            'name': display_name,
+            'username': user.get_username(),
+            'telegram_username': getattr(getattr(user, 'staff_profile', None), 'telegram_username', '') or '',
+        }
+    return sorted(users.values(), key=lambda item: str(item['name']).casefold())
+
+
+def configured_bro_names(workflow: dict | None, group_config=None) -> list[str]:
+    """Return active BRO display names for existing API consumers."""
+    return [user['name'] for user in configured_bro_users(workflow, group_config)]
+
+
 def bootstrap(group_config, user_payload: dict) -> dict:
     user = staff_user_for_payload(group_config, user_payload)
     workflow = getattr(group_config, 'workflow', None) or {}
@@ -382,12 +402,16 @@ def bootstrap(group_config, user_payload: dict) -> dict:
         return {'authorized': False, 'user': user, 'reason': user.get('reason', 'Unauthorized')}
     products = [serialize_product(product) for product in _allowed_products(workflow, user)]
     home = home_data(group_config, user)
+    bro_users = configured_bro_users(workflow, group_config)
     return {
         'authorized': True,
         'user': public_user(user),
         'products': products,
         'branches': _allowed_branches(workflow, user),
-        'bro_names': configured_bro_names(workflow, group_config),
+        # ``bro_names`` remains for older clients; new clients should use the
+        # role-tagged ``bro_users`` records so duplicate names are unambiguous.
+        'bro_names': [item['name'] for item in bro_users],
+        'bro_users': bro_users,
         'statuses': STATUS_VALUES,
         'recent': home['recent'],
         'action_required': home['action_required'],

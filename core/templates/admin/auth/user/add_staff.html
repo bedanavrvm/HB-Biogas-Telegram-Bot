@@ -23,7 +23,7 @@
 
   <div class="staff-create" id="staff-user-creation">
     <h1>Add staff user</h1>
-    <p class="staff-intro">Create the account and its first workflow access grant together. More workflow grants can be added from the saved user.</p>
+    <p class="staff-intro">Create the account and its first workflow role tag together. More role tags and scopes can be added from the saved user.</p>
     <form method="post">
       {% csrf_token %}
       {% if creation_form.non_field_errors %}<div class="staff-errors">{{ creation_form.non_field_errors }}</div>{% endif %}
@@ -44,7 +44,7 @@
       </section>
 
       <section class="staff-card inline-related">
-        <h2>2. Initial workflow access</h2>
+        <h2>2. Initial workflow access and role tag</h2>
         <div class="staff-grid">
           {% for field in creation_form %}
             {% if field.name == 'workflow' or field.name == 'role' or field.name == 'branch' or field.name == 'product' or field.name == 'group_configuration' %}

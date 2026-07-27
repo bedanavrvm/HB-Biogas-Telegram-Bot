@@ -620,6 +620,19 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(data['bro_names'], ['BRO User'])
         self.assertEqual(data['bro_names'], ['BRO User'])
 
+    def test_bootstrap_exposes_users_tagged_with_bro_role(self):
+        data = bootstrap(self.config, {'id': 111, 'username': 'bro_user'})
+
+        self.assertEqual(
+            data['bro_users'],
+            [{
+                'id': self.bro_user.pk,
+                'name': 'BRO User',
+                'username': 'bro-user',
+                'telegram_username': 'bro_user',
+            }],
+        )
+
     def test_tat_formula_helpers_match_tracker_columns(self):
         business = product_by_key('business')
         logbook = product_by_key('logbook')

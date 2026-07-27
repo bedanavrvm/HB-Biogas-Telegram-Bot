@@ -2004,6 +2004,8 @@ class AccessGrantAdminForm(forms.ModelForm):
     role_workflows = role_workflow_map()
     role = forms.ChoiceField(
         choices=role_choices(),
+        label='Role tag',
+        help_text='This workflow role tag controls which staff queues and actions the user can access.',
         widget=WorkflowScopedSelect(workflow_map=role_workflows),
     )
     branch = forms.ChoiceField(
@@ -2099,6 +2101,8 @@ class StaffUserCreationForm(forms.Form):
     workflow = forms.ChoiceField(choices=AccessGrant.WORKFLOW_CHOICES)
     role = forms.ChoiceField(
         choices=role_choices(),
+        label='Role tag',
+        help_text='For TAT Tracker, choose BRO to include this user in the BRO dropdown.',
         widget=WorkflowScopedSelect(workflow_map=role_workflows),
     )
     branch = forms.ChoiceField(
@@ -2170,8 +2174,27 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
     compressed_fields = True
     list_filter_submit = True
     list_fullwidth = True
+    list_display = ('username', 'email', 'first_name', 'last_name', 'role_tags', 'is_staff', 'is_active')
     inlines = (UserProfileInline, AccessGrantInline)
     change_list_template = 'admin/auth/user/change_list.html'
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related('access_grants')
+
+    @admin.display(description='Role tags')
+    def role_tags(self, obj):
+        workflow_labels = dict(AccessGrant.WORKFLOW_CHOICES)
+        grants = [grant for grant in obj.access_grants.all() if grant.active]
+        if not grants:
+            return '—'
+        tags = {
+            (grant.workflow, grant.role)
+            for grant in grants
+        }
+        return ', '.join(
+            f"{workflow_labels.get(workflow, workflow)}: {role}"
+            for workflow, role in sorted(tags)
+        )
 
     @staticmethod
     def _recover_unusable_connection():

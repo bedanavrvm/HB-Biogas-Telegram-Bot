@@ -66,6 +66,14 @@ class CanonicalStaffAdminTests(TestCase):
         self.assertContains(creation, 'name="login_method"')
         self.assertNotContains(creation, 'Dry-run preview')
 
+    def test_staff_creation_and_access_grants_present_role_tag_controls(self):
+        from core.admin import AccessGrantAdminForm, StaffUserCreationForm
+
+        self.assertEqual(StaffUserCreationForm.base_fields['role'].label, 'Role tag')
+        self.assertIn('BRO', StaffUserCreationForm.base_fields['role'].help_text)
+        self.assertEqual(AccessGrantAdminForm.base_fields['role'].label, 'Role tag')
+        self.assertIn('workflow role tag', AccessGrantAdminForm.base_fields['role'].help_text)
+
     def test_default_user_add_redirects_to_guided_creation(self):
         superuser = get_user_model().objects.create_superuser(
             username='redirect-admin', email='admin@example.test', password='test-password',

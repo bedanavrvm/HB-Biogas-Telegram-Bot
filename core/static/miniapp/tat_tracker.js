@@ -496,7 +496,15 @@
     fillFilterSelect($('queueProductFilter'), data.products, 'key', 'label', 'All products');
     fillFilterSelect($('queueBranchFilter'), (data.branches || []).map((value) => ({ value, label: value })), 'value', 'label', 'All branches');
     const broInput = document.querySelector('[name="bro_name"]');
-    const broOptions = [{ value: '', label: 'Select BRO' }].concat((data.bro_names || []).map((name) => ({ value: name, label: name })));
+    const taggedBroUsers = Array.isArray(data.bro_users)
+      ? data.bro_users
+      : (data.bro_names || []).map((name) => ({ name }));
+    const broOptions = [{ value: '', label: 'Select BRO' }].concat(
+      taggedBroUsers.map((user) => ({
+        value: user.name || user.username || '',
+        label: user.name || user.username || 'Unnamed BRO',
+      })),
+    );
     fillSelect(broInput, broOptions, 'value', 'label');
     if ((data.bro_names || []).includes(currentUserName())) broInput.value = currentUserName();
     renderHome(data);
