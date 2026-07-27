@@ -516,58 +516,52 @@ def create_payment_document(
     payment_number = normalize_payment_number(payment_number)
     xlsx, summary = generate_payment_workbook(order_number, payment_number, farmer_ids=farmer_ids)
     status = 'final' if final else 'preview'
-    version = 1
     readiness_snapshot = payment_readiness(order_number, farmer_ids=farmer_ids)
     from django.core.serializers.json import DjangoJSONEncoder
     import json
     printable_rows = json.loads(json.dumps(
         [item['row'] for item in readiness_snapshot['ready']], cls=DjangoJSONEncoder,
     ))
-    filename = f"HB_Payment_{payment_number}_{order_number}_{status}_v{version}.xlsx"
-    document_values = {
-        'order_number': order_number,
-        'payment_number': payment_number,
-        'version': version,
-        'filename': filename,
-        'generated_by': actor,
-        'finalized_by': '',
-        'finalized_at': None,
-        'row_count': summary.get('ready_count', 0),
-        'farmer_ids': [item['farmer_id'] for item in readiness_snapshot['ready']],
-        'invoice_batch_ids': summary.get('invoice_batch_ids', []),
-        'validation_summary': {**summary, 'preview_rows': printable_rows},
-        'drive_file_id': '',
-        'drive_url': '',
-        'error': '',
-    }
-    # Reserve a local document record before contacting Drive.  A failed
-    # upload must remain visible as a retryable artifact instead of leaving
-    # the workflow with no audit record (or an untracked remote file).
-    if final:
-        with transaction.atomic():
-            latest = (
-                PaymentDocument.objects.select_for_update()
-                .filter(order_number=order_number, status='final')
-                .order_by('-version').first()
-            )
-            document_values['version'] = (latest.version + 1) if latest else 1
-            document_values['filename'] = (
-                f"HB_Payment_{payment_number}_{order_number}_final_v{document_values['version']}.xlsx"
-            )
-            doc = PaymentDocument.objects.create(status='preview', **document_values)
-    else:
-        doc = (
-            PaymentDocument.objects
-            .filter(order_number=order_number, payment_number=payment_number, status__in=['preview', 'failed'])
-            .order_by('-created_at').first()
-        )
-        if doc:
-            for field, value in document_values.items():
-                setattr(doc, field, value)
-            doc.status = 'preview'
-            doc.save(update_fields=[*document_values.keys(), 'status', 'updated_at'])
+    # Reserve a monotonic artifact version before contacting Drive. Preview
+    # generations are immutable snapshots too, so retries never overwrite a
+    # previous preview or create an ambiguous same-name Drive file.
+    with transaction.atomic():
+        # Lock the selected/order farmers while reserving the version. This
+        # serializes concurrent Mini App submissions for the same payment
+        # scope even when no PaymentDocument row exists yet.
+        from core.models import JawabuFarmerMaster
+        farmer_lock = JawabuFarmerMaster.objects.select_for_update()
+        if farmer_ids:
+            farmer_lock = farmer_lock.filter(id__in=farmer_ids)
         else:
-            doc = PaymentDocument.objects.create(status='preview', **document_values)
+            farmer_lock = farmer_lock.filter(order_number=order_number)
+        list(farmer_lock.values_list('id', flat=True))
+        latest = (
+            PaymentDocument.objects.select_for_update()
+            .filter(order_number=order_number, payment_number=payment_number)
+            .order_by('-version', '-created_at').first()
+        )
+        version = (latest.version + 1) if latest else 1
+        filename = f"HB_Payment_{payment_number}_{order_number}_{status}_v{version}.xlsx"
+        document_values = {
+            'order_number': order_number,
+            'payment_number': payment_number,
+            'version': version,
+            'filename': filename,
+            'generated_by': actor,
+            'finalized_by': '',
+            'finalized_at': None,
+            'row_count': summary.get('ready_count', 0),
+            'farmer_ids': [item['farmer_id'] for item in readiness_snapshot['ready']],
+            'invoice_batch_ids': summary.get('invoice_batch_ids', []),
+            'validation_summary': {**summary, 'preview_rows': printable_rows},
+            'drive_file_id': '',
+            'drive_url': '',
+            'error': '',
+        }
+        # A failed upload remains visible as a retryable artifact instead of
+        # leaving the workflow with no audit record.
+        doc = PaymentDocument.objects.create(status='preview', **document_values)
     try:
         drive_file_id, drive_url = _upload_payment_workbook(xlsx, filename, actor, order_number)
     except Exception:

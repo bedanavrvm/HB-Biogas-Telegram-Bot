@@ -939,7 +939,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertTrue(data['ok'])
-        self.assertEqual(data['filename'], 'JBL_Requisition_Form_REQ-BATCH-99.xlsx')
+        self.assertEqual(data['filename'], 'JBL_Requisition_Form_REQ-BATCH-99_v1.xlsx')
         self.assertEqual(data['drive_url'], 'https://drive.test/requisition')
         self.assertIn('/api/portal/requisition-download/', data['download_url'])
         self.assertTrue(RequisitionBatch.objects.filter(order_number='REQ-BATCH-99', drive_file_id='drive-xlsx').exists())
@@ -950,13 +950,20 @@ class JblPipelineApiTestCase(TestCase):
             download_response['Content-Type'],
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
-        self.assertIn('attachment; filename="JBL_Requisition_Form_REQ-BATCH-99.xlsx"', download_response['Content-Disposition'])
+        self.assertIn('attachment; filename="JBL_Requisition_Form_REQ-BATCH-99_v1.xlsx"', download_response['Content-Disposition'])
+
+        second_response = self.client.post(url, json.dumps(payload), content_type='application/json')
+        self.assertEqual(second_response.status_code, 200)
+        second_data = second_response.json()
+        self.assertEqual(second_data['filename'], 'JBL_Requisition_Form_REQ-BATCH-99_v2.xlsx')
+        latest_batch = RequisitionBatch.objects.get(order_number='REQ-BATCH-99')
+        self.assertEqual(latest_batch.version, 2)
 
         self.farmer.refresh_from_db()
         self.assertEqual(self.farmer.order_number, 'REQ-BATCH-99')
         self.assertEqual(self.farmer.requisition_date, date(2026, 7, 6))
         mock_sync.assert_called_once_with(self.farmer)
-        mock_generate.assert_called_once()
+        self.assertEqual(mock_generate.call_count, 2)
 
     @patch('core.services.requisition.generate_requisition_excel', return_value=b'preview-xlsx')
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
@@ -985,11 +992,22 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(data['drive_url'], 'https://drive.test/requisition-preview')
         batch = RequisitionBatch.objects.get(order_number='REQ-PREVIEW-99')
         self.assertEqual(batch.status, 'preview')
+        self.assertEqual(batch.preview_version, 1)
+        self.assertEqual(batch.preview_filename, 'JBL_Requisition_Form_REQ-PREVIEW-99_preview_v1.xlsx')
         self.assertEqual(batch.preview_drive_file_id, 'preview-drive-id')
         self.assertEqual(batch.preview_drive_url, 'https://drive.test/requisition-preview')
         self.farmer.refresh_from_db()
         self.assertEqual(self.farmer.order_number, '')
-        mock_generate.assert_called_once()
+        second_response = self.client.post(
+            reverse('portal_requisition_workbook_preview'),
+            json.dumps(payload),
+            content_type='application/json',
+        )
+        self.assertEqual(second_response.status_code, 200)
+        second_batch = RequisitionBatch.objects.get(order_number='REQ-PREVIEW-99')
+        self.assertEqual(second_batch.preview_version, 2)
+        self.assertEqual(second_batch.preview_filename, 'JBL_Requisition_Form_REQ-PREVIEW-99_preview_v2.xlsx')
+        self.assertEqual(mock_generate.call_count, 2)
 
     def test_portal_requisition_batch_detail_and_download(self):
         self.farmer.order_number = 'REQ-DETAIL-1'

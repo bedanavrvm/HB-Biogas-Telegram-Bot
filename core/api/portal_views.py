@@ -419,6 +419,8 @@ def _serialize_batch(batch, farmers, request, include_farmers: bool = True) -> d
     return {
         'id': str(batch.id),
         'order_number': batch.order_number,
+        'version': getattr(batch, 'version', 0) or 0,
+        'preview_version': getattr(batch, 'preview_version', 0) or 0,
         'requisition_date': batch.requisition_date.strftime('%Y-%m-%d') if batch.requisition_date else None,
         'generated_by': batch.generated_by,
         'generated_at': batch.created_at.isoformat() if batch.created_at else None,
@@ -1239,25 +1241,37 @@ def portal_requisition_workbook_preview(request):
             'error': 'The requisition Excel template file is missing. Upload it in Django Admin > Requisition templates and mark it active.',
         }, status=400)
 
-    filename = f"JBL_Requisition_Form_{order_number}_preview.xlsx"
     sender = _portal_sender_from_request(request)
     summary = _invoice_summary_for_farmers(farmers)
-    batch, _created = RequisitionBatch.objects.update_or_create(
-        order_number=order_number,
-        defaults={
-            'requisition_date': requisition_date,
-            'preview_filename': filename,
-            'preview_drive_file_id': '',
-            'preview_drive_url': '',
-            'preview_generated_by': sender,
-            'preview_generated_at': timezone.now(),
-            'preview_error': 'Drive synchronization pending.',
-            'farmer_ids': [str(farmer.id) for farmer in farmers],
-            'farmer_count': len(farmers),
-            'status': 'preview',
-            'invoice_summary': summary,
-        },
-    )
+    from django.db import transaction
+
+    # Reserve a new preview version before the external upload. This keeps
+    # repeated previews as identifiable snapshots instead of overwriting one
+    # batch row or creating same-name Drive files.
+    with transaction.atomic():
+        batch = (
+            RequisitionBatch.objects.select_for_update()
+            .filter(order_number=order_number)
+            .first()
+        )
+        if batch is None:
+            batch = RequisitionBatch(order_number=order_number, preview_version=1)
+        else:
+            batch.preview_version = (batch.preview_version or 0) + 1
+        filename = f"JBL_Requisition_Form_{order_number}_preview_v{batch.preview_version}.xlsx"
+        batch.requisition_date = requisition_date
+        batch.preview_filename = filename
+        batch.preview_drive_file_id = ''
+        batch.preview_drive_url = ''
+        batch.preview_generated_by = sender
+        batch.preview_generated_at = timezone.now()
+        batch.preview_error = 'Drive synchronization pending.'
+        batch.farmer_ids = [str(farmer.id) for farmer in farmers]
+        batch.farmer_count = len(farmers)
+        if not batch.version:
+            batch.status = 'preview'
+        batch.invoice_summary = summary
+        batch.save()
     try:
         drive_file_id, drive_url = _upload_generated_workbook_to_drive(xlsx_bytes, filename, order_number)
         preview_error = ''
@@ -1270,22 +1284,12 @@ def portal_requisition_workbook_preview(request):
             'error': 'Requisition preview could not be stored. Check synchronization status and retry.',
         }, status=502)
 
-    batch, _created = RequisitionBatch.objects.update_or_create(
-        order_number=order_number,
-        defaults={
-            'requisition_date': requisition_date,
-            'preview_filename': filename,
-            'preview_drive_file_id': drive_file_id,
-            'preview_drive_url': drive_url,
-            'preview_generated_by': sender,
-            'preview_generated_at': timezone.now(),
-            'preview_error': preview_error,
-            'farmer_ids': [str(farmer.id) for farmer in farmers],
-            'farmer_count': len(farmers),
-            'status': 'preview',
-            'invoice_summary': summary,
-        },
-    )
+    batch.preview_drive_file_id = drive_file_id
+    batch.preview_drive_url = drive_url
+    batch.preview_error = preview_error
+    batch.save(update_fields=[
+        'preview_drive_file_id', 'preview_drive_url', 'preview_error', 'updated_at',
+    ])
 
     return JsonResponse({
         'ok': True,
@@ -1341,27 +1345,34 @@ def portal_requisition_generate(request):
                 request_id=f'{batch_request_id}:{farmer.id}' if batch_request_id else '',
             )
 
-    filename = f"JBL_Requisition_Form_{order_number}.xlsx"
     summary = _invoice_summary_for_farmers(farmers)
-    # Persist the locally generated artifact before contacting Drive.  This
-    # makes a remote outage visible and retryable instead of making the order
-    # appear to have no generated document.
-    batch, _created = RequisitionBatch.objects.update_or_create(
-        order_number=order_number,
-        defaults={
-            'requisition_date': requisition_date,
-            'generated_by': sender,
-            'filename': filename,
-            'file_content': xlsx_bytes,
-            'drive_file_id': '',
-            'drive_url': '',
-            'drive_upload_error': 'Drive synchronization pending.',
-            'farmer_ids': [str(farmer.id) for farmer in farmers],
-            'farmer_count': len(farmers),
-            'status': 'needs_review',
-            'invoice_summary': summary,
-        },
-    )
+    from django.db import transaction
+
+    # Reserve a monotonic version before contacting Drive.  The batch row is
+    # the latest pointer, while each generated workbook remains identifiable
+    # by its immutable versioned filename in Drive.
+    with transaction.atomic():
+        batch = (
+            RequisitionBatch.objects.select_for_update()
+            .filter(order_number=order_number)
+            .first()
+        )
+        if batch is None:
+            batch = RequisitionBatch(order_number=order_number)
+        batch.version = (batch.version or 0) + 1
+        filename = f"JBL_Requisition_Form_{order_number}_v{batch.version}.xlsx"
+        batch.requisition_date = requisition_date
+        batch.generated_by = sender
+        batch.filename = filename
+        batch.file_content = xlsx_bytes
+        batch.drive_file_id = ''
+        batch.drive_url = ''
+        batch.drive_upload_error = 'Drive synchronization pending.'
+        batch.farmer_ids = [str(farmer.id) for farmer in farmers]
+        batch.farmer_count = len(farmers)
+        batch.status = 'needs_review'
+        batch.invoice_summary = summary
+        batch.save()
     try:
         drive_file_id, drive_url = _upload_generated_workbook_to_drive(xlsx_bytes, filename, order_number)
         drive_upload_error = ''
@@ -1375,22 +1386,13 @@ def portal_requisition_generate(request):
             'error': 'Generated requisition workbook could not be stored. Check synchronization status and retry.',
         }, status=502)
 
-    batch, _created = RequisitionBatch.objects.update_or_create(
-        order_number=order_number,
-        defaults={
-            'requisition_date': requisition_date,
-            'generated_by': sender,
-            'filename': filename,
-            'file_content': xlsx_bytes,
-            'drive_file_id': drive_file_id,
-            'drive_url': drive_url,
-            'drive_upload_error': drive_upload_error,
-            'farmer_ids': [str(farmer.id) for farmer in farmers],
-            'farmer_count': len(farmers),
-            'status': summary.get('status') or 'generated',
-            'invoice_summary': summary,
-        },
-    )
+    batch.drive_file_id = drive_file_id
+    batch.drive_url = drive_url
+    batch.drive_upload_error = drive_upload_error
+    batch.status = summary.get('status') or 'generated'
+    batch.save(update_fields=[
+        'drive_file_id', 'drive_url', 'drive_upload_error', 'status', 'updated_at',
+    ])
 
     if body.get('return_url'):
         return JsonResponse({
@@ -1476,7 +1478,14 @@ def portal_requisition_batch_detail(request, order_number: str):
         access_error = _portal_farmers_scope_error(request, farmers)
         if access_error:
             return access_error
-        return JsonResponse({'ok': True, 'batch': _serialize_batch(batch, farmers, request)})
+        payload = _serialize_batch(batch, farmers, request)
+        if batch.file_content and request.GET.get('include_preview') == '1':
+            try:
+                from core.services.workbook_preview import serialize_workbook_preview
+                payload['workbook_preview'] = serialize_workbook_preview(batch.file_content, print_only=True)
+            except Exception:
+                logger.info('Requisition workbook preview unavailable for batch %s', batch.order_number)
+        return JsonResponse({'ok': True, 'batch': payload})
     except RequisitionBatch.DoesNotExist:
         farmers = list(JawabuFarmerMaster.objects.filter(order_number=order_number).order_by('customer_name'))
         if not farmers:
@@ -2528,6 +2537,8 @@ def portal_document_history(request):
         return JsonResponse({'ok': True, 'kind': kind, 'documents': [
             {
                 'id': str(doc.id), 'order_number': doc.order_number,
+                'version': doc.version,
+                'filename': doc.filename,
                 'payment_number': doc.payment_number, 'row_count': doc.row_count,
                 'generated_by': doc.finalized_by or doc.generated_by,
                 'generated_at': (doc.finalized_at or doc.created_at).isoformat(),
@@ -2540,6 +2551,10 @@ def portal_document_history(request):
     return JsonResponse({'ok': True, 'kind': 'orders', 'documents': [
         {
             'id': str(doc.id), 'order_number': doc.order_number,
+            'version': getattr(doc, 'version', 0) or 0,
+            'filename': doc.filename,
+            'preview_version': getattr(doc, 'preview_version', 0) or 0,
+            'preview_filename': getattr(doc, 'preview_filename', '') or '',
             'row_count': doc.farmer_count, 'generated_by': doc.generated_by,
             'generated_at': doc.updated_at.isoformat(),
             'drive_url': doc.drive_url,

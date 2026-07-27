@@ -123,3 +123,21 @@ Reason: within each `ID_<ID_NUMBER>` folder, staff need chronological sorting be
 - The bot does not use `p1`, `p2` in filenames because it cannot reliably know whether two uploads are pages of the same document or separate documents.
 - Re-uploading the exact same web file, with the same ID, original filename, size, and content hash, reuses the existing Drive upload instead of creating another duplicate file.
 - A different file with the same original filename is treated as a new upload and gets the next sequence number.
+
+## Generated Workbook Versioning
+
+Generated operational workbooks are immutable Drive artifacts. Re-generating
+an order or payment never reuses the same filename:
+
+```text
+JBL_Requisition_Form_<order>_v1.xlsx
+JBL_Requisition_Form_<order>_preview_v1.xlsx
+HB_Payment_<payment>_<order>_preview_v1.xlsx
+HB_Payment_<payment>_<order>_final_v1.xlsx
+```
+
+The version increases for every new generation, including retries. The
+`RequisitionBatch` row points to the latest order/preview versions, while
+`PaymentDocument` retains each preview, failed upload, and final artifact for
+audit/history. The portal History screen and Django Admin expose the version
+and filename so the latest artifact is unambiguous.

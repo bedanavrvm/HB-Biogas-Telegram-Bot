@@ -147,17 +147,15 @@
   }
 
   async function openFinalOrderHistory(orderNumber) {
-    const response = await deps.apiFetch('/requisition-batches/' + encodeURIComponent(orderNumber) + '/');
+    const response = await deps.apiFetch('/requisition-batches/' + encodeURIComponent(orderNumber) + '/?include_preview=1');
     if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.error || 'Could not load final order.', 'error');
     const batch = response.data.batch || {};
-    const previewResponse = await deps.portalApi.postJson('/requisition-queue/preview/', {
-      farmer_ids: (batch.farmers || []).map(farmer => farmer.id),
-      order_number: batch.order_number,
-      requisition_date: batch.requisition_date,
-      preview_format: 'document',
-    }, deps.tg, csrfHeader());
-    if (!previewResponse.ok || !previewResponse.data?.ok) return deps.showToast(previewResponse.data?.error || 'Could not reconstruct final order.', 'error');
-    openRequisitionPreview(previewResponse.data, { readOnly: true });
+    openRequisitionPreview({
+      ...batch,
+      ready_count: batch.farmer_count || (batch.farmers || []).length,
+      blocked_count: 0,
+      warning_count: 0,
+    }, { readOnly: true });
   }
 
   async function openFinalPaymentHistory(documentId) {
@@ -489,11 +487,13 @@
     deps.renderWarnings(warnings, data.warnings || []);
     const allFarmers = [...(data.ready || []), ...(data.blocked || []).map(item => item.farmer)];
     list.innerHTML = readOnly
-      ? renderPrintableRequisition(data)
+      ? (data.workbook_preview
+        ? `<h3 class="workbook-preview-title">Excel Preview v${deps.escapeHtml(data.version || '-')}</h3>${renderWorkbookPreview(data.workbook_preview)}`
+        : renderPrintableRequisition(data))
       : (data.workbook_preview
         ? `<h3 class="workbook-preview-title">Excel Preview</h3>${renderWorkbookPreview(data.workbook_preview)}`
         : deps.batchClientRows(allFarmers, blockedById));
-    if (!readOnly) activateWorkbookTabs(list);
+    if (data.workbook_preview) activateWorkbookTabs(list);
     confirm.hidden = readOnly;
     confirm.disabled = readOnly || (data.blocked_count || 0) > 0 || !(data.ready_count || 0);
     confirm.textContent = confirm.disabled && !readOnly ? 'Resolve Blocked Items' : 'Generate and Save Excel';

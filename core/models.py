@@ -1591,6 +1591,16 @@ class RequisitionBatch(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     order_number = models.CharField(max_length=128, unique=True, db_index=True)
+    version = models.PositiveIntegerField(
+        default=0,
+        db_index=True,
+        help_text='Latest final requisition version for this order; starts at 1 when generated.',
+    )
+    preview_version = models.PositiveIntegerField(
+        default=0,
+        db_index=True,
+        help_text='Latest stored preview version for this order.',
+    )
     requisition_date = models.DateField(null=True, blank=True)
     generated_by = models.CharField(max_length=255, blank=True, default='')
     filename = models.CharField(max_length=255, blank=True, default='')

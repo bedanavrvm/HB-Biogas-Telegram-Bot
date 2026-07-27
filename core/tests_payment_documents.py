@@ -661,6 +661,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
     def test_document_history_lists_and_opens_final_payment_snapshot(self):
         doc = PaymentDocument.objects.create(
             order_number='ORDER-001', payment_number='89', status='final', row_count=1,
+            filename='HB_Payment_89_ORDER-001_final_v1.xlsx',
             validation_summary={'preview_rows': [{
                 'name': 'Mary Wanjiku', 'hb_invoice_amount': '43500.00',
                 'discount': '4500.00', 'deposit_paid_hbg': '6000.00',
@@ -673,6 +674,8 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
 
         self.assertEqual(history.status_code, 200)
         self.assertEqual(history.json()['documents'][0]['payment_number'], '89')
+        self.assertEqual(history.json()['documents'][0]['version'], 1)
+        self.assertEqual(history.json()['documents'][0]['filename'], 'HB_Payment_89_ORDER-001_final_v1.xlsx')
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()['preview']['rows'][0]['hb_invoice_amount'], '43500.00')
         self.assertEqual(detail.json()['preview']['totals']['hb_invoice_amount'], '43500.00')
@@ -744,7 +747,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertFalse(failed.drive_url)
 
     @patch('core.services.payment_documents._upload_payment_workbook')
-    def test_repeated_payment_preview_reuses_local_document(self, upload):
+    def test_repeated_payment_preview_creates_versioned_local_documents(self, upload):
         farmer = self.farmer()
         self.invoice_batch(farmer)
         upload.return_value = ('drive-xlsx', 'https://drive.test/payment')
@@ -752,8 +755,11 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         first = create_payment_document('ORDER-001', '89', actor='Tester', final=False)
         second = create_payment_document('ORDER-001', '89', actor='Tester', final=False)
 
-        self.assertEqual(first.id, second.id)
-        self.assertEqual(PaymentDocument.objects.filter(order_number='ORDER-001').count(), 1)
+        self.assertNotEqual(first.id, second.id)
+        self.assertEqual(first.version, 1)
+        self.assertEqual(second.version, 2)
+        self.assertTrue(second.filename.endswith('_preview_v2.xlsx'))
+        self.assertEqual(PaymentDocument.objects.filter(order_number='ORDER-001').count(), 2)
 
     def test_payment_preview_endpoint_returns_readiness_when_blocked(self):
         self.farmer(repayment_date='')

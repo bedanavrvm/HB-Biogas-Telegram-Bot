@@ -1875,7 +1875,8 @@ class PaymentDocumentTemplateAdmin(ModelAdmin):
 @admin.register(RequisitionBatch)
 class RequisitionBatchAdmin(ReadOnlyAuditAdmin):
     list_display = (
-        'order_number', 'requisition_date', 'farmer_count', 'status',
+        'order_number', 'version', 'preview_version', 'requisition_date',
+        'farmer_count', 'status', 'filename', 'preview_filename',
         'generated_by', 'drive_url', 'created_at', 'updated_at',
     )
     list_filter = ('status', 'requisition_date', 'created_at')
@@ -1908,8 +1909,8 @@ class ParsedInvoiceAdmin(ReadOnlyAuditAdmin):
 @admin.register(PaymentDocument)
 class PaymentDocumentAdmin(ReadOnlyAuditAdmin):
     list_display = (
-        'order_number', 'payment_number', 'status', 'version', 'row_count',
-        'generated_by', 'finalized_by', 'created_at',
+        'order_number', 'payment_number', 'status', 'version', 'filename', 'row_count',
+        'generated_by', 'finalized_by', 'drive_url', 'created_at',
     )
     list_filter = ('status', 'created_at')
     search_fields = ('order_number', 'payment_number', 'filename', 'generated_by', 'finalized_by', 'drive_file_id', 'drive_url')
