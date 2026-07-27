@@ -200,6 +200,8 @@ class MiniAppFrontendSmokeTests(TestCase):
             'case360-hero',
             'case360-flow',
             'case360-sections',
+            'case360-link',
+            'Open map',
             'buildJblForm',
             'submitJblVisit',
             'uploadJblMediaIfSelected',
@@ -234,6 +236,7 @@ class MiniAppFrontendSmokeTests(TestCase):
             'portalApi.postJson',
             'portalApi.postForm',
             'portalHelpers.invoiceResultRows',
+            "source.includes('jawabu')",
         ):
             self.assertIn(expected, source)
 
@@ -337,5 +340,5 @@ class MiniAppFrontendSmokeTests(TestCase):
         stylesheet = Path('core/static/miniapp/portal.css').read_text(encoding='utf-8')
         response = self.client.get(reverse('portal_home'))
 
-        self.assertContains(response, 'miniapp/portal.css?v=30')
+        self.assertContains(response, 'miniapp/portal.css?v=31')
         self.assertIn('#requisition-preview-overlay { z-index: 240; }', stylesheet)

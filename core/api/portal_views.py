@@ -345,20 +345,20 @@ def _invoice_summary_for_farmers(farmers) -> dict:
 
 def _validate_requisition_farmers(farmers) -> tuple[list[dict], list[dict], list[dict]]:
     from core.services.jawabu_pipeline import farmer_to_card
+    from core.services.requisition import requisition_deposit_values
 
     ready = []
     blocked = []
     warnings = []
     for farmer in farmers:
         card = farmer_to_card(farmer)
-        deposit = farmer.deposit_paid_hbg if farmer.deposit_paid_hbg is not None else farmer.actual_receipts
-        paid_to_jbl = bool(farmer.lead_source and 'jbl' in farmer.lead_source.lower())
+        hbg_deposit, jbl_deposit = requisition_deposit_values(farmer)
         card['requisition_preview'] = {
             'location': ' - '.join(part for part in (
                 str(farmer.sub_county or '').strip(), str(farmer.village or '').strip(),
             ) if part),
-            'hbg_deposit': '' if paid_to_jbl else str(deposit or ''),
-            'jbl_deposit': str(deposit or '') if paid_to_jbl else '',
+            'hbg_deposit': str(hbg_deposit) if hbg_deposit is not None else '',
+            'jbl_deposit': str(jbl_deposit) if jbl_deposit is not None else '',
         }
         missing = []
         if farmer.final_decision != 'Approved':
@@ -563,15 +563,16 @@ def _serialize_batch(batch, farmers, request, include_farmers: bool = True) -> d
 
 def _batch_amount_summary(farmers) -> dict:
     from decimal import Decimal, InvalidOperation
+    from core.services.requisition import requisition_deposit_values
 
     keys = ('deposit_hb', 'deposit_jbl', 'invoice_amount', 'discount', 'payment', 'balance_due')
     totals = {key: Decimal('0') for key in keys}
     present = {key: False for key in keys}
     for farmer in farmers:
-        is_jbl = bool(farmer.lead_source and 'jbl' in farmer.lead_source.lower())
+        deposit_hb, deposit_jbl = requisition_deposit_values(farmer)
         raw = {
-            'deposit_hb': None if is_jbl else farmer.actual_receipts,
-            'deposit_jbl': farmer.system_deposit_paid_jbl if farmer.system_deposit_paid_jbl is not None else (farmer.actual_receipts if is_jbl else None),
+            'deposit_hb': deposit_hb,
+            'deposit_jbl': deposit_jbl,
             'invoice_amount': farmer.invoice_amount,
             'discount': farmer.discount,
             'payment': farmer.payment,

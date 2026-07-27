@@ -310,11 +310,9 @@ def _row_payload(
     if not farmer.repayment_tenor:
         missing.append('Tenor')
 
-    canonical_deposit = farmer.deposit_paid_hbg if farmer.deposit_paid_hbg is not None else _amount(farmer.actual_receipts)
-    hbg_deposit = canonical_deposit if not (farmer.lead_source and 'jbl' in farmer.lead_source.lower()) else None
-    jbl_deposit = farmer.system_deposit_paid_jbl
-    if jbl_deposit is None and farmer.lead_source and 'jbl' in farmer.lead_source.lower():
-        jbl_deposit = canonical_deposit
+    from core.services.requisition import requisition_deposit_values
+
+    hbg_deposit, jbl_deposit = requisition_deposit_values(farmer)
 
     row = {
         'requisition_date': farmer.requisition_date,

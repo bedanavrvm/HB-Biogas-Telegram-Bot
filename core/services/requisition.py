@@ -27,6 +27,28 @@ def clean_deposit_float(val: Any) -> float | int | None:
     except ValueError:
         return None
 
+
+def requisition_deposit_values(farmer: JawabuFarmerMaster) -> tuple[Any, Any]:
+    """Return the HBG and JBL deposits for an order row.
+
+    Jawabu records use ``JAWABU`` as the lead-source label, while older
+    records used ``JBL``.  Both identify the JBL-funded path.  Prefer the
+    explicit IMAB JBL deposit when it exists; otherwise preserve the legacy
+    receipt value as the deposit for that source.  Keeping this decision in
+    one helper prevents the preview, totals, and workbook from disagreeing.
+    """
+    canonical_deposit = (
+        farmer.deposit_paid_hbg
+        if farmer.deposit_paid_hbg is not None
+        else clean_deposit_float(farmer.actual_receipts)
+    )
+    explicit_jbl = getattr(farmer, 'system_deposit_paid_jbl', None)
+    source = str(getattr(farmer, 'lead_source', '') or '').strip().lower()
+    is_jbl_source = 'jbl' in source or 'jawabu' in source
+    if is_jbl_source:
+        return None, explicit_jbl if explicit_jbl is not None else canonical_deposit
+    return canonical_deposit, explicit_jbl
+
 def copy_row_formatting(ws: Any, src_row: int, dst_row: int) -> None:
     for col in range(1, ws.max_column + 1):
         src_cell = ws.cell(row=src_row, column=col)
@@ -250,21 +272,9 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
         location_text = requisition_location_text(farmer)
         _write_system_value(ws, r, col_landmark, location_text, wrap=True)  # LOCATION & NEAREST LANDMARK
         
-        deposit = (
-            float(farmer.deposit_paid_hbg)
-            if farmer.deposit_paid_hbg is not None
-            else clean_deposit_float(farmer.actual_receipts)
-        )
-        is_hbg = True
-        if farmer.lead_source and 'jbl' in farmer.lead_source.lower():
-            is_hbg = False
-            
-        if is_hbg:
-            _write_system_value(ws, r, col_hbg, deposit)  # HBG
-            _write_system_value(ws, r, col_jbl, "")  # JBL
-        else:
-            _write_system_value(ws, r, col_hbg, "")  # HBG
-            _write_system_value(ws, r, col_jbl, deposit)  # JBL
+        hbg_deposit, jbl_deposit = requisition_deposit_values(farmer)
+        _write_system_value(ws, r, col_hbg, hbg_deposit if hbg_deposit is not None else "")  # HBG
+        _write_system_value(ws, r, col_jbl, jbl_deposit if jbl_deposit is not None else "")  # JBL
         ws.cell(row=r, column=col_hbg).number_format = '0'
         ws.cell(row=r, column=col_jbl).number_format = '0'
             

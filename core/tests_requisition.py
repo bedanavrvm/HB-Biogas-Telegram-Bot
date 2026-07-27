@@ -122,6 +122,23 @@ class RequisitionTemplateGenerationTests(TestCase):
         for cell_ref in ('C14', 'D14', 'E14', 'F14', 'G14', 'H14', 'I14', 'J14', 'K14', 'L14', 'M14'):
             self.assertEqual(ws[cell_ref].alignment.horizontal, 'center')
 
+    def test_jawabu_source_writes_receipt_to_jbl_deposit_column(self):
+        template_path = Path('tmp_requisition_jbl_deposit.xlsx')
+        output_path = Path('tmp_requisition_jbl_deposit_output.xlsx')
+        self.addCleanup(lambda: template_path.exists() and template_path.unlink())
+        self.addCleanup(lambda: output_path.exists() and output_path.unlink())
+        self.write_reconciled_shape_template(template_path)
+
+        output_path.write_bytes(self.generate_with_template(
+            template_path,
+            [self.farmer(lead_source='JAWABU')],
+        ))
+        ws = load_workbook(output_path, data_only=False).active
+
+        self.assertIn(ws['K14'].value, (None, ''))
+        self.assertEqual(ws['L14'].value, 25000)
+
+
     def test_template_validation_rejects_customer_data_but_allows_numbers_and_footer_labels(self):
         template_path = Path('tmp_requisition_validation.xlsx')
         self.addCleanup(lambda: template_path.exists() and template_path.unlink())

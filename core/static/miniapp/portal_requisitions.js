@@ -14,7 +14,8 @@
   function renderPrintableRequisition(data) {
     const farmers = data.farmers || [...(data.ready || []), ...(data.blocked || []).map(item => item.farmer)];
     const rows = farmers.map((farmer, index) => {
-      const isJbl = farmer.lead_source && String(farmer.lead_source).toLowerCase().includes('jbl');
+      const source = String(farmer.lead_source || '').toLowerCase();
+      const isJbl = source.includes('jbl') || source.includes('jawabu');
       const deposit = farmer.deposit_paid_hbg || farmer.actual_receipts || '';
       const preview = farmer.requisition_preview || {
         location: [farmer.sub_county, farmer.village].filter(Boolean).join(' - '),

@@ -987,6 +987,31 @@ class JblPipelineApiTestCase(TestCase):
         self.assertIsNone(data['workbook_preview'])
         self.assertEqual(data['ready'][0]['requisition_preview']['hbg_deposit'], '5000.00')
 
+    def test_portal_requisition_preview_routes_jawabu_receipt_to_jbl_deposit(self):
+        self.farmer.final_decision = 'Approved'
+        self.farmer.imab_created = 'Yes'
+        self.farmer.customer_no = '15124'
+        self.farmer.lead_source = 'JAWABU'
+        self.farmer.actual_receipts = '7500'
+        self.farmer.deposit_paid_hbg = None
+        self.farmer.save()
+        self.mark_requisition_location_ready()
+        payload = {
+            'farmer_ids': [str(self.farmer.id)],
+            'order_number': 'REQ-JBL-DEPOSIT-1',
+            'requisition_date': '2026-07-06',
+        }
+
+        response = self.client.post(
+            reverse('portal_requisition_preview'), json.dumps(payload),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        preview = response.json()['ready'][0]['requisition_preview']
+        self.assertEqual(preview['hbg_deposit'], '')
+        self.assertEqual(preview['jbl_deposit'], '7500')
+
     def test_portal_requisition_preview_blocks_missing_customer_no(self):
         self.farmer.final_decision = 'Approved'
         self.farmer.imab_created = 'Yes'

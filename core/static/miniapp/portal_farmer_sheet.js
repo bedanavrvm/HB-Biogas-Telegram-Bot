@@ -23,9 +23,21 @@
     invoice: ['Invoice & Balance', 'Confirmed invoice and payment amounts'],
   };
 
+  function renderCaseFieldValue(key, value) {
+    const text = value == null || value === '' ? '-' : String(value);
+    // GPS links originate in imported/master data. Only turn an explicitly
+    // absolute HTTP(S) URL into a link; everything else stays escaped text so
+    // a malformed value cannot become executable markup.
+    if (key === 'gps_link' && /^https?:\/\//i.test(text)) {
+      const href = deps.escapeHtml(text);
+      return `<a class="case360-link" href="${href}" target="_blank" rel="noopener">Open map ↗</a>`;
+    }
+    return deps.escapeHtml(text);
+  }
+
   function renderBusinessSection(section) {
     return `<div class="case360-grid">${Object.entries(section || {}).map(([key, value]) =>
-      `<div class="case360-field ${['comment', 'gps_link'].includes(key) ? 'wide' : ''} ${value === null || value === '' ? 'empty' : ''}"><span>${deps.escapeHtml(humanLabel(key))}</span><strong>${deps.escapeHtml(value ?? '-')}</strong></div>`
+      `<div class="case360-field ${['comment', 'gps_link'].includes(key) ? 'wide' : ''} ${value === null || value === '' ? 'empty' : ''}"><span>${deps.escapeHtml(humanLabel(key))}</span><strong>${renderCaseFieldValue(key, value)}</strong></div>`
     ).join('')}</div>`;
   }
 
