@@ -323,7 +323,7 @@ class TelegramUserAuthenticationTests(TestCase):
         self.assertIn('BRO', resolved['roles'])
         self.assertIn(self.user.get_full_name() or self.user.get_username(), names)
 
-    def test_tat_role_replacement_deactivates_previous_role(self):
+    def test_tat_users_can_keep_multiple_active_role_tags(self):
         from core.services.telegram_identity import user_access
 
         self.user.groups.add(Group.objects.create(name='BRO'))
@@ -335,13 +335,8 @@ class TelegramUserAuthenticationTests(TestCase):
                 user=self.user, workflow='tat_tracker', active=True,
             ).values_list('role', flat=True)
         )
-        self.assertEqual(active_roles, {'FINANCE'})
-        self.assertFalse(
-            AccessGrant.objects.filter(
-                user=self.user, workflow='tat_tracker', role='BRO', active=True,
-            ).exists()
-        )
-        self.assertEqual(user_access(self.user, 'tat_tracker')['roles'], ['FINANCE'])
+        self.assertEqual(active_roles, {'BRO', 'FINANCE'})
+        self.assertEqual(user_access(self.user, 'tat_tracker')['roles'], ['BRO', 'FINANCE'])
 
     def test_superuser_receives_workflow_admin_roles_without_explicit_grants(self):
         from core.services.telegram_identity import user_access

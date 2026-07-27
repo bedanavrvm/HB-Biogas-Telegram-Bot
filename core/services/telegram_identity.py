@@ -126,26 +126,12 @@ def user_access(user, workflow: str, *, group_configuration=None) -> dict:
         for grant in grants
         if grant.role
     }
-    if workflow == 'tat_tracker' and grant_roles:
-        # Normalize any pre-existing duplicate rows from before exclusive
-        # roles were enforced. The most recently changed role wins, and all
-        # branch/product scopes for that role remain available.
-        latest_grant = max(
-            grants,
-            key=lambda grant: grant.updated_at or grant.created_at,
-        )
-        selected_role = canonical_access_role(workflow, latest_grant.role)
-        grants = [
-            grant for grant in grants
-            if canonical_access_role(workflow, grant.role) == selected_role
-        ]
-        grant_roles = {selected_role}
     roles = {name for name in user.groups.values_list('name', flat=True)}
-    # TAT grants are the authoritative role assignment. A guided user
+    # Workflow grants are authoritative whenever present. A guided user
     # creation historically also added the role name to Django Groups, so
-    # leaving group names in the result would make a BRO who was changed to
-    # Finance appear to hold both roles. Same-role branch/product grants are
-    # still combined; only different active TAT roles are suppressed.
+    # leaving group names in the result would duplicate stale role tags. All
+    # active grant roles are retained; a user may legitimately have multiple
+    # TAT responsibilities (for example BRO and CA).
     if workflow == 'tat_tracker' and grant_roles:
         roles = grant_roles
     else:

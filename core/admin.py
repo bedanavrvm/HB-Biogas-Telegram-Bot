@@ -2005,7 +2005,7 @@ class AccessGrantAdminForm(forms.ModelForm):
     role = forms.ChoiceField(
         choices=role_choices(),
         label='Role tag',
-        help_text='This workflow role tag controls which staff queues and actions the user can access.',
+        help_text='This workflow role tag controls queues/actions. Multiple active role tags and scopes are allowed.',
         widget=WorkflowScopedSelect(workflow_map=role_workflows),
     )
     branch = forms.ChoiceField(

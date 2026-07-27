@@ -1275,13 +1275,12 @@ class AccessGrant(models.Model):
         return f'{self.user} - {self.workflow}: {self.role}'
 
     def save(self, *args, **kwargs):
-        """Keep TAT role assignment exclusive while retaining same-role scopes.
+        """Canonicalize the workflow role before saving the grant.
 
-        TAT access can legitimately have more than one branch/product scope,
-        but a person must have one active TAT role. Saving a replacement role
-        therefore retires any other active TAT grants for that user. This is
-        enforced at the model boundary so admin edits, guided enrolment, and
-        service code all behave consistently.
+        A user may hold more than one active role tag and may have separate
+        branch/product/group scopes. AccessGrant is the source of truth for
+        those combinations; saving one grant must never silently deactivate a
+        different grant created for the same user.
         """
         from core.services.access_policies import canonical_access_role
 
@@ -1289,16 +1288,6 @@ class AccessGrant(models.Model):
             self.role = canonical_access_role(self.workflow, self.role)
         with transaction.atomic():
             super().save(*args, **kwargs)
-            if self.workflow == 'tat_tracker' and self.active:
-                type(self).objects.filter(
-                    user_id=self.user_id,
-                    workflow='tat_tracker',
-                    active=True,
-                ).exclude(
-                    pk=self.pk,
-                ).exclude(
-                    role__iexact=self.role,
-                ).update(active=False, updated_at=timezone.now())
 
     def clean(self):
         super().clean()
