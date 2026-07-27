@@ -1,9 +1,12 @@
+from unittest.mock import patch
+
+from django.db import DatabaseError
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from core.models import OperationalLocation
 from core.services.branches import global_branch_choices
-from core.services.locations import global_county_choices
+from core.services.locations import configured_location_names, global_county_choices
 from core.services.order_approval import order_approval_branch_choices
 from core.services.parser import _canonical_county
 
@@ -30,6 +33,19 @@ class OperationalLocationTests(TestCase):
         OperationalLocation.objects.create(location_type='branch', name='Retired Branch', active=False)
 
         self.assertEqual(global_branch_choices(), ['Active Branch'])
+
+    def test_location_lookup_falls_back_when_database_connection_is_aborted(self):
+        """Admin choice construction must survive a failed prior DB operation."""
+        with patch.object(
+            OperationalLocation.objects,
+            'filter',
+            side_effect=DatabaseError('current transaction is aborted'),
+        ):
+            self.assertEqual(configured_location_names('branch'), [])
+
+        # Callers can now safely use their static/environment defaults after
+        # the failed lookup rather than rendering an InternalError page.
+        self.assertIn('Embu', global_branch_choices())
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, SECURE_SSL_REDIRECT=False)
     def test_portal_meta_exposes_central_lists(self):

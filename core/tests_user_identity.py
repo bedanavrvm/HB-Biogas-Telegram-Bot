@@ -3,6 +3,7 @@ import hmac
 import io
 import json
 import time
+from unittest.mock import patch
 from urllib.parse import urlencode
 
 from django.contrib.auth import get_user_model
@@ -157,6 +158,30 @@ class LegacyStaffMigrationCommandTests(TestCase):
         self.assertTrue(user.is_staff)
         self.assertTrue(user.check_password('secure-test-password'))
         self.assertTrue(AccessGrant.objects.filter(user=user, workflow='jawabu_portal', role='ADMIN').exists())
+
+        # The redirect target must render the canonical User form, including
+        # dynamic AccessGrant choices, immediately after creation.
+        change = self.client.get(reverse('admin:auth_user_change', args=(user.pk,)))
+        self.assertEqual(change.status_code, 200)
+        self.assertContains(change, 'Access grants')
+
+    def test_user_change_view_recovers_an_unusable_persistent_connection(self):
+        superuser = get_user_model().objects.create_superuser(
+            username='connection-admin', email='admin@example.test', password='test-password',
+        )
+        user = get_user_model().objects.create_user(username='connection-target')
+        self.client.force_login(superuser)
+
+        with patch('core.admin.connections') as connections:
+            connection = connections.__getitem__.return_value
+            connection.connection = object()
+            connection.in_atomic_block = False
+            connection.is_usable.return_value = False
+
+            response = self.client.get(reverse('admin:auth_user_change', args=(user.pk,)))
+
+        self.assertEqual(response.status_code, 200)
+        connection.close.assert_called_once_with()
 
     def test_access_grant_forms_offer_choices_and_reject_scope_mismatches(self):
         from core.admin import StaffUserCreationForm

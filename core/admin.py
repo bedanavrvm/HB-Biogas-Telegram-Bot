@@ -12,7 +12,7 @@ from django.conf import settings
 from django.http import HttpResponseRedirect, JsonResponse
 from django.template.response import TemplateResponse
 from django.core.exceptions import PermissionDenied
-from django.db import transaction
+from django.db import DatabaseError, connections, transaction
 from django.urls import path, reverse
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin, StackedInline, TabularInline
@@ -2291,6 +2291,33 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
     inlines = (UserProfileInline, AccessGrantInline)
     change_list_template = 'admin/auth/user/change_list.html'
 
+    @staticmethod
+    def _recover_unusable_connection():
+        """Drop a stale failed connection before constructing user inlines.
+
+        A database error caught by an earlier request can leave a persistent
+        PostgreSQL connection in ``INERROR`` until it is closed.  Django's
+        normal connection cleanup only probes connections it already knows
+        encountered an error; this admin surface may be the first request
+        after a custom migration/enrolment action swallowed one.  User forms
+        build dynamic branch/group choices during rendering, so recovering
+        here avoids turning that stale state into a misleading 500 page.
+        Never close a connection owned by an active atomic block.
+        """
+        connection = connections['default']
+        if connection.connection is None or connection.in_atomic_block:
+            return
+        try:
+            usable = connection.is_usable()
+        except DatabaseError:
+            usable = False
+        if not usable:
+            connection.close()
+
+    def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
+        self._recover_unusable_connection()
+        return super().changeform_view(request, object_id, form_url, extra_context)
+
     def add_view(self, request, form_url='', extra_context=None):
         """Use one guided flow for identity and initial workflow access."""
         return HttpResponseRedirect(reverse('admin:auth_user_add_staff'))
@@ -2307,6 +2334,7 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
 
     def add_staff_view(self, request):
         """Create a canonical user and initial workflow grant in one operation."""
+        self._recover_unusable_connection()
         if not request.user.is_superuser:
             raise PermissionDenied
         creation_form = StaffUserCreationForm(request.POST or None)
