@@ -655,7 +655,6 @@
 
   function reviewCardMode(cfg, qKey) {
     if (qKey !== 'final') return cfg.mode;
-    if (state.filters.reviewStage === 'requisition') return 'requisition';
     if (state.filters.reviewStage === 'payment') return null;
     return cfg.mode;
   }

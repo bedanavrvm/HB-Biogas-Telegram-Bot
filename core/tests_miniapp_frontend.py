@@ -255,6 +255,12 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('payment-open-case', requisitions_source)
         self.assertIn('payment-case-comment', requisitions_source)
 
+    def test_head_of_rural_selector_only_contains_actual_hor_queues(self):
+        response = self.client.get(reverse('portal_home'))
+        self.assertContains(response, 'Final decision (before requisition)')
+        self.assertContains(response, 'Payment batches awaiting HOR review')
+        self.assertNotContains(response, 'Ready for requisition / order')
+
     def test_portal_payments_exposes_selection_primitives(self):
         source = Path('core/static/miniapp/portal_payments.js').read_text(encoding='utf-8')
 
