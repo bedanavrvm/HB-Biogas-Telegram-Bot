@@ -245,6 +245,16 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('data-main-action-proxy="true"', template)
         self.assertIn('mainActionProxy', Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8'))
 
+    def test_history_actions_use_shell_link_and_payment_case_review_cards(self):
+        portal_source = Path('core/static/miniapp/portal.js').read_text(encoding='utf-8')
+        requisitions_source = Path('core/static/miniapp/portal_requisitions.js').read_text(encoding='utf-8')
+
+        self.assertIn("openPortalLink(excelButton.dataset.url || '')", portal_source)
+        self.assertNotIn("deps.openPortalLink(excelButton.dataset.url || '')", portal_source)
+        self.assertIn('payment-review-case-card', requisitions_source)
+        self.assertIn('payment-open-case', requisitions_source)
+        self.assertIn('payment-case-comment', requisitions_source)
+
     def test_portal_payments_exposes_selection_primitives(self):
         source = Path('core/static/miniapp/portal_payments.js').read_text(encoding='utf-8')
 
@@ -340,5 +350,5 @@ class MiniAppFrontendSmokeTests(TestCase):
         stylesheet = Path('core/static/miniapp/portal.css').read_text(encoding='utf-8')
         response = self.client.get(reverse('portal_home'))
 
-        self.assertContains(response, 'miniapp/portal.css?v=34')
+        self.assertContains(response, 'miniapp/portal.css?v=35')
         self.assertIn('#requisition-preview-overlay { z-index: 240; }', stylesheet)

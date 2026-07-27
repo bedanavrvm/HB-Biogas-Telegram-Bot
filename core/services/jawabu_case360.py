@@ -227,7 +227,9 @@ def serialize_case360(farmer: JawabuFarmerMaster) -> dict[str, Any]:
     return {
         'sections': {
             'identity': {'customer_name': farmer.customer_name, 'national_id': farmer.national_id, 'primary_phone': farmer.primary_phone, 'secondary_phone': farmer.secondary_phone, 'customer_no': farmer.customer_no, 'unit_number': farmer.unit_number},
-            'intake': {'hbg_visit_date': _case_date(farmer.hbg_visit_date or farmer.sign_date), 'county': farmer.county, 'constituency': farmer.sub_county, 'ward': farmer.ward, 'village': farmer.village, 'branch': farmer.branch, 'lead_source': farmer.lead_source, 'hb_sales_person': farmer.hb_sales_person, 'deposit_paid_hbg': _case_amount(farmer.deposit_paid_hbg if farmer.deposit_paid_hbg is not None else farmer.actual_receipts)},
+            # Ward is retained for source/import compatibility, but is not a
+            # captured or used field in the staff-facing case history.
+            'intake': {'hbg_visit_date': _case_date(farmer.hbg_visit_date or farmer.sign_date), 'county': farmer.county, 'constituency': farmer.sub_county, 'village': farmer.village, 'branch': farmer.branch, 'lead_source': farmer.lead_source, 'hb_sales_person': farmer.hb_sales_person, 'deposit_paid_hbg': _case_amount(farmer.deposit_paid_hbg if farmer.deposit_paid_hbg is not None else farmer.actual_receipts)},
             'jbl_visit': {'visit_date': _case_date(farmer.jbl_visit_date), 'officer': farmer.jbl_officer, 'status': farmer.jbl_visit_status, 'comment': farmer.jbl_visit_comment, 'gps_link': farmer.gps_link},
             'credit': {'decision': farmer.credit_decision, 'decided_by': farmer.credit_decided_by, 'decided_at': _case_datetime(farmer.credit_decided_at), 'imab_created': farmer.imab_created, 'customer_no': farmer.customer_no},
             'final_review': {'decision': farmer.final_decision, 'comment': farmer.final_decision_comment, 'decided_by': farmer.final_decided_by, 'decided_at': _case_datetime(farmer.final_decided_at), 'repayment_day': farmer.repayment_day, 'tenor_months': farmer.repayment_tenor_months},

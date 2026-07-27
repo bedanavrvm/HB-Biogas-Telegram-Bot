@@ -2171,6 +2171,7 @@ class JawabuCase360Tests(TestCase):
 
         self.assertEqual(payload['sections']['identity']['national_id'], '12345678')
         self.assertEqual(payload['sections']['intake']['deposit_paid_hbg'], '5000')
+        self.assertNotIn('ward', payload['sections']['intake'])
         self.assertEqual(payload['sections']['jbl_visit']['visit_date'], '24-July-2026')
         self.assertEqual(payload['timeline'][0]['action'], 'tracking_started')
         self.assertNotIn('raw_data', str(payload))

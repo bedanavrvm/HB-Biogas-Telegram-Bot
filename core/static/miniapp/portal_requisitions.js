@@ -97,15 +97,52 @@
     </article>`;
   }
 
-  function renderPaymentCaseComments(rows, document) {
+  function paymentReviewValue(row, key, { amount = false, date = false } = {}) {
+    const value = row?.[key];
+    if (value === null || value === undefined || value === '') return '-';
+    if (amount) return paymentAmount(value) || '-';
+    if (date) return deps.escapeHtml(deps.fmtDate(value) || value);
+    return paymentValue(value) || '-';
+  }
+
+  function renderPaymentReviewCards(preview, document) {
+    const rows = preview.rows || [];
     const comments = document?.case_call_up_comments || {};
     if (!rows.length) return '<div class="batch-warning">No payment cases are available for review.</div>';
-    return `<div class="payment-case-review-list"><p class="meta">Review every case below. Each case must have its own Call Up Comment (COL); the order/requisition comment is a separate earlier-stage record.</p>${rows.map((row, index) => {
+    const fields = [
+      ['Requisition date', 'requisition_date', { date: true }],
+      ['Order no.', 'order_no'],
+      ['Customer no.', 'cust_no'],
+      ['Name in IMAB', 'name_imab'],
+      ['Customer name', 'name'],
+      ['Primary mobile', 'mobile_no'],
+      ['Secondary mobile', 'secondary_mobile'],
+      ['Branch', 'branch'],
+      ['Loan officer', 'loan_officer'],
+      ['HB invoice amount (balance due)', 'hb_invoice_amount', { amount: true }],
+      ['Expected invoice amount', 'expected_invoice_amount', { amount: true }],
+      ['Discount', 'discount', { amount: true }],
+      ['Deposit paid to HBG', 'deposit_paid_hbg', { amount: true }],
+      ['Deposit paid to JBL', 'deposit_paid_jbl', { amount: true }],
+      ['Loan amount', 'loan_amount', { amount: true }],
+      ['Repayment date', 'repayment_dates', { date: true }],
+      ['Tenor', 'tenor'],
+      ['Product', 'product'],
+    ];
+    return `<section class="payment-review-case-list"><p class="meta">Review each client using the complete payment row. Open a case for the timeline and supporting documents, then record that client's Head of Rural Call Up Comment.</p>${rows.map((row, index) => {
       const farmerId = String(row.farmer_id || document?.farmer_ids?.[index] || '');
-      const value = row.call_up_comments || comments[farmerId] || '';
-      const orderComment = row.order_call_up_comments ? `<small>Order/requisition comment: ${deps.escapeHtml(row.order_call_up_comments)}</small>` : '<small>Order/requisition comment: none recorded</small>';
-      return `<label class="payment-case-review-row"><span><strong>${deps.escapeHtml(row.name || row.name_imab || `Case ${index + 1}`)}</strong><small>${deps.escapeHtml([row.cust_no, row.order_no].filter(Boolean).join(' | '))}</small>${orderComment}</span><textarea class="payment-case-comment" data-farmer-id="${deps.escapeHtml(farmerId)}" rows="2" placeholder="HOR comment for this case" required>${deps.escapeHtml(value)}</textarea></label>`;
-    }).join('')}</div>`;
+      const comment = row.call_up_comments || comments[farmerId] || '';
+      const orderComment = row.order_call_up_comments
+        ? `<div class="payment-review-reference"><strong>Order/requisition comment</strong><span>${deps.escapeHtml(row.order_call_up_comments)}</span></div>`
+        : '';
+      return `<article class="payment-review-case-card">
+        <header><div><span class="payment-review-case-number">Case ${index + 1}</span><h3>${deps.escapeHtml(row.name || row.name_imab || 'Unnamed customer')}</h3><p>${deps.escapeHtml([row.cust_no && `Customer ${row.cust_no}`, row.order_no && `Order ${row.order_no}`].filter(Boolean).join(' | ') || 'Identifiers not recorded')}</p></div><span class="badge badge-orange">HOR review</span></header>
+        <div class="payment-review-grid">${fields.map(([label, key, options]) => `<div class="payment-review-field"><span>${deps.escapeHtml(label)}</span><strong>${paymentReviewValue(row, key, options)}</strong></div>`).join('')}</div>
+        ${orderComment}
+        <div class="payment-review-case-actions"><button type="button" class="btn btn-secondary payment-open-case" data-farmer-id="${deps.escapeHtml(farmerId)}">Open case</button></div>
+        <label class="payment-review-comment"><span>Payment Call Up Comment (COL)</span><textarea class="payment-case-comment" data-farmer-id="${deps.escapeHtml(farmerId)}" rows="3" placeholder="HOR decision for this client" required>${deps.escapeHtml(comment)}</textarea></label>
+      </article>`;
+    }).join('')}<div class="payment-review-submit"><button type="button" class="btn btn-primary" id="payment-review-approve" data-document-id="${deps.escapeHtml(document.id)}">Approve and create final payment</button></div></section>`;
   }
 
   async function openPaymentPreview(orderNumber, button) {
@@ -116,6 +153,7 @@
     const paymentNumber = requestedPaymentNumber();
     if (!paymentNumber) return;
     overlay.classList.add('open');
+    if (el('payment-preview-title')) el('payment-preview-title').textContent = 'Payment Preview';
     if (sub) sub.textContent = `Payment #${paymentNumber} - Order ${orderNumber}`;
     target.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
     if (button) deps.setButtonLoading(button, true, 'Loading Preview...');
@@ -159,13 +197,14 @@
       farmer_id: row.farmer_id || document.farmer_ids?.[index] || '',
     }));
     const overlay = el('payment-preview-overlay');
+    if (el('payment-preview-title')) el('payment-preview-title').textContent = document.status === 'pending_review' ? 'Payment Review' : 'Payment Preview';
     if (el('payment-preview-sub')) el('payment-preview-sub').textContent = `Payment #${preview.payment_number || '-'} - Order ${preview.order_number || '-'}`;
     if (el('payment-preview-content')) {
-      const valuePreview = renderPrintablePayment(preview);
-      const reviewActions = document.status === 'pending_review'
-        ? `<div class="form-section" style="margin-top:12px;"><strong>Head of Rural payment review</strong>${renderPaymentCaseComments(preview.rows, document)}<button type="button" class="btn btn-primary" id="payment-review-approve" data-document-id="${deps.escapeHtml(document.id)}" style="margin-top:8px;">Approve and create final payment</button></div>`
-        : '';
-      el('payment-preview-content').innerHTML = valuePreview + reviewActions;
+      // Pending payment documents are a case-by-case HOR decision surface.
+      // Final documents retain the printable table for historical reference.
+      el('payment-preview-content').innerHTML = document.status === 'pending_review'
+        ? renderPaymentReviewCards(preview, document)
+        : renderPrintablePayment(preview);
     }
     activePaymentReviewId = document.status === 'pending_review' ? document.id : null;
     activePaymentPrintPayload = { orderNumber: preview.order_number, paymentNumber: preview.payment_number };
@@ -476,6 +515,7 @@
     const list = el('requisition-preview-list');
     const confirm = el('requisition-preview-confirm');
     const cancel = el('requisition-preview-cancel');
+    const progress = el('requisition-preview-progress');
     const blockedById = {};
     (data.blocked || []).forEach(item => {
       if (item.farmer?.id) blockedById[item.farmer.id] = item.missing || [];
@@ -488,6 +528,10 @@
     ]);
     deps.renderWarnings(warnings, data.warnings || []);
     list.innerHTML = renderPrintableRequisition(data);
+    // A previous generation may have left the progress row visible. History
+    // previews are read-only and must never imply that a workbook is being
+    // generated or make another generation request.
+    if (progress) progress.hidden = true;
     // Keep generation as one visible action: Telegram's native MainButton.
     // The inline element is a hidden proxy so the shell can invoke the same
     // click handler and the browser/keyboard fallback remains available.
@@ -750,6 +794,21 @@
         if (approvePaymentButton) {
           event.preventDefault();
           approvePaymentReview(approvePaymentButton);
+          return;
+        }
+        const openPaymentCaseButton = event.target.closest('.payment-open-case');
+        if (openPaymentCaseButton) {
+          event.preventDefault();
+          const farmerId = String(openPaymentCaseButton.dataset.farmerId || '').trim();
+          if (!farmerId) {
+            deps.showToast('This payment row is not linked to a case.', 'error');
+            return;
+          }
+          if (window.PortalAppShell?.openCaseHistory) {
+            window.PortalAppShell.openCaseHistory(farmerId);
+          } else {
+            window.location.assign('/portal/cases/' + encodeURIComponent(farmerId) + '/');
+          }
           return;
         }
         const paymentOverlay = event.target.closest('#payment-preview-overlay');

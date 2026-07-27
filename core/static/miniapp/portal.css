@@ -723,12 +723,24 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .review-stage-toolbar select { min-height:36px; border:1px solid var(--border-color); border-radius:8px; background:var(--bg-muted); color:var(--text-primary); padding:7px 9px; }
 .review-stage-toolbar .meta { flex:1; min-width:220px; }
 .btn-open-payment-review { margin-top:9px; width:100%; justify-content:center; }
-.payment-case-review-list { display:grid; gap:8px; margin-top:10px; }
-.payment-case-review-row { display:grid; grid-template-columns:minmax(130px,.8fr) minmax(0,1.6fr); gap:8px; align-items:start; padding:9px; border:1px solid var(--border-color); border-radius:9px; background:var(--bg-muted); }
-.payment-case-review-row span { display:grid; gap:3px; font-size:11px; }
-.payment-case-review-row small { color:var(--text-muted); font-size:9px; }
 .payment-case-comment { width:100%; min-height:56px; resize:vertical; }
-@media (max-width: 620px) { .payment-case-review-row { grid-template-columns:1fr; } }
+.payment-review-case-list { display:grid; gap:10px; }
+.payment-review-case-card { display:grid; gap:10px; padding:12px; border:1px solid var(--border-color); border-radius:12px; background:var(--bg-surface); box-shadow:0 1px 2px rgba(15,23,42,.06); }
+.payment-review-case-card > header { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; padding-bottom:8px; border-bottom:1px solid var(--border-color); }
+.payment-review-case-card h3 { margin:2px 0 2px; color:var(--text-primary); font-size:14px; }
+.payment-review-case-card header p { margin:0; color:var(--text-muted); font-size:10px; }
+.payment-review-case-number { color:var(--text-muted); font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; }
+.payment-review-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+.payment-review-field { min-width:0; display:grid; gap:2px; padding:6px 7px; border-radius:7px; background:var(--bg-muted); }
+.payment-review-field span, .payment-review-comment > span, .payment-review-reference strong { color:var(--text-muted); font-size:9px; font-weight:700; }
+.payment-review-field strong { min-width:0; color:var(--text-primary); font-size:11px; overflow-wrap:anywhere; }
+.payment-review-reference { display:grid; gap:3px; padding:8px; border:1px solid color-mix(in srgb, var(--color-warning) 30%, var(--border-color)); border-radius:8px; background:var(--color-warning-bg); }
+.payment-review-reference span { color:var(--text-primary); font-size:11px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.payment-review-case-actions { display:flex; justify-content:flex-start; }
+.payment-review-comment { display:grid; gap:5px; }
+.payment-review-comment textarea { width:100%; min-height:68px; resize:vertical; }
+.payment-review-submit { position:sticky; bottom:0; z-index:1; padding-top:8px; background:var(--bg-surface); }
+@media (max-width: 620px) { .payment-review-grid { grid-template-columns:1fr 1fr; } }
 .sheet-map-heading { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border-bottom: 1px solid var(--border-color); background: var(--bg-muted); padding: 8px 10px; color: var(--text-muted); font-size: 10px; }
 .sheet-map-heading strong { color: var(--text-primary); font-size: 11px; }
 .sheet-map-heading a { margin-left: auto; color: var(--color-primary); font-weight: 800; text-decoration: underline; }

@@ -949,7 +949,9 @@
     const excelButton = event.target.closest('.history-open-excel');
     if (excelButton) {
       event.preventDefault();
-      deps.openPortalLink(excelButton.dataset.url || '');
+      // This handler lives in the portal shell, not the requisitions module;
+      // using the module's `deps` here throws before the link can open.
+      openPortalLink(excelButton.dataset.url || '');
       return;
     }
     const viewButton = event.target.closest('.history-view-document');
