@@ -383,6 +383,53 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertNotContains(response, 'Credit')
         self.assertNotContains(response, 'Invoices')
 
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
+    def test_portal_reads_are_limited_to_staff_branch_scope(self):
+        JawabuPortalStaffMember.objects.create(
+            telegram_id='12345', display_name='Ruiru Officer',
+            roles=['jbl_officer'], branches=['Ruiru'],
+        )
+        allowed = JawabuFarmerMaster.objects.create(
+            customer_name='Ruiru client', national_id='12345678',
+            primary_phone='254700000001', branch='Ruiru', status='active',
+        )
+        JawabuFarmerMaster.objects.create(
+            customer_name='Kiambu client', national_id='12345679',
+            primary_phone='254700000002', branch='Kiambu', status='active',
+        )
+
+        response = self.client.get(
+            reverse('portal_all_cases'),
+            HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        returned_ids = {item['id'] for item in response.json()['farmers']}
+        self.assertEqual(returned_ids, {str(allowed.id)})
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
+    def test_requisition_download_requires_branch_scope(self):
+        JawabuPortalStaffMember.objects.create(
+            telegram_id='12345', display_name='Ruiru Officer',
+            roles=['jbl_officer'], branches=['Ruiru'],
+        )
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Kiambu client', national_id='12345680',
+            primary_phone='254700000003', branch='Kiambu', order_number='OUTSIDE-1',
+            status='active',
+        )
+        RequisitionBatch.objects.create(
+            order_number='OUTSIDE-1', file_content=b'xlsx-bytes',
+            farmer_ids=[str(farmer.id)], farmer_count=1,
+        )
+
+        response = self.client.get(
+            reverse('portal_requisition_batch_download', args=['OUTSIDE-1']),
+            HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
+        )
+
+        self.assertEqual(response.status_code, 403)
+
 @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, SECURE_SSL_REDIRECT=False)
 class JblPipelineApiTestCase(TestCase):
     """Test suite for the portal Mini App API endpoints."""
@@ -891,7 +938,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertTrue(data['ok'])
         self.assertEqual(data['filename'], 'JBL_Requisition_Form_REQ-BATCH-99.xlsx')
         self.assertEqual(data['drive_url'], 'https://drive.test/requisition')
-        self.assertIn('/api/portal/requisition-batches/REQ-BATCH-99/download/', data['download_url'])
+        self.assertIn('/api/portal/requisition-download/', data['download_url'])
         self.assertTrue(RequisitionBatch.objects.filter(order_number='REQ-BATCH-99', drive_file_id='drive-xlsx').exists())
 
         download_response = self.client.get(data['download_url'])

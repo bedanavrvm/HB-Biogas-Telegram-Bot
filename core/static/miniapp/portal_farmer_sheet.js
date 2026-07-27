@@ -261,12 +261,15 @@
     const statusOptions = state().metaStatuses.map(status =>
       `<option value="${deps.escapeHtml(status)}"${farmer.jbl_visit_status === status ? ' selected' : ''}>${deps.escapeHtml(status)}</option>`
     ).join('');
+    const countyOptions = (state().metaCounties || []).map(county =>
+      `<option value="${deps.escapeHtml(county)}"></option>`
+    ).join('');
     return `
       <div class="form-section">
         <div class="form-row"><label>Visit Date</label><input type="date" id="jbl-date" value="${deps.escapeHtml(farmer.jbl_visit_date || today)}"></div>
         <div class="form-row"><label>Status / Outcome</label><select id="jbl-status"><option value="">- Select -</option>${statusOptions}</select></div>
         <div class="form-row"><label>Officer Name</label><input type="text" id="jbl-officer" placeholder="Your name" value="${deps.escapeHtml(farmer.jbl_officer || '')}"></div>
-        <div class="form-row"><label>County</label><input type="text" id="jbl-county" placeholder="County" value="${deps.escapeHtml(farmer.county || '')}"></div>
+        <div class="form-row"><label>County</label><input type="text" id="jbl-county" list="jbl-county-options" placeholder="County" value="${deps.escapeHtml(farmer.county || '')}"><datalist id="jbl-county-options">${countyOptions}</datalist></div>
         <div class="form-row"><label>Constituency</label><input type="text" id="jbl-sub-county" placeholder="Constituency / sub-county" value="${deps.escapeHtml(farmer.sub_county || '')}"></div>
         <div class="form-row"><label>Village</label><input type="text" id="jbl-village" placeholder="Village / area" value="${deps.escapeHtml(farmer.village || '')}"></div>
         <div class="form-row"><label>Comment (optional)</label><textarea id="jbl-comment" rows="2" placeholder="Additional notes...">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea></div>

@@ -6,6 +6,7 @@ import uuid
 import re
 from django.conf import settings
 from django.db import models
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 
@@ -1438,6 +1439,45 @@ class FcaImportRecord(models.Model):
     def __str__(self):
         label = self.customer_name or self.primary_phone or 'unknown customer'
         return f"FCA {label} {self.import_status}"
+
+
+class OperationalLocation(models.Model):
+    """Canonical branch and county values shared by all workflows."""
+
+    LOCATION_TYPES = (
+        ('branch', 'Branch'),
+        ('county', 'County'),
+    )
+
+    location_type = models.CharField(max_length=20, choices=LOCATION_TYPES, db_index=True)
+    name = models.CharField(max_length=128)
+    code = models.CharField(max_length=32, blank=True, default='')
+    active = models.BooleanField(default=True, db_index=True)
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['location_type', 'sort_order', 'name']
+        constraints = [
+            models.UniqueConstraint(
+                Lower('name'), 'location_type',
+                name='unique_operational_location_name_ci',
+            ),
+        ]
+        verbose_name = 'Operational location'
+        verbose_name_plural = 'Operational locations'
+
+    def clean(self):
+        super().clean()
+        self.name = ' '.join(str(self.name or '').split())
+        self.code = ' '.join(str(self.code or '').split()).upper()
+        if not self.name:
+            from django.core.exceptions import ValidationError
+            raise ValidationError({'name': 'Enter a location name.'})
+
+    def __str__(self):
+        return f'{self.get_location_type_display()}: {self.name}'
 
 
 class GroupSheetConfiguration(models.Model):

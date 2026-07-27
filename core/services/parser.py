@@ -951,7 +951,8 @@ def _infer_unlabeled_description(
 def _remove_county_from_text(value: str, branch_region: str = '') -> str:
     text = str(value or '')
     counties = [branch_region] if branch_region else []
-    counties.extend(KENYA_COUNTIES)
+    from core.services.locations import global_county_choices
+    counties.extend(global_county_choices())
     for county in counties:
         if not county:
             continue
@@ -1127,7 +1128,12 @@ def _extract_county_value(value: str) -> str:
     direct = _canonical_county(value)
     if direct:
         return direct
-    match = COUNTY_NAME_PATTERN.search(value or '')
+    from core.services.locations import global_county_choices
+    pattern_body = '|'.join(
+        re.escape(county).replace(r'\ ', r'[\s\-]+')
+        for county in sorted(global_county_choices(), key=len, reverse=True)
+    )
+    match = re.search(r'\b(' + pattern_body + r')\b', value or '', flags=re.IGNORECASE)
     if match:
         return _canonical_county(match.group(1))
     return ''
@@ -1135,10 +1141,15 @@ def _extract_county_value(value: str) -> str:
 
 def _extract_county_reference(content: str) -> str:
     text = str(content or '')
+    from core.services.locations import global_county_choices
+    pattern_body = '|'.join(
+        re.escape(county).replace(r'\ ', r'[\s\-]+')
+        for county in sorted(global_county_choices(), key=len, reverse=True)
+    )
     patterns = [
-        rf'\b(?:county|branch|region)\s*[:;\-,]?\s*(?:of\s+)?({COUNTY_PATTERN_BODY})\b',
-        rf'\b({COUNTY_PATTERN_BODY})\s+(?:county|branch|region)\b',
-        rf'\b(?:in|from|at|located\s+in|location)\s+({COUNTY_PATTERN_BODY})(?:\s+county)?\b',
+        rf'\b(?:county|branch|region)\s*[:;\-,]?\s*(?:of\s+)?({pattern_body})\b',
+        rf'\b({pattern_body})\s+(?:county|branch|region)\b',
+        rf'\b(?:in|from|at|located\s+in|location)\s+({pattern_body})(?:\s+county)?\b',
     ]
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
@@ -1151,7 +1162,12 @@ def _extract_county_reference(content: str) -> str:
 
 def _canonical_county(value: str) -> str:
     key = re.sub(r'[^a-z0-9]+', ' ', str(value or '').lower()).strip()
-    return COUNTY_LOOKUP.get(key, '')
+    from core.services.locations import global_county_choices
+    configured_lookup = {
+        re.sub(r'[^a-z0-9]+', ' ', county.lower()).strip(): county
+        for county in global_county_choices()
+    }
+    return configured_lookup.get(key, COUNTY_LOOKUP.get(key, ''))
 
 
 def _clean_item_name(item: str) -> str:

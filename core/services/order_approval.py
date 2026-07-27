@@ -1104,13 +1104,23 @@ def validate_order_approval_fields(fields: dict[str, str]) -> list[str]:
 
 def order_approval_branch_choices() -> list[str]:
     raw = getattr(settings, 'ORDER_APPROVAL_BRANCH_CHOICES', None)
-    if raw is None:
-        choices = DEFAULT_BRANCH_CHOICES
+    configured = getattr(settings, 'WORKFLOW_BRANCH_CHOICES', '')
+    # A workflow-specific environment override remains supported for legacy
+    # deployments.  Otherwise use the central OperationalLocation list.
+    default_workflow = getattr(settings, 'DEFAULT_WORKFLOW_BRANCH_CHOICES', '')
+    if raw is None or str(raw).strip() in {str(configured).strip(), str(default_workflow).strip()}:
+        from core.services.branches import global_branch_choices
+        choices = global_branch_choices()
     elif isinstance(raw, str):
         choices = [item.strip() for item in raw.split(',')]
     else:
         choices = [str(item).strip() for item in raw]
     return [collapse_spaces(choice).upper() for choice in choices if str(choice).strip()]
+
+
+def order_approval_county_choices() -> list[str]:
+    from core.services.locations import global_county_choices
+    return [collapse_spaces(value).upper() for value in global_county_choices()]
 
 
 def fields_for_order_approval_match(match: SheetMatch, workflow: dict) -> dict[str, str]:

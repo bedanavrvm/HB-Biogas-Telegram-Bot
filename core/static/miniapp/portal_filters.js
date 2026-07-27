@@ -13,14 +13,14 @@
 
     const currentCounty = state().filters.county;
     const currentBranch = state().filters.branch;
-    const counties = new Set();
-    const branches = new Set();
+    const counties = new Set(state().metaCounties || []);
+    const branches = new Set(state().metaBranches || []);
 
     (farmers || []).forEach(farmer => {
       const county = String(farmer.county || '').trim();
       const branch = String(farmer.branch || '').trim();
-      if (county) counties.add(county);
-      if ((!currentCounty || county === currentCounty) && branch) branches.add(branch);
+      if (county && !counties.size) counties.add(county);
+      if ((!currentCounty || county === currentCounty) && branch && !branches.size) branches.add(branch);
     });
 
     countySelect.innerHTML = '<option value="">All Counties</option>' +

@@ -51,6 +51,7 @@ from .models import (
     JawabuVisitRecord,
     LiveSheetRecordChange,
     MediaAttachment,
+    OperationalLocation,
     OrderApprovalUpdate,
     InvoiceUploadBatch,
     ParsedInvoice,
@@ -72,6 +73,18 @@ from .models import (
     LegacyStaffUserMapping,
     StaffIdentityReview,
 )
+
+
+@admin.register(OperationalLocation)
+class OperationalLocationAdmin(ModelAdmin):
+    """Central editable list used by Portal, forms, parsers, and grants."""
+
+    list_display = ('location_type', 'name', 'code', 'active', 'sort_order', 'updated_at')
+    list_filter = ('location_type', 'active')
+    search_fields = ('name', 'code')
+    list_editable = ('active', 'sort_order')
+    ordering = ('location_type', 'sort_order', 'name')
+    readonly_fields = ('created_at', 'updated_at')
 
 
 @admin.register(JawabuCustomer)
@@ -870,8 +883,34 @@ class JawabuFarmerUploadBatchAdmin(ReadOnlyAuditAdmin):
     list_filter = ['status', 'group_id', 'created_at', 'committed_at']
     search_fields = ['source_filename', 'group_id', 'sender', 'telegram_message_id', 'error']
     readonly_fields = ['id', 'created_at', 'updated_at', 'committed_at']
+class JawabuFarmerMasterAdminForm(forms.ModelForm):
+    county = forms.ChoiceField(required=False)
+    branch = forms.ChoiceField(required=False)
+
+    class Meta:
+        model = JawabuFarmerMaster
+        fields = '__all__'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from core.services.branches import global_branch_choices
+        from core.services.locations import global_county_choices
+
+        branch_values = list(global_branch_choices())
+        county_values = list(global_county_choices())
+        current_branch = str(getattr(self.instance, 'branch', '') or '').strip()
+        current_county = str(getattr(self.instance, 'county', '') or '').strip()
+        if current_branch and current_branch not in branch_values:
+            branch_values.append(current_branch)
+        if current_county and current_county not in county_values:
+            county_values.append(current_county)
+        self.fields['branch'].choices = [('', 'Select branch')] + [(value, value) for value in branch_values]
+        self.fields['county'].choices = [('', 'Select county')] + [(value, value) for value in county_values]
+
+
 @admin.register(JawabuFarmerMaster)
 class JawabuFarmerMasterAdmin(ModelAdmin):
+    form = JawabuFarmerMasterAdminForm
     compressed_fields = True
     list_filter_submit = True
     list_fullwidth = True
@@ -2110,6 +2149,11 @@ class AccessGrantAdminForm(forms.ModelForm):
         model = AccessGrant
         fields = ('active', 'workflow', 'role', 'branch', 'product', 'group_configuration')
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from core.services.access_policies import branch_choices
+        self.fields['branch'].choices = branch_choices()
+
     def clean(self):
         cleaned = super().clean()
         if self.errors:
@@ -2193,6 +2237,11 @@ class StaffUserCreationForm(forms.Form):
         queryset=GroupSheetConfiguration.objects.filter(enabled=True), required=False,
         empty_label='All compatible groups', widget=GroupConfigurationAccessSelect,
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from core.services.access_policies import branch_choices
+        self.fields['branch'].choices = branch_choices()
 
     def clean_telegram_username(self):
         username = self.cleaned_data.get('telegram_username', '').strip().lstrip('@').lower()

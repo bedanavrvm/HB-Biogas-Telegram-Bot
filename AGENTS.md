@@ -106,6 +106,7 @@ Key modules:
 - `jawabu_master.py` — master farmer-record operations
 - `jawabu_pipeline.py` — pipeline state and transition logic
 - `live_sheet_records.py` — sheet-originated record-change handling
+- `locations.py` — centralized branch and county configuration
 - `order_approval.py` — order-approval workflow and attachments
 - `parser.py` — complaint/message parsing
 - `requisition.py` — requisition generation and files

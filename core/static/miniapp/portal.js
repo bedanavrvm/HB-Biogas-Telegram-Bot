@@ -29,6 +29,8 @@
     metaDecisions: [],
     metaImabOptions: [],
     metaFinalDecisions: [],
+    metaBranches: [],
+    metaCounties: [],
     selectedFarmer: null,
     activeMode: null, // 'jbl_visit' | 'credit' | 'final_review' | 'requisition'
     filters: { county: '', branch: '' },
@@ -36,6 +38,7 @@
     pendingRequisitionPayload: null
   };
   let historyKind = 'orders';
+  let lastShellScreen = null;
 
   // Helpers
   function el(id) { return document.getElementById(id); }
@@ -720,6 +723,9 @@
     state.metaDecisions = data.credit_decisions || [];
     state.metaImabOptions = data.imab_created_options || [];
     state.metaFinalDecisions = data.final_decisions || [];
+    state.metaBranches = data.branches || [];
+    state.metaCounties = data.counties || [];
+    portalFilters.updateFilterOptions(state.queues[state.activePage] || []);
   }
   function renderDocumentHistory(documents, kind) {
     const target = el('history-list');
@@ -829,6 +835,7 @@
     configureHtmx();
     await loadMeta();
     const initialPage = document.getElementById('portal-screen')?.dataset.screen || state.activePage || 'dashboard';
+    lastShellScreen = initialPage;
     switchPage(initialPage);
     loadPage(initialPage);
     if (window.lucide) {
@@ -880,15 +887,13 @@
     searchCaseHistory(el('case-history-search')?.value);
   });
 
-  window.addEventListener('popstate', () => {
-    if (window.location.pathname.includes('/portal/s/case_history/') || window.location.pathname.includes('/portal/cases/')) loadCaseHistory();
-  });
-
   window.PortalAppShell = {
     activate(page) {
       if (!page) return;
+      const changed = lastShellScreen !== page;
+      lastShellScreen = page;
       switchPage(page);
-      loadPage(page);
+      if (changed) loadPage(page);
       if (window.lucide) window.lucide.createIcons();
     },
     openCaseHistory(farmerId) {

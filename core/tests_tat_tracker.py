@@ -597,7 +597,10 @@ class TatTrackerWorkflowTest(TestCase):
             'branches': ['Corporate', 'Thika Road', 'East Nairobi', 'West Nairobi', 'Nakuru', 'Embu', 'Limuru'],
         }
 
-        self.assertEqual(workflow_branches(stale_workflow), ['Biogas Unit', 'Embu', 'Nakuru', 'West Nairobi'])
+        self.assertEqual(
+            workflow_branches(stale_workflow),
+            ['Corporate', 'East Nairobi', 'West Nairobi', 'Thika Road', 'Limuru', 'Embu', 'Nakuru', 'Biogas Unit', 'Eco Conserve'],
+        )
 
     @override_settings(TAT_TRACKER_BRANCH_CHOICES='Biogas Unit, Muranga, Thika Road')
     def test_workflow_branches_use_tat_env_override(self):

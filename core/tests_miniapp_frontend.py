@@ -82,7 +82,7 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         self.assertIn('/\\/portal\\/cases\\/[^/]+\\//', source)
         self.assertIn("return 'case_history'", source)
-        self.assertContains(response, 'miniapp/miniapp-nav.js?v=3')
+        self.assertContains(response, 'miniapp/miniapp-nav.js?v=5')
 
     def test_portal_helpers_expose_pure_ui_primitives(self):
         source = Path('core/static/miniapp/portal_helpers.js').read_text(encoding='utf-8')

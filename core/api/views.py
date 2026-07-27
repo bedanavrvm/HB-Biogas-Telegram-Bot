@@ -371,7 +371,7 @@ def order_approval_form(request):
 
     from core.services.order_approval import (
         decode_order_approval_start_param,
-        order_approval_branch_choices,
+        order_approval_branch_choices, order_approval_county_choices,
     )
 
     group_id = str(request.GET.get('group_id', '')).strip()
@@ -402,6 +402,7 @@ def order_approval_form(request):
             ),
             'image_preview_limit': getattr(settings, 'ORDER_APPROVAL_IMAGE_PREVIEW_LIMIT', 3),
             'branch_choices': order_approval_branch_choices(),
+            'county_choices': order_approval_county_choices(),
         },
     )
 

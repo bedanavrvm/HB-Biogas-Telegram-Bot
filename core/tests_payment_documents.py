@@ -22,6 +22,7 @@ from core.models import (
 )
 from core.services.invoice_parser import ingest_invoice_upload_batch
 from core.services.payment_documents import (
+    create_payment_document,
     generate_payment_workbook,
     payment_readiness,
     payment_template_layout,
@@ -669,6 +670,34 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['ok'])
+
+    def test_payment_drive_failure_leaves_retryable_failed_document(self):
+        farmer = self.farmer()
+        self.invoice_batch(farmer)
+
+        with patch(
+            'core.services.payment_documents._upload_payment_workbook',
+            side_effect=RuntimeError('simulated Drive outage'),
+        ):
+            with self.assertRaises(RuntimeError):
+                create_payment_document('ORDER-001', '89', actor='Tester', final=False)
+
+        failed = PaymentDocument.objects.get(order_number='ORDER-001')
+        self.assertEqual(failed.status, 'failed')
+        self.assertEqual(failed.error, 'Drive upload failed; retry required.')
+        self.assertFalse(failed.drive_url)
+
+    @patch('core.services.payment_documents._upload_payment_workbook')
+    def test_repeated_payment_preview_reuses_local_document(self, upload):
+        farmer = self.farmer()
+        self.invoice_batch(farmer)
+        upload.return_value = ('drive-xlsx', 'https://drive.test/payment')
+
+        first = create_payment_document('ORDER-001', '89', actor='Tester', final=False)
+        second = create_payment_document('ORDER-001', '89', actor='Tester', final=False)
+
+        self.assertEqual(first.id, second.id)
+        self.assertEqual(PaymentDocument.objects.filter(order_number='ORDER-001').count(), 1)
 
     def test_payment_preview_endpoint_returns_readiness_when_blocked(self):
         self.farmer(repayment_date='')

@@ -5,8 +5,20 @@ from typing import Any
 
 from django.conf import settings
 
+from core.services.locations import configured_location_names
 
-DEFAULT_WORKFLOW_BRANCHES = ['Biogas Unit', 'Embu', 'Nakuru', 'West Nairobi']
+
+DEFAULT_WORKFLOW_BRANCHES = [
+    'Corporate',
+    'East Nairobi',
+    'West Nairobi',
+    'Thika Road',
+    'Limuru',
+    'Embu',
+    'Nakuru',
+    'Biogas Unit',
+    'Eco Conserve',
+]
 STALE_BRANCH_DEFAULTS = {'Corporate', 'Thika Road', 'East Nairobi', 'West Nairobi', 'Nakuru', 'Embu', 'Limuru'}
 
 
@@ -26,6 +38,9 @@ def normalize_branch_list(value: Any) -> list[str]:
 
 
 def global_branch_choices() -> list[str]:
+    configured = configured_location_names('branch')
+    if configured:
+        return configured
     return normalize_branch_list(getattr(settings, 'WORKFLOW_BRANCH_CHOICES', '')) or list(DEFAULT_WORKFLOW_BRANCHES)
 
 

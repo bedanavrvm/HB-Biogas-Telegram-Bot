@@ -24,11 +24,13 @@
     const overlay = close.closest('.sheet-overlay');
     if (!overlay) return;
     event.preventDefault();
-    event.stopPropagation();
+    // Let the screen controller handle its own cleanup first (for example,
+    // destroying a map or clearing the selected batch).  The shell only owns
+    // the common visibility and Telegram BackButton state.
     overlay.classList.remove('open');
     overlay.setAttribute('aria-hidden', 'true');
     syncBackButton();
-  }, true);
+  });
 
   function syncTheme() {
     const params = tg?.themeParams || {};

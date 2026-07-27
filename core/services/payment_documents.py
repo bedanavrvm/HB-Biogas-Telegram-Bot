@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import logging
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -23,6 +24,8 @@ from core.services.template_storage import TemplateStorageError, workbook_source
 
 PAYMENT_TEMPLATE_FILENAME = 'HB_PAYMENT__89__7__machine_ready (1).xlsx'
 PAYMENT_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+logger = logging.getLogger(__name__)
 
 
 class PaymentTemplateError(RuntimeError):
@@ -501,7 +504,6 @@ def _upload_payment_workbook(data: bytes, filename: str, actor: str, order_numbe
     )
 
 
-@transaction.atomic
 def create_payment_document(
     order_number: str,
     payment_number: str,
@@ -513,43 +515,96 @@ def create_payment_document(
     xlsx, summary = generate_payment_workbook(order_number, payment_number, farmer_ids=farmer_ids)
     status = 'final' if final else 'preview'
     version = 1
-    if final:
-        latest = PaymentDocument.objects.filter(order_number=order_number, status='final').order_by('-version').first()
-        version = (latest.version + 1) if latest else 1
-    filename = f"HB_Payment_{payment_number}_{order_number}_{status}_v{version}.xlsx"
-    drive_file_id, drive_url = _upload_payment_workbook(xlsx, filename, actor, order_number)
     readiness_snapshot = payment_readiness(order_number, farmer_ids=farmer_ids)
     from django.core.serializers.json import DjangoJSONEncoder
     import json
     printable_rows = json.loads(json.dumps(
         [item['row'] for item in readiness_snapshot['ready']], cls=DjangoJSONEncoder,
     ))
-    doc = PaymentDocument.objects.create(
-        order_number=order_number,
-        payment_number=payment_number,
-        status=status,
-        version=version,
-        filename=filename,
-        drive_file_id=drive_file_id,
-        drive_url=drive_url,
-        generated_by=actor,
-        finalized_by=actor if final else '',
-        finalized_at=timezone.now() if final else None,
-        row_count=summary.get('ready_count', 0),
-        farmer_ids=[item['farmer_id'] for item in readiness_snapshot['ready']],
-        invoice_batch_ids=summary.get('invoice_batch_ids', []),
-        validation_summary={**summary, 'preview_rows': printable_rows},
-    )
+    filename = f"HB_Payment_{payment_number}_{order_number}_{status}_v{version}.xlsx"
+    document_values = {
+        'order_number': order_number,
+        'payment_number': payment_number,
+        'version': version,
+        'filename': filename,
+        'generated_by': actor,
+        'finalized_by': '',
+        'finalized_at': None,
+        'row_count': summary.get('ready_count', 0),
+        'farmer_ids': [item['farmer_id'] for item in readiness_snapshot['ready']],
+        'invoice_batch_ids': summary.get('invoice_batch_ids', []),
+        'validation_summary': {**summary, 'preview_rows': printable_rows},
+        'drive_file_id': '',
+        'drive_url': '',
+        'error': '',
+    }
+    # Reserve a local document record before contacting Drive.  A failed
+    # upload must remain visible as a retryable artifact instead of leaving
+    # the workflow with no audit record (or an untracked remote file).
     if final:
+        with transaction.atomic():
+            latest = (
+                PaymentDocument.objects.select_for_update()
+                .filter(order_number=order_number, status='final')
+                .order_by('-version').first()
+            )
+            document_values['version'] = (latest.version + 1) if latest else 1
+            document_values['filename'] = (
+                f"HB_Payment_{payment_number}_{order_number}_final_v{document_values['version']}.xlsx"
+            )
+            doc = PaymentDocument.objects.create(status='preview', **document_values)
+    else:
+        doc = (
+            PaymentDocument.objects
+            .filter(order_number=order_number, payment_number=payment_number, status__in=['preview', 'failed'])
+            .order_by('-created_at').first()
+        )
+        if doc:
+            for field, value in document_values.items():
+                setattr(doc, field, value)
+            doc.status = 'preview'
+            doc.save(update_fields=[*document_values.keys(), 'status', 'updated_at'])
+        else:
+            doc = PaymentDocument.objects.create(status='preview', **document_values)
+    try:
+        drive_file_id, drive_url = _upload_payment_workbook(xlsx, filename, actor, order_number)
+    except Exception:
+        logger.exception('Payment workbook upload failed: order=%s payment=%s', order_number, payment_number)
+        doc.status = 'failed'
+        doc.error = 'Drive upload failed; retry required.'
+        doc.save(update_fields=['status', 'error', 'updated_at'])
+        raise
+
+    try:
         from core.models import JawabuFarmerMaster
         from core.services.jawabu_case360 import record_pipeline_event
-        for farmer in JawabuFarmerMaster.objects.filter(id__in=doc.farmer_ids):
-            record_pipeline_event(
-                farmer, action='payment_finalized', stage_key='payment', actor=actor,
-                request_id=f'payment-document:{doc.id}:{farmer.id}', source='payment_document',
-                new_values={'order_number': farmer.order_number, 'payment_number': payment_number, 'version': version},
-                metadata={'payment_document_id': str(doc.id)},
-            )
+        with transaction.atomic():
+            doc.status = status
+            doc.drive_file_id = drive_file_id
+            doc.drive_url = drive_url
+            doc.finalized_by = actor if final else ''
+            doc.finalized_at = timezone.now() if final else None
+            doc.error = ''
+            doc.save(update_fields=[
+                'status', 'drive_file_id', 'drive_url', 'finalized_by',
+                'finalized_at', 'error', 'updated_at',
+            ])
+            if final:
+                for farmer in JawabuFarmerMaster.objects.filter(id__in=doc.farmer_ids):
+                    record_pipeline_event(
+                        farmer, action='payment_finalized', stage_key='payment', actor=actor,
+                        request_id=f'payment-document:{doc.id}:{farmer.id}', source='payment_document',
+                        new_values={'order_number': farmer.order_number, 'payment_number': payment_number, 'version': doc.version},
+                        metadata={'payment_document_id': str(doc.id)},
+                    )
+    except Exception:
+        logger.exception('Payment document finalization failed after Drive upload: order=%s payment=%s', order_number, payment_number)
+        doc.status = 'failed'
+        doc.drive_file_id = drive_file_id
+        doc.drive_url = drive_url
+        doc.error = 'Local finalization failed after Drive upload; reconciliation is required.'
+        doc.save(update_fields=['status', 'drive_file_id', 'drive_url', 'error', 'updated_at'])
+        raise
     return doc
 
 

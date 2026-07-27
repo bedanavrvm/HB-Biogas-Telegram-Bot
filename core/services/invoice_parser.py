@@ -931,10 +931,7 @@ def _apply_invoice_to_farmer(farmer: JawabuFarmerMaster, invoice: ParsedInvoice)
     ])
     if not sync_farmer_to_master_sheet(farmer):
         raise InvoiceSheetSyncError(
-            "Google Sheet sync failed for "
-            f"{farmer.customer_name or 'matched farmer'} "
-            f"({farmer.national_id or farmer.primary_phone or farmer.id}). "
-            "The invoice was not committed to the database."
+            "Google Sheet sync failed. The invoice was not committed to the database."
         )
 
 
@@ -1009,8 +1006,7 @@ def unmatch_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') 
             ])
             if not sync_farmer_to_master_sheet(old_farmer):
                 raise InvoiceSheetSyncError(
-                    "Google Sheet sync failed while unmatching invoice "
-                    f"{invoice.invoice_no or invoice.id} from {old_farmer.customer_name or old_farmer.id}."
+                    "Google Sheet sync failed while unmatching the invoice."
                 )
         note_text = str(note or '').strip()
         actor_text = str(actor or 'portal').strip()
@@ -1067,17 +1063,10 @@ def match_and_update_invoices(order_number: str, pdf_bytes: bytes) -> dict:
     invoices, _total_pages = parse_invoice_pdf_bytes(pdf_bytes)
     for parsed in invoices:
         logger.info(
-            "Extracted invoice page=%s invoice_no=%s name=%s national_id=%s phone=%s date=%s invoice_amount=%s total_after_discount=%s payment=%s balance_due=%s balance_check=%s",
+            "Extracted invoice page=%s invoice_no=%s date=%s balance_check=%s",
             parsed.get("page"),
             parsed.get("invoice_no"),
-            parsed.get("customer_name"),
-            parsed.get("customer_id"),
-            parsed.get("customer_phone"),
             parsed.get("invoice_date"),
-            parsed.get("invoice_amount"),
-            parsed.get("total_after_discount"),
-            parsed.get("payment"),
-            parsed.get("balance_due"),
             parsed.get("balance_due_check"),
         )
 
@@ -1113,10 +1102,7 @@ def match_and_update_invoices(order_number: str, pdf_bytes: bytes) -> dict:
 
                     if not sync_farmer_to_master_sheet(matched_farmer):
                         raise InvoiceSheetSyncError(
-                            "Google Sheet sync failed for "
-                            f"{matched_farmer.customer_name or 'matched farmer'} "
-                            f"({matched_farmer.national_id or matched_farmer.primary_phone or matched_farmer.id}). "
-                            "The invoice was not committed to the database."
+                            "Google Sheet sync failed. The invoice was not committed to the database."
                         )
             except InvoiceSheetSyncError as exc:
                 logger.error("Invoice upload failed during sheet sync: %s", exc)
@@ -1134,7 +1120,13 @@ def match_and_update_invoices(order_number: str, pdf_bytes: bytes) -> dict:
                     "results": results,
                 }
 
-            logger.info("Invoice %s matched farmer %s by parsed identifiers: id=%s phone=%s name=%s", inv.get("invoice_no"), matched_farmer.id, inv.get("customer_id"), inv.get("customer_phone"), inv.get("customer_name"))
+            # Do not put customer identifiers or names in production logs.
+            # The invoice and farmer UUIDs are sufficient correlation keys;
+            # the parsed payload remains available in the audit record.
+            logger.info(
+                "Invoice matched farmer by parsed identifiers: invoice_id=%s farmer_id=%s",
+                inv.get("invoice_no"), matched_farmer.id,
+            )
             results.append({
                 "customer_name": matched_farmer.customer_name,
                 "status": "Matched",
@@ -1149,12 +1141,9 @@ def match_and_update_invoices(order_number: str, pdf_bytes: bytes) -> dict:
             diagnostics = _invoice_match_diagnostics(inv, farmers, order_number)
             reason = match_error or diagnostics["reason"]
             logger.warning(
-                "Invoice %s unmatched for order %s: parsed_id=%s parsed_phone=%s parsed_name=%s batch_candidates=%s reason=%s",
+                "Invoice %s unmatched for order %s: batch_candidates=%s reason=%s",
                 inv.get("invoice_no"),
                 order_number,
-                diagnostics.get("parsed_national_id"),
-                diagnostics.get("parsed_phone"),
-                diagnostics.get("parsed_customer_name"),
                 diagnostics.get("batch_candidate_count"),
                 reason,
             )

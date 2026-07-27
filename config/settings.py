@@ -3,6 +3,7 @@ Django settings for biogas_bot project.
 Production-ready configuration for Render deployment.
 """
 import os
+import sys
 from pathlib import Path
 import dj_database_url
 from decouple import config
@@ -140,8 +141,12 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Render terminates TLS before proxying requests to Gunicorn.  These defaults
 # are safe for production while retaining a frictionless local DEBUG setup.
+# Django's test client intentionally uses plain HTTP unless a test opts into
+# HTTPS.  Keep production redirects enabled without forcing every endpoint
+# test to follow an infrastructure redirect.
+RUNNING_TESTS = 'test' in sys.argv
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-SECURE_SSL_REDIRECT = config('SECURE_SSL_REDIRECT', default=not DEBUG, cast=bool)
+SECURE_SSL_REDIRECT = config('SECURE_SSL_REDIRECT', default=not DEBUG and not RUNNING_TESTS, cast=bool)
 SESSION_COOKIE_SECURE = config('SESSION_COOKIE_SECURE', default=not DEBUG, cast=bool)
 CSRF_COOKIE_SECURE = config('CSRF_COOKIE_SECURE', default=not DEBUG, cast=bool)
 SECURE_HSTS_SECONDS = config('SECURE_HSTS_SECONDS', default=31536000 if not DEBUG else 0, cast=int)
@@ -287,7 +292,13 @@ TAT_TRACKER_WEBAPP_REQUIRE_TELEGRAM_AUTH = config('TAT_TRACKER_WEBAPP_REQUIRE_TE
 TAT_TRACKER_WEBAPP_AUTH_MAX_AGE_SECONDS = config('TAT_TRACKER_WEBAPP_AUTH_MAX_AGE_SECONDS', default=86400, cast=int)
 TAT_TRACKER_SYNC_SECONDARY_SHEETS = config('TAT_TRACKER_SYNC_SECONDARY_SHEETS', default=False, cast=bool)
 TAT_TRACKER_SIGNATURES_ENABLED = config('TAT_TRACKER_SIGNATURES_ENABLED', default=False, cast=bool)
-WORKFLOW_BRANCH_CHOICES = config('WORKFLOW_BRANCH_CHOICES', default='Biogas Unit,Embu,Nakuru,West Nairobi')
+DEFAULT_WORKFLOW_BRANCH_CHOICES = (
+    'Corporate,East Nairobi,West Nairobi,Thika Road,Limuru,Embu,Nakuru,Biogas Unit,Eco Conserve'
+)
+WORKFLOW_BRANCH_CHOICES = config(
+    'WORKFLOW_BRANCH_CHOICES',
+    default=DEFAULT_WORKFLOW_BRANCH_CHOICES,
+)
 TAT_TRACKER_BRANCH_CHOICES = config('TAT_TRACKER_BRANCH_CHOICES', default='')
 PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH = config(
     'PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH',

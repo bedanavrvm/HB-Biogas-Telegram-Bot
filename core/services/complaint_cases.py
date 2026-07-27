@@ -101,12 +101,18 @@ def staff_actor_for_payload(group_config, auth_payload: dict) -> ComplaintCaseAc
 
 def bootstrap_data(group_config, actor: ComplaintCaseActor) -> dict[str, Any]:
     cases = _case_queryset(group_config.group_id)
+    from core.services.branches import global_branch_choices, workflow_branches
+    configured_branches = workflow_branches(
+        getattr(group_config, 'workflow', None) or {},
+        default=global_branch_choices(),
+    )
+    observed_branches = list(
+        cases.exclude(branch_region='').order_by('branch_region').values_list('branch_region', flat=True).distinct()
+    )
     return {
         'actor': {'name': actor.name, 'role': actor.role, 'is_manager': actor.is_manager},
         'statuses': sorted(STATUS_VALUES),
-        'branches': list(
-            cases.exclude(branch_region='').order_by('branch_region').values_list('branch_region', flat=True).distinct()
-        ),
+        'branches': sorted(set(configured_branches) | set(observed_branches), key=str.casefold),
         'categories': list(
             cases.exclude(complaint_category='').order_by('complaint_category').values_list('complaint_category', flat=True).distinct()
         ),

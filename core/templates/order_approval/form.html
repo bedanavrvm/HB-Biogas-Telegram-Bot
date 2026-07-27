@@ -882,7 +882,12 @@
         <div id="section-visit" class="section-body grid">
           <label>
             County
-            <input name="county">
+            <select name="county">
+              <option value=""></option>
+              {% for county in county_choices %}
+                <option value="{{ county }}">{{ county }}</option>
+              {% endfor %}
+            </select>
           </label>
           <label>
             Sub-county

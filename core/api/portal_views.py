@@ -5,7 +5,8 @@ Endpoints for the JBL pipeline portal — imported into core/api/views.py.
 
 Authentication: Telegram Mini App initData is passed as X-Telegram-Init-Data header.
 Identity is derived from the initData user object (no STAFF sheet lookup).
-Scope: all groups are aggregated by default.
+Scope: records are aggregated only within the authenticated user's workflow,
+branch, product, and group grants.
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ from urllib.parse import parse_qsl, quote
 
 from django.conf import settings
 from django.contrib.auth import login
-from django.core.cache import cache
+from django.core.signing import BadSignature, TimestampSigner
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
@@ -169,6 +170,8 @@ def _paginate_list(items: list, request, page_size: int = 30):
 
 
 def _apply_county_branch_filters(qs, request):
+    from django.db.models import Q
+
     county = request.GET.get('county', '').strip()
     branch = request.GET.get('branch', '').strip()
     if county:
@@ -178,8 +181,25 @@ def _apply_county_branch_filters(qs, request):
     access = getattr(request, 'portal_access', {})
     staff_branches = [str(value).strip() for value in access.get('branches', []) if str(value).strip()]
     if staff_branches:
-        qs = qs.filter(branch__in=staff_branches)
+        # Branch names are operational data and have historically varied in
+        # casing.  Enforce the grant scope case-insensitively so a branch
+        # user cannot accidentally see an empty queue (or bypass scope via a
+        # differently-cased query value).
+        branch_scope = Q()
+        for staff_branch in staff_branches:
+            branch_scope |= Q(branch__iexact=staff_branch)
+        qs = qs.filter(branch_scope)
     return qs
+
+
+PORTAL_VIEW_ROLES = {
+    'viewer', 'jbl_officer', 'credit_analyst', 'head_rural', 'operations',
+}
+
+
+def _portal_read_access_error(request, farmer=None):
+    """Apply the same role and branch guard to read endpoints as writes."""
+    return _portal_role_error(request, PORTAL_VIEW_ROLES, farmer)
 
 
 def _portal_role_error(request, allowed_roles: set[str], farmer=None):
@@ -195,6 +215,65 @@ def _portal_role_error(request, allowed_roles: set[str], farmer=None):
     if farmer is not None and branches and str(farmer.branch or '').strip().casefold() not in branches:
         return JsonResponse({'ok': False, 'error': 'This case is outside your authorized branch scope.'}, status=403)
     return None
+
+
+def _portal_order_scope_error(request, order_number: str):
+    """Check that every application in an order is inside the actor scope."""
+    from core.models import JawabuFarmerMaster
+
+    access_error = _portal_read_access_error(request)
+    if access_error:
+        return access_error
+    farmers = JawabuFarmerMaster.objects.filter(order_number=order_number).only('branch')
+    for farmer in farmers:
+        access_error = _portal_read_access_error(request, farmer)
+        if access_error:
+            return access_error
+    return None
+
+
+def _portal_farmers_scope_error(request, farmers, allowed_roles=None):
+    """Apply role and branch scope to a selected set of applications."""
+    role_error = _portal_role_error(request, allowed_roles or PORTAL_VIEW_ROLES)
+    if role_error:
+        return role_error
+    for farmer in farmers:
+        role_error = _portal_role_error(request, allowed_roles or PORTAL_VIEW_ROLES, farmer)
+        if role_error:
+            return role_error
+    return None
+
+
+def _portal_scoped_farmers(farmers, request):
+    """Filter an already-loaded batch to the actor's branch grants."""
+    branches = {
+        str(value).strip().casefold()
+        for value in getattr(request, 'portal_access', {}).get('branches', [])
+        if str(value).strip()
+    }
+    if not branches:
+        return list(farmers)
+    return [
+        farmer for farmer in farmers
+        if str(getattr(farmer, 'branch', '') or '').strip().casefold() in branches
+    ]
+
+
+def _portal_saved_document_in_scope(request, order_number: str, farmer_ids=None) -> bool:
+    """Return whether a saved artifact belongs entirely to the actor's scope."""
+    if _portal_read_access_error(request):
+        return False
+    identifiers = {str(value) for value in (farmer_ids or []) if value}
+    if identifiers:
+        from core.models import JawabuFarmerMaster
+
+        farmers = list(JawabuFarmerMaster.objects.filter(id__in=identifiers).only('branch'))
+        # Do not show historical artifacts whose scope cannot be reconstructed
+        # for a branch-limited account.
+        if len(farmers) != len(identifiers):
+            return not getattr(request, 'portal_access', {}).get('branches')
+        return _portal_farmers_scope_error(request, farmers) is None
+    return _portal_order_scope_error(request, order_number) is None
 
 
 PORTAL_QUEUE_FRAGMENT_CONFIG = {
@@ -231,8 +310,12 @@ def _portal_queue_queryset(queue_key: str, request):
 
 
 def _batch_download_url(request, order_number: str) -> str:
+    # Excel links are opened in Telegram's system browser, which cannot send
+    # the Mini App initData header.  Bind a short-lived signed URL to the
+    # already-authorized batch instead of weakening the API download route.
+    token = TimestampSigner(salt='portal-requisition-download').sign(str(order_number))
     return request.build_absolute_uri(
-        f'/api/portal/requisition-batches/{quote(str(order_number), safe="")}/download/'
+        f'/api/portal/requisition-download/{quote(token, safe="")}/'
     )
 
 
@@ -465,7 +548,13 @@ def _portal_requisition_batches_payload(request) -> tuple[list[dict], dict]:
     batches_list = []
     seen_orders = set()
     for batch in RequisitionBatch.objects.all().order_by('-requisition_date', '-updated_at'):
-        farmers = _farmers_for_batch(batch.order_number, batch.farmer_ids or None)
+        all_farmers = _farmers_for_batch(batch.order_number, batch.farmer_ids or None)
+        farmers = _portal_scoped_farmers(
+            all_farmers, request,
+        )
+        if len(farmers) != len(all_farmers):
+            # Do not expose a mixed-branch batch with a misleading total.
+            continue
         if county:
             farmers = [farmer for farmer in farmers if (farmer.county or '').lower() == county]
         if branch:
@@ -476,6 +565,16 @@ def _portal_requisition_batches_payload(request) -> tuple[list[dict], dict]:
         seen_orders.add(batch.order_number)
 
     qs = JawabuFarmerMaster.objects.filter(order_number__isnull=False).exclude(order_number='')
+    staff_branches = [
+        str(value).strip() for value in getattr(request, 'portal_access', {}).get('branches', [])
+        if str(value).strip()
+    ]
+    if staff_branches:
+        from django.db.models import Q
+        branch_scope = Q()
+        for staff_branch in staff_branches:
+            branch_scope |= Q(branch__iexact=staff_branch)
+        qs = qs.filter(branch_scope)
     if county:
         qs = qs.filter(county__iexact=county)
     if branch:
@@ -583,6 +682,9 @@ def portal_navigation(request):
 @csrf_exempt
 @require_http_methods(["GET"])
 def portal_dashboard(request):
+    access_error = _portal_read_access_error(request)
+    if access_error:
+        return access_error
     """GET /api/portal/dashboard/ — pipeline queue counts."""
     from core.services.jawabu_pipeline import pipeline_counts
     counts = pipeline_counts()
@@ -594,10 +696,25 @@ def portal_dashboard(request):
 @csrf_exempt
 @require_http_methods(["GET"])
 def portal_meta(request):
+    access_error = _portal_read_access_error(request)
+    if access_error:
+        return access_error
     """GET /api/portal/meta/ — lookup lists for Mini App dropdowns."""
     from core.models import JawabuFarmerMaster
+    from core.services.branches import global_branch_choices
+    from core.services.locations import global_county_choices
+    branches = global_branch_choices()
+    staff_branches = {
+        str(value).strip().casefold()
+        for value in getattr(request, 'portal_access', {}).get('branches', [])
+        if str(value).strip()
+    }
+    if staff_branches:
+        branches = [branch for branch in branches if branch.casefold() in staff_branches]
     return JsonResponse({
         'ok': True,
+        'branches': branches,
+        'counties': global_county_choices(),
         'jbl_visit_statuses': [c[0] for c in JawabuFarmerMaster.JBL_VISIT_STATUS_CHOICES],
         'credit_decisions': [c[0] for c in JawabuFarmerMaster.CREDIT_DECISION_CHOICES],
         'imab_created_options': ['Yes', 'No', 'Pending'],
@@ -610,6 +727,9 @@ def portal_meta(request):
 @csrf_exempt
 @require_http_methods(["GET"])
 def portal_jbl_queue(request):
+    access_error = _portal_read_access_error(request)
+    if access_error:
+        return access_error
     """GET /api/portal/jbl-queue/ — farmers awaiting JBL visit."""
     from core.services.jawabu_pipeline import jbl_visit_queue, farmer_to_card
     qs = _apply_county_branch_filters(jbl_visit_queue(), request)
@@ -631,6 +751,9 @@ def portal_jbl_queue_fragment(request):
 @csrf_exempt
 @require_http_methods(["GET"])
 def portal_queue_fragment(request, queue_key: str):
+    access_error = _portal_read_access_error(request)
+    if access_error:
+        return access_error
     """GET /api/portal/queues/<queue_key>/fragment/ - htmx-rendered farmer queue."""
     from core.services.jawabu_pipeline import farmer_to_card
 
@@ -738,6 +861,10 @@ def portal_upload_jbl_media(request, farmer_id: str):
     except JawabuFarmerMaster.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
 
+    role_error = _portal_role_error(request, {'jbl_officer'}, farmer)
+    if role_error:
+        return role_error
+
     getlist = getattr(request.FILES, 'getlist', None)
     files = getlist('files') if getlist else []
     if not files:
@@ -760,6 +887,9 @@ def portal_upload_jbl_media(request, farmer_id: str):
 @csrf_exempt
 @require_http_methods(["GET"])
 def portal_credit_queue(request):
+    access_error = _portal_read_access_error(request)
+    if access_error:
+        return access_error
     """GET /api/portal/credit-queue/ — farmers awaiting credit analysis."""
     from core.services.jawabu_pipeline import credit_queue, farmer_to_card
     qs = _apply_county_branch_filters(credit_queue(), request)
@@ -822,6 +952,9 @@ def portal_set_credit_decision(request, farmer_id: str):
 @csrf_exempt
 @require_http_methods(["GET"])
 def portal_final_review_queue(request):
+    access_error = _portal_read_access_error(request)
+    if access_error:
+        return access_error
     """GET /api/portal/final-review-queue/ - records awaiting Head of Rural final decision."""
     from core.services.jawabu_pipeline import final_review_queue, farmer_to_card
     qs = _apply_county_branch_filters(final_review_queue(), request)
@@ -884,6 +1017,9 @@ def portal_set_final_decision(request, farmer_id: str):
 @csrf_exempt
 @require_http_methods(["GET"])
 def portal_requisition_queue(request):
+    access_error = _portal_read_access_error(request)
+    if access_error:
+        return access_error
     """GET /api/portal/requisition-queue/ — credit-approved farmers awaiting order."""
     from core.services.jawabu_pipeline import requisition_queue, farmer_to_card
     qs = _apply_county_branch_filters(requisition_queue(), request)
@@ -963,10 +1099,14 @@ def portal_all_cases(request):
     Query params: search, county, branch, page
     """
     from core.services.jawabu_pipeline import all_cases, farmer_to_card
+    access_error = _portal_read_access_error(request)
+    if access_error:
+        return access_error
     search = request.GET.get('search', '').strip()
     county = request.GET.get('county', '').strip()
     branch = request.GET.get('branch', '').strip()
     qs = all_cases(search=search, county=county, branch=branch)
+    qs = _apply_county_branch_filters(qs, request)
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
@@ -978,6 +1118,9 @@ def portal_all_cases(request):
 @csrf_exempt
 @require_http_methods(["GET"])
 def portal_deferred(request):
+    access_error = _portal_read_access_error(request)
+    if access_error:
+        return access_error
     """GET /api/portal/deferred/ — deferred/rejected/flagged farmers."""
     from core.services.jawabu_pipeline import deferred_queue, reappraisal_required_queue, farmer_to_card
     qs = _apply_county_branch_filters((deferred_queue() | reappraisal_required_queue()).distinct(), request)
@@ -1000,6 +1143,9 @@ def portal_farmer_detail(request, farmer_id: str):
         farmer = JawabuFarmerMaster.objects.get(pk=farmer_id)
     except JawabuFarmerMaster.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
+    access_error = _portal_read_access_error(request, farmer)
+    if access_error:
+        return access_error
     from core.services.jawabu_case360 import serialize_case360
     return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer), 'case360': serialize_case360(farmer)})
 
@@ -1035,6 +1181,9 @@ def portal_requisition_preview(request):
     farmers = list(JawabuFarmerMaster.objects.filter(id__in=farmer_ids))
     if len(farmers) != len(farmer_ids):
         return JsonResponse({'ok': False, 'error': 'One or more selected farmers was not found.'}, status=404)
+    access_error = _portal_farmers_scope_error(request, farmers)
+    if access_error:
+        return access_error
 
     existing_order = (
         JawabuFarmerMaster.objects
@@ -1088,6 +1237,9 @@ def portal_requisition_workbook_preview(request):
     farmers = parsed['farmers']
     order_number = parsed['order_number']
     requisition_date = parsed['requisition_date']
+    access_error = _portal_farmers_scope_error(request, farmers, {'operations'})
+    if access_error:
+        return access_error
     try:
         xlsx_bytes = generate_requisition_excel(farmers, order_number, requisition_date)
     except RequisitionTemplateError as exc:
@@ -1101,17 +1253,35 @@ def portal_requisition_workbook_preview(request):
 
     filename = f"JBL_Requisition_Form_{order_number}_preview.xlsx"
     sender = _portal_sender_from_request(request)
+    summary = _invoice_summary_for_farmers(farmers)
+    batch, _created = RequisitionBatch.objects.update_or_create(
+        order_number=order_number,
+        defaults={
+            'requisition_date': requisition_date,
+            'preview_filename': filename,
+            'preview_drive_file_id': '',
+            'preview_drive_url': '',
+            'preview_generated_by': sender,
+            'preview_generated_at': timezone.now(),
+            'preview_error': 'Drive synchronization pending.',
+            'farmer_ids': [str(farmer.id) for farmer in farmers],
+            'farmer_count': len(farmers),
+            'status': 'preview',
+            'invoice_summary': summary,
+        },
+    )
     try:
         drive_file_id, drive_url = _upload_generated_workbook_to_drive(xlsx_bytes, filename, order_number)
         preview_error = ''
     except Exception as exc:
         logger.exception('Requisition preview workbook was not stored in Google Drive.')
+        batch.preview_error = 'Drive upload failed; retry required.'
+        batch.save(update_fields=['preview_error', 'updated_at'])
         return JsonResponse({
             'ok': False,
-            'error': f'Requisition preview was not stored in Google Drive: {exc}',
+            'error': 'Requisition preview could not be stored. Check synchronization status and retry.',
         }, status=502)
 
-    summary = _invoice_summary_for_farmers(farmers)
     batch, _created = RequisitionBatch.objects.update_or_create(
         order_number=order_number,
         defaults={
@@ -1155,6 +1325,9 @@ def portal_requisition_generate(request):
     farmers = parsed['farmers']
     order_number = parsed['order_number']
     requisition_date = parsed['requisition_date']
+    access_error = _portal_farmers_scope_error(request, farmers, {'operations'})
+    if access_error:
+        return access_error
 
     try:
         xlsx_bytes = generate_requisition_excel(farmers, order_number, requisition_date)
@@ -1181,17 +1354,39 @@ def portal_requisition_generate(request):
             )
 
     filename = f"JBL_Requisition_Form_{order_number}.xlsx"
+    summary = _invoice_summary_for_farmers(farmers)
+    # Persist the locally generated artifact before contacting Drive.  This
+    # makes a remote outage visible and retryable instead of making the order
+    # appear to have no generated document.
+    batch, _created = RequisitionBatch.objects.update_or_create(
+        order_number=order_number,
+        defaults={
+            'requisition_date': requisition_date,
+            'generated_by': sender,
+            'filename': filename,
+            'file_content': xlsx_bytes,
+            'drive_file_id': '',
+            'drive_url': '',
+            'drive_upload_error': 'Drive synchronization pending.',
+            'farmer_ids': [str(farmer.id) for farmer in farmers],
+            'farmer_count': len(farmers),
+            'status': 'needs_review',
+            'invoice_summary': summary,
+        },
+    )
     try:
         drive_file_id, drive_url = _upload_generated_workbook_to_drive(xlsx_bytes, filename, order_number)
         drive_upload_error = ''
     except Exception as exc:
         logger.exception('Generated requisition workbook was not stored in Google Drive.')
+        batch.drive_upload_error = 'Drive upload failed; retry required.'
+        batch.status = 'needs_review'
+        batch.save(update_fields=['drive_upload_error', 'status', 'updated_at'])
         return JsonResponse({
             'ok': False,
-            'error': f'Generated requisition workbook was not stored in Google Drive: {exc}',
+            'error': 'Generated requisition workbook could not be stored. Check synchronization status and retry.',
         }, status=502)
 
-    summary = _invoice_summary_for_farmers(farmers)
     batch, _created = RequisitionBatch.objects.update_or_create(
         order_number=order_number,
         defaults={
@@ -1230,14 +1425,20 @@ def portal_requisition_generate(request):
 @require_http_methods(["GET", "HEAD"])
 def portal_requisition_download(request, token: str):
     """Short-lived mobile-friendly download for generated requisition Excel files."""
-    payload = cache.get(f'portal_requisition_download:{token}')
-    if not payload:
+    try:
+        order_number = TimestampSigner(salt='portal-requisition-download').unsign(token, max_age=900)
+    except BadSignature:
         return JsonResponse({'ok': False, 'error': 'Download link expired. Generate the requisition form again.'}, status=404)
+    from core.models import RequisitionBatch
+    batch = RequisitionBatch.objects.filter(order_number=order_number).first()
+    if not batch or not batch.file_content:
+        return JsonResponse({'ok': False, 'error': 'Generated requisition file was not found for this order.'}, status=404)
     response = HttpResponse(
-        b'' if request.method == 'HEAD' else payload['content'],
+        b'' if request.method == 'HEAD' else batch.file_content,
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     )
-    response['Content-Disposition'] = f'attachment; filename="{payload["filename"]}"'
+    filename = batch.filename or f'JBL_Requisition_Form_{order_number}.xlsx'
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
     response['X-Content-Type-Options'] = 'nosniff'
     return response
 
@@ -1245,6 +1446,9 @@ def portal_requisition_download(request, token: str):
 @csrf_exempt
 @require_http_methods(["GET"])
 def portal_requisition_batches(request):
+    access_error = _portal_read_access_error(request)
+    if access_error:
+        return access_error
     """GET /api/portal/requisition-batches/ - generated batch output history."""
     paged_batches, pagination = _portal_requisition_batches_payload(request)
     return JsonResponse({
@@ -1257,6 +1461,9 @@ def portal_requisition_batches(request):
 @csrf_exempt
 @require_http_methods(["GET"])
 def portal_requisition_batches_fragment(request):
+    access_error = _portal_read_access_error(request)
+    if access_error:
+        return access_error
     """GET /api/portal/requisition-batches/fragment/ - htmx-rendered batch history."""
     paged_batches, pagination = _portal_requisition_batches_payload(request)
     return render(request, 'portal/partials/batch_list.html', {
@@ -1278,11 +1485,17 @@ def portal_requisition_batch_detail(request, order_number: str):
     try:
         batch = RequisitionBatch.objects.get(order_number=order_number)
         farmers = _farmers_for_batch(order_number, batch.farmer_ids or None)
+        access_error = _portal_farmers_scope_error(request, farmers)
+        if access_error:
+            return access_error
         return JsonResponse({'ok': True, 'batch': _serialize_batch(batch, farmers, request)})
     except RequisitionBatch.DoesNotExist:
         farmers = list(JawabuFarmerMaster.objects.filter(order_number=order_number).order_by('customer_name'))
         if not farmers:
             return JsonResponse({'ok': False, 'error': 'Batch not found.'}, status=404)
+        access_error = _portal_farmers_scope_error(request, farmers)
+        if access_error:
+            return access_error
         summary = _invoice_summary_for_farmers(farmers)
         pseudo = RequisitionBatch(
             order_number=order_number,
@@ -1306,6 +1519,14 @@ def portal_requisition_batch_download(request, order_number: str):
         return JsonResponse({'ok': False, 'error': 'Generated requisition file was not found for this order.'}, status=404)
     if not batch.file_content:
         return JsonResponse({'ok': False, 'error': 'This batch has no saved requisition file. Regenerate it from Ready for Orders.'}, status=404)
+    from core.models import JawabuFarmerMaster
+    farmers = JawabuFarmerMaster.objects.filter(
+        id__in=batch.farmer_ids or [],
+    )
+    for farmer in farmers:
+        access_error = _portal_read_access_error(request, farmer)
+        if access_error:
+            return access_error
     filename = batch.filename or f'JBL_Requisition_Form_{batch.order_number}.xlsx'
     response = HttpResponse(
         b'' if request.method == 'HEAD' else batch.file_content,
@@ -1321,6 +1542,13 @@ def portal_requisition_batch_download(request, order_number: str):
 def portal_upload_batch_invoices(request):
     """POST /api/portal/requisition-batches/upload-invoices/ — upload a combined PDF of invoices for a batch/order."""
     order_number = request.POST.get('order_number') or request.GET.get('order_number')
+    role_error = _portal_role_error(request, {'operations', 'credit_analyst'})
+    if role_error:
+        return role_error
+    if order_number:
+        scope_error = _portal_order_scope_error(request, order_number)
+        if scope_error:
+            return scope_error
     
     pdf_file = request.FILES.get('file')
     if not pdf_file:
@@ -1400,16 +1628,19 @@ def portal_upload_batch_invoices(request):
             pass
         return JsonResponse(result)
     except InvoiceUploadStorageError as e:
-        return JsonResponse({'ok': False, 'error': f'Invoice PDF was not stored in Google Drive: {e}'}, status=502)
+        return JsonResponse({'ok': False, 'error': 'Invoice PDF could not be stored. Check synchronization status and retry.'}, status=502)
     except Exception as e:
         logger.exception("Error processing invoice PDF: %s", e)
-        return JsonResponse({'ok': False, 'error': f"Failed to parse PDF: {str(e)}"}, status=500)
+        return JsonResponse({'ok': False, 'error': 'Invoice PDF could not be parsed. Check that it is a readable invoice PDF.'}, status=400)
 
 
 @csrf_exempt
 @require_http_methods(["POST"])
 def portal_invoice_pool_upload(request):
     """Upload one or more HB invoice PDFs into the general unmatched invoice pool."""
+    role_error = _portal_role_error(request, {'operations', 'credit_analyst'})
+    if role_error:
+        return role_error
     getlist = getattr(request.FILES, 'getlist', None)
     pdf_files = getlist('file') if getlist else []
     if not pdf_files:
@@ -1446,10 +1677,11 @@ def portal_invoice_pool_upload(request):
             )
             batches.append(batch)
         except InvoiceUploadStorageError as exc:
-            failures.append({'filename': filename, 'error': f'Invoice PDF was not stored in Google Drive: {exc}'})
+            logger.exception('Invoice PDF storage failed for filename=%s', filename)
+            failures.append({'filename': filename, 'error': 'Invoice PDF could not be stored in Google Drive.'})
         except Exception as exc:
             logger.exception("Invoice pool upload failed for %s", filename)
-            failures.append({'filename': filename, 'error': f'Failed to parse PDF: {exc}'})
+            failures.append({'filename': filename, 'error': 'Invoice PDF could not be parsed.'})
 
     if not batches:
         status = 502 if any('Google Drive' in item['error'] for item in failures) else 500
@@ -1553,6 +1785,9 @@ def portal_invoice_draft_edit(request, invoice_id: str):
     try:
         payload = json.loads(request.body or b'{}')
         invoice = ParsedInvoice.objects.select_related('batch').get(pk=invoice_id)
+        role_error = _portal_role_error(request, {'operations', 'credit_analyst'}, invoice.matched_farmer)
+        if role_error:
+            return role_error
         invoice = edit_draft_invoice(invoice, payload, actor=_portal_sender_from_request(request))
     except ParsedInvoice.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Invoice draft not found.'}, status=404)
@@ -1569,6 +1804,13 @@ def portal_invoice_batch_confirm(request, batch_id: str):
 
     try:
         batch = InvoiceUploadBatch.objects.get(pk=batch_id)
+        role_error = _portal_role_error(request, {'operations', 'credit_analyst'})
+        if role_error:
+            return role_error
+        if batch.order_number:
+            scope_error = _portal_order_scope_error(request, batch.order_number)
+            if scope_error:
+                return scope_error
         batch = confirm_invoice_batch(batch, actor=_portal_sender_from_request(request))
     except InvoiceUploadBatch.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Invoice batch not found.'}, status=404)
@@ -1652,12 +1894,29 @@ def portal_invoice_pool(request):
     from django.db.models import Count, Q
     from core.models import InvoiceUploadBatch, ParsedInvoice
 
+    access_error = _portal_read_access_error(request)
+    if access_error:
+        return access_error
+
     status = str(request.GET.get('status') or '').strip()
     search = str(request.GET.get('search') or '').strip()
     batch_id = str(request.GET.get('batch_id') or '').strip()
     review = str(request.GET.get('review') or '').strip()
 
     invoices = ParsedInvoice.objects.select_related('batch', 'matched_farmer').all()
+    staff_branches = [
+        str(value).strip() for value in getattr(request, 'portal_access', {}).get('branches', [])
+        if str(value).strip()
+    ]
+    if staff_branches:
+        branch_scope = Q()
+        for staff_branch in staff_branches:
+            branch_scope |= Q(matched_farmer__branch__iexact=staff_branch)
+        # An unmatched invoice has no trusted branch, so it is intentionally
+        # hidden from branch-limited accounts until an unrestricted reviewer
+        # links it to a case.
+        invoices = invoices.filter(branch_scope)
+    scoped_invoices = invoices
     if status:
         invoices = invoices.filter(status=status)
     if batch_id:
@@ -1695,7 +1954,8 @@ def portal_invoice_pool(request):
                 try:
                     readiness_cache[order_number] = payment_readiness(order_number)
                 except Exception as exc:
-                    readiness_cache[order_number] = {'error': str(exc), 'blocked_count': 1, 'ready_count': 0}
+                    logger.exception('Payment readiness calculation failed for order=%s', order_number)
+                    readiness_cache[order_number] = {'error': 'Payment readiness is temporarily unavailable.', 'blocked_count': 1, 'ready_count': 0}
             readiness = readiness_cache[order_number]
             blocked_count = int(readiness.get('blocked_count') or 0)
             if review == 'payment_blocked' and blocked_count > 0:
@@ -1720,7 +1980,8 @@ def portal_invoice_pool(request):
             try:
                 readiness = payment_readiness(order_number)
             except Exception as exc:
-                readiness_by_order[order_number] = {'ok': False, 'error': str(exc)}
+                logger.exception('Payment readiness calculation failed for order=%s', order_number)
+                readiness_by_order[order_number] = {'ok': False, 'error': 'Payment readiness is temporarily unavailable.'}
             else:
                 readiness_by_order[order_number] = {
                     'ready_count': readiness.get('ready_count', 0),
@@ -1728,14 +1989,16 @@ def portal_invoice_pool(request):
                     'farmer_count': readiness.get('farmer_count', 0),
                 }
 
-    batches = InvoiceUploadBatch.objects.annotate(invoice_count=Count('invoices')).order_by('-created_at')[:20]
+    batches = InvoiceUploadBatch.objects.filter(
+        invoices__in=scoped_invoices,
+    ).annotate(invoice_count=Count('invoices')).distinct().order_by('-created_at')[:20]
     summary = {
-        'batch_count': InvoiceUploadBatch.objects.count(),
-        'invoice_count': ParsedInvoice.objects.count(),
-        'unmatched_count': ParsedInvoice.objects.filter(status='unmatched').count(),
-        'matched_count': ParsedInvoice.objects.filter(status='matched').count(),
-        'ambiguous_count': ParsedInvoice.objects.filter(status='ambiguous').count(),
-        'ignored_count': ParsedInvoice.objects.filter(status='ignored').count(),
+        'batch_count': scoped_invoices.values('batch_id').distinct().count(),
+        'invoice_count': scoped_invoices.count(),
+        'unmatched_count': scoped_invoices.filter(status='unmatched').count(),
+        'matched_count': scoped_invoices.filter(status='matched').count(),
+        'ambiguous_count': scoped_invoices.filter(status='ambiguous').count(),
+        'ignored_count': scoped_invoices.filter(status='ignored').count(),
     }
 
     return JsonResponse({
@@ -1766,6 +2029,10 @@ def portal_invoice_detail(request, invoice_id: str):
     except ParsedInvoice.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Invoice not found.'}, status=404)
 
+    access_error = _portal_read_access_error(request, invoice.matched_farmer)
+    if access_error:
+        return access_error
+
     readiness_by_order = {}
     order_number = invoice.matched_order_number or (invoice.matched_farmer.order_number if invoice.matched_farmer else '')
     if order_number:
@@ -1773,7 +2040,11 @@ def portal_invoice_detail(request, invoice_id: str):
         try:
             readiness = payment_readiness(order_number)
         except Exception as exc:
-            readiness_by_order[order_number] = {'ok': False, 'error': str(exc)}
+            logger.exception('Payment readiness calculation failed for order=%s', order_number)
+            readiness_by_order[order_number] = {
+                'ok': False,
+                'error': 'Payment readiness is temporarily unavailable.',
+            }
         else:
             readiness_by_order[order_number] = {
                 'ready_count': readiness.get('ready_count', 0),
@@ -1800,12 +2071,20 @@ def portal_invoice_farmer_candidates(request):
     from django.db.models import Q
     from core.models import JawabuFarmerMaster
 
+    access_error = _portal_read_access_error(request)
+    if access_error:
+        return access_error
+
     search = str(request.GET.get('search') or '').strip()
     invoice_id = str(request.GET.get('invoice_id') or '').strip()
     parsed_invoice = None
     if invoice_id:
         from core.models import ParsedInvoice
-        parsed_invoice = ParsedInvoice.objects.filter(pk=invoice_id).first()
+        parsed_invoice = ParsedInvoice.objects.select_related('matched_farmer').filter(pk=invoice_id).first()
+        if parsed_invoice:
+            access_error = _portal_read_access_error(request, parsed_invoice.matched_farmer)
+            if access_error:
+                return access_error
     if len(search) < 2 and not parsed_invoice:
         return JsonResponse({'ok': True, 'farmers': []})
 
@@ -1828,7 +2107,9 @@ def portal_invoice_farmer_candidates(request):
             query |= Q(primary_phone__icontains=phone_digits[-9:])
     if not query.children:
         return JsonResponse({'ok': True, 'farmers': []})
-    qs = list(JawabuFarmerMaster.objects.filter(status='active').filter(query).order_by('customer_name')[:30])
+    candidate_qs = JawabuFarmerMaster.objects.filter(status='active').filter(query)
+    candidate_qs = _apply_county_branch_filters(candidate_qs, request)
+    qs = list(candidate_qs.order_by('customer_name')[:30])
 
     def score(farmer):
         points = 0
@@ -1917,10 +2198,11 @@ def portal_invoice_match(request, invoice_id: str):
     try:
         invoice = manually_match_invoice(invoice, farmer, actor=_portal_sender_from_request(request), note=note)
     except InvoiceSheetSyncError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=502)
+        logger.exception('Invoice Sheet synchronization failed during manual match.')
+        return JsonResponse({'ok': False, 'error': 'Invoice matched locally but could not be synchronized. Retry synchronization.'}, status=502)
     except Exception as exc:
         logger.exception("Manual invoice match failed")
-        return JsonResponse({'ok': False, 'error': f'Manual match failed: {exc}'}, status=500)
+        return JsonResponse({'ok': False, 'error': 'Manual invoice matching failed. Retry or contact an administrator.'}, status=500)
 
     return JsonResponse({'ok': True, 'invoice': _serialize_parsed_invoice(invoice)})
 
@@ -1938,13 +2220,18 @@ def portal_invoice_unmatch(request, invoice_id: str):
     except ParsedInvoice.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Invoice not found.'}, status=404)
 
+    role_error = _portal_read_access_error(request, invoice.matched_farmer)
+    if role_error:
+        return role_error
+
     try:
         invoice = unmatch_invoice(invoice, actor=_portal_sender_from_request(request), note=str(body.get('note') or '').strip())
     except InvoiceSheetSyncError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=502)
+        logger.exception('Invoice Sheet synchronization failed during unmatch.')
+        return JsonResponse({'ok': False, 'error': 'Invoice was updated locally but could not be synchronized. Retry synchronization.'}, status=502)
     except Exception as exc:
         logger.exception("Manual invoice unmatch failed")
-        return JsonResponse({'ok': False, 'error': f'Unmatch failed: {exc}'}, status=500)
+        return JsonResponse({'ok': False, 'error': 'Invoice unmatch failed. Retry or contact an administrator.'}, status=500)
 
     return JsonResponse({'ok': True, 'invoice': _serialize_parsed_invoice(invoice)})
 
@@ -1962,6 +2249,10 @@ def portal_invoice_ignore(request, invoice_id: str):
     except ParsedInvoice.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Invoice not found.'}, status=404)
 
+    role_error = _portal_read_access_error(request, invoice.matched_farmer)
+    if role_error:
+        return role_error
+
     invoice = ignore_invoice(invoice, actor=_portal_sender_from_request(request), note=str(body.get('note') or '').strip())
     return JsonResponse({'ok': True, 'invoice': _serialize_parsed_invoice(invoice)})
 
@@ -1978,6 +2269,10 @@ def portal_invoice_restore(request, invoice_id: str):
         invoice = ParsedInvoice.objects.get(pk=invoice_id)
     except ParsedInvoice.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Invoice not found.'}, status=404)
+
+    role_error = _portal_read_access_error(request, invoice.matched_farmer)
+    if role_error:
+        return role_error
 
     invoice = restore_invoice(invoice, actor=_portal_sender_from_request(request), note=str(body.get('note') or '').strip())
     return JsonResponse({'ok': True, 'invoice': _serialize_parsed_invoice(invoice)})
@@ -2001,6 +2296,13 @@ def portal_invoice_bulk_action(request):
 
     actor = _portal_sender_from_request(request)
     invoices = list(ParsedInvoice.objects.filter(pk__in=invoice_ids).select_related('batch', 'matched_farmer'))
+    role_error = _portal_read_access_error(request)
+    if role_error:
+        return role_error
+    for invoice in invoices:
+        role_error = _portal_read_access_error(request, invoice.matched_farmer)
+        if role_error:
+            return role_error
     changed = []
     skipped = []
     for invoice in invoices:
@@ -2035,6 +2337,10 @@ def portal_payment_readiness(request, order_number: str):
     """Return readiness status for payment document generation."""
     from core.services.payment_documents import payment_readiness
 
+    access_error = _portal_order_scope_error(request, order_number)
+    if access_error:
+        return access_error
+
     return JsonResponse({'ok': True, 'data': payment_readiness(order_number)})
 
 
@@ -2045,10 +2351,15 @@ def portal_payment_candidates(request):
     from core.services.payment_documents import payment_readiness
     from django.db.models import Q
 
+    access_error = _portal_read_access_error(request)
+    if access_error:
+        return access_error
+
     search = request.GET.get('search', '').strip()
     queryset = JawabuFarmerMaster.objects.filter(
         status='active', parsed_invoices__status='matched', parsed_invoices__matched_farmer__isnull=False,
     ).exclude(pipeline_events__action='payment_finalized').distinct().order_by('customer_name')
+    queryset = _apply_county_branch_filters(queryset, request)
     if search:
         queryset = queryset.filter(
             Q(customer_name__icontains=search)
@@ -2073,6 +2384,17 @@ def portal_payment_selection(request):
     body = _json_body(request)
     farmer_ids = [str(value) for value in (body.get('farmer_ids') or []) if value]
     final = bool(body.get('final'))
+    access_error = _portal_read_access_error(request)
+    if access_error:
+        return access_error
+    from core.models import JawabuFarmerMaster
+    selected_farmers = list(JawabuFarmerMaster.objects.filter(id__in=farmer_ids).only('branch'))
+    if len(selected_farmers) != len(set(farmer_ids)):
+        return JsonResponse({'ok': False, 'error': 'One or more selected cases was not found.'}, status=404)
+    for farmer in selected_farmers:
+        access_error = _portal_read_access_error(request, farmer)
+        if access_error:
+            return access_error
     try:
         payment_number = normalize_payment_number(body.get('payment_number'))
         if final:
@@ -2114,6 +2436,10 @@ def portal_payment_preview_data(request, order_number: str):
     except PaymentTemplateError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 
+    access_error = _portal_order_scope_error(request, order_number)
+    if access_error:
+        return access_error
+
     readiness = payment_readiness(order_number)
     rows = [item.get('row') or {} for item in readiness.get('ready', [])]
     amount_keys = ('hb_invoice_amount', 'expected_invoice_amount', 'discount', 'deposit_paid_hbg', 'deposit_paid_jbl', 'loan_amount')
@@ -2146,6 +2472,10 @@ def portal_payment_document_preview(request, order_number: str):
         serialize_payment_document,
     )
 
+    access_error = _portal_order_scope_error(request, order_number)
+    if access_error:
+        return access_error
+
     try:
         doc = create_payment_document(
             order_number,
@@ -2157,7 +2487,7 @@ def portal_payment_document_preview(request, order_number: str):
         return JsonResponse({'ok': False, 'error': str(exc), 'readiness': payment_readiness(order_number)}, status=400)
     except Exception as exc:
         logger.exception("Payment preview generation failed for order %s", order_number)
-        return JsonResponse({'ok': False, 'error': f'Payment preview was not stored in Google Drive: {exc}'}, status=502)
+        return JsonResponse({'ok': False, 'error': 'Payment preview could not be stored. Check synchronization status and retry.'}, status=502)
     return JsonResponse({'ok': True, 'document': serialize_payment_document(doc)})
 
 
@@ -2172,6 +2502,10 @@ def portal_payment_document_finalize(request, order_number: str):
         serialize_payment_document,
     )
 
+    access_error = _portal_order_scope_error(request, order_number)
+    if access_error:
+        return access_error
+
     try:
         doc = create_payment_document(
             order_number,
@@ -2183,7 +2517,7 @@ def portal_payment_document_finalize(request, order_number: str):
         return JsonResponse({'ok': False, 'error': str(exc), 'readiness': payment_readiness(order_number)}, status=400)
     except Exception as exc:
         logger.exception("Payment final generation failed for order %s", order_number)
-        return JsonResponse({'ok': False, 'error': f'Payment final was not stored in Google Drive: {exc}'}, status=502)
+        return JsonResponse({'ok': False, 'error': 'Payment final could not be stored. Check synchronization status and retry.'}, status=502)
     return JsonResponse({'ok': True, 'document': serialize_payment_document(doc)})
 
 
@@ -2191,6 +2525,10 @@ def portal_payment_document_finalize(request, order_number: str):
 def portal_document_history(request):
     """List generated final order and payment documents for the History screen."""
     from core.models import PaymentDocument, RequisitionBatch
+
+    access_error = _portal_read_access_error(request)
+    if access_error:
+        return access_error
 
     kind = request.GET.get('kind', 'orders')
     if kind == 'payments':
@@ -2204,6 +2542,7 @@ def portal_document_history(request):
                 'drive_url': doc.drive_url,
             }
             for doc in documents
+            if _portal_saved_document_in_scope(request, doc.order_number, doc.farmer_ids)
         ]})
     documents = RequisitionBatch.objects.exclude(status='preview').order_by('-updated_at')[:100]
     return JsonResponse({'ok': True, 'kind': 'orders', 'documents': [
@@ -2215,6 +2554,7 @@ def portal_document_history(request):
             'requisition_date': doc.requisition_date.isoformat() if doc.requisition_date else None,
         }
         for doc in documents
+        if _portal_saved_document_in_scope(request, doc.order_number, doc.farmer_ids)
     ]})
 
 
@@ -2226,6 +2566,8 @@ def portal_payment_document_detail(request, document_id: str):
     from core.services.payment_documents import generate_payment_workbook, payment_readiness, serialize_payment_document
 
     doc = get_object_or_404(PaymentDocument, pk=document_id, status='final')
+    if not _portal_saved_document_in_scope(request, doc.order_number, doc.farmer_ids):
+        return JsonResponse({'ok': False, 'error': 'You do not have access to this payment document.'}, status=403)
     summary = doc.validation_summary or {}
     rows = summary.get('preview_rows')
     if rows is None:  # Compatibility for final documents generated before snapshots existed.
