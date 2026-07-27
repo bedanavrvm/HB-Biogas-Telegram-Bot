@@ -135,6 +135,7 @@
   function renderPaymentReviewCards(preview, document) {
     const rows = preview.rows || [];
     const comments = document?.case_call_up_comments || {};
+    const pendingReview = document?.status === 'pending_review';
     if (!rows.length) return '<div class="batch-warning">No payment cases are available for review.</div>';
     const fields = [
       ['Requisition date', 'requisition_date', { date: true }],
@@ -158,7 +159,12 @@
     ];
     return `<section class="payment-review-case-list"><p class="meta">Review each client using the complete payment row. Open a case for the timeline and supporting documents, then record that client's Head of Rural Call Up Comment.</p>${rows.map((row, index) => {
       const farmerId = String(row.farmer_id || document?.farmer_ids?.[index] || '');
-      const comment = row.call_up_comments || comments[farmerId] || '';
+      // Pending reviews must never reuse a legacy row-level comment: older
+      // snapshots stored the order/requisition comment in that column. The
+      // payment COL is authoritative only from the per-case review map.
+      const comment = pendingReview
+        ? comments[farmerId] || ''
+        : row.call_up_comments || comments[farmerId] || '';
       const orderComment = row.order_call_up_comments
         ? `<div class="payment-review-reference"><strong>Order/requisition comment (reference only)</strong><span>${deps.escapeHtml(row.order_call_up_comments)}</span></div>`
         : '';

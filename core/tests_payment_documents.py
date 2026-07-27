@@ -853,6 +853,27 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()['document']['status'], 'pending_review')
 
+    def test_pending_payment_detail_does_not_expose_legacy_order_comment_as_payment_col(self):
+        farmer = self.farmer(final_decision_comment='Order-stage comment')
+        review = PaymentDocument.objects.create(
+            order_number='ORDER-001',
+            payment_number='92',
+            status='pending_review',
+            row_count=1,
+            farmer_ids=[str(farmer.id)],
+            validation_summary={'preview_rows': [{
+                'farmer_id': str(farmer.id),
+                'name': farmer.customer_name,
+                'call_up_comments': 'Order-stage comment',
+            }]},
+            case_call_up_comments={},
+        )
+
+        detail = self.client.get(reverse('portal_payment_document_detail', args=[str(review.id)]))
+
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()['preview']['rows'][0]['call_up_comments'], '')
+
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_payment_preview_endpoint_does_not_require_csrf_cookie(self, storage):
         farmer = self.farmer()

@@ -3051,6 +3051,23 @@ def portal_payment_document_detail(request, document_id: str):
     rows = summary.get('preview_rows')
     if rows is None:  # Compatibility for final documents generated before snapshots existed.
         rows = [item['row'] for item in payment_readiness(doc.order_number).get('ready', [])]
+    rows = list(rows or [])
+    if doc.status == 'pending_review':
+        # Pending snapshots created before the payment/order comment split may
+        # have copied the order comment into row-level ``call_up_comments``.
+        # Never expose that value as a payment COL; only the per-case map is a
+        # valid HOR payment comment.
+        case_comments = {str(key): str(value or '').strip() for key, value in (doc.case_call_up_comments or {}).items()}
+        farmer_ids = [str(value) for value in (doc.farmer_ids or [])]
+        sanitized_rows = []
+        for index, row in enumerate(rows):
+            clean_row = dict(row or {})
+            farmer_id = str(clean_row.get('farmer_id') or (farmer_ids[index] if index < len(farmer_ids) else '')).strip()
+            if farmer_id:
+                clean_row['farmer_id'] = farmer_id
+            clean_row['call_up_comments'] = case_comments.get(farmer_id, '')
+            sanitized_rows.append(clean_row)
+        rows = sanitized_rows
     amount_keys = ('hb_invoice_amount', 'discount', 'deposit_paid_hbg', 'deposit_paid_jbl')
     totals = {}
     for key in amount_keys:
