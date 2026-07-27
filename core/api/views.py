@@ -303,7 +303,8 @@ def _dispatch_tat_approval_certificate(case_id: str, user: dict) -> None:
     certificate = TatTrackerApprovalCertificate.objects.filter(
         case__case_id=str(case_id),
         status='awaiting_signature',
-        staff_member__telegram_user_id=str(user.get('telegram_id') or ''),
+        staff_user_id=user.get('user_id'),
+        signer_telegram_id=str(user.get('telegram_id') or ''),
     ).order_by('-created_at').first()
     if not certificate:
         return
@@ -1239,7 +1240,7 @@ def _spin_user_payload(auth_payload: dict) -> dict:
 
 
 def _spin_user_is_designated_analyst(auth_payload: dict, *, group_config=None) -> bool:
-    """Prefer canonical User/AccessGrant permissions, with legacy fallback during migration."""
+    """Authorize SPIN analysts from canonical Users and AccessGrants."""
     if not getattr(settings, 'SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH', True):
         return True
     user_payload = _spin_user_payload(auth_payload)
@@ -1260,8 +1261,7 @@ def _spin_user_is_designated_analyst(auth_payload: dict, *, group_config=None) -
             roles = {canonical_access_role('spin_credit_analysis', role) for role in access.get('roles', [])}
             if roles.intersection({'CREDIT_ANALYST', 'ADMIN'}):
                 return True
-    from core.services.spin_credit import is_user_spin_analyst
-    return is_user_spin_analyst(user_payload)
+    return False
 
 
 def _spin_webapp_context(payload: dict, *, allow_form_token: bool = True):

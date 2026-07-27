@@ -73,33 +73,10 @@ def validate_telegram_init_data(
 
 
 def resolve_user_by_telegram_id(telegram_id: str):
-    """Resolve the canonical active User, with mapped legacy rows as fallback."""
-    from core.models import LegacyStaffUserMapping, UserProfile
+    """Resolve the canonical active User by immutable Telegram ID."""
+    from core.models import UserProfile
     profile = UserProfile.objects.select_related('user').filter(telegram_id=str(telegram_id)).first()
-    if profile and profile.user.is_active:
-        return profile.user
-    legacy_ids = []
-    from core.models import ComplaintCaseStaffMember, JawabuPortalStaffMember, TatTrackerStaffMember
-    legacy_ids.extend(
-        ('JawabuPortalStaffMember', str(pk))
-        for pk in JawabuPortalStaffMember.objects.filter(telegram_id=str(telegram_id), active=True)
-        .values_list('pk', flat=True)
-    )
-    legacy_ids.extend(
-        ('ComplaintCaseStaffMember', str(pk))
-        for pk in ComplaintCaseStaffMember.objects.filter(telegram_user_id=str(telegram_id), active=True)
-        .values_list('pk', flat=True)
-    )
-    legacy_ids.extend(
-        ('TatTrackerStaffMember', str(pk))
-        for pk in TatTrackerStaffMember.objects.filter(telegram_user_id=str(telegram_id), active=True)
-        .values_list('pk', flat=True)
-    )
-    mapping = LegacyStaffUserMapping.objects.select_related('user').filter(
-        legacy_model__in=[item[0] for item in legacy_ids],
-        legacy_id__in=[item[1] for item in legacy_ids],
-    ).first()
-    return mapping.user if mapping and mapping.user.is_active else None
+    return profile.user if profile and profile.user.is_active else None
 
 
 @transaction.atomic

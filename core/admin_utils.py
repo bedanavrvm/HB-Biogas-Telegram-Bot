@@ -28,8 +28,6 @@ NOISE_FIELD_SUFFIXES = ('_hash', '_token', '_payload')
 DEFAULT_MAX_LIST_COLUMNS = 6
 INLINE_ONLY_MODEL_LABELS = {
     'core.UserProfile', 'core.AccessGrant',
-    'core.JawabuPortalStaffMember', 'core.ComplaintCaseStaffMember',
-    'core.TatTrackerStaffMember',
 }
 
 AUTO_ADMIN_OVERRIDES = {
@@ -64,15 +62,10 @@ AUTO_ADMIN_OVERRIDES = {
         'list_filter': ('year', 'updated_at'),
         'search_fields': ('group_id',),
     },
-    'core.ComplaintCaseStaffMember': {
-        'list_display': ('name', 'role', 'active', 'group_configuration', 'telegram_username', 'updated_at'),
-        'list_filter': ('active', 'role', 'group_configuration'),
-        'search_fields': ('name', 'telegram_username', 'telegram_user_id', 'group_configuration__display_name'),
-    },
     'core.TatTrackerApprovalCertificate': {
-        'list_display': ('case', 'staff_member', 'stage_key', 'status', 'signed_at', 'updated_at'),
+        'list_display': ('case', 'signer_name', 'stage_key', 'status', 'signed_at', 'updated_at'),
         'list_filter': ('status', 'stage_key', 'created_at'),
-        'search_fields': ('case__case_id', 'case__client_name', 'staff_member__name', 'stage_key'),
+        'search_fields': ('case__case_id', 'case__client_name', 'signer_name', 'stage_key'),
     },
 }
 

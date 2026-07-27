@@ -2128,21 +2128,6 @@ def uploaded_file_names(uploaded_files: list) -> list[str]:
     return names
 
 
-def is_user_spin_analyst(user_payload: dict) -> bool:
-    if not user_payload:
-        return False
-    spin_analysts = getattr(settings, 'SPIN_ANALYSTS', [])
-    if not spin_analysts or '*' in spin_analysts:
-        return True
-    username = str(user_payload.get('username') or '').strip().lower()
-    user_id = str(user_payload.get('id') or '').strip()
-    if username and username in spin_analysts:
-        return True
-    if user_id and user_id in spin_analysts:
-        return True
-    return False
-
-
 def upload_report(group_config, file_obj, file_type: str, sender_name: str, national_id: str) -> str | None:
     if not file_obj:
         return None

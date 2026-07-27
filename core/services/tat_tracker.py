@@ -24,7 +24,7 @@ from django.db.models import Q
 from django.utils import timezone
 import openpyxl
 
-from core.models import TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, TatTrackerStaffMember
+from core.models import TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent
 from core.services.branches import DEFAULT_WORKFLOW_BRANCHES, global_branch_choices, workflow_branches as configured_workflow_branches
 from core.services.identifiers import normalize_kenyan_phone, normalize_national_id
 from core.services.sheets import get_sheets_service
@@ -323,7 +323,6 @@ def validate_tat_telegram_webapp_init_data(init_data: str) -> tuple[bool, str, d
 
 def staff_user_for_payload(group_config, user_payload: dict, fallback_name: str = '') -> dict:
     workflow = getattr(group_config, 'workflow', None) or {}
-    staff = workflow.get('staff') or []
     telegram_id = str(user_payload.get('id') or '').strip()
     username = str(user_payload.get('username') or '').strip().lower().lstrip('@')
     full_name = _telegram_name(user_payload) or fallback_name or username or telegram_id or 'Unknown user'
@@ -331,56 +330,50 @@ def staff_user_for_payload(group_config, user_payload: dict, fallback_name: str 
     canonical_user = resolve_or_bind_telegram_user(identity_from_user_payload(user_payload)) if telegram_id else None
     access = user_access(canonical_user, 'tat_tracker', group_configuration=group_config)
     if access['authorized']:
+        profile = getattr(canonical_user, 'staff_profile', None)
         return {
             'authorized': True,
             'telegram_id': telegram_id,
             'username': username,
+            'user_id': canonical_user.pk,
             'name': canonical_user.get_full_name() or canonical_user.get_username(),
             'roles': access['roles'] or ['BRO'],
             'branches': access['branches'],
             'products': access['products'],
+            'signing_national_id': str(getattr(profile, 'signing_national_id', '') or ''),
+            'signing_phone_number': str(getattr(profile, 'signing_phone_number', '') or ''),
+            'signing_email': str(getattr(profile, 'signing_email', '') or ''),
         }
-    # Compatibility read for workflow.staff until parity is verified.
-    for row in staff:
-        if not isinstance(row, dict) or row.get('active') is False:
-            continue
-        row_id = str(row.get('telegram_user_id') or row.get('telegram_id') or '').strip()
-        row_username = str(row.get('telegram_username') or row.get('username') or '').strip().lower().lstrip('@')
-        if (telegram_id and row_id == telegram_id) or (username and row_username == username):
-            roles = _normalize_list(row.get('roles') or row.get('role'))
-            return {'authorized': True, 'telegram_id': telegram_id, 'username': username, 'name': str(row.get('name') or full_name).strip(), 'roles': roles or ['BRO'], 'branches': _normalize_list(row.get('branches') or row.get('branch')), 'products': _normalize_list(row.get('products') or row.get('sheets'))}
-    if workflow.get('allow_unconfigured_users'):
-        return {'authorized': True, 'telegram_id': telegram_id, 'username': username, 'name': full_name, 'roles': _normalize_list(workflow.get('default_roles')) or ['BRO'], 'branches': [], 'products': []}
-    return {'authorized': False, 'telegram_id': telegram_id, 'username': username, 'name': full_name, 'roles': [], 'branches': [], 'products': [], 'reason': 'Your Telegram account is not configured for the TAT Tracker. Ask admin to add you under workflow.staff.'}
+    return {
+        'authorized': False,
+        'telegram_id': telegram_id,
+        'username': username,
+        'name': full_name,
+        'roles': [],
+        'branches': [],
+        'products': [],
+        'reason': 'Your Telegram account is not configured for the TAT Tracker. Ask an administrator to grant TAT access.',
+    }
 
 
 def configured_bro_names(workflow: dict | None, group_config=None) -> list[str]:
-    """Return active BRO names configured for the tracker group."""
-    names = {
-        str(row.get('name') or '').strip()
-        for row in (workflow or {}).get('staff') or []
-        if isinstance(row, dict)
-        and row.get('active') is not False
-        and 'BRO' in _normalize_list(row.get('roles') or row.get('role'))
-        and str(row.get('name') or '').strip()
-    }
+    """Return active BRO names from canonical workflow grants only."""
+    from core.models import AccessGrant
+    from core.services.telegram_identity import database_group_configuration
+    database_group = database_group_configuration(group_config) if group_config is not None else None
+    grants = AccessGrant.objects.filter(
+        workflow='tat_tracker', role__iexact='BRO', active=True,
+        user__is_active=True,
+    )
     if group_config is not None:
-        from core.models import AccessGrant
-        from core.services.telegram_identity import database_group_configuration
-        database_group = database_group_configuration(group_config)
-        grants = AccessGrant.objects.filter(
-            workflow='tat_tracker', role__iexact='BRO', active=True,
-            user__is_active=True,
-        )
         if database_group is None:
             grants = grants.filter(group_configuration__isnull=True)
         else:
             grants = grants.filter(group_configuration__in=[None, database_group])
-        grants = grants.select_related('user')
-        names.update(
-            grant.user.get_full_name() or grant.user.get_username()
-            for grant in grants
-        )
+    names = {
+        grant.user.get_full_name() or grant.user.get_username()
+        for grant in grants.select_related('user')
+    }
     return sorted(names, key=str.casefold)
 def bootstrap(group_config, user_payload: dict) -> dict:
     user = staff_user_for_payload(group_config, user_payload)
@@ -1023,18 +1016,18 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict) -> None:
 
 
 def create_approval_certificate(case: TatTrackerCase, event: TatTrackerEvent, user: dict, stage: StageConfig) -> None:
-    staff_member = TatTrackerStaffMember.objects.filter(
-        group_configuration__group_id=case.group_id,
-        telegram_user_id=str(user.get('telegram_id') or ''),
-        active=True,
-    ).first()
-    if not staff_member or not staff_member.signing_national_id or not staff_member.signing_phone_number:
-        raise ValueError('Your Branch Manager signing identity is incomplete. Ask an administrator to add your national ID and phone number.')
+    if not user.get('user_id') or not user.get('signing_national_id') or not user.get('signing_phone_number'):
+        raise ValueError('Your Branch Manager signing identity is incomplete. Ask an administrator to add signing details to your User profile.')
     TatTrackerApprovalCertificate.objects.get_or_create(
         event=event,
         defaults={
             'case': case,
-            'staff_member': staff_member,
+            'staff_user_id': user['user_id'],
+            'signer_name': user.get('name', ''),
+            'signer_telegram_id': user.get('telegram_id', ''),
+            'signer_national_id': user.get('signing_national_id', ''),
+            'signer_phone_number': user.get('signing_phone_number', ''),
+            'signer_email': user.get('signing_email', ''),
             'stage_key': stage.key,
             'external_reference': f'TAT-{case.id}-{stage.key}-v1',
         },

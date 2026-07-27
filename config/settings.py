@@ -231,14 +231,6 @@ SENTRY_DSN = config('SENTRY_DSN', default='').strip()
 SENTRY_ENVIRONMENT = config('SENTRY_ENVIRONMENT', default='production' if not DEBUG else 'development')
 SENTRY_TRACES_SAMPLE_RATE = config('SENTRY_TRACES_SAMPLE_RATE', default=0.0, cast=float)
 
-# Spin Credit Analysts (Telegram usernames/user IDs)
-SPIN_ANALYSTS = [
-    username.strip().lower() 
-    for username in config('SPIN_ANALYSTS', default='').split(',') 
-    if username.strip()
-]
-
-
 # API protection for manual endpoints
 API_AUTH_TOKEN = config('API_AUTH_TOKEN', default='')
 ESIGNATURES_BASE_URL = config('ESIGNATURES_BASE_URL', default='')

@@ -7,12 +7,13 @@ import json
 from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
 
+from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import GroupSheetConfiguration, InvoiceUploadBatch, JawabuFarmerMaster, JawabuPortalStaffMember, LiveSheetRecordChange, ParsedInvoice, RequisitionBatch
+from core.models import AccessGrant, GroupSheetConfiguration, InvoiceUploadBatch, JawabuFarmerMaster, LiveSheetRecordChange, ParsedInvoice, RequisitionBatch, UserProfile
 from core.services.jawabu_pipeline import (
     assign_order,
     all_cases,
@@ -317,6 +318,18 @@ class JblPipelineServiceTestCase(TestCase):
 
 
 class PortalMiniAppAuthTestCase(TestCase):
+    def grant_portal_access(self, role='JBL_OFFICER', branches=None):
+        user = get_user_model().objects.create_user(
+            username=f'portal-{role.lower()}', first_name='Portal', last_name='User', is_active=True,
+        )
+        user.set_unusable_password()
+        user.save(update_fields=['password'])
+        UserProfile.objects.create(user=user, telegram_id='12345')
+        AccessGrant.objects.create(
+            user=user, workflow='jawabu_portal', role=role,
+            branch=(branches or [''])[0],
+        )
+
     def _signed_init_data(self, token='test-token'):
         import hashlib
         import hmac
@@ -348,9 +361,7 @@ class PortalMiniAppAuthTestCase(TestCase):
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_portal_api_accepts_valid_telegram_init_data(self):
-        JawabuPortalStaffMember.objects.create(
-            telegram_id='12345', display_name='Portal User', roles=['admin'],
-        )
+        self.grant_portal_access(role='ADMIN')
         response = self.client.get(
             reverse('portal_dashboard'),
             HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
@@ -370,9 +381,7 @@ class PortalMiniAppAuthTestCase(TestCase):
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_portal_navigation_omits_links_disallowed_for_role(self):
-        JawabuPortalStaffMember.objects.create(
-            telegram_id='12345', display_name='JBL Officer', roles=['jbl_officer'],
-        )
+        self.grant_portal_access()
         response = self.client.get(
             reverse('portal_navigation'),
             HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
@@ -385,10 +394,7 @@ class PortalMiniAppAuthTestCase(TestCase):
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_portal_reads_are_limited_to_staff_branch_scope(self):
-        JawabuPortalStaffMember.objects.create(
-            telegram_id='12345', display_name='Ruiru Officer',
-            roles=['jbl_officer'], branches=['Ruiru'],
-        )
+        self.grant_portal_access(branches=['Ruiru'])
         allowed = JawabuFarmerMaster.objects.create(
             customer_name='Ruiru client', national_id='12345678',
             primary_phone='254700000001', branch='Ruiru', status='active',
@@ -409,10 +415,7 @@ class PortalMiniAppAuthTestCase(TestCase):
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_requisition_download_requires_branch_scope(self):
-        JawabuPortalStaffMember.objects.create(
-            telegram_id='12345', display_name='Ruiru Officer',
-            roles=['jbl_officer'], branches=['Ruiru'],
-        )
+        self.grant_portal_access(branches=['Ruiru'])
         farmer = JawabuFarmerMaster.objects.create(
             customer_name='Kiambu client', national_id='12345680',
             primary_phone='254700000003', branch='Kiambu', order_number='OUTSIDE-1',

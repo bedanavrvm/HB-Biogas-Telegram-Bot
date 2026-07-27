@@ -16,15 +16,6 @@ def bot_display_name() -> str:
     return getattr(settings, 'TELEGRAM_BOT_DISPLAY_NAME', 'Telegram Bot')
 
 
-def mapped_legacy_staff_user(instance):
-    """Resolve a legacy staff row through the auditable compatibility map."""
-    mapping_model = instance._meta.apps.get_model('core', 'LegacyStaffUserMapping')
-    mapping = mapping_model.objects.select_related('user').filter(
-        legacy_model=instance.__class__.__name__, legacy_id=str(instance.pk),
-    ).first()
-    return mapping.user if mapping else None
-
-
 class RawMessage(models.Model):
     """
     Stores original message data for traceability.
@@ -1213,6 +1204,9 @@ class UserProfile(models.Model):
     telegram_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
     telegram_username = models.CharField(max_length=100, blank=True, default='', db_index=True)
     phone_number = models.CharField(max_length=20, blank=True, default='', db_index=True)
+    signing_national_id = models.CharField(max_length=40, blank=True, default='')
+    signing_phone_number = models.CharField(max_length=20, blank=True, default='')
+    signing_email = models.EmailField(blank=True, default='')
     telegram_metadata = models.JSONField(blank=True, default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1291,61 +1285,6 @@ class AccessGrant(models.Model):
             group_configuration=self.group_configuration,
         )
 
-
-class LegacyStaffUserMapping(models.Model):
-    """Auditable compatibility mapping from a legacy staff row to User."""
-
-    legacy_model = models.CharField(max_length=80)
-    legacy_id = models.CharField(max_length=100)
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='legacy_staff_mappings',
-    )
-    match_method = models.CharField(max_length=40)
-    confidence = models.CharField(max_length=20, default='high')
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=['legacy_model', 'legacy_id'], name='unique_legacy_staff_mapping',
-            ),
-        ]
-
-
-class StaffIdentityReview(models.Model):
-    """Name-only or conflicting legacy identities requiring manual resolution."""
-
-    STATUS_CHOICES = [('pending', 'Pending'), ('resolved', 'Resolved'), ('ignored', 'Ignored')]
-    identity_key = models.CharField(max_length=255, db_index=True)
-    candidate_records = models.JSONField(default=list)
-    reason = models.TextField()
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', db_index=True)
-    resolved_user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
-        related_name='resolved_identity_reviews',
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-    resolved_at = models.DateTimeField(null=True, blank=True)
-
-
-class JawabuPortalStaffMember(models.Model):
-    """Business authorization for the aggregated Jawabu Portal Mini App."""
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    telegram_id = models.CharField(max_length=100, unique=True, db_index=True)
-    display_name = models.CharField(max_length=255, blank=True, default='')
-    roles = models.JSONField(blank=True, default=list)
-    branches = models.JSONField(blank=True, default=list)
-    active = models.BooleanField(default=True, db_index=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ['display_name', 'telegram_id']
-
-    @property
-    def as_user(self):
-        return mapped_legacy_staff_user(self)
 
 class JawabuFarmerUploadBatch(models.Model):
     """Staged CSV upload for staff review before updating Jawabu farmer master data."""
@@ -1551,12 +1490,10 @@ class GroupSheetConfiguration(models.Model):
 
     def as_group_config_kwargs(self) -> dict:
         workflow = dict(self.workflow or {})
-        staff_rows = self.tat_tracker_staff.all()
-        if staff_rows.exists():
-            workflow['staff'] = [
-                staff.as_workflow_staff_dict()
-                for staff in staff_rows.filter(active=True).order_by('name', 'telegram_username')
-            ]
+        # Staff identity and permissions are canonical User/AccessGrant data;
+        # workflow JSON is configuration only and must not carry a second
+        # authorization list.
+        workflow.pop('staff', None)
         return {
             'group_id': self.group_id,
             'display_name': self.display_name,
@@ -1578,167 +1515,6 @@ class GroupSheetConfiguration(models.Model):
         return f"{label} -> {self.sheet_name}"
 
 
-class ComplaintCaseStaffMember(models.Model):
-    """Named staff permitted to work on complaint cases in one Telegram group."""
-
-    ROLE_CHOICES = [
-        ('OFFICER', 'Case officer'),
-        ('MANAGER', 'Case manager'),
-    ]
-
-    group_configuration = models.ForeignKey(
-        GroupSheetConfiguration,
-        on_delete=models.CASCADE,
-        related_name='complaint_case_staff',
-    )
-    name = models.CharField(max_length=255)
-    telegram_user_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
-    telegram_username = models.CharField(max_length=100, blank=True, default='', db_index=True)
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='OFFICER')
-    active = models.BooleanField(default=True)
-    notes = models.TextField(blank=True, default='')
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ['group_configuration', 'name']
-        indexes = [
-            models.Index(fields=['group_configuration', 'active']),
-            models.Index(fields=['telegram_user_id']),
-            models.Index(fields=['telegram_username']),
-        ]
-        verbose_name = 'Complaint case staff member'
-        verbose_name_plural = 'Complaint case staff members'
-
-    def clean(self):
-        super().clean()
-        self.name = str(self.name or '').strip()
-        self.telegram_user_id = str(self.telegram_user_id or '').strip()
-        self.telegram_username = str(self.telegram_username or '').strip().lstrip('@')
-        if not self.telegram_user_id and not self.telegram_username:
-            from django.core.exceptions import ValidationError
-            raise ValidationError('Enter either Telegram user ID or Telegram username.')
-
-    def __str__(self):
-        return f'{self.name} ({self.role})'
-
-    @property
-    def as_user(self):
-        return mapped_legacy_staff_user(self)
-
-
-class TatTrackerStaffMember(models.Model):
-    """GUI-managed staff permissions for the TAT Tracker Mini App."""
-
-    ROLE_CHOICES = [
-        ('BRO', 'BRO'),
-        ('ADMIN', 'Admin'),
-        ('CA', 'Credit Analyst'),
-        ('BM', 'Branch Manager'),
-        ('SECRETARY', 'Secretary'),
-        ('CHAIR', 'Chair'),
-        ('LOAN_APPROVER', 'Loan Approver'),
-        ('FINANCE', 'Finance'),
-        ('IT', 'IT / Override'),
-        ('MANAGEMENT', 'Management'),
-    ]
-    PRODUCT_CHOICES = [
-        ('ALL', 'All products'),
-        ('business', 'Business'),
-        ('logbook', 'Logbook'),
-        ('mjengo', 'Mjengo'),
-        ('kilimo', 'Kilimo'),
-        ('micro_asset', 'Micro Asset'),
-    ]
-    BRANCH_CHOICES = [
-        ('ALL', 'All branches'),
-        ('Biogas Unit', 'Biogas Unit'),
-        ('Embu', 'Embu'),
-        ('Nakuru', 'Nakuru'),
-        ('West Nairobi', 'West Nairobi'),
-    ]
-
-    group_configuration = models.ForeignKey(
-        GroupSheetConfiguration,
-        on_delete=models.CASCADE,
-        related_name='tat_tracker_staff',
-    )
-    name = models.CharField(max_length=255)
-    telegram_user_id = models.CharField(
-        max_length=100,
-        blank=True,
-        default='',
-        db_index=True,
-        help_text='Numeric Telegram user ID. Preferred because usernames can change.',
-    )
-    telegram_username = models.CharField(
-        max_length=100,
-        blank=True,
-        default='',
-        db_index=True,
-        help_text='Telegram username without @. Used if user ID is unavailable.',
-    )
-    roles = models.CharField(max_length=255, default='BRO')
-    branches = models.CharField(max_length=500, blank=True, default='ALL')
-    products = models.CharField(max_length=500, blank=True, default='ALL')
-    active = models.BooleanField(default=True)
-    notes = models.TextField(blank=True, default='')
-    signing_national_id = models.CharField(max_length=40, blank=True, default='')
-    signing_phone_number = models.CharField(max_length=20, blank=True, default='')
-    signing_email = models.EmailField(blank=True, default='')
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ['group_configuration', 'name']
-        verbose_name = 'TAT tracker staff member'
-        verbose_name_plural = 'TAT tracker staff members'
-        indexes = [
-            models.Index(fields=['group_configuration', 'active']),
-            models.Index(fields=['telegram_user_id']),
-            models.Index(fields=['telegram_username']),
-        ]
-
-    def clean(self):
-        super().clean()
-        self.name = str(self.name or '').strip()
-        self.telegram_user_id = str(self.telegram_user_id or '').strip()
-        self.telegram_username = str(self.telegram_username or '').strip().lstrip('@')
-        self.roles = self._clean_csv(self.roles, default='BRO')
-        self.branches = self._clean_csv(self.branches, default='ALL')
-        self.products = self._clean_csv(self.products, default='ALL')
-        if not self.telegram_user_id and not self.telegram_username:
-            from django.core.exceptions import ValidationError
-            raise ValidationError('Enter either Telegram user ID or Telegram username.')
-
-    def as_workflow_staff_dict(self) -> dict:
-        return {
-            'telegram_user_id': self.telegram_user_id,
-            'telegram_username': self.telegram_username,
-            'name': self.name,
-            'roles': self._split_csv(self.roles),
-            'branches': self._split_csv(self.branches),
-            'products': self._split_csv(self.products),
-            'active': self.active,
-        }
-
-    @staticmethod
-    def _split_csv(value: str) -> list[str]:
-        return [part.strip() for part in str(value or '').split(',') if part.strip()]
-
-    @classmethod
-    def _clean_csv(cls, value: str, default: str = '') -> str:
-        parts = cls._split_csv(value)
-        return ','.join(parts or ([default] if default else []))
-
-    def __str__(self):
-        return f'{self.name} ({self.telegram_username or self.telegram_user_id})'
-
-    @property
-    def as_user(self):
-        return mapped_legacy_staff_user(self)
-
-
 class TatTrackerApprovalCertificate(models.Model):
     """External e-signature evidence for a completed TAT approval stage."""
 
@@ -1746,7 +1522,18 @@ class TatTrackerApprovalCertificate(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     case = models.ForeignKey(TatTrackerCase, on_delete=models.CASCADE, related_name='approval_certificates')
     event = models.OneToOneField(TatTrackerEvent, on_delete=models.PROTECT, related_name='approval_certificate')
-    staff_member = models.ForeignKey(TatTrackerStaffMember, on_delete=models.PROTECT, related_name='approval_certificates')
+    staff_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='tat_approval_certificates',
+    )
+    signer_name = models.CharField(max_length=255, blank=True, default='')
+    signer_telegram_id = models.CharField(max_length=100, blank=True, default='')
+    signer_national_id = models.CharField(max_length=40, blank=True, default='')
+    signer_phone_number = models.CharField(max_length=20, blank=True, default='')
+    signer_email = models.EmailField(blank=True, default='')
     stage_key = models.CharField(max_length=120, db_index=True)
     external_reference = models.CharField(max_length=80, unique=True)
     status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='awaiting_signature', db_index=True)

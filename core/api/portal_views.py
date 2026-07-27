@@ -62,7 +62,6 @@ def portal_auth_required(view_func):
             from core.services.telegram_identity import (
                 TelegramIdentity, resolve_or_bind_telegram_user, user_access,
             )
-            from core.models import JawabuPortalStaffMember
             try:
                 user = json.loads(payload.get('user') or '{}')
             except (TypeError, ValueError):
@@ -76,8 +75,7 @@ def portal_auth_required(view_func):
                 payload=user,
             ))
             access = user_access(canonical_user, 'jawabu_portal') if canonical_user else None
-            legacy_staff = JawabuPortalStaffMember.objects.filter(telegram_id=telegram_id, active=True).first()
-            if not (access and access['authorized']) and not legacy_staff:
+            if not (access and access['authorized']):
                 account_label = f' (ID {telegram_id})' if telegram_id else ''
                 return JsonResponse({
                     'ok': False,
@@ -87,16 +85,6 @@ def portal_auth_required(view_func):
                 login(request, canonical_user, backend='core.auth_backends.TelegramMiniAppBackend')
                 request.portal_user = canonical_user
                 request.portal_access = access
-            else:
-                # Compatibility path until migrate_legacy_staff --apply maps this row.
-                request.portal_user = None
-                request.portal_access = {
-                    'authorized': True,
-                    'roles': list(legacy_staff.roles or []),
-                    'branches': list(legacy_staff.branches or []),
-                    'products': [],
-                    'grants': [],
-                }
         return view_func(request, *args, **kwargs)
     return wrapper
 

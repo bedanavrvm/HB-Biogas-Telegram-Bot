@@ -21,7 +21,6 @@ from core.models import (
     CaseUpdate,
     ComplaintCaseEvidence,
     ComplaintCaseSequence,
-    ComplaintCaseStaffMember,
     ParsedMessage,
     ProcessedMessage,
     RawMessage,
@@ -70,32 +69,17 @@ def staff_actor_for_payload(group_config, auth_payload: dict) -> ComplaintCaseAc
     from core.services.telegram_identity import identity_from_user_payload, resolve_or_bind_telegram_user, user_access
     canonical_user = resolve_or_bind_telegram_user(identity_from_user_payload(user)) if telegram_id else None
     access = user_access(canonical_user, 'complaint_cases', group_configuration=group_config)
-    if access['authorized']:
-        roles = {str(role).upper() for role in access['roles']}
-        role = MANAGER_ROLE if MANAGER_ROLE in roles else ('OFFICER' if 'OFFICER' in roles else '')
-        if not role:
-            raise ComplaintCaseError('Your user has no complaint-case role for this group.')
-        return ComplaintCaseActor(
-            name=canonical_user.get_full_name() or canonical_user.get_username(),
-            telegram_id=telegram_id,
-            username=username,
-            role=role,
-        )
-    # Compatibility read until all legacy rows have a mapping.
-    identity_query = Q(telegram_user_id=telegram_id) if telegram_id else Q()
-    if username:
-        identity_query |= Q(telegram_username__iexact=username)
-    staff = ComplaintCaseStaffMember.objects.filter(
-        group_configuration__group_id=str(group_config.group_id),
-        active=True,
-    ).filter(identity_query).order_by('name').first()
-    if not staff:
+    if not access['authorized']:
         raise ComplaintCaseError('Your Telegram account is not configured for complaint cases in this group.')
+    roles = {str(role).upper() for role in access['roles']}
+    role = MANAGER_ROLE if MANAGER_ROLE in roles else ('OFFICER' if 'OFFICER' in roles else '')
+    if not role:
+        raise ComplaintCaseError('Your user has no complaint-case role for this group.')
     return ComplaintCaseActor(
-        name=staff.name,
+        name=canonical_user.get_full_name() or canonical_user.get_username(),
         telegram_id=telegram_id,
         username=username,
-        role=staff.role,
+        role=role,
     )
 
 

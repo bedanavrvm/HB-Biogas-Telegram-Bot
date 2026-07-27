@@ -244,7 +244,7 @@
     if (!ok) {
       const message = data?.error || data?.message || 'The dashboard request failed.';
       const guidance = status === 403
-        ? 'Ask an administrator to add your Telegram account to Jawabu Portal Staff, then refresh.'
+        ? 'Ask an administrator to add your Telegram account to Users and grant Jawabu Portal access, then refresh.'
         : 'Check your connection and try again.';
       loading.innerHTML = '<strong>Dashboard unavailable</strong><span>'
         + escapeHtml(message) + '</span><span>' + escapeHtml(guidance) + '</span>';

@@ -7,21 +7,22 @@ from urllib.parse import urlencode
 from unittest.mock import patch
 
 from django.contrib import admin
+from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.admin import ComplaintCaseStaffMemberInline, TatTrackerStaffMemberInline
 from core.models import (
+    AccessGrant,
     CaseUpdate,
     ComplaintCaseEvidence,
     ComplaintCaseSequence,
-    ComplaintCaseStaffMember,
     GroupSheetConfiguration,
     ParsedMessage,
     ProcessedMessage,
     RawMessage,
+    UserProfile,
 )
 from core.services.complaint_cases import (
     ComplaintCaseError,
@@ -43,11 +44,22 @@ class ComplaintCaseServiceTests(TestCase):
         self.config = GroupConfig(group_id=self.group.group_id, sheet_id='test-sheet', sheet_name='Complaints', workflow={'type': 'case'})
         self.case = self.create_case('-100100', 'CASE-1')
         self.other_case = self.create_case('-100200', 'CASE-2')
-        ComplaintCaseStaffMember.objects.create(
-            group_configuration=self.group, name='Officer One', telegram_user_id='100', role='OFFICER'
+        User = get_user_model()
+        self.officer = User.objects.create_user(username='officer-one', first_name='Officer', last_name='One', is_active=True)
+        self.officer.set_unusable_password()
+        self.officer.save(update_fields=['password'])
+        UserProfile.objects.create(user=self.officer, telegram_id='100', telegram_username='officer_one')
+        AccessGrant.objects.create(
+            user=self.officer, workflow='complaint_cases', role='OFFICER',
+            group_configuration=self.group,
         )
-        ComplaintCaseStaffMember.objects.create(
-            group_configuration=self.group, name='Manager One', telegram_user_id='200', role='MANAGER'
+        self.manager = User.objects.create_user(username='manager-one', first_name='Manager', last_name='One', is_active=True)
+        self.manager.set_unusable_password()
+        self.manager.save(update_fields=['password'])
+        UserProfile.objects.create(user=self.manager, telegram_id='200', telegram_username='manager_one')
+        AccessGrant.objects.create(
+            user=self.manager, workflow='complaint_cases', role='MANAGER',
+            group_configuration=self.group,
         )
 
     def create_case(self, group_id, message_id):
@@ -239,7 +251,7 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
 
 
 class ComplaintCaseAdminTests(TestCase):
-    def test_group_admin_shows_only_the_staff_inline_for_its_workflow(self):
+    def test_group_admin_has_no_legacy_staff_inlines(self):
         complaint_group = GroupSheetConfiguration.objects.create(
             group_id='-100complaints', workflow={'type': 'case'}
         )
@@ -249,14 +261,8 @@ class ComplaintCaseAdminTests(TestCase):
         model_admin = admin.site._registry[GroupSheetConfiguration]
         request = RequestFactory().get('/admin/core/groupsheetconfiguration/')
 
-        self.assertEqual(
-            model_admin.get_inlines(request, complaint_group),
-            [ComplaintCaseStaffMemberInline],
-        )
-        self.assertEqual(
-            model_admin.get_inlines(request, tat_group),
-            [TatTrackerStaffMemberInline],
-        )
+        self.assertEqual(model_admin.get_inlines(request, complaint_group), [])
+        self.assertEqual(model_admin.get_inlines(request, tat_group), [])
 
 
 class TelegramInitDataTests(TestCase):

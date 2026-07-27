@@ -16,8 +16,7 @@ from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.admin import TatTrackerStaffMemberAdminForm
-from core.models import GroupSheetConfiguration, TatRepairJob, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, TatTrackerStaffMember
+from core.models import AccessGrant, GroupSheetConfiguration, TatRepairJob, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, UserProfile
 from core.api.views import _dispatch_tat_approval_certificate, _process_telegram_message
 from core.services.group_config import GroupRegistry
 from core.services.tat_tracker import (
@@ -76,27 +75,24 @@ class TatTrackerWorkflowTest(TestCase):
                 'type': 'tat_tracker',
                 'products': ['business', 'logbook'],
                 'branches': ['Nakuru', 'Embu'],
-                'staff': [
-                    {
-                        'telegram_user_id': '111',
-                        'telegram_username': 'bro_user',
-                        'name': 'BRO User',
-                        'roles': ['BRO'],
-                        'branches': ['Nakuru'],
-                        'products': ['business'],
-                        'active': True,
-                    },
-                    {
-                        'telegram_user_id': '222',
-                        'telegram_username': 'admin_user',
-                        'name': 'Admin User',
-                        'roles': ['ADMIN'],
-                        'branches': ['Nakuru'],
-                        'products': ['business'],
-                        'active': True,
-                    },
-                ],
             },
+        )
+        User = get_user_model()
+        self.bro_user = User.objects.create_user(username='bro-user', first_name='BRO', last_name='User', is_active=True)
+        self.bro_user.set_unusable_password()
+        self.bro_user.save(update_fields=['password'])
+        UserProfile.objects.create(user=self.bro_user, telegram_id='111', telegram_username='bro_user')
+        AccessGrant.objects.create(
+            user=self.bro_user, workflow='tat_tracker', role='BRO',
+            branch='Nakuru', product='business', group_configuration=self.config,
+        )
+        self.admin_user = User.objects.create_user(username='admin-user', first_name='Admin', last_name='User', is_active=True)
+        self.admin_user.set_unusable_password()
+        self.admin_user.save(update_fields=['password'])
+        UserProfile.objects.create(user=self.admin_user, telegram_id='222', telegram_username='admin_user')
+        AccessGrant.objects.create(
+            user=self.admin_user, workflow='tat_tracker', role='ADMIN',
+            branch='Nakuru', product='business', group_configuration=self.config,
         )
 
     def signed_init_data(self, telegram_id='111', username='bro_user'):
@@ -341,15 +337,17 @@ class TatTrackerWorkflowTest(TestCase):
 
     @override_settings(TAT_TRACKER_SIGNATURES_ENABLED=True)
     def test_sme_bm_certificate_blocks_the_next_stage_until_signed(self):
-        staff_member = TatTrackerStaffMember.objects.create(
-            group_configuration=self.config,
-            name='BM User',
-            telegram_user_id='333',
-            roles='BM',
-            branches='Nakuru',
-            products='business',
-            signing_national_id='12345678',
-            signing_phone_number='+254700000001',
+        User = get_user_model()
+        signer = User.objects.create_user(username='bm-user', first_name='BM', last_name='User', is_active=True)
+        signer.set_unusable_password()
+        signer.save(update_fields=['password'])
+        UserProfile.objects.create(
+            user=signer, telegram_id='333', telegram_username='bm_user',
+            signing_national_id='12345678', signing_phone_number='+254700000001',
+        )
+        AccessGrant.objects.create(
+            user=signer, workflow='tat_tracker', role='BM',
+            branch='Nakuru', product='business', group_configuration=self.config,
         )
         case = TatTrackerCase.objects.create(
             group_id=self.config.group_id,
@@ -375,7 +373,11 @@ class TatTrackerWorkflowTest(TestCase):
         certificate = TatTrackerApprovalCertificate.objects.create(
             case=case,
             event=event,
-            staff_member=staff_member,
+            staff_user=signer,
+            signer_name='BM User',
+            signer_telegram_id='333',
+            signer_national_id='12345678',
+            signer_phone_number='+254700000001',
             stage_key='bm_response',
             external_reference='TAT-test-bm-response-v1',
         )
@@ -629,116 +631,15 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(tat_days_formula(logbook, 5), '=IF(AC5="","",ROUND(AC5/24,2))')
         self.assertEqual(tat_hours_formula(mjengo, 5), '=IF(OR($H5="",$Y5=""),"",ROUND(($Y5-$H5)*24,2))')
         self.assertEqual(tat_days_formula(mjengo, 5), '=IF(AB5="","",ROUND(AB5/24,2))')
-    def test_group_config_merges_gui_staff_rows_into_workflow(self):
-        TatTrackerStaffMember.objects.create(
-            group_configuration=self.config,
-            name='GUI Staff',
-            telegram_user_id='333',
-            telegram_username='gui_staff',
-            roles='CA,BM',
-            branches='ALL',
-            products='business,logbook',
-        )
-        TatTrackerStaffMember.objects.create(
-            group_configuration=self.config,
-            name='Inactive Staff',
-            telegram_user_id='444',
-            roles='BRO',
-            active=False,
-        )
+    def test_tat_access_comes_from_canonical_user_grants(self):
+        group_config = type('GroupConfigLike', (), self.config.as_group_config_kwargs())()
+        user = staff_user_for_payload(group_config, {'id': 111, 'username': 'bro_user'})
 
-        workflow = self.config.as_group_config_kwargs()['workflow']
-        self.assertEqual(len(workflow['staff']), 1)
-        self.assertEqual(workflow['staff'][0]['name'], 'GUI Staff')
-        self.assertEqual(workflow['staff'][0]['roles'], ['CA', 'BM'])
-        self.assertEqual(workflow['staff'][0]['branches'], ['ALL'])
-        self.assertEqual(workflow['staff'][0]['products'], ['business', 'logbook'])
-
-
-    def test_gui_staff_rows_override_legacy_workflow_staff_even_when_inactive(self):
-        self.config.workflow['staff'] = [{
-            'telegram_user_id': '999',
-            'name': 'Legacy JSON Staff',
-            'roles': ['IT'],
-            'branches': ['ALL'],
-            'products': ['ALL'],
-            'active': True,
-        }]
-        self.config.save()
-        TatTrackerStaffMember.objects.create(
-            group_configuration=self.config,
-            name='Disabled GUI Staff',
-            telegram_user_id='555',
-            roles='BRO',
-            active=False,
-        )
-
-        workflow = self.config.as_group_config_kwargs()['workflow']
-
-        self.assertEqual(workflow['staff'], [])
-
-    def test_staff_admin_form_renders_saved_checkbox_values(self):
-        staff = TatTrackerStaffMember.objects.create(
-            group_configuration=self.config,
-            name='GUI Staff',
-            telegram_user_id='333',
-            roles='CA,BM',
-            branches='Nakuru,Embu',
-            products='business,logbook',
-        )
-
-        form = TatTrackerStaffMemberAdminForm(instance=staff)
-
-        self.assertEqual(form['roles'].value(), ['CA', 'BM'])
-        self.assertEqual(form['branches'].value(), ['Nakuru', 'Embu'])
-        self.assertEqual(form['products'].value(), ['business', 'logbook'])
-        html = form.as_p()
-        self.assertIn('name="roles" value="CA"', html)
-        self.assertIn('name="roles" value="BM"', html)
-        self.assertIn('value="CA" id="id_roles_2" checked', html)
-        self.assertIn('value="BM" id="id_roles_3" checked', html)
-
-    def test_staff_admin_form_saves_checkbox_values_as_csv(self):
-        data = {
-            'group_configuration': str(self.config.pk),
-            'name': 'GUI Staff',
-            'telegram_user_id': '333',
-            'telegram_username': '',
-            'roles': ['CA', 'BM'],
-            'branches': ['Nakuru', 'Embu'],
-            'products': ['business', 'logbook'],
-            'active': 'on',
-            'notes': '',
-        }
-
-        form = TatTrackerStaffMemberAdminForm(data=data)
-
-        self.assertTrue(form.is_valid(), form.errors)
-        staff = form.save()
-        self.assertEqual(staff.roles, 'CA,BM')
-        self.assertEqual(staff.branches, 'Nakuru,Embu')
-        self.assertEqual(staff.products, 'business,logbook')
-
-    def test_staff_admin_form_limits_branches_to_the_group_configuration(self):
-        self.config.workflow['branches'] = ['Muranga', 'Thika Road']
-        self.config.save(update_fields=['workflow'])
-        data = {
-            'group_configuration': str(self.config.pk),
-            'name': 'Configured Branch Staff',
-            'telegram_user_id': '334',
-            'roles': ['BRO'],
-            'branches': ['Nakuru'],
-            'products': ['business'],
-            'active': 'on',
-        }
-
-        form = TatTrackerStaffMemberAdminForm(data=data)
-
-        self.assertEqual(
-            list(form.fields['branches'].choices),
-            [('ALL', 'All branches'), ('Muranga', 'Muranga'), ('Thika Road', 'Thika Road')],
-        )
-        self.assertFalse(form.is_valid())
+        self.assertTrue(user['authorized'])
+        self.assertEqual(user['name'], 'BRO User')
+        self.assertEqual(user['roles'], ['BRO'])
+        self.assertEqual(user['branches'], ['Nakuru'])
+        self.assertEqual(user['products'], ['business'])
 
     def test_group_admin_form_exposes_tat_targets_from_workflow(self):
         self.config.workflow.setdefault('tat_targets_minutes', {}).setdefault(
@@ -943,26 +844,7 @@ class TatTrackerWorkflowTest(TestCase):
 
         self.assertIn('tat_target_business_total', form_class.base_fields)
         self.assertIn('tat_target_logbook_ca_analysis_sent', form_class.base_fields)
-    def test_staff_user_matches_gui_staff_row(self):
-        TatTrackerStaffMember.objects.create(
-            group_configuration=self.config,
-            name='GUI Staff',
-            telegram_user_id='333',
-            telegram_username='gui_staff',
-            roles='CA',
-            branches='ALL',
-            products='ALL',
-        )
-        group_config = type('GroupConfigLike', (), self.config.as_group_config_kwargs())()
-
-        user = staff_user_for_payload(group_config, {'id': 333, 'username': 'gui_staff'})
-
-        self.assertTrue(user['authorized'])
-        self.assertEqual(user['name'], 'GUI Staff')
-        self.assertEqual(user['roles'], ['CA'])
-        self.assertEqual(user['branches'], ['ALL'])
-        self.assertEqual(user['products'], ['ALL'])
-    def test_staff_user_matches_telegram_id(self):
+    def test_staff_user_matches_canonical_telegram_id(self):
         user = staff_user_for_payload(self.config, {'id': 111, 'username': 'someone_else'})
         self.assertTrue(user['authorized'])
         self.assertEqual(user['name'], 'BRO User')

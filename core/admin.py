@@ -38,7 +38,6 @@ from core.services.telegram_launchers import MINI_APP_LAUNCHER_CHOICES, default_
 
 from .models import (
     ComplaintCaseEvidence,
-    ComplaintCaseStaffMember,
     CaseUpdate,
     FcaImportRecord,
     GroupSheetConfiguration,
@@ -46,7 +45,6 @@ from .models import (
     JawabuCustomer,
     JawabuPipelineEvent,
     JawabuDataQualityIssue,
-    JawabuPortalStaffMember,
     JawabuFarmerUploadBatch,
     JawabuVisitRecord,
     LiveSheetRecordChange,
@@ -67,11 +65,8 @@ from .models import (
     TatTrackerCase,
     TatTrackerEvent,
     TatRepairJob,
-    TatTrackerStaffMember,
     UserProfile,
     AccessGrant,
-    LegacyStaffUserMapping,
-    StaffIdentityReview,
 )
 
 
@@ -109,14 +104,6 @@ class JawabuDataQualityIssueAdmin(ModelAdmin):
     list_filter = ('active', 'severity', 'field_name')
     search_fields = ('farmer__customer_name', 'farmer__national_id', 'message')
     readonly_fields = ('detected_at', 'resolved_at')
-
-
-@admin.register(JawabuPortalStaffMember)
-class JawabuPortalStaffMemberAdmin(ModelAdmin):
-    list_display = ('display_name', 'telegram_id', 'active', 'updated_at')
-    list_filter = ('active',)
-    search_fields = ('display_name', 'telegram_id')
-    readonly_fields = ('created_at', 'updated_at')
 
 
 def _tat_target_field_name(product_key: str, target_key: str) -> str:
@@ -1015,98 +1002,6 @@ class FcaImportRecordAdmin(ReadOnlyAuditAdmin):
     readonly_fields = ['id', 'created_at']
 
 
-class TatTrackerStaffMemberAdminForm(forms.ModelForm):
-    roles = forms.MultipleChoiceField(
-        choices=TatTrackerStaffMember.ROLE_CHOICES,
-        required=True,
-        widget=forms.CheckboxSelectMultiple,
-        help_text='Select every role this staff member can perform.',
-    )
-    branches = forms.MultipleChoiceField(
-        choices=TatTrackerStaffMember.BRANCH_CHOICES,
-        required=False,
-        widget=forms.CheckboxSelectMultiple,
-        help_text='Leave empty or choose All branches for unrestricted branch access.',
-    )
-    products = forms.MultipleChoiceField(
-        choices=TatTrackerStaffMember.PRODUCT_CHOICES,
-        required=False,
-        widget=forms.CheckboxSelectMultiple,
-        help_text='Leave empty or choose All products for unrestricted product access.',
-    )
-
-    class Meta:
-        model = TatTrackerStaffMember
-        fields = '__all__'
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._set_configured_branch_choices()
-        if self.instance and self.instance.pk:
-            self._set_multi_initial('roles', self._split(self.instance.roles))
-            self._set_multi_initial('branches', self._split(self.instance.branches))
-            self._set_multi_initial('products', self._split(self.instance.products))
-        else:
-            self._set_multi_initial('roles', ['BRO'])
-            self._set_multi_initial('branches', ['ALL'])
-            self._set_multi_initial('products', ['ALL'])
-
-    def clean_roles(self):
-        return ','.join(self.cleaned_data.get('roles') or ['BRO'])
-
-    def clean_branches(self):
-        selected = self.cleaned_data.get('branches') or ['ALL']
-        return 'ALL' if 'ALL' in selected else ','.join(selected)
-
-    def clean_products(self):
-        selected = self.cleaned_data.get('products') or ['ALL']
-        return 'ALL' if 'ALL' in selected else ','.join(selected)
-
-    def _set_configured_branch_choices(self):
-        group_configuration = self._selected_group_configuration()
-        workflow = getattr(group_configuration, 'workflow', None) or {}
-        branches = configured_workflow_branches(workflow, default=global_branch_choices())
-        self.fields['branches'].choices = [('ALL', 'All branches')] + [
-            (branch, branch) for branch in branches
-        ]
-
-    def _selected_group_configuration(self):
-        if self.instance and self.instance.group_configuration_id:
-            return self.instance.group_configuration
-        group_id = self.data.get(self.add_prefix('group_configuration')) or self.initial.get('group_configuration')
-        if not group_id:
-            return None
-        return GroupSheetConfiguration.objects.filter(pk=group_id).first()
-
-    @staticmethod
-    def _split(value):
-        return [part.strip() for part in str(value or '').split(',') if part.strip()]
-
-    def _set_multi_initial(self, field_name, values):
-        values = list(values or [])
-        self.initial[field_name] = values
-        self.fields[field_name].initial = values
-
-
-class TatTrackerStaffMemberInline(StackedInline):
-    model = TatTrackerStaffMember
-    form = TatTrackerStaffMemberAdminForm
-    extra = 1
-    fields = (
-        'active', 'name', 'telegram_user_id', 'telegram_username',
-        'roles', 'branches', 'products', 'notes',
-    )
-    verbose_name = 'TAT tracker staff member'
-    verbose_name_plural = 'TAT tracker staff GUI'
-
-
-class ComplaintCaseStaffMemberInline(StackedInline):
-    model = ComplaintCaseStaffMember
-    extra = 1
-    fields = ('active', 'name', 'telegram_user_id', 'telegram_username', 'role', 'notes')
-    verbose_name = 'Complaint case staff member'
-    verbose_name_plural = 'Complaint case Mini App staff'
-
 @admin.register(GroupSheetConfiguration)
 class GroupSheetConfigurationAdmin(ModelAdmin):
     form = GroupSheetConfigurationAdminForm
@@ -1895,34 +1790,6 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
         GoogleSheetsService.clear_instances()
 
 
-@admin.register(TatTrackerStaffMember)
-class TatTrackerStaffMemberAdmin(ModelAdmin):
-    form = TatTrackerStaffMemberAdminForm
-    compressed_fields = True
-    list_filter_submit = True
-    list_fullwidth = True
-    list_display = [
-        'name', 'group_configuration', 'active', 'telegram_user_id',
-        'telegram_username', 'roles', 'branches', 'products', 'updated_at',
-    ]
-    list_filter = ['active', 'group_configuration', 'roles', 'branches', 'products']
-    search_fields = [
-        'name', 'telegram_user_id', 'telegram_username',
-        'group_configuration__group_id', 'group_configuration__display_name',
-    ]
-
-    def save_model(self, request, obj, form, change):
-        super().save_model(request, obj, form, change)
-        GroupSheetConfigurationAdmin._clear_runtime_config_cache()
-
-    def delete_model(self, request, obj):
-        super().delete_model(request, obj)
-        GroupSheetConfigurationAdmin._clear_runtime_config_cache()
-
-    def delete_queryset(self, request, queryset):
-        super().delete_queryset(request, queryset)
-        GroupSheetConfigurationAdmin._clear_runtime_config_cache()
-
 class RequisitionTemplateForm(forms.ModelForm):
     class Meta:
         model = RequisitionTemplate
@@ -2070,7 +1937,10 @@ class UserProfileAdminForm(forms.ModelForm):
 
     class Meta:
         model = UserProfile
-        fields = ('telegram_username', 'telegram_id', 'phone_number')
+        fields = (
+            'telegram_username', 'telegram_id', 'phone_number',
+            'signing_national_id', 'signing_phone_number', 'signing_email',
+        )
 
     def clean_telegram_username(self):
         return str(self.cleaned_data.get('telegram_username') or '').strip().lstrip('@').lower()
@@ -2081,7 +1951,10 @@ class UserProfileInline(StackedInline):
     form = UserProfileAdminForm
     extra = 0
     max_num = 1
-    fields = (('telegram_username', 'telegram_id'), 'phone_number')
+    fields = (
+        ('telegram_username', 'telegram_id'), 'phone_number',
+        ('signing_national_id', 'signing_phone_number', 'signing_email'),
+    )
 
 
 class WorkflowScopedSelect(forms.Select):
@@ -2307,6 +2180,28 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
         connection = connections['default']
         if connection.connection is None or connection.in_atomic_block:
             return
+        # ``is_usable()`` only checks whether the PostgreSQL socket answers;
+        # psycopg can still report that socket as usable while its transaction
+        # is aborted after a caught IntegrityError.  Any subsequent query then
+        # raises ``current transaction is aborted`` until the connection is
+        # rolled back or closed.  Close it here so Django opens a clean one.
+        transaction_status = getattr(
+            getattr(connection.connection, 'info', None), 'transaction_status', None,
+        )
+        status_name = str(getattr(transaction_status, 'name', transaction_status)).upper()
+        if status_name.endswith('INERROR'):
+            connection.close()
+            return
+        # Some PostgreSQL/driver combinations expose no useful transaction
+        # status object.  Probe the connection itself as a fallback; a failed
+        # ``SELECT 1`` is the definitive signal that this request must start
+        # with a fresh connection.
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute('SELECT 1')
+        except DatabaseError:
+            connection.close()
+            return
         try:
             usable = connection.is_usable()
         except DatabaseError:
@@ -2392,22 +2287,6 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
         return user
 
 
-@admin.register(LegacyStaffUserMapping)
-class LegacyStaffUserMappingAdmin(ModelAdmin):
-    list_display = ('legacy_model', 'legacy_id', 'user', 'match_method', 'confidence', 'created_at')
-    list_filter = ('legacy_model', 'match_method', 'confidence')
-    search_fields = ('legacy_id', 'user__username', 'user__first_name', 'user__last_name')
-    readonly_fields = ('legacy_model', 'legacy_id', 'user', 'match_method', 'confidence', 'created_at')
-
-
-@admin.register(StaffIdentityReview)
-class StaffIdentityReviewAdmin(ModelAdmin):
-    list_display = ('identity_key', 'status', 'resolved_user', 'created_at', 'resolved_at')
-    list_filter = ('status',)
-    search_fields = ('identity_key', 'reason')
-    readonly_fields = ('identity_key', 'candidate_records', 'reason', 'created_at')
-
-
 class UnfoldGroupAdmin(ModelAdmin, DjangoGroupAdmin):
     compressed_fields = True
     list_filter_submit = True
@@ -2431,14 +2310,3 @@ from core.admin_utils import auto_register_unregistered_models
 
 
 AUTO_REGISTERED_MODELS = auto_register_unregistered_models()
-
-# Legacy staff tables remain queryable during compatibility rollout, but all
-# identity and permission management now happens through the User admin.
-for legacy_staff_model in (
-    JawabuPortalStaffMember, ComplaintCaseStaffMember, TatTrackerStaffMember,
-    LegacyStaffUserMapping, StaffIdentityReview,
-):
-    try:
-        admin.site.unregister(legacy_staff_model)
-    except admin.sites.NotRegistered:
-        pass

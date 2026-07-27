@@ -1,21 +1,18 @@
 import hashlib
 import hmac
-import io
 import json
 import time
+from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.parse import urlencode
 
 from django.contrib.auth import get_user_model
 from django.contrib import admin
-from django.core.management import call_command
-from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from core.models import (
-    AccessGrant, ComplaintCaseStaffMember, GroupSheetConfiguration,
-    JawabuPortalStaffMember, LegacyStaffUserMapping, StaffIdentityReview, UserProfile,
+    AccessGrant, GroupSheetConfiguration, UserProfile,
 )
 
 
@@ -35,43 +32,19 @@ def signed_init_data(telegram_id='12345', token='test-token', username='unified_
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
-class LegacyStaffMigrationCommandTests(TestCase):
-    def setUp(self):
-        self.config = GroupSheetConfiguration.objects.create(
-            group_id='-100-identity', sheet_id='sheet-test', sheet_name='Cases', enabled=True,
-        )
-        self.portal = JawabuPortalStaffMember.objects.create(
-            telegram_id='12345', display_name='Unified User', roles=['admin'], branches=['Nairobi'],
-        )
-        self.complaint = ComplaintCaseStaffMember.objects.create(
-            group_configuration=self.config, name='Unified User', telegram_user_id='12345', role='MANAGER',
-        )
-        ComplaintCaseStaffMember.objects.create(
-            group_configuration=self.config, name='Name Only', telegram_username='', role='OFFICER',
-        )
-        ComplaintCaseStaffMember.objects.create(
-            group_configuration=self.config, name='Username Only',
-            telegram_username='username_only', role='OFFICER',
-        )
-
-    def test_dry_run_does_not_write(self):
-        output = io.StringIO()
-        call_command('migrate_legacy_staff', stdout=output)
-
-        self.assertIn('Dry run only', output.getvalue())
-        self.assertFalse(UserProfile.objects.exists())
-        self.assertFalse(LegacyStaffUserMapping.objects.exists())
+class CanonicalStaffAdminTests(TestCase):
 
     def test_user_admin_is_the_only_staff_management_surface(self):
         from core.admin import UserProfileAdminForm
-        from core.models import TatTrackerStaffMember
 
         self.assertIn(get_user_model(), admin.site._registry)
-        self.assertNotIn(JawabuPortalStaffMember, admin.site._registry)
-        self.assertNotIn(ComplaintCaseStaffMember, admin.site._registry)
-        self.assertNotIn(TatTrackerStaffMember, admin.site._registry)
-        self.assertNotIn(LegacyStaffUserMapping, admin.site._registry)
-        self.assertNotIn(StaffIdentityReview, admin.site._registry)
+        registered_labels = {model._meta.label for model in admin.site._registry}
+        for removed_label in (
+            'core.JawabuPortalStaffMember', 'core.ComplaintCaseStaffMember',
+            'core.TatTrackerStaffMember', 'core.LegacyStaffUserMapping',
+            'core.StaffIdentityReview',
+        ):
+            self.assertNotIn(removed_label, registered_labels)
         self.assertFalse(UserProfileAdminForm().fields['telegram_id'].required)
         self.assertTrue(UserProfileAdminForm().fields['telegram_id'].disabled)
 
@@ -183,6 +156,25 @@ class LegacyStaffMigrationCommandTests(TestCase):
         self.assertEqual(response.status_code, 200)
         connection.close.assert_called_once_with()
 
+    def test_user_change_view_recovers_an_aborted_postgres_transaction(self):
+        superuser = get_user_model().objects.create_superuser(
+            username='aborted-connection-admin', email='admin@example.test', password='test-password',
+        )
+        user = get_user_model().objects.create_user(username='aborted-connection-target')
+        self.client.force_login(superuser)
+
+        with patch('core.admin.connections') as connections:
+            connection = connections.__getitem__.return_value
+            connection.connection = SimpleNamespace(
+                info=SimpleNamespace(transaction_status='INERROR'),
+            )
+            connection.in_atomic_block = False
+
+            response = self.client.get(reverse('admin:auth_user_change', args=(user.pk,)))
+
+        self.assertEqual(response.status_code, 200)
+        connection.close.assert_called_once_with()
+
     def test_access_grant_forms_offer_choices_and_reject_scope_mismatches(self):
         from core.admin import StaffUserCreationForm
 
@@ -202,50 +194,6 @@ class LegacyStaffMigrationCommandTests(TestCase):
         self.assertIn('product', form.errors)
         self.assertIn('group_configuration', form.errors)
         self.assertIn(('JBL_OFFICER', 'JBL Officer — Jawabu Portal'), form.fields['role'].choices)
-
-    def test_apply_merges_exact_telegram_id_and_routes_name_only_to_review(self):
-        call_command('migrate_legacy_staff', '--apply', stdout=io.StringIO())
-
-        user = get_user_model().objects.get(username='tg_12345')
-        self.assertTrue(user.is_active)
-        self.assertFalse(user.is_staff)
-        self.assertFalse(user.has_usable_password())
-        self.assertEqual(user.staff_profile.telegram_id, '12345')
-        self.assertEqual(LegacyStaffUserMapping.objects.filter(user=user).count(), 2)
-        self.assertTrue(AccessGrant.objects.filter(user=user, workflow='jawabu_portal', role='ADMIN').exists())
-        self.assertTrue(AccessGrant.objects.filter(user=user, workflow='complaint_cases', role='MANAGER').exists())
-        self.assertEqual(self.portal.as_user, user)
-        self.assertEqual(self.complaint.as_user, user)
-        self.assertTrue(StaffIdentityReview.objects.filter(identity_key='nameonly', status='pending').exists())
-        pending_profile = UserProfile.objects.get(telegram_username='username_only')
-        self.assertEqual(pending_profile.telegram_id, '')
-        self.assertFalse(pending_profile.user.has_usable_password())
-
-        call_command('migrate_legacy_staff', '--apply', stdout=io.StringIO())
-        self.assertEqual(get_user_model().objects.filter(username='tg_12345').count(), 1)
-        self.assertEqual(AccessGrant.objects.filter(user=user).count(), 2)
-
-    def test_parity_check_fails_before_migration_and_passes_after_review_override(self):
-        with self.assertRaises(CommandError):
-            call_command('check_staff_identity_parity', stdout=io.StringIO())
-
-        call_command('migrate_legacy_staff', '--apply', stdout=io.StringIO())
-
-        call_command(
-            'check_staff_identity_parity', '--allow-pending-reviews',
-            stdout=io.StringIO(),
-        )
-
-    def test_parity_check_detects_missing_grant(self):
-        call_command('migrate_legacy_staff', '--apply', stdout=io.StringIO())
-        AccessGrant.objects.filter(workflow='jawabu_portal').delete()
-
-        with self.assertRaises(CommandError):
-            call_command(
-                'check_staff_identity_parity', '--allow-pending-reviews',
-                stdout=io.StringIO(),
-            )
-
 
 @override_settings(
     TELEGRAM_BOT_TOKEN='test-token', TELEGRAM_AUTH_MAX_AGE_SECONDS=86400,

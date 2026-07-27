@@ -780,6 +780,20 @@ class SpinCreditPortalTestCase(TestCase):
         )
         from core.services.group_config import GroupRegistry
         GroupRegistry._instance = None
+
+        # Endpoint authorization is canonical: the test analyst must have a
+        # UserProfile identity and a workflow grant rather than relying on the
+        # removed settings-based staff allow-list.
+        analyst = get_user_model().objects.create_user(
+            username='spin-analyst', first_name='Spin', last_name='Analyst',
+        )
+        UserProfile.objects.create(
+            user=analyst, telegram_id='12345', telegram_username='analyst1',
+        )
+        AccessGrant.objects.create(
+            user=analyst, workflow='spin_credit_analysis', role='CREDIT_ANALYST',
+            group_configuration=self.config,
+        )
         
         self.record = SpinCreditRequest.objects.create(
             group_id='-100spin_test',
@@ -791,16 +805,6 @@ class SpinCreditPortalTestCase(TestCase):
             tenor='6 weeks',
             row_number=5,
         )
-
-    def test_is_user_spin_analyst(self):
-        from django.test import override_settings
-        from core.services.spin_credit import is_user_spin_analyst
-        
-        with override_settings(SPIN_ANALYSTS=['analyst1', '12345']):
-            self.assertTrue(is_user_spin_analyst({'username': 'analyst1', 'id': '99999'}))
-            self.assertTrue(is_user_spin_analyst({'username': 'other', 'id': '12345'}))
-            self.assertFalse(is_user_spin_analyst({'username': 'other', 'id': '99999'}))
-            self.assertFalse(is_user_spin_analyst(None))
 
     @patch('core.services.spin_credit.validate_spin_telegram_webapp_init_data')
     def test_spin_form_requests_analyst(self, mock_validate):
@@ -891,7 +895,7 @@ class SpinCreditPortalTestCase(TestCase):
 
     @patch('core.services.spin_credit.validate_spin_telegram_webapp_init_data')
     def test_spin_review_update_requires_designated_analyst(self, mock_validate):
-        mock_validate.return_value = (True, None, {'user': json.dumps({'username': 'officer1', 'id': '12345'})})
+        mock_validate.return_value = (True, None, {'user': json.dumps({'username': 'officer1', 'id': '99991'})})
         payload = {
             'request_id': str(self.record.id),
             'group_id': self.config.group_id,
@@ -981,7 +985,7 @@ class SpinCreditPortalTestCase(TestCase):
     @patch('core.services.spin_credit.validate_spin_telegram_webapp_init_data')
     @patch('core.services.spin_credit.update_spin_request_in_sheet')
     def test_spin_review_update_saves_django_and_updates_existing_sheet_row(self, mock_update_sheet, mock_validate):
-        mock_validate.return_value = (True, None, {'user': json.dumps({'username': 'officer1', 'id': '12345'})})
+        mock_validate.return_value = (True, None, {'user': json.dumps({'username': 'analyst1', 'id': '12345'})})
         mock_update_sheet.return_value = True
         self.record.import_status = 'review_needed'
         self.record.customer_name = ''
@@ -1034,7 +1038,7 @@ class SpinCreditPortalTestCase(TestCase):
     @patch('core.services.spin_credit.validate_spin_telegram_webapp_init_data')
     @patch('core.services.spin_credit.update_spin_request_in_sheet')
     def test_spin_review_update_keeps_review_needed_when_required_fields_missing(self, mock_update_sheet, mock_validate):
-        mock_validate.return_value = (True, None, {'user': json.dumps({'username': 'officer1', 'id': '12345'})})
+        mock_validate.return_value = (True, None, {'user': json.dumps({'username': 'analyst1', 'id': '12345'})})
         mock_update_sheet.return_value = True
         self.record.import_status = 'review_needed'
         self.record.national_id = ''
