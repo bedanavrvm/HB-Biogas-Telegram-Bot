@@ -357,7 +357,9 @@
       <ul class="info-list" id="sheet-info"></ul>
       <button type="button" id="case360-toggle" class="btn btn-secondary case360-toggle">Open Case History</button>
       <div id="sheet-map-container" style="display:none; margin: 12px 0;">
+        <div class="sheet-map-heading"><strong>Recorded location</strong><span id="sheet-map-meta">GPS unavailable</span><a id="sheet-map-link" href="#" target="_blank" rel="noopener" hidden>Open in Maps</a></div>
         <div id="sheet-map"></div>
+        <div id="sheet-map-fallback" class="sheet-map-fallback" hidden>Map tiles are unavailable. Use “Open in Maps” to view this location.</div>
       </div>
       <div id="sheet-form" style="margin-top: 12px;"></div>
     </div>
@@ -383,6 +385,7 @@
     <div class="sheet-body">
       <div id="requisition-preview-summary" class="batch-summary-grid"></div>
       <div id="requisition-preview-warnings"></div>
+      <div id="requisition-preview-progress" class="generation-progress" hidden role="status" aria-live="polite"><span class="spinner-inline" aria-hidden="true"></span><span>Generating Excel…</span></div>
       <div id="requisition-preview-list" class="batch-client-list"></div>
     </div>
     <div class="sheet-footer">

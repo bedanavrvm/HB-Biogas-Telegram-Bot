@@ -894,8 +894,13 @@ def confirm_invoice_batch(batch: InvoiceUploadBatch, *, actor: str = '') -> Invo
             farmer.invoice_amount = invoice.invoice_amount
             farmer.discount = invoice.discount
             farmer.payment = invoice.payment
+            # The source invoice labels this amount "Payment". In JBL's
+            # workflow it is the customer's deposit paid to HBG. Keep the
+            # parsed field for audit history, and persist the operational
+            # meaning on the canonical deposit field used by requisitions.
+            farmer.deposit_paid_hbg = invoice.payment
             farmer.balance_due = invoice.balance_due
-            farmer.save(update_fields=['invoice_number', 'invoice_date', 'invoice_amount', 'discount', 'payment', 'balance_due', 'updated_at'])
+            farmer.save(update_fields=['invoice_number', 'invoice_date', 'invoice_amount', 'discount', 'payment', 'deposit_paid_hbg', 'balance_due', 'updated_at'])
             from core.services.jawabu_case360 import record_pipeline_event
             record_pipeline_event(
                 farmer, action='invoice_confirmed', stage_key='invoice', actor=actor,
@@ -933,10 +938,11 @@ def _apply_invoice_to_farmer(farmer: JawabuFarmerMaster, invoice: ParsedInvoice)
     farmer.invoice_amount = invoice.invoice_amount
     farmer.discount = invoice.discount
     farmer.payment = invoice.payment
+    farmer.deposit_paid_hbg = invoice.payment
     farmer.balance_due = invoice.balance_due
     farmer.save(update_fields=[
         'invoice_number', 'invoice_date', 'invoice_amount',
-        'discount', 'payment', 'balance_due', 'updated_at',
+        'discount', 'payment', 'deposit_paid_hbg', 'balance_due', 'updated_at',
     ])
     if not sync_farmer_to_master_sheet(farmer):
         raise InvoiceSheetSyncError(
@@ -1008,10 +1014,12 @@ def unmatch_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') 
             old_farmer.invoice_amount = None
             old_farmer.discount = None
             old_farmer.payment = None
+            if old_farmer.deposit_paid_hbg == invoice.payment:
+                old_farmer.deposit_paid_hbg = None
             old_farmer.balance_due = None
             old_farmer.save(update_fields=[
                 'invoice_number', 'invoice_date', 'invoice_amount',
-                'discount', 'payment', 'balance_due', 'updated_at',
+                'discount', 'payment', 'deposit_paid_hbg', 'balance_due', 'updated_at',
             ])
             if not sync_farmer_to_master_sheet(old_farmer):
                 raise InvoiceSheetSyncError(
@@ -1106,6 +1114,7 @@ def match_and_update_invoices(order_number: str, pdf_bytes: bytes) -> dict:
                     matched_farmer.invoice_amount = clean_amount(inv["invoice_amount"])
                     matched_farmer.discount = clean_discount_amount(inv["discount"])
                     matched_farmer.payment = clean_amount(inv["payment"])
+                    matched_farmer.deposit_paid_hbg = matched_farmer.payment
                     matched_farmer.balance_due = clean_amount(inv["balance_due"])
                     matched_farmer.save()
 

@@ -13,6 +13,21 @@
     return String(value || '').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
   }
 
+  function formatTatMinutes(value) {
+    const number = Number(String(value ?? '').replace(/,/g, '').trim());
+    if (!Number.isFinite(number)) return '';
+    let minutes = Math.max(0, Math.round(number));
+    const days = Math.floor(minutes / 1440);
+    minutes %= 1440;
+    const hours = Math.floor(minutes / 60);
+    minutes %= 60;
+    const parts = [];
+    if (days) parts.push(`${days} day${days === 1 ? '' : 's'}`);
+    if (hours) parts.push(`${hours} hr${hours === 1 ? '' : 's'}`);
+    if (minutes || !parts.length) parts.push(`${minutes} min`);
+    return parts.join(' + ');
+  }
+
   const CASE_SECTION_META = {
     identity: ['Customer Identity', 'Core identifiers and contact details'],
     intake: ['Application & Intake', 'Origin, location, sales, and deposit information'],
@@ -82,7 +97,7 @@
     const tat = data.tat || {};
     const documents = data.documents || {};
     const validation = data.validation || [];
-    const stageRows = (tat.stages || []).map((stage, index) => `<article class="case360-tat-row"><span class="case360-stage-number">${index + 1}</span><div><strong>${deps.escapeHtml(stage.label)}</strong><small>${stage.completed_at ? 'Completed' : stage.started_at ? 'In progress' : 'Not tracked'}</small></div><div><strong>${stage.minutes == null ? '-' : deps.escapeHtml(stage.minutes + ' min')}</strong><span class="case360-sla ${deps.escapeHtml(stage.status || '')}">${deps.escapeHtml(humanLabel(stage.status || ''))}</span></div></article>`).join('');
+    const stageRows = (tat.stages || []).map((stage, index) => `<article class="case360-tat-row"><span class="case360-stage-number">${index + 1}</span><div><strong>${deps.escapeHtml(stage.label)}</strong><small>${stage.completed_at ? 'Completed' : stage.started_at ? 'In progress' : 'Not tracked'}</small></div><div><strong>${stage.minutes == null ? '-' : deps.escapeHtml(formatTatMinutes(stage.minutes))}</strong><span class="case360-sla ${deps.escapeHtml(stage.status || '')}">${deps.escapeHtml(humanLabel(stage.status || ''))}</span></div></article>`).join('');
     const docLinks = [
       ...(documents.visit_media || []).map((url, index) => ({ name: `Visit media ${index + 1}`, url })),
       documents.requisition,
@@ -113,7 +128,7 @@
       <section class="case360-panel" role="tabpanel" data-case360-panel="tat" hidden>
         <div class="case360-panel-heading"><div><h3>Turnaround Time</h3><p>Time spent at each tracked workflow stage</p></div></div>
         ${tat.historical_timestamps_available ? '' : '<div class="batch-warning">Historical stage timestamps were not inferred. TAT begins with exact events recorded after tracking was enabled.</div>'}
-        <div class="case360-tat-total"><div><span>Total tracked TAT</span><strong>${tat.total_minutes == null ? '-' : deps.escapeHtml(tat.total_minutes + ' min')}</strong></div><span class="case360-sla ${deps.escapeHtml(tat.status || '')}">${deps.escapeHtml(humanLabel(tat.status || ''))}</span></div><div class="case360-tat-list">${stageRows}</div>
+        <div class="case360-tat-total"><div><span>Total tracked TAT</span><strong>${tat.total_minutes == null ? '-' : deps.escapeHtml(formatTatMinutes(tat.total_minutes))}</strong></div><span class="case360-sla ${deps.escapeHtml(tat.status || '')}">${deps.escapeHtml(humanLabel(tat.status || ''))}</span></div><div class="case360-tat-list">${stageRows}</div>
       </section>
       <section class="case360-panel" role="tabpanel" data-case360-panel="documents" hidden><div class="case360-panel-heading"><div><h3>Case Documents</h3><p>Files connected to this customer and order</p></div></div><div class="case360-documents">${docLinks.length ? docLinks.map(doc => `<a class="case360-document" href="${deps.escapeHtml(doc.url)}" target="_blank" rel="noopener"><span>DOC</span><strong>${deps.escapeHtml(doc.name || 'Document')}</strong><b>Open</b></a>`).join('') : '<div class="empty-state">No linked documents.</div>'}</div></section>
       <section class="case360-panel" role="tabpanel" data-case360-panel="quality" hidden><div class="case360-panel-heading"><div><h3>Data Quality</h3><p>Validation checks requiring staff attention</p></div></div>${validation.length ? `<div class="case360-quality-list">${validation.map(issue => `<article><span>!</span><div><strong>${deps.escapeHtml(humanLabel(issue.field))}</strong><p>${deps.escapeHtml(issue.message)}</p></div></article>`).join('')}</div>` : '<div class="case360-valid"><strong>All checks passed</strong><span>All monitored business fields are valid.</span></div>'}</section>`;
@@ -226,19 +241,38 @@
       }
     }
 
+    el('sheet-overlay').classList.add('open');
     const lat = parseFloat(farmer.latitude);
     const lng = parseFloat(farmer.longitude);
-    if (!isNaN(lat) && !isNaN(lng)) initMap(lat, lng);
-    else destroyMap();
-
-    el('sheet-overlay').classList.add('open');
+    // Leaflet measures its container when it is created. The sheet is hidden
+    // until this point, so initialize after opening and invalidate on the next
+    // frame to avoid intermittent blank maps in Telegram WebView.
+    if (!isNaN(lat) && !isNaN(lng)) {
+      window.requestAnimationFrame(() => {
+        if (el('sheet-overlay')?.classList.contains('open')) initMap(lat, lng);
+      });
+    } else {
+      destroyMap();
+    }
     if (window.lucide) window.lucide.createIcons();
   }
 
   function initMap(lat, lng) {
     const mapContainer = el('sheet-map-container');
-    if (!mapContainer || !window.L) return;
+    if (!mapContainer) return;
     mapContainer.style.display = 'block';
+    const mapLink = el('sheet-map-link');
+    const mapMeta = el('sheet-map-meta');
+    if (mapMeta) mapMeta.textContent = `GPS: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+    if (mapLink) {
+      mapLink.href = `https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lng}`)}`;
+      mapLink.hidden = false;
+    }
+    if (!window.L) {
+      const fallback = el('sheet-map-fallback');
+      if (fallback) fallback.hidden = false;
+      return;
+    }
 
     const isDark = (window.Telegram?.WebApp?.colorScheme === 'dark') ||
       (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
@@ -246,28 +280,39 @@
       ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
       : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
     const attribution = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
+    const showMapFallback = () => {
+      const fallback = el('sheet-map-fallback');
+      if (fallback) fallback.hidden = false;
+    };
 
     if (!mapInstance) {
-      mapInstance = L.map('sheet-map', { zoomControl: false, attributionControl: false }).setView([lat, lng], 13);
-      L.tileLayer(tileUrl, { attribution, maxZoom: 20 }).addTo(mapInstance);
-      mapMarker = L.marker([lat, lng]).addTo(mapInstance);
+      mapInstance = L.map('sheet-map', { zoomControl: true, attributionControl: true }).setView([lat, lng], 15);
+      const tiles = L.tileLayer(tileUrl, { attribution, maxZoom: 20 }).addTo(mapInstance);
+      tiles.on('tileerror', showMapFallback);
+      mapMarker = L.marker([lat, lng]).addTo(mapInstance).bindPopup(`Recorded location<br><small>${lat.toFixed(6)}, ${lng.toFixed(6)}</small>`);
     } else {
-      mapInstance.setView([lat, lng], 13);
+      mapInstance.setView([lat, lng], 15);
       mapInstance.eachLayer(layer => {
         if (layer instanceof L.TileLayer) layer.setUrl(tileUrl);
       });
       if (mapMarker) mapMarker.setLatLng([lat, lng]);
       else mapMarker = L.marker([lat, lng]).addTo(mapInstance);
+      mapMarker.bindPopup(`Recorded location<br><small>${lat.toFixed(6)}, ${lng.toFixed(6)}</small>`);
     }
 
     setTimeout(() => {
       if (mapInstance) mapInstance.invalidateSize();
     }, 100);
+    window.requestAnimationFrame(() => mapInstance?.invalidateSize());
   }
 
   function destroyMap() {
     const mapContainer = el('sheet-map-container');
     if (mapContainer) mapContainer.style.display = 'none';
+    const mapLink = el('sheet-map-link');
+    if (mapLink) mapLink.hidden = true;
+    const fallback = el('sheet-map-fallback');
+    if (fallback) fallback.hidden = true;
   }
 
   function buildJblForm(farmer) {
@@ -330,6 +375,7 @@
           el('jbl-lat').value = lat;
           el('jbl-lng').value = lng;
           el('gps-coords').innerHTML = `Location captured<br><span style="font-family: monospace; font-size: 12px; color: var(--color-success)">Lat: ${lat.toFixed(6)}, Lng: ${lng.toFixed(6)}</span>`;
+          initMap(lat, lng);
           btn.innerHTML = 'Location Captured';
           btn.disabled = false;
           deps.showToast('GPS location captured', 'success');
@@ -341,12 +387,30 @@
           if (error.code === error.PERMISSION_DENIED) msg = 'Location permission denied';
           else if (error.code === error.POSITION_UNAVAILABLE) msg = 'Location unavailable';
           else if (error.code === error.TIMEOUT) msg = 'Location request timed out';
-          el('gps-coords').textContent = msg;
+          const coords = el('gps-coords');
+          if (coords) {
+            coords.innerHTML = `${deps.escapeHtml(msg)}${error.code === error.PERMISSION_DENIED ? ' <button type="button" class="btn btn-secondary gps-settings-button" id="gps-open-settings">Open location settings</button>' : ''}`;
+            coords.querySelector('#gps-open-settings')?.addEventListener('click', openLocationSettings);
+          }
           deps.showToast(msg, 'error');
         },
         { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
       );
     });
+  }
+
+  function openLocationSettings() {
+    // Telegram has no cross-platform API for OS location settings. These
+    // intents work on Android Telegram; iOS/browser falls back to guidance.
+    const isAndroid = /Android/i.test(navigator.userAgent || '');
+    const settingsUrl = isAndroid
+      ? 'intent:#Intent;action=android.settings.LOCATION_SOURCE_SETTINGS;end'
+      : 'App-Prefs:root=Privacy&path=LOCATION';
+    try {
+      window.location.href = settingsUrl;
+    } catch (error) {
+      deps.showToast('Open your phone settings and enable Location for Telegram.', 'error');
+    }
   }
 
   function buildCreditForm(farmer) {
@@ -493,9 +557,16 @@
       deps.showToast(data.error || 'Save failed', 'error');
       return;
     }
-    const uploadOk = await uploadJblMediaIfSelected(farmer.id);
-    if (!uploadOk) return;
-    deps.showToast('JBL visit logged', 'success');
+    const mediaResult = await uploadJblMediaIfSelected(farmer.id);
+    if (!mediaResult.ok) {
+      deps.showToast('JBL visit logged, but media upload failed. Retry the media upload from this record.', 'error');
+      return;
+    }
+    const uploaded = mediaResult.storedCount;
+    deps.showToast(
+      uploaded ? `JBL visit logged and ${uploaded} media file${uploaded === 1 ? '' : 's'} uploaded.` : 'JBL visit logged successfully.',
+      mediaResult.partial ? 'warning' : 'success',
+    );
     closeSheet();
     deps.reloadCurrentQueue();
     deps.loadDashboard();
@@ -504,40 +575,28 @@
   async function uploadJblMediaIfSelected(farmerId) {
     const lafFiles = Array.from(el('jbl-laf-media')?.files || []);
     const visitPhotoFiles = Array.from(el('jbl-visit-photo-media')?.files || []);
-    if (!lafFiles.length && !visitPhotoFiles.length) return true;
+    if (!lafFiles.length && !visitPhotoFiles.length) return { ok: true, storedCount: 0, partial: false };
     if (!navigator.onLine) {
-      deps.showToast('Offline. Reconnect before uploading visit media.', 'error');
-      return false;
+      return { ok: false, storedCount: 0, partial: false, error: 'Offline' };
     }
     const formData = new FormData();
     lafFiles.forEach(file => formData.append('laf_files', file));
     visitPhotoFiles.forEach(file => formData.append('jbl_visit_photo_files', file));
-    const selectedLabels = [
-      lafFiles.length ? 'LAF documents' : '',
-      visitPhotoFiles.length ? 'JBL visit photos' : '',
-    ].filter(Boolean).join(' and ');
-    deps.showToast(`Uploading ${selectedLabels}...`);
     try {
       const result = await deps.portalApi.postForm('/jbl-queue/' + farmerId + '/media/', formData, deps.tg, { 'X-CSRFToken': deps.getCookie('csrftoken') || '' });
       const data = result.data || {};
       if (!result.ok || data.ok === false) {
-        deps.showToast(data.error || 'Media upload failed. Visit was saved; retry media upload from the record.', 'error');
-        return false;
+        return { ok: false, storedCount: Number(data.stored_count || 0), partial: false, error: data.error || 'Media upload failed' };
       }
       const warnings = Array.isArray(data.warnings) && data.warnings.length ? ' ' + data.warnings.join(' ') : '';
       const errors = Array.isArray(data.errors) && data.errors.length
         ? ' ' + data.errors.map(item => `${item.category}: ${item.error}`).join(' ')
         : '';
       const isPartial = Boolean(data.partial || data.errors?.length);
-      deps.showToast(
-        `Stored ${data.stored_count || 0} media file${(data.stored_count || 0) === 1 ? '' : 's'}.${errors}${warnings}`,
-        isPartial || data.warnings?.length ? 'warning' : 'success',
-      );
-      return true;
+      return { ok: !errors, storedCount: Number(data.stored_count || 0), partial: isPartial || Boolean(data.warnings?.length), error: errors || warnings };
     } catch (err) {
       console.error(err);
-      deps.showToast('Media upload failed. Visit was saved; retry media upload from the record.', 'error');
-      return false;
+      return { ok: false, storedCount: 0, partial: false, error: 'Media upload failed' };
     }
   }
 

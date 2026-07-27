@@ -1720,6 +1720,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(farmer.invoice_amount, Decimal('89900.00'))
         self.assertEqual(farmer.discount, Decimal('5000.00'))
         self.assertEqual(farmer.payment, Decimal('10000.00'))
+        self.assertEqual(farmer.deposit_paid_hbg, Decimal('10000.00'))
         self.assertEqual(farmer.balance_due, Decimal('74900.00'))
 
         # Check Google Sheets updates
@@ -1813,6 +1814,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(farmer.invoice_amount, Decimal('54000.00'))
         self.assertEqual(farmer.discount, Decimal('3000.00'))
         self.assertEqual(farmer.payment, Decimal('5000.00'))
+        self.assertEqual(farmer.deposit_paid_hbg, Decimal('5000.00'))
         self.assertEqual(farmer.balance_due, Decimal('46000.00'))
 
     @patch('core.services.invoice_parser.PdfReader')

@@ -188,7 +188,16 @@
   function formatMinutes(value) {
     const number = Number(String(value || '').replace(/,/g, '').trim());
     if (!Number.isFinite(number)) return '';
-    return `${Math.round(number).toLocaleString('en-KE')} min`;
+    let minutes = Math.max(0, Math.round(number));
+    const days = Math.floor(minutes / 1440);
+    minutes %= 1440;
+    const hours = Math.floor(minutes / 60);
+    minutes %= 60;
+    const parts = [];
+    if (days) parts.push(`${days} day${days === 1 ? '' : 's'}`);
+    if (hours) parts.push(`${hours} hr${hours === 1 ? '' : 's'}`);
+    if (minutes || !parts.length) parts.push(`${minutes} min`);
+    return parts.join(' + ');
   }
 
   function slaLabel(status) {

@@ -35,7 +35,18 @@
 
   function money(value) {
     if (value === null || value === undefined || value === '') return '-';
-    return 'KES ' + escapeHtml(value);
+    const raw = String(value).replace(/,/g, '').trim();
+    const number = Number(raw);
+    const display = Number.isFinite(number)
+      ? (Number.isInteger(number) ? String(number) : String(number).replace(/\.0+$/, ''))
+      : String(value);
+    return 'KES ' + escapeHtml(display);
+  }
+
+  function hbgDeposit(invoice) {
+    return invoice && invoice.hbg_deposit !== undefined && invoice.hbg_deposit !== null && invoice.hbg_deposit !== ''
+      ? invoice.hbg_deposit
+      : invoice?.payment;
   }
 
   function badgeClass(status) {
@@ -106,7 +117,7 @@
       ].join('');
       const checked = state.selectedIds.has(invoice.id) ? ' checked' : '';
       return [
-        '<article class="farmer-card invoice-pool-card invoice-status-' + escapeHtml(invoice.status || 'unknown') + '">',
+        '<article class="farmer-card invoice-pool-card invoice-status-' + escapeHtml(invoice.status || 'unknown') + (checked ? ' is-selected' : '') + '">',
         '<div class="invoice-card-main">',
         '<input type="checkbox" class="invoice-select-row" data-invoice="' + escapeHtml(invoice.id) + '" aria-label="Select invoice ' + escapeHtml(invoice.invoice_no || '') + '"' + checked + '>',
         '<div class="invoice-card-content">',
@@ -115,7 +126,7 @@
         '<div class="invoice-card-meta"><span>ID ' + escapeHtml(invoice.customer_id || '-') + '</span><span>' + escapeHtml(invoice.customer_phone || '-') + '</span>' + matched + '</div>',
         '<div class="fc-badges invoice-card-money">',
         '<span class="badge badge-grey">Amount: ' + money(invoice.invoice_amount) + '</span>',
-        '<span class="badge badge-grey">Payment: ' + money(invoice.payment) + '</span>',
+        '<span class="badge badge-grey">HBG deposit: ' + money(hbgDeposit(invoice)) + '</span>',
         '<span class="badge badge-grey">Balance: ' + money(invoice.balance_due) + '</span>',
         readinessBadge,
         duplicateBadge,
@@ -136,6 +147,7 @@
       input.addEventListener('change', function () {
         if (input.checked) state.selectedIds.add(input.dataset.invoice);
         else state.selectedIds.delete(input.dataset.invoice);
+        input.closest('.invoice-pool-card')?.classList.toggle('is-selected', input.checked);
         updateBulkToolbar();
       });
     });
@@ -264,7 +276,7 @@
       '</div>',
       '<div class="fc-badges" style="margin-top:10px;">',
       '<span class="badge badge-grey">Amount: ' + money(invoice.invoice_amount) + '</span>',
-      '<span class="badge badge-grey">Payment: ' + money(invoice.payment) + '</span>',
+      '<span class="badge badge-grey">HBG deposit: ' + money(hbgDeposit(invoice)) + '</span>',
       '<span class="badge badge-grey">Balance: ' + money(invoice.balance_due) + '</span>',
       '</div>',
       '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">' + sourceLink + '</div>',

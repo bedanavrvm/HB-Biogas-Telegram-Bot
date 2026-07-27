@@ -766,6 +766,12 @@ def _pipeline_stage(farmer: JawabuFarmerMaster) -> int:
 def _sheet_number(value):
     if value is None:
         return ''
+    from decimal import Decimal, InvalidOperation
+    if not hasattr(value, 'to_integral_value'):
+        try:
+            value = Decimal(str(value).replace(',', '').strip())
+        except (InvalidOperation, ValueError):
+            return value
     if value == value.to_integral_value():
         return int(value)
     return float(value)
@@ -891,6 +897,10 @@ def sync_farmer_to_master_sheet(
             'system_branch': (['System Branch', 'IMAB Branch'], farmer.system_branch),
             'system_loan_officer': (['Loan Officer', 'System Loan Officer'], farmer.system_loan_officer),
             'system_deposit_paid_jbl': (['Deposit Paid to JBL'], _sheet_number(farmer.system_deposit_paid_jbl)),
+            'deposit_paid_hbg': (
+                ['Deposit Paid to HBG', 'Deposit Paid to HB', 'DEPOSIT / HB'],
+                _sheet_number(farmer.deposit_paid_hbg if farmer.deposit_paid_hbg is not None else farmer.actual_receipts),
+            ),
             'repayment_date': (['Repayment Dates', 'Repayment Date'], farmer.repayment_date),
             'repayment_tenor': (['Tenor'], farmer.repayment_tenor),
             'payment_product': (['Payment Product', 'Product'], farmer.payment_product),
@@ -1086,7 +1096,10 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
         put(['Longitude', 'Long', 'Lng'], farmer.longitude)
         put(['VISITED BY', 'JBL BRO', 'JBL Officer'], farmer.jbl_officer)
         put(['HB STAFF', 'Sales Person'], farmer.hb_sales_person)
-        put(['DEPOSIT / HB', 'Deposit Paid to HBG', 'Deposit Paid to HB'], farmer.actual_receipts)
+        put(
+            ['DEPOSIT / HB', 'Deposit Paid to HBG', 'Deposit Paid to HB'],
+            farmer.deposit_paid_hbg if farmer.deposit_paid_hbg is not None else farmer.actual_receipts,
+        )
         put(['BRO COMMENT', 'COMMENT', 'JBL Visit Comment'], farmer.jbl_visit_comment)
         put(['CREDIT ANALYSIS', 'Credit Analysis', 'Credit Decision'], farmer.credit_decision)
         put(['IS CUSTOMER CREATED ON IMAB?', 'IMAB Created', 'Customer Created On IMAB'], farmer.imab_created)

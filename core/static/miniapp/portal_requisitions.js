@@ -486,7 +486,24 @@
     const payload = state().pendingRequisitionPayload;
     if (!payload) return;
     const confirm = el('requisition-preview-confirm');
-    deps.setButtonLoading(confirm, true, 'Generating...');
+    if (state().generatingRequisition) return;
+    state().generatingRequisition = true;
+    const progress = el('requisition-preview-progress');
+    const mainButton = deps.tg?.MainButton;
+    const usingTelegramMainButton = Boolean(mainButton);
+    if (progress) {
+      progress.hidden = false;
+      progress.querySelector('span:last-child').textContent = 'Generating and saving Excel…';
+    }
+    // Telegram's MainButton is the visible action in the Mini App. Keep its
+    // label and progress state explicit; disabling the hidden proxy would
+    // otherwise make the native button disappear before the request starts.
+    if (usingTelegramMainButton) {
+      mainButton.setText?.('Generating…');
+      mainButton.showProgress?.(false);
+    } else {
+      deps.setButtonLoading(confirm, true, 'Generating...');
+    }
     try {
       const response = await deps.portalApi.postJson('/requisition-queue/generate/', payload, deps.tg, csrfHeader());
       const result = response.data || {};
@@ -511,7 +528,14 @@
       console.error(err);
       deps.showToast('An error occurred during generation.', 'error');
     } finally {
-      deps.setButtonLoading(confirm, false);
+      state().generatingRequisition = false;
+      if (progress) progress.hidden = true;
+      if (usingTelegramMainButton) {
+        mainButton.hideProgress?.();
+        mainButton.setText?.('Generate and Save Excel');
+      } else {
+        deps.setButtonLoading(confirm, false);
+      }
     }
   }
 

@@ -507,7 +507,7 @@
       const amountBadges = [
         ['HB deposit', amounts.deposit_hb], ['JBL deposit', amounts.deposit_jbl],
         ['Invoice', amounts.invoice_amount], ['Discount', amounts.discount],
-        ['Payment', amounts.payment], ['Balance', amounts.balance_due],
+        ['Balance due', amounts.balance_due],
       ].map(([label, value]) => `<span class="badge badge-grey">${label}: ${value == null ? '—' : 'KES ' + escapeHtml(value)}</span>`).join('');
       const fileBadge = (b.drive_url || b.has_requisition_file) ? '<span class="badge badge-green">Form saved</span>' : '<span class="badge badge-grey">No generated form yet</span>';
       const clients = (b.farmers || []).slice(0, 8).map(f => `

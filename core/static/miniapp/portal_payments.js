@@ -15,6 +15,7 @@
     if (count) count.textContent = `${selected.size} selected`;
     document.querySelectorAll('.payment-candidate-checkbox').forEach(input => {
       input.checked = selected.has(input.value);
+      input.closest('.payment-candidate')?.classList.toggle('selected', input.checked);
     });
   }
 
@@ -28,7 +29,7 @@
     const row = item.row || {};
     const disabled = blocked ? 'disabled' : '';
     const missing = (item.missing || []).map(value => String(value).replace(/_/g, ' ')).join(', ');
-    return `<article class="payment-candidate ${blocked ? 'blocked' : ''}">
+    return `<article class="payment-candidate ${blocked ? 'blocked' : ''}${selected.has(String(item.farmer_id)) ? ' selected' : ''}">
       <label class="payment-candidate-main">
         <input class="payment-candidate-checkbox" type="checkbox" value="${escape(item.farmer_id)}" ${disabled}>
         <span><strong>${escape(item.customer_name || row.name || 'Unnamed customer')}</strong><small>${escape([item.national_id, item.primary_phone].filter(Boolean).join(' | '))}</small></span>

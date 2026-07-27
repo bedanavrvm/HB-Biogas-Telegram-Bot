@@ -37,11 +37,15 @@ def requisition_deposit_values(farmer: JawabuFarmerMaster) -> tuple[Any, Any]:
     receipt value as the deposit for that source.  Keeping this decision in
     one helper prevents the preview, totals, and workbook from disagreeing.
     """
-    canonical_deposit = (
-        farmer.deposit_paid_hbg
-        if farmer.deposit_paid_hbg is not None
-        else clean_deposit_float(farmer.actual_receipts)
-    )
+    if farmer.deposit_paid_hbg is not None:
+        canonical_deposit = farmer.deposit_paid_hbg
+    elif farmer.payment is not None:
+        # Older invoice matches populated only ``payment``. The invoice's
+        # Payment column is the operational HBG deposit, so use it before the
+        # older pre-invoice receipt field when no canonical value exists.
+        canonical_deposit = farmer.payment
+    else:
+        canonical_deposit = clean_deposit_float(farmer.actual_receipts)
     explicit_jbl = getattr(farmer, 'system_deposit_paid_jbl', None)
     source = str(getattr(farmer, 'lead_source', '') or '').strip().lower()
     is_jbl_source = 'jbl' in source or 'jawabu' in source

@@ -1974,6 +1974,17 @@ def _serialize_parsed_invoice(
         'total_after_discount': str(invoice.total_after_discount) if invoice.total_after_discount is not None else '',
         'discount': str(invoice.discount) if invoice.discount is not None else '',
         'payment': str(invoice.payment) if invoice.payment is not None else '',
+        # Invoice PDFs call this field Payment; staff use it as the HBG
+        # deposit. Expose the explicit meaning without removing the legacy key.
+        'hbg_deposit': str(
+            farmer.deposit_paid_hbg
+            if farmer and farmer.deposit_paid_hbg is not None
+            else (invoice.payment if invoice.payment is not None else (farmer.actual_receipts if farmer else None))
+        ) if (
+            farmer and farmer.deposit_paid_hbg is not None
+        ) or invoice.payment is not None or (
+            farmer and farmer.actual_receipts not in (None, '')
+        ) else '',
         'balance_due': str(invoice.balance_due) if invoice.balance_due is not None else '',
         'balance_due_check': invoice.balance_due_check,
         'status': invoice.status,

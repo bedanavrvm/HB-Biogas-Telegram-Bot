@@ -413,12 +413,15 @@
   justify-content: center;
   color: #fff;
   background: var(--brand-primary);
+  border: 2px solid color-mix(in srgb, var(--brand-primary) 72%, #000 28%);
+  box-shadow: 0 1px 3px rgba(15,23,42,.22);
   text-decoration: none;
 }
 .phone-call-button svg {
   width: 18px;
   height: 18px;
   stroke-width: 2.2;
+  stroke: currentColor;
 }
 
 /* ── Gate warning ────────────────────────────────────────────────────────────── */
@@ -457,6 +460,10 @@
   vertical-align: middle;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+button[aria-busy="true"], .btn[aria-busy="true"] { opacity: 1 !important; }
+button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline { border-color: rgba(255,255,255,.42); border-top-color: #fff; }
+.generation-progress { display: flex; align-items: center; gap: 8px; margin: 8px 0; border: 1px solid color-mix(in srgb, var(--color-primary) 35%, var(--border-color)); border-radius: 9px; background: color-mix(in srgb, var(--color-primary) 10%, var(--bg-surface)); padding: 9px 10px; color: var(--color-primary); font-size: 12px; font-weight: 700; }
+.generation-progress .spinner-inline { border-color: color-mix(in srgb, var(--color-primary) 22%, transparent); border-top-color: var(--color-primary); }
 
 /* ── Pagination ──────────────────────────────────────────────────────────────── */
 .pagination {
@@ -711,6 +718,11 @@
   flex-direction: column;
   gap: 6px;
 }
+.sheet-map-heading { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border-bottom: 1px solid var(--border-color); background: var(--bg-muted); padding: 8px 10px; color: var(--text-muted); font-size: 10px; }
+.sheet-map-heading strong { color: var(--text-primary); font-size: 11px; }
+.sheet-map-heading a { margin-left: auto; color: var(--color-primary); font-weight: 800; text-decoration: underline; }
+.sheet-map-fallback { padding: 9px 10px; background: var(--bg-muted); color: var(--text-muted); font-size: 11px; }
+.gps-settings-button { min-height: 28px; margin-top: 6px; padding: 4px 8px; font-size: 10px; }
 .media-category-upload {
   display: flex;
   flex-direction: column;
@@ -848,6 +860,8 @@
 .invoice-pool-card.invoice-status-ambiguous { border-left: 4px solid #dc2626; background: color-mix(in srgb, #dc2626 6%, var(--bg-surface)); }
 .invoice-pool-card.invoice-status-ignored { border-left: 4px solid var(--text-muted); opacity: .78; }
 .invoice-pool-card.invoice-status-parse_failed { border-left: 4px solid #dc2626; background: color-mix(in srgb, #dc2626 6%, var(--bg-surface)); }
+.invoice-pool-card.is-selected { border-color: var(--color-primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 22%, transparent); background: color-mix(in srgb, var(--color-primary) 8%, var(--bg-surface)); }
+.invoice-pool-card.is-selected .invoice-select-row { accent-color: var(--color-primary); }
 .invoice-card-main { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 6px; align-items: start; }
 .invoice-card-main .invoice-select-row { margin: 2px 0 0; width: 18px; height: 18px; }
 .invoice-card-content { min-width: 0; }
@@ -1068,9 +1082,11 @@
 .payment-builder-actions span { margin-top: 2px; color: var(--text-muted); font-size: 9px; }
 .payment-candidate-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .payment-candidate { min-width: 0; border: 1px solid var(--border-color); border-radius: 11px; background: var(--bg-surface); padding: 10px; }
+.payment-candidate.selected { border-color: var(--color-primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 22%, transparent); background: color-mix(in srgb, var(--color-primary) 8%, var(--bg-surface)); }
 .payment-candidate.blocked { opacity: .72; }
 .payment-candidate-main { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: start; gap: 8px; }
 .payment-candidate-main input { width: 18px; height: 18px; margin: 1px 0 0; }
+.payment-candidate-main input { accent-color: var(--color-primary); }
 .payment-candidate-main strong, .payment-candidate-main small { display: block; }
 .payment-candidate-main strong { font-size: 12px; }
 .payment-candidate-main small { margin-top: 2px; color: var(--text-muted); font-size: 9px; }
