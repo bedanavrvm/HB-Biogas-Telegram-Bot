@@ -519,6 +519,78 @@ def append_jbl_media_links(
     }
 
 
+def append_jbl_media_uploads(
+    farmer: JawabuFarmerMaster,
+    *,
+    categorized_files: dict[str, list],
+    sender: str = '',
+) -> tuple[bool, str, dict[str, Any]]:
+    """Store LAF and JBL-visit media categories in one visit-form update.
+
+    The Drive/storage primitive remains category-specific so folder routing
+    and audit records stay correct. This orchestration layer simply runs the
+    selected categories independently and reports partial success explicitly.
+    """
+    categories = {
+        str(category or '').strip().upper(): list(files or [])
+        for category, files in (categorized_files or {}).items()
+        if files
+    }
+    if not categories:
+        return False, 'No files were uploaded.', {}
+
+    stored_count = 0
+    skipped_count = 0
+    links: list[str] = []
+    warnings: list[str] = []
+    errors: list[dict[str, Any]] = []
+    media_categories: dict[str, int] = {}
+    category_results: dict[str, dict[str, Any]] = {}
+    successful_categories = 0
+
+    for category, files in categories.items():
+        ok, error, result = append_jbl_media_links(
+            farmer,
+            uploaded_files=files,
+            sender=sender,
+            media_category=category,
+        )
+        result = result or {}
+        category_results[category] = {
+            'ok': ok,
+            'stored_count': result.get('stored_count', 0),
+            'skipped_count': result.get('skipped_count', 0),
+            'warnings': result.get('warnings', []),
+            'links': result.get('links', []),
+        }
+        if ok:
+            successful_categories += 1
+            stored_count += int(result.get('stored_count') or 0)
+            skipped_count += int(result.get('skipped_count') or 0)
+            links.extend(result.get('links') or [])
+            warnings.extend(result.get('warnings') or [])
+            media_categories.update(result.get('media_categories') or {})
+        else:
+            errors.append({'category': category, 'error': error or 'Media upload failed.'})
+
+    payload = {
+        'stored_count': stored_count,
+        'skipped_count': skipped_count,
+        'warnings': warnings,
+        'links': links,
+        'media_count': len([line for line in str(farmer.jbl_media_urls or '').splitlines() if line.strip()]),
+        'media_category': 'multiple' if len(categories) > 1 else next(iter(categories)),
+        'media_categories': media_categories,
+        'category_results': category_results,
+        'errors': errors,
+        'partial': bool(errors and successful_categories),
+    }
+    if not successful_categories:
+        messages = '; '.join(f"{item['category']}: {item['error']}" for item in errors)
+        return False, messages or 'No media files were stored.', payload
+    return True, '', payload
+
+
 @transaction.atomic
 def assign_order(
     farmer: JawabuFarmerMaster,

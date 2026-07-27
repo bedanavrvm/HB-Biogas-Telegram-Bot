@@ -948,7 +948,11 @@ def portal_log_jbl_visit(request, farmer_id: str):
 def portal_upload_jbl_media(request, farmer_id: str):
     """POST /api/portal/jbl-queue/<farmer_id>/media/ - upload visit media to Drive."""
     from core.models import JawabuFarmerMaster
-    from core.services.jawabu_pipeline import append_jbl_media_links, farmer_to_card
+    from core.services.jawabu_pipeline import (
+        append_jbl_media_links,
+        append_jbl_media_uploads,
+        farmer_to_card,
+    )
 
     try:
         farmer = JawabuFarmerMaster.objects.get(pk=farmer_id)
@@ -959,14 +963,34 @@ def portal_upload_jbl_media(request, farmer_id: str):
     if role_error:
         return role_error
 
+    sender = _portal_sender_from_request(request)
+
+    # New visit forms submit each media category under its own field so a
+    # single update can route LAF documents and JBL visit photos independently.
     getlist = getattr(request.FILES, 'getlist', None)
+    categorized_files = {
+        'LAF': getlist('laf_files') if getlist else [],
+        'JBL_VISIT_PHOTO': getlist('jbl_visit_photo_files') if getlist else [],
+    }
+    categorized_files = {category: files for category, files in categorized_files.items() if files}
+    if categorized_files:
+        ok, error, result = append_jbl_media_uploads(
+            farmer,
+            categorized_files=categorized_files,
+            sender=sender,
+        )
+        if not ok:
+            return JsonResponse({'ok': False, 'error': error, **(result or {})}, status=400)
+        return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer), **(result or {})})
+
+    # Keep the original single-category contract for older clients and retry
+    # links that still submit `files` plus `media_category`.
     files = getlist('files') if getlist else []
     if not files:
         files = list(request.FILES.values())
     if not files:
         return JsonResponse({'ok': False, 'error': 'Select at least one document or image to upload.'}, status=400)
 
-    sender = _portal_sender_from_request(request)
     media_category = request.POST.get('media_category', 'LAF')
     ok, error, result = append_jbl_media_links(
         farmer,

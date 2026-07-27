@@ -278,12 +278,16 @@
         <div class="form-row media-upload-row">
           <label>Visit Media</label>
           <div class="media-upload-control">
-            <select id="jbl-media-category" aria-label="Visit media category">
-              <option value="LAF">LAF document</option>
-              <option value="JBL_VISIT_PHOTO">JBL visit photo</option>
-            </select>
-            <input type="file" id="jbl-media" name="files" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx">
-            <small>Choose a category first; it applies to every file selected in this upload. Files are stored in separate Drive folders.</small>
+            <div class="media-category-upload">
+              <label for="jbl-laf-media">LAF document(s)</label>
+              <input type="file" id="jbl-laf-media" name="laf_files" multiple accept="application/pdf,.pdf,image/*,.doc,.docx,.xls,.xlsx">
+              <small>Stored in the LAF folder.</small>
+            </div>
+            <div class="media-category-upload">
+              <label for="jbl-visit-photo-media">JBL visit photo(s)</label>
+              <input type="file" id="jbl-visit-photo-media" name="jbl_visit_photo_files" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx">
+              <small>Stored in the JBL visit photo folder.</small>
+            </div>
             ${farmer.jbl_media_count ? `<small>${farmer.jbl_media_count} existing Drive link${farmer.jbl_media_count === 1 ? '' : 's'} on this record.</small>` : ''}
           </div>
         </div>
@@ -486,17 +490,21 @@
   }
 
   async function uploadJblMediaIfSelected(farmerId) {
-    const input = el('jbl-media');
-    const files = input?.files ? Array.from(input.files) : [];
-    if (!files.length) return true;
+    const lafFiles = Array.from(el('jbl-laf-media')?.files || []);
+    const visitPhotoFiles = Array.from(el('jbl-visit-photo-media')?.files || []);
+    if (!lafFiles.length && !visitPhotoFiles.length) return true;
     if (!navigator.onLine) {
       deps.showToast('Offline. Reconnect before uploading visit media.', 'error');
       return false;
     }
     const formData = new FormData();
-    files.forEach(file => formData.append('files', file));
-    formData.append('media_category', el('jbl-media-category')?.value || 'LAF');
-    deps.showToast('Uploading visit media...');
+    lafFiles.forEach(file => formData.append('laf_files', file));
+    visitPhotoFiles.forEach(file => formData.append('jbl_visit_photo_files', file));
+    const selectedLabels = [
+      lafFiles.length ? 'LAF documents' : '',
+      visitPhotoFiles.length ? 'JBL visit photos' : '',
+    ].filter(Boolean).join(' and ');
+    deps.showToast(`Uploading ${selectedLabels}...`);
     try {
       const result = await deps.portalApi.postForm('/jbl-queue/' + farmerId + '/media/', formData, deps.tg, { 'X-CSRFToken': deps.getCookie('csrftoken') || '' });
       const data = result.data || {};
@@ -505,7 +513,14 @@
         return false;
       }
       const warnings = Array.isArray(data.warnings) && data.warnings.length ? ' ' + data.warnings.join(' ') : '';
-      deps.showToast(`Stored ${data.stored_count || 0} media file${(data.stored_count || 0) === 1 ? '' : 's'}.${warnings}`, data.warnings?.length ? 'warning' : 'success');
+      const errors = Array.isArray(data.errors) && data.errors.length
+        ? ' ' + data.errors.map(item => `${item.category}: ${item.error}`).join(' ')
+        : '';
+      const isPartial = Boolean(data.partial || data.errors?.length);
+      deps.showToast(
+        `Stored ${data.stored_count || 0} media file${(data.stored_count || 0) === 1 ? '' : 's'}.${errors}${warnings}`,
+        isPartial || data.warnings?.length ? 'warning' : 'success',
+      );
       return true;
     } catch (err) {
       console.error(err);

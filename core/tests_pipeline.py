@@ -745,6 +745,34 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(mock_upload.call_args.kwargs['media_category'], 'JBL_VISIT_PHOTO')
 
+    @patch('core.services.jawabu_pipeline.append_jbl_media_uploads')
+    def test_upload_jbl_media_api_accepts_both_media_categories_in_one_update(self, mock_upload):
+        mock_upload.return_value = (
+            True,
+            '',
+            {
+                'stored_count': 2,
+                'skipped_count': 0,
+                'warnings': [],
+                'links': ['https://drive.example/laf', 'https://drive.example/photo'],
+                'media_categories': {'LAF': 1, 'JBL_VISIT_PHOTO': 1},
+                'partial': False,
+            },
+        )
+        laf = SimpleUploadedFile('laf.pdf', b'pdf-bytes', content_type='application/pdf')
+        photo = SimpleUploadedFile('visit.jpg', b'image-bytes', content_type='image/jpeg')
+        url = reverse('portal_upload_jbl_media', args=[self.farmer.id])
+        response = self.client.post(url, {'laf_files': laf, 'jbl_visit_photo_files': photo})
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['stored_count'], 2)
+        categorized_files = mock_upload.call_args.kwargs['categorized_files']
+        self.assertEqual(set(categorized_files), {'LAF', 'JBL_VISIT_PHOTO'})
+        self.assertEqual(len(categorized_files['LAF']), 1)
+        self.assertEqual(len(categorized_files['JBL_VISIT_PHOTO']), 1)
+
     def test_upload_jbl_media_api_rejects_unknown_category(self):
         upload = SimpleUploadedFile('visit.pdf', b'pdf-bytes', content_type='application/pdf')
         url = reverse('portal_upload_jbl_media', args=[self.farmer.id])

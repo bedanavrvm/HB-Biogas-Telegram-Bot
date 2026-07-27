@@ -200,6 +200,10 @@ class MiniAppFrontendSmokeTests(TestCase):
             'buildJblForm',
             'submitJblVisit',
             'uploadJblMediaIfSelected',
+            'jbl-laf-media',
+            'jbl-visit-photo-media',
+            'laf_files',
+            'jbl_visit_photo_files',
             'buildCreditForm',
             'wireCreditImabFields',
             'submitCreditDecision',
@@ -330,5 +334,5 @@ class MiniAppFrontendSmokeTests(TestCase):
         stylesheet = Path('core/static/miniapp/portal.css').read_text(encoding='utf-8')
         response = self.client.get(reverse('portal_home'))
 
-        self.assertContains(response, 'miniapp/portal.css?v=29')
+        self.assertContains(response, 'miniapp/portal.css?v=30')
         self.assertIn('#requisition-preview-overlay { z-index: 240; }', stylesheet)

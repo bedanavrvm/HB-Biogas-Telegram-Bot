@@ -711,6 +711,20 @@
   flex-direction: column;
   gap: 6px;
 }
+.media-category-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+.media-category-upload > label {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
 .media-upload-control input[type="file"] {
   width: 100%;
   min-height: 38px;
