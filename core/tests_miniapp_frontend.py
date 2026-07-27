@@ -82,7 +82,7 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         self.assertIn('/\\/portal\\/cases\\/[^/]+\\//', source)
         self.assertIn("return 'case_history'", source)
-        self.assertContains(response, 'miniapp/miniapp-nav.js?v=5')
+        self.assertContains(response, 'miniapp/miniapp-nav.js?v=6')
 
     def test_portal_helpers_expose_pure_ui_primitives(self):
         source = Path('core/static/miniapp/portal_helpers.js').read_text(encoding='utf-8')
@@ -229,6 +229,11 @@ class MiniAppFrontendSmokeTests(TestCase):
             'portalHelpers.invoiceResultRows',
         ):
             self.assertIn(expected, source)
+
+        template = Path('core/templates/portal/portal.html').read_text(encoding='utf-8')
+        self.assertIn('id="requisition-preview-confirm" type="button" hidden', template)
+        self.assertIn('data-main-action-proxy="true"', template)
+        self.assertIn('mainActionProxy', Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8'))
 
     def test_portal_payments_exposes_selection_primitives(self):
         source = Path('core/static/miniapp/portal_payments.js').read_text(encoding='utf-8')

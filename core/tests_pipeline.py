@@ -1006,6 +1006,142 @@ class JblPipelineApiTestCase(TestCase):
         self.assertIn('Constituency', data['blocked'][0]['missing'])
         self.assertIn('Village', data['blocked'][0]['missing'])
 
+    def test_requisition_preview_merges_original_and_new_clients_for_existing_order(self):
+        original = self.farmer
+        original.final_decision = 'Approved'
+        original.imab_created = 'Yes'
+        original.customer_no = '15124'
+        original.order_number = '001'
+        original.requisition_date = date(2026, 7, 24)
+        original.save()
+        self.mark_requisition_location_ready(original)
+
+        new_farmer = JawabuFarmerMaster.objects.create(
+            customer_name='New order client',
+            national_id='99999990',
+            primary_phone='254799999990',
+            county='Kiambu',
+            branch='Ruiru',
+            final_decision='Approved',
+            imab_created='Yes',
+            customer_no='15125',
+            status='active',
+        )
+        self.mark_requisition_location_ready(new_farmer)
+
+        response = self.client.post(
+            reverse('portal_requisition_preview'),
+            json.dumps({
+                'farmer_ids': [str(new_farmer.id)],
+                'order_number': '001',
+                'requisition_date': '2026-07-24',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['ready_count'], 2)
+        self.assertEqual({row['id'] for row in data['ready']}, {str(original.id), str(new_farmer.id)})
+        self.assertTrue(any('original clients and the newly selected clients' in warning['message'] for warning in data['warnings']))
+
+    def test_batch_detail_recovers_original_clients_from_order_when_snapshot_is_stale(self):
+        original = self.farmer
+        original.order_number = '001'
+        original.requisition_date = date(2026, 7, 24)
+        original.save()
+        extra = JawabuFarmerMaster.objects.create(
+            customer_name='Later batch client',
+            national_id='99999990',
+            primary_phone='254799999990',
+            order_number='001',
+            requisition_date=date(2026, 7, 24),
+            status='active',
+        )
+        # Simulate a batch row written by the old implementation with only the
+        # latest client IDs.
+        RequisitionBatch.objects.create(
+            order_number='001',
+            requisition_date=date(2026, 7, 24),
+            farmer_ids=[str(extra.id)],
+            farmer_count=1,
+        )
+
+        response = self.client.get(reverse('portal_requisition_batch_detail', args=['001']))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            {row['id'] for row in response.json()['batch']['farmers']},
+            {str(original.id), str(extra.id)},
+        )
+        self.assertEqual(response.json()['batch']['farmer_count'], 2)
+
+    def test_requisition_date_conflict_is_rejected_without_changing_existing_order(self):
+        original = self.farmer
+        original.final_decision = 'Approved'
+        original.imab_created = 'Yes'
+        original.customer_no = '15124'
+        original.order_number = '001'
+        original.requisition_date = date(2026, 7, 24)
+        original.save()
+        self.mark_requisition_location_ready(original)
+
+        new_farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Different date client',
+            national_id='99999990',
+            primary_phone='254799999990',
+            county='Kiambu',
+            branch='Ruiru',
+            final_decision='Approved',
+            imab_created='Yes',
+            customer_no='15125',
+            status='active',
+        )
+        self.mark_requisition_location_ready(new_farmer)
+
+        response = self.client.post(
+            reverse('portal_requisition_preview'),
+            json.dumps({
+                'farmer_ids': [str(new_farmer.id)],
+                'order_number': '001',
+                'requisition_date': '2026-07-25',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()['code'], 'requisition_date_conflict')
+        self.assertIn('24-July-2026', response.json()['error'])
+        new_farmer.refresh_from_db()
+        self.assertEqual(new_farmer.order_number, '')
+        self.assertIsNone(new_farmer.requisition_date)
+
+    def test_assign_order_rejects_different_date_for_existing_order(self):
+        original = self.farmer
+        original.final_decision = 'Approved'
+        original.order_number = '001'
+        original.requisition_date = date(2026, 7, 24)
+        original.save()
+        new_farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Assignment date client',
+            national_id='99999990',
+            primary_phone='254799999990',
+            final_decision='Approved',
+            status='active',
+        )
+
+        response = self.client.post(
+            reverse('portal_assign_order', args=[new_farmer.id]),
+            json.dumps({'order_number': '001', 'requisition_date': '2026-07-25'}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()['code'], 'requisition_date_conflict')
+        new_farmer.refresh_from_db()
+        self.assertEqual(new_farmer.order_number, '')
+        self.assertIsNone(new_farmer.requisition_date)
+
     @patch('core.services.requisition.generate_requisition_excel', return_value=b'xlsx-bytes')
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
     @patch('core.services.order_approval.GoogleDriveMediaStorage')

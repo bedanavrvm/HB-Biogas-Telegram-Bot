@@ -385,11 +385,81 @@ def _validate_requisition_farmers(farmers) -> tuple[list[dict], list[dict], list
 
 
 def _farmers_for_batch(order_number: str, farmer_ids=None):
-    from core.models import JawabuFarmerMaster, RequisitionBatch
+    from django.db.models import Q
+    from core.models import JawabuFarmerMaster
 
     if farmer_ids:
-        return list(JawabuFarmerMaster.objects.filter(id__in=farmer_ids).order_by('customer_name'))
+        # Older batch rows stored only the newly-added IDs. Always union the
+        # persisted snapshot with every master record carrying this order so
+        # historical batches show their original clients as well.
+        return list(
+            JawabuFarmerMaster.objects
+            .filter(Q(order_number=order_number) | Q(id__in=farmer_ids))
+            .distinct()
+            .order_by('customer_name')
+        )
     return list(JawabuFarmerMaster.objects.filter(order_number=order_number).order_by('customer_name'))
+
+
+def _requisition_order_context(order_number: str, selected_ids=None):
+    """Return the already-known clients and stored batch for an order number.
+
+    An order can be assigned before its Excel is generated, so both the
+    farmer master records and the persisted batch snapshot are consulted.  A
+    batch snapshot is never allowed to replace the clients already attached
+    to the same order; it is an additional source of IDs during reconciliation.
+    """
+    from core.models import JawabuFarmerMaster, RequisitionBatch
+
+    selected = {str(value) for value in (selected_ids or [])}
+    existing = list(
+        JawabuFarmerMaster.objects.filter(order_number=order_number)
+        .exclude(id__in=selected)
+        .order_by('customer_name')
+    )
+    batch = RequisitionBatch.objects.filter(order_number=order_number).first()
+    batch_ids = [str(value) for value in (batch.farmer_ids or [])] if batch else []
+    if batch_ids:
+        known_ids = {str(farmer.id) for farmer in existing}
+        missing_ids = [value for value in batch_ids if value not in known_ids and value not in selected]
+        if missing_ids:
+            existing.extend(JawabuFarmerMaster.objects.filter(id__in=missing_ids).order_by('customer_name'))
+    return existing, batch
+
+
+def _merge_requisition_farmers(selected_farmers, order_number: str, selected_ids=None):
+    """Merge original order clients with the newly selected clients."""
+    existing, batch = _requisition_order_context(order_number, selected_ids)
+    merged = {}
+    for farmer in existing:
+        merged[str(farmer.id)] = farmer
+    for farmer in selected_farmers:
+        merged[str(farmer.id)] = farmer
+    return list(merged.values()), batch
+
+
+def _format_requisition_date(value):
+    return value.strftime('%d-%B-%Y') if value else ''
+
+
+def _requisition_order_date_conflict(order_number: str, requested_date, selected_ids=None):
+    """Return a stable error when one order is given multiple requisition dates."""
+    existing, batch = _requisition_order_context(order_number, selected_ids)
+    dates = {farmer.requisition_date for farmer in existing if farmer.requisition_date}
+    if batch and batch.requisition_date:
+        dates.add(batch.requisition_date)
+    if not dates:
+        return '', existing, batch
+    if len(dates) == 1 and requested_date in dates:
+        return '', existing, batch
+    labels = ', '.join(sorted(_format_requisition_date(value) for value in dates))
+    return (
+        f"Order number {order_number} already has requisition date {labels}. "
+        f"Use the same date for this order or choose a new order number; "
+        "the existing batch was not changed.",
+        existing,
+        batch,
+    )
 
 
 def _serialize_batch(batch, farmers, request, include_farmers: bool = True) -> dict:
@@ -447,7 +517,9 @@ def _serialize_batch(batch, farmers, request, include_farmers: bool = True) -> d
         'preview_generated_by': getattr(batch, 'preview_generated_by', '') or '',
         'preview_generated_at': batch.preview_generated_at.isoformat() if getattr(batch, 'preview_generated_at', None) else None,
         'preview_error': getattr(batch, 'preview_error', '') or '',
-        'farmer_count': batch.farmer_count or len(farmers),
+        # The master records are canonical. Recalculate this instead of
+        # trusting a stale snapshot count from an older append-only update.
+        'farmer_count': len(farmers),
         'invoiced_count': summary.get('invoiced_count', 0),
         'status': batch.status,
         'invoice_summary': summary,
@@ -485,7 +557,7 @@ def _batch_amount_summary(farmers) -> dict:
     return {key: str(totals[key]) if present[key] else None for key in keys}
 
 
-def _parse_requisition_workbook_payload(request):
+def _parse_requisition_workbook_payload(request, *, allow_blocked: bool = False):
     from datetime import date as _date
     from core.models import JawabuFarmerMaster
 
@@ -517,8 +589,21 @@ def _parse_requisition_workbook_payload(request):
     if len(farmers) != len(farmer_ids):
         return None, JsonResponse({'ok': False, 'error': 'One or more selected farmers not found.'}, status=404)
 
+    farmers, batch = _merge_requisition_farmers(farmers, order_number, farmer_ids)
+    access_error = _portal_farmers_scope_error(request, farmers)
+    if access_error:
+        return None, access_error
+
+    date_error, existing_farmers, _ = _requisition_order_date_conflict(
+        order_number,
+        requisition_date,
+        None,
+    )
+    if date_error:
+        return None, JsonResponse({'ok': False, 'error': date_error, 'code': 'requisition_date_conflict'}, status=409)
+
     ready, blocked, warnings = _validate_requisition_farmers(farmers)
-    if blocked:
+    if blocked and not allow_blocked:
         first = blocked[0]
         name = first['farmer'].get('customer_name') or first['farmer'].get('national_id') or 'Selected client'
         return None, JsonResponse({
@@ -528,12 +613,21 @@ def _parse_requisition_workbook_payload(request):
             'warnings': warnings,
         }, status=403)
 
+    selected_id_set = {str(value) for value in farmer_ids}
     return {
         'body': body,
         'farmers': farmers,
         'farmer_ids': farmer_ids,
         'order_number': order_number,
         'requisition_date': requisition_date,
+        'existing_order_count': len([farmer for farmer in existing_farmers if str(farmer.id) not in selected_id_set]),
+        'existing_order_farmer_ids': [
+            str(farmer.id) for farmer in existing_farmers
+            if str(farmer.id) not in selected_id_set
+        ],
+        'existing_batch': batch,
+        'ready': ready,
+        'blocked': blocked,
         'warnings': warnings,
     }, None
 
@@ -1102,6 +1196,9 @@ def portal_assign_order(request, farmer_id: str):
 
     order_number = str(body.get('order_number') or '').strip()
     requisition_date_raw = str(body.get('requisition_date') or '').strip()
+    existing_order_scope_error = _portal_order_scope_error(request, order_number)
+    if existing_order_scope_error:
+        return existing_order_scope_error
     requisition_date = None
     if requisition_date_raw:
         try:
@@ -1111,6 +1208,24 @@ def portal_assign_order(request, farmer_id: str):
                 {'ok': False, 'error': f"Invalid requisition_date '{requisition_date_raw}'. Use YYYY-MM-DD."},
                 status=400,
             )
+
+    # An order number represents one requisition batch and therefore one
+    # requisition date. Never silently split or overwrite that date when a
+    # later client is attached to the same order.
+    if requisition_date is not None:
+        date_error, _, _ = _requisition_order_date_conflict(order_number, requisition_date)
+        if date_error:
+            return JsonResponse({'ok': False, 'error': date_error, 'code': 'requisition_date_conflict'}, status=409)
+    else:
+        existing_farmers, existing_batch = _requisition_order_context(order_number)
+        known_dates = {farmer.requisition_date for farmer in existing_farmers if farmer.requisition_date}
+        if existing_batch and existing_batch.requisition_date:
+            known_dates.add(existing_batch.requisition_date)
+        if len(known_dates) == 1:
+            requisition_date = next(iter(known_dates))
+        elif len(known_dates) > 1:
+            date_error, _, _ = _requisition_order_date_conflict(order_number, None)
+            return JsonResponse({'ok': False, 'error': date_error, 'code': 'requisition_date_conflict'}, status=409)
 
     sender = _portal_sender_from_request(request)
     ok, error = assign_order(
@@ -1196,58 +1311,39 @@ def portal_farmer_detail(request, farmer_id: str):
 @require_http_methods(["POST"])
 def portal_requisition_preview(request):
     """POST /api/portal/requisition-queue/preview/ - validate selected clients before generating Excel."""
-    from datetime import date as _date
-    from core.models import JawabuFarmerMaster
-
-    try:
-        body = json.loads(request.body)
-    except (json.JSONDecodeError, ValueError):
-        return JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
-
-    farmer_ids = body.get('farmer_ids') or []
-    order_number = str(body.get('order_number') or '').strip()
-    requisition_date_raw = str(body.get('requisition_date') or '').strip()
     # The in-app preview is intentionally data-only. Workbook rendering in a
     # Telegram WebView is unreliable and belongs to the confirmed download.
     preview_format = 'document'
-    if not farmer_ids:
-        return JsonResponse({'ok': False, 'error': 'No farmers selected.'}, status=400)
-    if not order_number:
-        return JsonResponse({'ok': False, 'error': 'Order Number / Batch Ref is required.'}, status=400)
-    if not requisition_date_raw:
-        return JsonResponse({'ok': False, 'error': 'Requisition Date is required.'}, status=400)
-    try:
-        requisition_date = _date.fromisoformat(requisition_date_raw)
-    except ValueError:
-        return JsonResponse({'ok': False, 'error': f"Invalid requisition_date '{requisition_date_raw}'. Use YYYY-MM-DD."}, status=400)
+    parsed, error_response = _parse_requisition_workbook_payload(request, allow_blocked=True)
+    if error_response:
+        return error_response
 
-    farmers = list(JawabuFarmerMaster.objects.filter(id__in=farmer_ids))
-    if len(farmers) != len(farmer_ids):
-        return JsonResponse({'ok': False, 'error': 'One or more selected farmers was not found.'}, status=404)
+    farmers = parsed['farmers']
+    farmer_ids = parsed['farmer_ids']
+    order_number = parsed['order_number']
+    requisition_date = parsed['requisition_date']
     access_error = _portal_farmers_scope_error(request, farmers)
     if access_error:
         return access_error
 
-    existing_order = (
-        JawabuFarmerMaster.objects
-        .filter(order_number=order_number)
-        .exclude(id__in=farmer_ids)
-        .count()
-    )
-    ready, blocked, warnings = _validate_requisition_farmers(farmers)
-    if existing_order:
+    warnings = list(parsed['warnings'])
+    if parsed['existing_order_count']:
         warnings.append({
-            'message': f"Order number {order_number} already exists on {existing_order} other client(s). Generating will add/update this same batch.",
+            'message': (
+                f"Order number {order_number} already exists on "
+                f"{parsed['existing_order_count']} other client(s). "
+                "This preview includes the original clients and the newly selected clients."
+            ),
         })
     return JsonResponse({
         'ok': True,
         'order_number': order_number,
         'requisition_date': requisition_date.isoformat(),
-        'ready_count': len(ready),
-        'blocked_count': len(blocked),
+        'ready_count': len(parsed['ready']),
+        'blocked_count': len(parsed['blocked']),
         'warning_count': len(warnings),
-        'ready': ready,
-        'blocked': blocked,
+        'ready': parsed['ready'],
+        'blocked': parsed['blocked'],
         'warnings': warnings,
         'workbook_preview': None,
         'preview_format': preview_format,

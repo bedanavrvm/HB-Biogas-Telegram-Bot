@@ -467,7 +467,14 @@
     ]);
     deps.renderWarnings(warnings, data.warnings || []);
     list.innerHTML = renderPrintableRequisition(data);
-    confirm.hidden = readOnly;
+    // Keep generation as one visible action: Telegram's native MainButton.
+    // The inline element is a hidden proxy so the shell can invoke the same
+    // click handler and the browser/keyboard fallback remains available.
+    const usesTelegramMainButton = Boolean(deps.tg?.MainButton);
+    confirm.hidden = readOnly || usesTelegramMainButton;
+    confirm.toggleAttribute('aria-hidden', readOnly || usesTelegramMainButton);
+    if (readOnly) confirm.removeAttribute('data-main-action');
+    else confirm.dataset.mainAction = 'Generate and Save Excel';
     confirm.disabled = readOnly || (data.blocked_count || 0) > 0 || !(data.ready_count || 0);
     confirm.textContent = confirm.disabled && !readOnly ? 'Resolve Blocked Items' : 'Generate and Save Excel';
     if (cancel) cancel.textContent = readOnly ? 'Close Preview' : 'Back';
@@ -494,6 +501,9 @@
       el('batch-req-date').value = '';
       updateBatchPanel();
       el('requisition-preview-overlay').classList.remove('open');
+      confirm.removeAttribute('data-main-action');
+      confirm.hidden = true;
+      confirm.setAttribute('aria-hidden', 'true');
       deps.loadQueue('requisition', 1);
       deps.loadQueue('batches', 1);
     } catch (err) {
@@ -652,6 +662,12 @@
           if (action.id === 'btn-generate-requisition') requestRequisitionPreview();
           else if (action.id === 'requisition-preview-confirm') generateRequisitionFromPreview();
           else if (action.id === 'requisition-preview-close' || action.id === 'requisition-preview-cancel') {
+            const confirm = el('requisition-preview-confirm');
+            confirm?.removeAttribute('data-main-action');
+            if (confirm) {
+              confirm.hidden = true;
+              confirm.setAttribute('aria-hidden', 'true');
+            }
             el('requisition-preview-overlay')?.classList.remove('open');
           }
           else if (action.id === 'batch-detail-close') el('batch-detail-overlay')?.classList.remove('open');
@@ -673,7 +689,15 @@
           return;
         }
         const requisitionOverlay = event.target.closest('#requisition-preview-overlay');
-        if (requisitionOverlay && event.target === requisitionOverlay) requisitionOverlay.classList.remove('open');
+        if (requisitionOverlay && event.target === requisitionOverlay) {
+          const confirm = el('requisition-preview-confirm');
+          confirm?.removeAttribute('data-main-action');
+          if (confirm) {
+            confirm.hidden = true;
+            confirm.setAttribute('aria-hidden', 'true');
+          }
+          requisitionOverlay.classList.remove('open');
+        }
         const batchOverlay = event.target.closest('#batch-detail-overlay');
         if (batchOverlay && event.target === batchOverlay) batchOverlay.classList.remove('open');
         if (event.target.closest('#payment-preview-close, #payment-preview-done')) el('payment-preview-overlay')?.classList.remove('open');

@@ -148,6 +148,7 @@
         <span class="badge" id="batch-selected-count">0 selected</span>
         <span>Assign Order No &amp; Generate Requisition Sheet</span>
       </div>
+      <p class="meta">Reusing an order number adds clients to that same batch and preserves its original requisition date. Use a new order number for a different date.</p>
       <div class="batch-form">
         <div class="form-row inline">
           <div class="field-group">
@@ -386,7 +387,9 @@
     </div>
     <div class="sheet-footer">
       <button class="btn" id="requisition-preview-cancel" type="button">Back</button>
-      <button class="primary" id="requisition-preview-confirm" type="button" data-main-action="Generate and Save Excel">Generate and Save Excel</button>
+      <!-- Telegram's MainButton is the single visible generation action. The
+           hidden proxy keeps the shared MainButton click wiring. -->
+      <button class="primary" id="requisition-preview-confirm" type="button" hidden data-main-action-proxy="true" aria-hidden="true">Generate and Save Excel</button>
     </div>
   </div>
 </div>

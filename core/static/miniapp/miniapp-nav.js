@@ -75,7 +75,12 @@
     if (!tg?.MainButton) return;
     if (mainHandler) tg.MainButton.offClick(mainHandler);
     const action = [...document.querySelectorAll('#content [data-main-action]')]
-      .find(element => element.getClientRects().length && !element.disabled);
+      .find(element => {
+        const overlay = element.closest('.sheet-overlay');
+        const visibleOverlay = !overlay || overlay.classList.contains('open');
+        const visibleAction = element.getClientRects().length || element.dataset.mainActionProxy === 'true';
+        return visibleOverlay && visibleAction && !element.disabled;
+      });
     if (!action) {
       tg.MainButton.hide();
       mainHandler = null;
