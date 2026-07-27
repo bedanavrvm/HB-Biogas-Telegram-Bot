@@ -1316,6 +1316,21 @@ Mary Njeri njihia
         self.assertEqual(farmer.external_id, '')
         self.assertEqual(farmer.status, 'active')
 
+    def test_jawabu_visit_date_marker_is_removed_and_typed_date_populated(self):
+        from core.services.jawabu_master import import_jawabu_farmers_csv
+
+        csv_file = StringIO(
+            "Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Sign Date,Sales Person\n"
+            "Marker Date Farmer,23215889,Embu,+254721997482,+254704408282,5000,'15-May-2026,Jane Sales\n"
+        )
+
+        result = import_jawabu_farmers_csv(csv_file, source_name='dates.csv')
+
+        self.assertEqual(result.created, 1)
+        farmer = JawabuFarmerMaster.objects.get()
+        self.assertEqual(farmer.sign_date, '15-May-2026')
+        self.assertEqual(farmer.hbg_visit_date.isoformat(), '2026-05-15')
+
     @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot', FARMUP_MINI_APP_SHORT_NAME='farmup')
     def test_farmup_mini_app_url_uses_configured_short_name(self):
         from core.services.jawabu_master import build_farmup_mini_app_url
@@ -2141,7 +2156,7 @@ class FcaWorkflowServiceTest(TestCase):
         self.assertNotIn('Ignored basis text', row[7])
         record.refresh_from_db()
         self.assertEqual(record.fca_decision, 'Approved')
-        self.assertEqual(fake_sheet.update_options, ['RAW'])
+        self.assertEqual(fake_sheet.update_options, ['RAW', 'USER_ENTERED'])
 
     @patch('core.services.fca.get_sheets_service')
     def test_process_fca_batch_files_appends_rows_to_order_sheet(self, mock_service):
@@ -2226,8 +2241,21 @@ class FakeMasterDataSheet:
         self.update_options.append(value_input_option)
         import re
         for item in payload:
-            match = re.search(r'(\d+)', item['range'].split(':', 1)[0])
-            row_number = int(match.group(1))
+            start_cell = item['range'].split(':', 1)[0]
+            match = re.search(r'([A-Z]+)(\d+)', start_cell)
+            row_number = int(match.group(2))
+            if ':' in item['range'] and re.match(r'^[A-Z]+\d+:[A-Z]+\d+$', item['range']):
+                end_cell = item['range'].split(':', 1)[1]
+                start_col = match.group(1)
+                end_match = re.match(r'([A-Z]+)(\d+)$', end_cell)
+                if end_match and start_col == end_match.group(1) and row_number == int(end_match.group(2)):
+                    def col_number(value):
+                        result = 0
+                        for char in value:
+                            result = result * 26 + ord(char) - 64
+                        return result
+                    self.update_cell(row_number, col_number(start_col), item['values'][0][0])
+                    continue
             for offset, row in enumerate(item['values']):
                 target = row_number + offset
                 while len(self.values) < target:

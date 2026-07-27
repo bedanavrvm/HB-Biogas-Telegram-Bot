@@ -24,13 +24,48 @@ def parse_business_date(value: Any) -> date | None:
         return value.date()
     if isinstance(value, date):
         return value
-    text = str(value or '').strip()
-    for fmt in ('%Y-%m-%d', '%d-%B-%Y', '%d-%b-%Y', '%d/%m/%Y', '%d/%m/%y'):
+    # Spreadsheet users sometimes prefix a date with an apostrophe/backtick to
+    # force text formatting.  That marker is metadata, not part of the date,
+    # and must not leak into the canonical DB/API representation.
+    text = str(value or '').strip().lstrip("'`").strip()
+    for fmt in (
+        '%Y-%m-%d',
+        '%d-%B-%Y', '%d-%b-%Y',
+        '%B %d, %Y', '%b %d, %Y',
+        '%d/%m/%Y', '%d/%m/%y',
+        '%d-%m-%Y', '%d-%m-%y',
+        '%m/%d/%Y', '%m/%d/%y',
+        '%m-%d-%Y', '%m-%d-%y',
+    ):
         try:
             return datetime.strptime(text, fmt).date()
         except ValueError:
             continue
     return None
+
+
+def normalize_date_text(value: Any) -> str:
+    """Return a stable, marker-free date string for legacy text fields.
+
+    ``sign_date`` predates the typed ``hbg_visit_date`` column and is still
+    synchronized to the operational Master Data sheet.  Keep that compatibility
+    field human-readable while ensuring spreadsheet formatting markers such as
+    ``'15-May-2026`` never become part of the value.
+    """
+    if value in (None, ''):
+        return ''
+    if isinstance(value, datetime):
+        parsed = value.date()
+    elif isinstance(value, date):
+        parsed = value
+    else:
+        text = str(value).strip().lstrip("'`").strip()
+        if not text:
+            return ''
+        parsed = parse_business_date(text)
+        if parsed is None:
+            return text
+    return parsed.strftime('%d-%B-%Y')
 
 
 def parse_money(value: Any) -> Decimal | None:
@@ -84,6 +119,7 @@ def canonicalize_farmer(farmer: JawabuFarmerMaster, *, strict: bool = False) -> 
             setattr(farmer, field_name, normalized)
 
     if farmer.sign_date:
+        farmer.sign_date = normalize_date_text(farmer.sign_date)
         farmer.hbg_visit_date = parse_business_date(farmer.sign_date)
         if farmer.hbg_visit_date is None:
             errors['sign_date'] = 'HBG visit date is not a recognized date.'

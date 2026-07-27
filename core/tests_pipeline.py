@@ -184,6 +184,15 @@ class JblPipelineServiceTestCase(TestCase):
         card = farmer_to_card(self.farmer_stage1)
         self.assertEqual(card['sign_date'], '24-June-2026')
 
+    def test_farmer_card_strips_legacy_hb_date_marker(self):
+        self.farmer_stage1.sign_date = "'15-May-2026"
+        self.farmer_stage1.save(update_fields=['sign_date', 'updated_at'])
+
+        card = farmer_to_card(self.farmer_stage1)
+
+        self.assertEqual(card['sign_date'], '15-May-2026')
+        self.assertEqual(card['hbg_visit_date'], '2026-05-15')
+
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
     @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
     def test_log_jbl_visit(self, mock_order_sync, mock_sync):

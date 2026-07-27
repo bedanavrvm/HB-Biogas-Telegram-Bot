@@ -589,6 +589,12 @@ def assign_order(
 
 def farmer_to_card(farmer: JawabuFarmerMaster) -> dict[str, Any]:
     """Compact farmer representation for queue cards in the portal Mini App."""
+    from core.services.jawabu_validation import normalize_date_text
+
+    hbg_visit_date = farmer.hbg_visit_date
+    if hbg_visit_date is None and farmer.sign_date:
+        from core.services.jawabu_validation import parse_business_date
+        hbg_visit_date = parse_business_date(farmer.sign_date)
     return {
         'id': str(farmer.id),
         'customer_id': str(farmer.customer_id or ''),
@@ -601,7 +607,10 @@ def farmer_to_card(farmer: JawabuFarmerMaster) -> dict[str, Any]:
         'village': farmer.village,
         'branch': farmer.branch,
         'hb_sales_person': farmer.hb_sales_person,
-        'sign_date': farmer.sign_date,
+        # Keep the legacy text field for compatibility, but never expose a
+        # spreadsheet text marker such as ``'15-May-2026`` to the Mini App.
+        'sign_date': normalize_date_text(farmer.sign_date),
+        'hbg_visit_date': hbg_visit_date.isoformat() if hbg_visit_date else None,
         # Stage 2
         'jbl_visit_date': farmer.jbl_visit_date.isoformat() if farmer.jbl_visit_date else None,
         'jbl_officer': farmer.jbl_officer,
@@ -690,7 +699,11 @@ def _sheet_number(value):
     return float(value)
 
 
-def sync_farmer_to_master_sheet(farmer: JawabuFarmerMaster) -> bool:
+def sync_farmer_to_master_sheet(
+    farmer: JawabuFarmerMaster,
+    *,
+    force_date_columns: bool = False,
+) -> bool:
     """
     Sync a farmer's updated pipeline fields to the master Google sheet.
 
@@ -705,6 +718,7 @@ def sync_farmer_to_master_sheet(farmer: JawabuFarmerMaster) -> bool:
         build_master_existing_index,
         find_master_row_number,
         first_existing_header,
+        master_date_column_indexes,
         set_header_value,
         update_master_sheet_row,
         normalize_header,
@@ -783,8 +797,14 @@ def sync_farmer_to_master_sheet(farmer: JawabuFarmerMaster) -> bool:
         now_text = timezone.now().strftime('%d-%B-%Y %H:%M')
         changes = {}
 
+        from core.services.jawabu_validation import normalize_date_text, parse_business_date
+        hbg_visit_date = farmer.hbg_visit_date or parse_business_date(farmer.sign_date)
         pipeline_fields = {
             'unit_number': (['Unit Number'], farmer.unit_number),
+            'hbg_visit_date': (
+                ['HBG Visit Date', 'Sign Date', 'Sign Date__2'],
+                normalize_date_text(hbg_visit_date) if hbg_visit_date else '',
+            ),
             'jbl_visit_date': (['Jawabu Visit Date', 'JBL Visit Date'], farmer.jbl_visit_date.strftime('%d-%B-%Y') if farmer.jbl_visit_date else ''),
             'jbl_officer': (['JBL BRO', 'JBL Officer'], farmer.jbl_officer),
             'jbl_visit_status': (['Jawabu Comment After Visit', 'JBL Visit Status'], farmer.jbl_visit_status),
@@ -825,13 +845,25 @@ def sync_farmer_to_master_sheet(farmer: JawabuFarmerMaster) -> bool:
             if header:
                 idx = header_lookup[normalize_header(header)] - 1
                 current_val = row_values[idx] if idx < len(row_values) else ''
-                if str(current_val).strip() != str(new_val).strip():
+                is_date_field = field_name in {'hbg_visit_date', 'jbl_visit_date'}
+                if force_date_columns and is_date_field and new_val:
+                    # A text-looking date may already compare equal while still
+                    # being stored as text in Sheets.  Force a USER_ENTERED
+                    # rewrite during the one-off repair command.
+                    set_header_value(row_values, header_lookup, header, new_val)
+                    changes.setdefault(header, {'before': current_val, 'after': new_val})
+                elif str(current_val).strip() != str(new_val).strip():
                     set_header_value(row_values, header_lookup, header, new_val)
                     changes[header] = {'before': current_val, 'after': new_val}
 
         if changes:
             set_header_value(row_values, header_lookup, 'Last Updated At', now_text)
-            update_master_sheet_row(sheet, row_number, row_values)
+            update_master_sheet_row(
+                sheet,
+                row_number,
+                row_values,
+                date_indexes=master_date_column_indexes(headers),
+            )
 
             # Create LiveSheetRecordChange audit entry
             LiveSheetRecordChange.objects.create(
@@ -902,8 +934,10 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
         col_letter,
         first_existing_header,
         header_lookup_from_headers,
+        master_date_column_indexes,
         normalize_header,
         set_header_value,
+        write_master_date_cells,
     )
 
     group_config = _jawabu_group_config()
@@ -997,6 +1031,11 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
             return True
         end_col = col_letter(max(len(headers), len(row_values)))
         sheet.update(f'A{row_number}:{end_col}{row_number}', [row_values], value_input_option='RAW')
+        write_master_date_cells(
+            sheet,
+            [(row_number, row_values)],
+            master_date_column_indexes(headers),
+        )
         LiveSheetRecordChange.objects.create(
             group_configuration=GroupSheetConfiguration.objects.filter(group_id=group_config.group_id).first(),
             group_id=group_config.group_id,

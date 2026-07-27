@@ -21,14 +21,15 @@ from django.db import transaction
 from django.utils import timezone
 
 from core.models import JawabuFarmerMaster, JawabuFarmerUploadBatch
-logger = logging.getLogger(__name__)
-
+from core.services.jawabu_validation import normalize_date_text
 from core.services.jawabu import (
     is_valid_phone,
     jawabu_duplicate_key,
     normalise_county,
     normalise_phone,
 )
+
+logger = logging.getLogger(__name__)
 
 
 HEADER_ALIASES = {
@@ -713,7 +714,12 @@ def write_rows_to_master_sheet(
             errors.append(f"{cleaned.get('customer_name') or cleaned.get('national_id') or 'row'}: {exc}")
     if pending_updates:
         try:
-            batch_update_master_sheet_rows(sheet, pending_updates, len(headers))
+            batch_update_master_sheet_rows(
+                sheet,
+                pending_updates,
+                len(headers),
+                date_indexes=master_date_column_indexes(headers),
+            )
         except Exception as exc:  # pragma: no cover - defensive external API handling
             errors.append(f'Master Data batch write failed: {exc}')
     return {
@@ -727,7 +733,72 @@ def write_rows_to_master_sheet(
     }
 
 
-def batch_update_master_sheet_rows(sheet, updates: list[tuple[int, list]], width: int) -> None:
+MASTER_DATE_HEADERS = {
+    'hbg visit date',
+    'sign date',
+    'jawabu visit date',
+    'jbl visit date',
+    'date visited',
+}
+
+
+def master_date_column_indexes(headers: list[str]) -> list[int]:
+    """Return zero-based Master Data columns that must be true spreadsheet dates."""
+    return [
+        index for index, header in enumerate(headers)
+        if normalize_header(header) in MASTER_DATE_HEADERS
+    ]
+
+
+def write_master_date_cells(sheet, updates: list[tuple[int, list]], date_indexes: list[int]) -> None:
+    """Rewrite date cells with USER_ENTERED so Sheets/Excel can group dates.
+
+    The surrounding Master Data row deliberately uses RAW writes because staff
+    text and formula-adjacent columns must not be reinterpreted.  Date columns
+    are the exception: a RAW string is stored as text (often with a hidden
+    leading apostrophe), so they are written in one USER_ENTERED batch and
+    formatted explicitly as ``dd-mmmm-yyyy``.
+    """
+    if not updates or not date_indexes:
+        return
+    payload = []
+    for row_number, row_values in updates:
+        for index in date_indexes:
+            value = row_values[index] if index < len(row_values) else ''
+            payload.append({
+                'range': f'{col_letter(index + 1)}{row_number}:{col_letter(index + 1)}{row_number}',
+                'values': [[normalize_date_text(value)]],
+            })
+    if not payload:
+        return
+    try:
+        sheet.batch_update(payload, value_input_option='USER_ENTERED')
+    except (AttributeError, TypeError):
+        # Keep lightweight fake sheets and older gspread versions compatible.
+        for item in payload:
+            sheet.update(item['range'], item['values'], value_input_option='USER_ENTERED')
+
+    if hasattr(sheet, 'format'):
+        rows = [row_number for row_number, _ in updates]
+        start_row, end_row = min(rows), max(rows)
+        for index in date_indexes:
+            column = col_letter(index + 1)
+            try:
+                sheet.format(
+                    f'{column}{start_row}:{column}{end_row}',
+                    {'numberFormat': {'type': 'DATE', 'pattern': 'dd-mmmm-yyyy'}},
+                )
+            except Exception:  # pragma: no cover - formatting is best effort
+                logger.debug('Could not format Master Data date column %s', column, exc_info=True)
+
+
+def batch_update_master_sheet_rows(
+    sheet,
+    updates: list[tuple[int, list]],
+    width: int,
+    *,
+    date_indexes: list[int] | None = None,
+) -> None:
     if not updates:
         return
     payload = []
@@ -738,6 +809,7 @@ def batch_update_master_sheet_rows(sheet, updates: list[tuple[int, list]], width
             'values': block_rows,
         })
     sheet.batch_update(payload, value_input_option='RAW')
+    write_master_date_cells(sheet, updates, date_indexes or [])
 
 
 def compact_master_sheet_updates(updates: list[tuple[int, list]]) -> list[tuple[int, list[list]]]:
@@ -908,12 +980,19 @@ def set_header_value(row_values: list, header_lookup: dict[str, int], header: st
     row_values[index] = '' if value is None else value
 
 
-def update_master_sheet_row(sheet, row_number: int, row_values: list) -> None:
+def update_master_sheet_row(
+    sheet,
+    row_number: int,
+    row_values: list,
+    *,
+    date_indexes: list[int] | None = None,
+) -> None:
     end_cell = f"{col_letter(len(row_values))}{row_number}"
-    # Preserve reviewed text exactly as staff see it in the form. USER_ENTERED
-    # lets Google Sheets reinterpret values such as 24-March-2026 as locale
-    # dates, which can display as mm/dd/yy in the Master Data sheet.
+    # Preserve reviewed text exactly as staff see it in the form. Date columns
+    # are rewritten separately below with USER_ENTERED so they remain typed
+    # dates instead of text values with a hidden leading apostrophe.
     sheet.update(f"A{row_number}:{end_cell}", [row_values], value_input_option='RAW')
+    write_master_date_cells(sheet, [(row_number, row_values)], date_indexes or [])
 
 
 def values_equivalent(left, right) -> bool:
@@ -1413,16 +1492,7 @@ def clean_decimal(value: str) -> str:
 
 
 def clean_date(value: str) -> str:
-    text = clean_text(value)
-    if not text:
-        return ''
-    for fmt in ('%d/%m/%Y', '%m/%d/%Y', '%d/%m/%y', '%m/%d/%y', '%Y-%m-%d'):
-        try:
-            parsed = datetime.strptime(text, fmt)
-            return parsed.strftime('%d-%B-%Y')
-        except ValueError:
-            continue
-    return text
+    return normalize_date_text(value)
 
 
 def row_fingerprint(row: dict) -> str:

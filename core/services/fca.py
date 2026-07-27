@@ -899,6 +899,7 @@ def sync_fcaup_records_to_master_data(group_config, records: list[FcaImportRecor
             ensure_master_system_headers,
             first_existing_header,
             header_lookup_from_headers,
+            master_date_column_indexes,
             next_master_append_row,
             pad_values_to_row,
             row_values_for_number,
@@ -1012,7 +1013,12 @@ def sync_fcaup_records_to_master_data(group_config, records: list[FcaImportRecor
                 updated += 1
 
         if pending_updates:
-            batch_update_master_sheet_rows(sheet, pending_updates, len(headers))
+            batch_update_master_sheet_rows(
+                sheet,
+                pending_updates,
+                len(headers),
+                date_indexes=master_date_column_indexes(headers),
+            )
         return {'created': created, 'updated': updated, 'duplicates': duplicates, 'errors': errors, 'sheet_tab': sheet_name}
     except Exception as exc:
         logger.error('FCA Master Data sync failed: %s', exc, exc_info=True)
