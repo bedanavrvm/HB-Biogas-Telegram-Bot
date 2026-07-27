@@ -2037,6 +2037,7 @@ class AccessGrantAdminForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         from core.services.access_policies import branch_choices
         self.fields['branch'].choices = branch_choices()
+        self.fields['active'].help_text = 'Only active grants are used for authorization and TAT dropdowns.'
 
     def clean(self):
         cleaned = super().clean()

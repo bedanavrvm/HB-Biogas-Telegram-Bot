@@ -356,14 +356,21 @@ def staff_user_for_payload(group_config, user_payload: dict, fallback_name: str 
     }
 
 
-def configured_bro_users(workflow: dict | None, group_config=None) -> list[dict]:
+def configured_bro_users(
+    workflow: dict | None,
+    group_config=None,
+    *,
+    include_all_scopes: bool = False,
+) -> list[dict]:
     """Return active users tagged with the TAT ``BRO`` role.
 
     The role tag is the active ``AccessGrant`` for the TAT Tracker workflow,
     rather than a legacy staff table or a free-text user field.  Returning the
     canonical user id and username keeps the dropdown stable when two staff
     members share a display name while retaining the existing name value sent
-    by the form for backwards compatibility.
+    by the form for backwards compatibility. TAT administrators/IT managers
+    may see role-tagged BROs across scopes when assigning a case; ordinary
+    staff remain group-scoped.
     """
     from core.models import AccessGrant
     from core.services.telegram_identity import database_group_configuration
@@ -372,11 +379,15 @@ def configured_bro_users(workflow: dict | None, group_config=None) -> list[dict]
         workflow='tat_tracker', role__iexact='BRO', active=True,
         user__is_active=True,
     )
-    if group_config is not None:
-        if database_group is None:
-            grants = grants.filter(group_configuration__isnull=True)
-        else:
+    if group_config is not None and not include_all_scopes:
+        if database_group is not None:
             grants = grants.filter(group_configuration__in=[None, database_group])
+        elif str(getattr(group_config, 'group_id', '') or '').strip() not in {'', '*'}:
+            # An explicitly identified runtime group that has no matching
+            # database row can only use global grants.  In legacy single-group
+            # mode the registry uses ``*``; there is no group scope to apply,
+            # so keep all active BRO role tags visible in that one workflow.
+            grants = grants.filter(group_configuration__isnull=True)
     users = {}
     for grant in grants.select_related('user', 'user__staff_profile'):
         user = grant.user
@@ -402,7 +413,11 @@ def bootstrap(group_config, user_payload: dict) -> dict:
         return {'authorized': False, 'user': user, 'reason': user.get('reason', 'Unauthorized')}
     products = [serialize_product(product) for product in _allowed_products(workflow, user)]
     home = home_data(group_config, user)
-    bro_users = configured_bro_users(workflow, group_config)
+    bro_users = configured_bro_users(
+        workflow,
+        group_config,
+        include_all_scopes=bool(set(user.get('roles') or []) & {'ADMIN', 'IT', 'MANAGEMENT'}),
+    )
     return {
         'authorized': True,
         'user': public_user(user),

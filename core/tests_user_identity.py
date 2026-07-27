@@ -323,6 +323,26 @@ class TelegramUserAuthenticationTests(TestCase):
         self.assertIn('BRO', resolved['roles'])
         self.assertIn(self.user.get_full_name() or self.user.get_username(), names)
 
+    def test_tat_bro_dropdown_keeps_scoped_tags_in_legacy_single_group_mode(self):
+        from core.services.group_config import GroupConfig
+        from core.services.tat_tracker import configured_bro_users
+
+        scoped_config = GroupSheetConfiguration.objects.create(
+            group_id='-100-scoped-bro', sheet_id='scoped-sheet', sheet_name='TAT',
+            workflow={'type': 'tat_tracker'},
+        )
+        AccessGrant.objects.create(
+            user=self.user, workflow='tat_tracker', role='BRO',
+            group_configuration=scoped_config,
+        )
+
+        users = configured_bro_users(
+            {'type': 'tat_tracker'},
+            GroupConfig(group_id='*', sheet_id='legacy-sheet', workflow={'type': 'tat_tracker'}),
+        )
+
+        self.assertIn(self.user.pk, {item['id'] for item in users})
+
     def test_tat_users_can_keep_multiple_active_role_tags(self):
         from core.services.telegram_identity import user_access
 

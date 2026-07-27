@@ -633,6 +633,25 @@ class TatTrackerWorkflowTest(TestCase):
             }],
         )
 
+    def test_tat_admin_bootstrap_can_see_bro_tags_across_scopes(self):
+        User = get_user_model()
+        other_group = GroupSheetConfiguration.objects.create(
+            group_id='-100tat-other', sheet_id='other-sheet', sheet_name='TAT Other',
+            workflow={'type': 'tat_tracker'},
+        )
+        other_bro = User.objects.create_user(
+            username='other-bro', first_name='Other', last_name='BRO', is_active=True,
+        )
+        UserProfile.objects.create(user=other_bro, telegram_id='333', telegram_username='other_bro')
+        AccessGrant.objects.create(
+            user=other_bro, workflow='tat_tracker', role='BRO',
+            group_configuration=other_group,
+        )
+
+        data = bootstrap(self.config, {'id': 222, 'username': 'admin_user'})
+
+        self.assertIn('Other BRO', [item['name'] for item in data['bro_users']])
+
     def test_tat_formula_helpers_match_tracker_columns(self):
         business = product_by_key('business')
         logbook = product_by_key('logbook')
