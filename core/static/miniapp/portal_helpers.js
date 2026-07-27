@@ -12,15 +12,14 @@
     return value || '-';
   }
 
-  // Keep the location hierarchy in one place so cards and detail views do not
-  // silently omit a changing farmer location field.  The API values are read
-  // afresh by the portal before a detail sheet is opened.
+  // Keep the customer location hierarchy in one place. Branch is an
+  // operational access/routing value, not part of the customer's physical
+  // location, so it must not be appended to this compact card line.
   function locationText(farmer) {
     const parts = [
       farmer && farmer.county,
       farmer && farmer.sub_county,
       farmer && farmer.village,
-      farmer && farmer.branch,
     ].map(value => String(value || '').trim()).filter(Boolean);
     return parts.join(' | ') || '-';
   }

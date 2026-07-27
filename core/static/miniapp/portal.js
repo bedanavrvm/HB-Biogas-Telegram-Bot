@@ -148,7 +148,7 @@
   function fmt(v) { return portalHelpers.fmt ? portalHelpers.fmt(v) : (v || '-'); }
   function locationText(farmer) {
     if (portalHelpers.locationText) return portalHelpers.locationText(farmer);
-    return [farmer?.county, farmer?.sub_county, farmer?.village, farmer?.branch]
+    return [farmer?.county, farmer?.sub_county, farmer?.village]
       .map(value => String(value || '').trim()).filter(Boolean).join(' | ') || '-';
   }
   function fmtDate(v) {

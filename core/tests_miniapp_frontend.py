@@ -102,6 +102,9 @@ class MiniAppFrontendSmokeTests(TestCase):
             'validateInvoiceFile',
         ):
             self.assertIn(expected, source)
+        # Branch is an operational routing/access field, not part of the
+        # customer location line shown beneath queue-card names.
+        self.assertNotIn('farmer && farmer.branch,', source)
 
     def test_portal_api_exposes_request_primitives(self):
         source = Path('core/static/miniapp/portal_api.js').read_text(encoding='utf-8')
