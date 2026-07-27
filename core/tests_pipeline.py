@@ -13,7 +13,7 @@ from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import AccessGrant, GroupSheetConfiguration, InvoiceUploadBatch, JawabuFarmerMaster, LiveSheetRecordChange, ParsedInvoice, RequisitionBatch, UserProfile
+from core.models import AccessGrant, GroupSheetConfiguration, InvoiceUploadBatch, JawabuFarmerMaster, LiveSheetRecordChange, MediaAttachment, ParsedInvoice, RequisitionBatch, UserProfile
 from core.services.jawabu_pipeline import (
     assign_order,
     all_cases,
@@ -551,12 +551,35 @@ class JblPipelineApiTestCase(TestCase):
 
     def test_portal_jbl_queue_fragment_renders_cards(self):
         """Verify the htmx JBL queue fragment renders useful farmer cards."""
+        self.farmer.sub_county = 'Kieni'
+        self.farmer.village = 'Mweiga'
+        self.farmer.save(update_fields=['sub_county', 'village', 'updated_at'])
         response = self.client.get(reverse('portal_jbl_queue_fragment'))
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'portal/partials/farmer_list.html')
         self.assertContains(response, 'Pipeline test farmer')
+        self.assertContains(response, 'Kiambu | Kieni | Mweiga | Ruiru')
         self.assertContains(response, 'htmx-farmer-card')
         self.assertContains(response, 'HB visit: 24-June-2026')
+
+    def test_portal_farmer_detail_reads_latest_location_values(self):
+        """A detail request must reflect location edits made after a queue load."""
+        first = self.client.get(reverse('portal_farmer_detail', args=[self.farmer.id]))
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json()['farmer']['county'], 'Kiambu')
+
+        self.farmer.county = 'Embu'
+        self.farmer.sub_county = 'Manyatta'
+        self.farmer.village = 'Kithimu'
+        self.farmer.save(update_fields=['county', 'sub_county', 'village', 'updated_at'])
+
+        latest = self.client.get(reverse('portal_farmer_detail', args=[self.farmer.id]))
+        self.assertEqual(latest.status_code, 200)
+        latest_location = latest.json()['farmer']
+        self.assertEqual(
+            (latest_location['county'], latest_location['sub_county'], latest_location['village']),
+            ('Embu', 'Manyatta', 'Kithimu'),
+        )
 
     def test_portal_jbl_queue_fragment_filters_by_county_and_branch(self):
         """Verify server-rendered JBL queue fragments honor selected filters."""
@@ -728,6 +751,43 @@ class JblPipelineApiTestCase(TestCase):
         with patch('core.services.jawabu_pipeline.append_jbl_media_links', return_value=(False, 'Choose a valid visit media category.', {})):
             response = self.client.post(url, {'files': upload, 'media_category': 'UNKNOWN'})
         self.assertEqual(response.status_code, 400)
+
+    def test_laf_media_list_api_returns_only_successful_client_laf_documents(self):
+        MediaAttachment.objects.create(
+            group_id='portal-test',
+            business_key_type='id_number',
+            business_key_value=self.farmer.national_id,
+            file_type='LAF',
+            original_filename='laf.pdf',
+            drive_url='https://drive.example/laf',
+            upload_status='success',
+        )
+        MediaAttachment.objects.create(
+            group_id='portal-test',
+            business_key_type='id_number',
+            business_key_value=self.farmer.national_id,
+            file_type='JBL_VISIT_PHOTO',
+            original_filename='visit.jpg',
+            drive_url='https://drive.example/visit',
+            upload_status='success',
+        )
+        MediaAttachment.objects.create(
+            group_id='portal-test',
+            business_key_type='id_number',
+            business_key_value=self.farmer.national_id,
+            file_type='LAF',
+            original_filename='failed.pdf',
+            drive_url='https://drive.example/failed',
+            upload_status='failed',
+        )
+
+        response = self.client.get(reverse('portal_jbl_media', args=[self.farmer.id]))
+
+        self.assertEqual(response.status_code, 200)
+        media = response.json()['laf_media']
+        self.assertEqual(len(media), 1)
+        self.assertEqual(media[0]['url'], 'https://drive.example/laf')
+        self.assertEqual(media[0]['name'], 'laf.pdf')
 
     def test_set_credit_decision_api(self):
         """Verify Stage 3 credit decision posting."""

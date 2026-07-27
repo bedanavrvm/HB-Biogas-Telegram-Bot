@@ -65,6 +65,7 @@ DEFAULT_TAT_TARGETS_MINUTES = {
 }
 NEAR_SLA_RATIO = Decimal('0.8')
 TAT_TARGET_MANAGER_ROLES = frozenset({'IT'})
+TAT_CASE_CORRECTION_ROLES = frozenset({'IT', 'ADMIN'})
 TAT_HOME_PAGE_SIZE = 10
 
 
@@ -1003,7 +1004,7 @@ def update_case(group_config, user: dict, case_id: str, updates: list[dict]) -> 
     if not updates:
         raise ValueError('No updates were submitted.')
     for item in updates:
-        apply_update(case, user, item)
+        apply_update(case, user, item, workflow=workflow)
     next_stage = next_action(case)
     case.current_stage = next_stage.key if next_stage else ''
     case.last_updated_by = user.get('name', '')
@@ -1012,8 +1013,60 @@ def update_case(group_config, user: dict, case_id: str, updates: list[dict]) -> 
     return serialize_case_detail(case, user, workflow=workflow)
 
 
-def apply_update(case: TatTrackerCase, user: dict, item: dict) -> None:
+def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict | None = None) -> None:
     field = str(item.get('field') or '').strip()
+    correction = bool(item.get('correction'))
+    if field in {'client_name', 'national_id', 'primary_phone', 'branch', 'bro_name', 'amount'}:
+        if not correction:
+            raise ValueError('Case detail changes must be submitted as corrections.')
+        if not can_user_correct_case_details(user, case):
+            raise ValueError('Only IT or Admin staff can correct the base case details.')
+        old = getattr(case, field)
+        raw_value = str(item.get('value') or '').strip()
+        if field == 'client_name':
+            new_value = raw_value.upper()
+            if not new_value:
+                raise ValueError('Client name is required.')
+        elif field == 'national_id':
+            new_value = normalize_national_id(raw_value)
+            if not re.fullmatch(r'\d{7,8}', new_value):
+                raise ValueError('ID number must be 7 or 8 digits.')
+        elif field == 'primary_phone':
+            new_value = normalize_kenyan_phone(raw_value)
+            if not new_value:
+                raise ValueError('Enter a valid Kenyan phone number.')
+        elif field == 'branch':
+            new_value = raw_value
+            if new_value not in _allowed_branches(workflow or {}, user):
+                raise ValueError('Select a valid branch.')
+        elif field == 'bro_name':
+            new_value = raw_value
+            if not new_value:
+                raise ValueError('BRO name is required.')
+        else:
+            product = product_by_key(case.product_key)
+            new_value = parse_amount(raw_value)
+            validate_amount(product, new_value)
+        if str(old or '') == str(new_value or ''):
+            raise ValueError(f'{field.replace("_", " ").title()} is already set to that value.')
+        setattr(case, field, new_value)
+        stage_key = 'case_details'
+        event_label = f'Corrected {field.replace("_", " ").title()}'
+        TatTrackerEvent.objects.create(
+            case=case,
+            group_id=case.group_id,
+            actor_name=user.get('name', ''),
+            actor_telegram_id=user.get('telegram_id', ''),
+            actor_role=','.join(user.get('roles') or []),
+            stage_key=stage_key,
+            stage_label=event_label,
+            old_value=str(old or ''),
+            new_value=str(new_value or ''),
+            source='admin_correction',
+            sheet_name=case.sheet_name,
+            row_number=case.row_number,
+        )
+        return
     product = product_by_key(case.product_key)
     if field == 'remarks':
         old = case.remarks
@@ -1025,16 +1078,29 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict) -> None:
         stage = stage_by_key(product, field)
         if not stage:
             raise ValueError('Invalid stage submitted.')
-        if not can_user_edit_stage(user, case, stage):
-            raise ValueError(f'Your role cannot update {stage.label}.')
-        if not previous_stages_complete(case, stage):
-            raise ValueError(f'Complete the previous stage before {stage.label}.')
         old = case.stage_values.get(stage.key, '')
-        if old and stage.kind != 'dropdown':
-            raise ValueError(f'{stage.label} is already completed.')
+        if correction:
+            if not old:
+                raise ValueError(f'{stage.label} has not been completed yet; submit it normally.')
+            if not can_user_correct_stage(user, case, stage):
+                raise ValueError(f'Your role cannot correct {stage.label}.')
+        else:
+            if not can_user_edit_stage(user, case, stage):
+                raise ValueError(f'Your role cannot update {stage.label}.')
+            if not previous_stages_complete(case, stage):
+                raise ValueError(f'Complete the previous stage before {stage.label}.')
+            if old and stage.kind != 'dropdown':
+                raise ValueError(f'{stage.label} is already completed.')
         if stage.kind == 'timestamp':
-            value = timezone.now().isoformat()
-            new = format_datetime(timezone.now())
+            if correction:
+                parsed = parse_iso_datetime(item.get('value'))
+                if not parsed:
+                    raise ValueError(f'Enter {stage.label} correction as a valid date and time.')
+                value = parsed.isoformat()
+                new = format_datetime(parsed)
+            else:
+                value = timezone.now().isoformat()
+                new = format_datetime(timezone.now())
         elif stage.kind == 'dropdown':
             value = str(item.get('value') or '').strip()
             if value not in stage.options:
@@ -1049,7 +1115,7 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict) -> None:
         apply_side_effects(case, product, stage, value)
         stage_key = stage.key
         event_label = stage.label
-    event = TatTrackerEvent.objects.create(case=case, group_id=case.group_id, actor_name=user.get('name', ''), actor_telegram_id=user.get('telegram_id', ''), actor_role=','.join(user.get('roles') or []), stage_key=stage_key, stage_label=event_label, old_value=str(old or ''), new_value=str(new or ''), source='mini_app', sheet_name=case.sheet_name, row_number=case.row_number)
+    event = TatTrackerEvent.objects.create(case=case, group_id=case.group_id, actor_name=user.get('name', ''), actor_telegram_id=user.get('telegram_id', ''), actor_role=','.join(user.get('roles') or []), stage_key=stage_key, stage_label=(f'{event_label} (Correction)' if correction else event_label), old_value=str(old or ''), new_value=str(new or ''), source=('admin_correction' if correction else 'mini_app'), sheet_name=case.sheet_name, row_number=case.row_number)
     if signatures_enabled() and field != 'remarks' and stage.requires_signature_certificate:
         create_approval_certificate(case, event, user, stage)
 
@@ -1686,6 +1752,25 @@ def can_user_edit_stage(user: dict, case: TatTrackerCase, stage: StageConfig) ->
     return True
 
 
+def can_user_correct_stage(user: dict, case: TatTrackerCase, stage: StageConfig) -> bool:
+    """Allow explicit corrections without weakening normal stage sequencing."""
+    roles = {str(role).upper() for role in user.get('roles') or []}
+    if 'IT' in roles:
+        return True
+    if stage.requires_signature_certificate:
+        return False
+    return can_user_edit_stage(user, case, stage)
+
+
+def can_user_correct_case_details(user: dict, case: TatTrackerCase | None = None) -> bool:
+    """Base identity/amount corrections are restricted and audited."""
+    roles = {str(role).upper() for role in user.get('roles') or []}
+    if not roles.intersection(TAT_CASE_CORRECTION_ROLES):
+        return False
+    branches = user.get('branches') or []
+    return not (case and branches and case.branch not in branches and 'IT' not in roles)
+
+
 def serialize_case_summary(case: TatTrackerCase, user: dict | None = None, next_stage: StageConfig | None = None, workflow: dict | None = None) -> dict:
     next_stage = next_stage or next_action(case)
     product = product_by_key(case.product_key)
@@ -1699,6 +1784,7 @@ def serialize_case_summary(case: TatTrackerCase, user: dict | None = None, next_
 
 def serialize_case_detail(case: TatTrackerCase, user: dict, workflow: dict | None = None) -> dict:
     product = product_by_key(case.product_key)
+    can_correct_details = can_user_correct_case_details(user, case)
     fields = []
     for stage in product.stages:
         value = case.stage_values.get(stage.key, '')
@@ -1706,9 +1792,16 @@ def serialize_case_detail(case: TatTrackerCase, user: dict, workflow: dict | Non
         tat_minutes = stage_tat_minutes(case, stage)
         target = stage_target_minutes(workflow, product, stage)
         certificate = case.approval_certificates.filter(stage_key=stage.key).first() if stage.requires_signature_certificate else None
-        fields.append({'key': stage.key, 'label': stage.label, 'kind': stage.kind, 'value': display_stage_value(stage, value), 'editable': editable, 'options': list(stage.options), 'role': stage.role, 'locked_reason': '' if editable else lock_reason(case, user, stage), 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'target_minutes': str(target) if target is not None else '', 'sla_status': sla_status(tat_minutes, target), 'certificate_status': certificate.status if certificate else ''})
+        fields.append({'key': stage.key, 'label': stage.label, 'kind': stage.kind, 'value': display_stage_value(stage, value), 'raw_value': str(value or ''), 'editable': editable, 'can_correct': bool(value) and can_user_correct_stage(user, case, stage), 'options': list(stage.options), 'role': stage.role, 'locked_reason': '' if editable or (value and can_user_correct_stage(user, case, stage)) else lock_reason(case, user, stage), 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'target_minutes': str(target) if target is not None else '', 'sla_status': sla_status(tat_minutes, target), 'certificate_status': certificate.status if certificate else ''})
     events = [{'at': format_datetime(event.created_at), 'actor': event.actor_name, 'stage': event.stage_label, 'value': event.new_value, 'source': event.source} for event in case.events.order_by('-created_at')[:20]]
-    return {'summary': serialize_case_summary(case, user, workflow=workflow), 'fields': fields, 'remarks': case.remarks, 'events': events}
+    return {
+        'summary': serialize_case_summary(case, user, workflow=workflow),
+        'fields': fields,
+        'remarks': case.remarks,
+        'events': events,
+        'can_correct_details': can_correct_details,
+        'correction_branches': _allowed_branches(workflow or {}, user) if can_correct_details else [],
+    }
 
 
 def next_role_alert(group_config, case_data: dict | None) -> dict[str, str]:

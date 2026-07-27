@@ -382,6 +382,26 @@
   font-size: 11px;
   line-height: 1.35;
 }
+.media-links {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  margin-top: 6px;
+}
+.media-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--brand-primary);
+  background: var(--bg-surface);
+  font-size: 12px;
+  text-decoration: none;
+}
+.media-link:hover { background: var(--bg-surface-2, var(--bg-surface)); }
 .sheet-footer [hidden] { display: none !important; }
 .phone-call-button {
   flex: 0 0 38px;

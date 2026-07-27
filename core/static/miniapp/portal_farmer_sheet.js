@@ -166,7 +166,8 @@
     state().activeMode = mode;
 
     el('sheet-name').textContent = farmer.customer_name || 'Unknown Farmer';
-    el('sheet-sub').textContent = [farmer.county, farmer.sub_county, farmer.branch].filter(Boolean).join(' | ') || farmer.primary_phone || '';
+    const location = deps.locationText(farmer);
+    el('sheet-sub').textContent = location !== '-' ? location : (farmer.primary_phone || '');
 
     const infoFields = summaryFields(farmer, mode);
 
@@ -199,6 +200,7 @@
       formEl.innerHTML = buildFinalReviewForm(farmer);
       footerEl.innerHTML = '<button class="primary" id="btn-submit-final">Save Final Review</button>';
       el('btn-submit-final').addEventListener('click', submitFinalDecision);
+      el('btn-view-laf')?.addEventListener('click', () => loadLafMedia(farmer.id));
     } else if (mode === 'requisition') {
       const notApproved = farmer.final_decision !== 'Approved';
       formEl.innerHTML = buildRequisitionForm(farmer);
@@ -387,12 +389,41 @@
           </div>
         </div>
         <div class="form-row"><label>Final Decision</label><select id="final-decision"><option value="">- Select -</option>${decisionOptions}</select></div>
+        <div class="form-row">
+          <label>LAF document</label>
+          <button type="button" class="secondary" id="btn-view-laf">View LAF document(s)</button>
+          <div id="final-laf-media" class="media-links" hidden></div>
+        </div>
         <div class="form-row"><label>Repayment Dates</label><input type="text" id="final-repayment-date" placeholder="e.g. 10TH" value="${deps.escapeHtml(farmer.repayment_date || '')}"></div>
         <div class="form-row"><label>Tenor</label><input type="text" id="final-repayment-tenor" placeholder="e.g. 6 months" value="${deps.escapeHtml(farmer.repayment_tenor || '')}"></div>
         <div class="form-row"><label>After-call Comments</label><textarea id="final-comment" rows="4" placeholder="Summarize the call and reason for the decision...">${deps.escapeHtml(farmer.final_decision_comment || '')}</textarea></div>
       </div>
       ${farmer.jbl_visit_comment ? `<div class="info-row"><span class="ir-label">BRO Comment</span><span class="ir-value">${deps.escapeHtml(farmer.jbl_visit_comment)}</span></div>` : ''}
     `;
+  }
+
+  async function loadLafMedia(farmerId) {
+    const button = el('btn-view-laf');
+    const target = el('final-laf-media');
+    if (!farmerId || !target) return;
+    button && (button.disabled = true);
+    target.hidden = false;
+    target.innerHTML = '<span class="field-help">Loading LAF documents...</span>';
+    try {
+      const result = await deps.apiFetch('/jbl-queue/' + encodeURIComponent(farmerId) + '/media/list/');
+      const media = result.data?.laf_media || [];
+      if (!result.ok || !result.data?.ok) {
+        target.innerHTML = `<span class="field-help">${deps.escapeHtml(result.data?.error || 'Could not load LAF documents.')}</span>`;
+        return;
+      }
+      target.innerHTML = media.length
+        ? media.map((item, index) => `<a class="media-link" href="${deps.escapeHtml(item.url)}" target="_blank" rel="noopener">${deps.escapeHtml(item.name || `LAF document ${index + 1}`)} <span aria-hidden="true">↗</span></a>`).join('')
+        : '<span class="field-help">No LAF document has been uploaded for this client.</span>';
+    } catch (error) {
+      target.innerHTML = '<span class="field-help">Could not load LAF documents. Check your connection and retry.</span>';
+    } finally {
+      if (button) button.disabled = false;
+    }
   }
 
   function buildRequisitionForm(farmer) {

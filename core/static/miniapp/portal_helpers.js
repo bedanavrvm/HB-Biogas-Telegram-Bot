@@ -12,6 +12,19 @@
     return value || '-';
   }
 
+  // Keep the location hierarchy in one place so cards and detail views do not
+  // silently omit a changing farmer location field.  The API values are read
+  // afresh by the portal before a detail sheet is opened.
+  function locationText(farmer) {
+    const parts = [
+      farmer && farmer.county,
+      farmer && farmer.sub_county,
+      farmer && farmer.village,
+      farmer && farmer.branch,
+    ].map(value => String(value || '').trim()).filter(Boolean);
+    return parts.join(' | ') || '-';
+  }
+
   function fmtDate(value) {
     if (utils.formatDateTime) return utils.formatDateTime(value);
     if (!value) return '-';
@@ -88,7 +101,7 @@
       return `
         <div class="batch-client-row">
           <div class="name">${escapeHtml(farmer.customer_name || 'Unnamed client')}</div>
-          <div class="meta">ID ${escapeHtml(farmer.national_id || '-')} | ${escapeHtml(farmer.primary_phone || '-')} | ${escapeHtml(farmer.county || '-')}</div>
+          <div class="meta">ID ${escapeHtml(farmer.national_id || '-')} | ${escapeHtml(farmer.primary_phone || '-')} | ${escapeHtml(locationText(farmer))}</div>
           <div class="meta">${escapeHtml(invoice)}${farmer.invoice_amount ? ' | KES ' + escapeHtml(farmer.invoice_amount) : ''}</div>
           ${missing.length ? `<div class="batch-warning" style="margin-top:8px;">Missing: ${missing.map(escapeHtml).join(', ')}</div>` : ''}
         </div>
@@ -170,6 +183,7 @@
     invoiceResultsSummary,
     invoiceFileSizeLabel,
     jblBadge,
+    locationText,
     renderWarnings,
     stageBadge,
     summaryGrid,

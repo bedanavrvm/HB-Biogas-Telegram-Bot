@@ -64,13 +64,13 @@
     listEl.innerHTML = farmers.map(farmer => {
       const originalIdx = state().queues[qKey].indexOf(farmer);
       return `
-        <div class="farmer-card${qKey === 'requisition' ? ' requisition-card' : ''}" data-qkey="${qKey}" data-idx="${originalIdx}" id="fc-${qKey}-${originalIdx}">
+          <div class="farmer-card${qKey === 'requisition' ? ' requisition-card' : ''}" data-qkey="${qKey}" data-farmer-id="${deps.escapeHtml(farmer.id || '')}" data-idx="${originalIdx}" id="fc-${qKey}-${originalIdx}">
           ${qKey === 'requisition' ? `
             <input type="checkbox" class="farmer-card-checkbox" data-id="${deps.escapeHtml(farmer.id)}" ${state().selectedRequisitions.has(farmer.id) ? 'checked' : ''} onclick="event.stopPropagation();">
           ` : ''}
           <div style="flex: 1;">
             <div class="fc-name">${deps.escapeHtml(farmer.customer_name || farmer.national_id || farmer.primary_phone || 'Unknown')}</div>
-            <div class="fc-sub">${deps.fmt(farmer.county)}${farmer.sub_county ? ' | ' + deps.escapeHtml(farmer.sub_county) : ''}${farmer.branch ? ' | ' + deps.escapeHtml(farmer.branch) : ''}</div>
+            <div class="fc-sub">${deps.escapeHtml(deps.locationText(farmer))}</div>
             <div class="fc-sub">${deps.escapeHtml(farmer.primary_phone || '')}</div>
             ${qKey === 'jbl' && farmer.sign_date ? `<div class="fc-sub fc-visit-date">HB visit: ${deps.escapeHtml(deps.fmtDate(farmer.sign_date))}</div>` : ''}
             <div class="fc-badges">
@@ -89,9 +89,9 @@
     listEl.querySelectorAll('.farmer-card').forEach(card => {
       card.addEventListener('click', () => {
         const key = card.dataset.qkey;
-        const idx = parseInt(card.dataset.idx, 10);
-        const farmer = state().queues[key][idx];
-        deps.openFarmerSheet(farmer, cfg.mode);
+        const farmerId = card.dataset.farmerId;
+        const farmer = (state().queues[key] || []).find(item => String(item.id) === String(farmerId)) || { id: farmerId };
+        deps.openCurrentFarmerSheet(farmer, cfg.mode);
       });
     });
 

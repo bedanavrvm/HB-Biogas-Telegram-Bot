@@ -14,7 +14,7 @@
   <div style="flex: 1;">
     <div class="fc-name">{{ farmer.customer_name|default:farmer.national_id|default:farmer.primary_phone|default:"Unknown" }}</div>
     <div class="fc-sub">
-      {{ farmer.county|default:"-" }}{% if farmer.sub_county %} | {{ farmer.sub_county }}{% endif %}{% if farmer.branch %} | {{ farmer.branch }}{% endif %}
+      {{ farmer.county|default:"-" }}{% if farmer.sub_county %} | {{ farmer.sub_county }}{% endif %}{% if farmer.village %} | {{ farmer.village }}{% endif %}{% if farmer.branch %} | {{ farmer.branch }}{% endif %}
     </div>
     <div class="fc-sub">{{ farmer.primary_phone|default:"" }}</div>
     {% if queue_key == "jbl" and farmer.sign_date %}

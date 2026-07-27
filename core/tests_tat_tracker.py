@@ -1728,6 +1728,63 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(updated['summary']['next_stage_key'], 'ca_analysis_sent')
 
     @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_admin_case_detail_correction_is_normalized_and_audited(self, sync_mock):
+        sync_mock.side_effect = self.mark_case_synced
+        bro = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+        admin = staff_user_for_payload(self.config, {'id': 222, 'username': 'admin_user'})
+        detail = create_case(self.config, bro, {
+            'product_key': 'business',
+            'branch': 'Nakuru',
+            'client_name': 'Original Client',
+            'national_id': '12345678',
+            'primary_phone': '0712345678',
+            'bro_name': 'BRO User',
+            'amount': '10000',
+        })
+
+        updated = update_case(self.config, admin, detail['summary']['case_id'], [
+            {'field': 'client_name', 'value': 'Corrected Client', 'correction': True},
+            {'field': 'national_id', 'value': '87 654 321', 'correction': True},
+            {'field': 'primary_phone', 'value': '+254 712 345 679', 'correction': True},
+        ])
+
+        case = TatTrackerCase.objects.get(case_id=detail['summary']['case_id'])
+        self.assertEqual(case.client_name, 'CORRECTED CLIENT')
+        self.assertEqual(case.national_id, '87654321')
+        self.assertEqual(case.primary_phone, '254712345679')
+        self.assertEqual(updated['summary']['client_name'], 'CORRECTED CLIENT')
+        self.assertEqual(case.events.filter(stage_key='case_details', source='admin_correction').count(), 3)
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_completed_timestamp_correction_preserves_audit_history(self, sync_mock):
+        sync_mock.side_effect = self.mark_case_synced
+        bro = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+        detail = create_case(self.config, bro, {
+            'product_key': 'business',
+            'branch': 'Nakuru',
+            'client_name': 'Timestamp Client',
+            'national_id': '12345678',
+            'primary_phone': '0712345678',
+            'bro_name': 'BRO User',
+            'amount': '10000',
+        })
+        case_id = detail['summary']['case_id']
+        update_case(self.config, bro, case_id, [{'field': 'mpesa_to_admin', 'value': 'STAMP'}])
+
+        update_case(self.config, bro, case_id, [{
+            'field': 'mpesa_to_admin',
+            'value': '2026-07-20T10:30',
+            'correction': True,
+        }])
+
+        case = TatTrackerCase.objects.get(case_id=case_id)
+        corrected = parse_iso_datetime(case.stage_values['mpesa_to_admin'])
+        self.assertEqual(corrected.strftime('%Y-%m-%d %H:%M'), '2026-07-20 10:30')
+        event = case.events.filter(stage_key='mpesa_to_admin').order_by('-created_at').first()
+        self.assertEqual(event.source, 'admin_correction')
+        self.assertIn('(Correction)', event.stage_label)
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
     def test_assigned_role_can_change_a_dropdown_value_and_audit_the_change(self, sync_mock):
         sync_mock.side_effect = self.mark_case_synced
         sanctions_timestamp = timezone.make_aware(timezone.datetime(2026, 7, 18, 10, 0)).isoformat()

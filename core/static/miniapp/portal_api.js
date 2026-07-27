@@ -19,7 +19,11 @@
       ...initDataHeader(tg),
       ...(options.headers || {}),
     };
-    const response = await fetch(apiBase() + path, { ...options, headers });
+    const requestOptions = { ...options, headers };
+    if (!requestOptions.method || String(requestOptions.method).toUpperCase() === 'GET') {
+      requestOptions.cache = 'no-store';
+    }
+    const response = await fetch(apiBase() + path, requestOptions);
     const data = await response.json().catch(function () { return {}; });
     return { ok: response.ok, status: response.status, data };
   }
@@ -53,6 +57,7 @@
     }
     const response = await fetch(url, {
       ...options,
+      cache: 'no-store',
       headers: { ...initDataHeader(tg), ...(options.headers || {}) },
     });
     const html = await response.text();

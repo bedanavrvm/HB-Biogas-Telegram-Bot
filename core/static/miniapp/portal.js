@@ -72,7 +72,11 @@
   async function apiFetch(path, opts = {}) {
     if (portalApi.apiFetch) return portalApi.apiFetch(path, opts, tg);
     const headers = { 'Content-Type': 'application/json', ...initDataHeader(), ...(opts.headers || {}) };
-    const res = await fetch(apiBase() + path, { ...opts, headers });
+    const requestOptions = { ...opts, headers };
+    if (!requestOptions.method || String(requestOptions.method).toUpperCase() === 'GET') {
+      requestOptions.cache = 'no-store';
+    }
+    const res = await fetch(apiBase() + path, requestOptions);
     const data = await res.json();
     return { ok: res.ok, status: res.status, data };
   }
@@ -142,6 +146,11 @@
   }
 
   function fmt(v) { return portalHelpers.fmt ? portalHelpers.fmt(v) : (v || '-'); }
+  function locationText(farmer) {
+    if (portalHelpers.locationText) return portalHelpers.locationText(farmer);
+    return [farmer?.county, farmer?.sub_county, farmer?.village, farmer?.branch]
+      .map(value => String(value || '').trim()).filter(Boolean).join(' | ') || '-';
+  }
   function fmtDate(v) {
     if (portalHelpers.fmtDate) return portalHelpers.fmtDate(v);
     if (!v) return '-';
@@ -383,7 +392,7 @@
       return portalQueues.renderFragment(qKey, page, {
         el,
         fetchHtml: async (path) => {
-          const response = await fetch(apiBase() + path, { headers: initDataHeader() });
+          const response = await fetch(apiBase() + path, { headers: initDataHeader(), cache: 'no-store' });
           const text = await response.text();
           if (!response.ok) throw new Error(text || 'Could not load queue.');
           return text;
@@ -633,14 +642,14 @@
       return;
     }
     listEl.innerHTML = farmers.map((f, i) => `
-      <div class="farmer-card${qKey === 'requisition' ? ' requisition-card' : ''}" data-qkey="${qKey}" data-idx="${i}" id="fc-${qKey}-${i}">
+      <div class="farmer-card${qKey === 'requisition' ? ' requisition-card' : ''}" data-qkey="${qKey}" data-farmer-id="${escapeHtml(f.id || '')}" data-idx="${i}" id="fc-${qKey}-${i}">
         ${qKey === 'requisition' ? `
-          <input type="checkbox" class="farmer-card-checkbox" data-id="${f.id}" ${state.selectedRequisitions.has(f.id) ? 'checked' : ''} onclick="event.stopPropagation();">
+          <input type="checkbox" class="farmer-card-checkbox" data-id="${escapeHtml(f.id || '')}" ${state.selectedRequisitions.has(f.id) ? 'checked' : ''} onclick="event.stopPropagation();">
         ` : ''}
         <div style="flex: 1;">
-          <div class="fc-name">${f.customer_name || f.national_id || f.primary_phone || 'Unknown'}</div>
-          <div class="fc-sub">${fmt(f.county)}${f.sub_county ? ' | ' + f.sub_county : ''}${f.branch ? ' | ' + f.branch : ''}</div>
-          <div class="fc-sub">${f.primary_phone || ''}</div>
+          <div class="fc-name">${escapeHtml(f.customer_name || f.national_id || f.primary_phone || 'Unknown')}</div>
+          <div class="fc-sub">${escapeHtml(locationText(f))}</div>
+          <div class="fc-sub">${escapeHtml(f.primary_phone || '')}</div>
           ${qKey === 'jbl' && f.sign_date ? `<div class="fc-sub fc-visit-date">HB visit: ${escapeHtml(fmtDate(f.sign_date))}</div>` : ''}
           <div class="fc-badges">
             ${stageBadge(f)}
@@ -655,9 +664,9 @@
     listEl.querySelectorAll('.farmer-card').forEach(card => {
       card.addEventListener('click', () => {
         const qKey = card.dataset.qkey;
-        const idx = parseInt(card.dataset.idx, 10);
-        const farmer = state.queues[qKey][idx];
-        openFarmerSheet(farmer, cfg.mode);
+        const farmerId = card.dataset.farmerId;
+        const farmer = (state.queues[qKey] || []).find(item => String(item.id) === String(farmerId)) || { id: farmerId };
+        openCurrentFarmerSheet(farmer, cfg.mode);
       });
     });
 
@@ -701,6 +710,23 @@
   function openFarmerSheet(farmer, mode) {
     if (portalFarmerSheet.openFarmerSheet) {
       portalFarmerSheet.openFarmerSheet(farmer, mode);
+    }
+  }
+
+  // Queue responses are intentionally compact and may have been loaded before
+  // a field visit or correction changed the farmer's location.  Always resolve
+  // the selected card against the canonical detail endpoint before rendering.
+  async function openCurrentFarmerSheet(farmer, mode) {
+    if (!farmer || !farmer.id) return;
+    try {
+      const { ok, data } = await apiFetch('/farmers/' + encodeURIComponent(farmer.id) + '/');
+      if (!ok || !data || !data.ok || !data.farmer) {
+        showToast((data && data.error) || 'Could not load current farmer details.', 'error');
+        return;
+      }
+      openFarmerSheet(data.farmer, mode);
+    } catch (error) {
+      showToast('Could not load current farmer details. Check your connection and retry.', 'error');
     }
   }
 
@@ -811,7 +837,7 @@
     target.innerHTML = farmers.length ? farmers.map(farmer => `
       <article class="farmer-card case-history-result">
         <div class="fc-top"><div><div class="fc-name">${escapeHtml(farmer.customer_name || 'Unnamed customer')}</div><div class="fc-sub">${escapeHtml([farmer.national_id, farmer.primary_phone].filter(Boolean).join(' | ') || 'No ID or telephone recorded')}</div></div></div>
-        <div class="fc-sub">${escapeHtml([farmer.branch, farmer.county].filter(Boolean).join(' | ') || 'Branch not recorded')}</div>
+        <div class="fc-sub">${escapeHtml(locationText(farmer))}</div>
         <button type="button" class="btn btn-primary case-history-open" data-farmer-id="${escapeHtml(farmer.id)}">Open Case History</button>
       </article>`).join('') : '<div class="empty-state"><div class="es-title">No matching cases</div><div class="es-sub">Check the spelling, telephone number, or national ID.</div></div>';
   }
@@ -926,6 +952,7 @@
       fmtDate,
       getCookie,
       loadDashboard,
+      locationText,
       portalApi,
       reloadCurrentQueue,
       setButtonLoading,
@@ -944,7 +971,9 @@
       fmtDate,
       jblBadge,
       loadQueue,
+      locationText,
       openFarmerSheet,
+      openCurrentFarmerSheet,
       queueConfig,
       renderQueueFragment,
       stageBadge,
@@ -980,6 +1009,7 @@
       escapeHtml,
       fmtDate,
       getCookie,
+      locationText,
       openPortalLink,
       portalApi,
       setButtonLoading,

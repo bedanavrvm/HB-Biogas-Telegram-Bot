@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=4">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=15">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=16">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -187,6 +187,30 @@
 
       <section class="detail-shell">
         <div id="detailSummary" class="detail-summary"></div>
+        <div class="detail-actions">
+          <button id="correctCaseDetailsBtn" type="button" class="secondary hidden">Correct case details</button>
+        </div>
+
+        <section id="caseCorrectionPanel" class="case-correction-panel hidden" aria-label="Correct case details">
+          <div class="section-head compact">
+            <div>
+              <h2>Correct case details</h2>
+              <p>Use only for erroneous data entry. Every change is recorded in the audit trail and synced to the tracker sheet.</p>
+            </div>
+            <button id="cancelCaseCorrectionBtn" type="button" class="ghost-btn">Cancel</button>
+          </div>
+          <form id="caseCorrectionForm" class="form-grid">
+            <label>Client Name<input name="client_name" required></label>
+            <label>ID Number<input name="national_id" inputmode="numeric" required></label>
+            <label>Phone Number<input name="primary_phone" type="tel" required></label>
+            <label>Branch<select name="branch" required></select></label>
+            <label>BRO Name<input name="bro_name" required></label>
+            <label>Amount (KES)<input name="amount" type="number" min="0" step="1" required></label>
+            <div class="form-actions correction-actions">
+              <button id="saveCaseCorrectionBtn" type="submit" class="primary">Save correction</button>
+            </div>
+          </form>
+        </section>
 
         <div class="detail-grid">
           <section class="stage-panel">
@@ -231,6 +255,6 @@
   <script src="{% static 'miniapp/telegram.js' %}?v=2"></script>
   <script src="{% static 'miniapp/utils.js' %}?v=2"></script>
   <script src="{% static 'miniapp/tat_api.js' %}?v=1"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=25"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=26"></script>
 </body>
 </html>

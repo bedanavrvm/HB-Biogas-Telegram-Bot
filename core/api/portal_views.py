@@ -409,6 +409,7 @@ def _serialize_batch(batch, farmers, request, include_farmers: bool = True) -> d
                 'primary_phone': farmer.primary_phone,
                 'county': farmer.county,
                 'sub_county': farmer.sub_county,
+                'village': farmer.village,
                 'branch': farmer.branch,
                 'invoice_number': farmer.invoice_number,
                 'invoice_date': farmer.invoice_date.strftime('%Y-%m-%d') if farmer.invoice_date else None,
@@ -873,6 +874,47 @@ def portal_upload_jbl_media(request, farmer_id: str):
     if not ok:
         return JsonResponse({'ok': False, 'error': error, **result}, status=400)
     return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer), **result})
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def portal_jbl_media(request, farmer_id: str):
+    """GET /api/portal/jbl-queue/<farmer_id>/media/ - current LAF links."""
+    from core.models import JawabuFarmerMaster, MediaAttachment
+
+    try:
+        farmer = JawabuFarmerMaster.objects.get(pk=farmer_id)
+    except JawabuFarmerMaster.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
+
+    access_error = _portal_read_access_error(request, farmer)
+    if access_error:
+        return access_error
+
+    business_key = str(farmer.national_id or '').strip()
+    attachments = MediaAttachment.objects.filter(
+        business_key_type='id_number',
+        business_key_value=business_key,
+        file_type='LAF',
+        upload_status='success',
+    ).exclude(drive_url='').order_by('-created_at')
+    laf_media = [
+        {
+            'url': item.drive_url,
+            'name': item.original_filename or 'LAF document',
+            'created_at': item.created_at.isoformat() if item.created_at else '',
+        }
+        for item in attachments
+    ]
+    # Older uploads may predate categorized MediaAttachment rows. Keep them
+    # viewable as a clearly labelled fallback rather than hiding the evidence.
+    if not laf_media:
+        laf_media = [
+            {'url': url.strip(), 'name': 'Legacy LAF/media link', 'created_at': ''}
+            for url in str(farmer.jbl_media_urls or '').splitlines()
+            if url.strip()
+        ]
+    return JsonResponse({'ok': True, 'laf_media': laf_media})
 
 @csrf_exempt
 @require_http_methods(["GET"])
@@ -2152,6 +2194,8 @@ def portal_invoice_farmer_candidates(request):
                 'primary_phone': farmer.primary_phone,
                 'order_number': farmer.order_number,
                 'county': farmer.county,
+                'sub_county': farmer.sub_county,
+                'village': farmer.village,
                 'customer_no': farmer.customer_no,
                 'invoice_number': farmer.invoice_number,
                 'has_invoice': bool(farmer.invoice_number),

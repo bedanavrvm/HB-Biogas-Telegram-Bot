@@ -664,6 +664,26 @@ h2 { font-size: 13px; font-weight: 750; }
 
 .detail-shell { display: grid; gap: 8px; padding: 0; background: transparent; border: none; box-shadow: none; }
 
+.detail-actions {
+  display: flex;
+  justify-content: flex-end;
+  min-height: 32px;
+}
+
+.case-correction-panel {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  background: var(--tat-surface);
+  border: 1px solid var(--tat-line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+.case-correction-panel.hidden { display: none !important; }
+.case-correction-panel .section-head { align-items: flex-start; }
+.case-correction-panel .section-head p { max-width: 560px; }
+.correction-actions { grid-column: 1 / -1; }
+
 .detail-header-block {
   padding: 8px;
   background: var(--tat-surface);
@@ -896,6 +916,7 @@ h2 { font-size: 13px; font-weight: 750; }
 }
 .stage-action-wrap select { min-height: 32px; font-size: 12px; padding: 5px 8px; border-radius: var(--radius-sm); }
 .stage-action-wrap button.compact-btn { min-height: 32px; font-size: 12px; border-radius: var(--radius-sm); width: fit-content; }
+.stage-action-wrap input { min-height: 32px; min-width: 150px; padding: 5px 8px; font-size: 12px; border-radius: var(--radius-sm); }
 
 .lock-note {
   font-size: 10px;

@@ -347,7 +347,7 @@
         '<div>',
         '<div class="fc-name">' + escapeHtml(farmer.customer_name || 'Unnamed farmer') + '</div>',
         '<div class="fc-sub">ID ' + escapeHtml(farmer.national_id || '-') + ' | ' + escapeHtml(farmer.primary_phone || '-') + '</div>',
-        '<div class="fc-sub">' + escapeHtml(farmer.county || '-') + (farmer.order_number ? ' | Order ' + escapeHtml(farmer.order_number) : '') + (farmer.customer_no ? ' | Customer No ' + escapeHtml(farmer.customer_no) : '') + '</div>',
+        '<div class="fc-sub">' + escapeHtml(deps.locationText(farmer)) + (farmer.order_number ? ' | Order ' + escapeHtml(farmer.order_number) : '') + (farmer.customer_no ? ' | Customer No ' + escapeHtml(farmer.customer_no) : '') + '</div>',
         reasons,
         conflict,
         '</div>',

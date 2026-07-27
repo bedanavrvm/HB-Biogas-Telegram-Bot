@@ -568,6 +568,11 @@
 
   function renderDetail(detail) {
     const summary = detail.summary;
+    const correctionButton = $('correctCaseDetailsBtn');
+    if (correctionButton) {
+      correctionButton.classList.toggle('hidden', !detail.can_correct_details);
+      fillCaseCorrectionForm(summary);
+    }
     $('detailSummary').innerHTML = `
       <div class="detail-header-block">
         <div class="detail-title-row">
@@ -682,6 +687,16 @@
           actionWrap.appendChild(button);
         }
         row.querySelector('.stage-content').appendChild(actionWrap);
+      } else if (field.can_correct) {
+        const actionWrap = document.createElement('div');
+        actionWrap.className = 'stage-action-wrap';
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'secondary compact-btn';
+        button.textContent = 'Correct';
+        button.addEventListener('click', () => openStageCorrection(actionWrap, field));
+        actionWrap.appendChild(button);
+        row.querySelector('.stage-content').appendChild(actionWrap);
       } else if (field.locked_reason) {
         const note = document.createElement('div');
         note.className = 'lock-note';
@@ -711,6 +726,80 @@
         `;
         events.appendChild(row);
       });
+    }
+  }
+
+  function fillCaseCorrectionForm(summary) {
+    const form = $('caseCorrectionForm');
+    if (!form || !summary) return;
+    ['client_name', 'national_id', 'primary_phone', 'branch', 'bro_name', 'amount'].forEach((field) => {
+      const input = form.elements[field];
+      if (input) input.value = summary[field] || '';
+    });
+  }
+
+  function openStageCorrection(actionWrap, field) {
+    const current = field.raw_value || '';
+    const input = document.createElement('input');
+    input.type = field.kind === 'timestamp' ? 'datetime-local' : 'text';
+    input.value = field.kind === 'timestamp' ? correctionDateTimeValue(current) : current;
+    input.setAttribute('aria-label', 'Correct ' + field.label);
+    const save = document.createElement('button');
+    save.type = 'button';
+    save.className = 'primary compact-btn';
+    save.textContent = 'Save';
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'ghost-btn compact-btn';
+    cancel.textContent = 'Cancel';
+    actionWrap.innerHTML = '';
+    actionWrap.append(input, save, cancel);
+    input.focus();
+    cancel.addEventListener('click', () => renderDetail(state.detail));
+    save.addEventListener('click', async () => {
+      if (!input.value.trim()) {
+        setStatus('Enter a correction value first.', 'error');
+        return;
+      }
+      save.disabled = true;
+      try {
+        await submitUpdate([{ field: field.key, value: input.value.trim(), correction: true }]);
+      } catch (error) {
+        setStatus(error.message, 'error');
+        save.disabled = false;
+      }
+    });
+  }
+
+  function correctionDateTimeValue(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    const pad = (number) => String(number).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+
+  async function submitCaseCorrection(event) {
+    event.preventDefault();
+    if (!state.detail || !state.detail.can_correct_details) return;
+    const form = event.currentTarget;
+    const fields = ['client_name', 'national_id', 'primary_phone', 'branch', 'bro_name', 'amount'];
+    const current = state.detail.summary || {};
+    const updates = fields
+      .map((field) => ({ field, value: String(form.elements[field]?.value || '').trim(), correction: true }))
+      .filter((item) => String(current[item.field] || '').trim() !== item.value);
+    if (!updates.length) {
+      setStatus('No case detail changes were entered.', 'error');
+      return;
+    }
+    const button = $('saveCaseCorrectionBtn');
+    setButtonLoading(button, true, 'Saving');
+    try {
+      await submitUpdate(updates);
+      $('caseCorrectionPanel').classList.add('hidden');
+    } catch (error) {
+      setStatus(error.message, 'error');
+    } finally {
+      setButtonLoading(button, false);
     }
   }
 
@@ -750,7 +839,7 @@
     if (!select.value || select.value === previousValue) return;
     select.disabled = true;
     try {
-      await submitUpdate([{ field: field.key, value: select.value }]);
+      await submitUpdate([{ field: field.key, value: select.value, correction: Boolean(field.value) }]);
     } catch (error) {
       select.value = previousValue;
       setStatus(error.message, 'error');
@@ -793,6 +882,12 @@
       setButtonLoading(button, false);
     }
   });
+  $('correctCaseDetailsBtn').addEventListener('click', () => {
+    $('caseCorrectionPanel').classList.remove('hidden');
+    $('caseCorrectionForm').elements.client_name?.focus();
+  });
+  $('cancelCaseCorrectionBtn').addEventListener('click', () => $('caseCorrectionPanel').classList.add('hidden'));
+  $('caseCorrectionForm').addEventListener('submit', submitCaseCorrection);
   $('targetSettingsForm').addEventListener('submit', async (event) => {
     event.preventDefault();
     if (state.savingTargets) return;
