@@ -21,6 +21,10 @@
       <div class="fc-sub fc-visit-date">HB visit: {{ farmer.sign_date }}</div>
     {% endif %}
     <div class="fc-badges">
+      {% if review_stage == 'payment' and farmer.payment_review_payment_number %}
+        <span class="badge badge-orange">Payment #{{ farmer.payment_review_payment_number }} awaiting HOR review</span>
+        <span class="badge badge-grey">Order {{ farmer.payment_review_order_number|default:"-" }}</span>
+      {% endif %}
       {% if farmer.reappraisal_required %}<span class="badge badge-red">Reappraisal required since {{ farmer.deferred_until }}</span>{% endif %}
       {% if farmer.unit_number %}<span class="badge badge-grey">Unit {{ farmer.unit_number }}</span>{% endif %}
       {% if farmer.stage_label %}
@@ -39,5 +43,8 @@
         <span class="badge badge-green">Order: {{ farmer.order_number }}</span>
       {% endif %}
     </div>
+    {% if review_stage == 'payment' and farmer.payment_review_document_id %}
+      <button type="button" class="btn btn-secondary btn-open-payment-review" data-payment-document-id="{{ farmer.payment_review_document_id }}" onclick="event.stopPropagation();">Open payment review</button>
+    {% endif %}
   </div>
 </div>

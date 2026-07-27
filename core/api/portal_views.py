@@ -274,6 +274,63 @@ PORTAL_QUEUE_FRAGMENT_CONFIG = {
 }
 
 
+def _portal_review_stage(request) -> str:
+    """Normalize the three HOR review lenses exposed by the review page."""
+    value = str(request.GET.get('stage') or request.GET.get('review_stage') or 'decision').strip().lower()
+    return value if value in {'decision', 'requisition', 'payment'} else 'decision'
+
+
+def _pending_payment_review_map(request=None):
+    """Return the newest pending payment document for each selected farmer.
+
+    Payment review is a batch checkpoint, but the review page is case based.
+    Keeping this indirection in one helper prevents a farmer from appearing in
+    two pending payment batches and makes the review page match the exact
+    snapshot that will be approved.
+    """
+    from core.models import PaymentDocument
+
+    pending = {}
+    documents = PaymentDocument.objects.filter(status='pending_review').order_by('-created_at')
+    for document in documents:
+        if request is not None and not _portal_saved_document_in_scope(
+            request, document.order_number, document.farmer_ids,
+        ):
+            continue
+        for farmer_id in document.farmer_ids or []:
+            pending.setdefault(str(farmer_id), document)
+    return pending
+
+
+def _payment_review_queryset(request):
+    """Return active farmers and their pending payment-review metadata."""
+    from core.models import JawabuFarmerMaster
+
+    review_map = _pending_payment_review_map(request)
+    if not review_map:
+        return JawabuFarmerMaster.objects.none(), review_map
+    queryset = JawabuFarmerMaster.objects.filter(
+        status='active', id__in=list(review_map),
+    )
+    return _apply_county_branch_filters(queryset, request), review_map
+
+
+def _card_with_payment_review_metadata(farmer, card, review_map):
+    document = review_map.get(str(farmer.id))
+    if not document:
+        return card
+    card.update({
+        'payment_review_document_id': str(document.id),
+        'payment_review_payment_number': document.payment_number,
+        'payment_review_order_number': ', '.join(
+            (document.validation_summary or {}).get('order_numbers') or [document.order_number]
+        ),
+        'payment_review_version': document.version,
+        'payment_review_created_at': document.created_at.isoformat() if document.created_at else None,
+    })
+    return card
+
+
 def _portal_queue_queryset(queue_key: str, request):
     from core.services import jawabu_pipeline
 
@@ -289,7 +346,16 @@ def _portal_queue_queryset(queue_key: str, request):
         )
         qs = _apply_county_branch_filters(qs, request)
     else:
-        qs = getattr(jawabu_pipeline, config['service'])()
+        if queue_key == 'final':
+            stage = _portal_review_stage(request)
+            if stage == 'requisition':
+                qs = jawabu_pipeline.requisition_queue()
+            elif stage == 'payment':
+                qs, _review_map = _payment_review_queryset(request)
+            else:
+                qs = jawabu_pipeline.final_review_queue()
+        else:
+            qs = getattr(jawabu_pipeline, config['service'])()
         qs = _apply_county_branch_filters(qs, request)
     return qs, config
 
@@ -914,14 +980,26 @@ def portal_queue_fragment(request, queue_key: str):
         return HttpResponse('Unknown portal queue.', status=404)
 
     items, pagination = _paginate_qs(qs, request)
+    review_stage = _portal_review_stage(request) if queue_key == 'final' else ''
+    review_map = _pending_payment_review_map(request) if review_stage == 'payment' else {}
+    fragment_mode = config['mode']
+    if queue_key == 'final' and review_stage == 'requisition':
+        fragment_mode = 'requisition'
+    elif queue_key == 'final' and review_stage == 'payment':
+        fragment_mode = ''
+    farmer_cards = [
+        _card_with_payment_review_metadata(farmer, farmer_to_card(farmer), review_map)
+        for farmer in items
+    ]
     return render(request, 'portal/partials/farmer_list.html', {
-        'farmers': [farmer_to_card(f) for f in items],
+        'farmers': farmer_cards,
         'pagination': pagination,
         'queue_key': queue_key,
-        'mode': config['mode'],
+        'mode': fragment_mode,
         'county': request.GET.get('county', '').strip(),
         'branch': request.GET.get('branch', '').strip(),
         'search': request.GET.get('search', '').strip(),
+        'review_stage': review_stage,
         'empty_title': config['empty_title'],
         'empty_sub': config['empty_sub'],
     })
@@ -1172,14 +1250,31 @@ def portal_final_review_queue(request):
     access_error = _portal_read_access_error(request)
     if access_error:
         return access_error
-    """GET /api/portal/final-review-queue/ - records awaiting Head of Rural final decision."""
+    """GET /api/portal/final-review-queue/ - the Head of Rural review lenses.
+
+    ``stage=decision`` is the original final-decision queue.  ``stage=requisition``
+    shows approved cases waiting for order batching, while ``stage=payment``
+    shows the exact farmers captured by pending payment review documents.
+    """
     from core.services.jawabu_pipeline import final_review_queue, farmer_to_card
-    qs = _apply_county_branch_filters(final_review_queue(), request)
+    stage = _portal_review_stage(request)
+    review_map = {}
+    if stage == 'requisition':
+        from core.services.jawabu_pipeline import requisition_queue
+        qs = _apply_county_branch_filters(requisition_queue(), request)
+    elif stage == 'payment':
+        qs, review_map = _payment_review_queryset(request)
+    else:
+        qs = _apply_county_branch_filters(final_review_queue(), request)
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
         'queue': 'final_review',
-        'farmers': [farmer_to_card(f) for f in items],
+        'review_stage': stage,
+        'farmers': [
+            _card_with_payment_review_metadata(f, farmer_to_card(f), review_map)
+            for f in items
+        ],
         'pagination': pagination,
     })
 
@@ -2600,7 +2695,44 @@ def portal_payment_candidates(request):
         )
     farmers = list(queryset[:250])
     readiness = payment_readiness(farmer_ids=[str(farmer.id) for farmer in farmers]) if farmers else {'ready': [], 'blocked': []}
-    return JsonResponse({'ok': True, 'ready': readiness['ready'], 'blocked': readiness['blocked']})
+    pending_map = _pending_payment_review_map(request)
+    pending_review = []
+    ready = []
+    blocked = []
+    for item in readiness.get('ready', []):
+        document = pending_map.get(str(item.get('farmer_id')))
+        if document:
+            item = {
+                **item,
+                'payment_review_document_id': str(document.id),
+                'payment_review_payment_number': document.payment_number,
+                'payment_review_order_number': ', '.join(
+                    (document.validation_summary or {}).get('order_numbers') or [document.order_number]
+                ),
+            }
+            pending_review.append(item)
+        else:
+            ready.append(item)
+    for item in readiness.get('blocked', []):
+        document = pending_map.get(str(item.get('farmer_id')))
+        if document:
+            item = {
+                **item,
+                'payment_review_document_id': str(document.id),
+                'payment_review_payment_number': document.payment_number,
+                'payment_review_order_number': ', '.join(
+                    (document.validation_summary or {}).get('order_numbers') or [document.order_number]
+                ),
+            }
+            pending_review.append(item)
+        else:
+            blocked.append(item)
+    return JsonResponse({
+        'ok': True,
+        'ready': ready,
+        'blocked': blocked,
+        'pending_review': pending_review,
+    })
 
 
 @csrf_exempt
@@ -2665,6 +2797,14 @@ def portal_payment_selection(request):
                     'requires_head_rural_review': True,
                     'idempotent_replay': True,
                 })
+            pending_map = _pending_payment_review_map(request)
+            overlap = [pending_map[str(farmer_id)] for farmer_id in farmer_ids if str(farmer_id) in pending_map]
+            if overlap:
+                numbers = ', '.join(sorted({str(doc.payment_number or doc.order_number) for doc in overlap}))
+                raise PaymentTemplateError(
+                    f'One or more selected cases is already awaiting Head of Rural payment review ({numbers}). '
+                    'Open the Review queue to complete that batch first.'
+                )
             document = create_payment_document(
                 scope, payment_number, actor=_portal_sender_from_request(request),
                 final=False,
@@ -2814,13 +2954,19 @@ def portal_payment_document_approve(request, document_id: str):
 
     body = _json_body(request)
     comment = str(body.get('call_up_comments') or body.get('decision_comment') or '').strip()
-    if not comment:
-        return JsonResponse({'ok': False, 'error': 'Head of Rural Call Up Comments are required before approval.'}, status=400)
+    case_comments = body.get('case_call_up_comments') or {}
+    if not isinstance(case_comments, dict):
+        return JsonResponse({'ok': False, 'error': 'case_call_up_comments must be an object keyed by case ID.'}, status=400)
+    # Keep old clients working when they send one batch comment, but require
+    # the current per-case contract whenever the review form submits comments.
+    if not case_comments and not comment:
+        return JsonResponse({'ok': False, 'error': 'Enter a Head of Rural Call Up Comment for every selected case.'}, status=400)
     try:
         final_document = approve_payment_document(
             str(document.id),
             actor=_portal_sender_from_request(request),
             call_up_comments=comment,
+            case_call_up_comments={str(key): str(value or '').strip() for key, value in case_comments.items()},
         )
     except PaymentTemplateError as exc:
         return JsonResponse({

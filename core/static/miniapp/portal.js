@@ -33,7 +33,7 @@
     metaCounties: [],
     selectedFarmer: null,
     activeMode: null, // 'jbl_visit' | 'credit' | 'final_review' | 'requisition'
-    filters: { county: '', branch: '' },
+    filters: { county: '', branch: '', reviewStage: 'decision' },
     selectedRequisitions: new Set(),
     pendingRequisitionPayload: null
   };
@@ -454,6 +454,15 @@
         openFarmerSheet(data.farmer, card.dataset.mode || null);
       });
     });
+    root.querySelectorAll('.btn-open-payment-review').forEach(button => {
+      if (button.dataset.bound === '1') return;
+      button.dataset.bound = '1';
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        openPaymentReviewDocument(button.dataset.paymentDocumentId);
+      });
+    });
   }
 
   function hydrateHtmxBatchCards(root) {
@@ -629,6 +638,28 @@
     }
   }
 
+  function openPaymentReviewDocument(documentId) {
+    if (!documentId) return;
+    if (portalRequisitions.openFinalPaymentHistory) {
+      portalRequisitions.openFinalPaymentHistory(documentId);
+    } else {
+      showToast('Payment review is unavailable. Refresh the portal and try again.', 'error');
+    }
+  }
+
+  function paymentReviewMarkup(farmer) {
+    if (state.filters.reviewStage !== 'payment' || !farmer.payment_review_document_id) return '';
+    return `<span class="badge badge-orange">Payment #${escapeHtml(farmer.payment_review_payment_number || '-')} awaiting HOR review</span><span class="badge badge-grey">Order ${escapeHtml(farmer.payment_review_order_number || '-')}</span>
+      <button type="button" class="btn btn-secondary btn-open-payment-review" data-payment-document-id="${escapeHtml(farmer.payment_review_document_id)}">Open payment review</button>`;
+  }
+
+  function reviewCardMode(cfg, qKey) {
+    if (qKey !== 'final') return cfg.mode;
+    if (state.filters.reviewStage === 'requisition') return 'requisition';
+    if (state.filters.reviewStage === 'payment') return null;
+    return cfg.mode;
+  }
+
   async function openBatchDetail(orderNumber) {
     if (portalRequisitions.openBatchDetail) {
       return portalRequisitions.openBatchDetail(orderNumber);
@@ -655,6 +686,7 @@
             ${stageBadge(f)}
             ${jblBadge(f)}
             ${creditBadge(f)}
+            ${paymentReviewMarkup(f)}
             ${f.order_number ? `<span class="badge badge-green">Order: ${f.order_number}</span>` : ''}
           </div>
         </div>
@@ -666,7 +698,15 @@
         const qKey = card.dataset.qkey;
         const farmerId = card.dataset.farmerId;
         const farmer = (state.queues[qKey] || []).find(item => String(item.id) === String(farmerId)) || { id: farmerId };
-        openCurrentFarmerSheet(farmer, cfg.mode);
+        openCurrentFarmerSheet(farmer, reviewCardMode(cfg, qKey));
+      });
+    });
+
+    listEl.querySelectorAll('.btn-open-payment-review').forEach(button => {
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        openPaymentReviewDocument(button.dataset.paymentDocumentId);
       });
     });
 
@@ -986,6 +1026,7 @@
       locationText,
       openFarmerSheet,
       openCurrentFarmerSheet,
+      openPaymentReviewDocument,
       queueConfig,
       renderQueueFragment,
       stageBadge,

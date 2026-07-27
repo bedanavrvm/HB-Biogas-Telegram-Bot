@@ -13,7 +13,7 @@ from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import AccessGrant, GroupSheetConfiguration, InvoiceUploadBatch, JawabuFarmerMaster, LiveSheetRecordChange, MediaAttachment, ParsedInvoice, RequisitionBatch, UserProfile
+from core.models import AccessGrant, GroupSheetConfiguration, InvoiceUploadBatch, JawabuFarmerMaster, LiveSheetRecordChange, MediaAttachment, ParsedInvoice, PaymentDocument, RequisitionBatch, UserProfile
 from core.services.jawabu_pipeline import (
     assign_order,
     all_cases,
@@ -548,6 +548,29 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(str(invoiced.id), returned_ids)
         self.assertNotIn(str(delayed.id), returned_ids)
+
+    def test_head_of_rural_review_lenses_include_requisition_and_payment_batches(self):
+        self.farmer.final_decision = 'Approved'
+        self.farmer.order_number = ''
+        self.farmer.jbl_visit_date = date(2026, 7, 24)
+        self.farmer.credit_decision = 'Approved'
+        self.farmer.imab_created = 'Yes'
+        self.farmer.customer_no = 'C-1'
+        self.farmer.save()
+
+        requisition = self.client.get(reverse('portal_final_review_queue'), {'stage': 'requisition'})
+        self.assertEqual(requisition.status_code, 200)
+        self.assertIn(str(self.farmer.id), {item['id'] for item in requisition.json()['farmers']})
+
+        payment = PaymentDocument.objects.create(
+            order_number='ORDER-PAYMENT', payment_number='12', status='pending_review',
+            farmer_ids=[str(self.farmer.id)], row_count=1,
+        )
+        payment_queue = self.client.get(reverse('portal_final_review_queue'), {'stage': 'payment'})
+        self.assertEqual(payment_queue.status_code, 200)
+        item = next(item for item in payment_queue.json()['farmers'] if item['id'] == str(self.farmer.id))
+        self.assertEqual(item['payment_review_document_id'], str(payment.id))
+        self.assertEqual(item['payment_review_payment_number'], '12')
 
     def test_portal_jbl_queue_fragment_renders_cards(self):
         """Verify the htmx JBL queue fragment renders useful farmer cards."""

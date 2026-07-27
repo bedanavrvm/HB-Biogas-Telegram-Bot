@@ -1903,6 +1903,11 @@ class PaymentDocument(models.Model):
         default='',
         help_text='Head of Rural approval comment written to the payment template COL column.',
     )
+    case_call_up_comments = models.JSONField(
+        blank=True,
+        default=dict,
+        help_text='Per-case Head of Rural payment COL comments keyed by farmer ID.',
+    )
     finalized_by = models.CharField(max_length=255, blank=True, default='')
     row_count = models.PositiveIntegerField(default=0)
     farmer_ids = models.JSONField(blank=True, default=list)

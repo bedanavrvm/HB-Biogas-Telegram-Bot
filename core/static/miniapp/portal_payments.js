@@ -25,17 +25,18 @@
     return Number.isFinite(number) ? String(number).replace(/\.0+$/, '') : String(value);
   }
 
-  function candidateCard(item, blocked) {
+  function candidateCard(item, blocked, pending) {
     const row = item.row || {};
-    const disabled = blocked ? 'disabled' : '';
+    const disabled = blocked || pending ? 'disabled' : '';
     const missing = (item.missing || []).map(value => String(value).replace(/_/g, ' ')).join(', ');
-    return `<article class="payment-candidate ${blocked ? 'blocked' : ''}${selected.has(String(item.farmer_id)) ? ' selected' : ''}">
+    return `<article class="payment-candidate ${blocked ? 'blocked' : ''}${pending ? ' pending-review' : ''}${selected.has(String(item.farmer_id)) ? ' selected' : ''}">
       <label class="payment-candidate-main">
         <input class="payment-candidate-checkbox" type="checkbox" value="${escape(item.farmer_id)}" ${disabled}>
         <span><strong>${escape(item.customer_name || row.name || 'Unnamed customer')}</strong><small>${escape([item.national_id, item.primary_phone].filter(Boolean).join(' | '))}</small></span>
       </label>
       <div class="payment-candidate-meta"><span>Invoice <strong>${escape(item.invoice_number || '-')}</strong></span><span>Order <strong>${escape(row.order_no || '-')}</strong></span><span>Balance due <strong>${escape(amount(row.hb_invoice_amount))}</strong></span><span>Branch <strong>${escape(row.branch || '-')}</strong></span><span>Repayment <strong>${escape([row.repayment_dates, row.tenor ? `${row.tenor} months` : ''].filter(Boolean).join(' / ') || '-')}</strong></span></div>
       ${blocked ? `<div class="payment-candidate-warning">Missing: ${escape(missing || 'required payment data')}</div>` : ''}
+      ${pending ? `<div class="payment-candidate-warning">Payment #${escape(item.payment_review_payment_number || '-')} is already awaiting Head of Rural review.</div>` : ''}
     </article>`;
   }
 
@@ -51,12 +52,13 @@
     }
     const ready = response.data.ready || [];
     const blocked = response.data.blocked || [];
+    const pending = response.data.pending_review || [];
     readyIds = ready.map(item => item.farmer_id);
-    const visible = new Set([...readyIds, ...blocked.map(item => item.farmer_id)]);
+    const visible = new Set([...readyIds, ...blocked.map(item => item.farmer_id), ...pending.map(item => item.farmer_id)]);
     [...selected].forEach(id => { if (!visible.has(id)) selected.delete(id); });
-    el('payments-ready-summary').textContent = `${ready.length} ready | ${blocked.length} need attention`;
-    list.innerHTML = ready.length || blocked.length
-      ? ready.map(item => candidateCard(item, false)).join('') + blocked.map(item => candidateCard(item, true)).join('')
+    el('payments-ready-summary').textContent = `${ready.length} ready | ${blocked.length} need attention | ${pending.length} awaiting HOR review`;
+    list.innerHTML = ready.length || blocked.length || pending.length
+      ? ready.map(item => candidateCard(item, false, false)).join('') + blocked.map(item => candidateCard(item, true, false)).join('') + pending.map(item => candidateCard(item, false, true)).join('')
       : '<div class="empty-state"><div class="es-title">No invoice-matched cases</div><div class="es-sub">Confirm invoice matching before building a payment batch.</div></div>';
     updateSelection();
   }
@@ -147,10 +149,8 @@
           Payment #${escape(document.payment_number)} is awaiting Head of Rural approval. Repayment date and tenor are already populated in the review workbook.
           ${document.drive_url ? '<button type="button" class="btn btn-secondary" id="payments-open-review" style="margin-top:8px;">Open review Excel</button>' : ''}
         </div>
-        <label style="display:grid;gap:6px;margin-top:10px;">Call Up Comments (COL)
-          <textarea id="payments-call-up-comments" rows="3" placeholder="Head of Rural approval comments"></textarea>
-        </label>
-        <button type="button" class="btn btn-primary" id="payments-approve" data-document-id="${escape(document.id)}" style="margin-top:8px;">Approve and create final payment</button>`;
+        <p class="meta">Each case needs its own Head of Rural Call Up Comment. Open the case-by-case review to complete the payment approval.</p>
+        <button type="button" class="btn btn-primary" id="payments-open-case-review" data-document-id="${escape(document.id)}" style="margin-top:8px;">Review each case</button>`;
     panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -200,6 +200,10 @@
       } else if (target.closest('#payments-preview')) preview(target.closest('#payments-preview'));
       else if (target.closest('#payments-finalize')) finalize(target.closest('#payments-finalize'));
       else if (target.closest('#payments-approve')) approve(target.closest('#payments-approve'));
+      else if (target.closest('#payments-open-case-review')) {
+        const documentId = target.closest('#payments-open-case-review').dataset.documentId;
+        deps.requisitions.openFinalPaymentHistory?.(documentId);
+      }
       else if (target.closest('#payments-open-review') && reviewDocument?.drive_url) deps.openPortalLink(reviewDocument.drive_url);
     });
     document.addEventListener('keydown', event => {

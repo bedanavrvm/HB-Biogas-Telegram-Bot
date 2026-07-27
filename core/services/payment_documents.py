@@ -296,6 +296,7 @@ def _row_payload(
     farmer: JawabuFarmerMaster,
     *,
     call_up_comments: str | None = None,
+    case_call_up_comments: dict[str, str] | None = None,
 ) -> tuple[dict[str, Any], list[str], ParsedInvoice | None]:
     invoice = _invoice_for_farmer(farmer)
     missing = []
@@ -314,6 +315,7 @@ def _row_payload(
 
     hbg_deposit, jbl_deposit = requisition_deposit_values(farmer)
 
+    case_comment = (case_call_up_comments or {}).get(str(farmer.id))
     row = {
         'requisition_date': farmer.requisition_date,
         'order_no': farmer.order_number,
@@ -335,18 +337,16 @@ def _row_payload(
         'repayment_dates': farmer.repayment_date,
         'tenor': farmer.repayment_tenor,
         'product': farmer.payment_product,
-        # Head of Rural's comment is the call-up comment on the payment
-        # template; retain earlier JBL/master comments as a fallback.
-        'call_up_comments': (
-            call_up_comments
-            if call_up_comments is not None
-            else (
-                farmer.final_decision_comment
-                or farmer.jbl_visit_comment
-                or farmer.comments
-                or ''
-            )
-        ),
+        # Payment COL is a separate Head-of-Rural checkpoint.  It must not
+        # inherit the earlier order/requisition decision comment: a payment
+        # draft is intentionally blank until HOR approves that batch.
+        'call_up_comments': str(
+            case_comment if case_comment is not None else (call_up_comments or '')
+        ).strip(),
+        # This is reference-only metadata for the in-app review; the payment
+        # workbook layout intentionally ignores it.
+        'farmer_id': str(farmer.id),
+        'order_call_up_comments': str(farmer.final_decision_comment or '').strip(),
     }
     return row, missing, invoice
 
@@ -356,6 +356,7 @@ def payment_readiness(
     farmer_ids: list[str] | None = None,
     *,
     call_up_comments: str | None = None,
+    case_call_up_comments: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     queryset = JawabuFarmerMaster.objects.filter(status='active')
     if farmer_ids is not None:
@@ -367,7 +368,11 @@ def payment_readiness(
     blocked = []
     invoice_batch_ids = set()
     for farmer in farmers:
-        row, missing, invoice = _row_payload(farmer, call_up_comments=call_up_comments)
+        row, missing, invoice = _row_payload(
+            farmer,
+            call_up_comments=call_up_comments,
+            case_call_up_comments=case_call_up_comments,
+        )
         item = {
             'farmer_id': str(farmer.id),
             'customer_name': farmer.customer_name,
@@ -375,6 +380,9 @@ def payment_readiness(
             'primary_phone': farmer.primary_phone,
             'missing': missing,
             'row': row,
+            # Kept beside (not in) the payment COL so reviewers can compare
+            # the earlier order decision without confusing the two comments.
+            'order_call_up_comments': str(farmer.final_decision_comment or '').strip(),
         }
         if invoice:
             invoice_batch_ids.add(str(invoice.batch_id))
@@ -467,12 +475,14 @@ def generate_payment_workbook(
     farmer_ids: list[str] | None = None,
     *,
     call_up_comments: str | None = None,
+    case_call_up_comments: dict[str, str] | None = None,
 ) -> tuple[bytes, dict[str, Any]]:
     payment_number = normalize_payment_number(payment_number)
     readiness = payment_readiness(
         order_number,
         farmer_ids=farmer_ids,
         call_up_comments=call_up_comments,
+        case_call_up_comments=case_call_up_comments,
     )
     if farmer_ids is not None and len(readiness['ready']) + len(readiness['blocked']) != len(set(farmer_ids)):
         raise PaymentTemplateError('One or more selected payment cases was not found or is inactive.')
@@ -538,6 +548,7 @@ def create_payment_document(
     farmer_ids: list[str] | None = None,
     status: str | None = None,
     call_up_comments: str | None = None,
+    case_call_up_comments: dict[str, str] | None = None,
 ) -> PaymentDocument:
     """Create a preview or Head-of-Rural review artifact.
 
@@ -557,11 +568,13 @@ def create_payment_document(
         payment_number,
         farmer_ids=farmer_ids,
         call_up_comments=call_up_comments,
+        case_call_up_comments=case_call_up_comments,
     )
     readiness_snapshot = payment_readiness(
         order_number,
         farmer_ids=farmer_ids,
         call_up_comments=call_up_comments,
+        case_call_up_comments=case_call_up_comments,
     )
     printable_rows = json.loads(json.dumps(
         [item['row'] for item in readiness_snapshot['ready']], cls=DjangoJSONEncoder,
@@ -597,6 +610,7 @@ def create_payment_document(
             'reviewed_by': '',
             'reviewed_at': None,
             'call_up_comments': call_up_comments or '',
+            'case_call_up_comments': case_call_up_comments or {},
             'finalized_by': '',
             'finalized_at': None,
             'row_count': summary.get('ready_count', 0),
@@ -658,17 +672,15 @@ def approve_payment_document(
     *,
     actor: str = '',
     call_up_comments: str = '',
+    case_call_up_comments: dict[str, str] | None = None,
 ) -> PaymentDocument:
     """Approve a payment review snapshot and create the immutable final file.
 
-    The review snapshot is retained as an audit record.  Approval regenerates
-    the workbook with the Head of Rural's Call Up Comment in every payment row
-    and creates a separate final artifact, so a generated draft can never be
-    mistaken for the approved payment.
+    The review snapshot is retained as an audit record. Approval requires a
+    distinct Head-of-Rural Call Up Comment for every case, writes those values
+    to the corresponding COL cells, and creates a separate final artifact.
     """
     comment = str(call_up_comments or '').strip()
-    if not comment:
-        raise PaymentTemplateError('Head of Rural Call Up Comments are required before approval.')
 
     from core.models import JawabuFarmerMaster
 
@@ -688,10 +700,24 @@ def approve_payment_document(
         farmer_ids = list(review.farmer_ids or [])
         if not farmer_ids:
             raise PaymentTemplateError('The payment review has no selected cases.')
+        comments = {
+            str(key): str(value or '').strip()
+            for key, value in (case_call_up_comments or {}).items()
+            if str(key).strip()
+        }
+        # Legacy clients sent one batch comment. Preserve compatibility by
+        # applying it to every case, while the current UI always sends an
+        # explicit comment for each farmer.
+        if not comments and comment:
+            comments = {str(farmer_id): comment for farmer_id in farmer_ids}
+        missing_comments = [str(farmer_id) for farmer_id in farmer_ids if not comments.get(str(farmer_id))]
+        if missing_comments:
+            raise PaymentTemplateError('Enter a Head of Rural Call Up Comment for every selected case.')
         readiness = payment_readiness(
             review.order_number,
             farmer_ids=farmer_ids,
             call_up_comments=comment,
+            case_call_up_comments=comments,
         )
         if readiness['blocked_count']:
             raise PaymentTemplateError('Payment data changed since review. Resolve the blocked rows and regenerate the review.')
@@ -718,6 +744,7 @@ def approve_payment_document(
             generated_by=review.generated_by,
             error='Final workbook upload pending.',
             call_up_comments=comment,
+            case_call_up_comments=comments,
             row_count=readiness['ready_count'],
             farmer_ids=farmer_ids,
             invoice_batch_ids=readiness.get('invoice_batch_ids', []),
@@ -738,6 +765,7 @@ def approve_payment_document(
             review.payment_number,
             farmer_ids=farmer_ids,
             call_up_comments=comment,
+            case_call_up_comments=comments,
         )
         drive_file_id, drive_url = _upload_payment_workbook(
             xlsx, final.filename, actor, review.order_number,
@@ -771,12 +799,14 @@ def approve_payment_document(
             review.reviewed_by = actor
             review.reviewed_at = timezone.now()
             review.call_up_comments = comment
+            review.case_call_up_comments = comments
             review.validation_summary = {
                 **(review.validation_summary or {}),
                 'final_document_id': str(final.id),
             }
             review.save(update_fields=[
                 'status', 'reviewed_by', 'reviewed_at', 'call_up_comments',
+                'case_call_up_comments',
                 'validation_summary', 'updated_at',
             ])
             for farmer in JawabuFarmerMaster.objects.filter(id__in=farmer_ids):
@@ -792,6 +822,7 @@ def approve_payment_document(
                         'payment_number': review.payment_number,
                         'version': final.version,
                         'call_up_comments': comment,
+                        'case_call_up_comments': comments,
                     },
                     metadata={
                         'payment_document_id': str(final.id),
@@ -823,6 +854,8 @@ def serialize_payment_document(doc: PaymentDocument) -> dict[str, Any]:
         'reviewed_by': doc.reviewed_by,
         'reviewed_at': doc.reviewed_at.isoformat() if doc.reviewed_at else None,
         'call_up_comments': doc.call_up_comments,
+        'case_call_up_comments': doc.case_call_up_comments or {},
+        'farmer_ids': [str(value) for value in (doc.farmer_ids or [])],
         'row_count': doc.row_count,
         'validation_summary': doc.validation_summary,
         'created_at': doc.created_at.isoformat() if doc.created_at else None,

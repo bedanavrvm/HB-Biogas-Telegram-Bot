@@ -97,6 +97,17 @@
     </article>`;
   }
 
+  function renderPaymentCaseComments(rows, document) {
+    const comments = document?.case_call_up_comments || {};
+    if (!rows.length) return '<div class="batch-warning">No payment cases are available for review.</div>';
+    return `<div class="payment-case-review-list"><p class="meta">Review every case below. Each case must have its own Call Up Comment (COL); the order/requisition comment is a separate earlier-stage record.</p>${rows.map((row, index) => {
+      const farmerId = String(row.farmer_id || document?.farmer_ids?.[index] || '');
+      const value = row.call_up_comments || comments[farmerId] || '';
+      const orderComment = row.order_call_up_comments ? `<small>Order/requisition comment: ${deps.escapeHtml(row.order_call_up_comments)}</small>` : '<small>Order/requisition comment: none recorded</small>';
+      return `<label class="payment-case-review-row"><span><strong>${deps.escapeHtml(row.name || row.name_imab || `Case ${index + 1}`)}</strong><small>${deps.escapeHtml([row.cust_no, row.order_no].filter(Boolean).join(' | '))}</small>${orderComment}</span><textarea class="payment-case-comment" data-farmer-id="${deps.escapeHtml(farmerId)}" rows="2" placeholder="HOR comment for this case" required>${deps.escapeHtml(value)}</textarea></label>`;
+    }).join('')}</div>`;
+  }
+
   async function openPaymentPreview(orderNumber, button) {
     const overlay = el('payment-preview-overlay');
     const target = el('payment-preview-content');
@@ -143,12 +154,16 @@
     if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.error || 'Could not load payment document.', 'error');
     const document = response.data.document || {};
     const preview = response.data.preview || {};
+    preview.rows = (preview.rows || []).map((row, index) => ({
+      ...row,
+      farmer_id: row.farmer_id || document.farmer_ids?.[index] || '',
+    }));
     const overlay = el('payment-preview-overlay');
     if (el('payment-preview-sub')) el('payment-preview-sub').textContent = `Payment #${preview.payment_number || '-'} - Order ${preview.order_number || '-'}`;
     if (el('payment-preview-content')) {
       const valuePreview = renderPrintablePayment(preview);
       const reviewActions = document.status === 'pending_review'
-        ? `<div class="form-section" style="margin-top:12px;"><strong>Head of Rural review</strong><p class="meta">Confirm the repayment date and tenor above, then enter the Call Up Comments that must be written to COL in the final payment.</p><label style="display:grid;gap:6px;margin-top:8px;">Call Up Comments (COL)<textarea id="payment-review-call-up-comments" rows="3" placeholder="Approval comments"></textarea></label><button type="button" class="btn btn-primary" id="payment-review-approve" data-document-id="${deps.escapeHtml(document.id)}" style="margin-top:8px;">Approve and create final payment</button></div>`
+        ? `<div class="form-section" style="margin-top:12px;"><strong>Head of Rural payment review</strong>${renderPaymentCaseComments(preview.rows, document)}<button type="button" class="btn btn-primary" id="payment-review-approve" data-document-id="${deps.escapeHtml(document.id)}" style="margin-top:8px;">Approve and create final payment</button></div>`
         : '';
       el('payment-preview-content').innerHTML = valuePreview + reviewActions;
     }
@@ -159,16 +174,21 @@
 
   async function approvePaymentReview(button) {
     const documentId = button?.dataset.documentId || activePaymentReviewId;
-    const comment = String(el('payment-review-call-up-comments')?.value || '').trim();
-    if (!documentId || !comment) {
-      deps.showToast('Head of Rural Call Up Comments are required.', 'error');
+    const caseComments = {};
+    document.querySelectorAll('.payment-case-comment').forEach(input => {
+      const farmerId = String(input.dataset.farmerId || '').trim();
+      if (farmerId) caseComments[farmerId] = String(input.value || '').trim();
+    });
+    const missing = Object.values(caseComments).some(value => !value);
+    if (!documentId || !Object.keys(caseComments).length || missing) {
+      deps.showToast('Enter a Head of Rural Call Up Comment for every selected case.', 'error');
       return;
     }
     deps.setButtonLoading(button, true, 'Approving...');
     try {
       const response = await deps.portalApi.postJson(
         '/payment-document/' + encodeURIComponent(documentId) + '/approve/',
-        { call_up_comments: comment },
+        { case_call_up_comments: caseComments },
         deps.tg,
         csrfHeader(),
       );

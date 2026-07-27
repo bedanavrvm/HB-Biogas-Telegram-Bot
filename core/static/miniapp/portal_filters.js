@@ -79,6 +79,7 @@
               ${deps.stageBadge(farmer)}
               ${deps.jblBadge(farmer)}
               ${deps.creditBadge(farmer)}
+              ${state().filters.reviewStage === 'payment' && farmer.payment_review_document_id ? `<span class="badge badge-orange">Payment #${deps.escapeHtml(farmer.payment_review_payment_number || '-')} awaiting HOR review</span><span class="badge badge-grey">Order ${deps.escapeHtml(farmer.payment_review_order_number || '-')}</span><button type="button" class="btn btn-secondary btn-open-payment-review" data-payment-document-id="${deps.escapeHtml(farmer.payment_review_document_id)}">Open payment review</button>` : ''}
               ${farmer.order_number ? `<span class="badge badge-green">Order: ${deps.escapeHtml(farmer.order_number)}</span>` : ''}
             </div>
           </div>
@@ -91,7 +92,17 @@
         const key = card.dataset.qkey;
         const farmerId = card.dataset.farmerId;
         const farmer = (state().queues[key] || []).find(item => String(item.id) === String(farmerId)) || { id: farmerId };
-        deps.openCurrentFarmerSheet(farmer, cfg.mode);
+        const mode = qKey === 'final'
+          ? (state().filters.reviewStage === 'requisition' ? 'requisition' : state().filters.reviewStage === 'payment' ? null : cfg.mode)
+          : cfg.mode;
+        deps.openCurrentFarmerSheet(farmer, mode);
+      });
+    });
+    listEl.querySelectorAll('.btn-open-payment-review').forEach(button => {
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        deps.openPaymentReviewDocument(button.dataset.paymentDocumentId);
       });
     });
 
@@ -122,6 +133,13 @@
   }
 
   function bindEvents() {
+    el('final-review-stage')?.addEventListener('change', async event => {
+      state().filters.reviewStage = event.target.value || 'decision';
+      // Fetch the selected lens again so the non-HTMX fallback and the
+      // fragment path both replace the cached decision queue.
+      await deps.loadQueue('final', 1);
+    });
+
     el('filter-county')?.addEventListener('change', async event => {
       state().filters.county = event.target.value;
       state().filters.branch = '';

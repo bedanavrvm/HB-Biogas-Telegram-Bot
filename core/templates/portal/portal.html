@@ -132,6 +132,15 @@
       <h1>Head of Rural Review</h1>
       <p class="meta">Call clients, add after-call comments, and record final decision</p>
     </header>
+    <div class="review-stage-toolbar" role="group" aria-label="Head of Rural review stage">
+      <label for="final-review-stage">Review queue</label>
+      <select id="final-review-stage">
+        <option value="decision">Final decision (before requisition)</option>
+        <option value="requisition">Ready for requisition / order</option>
+        <option value="payment">Payment batches awaiting HOR review</option>
+      </select>
+      <span class="meta">Payment review shows the exact cases captured in each pending payment file.</span>
+    </div>
     <div id="final-list" class="farmer-list">
       <div class="empty-state"><div class="spinner-inline"></div></div>
     </div>

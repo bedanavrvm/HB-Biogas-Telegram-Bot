@@ -30,6 +30,9 @@
   function appendCommonFilters(params, state) {
     if ((state.filters || {}).county) params.set('county', state.filters.county);
     if ((state.filters || {}).branch) params.set('branch', state.filters.branch);
+    if (state.activePage === 'final' && (state.filters || {}).reviewStage) {
+      params.set('stage', state.filters.reviewStage);
+    }
   }
 
   function queueUrl(queueKey, page, state) {

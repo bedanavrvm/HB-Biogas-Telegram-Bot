@@ -589,6 +589,24 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(readiness['ready_count'], 0)
         self.assertIn('Balance Due', readiness['blocked'][0]['missing'])
 
+    def test_payment_col_is_separate_from_order_call_up_comment(self):
+        farmer = self.farmer(final_decision_comment='Approved for order after customer call.')
+        self.invoice_batch(farmer)
+
+        readiness = payment_readiness('ORDER-001')
+
+        self.assertEqual(readiness['ready'][0]['row']['call_up_comments'], '')
+        self.assertEqual(
+            readiness['ready'][0]['order_call_up_comments'],
+            'Approved for order after customer call.',
+        )
+
+        xlsx, _summary = generate_payment_workbook('ORDER-001', '106')
+        workbook = load_workbook(io.BytesIO(xlsx), data_only=False)
+        layout = payment_template_layout(workbook)
+        ws = workbook['#106']
+        self.assertIn(ws.cell(row=layout.data_start_row, column=layout.columns['call_up_comments']).value, (None, ''))
+
     def test_payment_workbook_generation_uses_ready_farmer_and_preserves_signatures(self):
         farmer = self.farmer()
         self.invoice_batch(farmer)
@@ -763,6 +781,36 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         ws = workbook['#89']
         layout = payment_template_layout(workbook)
         self.assertEqual(ws.cell(row=layout.data_start_row, column=layout.columns['call_up_comments']).value, final.call_up_comments)
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_payment_approval_persists_a_comment_for_each_case(self, storage):
+        farmer = self.farmer(final_decision_comment='Order-stage comment')
+        self.invoice_batch(farmer)
+        storage.return_value.upload.side_effect = [
+            ('review-xlsx', 'https://drive.test/review'),
+            ('final-xlsx', 'https://drive.test/final'),
+        ]
+        review = create_payment_document('ORDER-001', '107', status='pending_review')
+        comment = 'HOR payment review: release after balance confirmation.'
+        response = self.client.post(
+            reverse('portal_payment_document_approve', args=[str(review.id)]),
+            data=json.dumps({'case_call_up_comments': {str(farmer.id): comment}}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        final = PaymentDocument.objects.get(status='final')
+        self.assertEqual(final.case_call_up_comments, {str(farmer.id): comment})
+        self.assertEqual(final.call_up_comments, '')
+        workbook = load_workbook(io.BytesIO(generate_payment_workbook(
+            'ORDER-001', '107', farmer_ids=[str(farmer.id)],
+            case_call_up_comments={str(farmer.id): comment},
+        )[0]), data_only=False)
+        layout = payment_template_layout(workbook)
+        self.assertEqual(
+            workbook['#107'].cell(row=layout.data_start_row, column=layout.columns['call_up_comments']).value,
+            comment,
+        )
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_selected_payment_submission_is_not_final(self, storage):

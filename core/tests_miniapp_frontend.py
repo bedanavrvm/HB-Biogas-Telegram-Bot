@@ -340,5 +340,5 @@ class MiniAppFrontendSmokeTests(TestCase):
         stylesheet = Path('core/static/miniapp/portal.css').read_text(encoding='utf-8')
         response = self.client.get(reverse('portal_home'))
 
-        self.assertContains(response, 'miniapp/portal.css?v=32')
+        self.assertContains(response, 'miniapp/portal.css?v=34')
         self.assertIn('#requisition-preview-overlay { z-index: 240; }', stylesheet)
