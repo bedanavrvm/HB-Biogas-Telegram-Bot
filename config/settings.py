@@ -7,15 +7,24 @@ import sys
 from pathlib import Path
 import dj_database_url
 from decouple import config
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+RUNNING_TESTS = 'test' in sys.argv
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = config('DJANGO_SECRET_KEY', default='django-inchange-me-in-production')
+_DEFAULT_SECRET_KEY = 'django-inchange-me-in-production'
+SECRET_KEY = config('DJANGO_SECRET_KEY', default=_DEFAULT_SECRET_KEY)
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
+if not DEBUG and not RUNNING_TESTS and (
+    SECRET_KEY == _DEFAULT_SECRET_KEY or len(str(SECRET_KEY)) < 50
+):
+    raise ImproperlyConfigured(
+        'DJANGO_SECRET_KEY must be a long, random value when DEBUG=False.'
+    )
 
 ALLOWED_HOSTS = [
     host.strip()
@@ -144,7 +153,6 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 # Django's test client intentionally uses plain HTTP unless a test opts into
 # HTTPS.  Keep production redirects enabled without forcing every endpoint
 # test to follow an infrastructure redirect.
-RUNNING_TESTS = 'test' in sys.argv
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 SECURE_SSL_REDIRECT = config('SECURE_SSL_REDIRECT', default=not DEBUG and not RUNNING_TESTS, cast=bool)
 SESSION_COOKIE_SECURE = config('SESSION_COOKIE_SECURE', default=not DEBUG, cast=bool)

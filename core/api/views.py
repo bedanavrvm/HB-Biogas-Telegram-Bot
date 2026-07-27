@@ -250,9 +250,11 @@ def tat_tracker_create(request):
         data = create_case(group_config, user, payload)
         _send_tat_next_role_alert(group_config, data)
         return JsonResponse({'ok': True, 'data': data})
-    except Exception as exc:
-        logger.warning('TAT Tracker create failed: %s', exc, exc_info=True)
+    except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    except Exception:
+        logger.exception('TAT Tracker create failed for group %s.', group_id)
+        return JsonResponse({'ok': False, 'error': 'The TAT case could not be created. Try again.'}, status=500)
 
 
 @csrf_exempt
@@ -265,8 +267,11 @@ def tat_tracker_detail(request):
     from core.services.tat_tracker import get_case_detail
     try:
         return JsonResponse({'ok': True, 'data': get_case_detail(group_config, user, payload.get('case_id', ''))})
-    except Exception as exc:
+    except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=404)
+    except Exception:
+        logger.exception('TAT Tracker detail failed for group %s.', group_id)
+        return JsonResponse({'ok': False, 'error': 'The TAT case could not be loaded. Try again.'}, status=500)
 
 
 @csrf_exempt
@@ -282,9 +287,11 @@ def tat_tracker_update(request):
         _dispatch_tat_approval_certificate(payload.get('case_id', ''), user)
         _send_tat_next_role_alert(group_config, data)
         return JsonResponse({'ok': True, 'data': data})
-    except Exception as exc:
-        logger.warning('TAT Tracker update failed: %s', exc, exc_info=True)
+    except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    except Exception:
+        logger.exception('TAT Tracker update failed for group %s.', group_id)
+        return JsonResponse({'ok': False, 'error': 'The TAT case could not be updated. Try again.'}, status=500)
 
 
 def _dispatch_tat_approval_certificate(case_id: str, user: dict) -> None:
@@ -885,7 +892,11 @@ def spin_form_submit(request):
             payload = json.loads(request.body.decode('utf-8') or '{}')
         except json.JSONDecodeError:
             return JsonResponse({'success': False, 'message': 'Invalid request body.'}, status=400)
+        if not isinstance(payload, dict):
+            return JsonResponse({'success': False, 'message': 'Request body must be a JSON object.'}, status=400)
         fields = payload.get('fields') or payload
+        if not isinstance(fields, dict):
+            return JsonResponse({'success': False, 'message': 'Form fields must be a JSON object.'}, status=400)
     else:
         try:
             payload = request.POST.dict()
@@ -932,12 +943,14 @@ def spin_form_submit(request):
         sender=_sender_from_webapp_auth(auth_payload),
         received_at=timezone.now(),
         uploaded_files=uploaded_files,
+        client_request_id=payload.get('client_request_id') or fields.get('client_request_id', ''),
     )
-    _send_spin_webapp_chat_reply(group_id, result)
+    if not result.get('idempotent_replay'):
+        _send_spin_webapp_chat_reply(group_id, result)
     return JsonResponse(result, status=200 if result.get('success') else 400)
 
 
-def _spin_webapp_context_get(request):
+def _spin_webapp_context_get(request, *, allow_form_token: bool = True):
     from core.services.group_config import GroupRegistry
     from core.services.spin_credit import (
         is_spin_workflow,
@@ -948,7 +961,7 @@ def _spin_webapp_context_get(request):
     init_data = request.GET.get('init_data', '') or request.headers.get('X-Telegram-Init-Data', '')
     form_token = request.GET.get('form_token', '')
     is_valid, auth_error, auth_payload = validate_spin_telegram_webapp_init_data(init_data)
-    if not is_valid:
+    if not is_valid and allow_form_token:
         token_valid, token_error = validate_spin_form_token(
             token=form_token,
             group_id=group_id,
@@ -956,6 +969,8 @@ def _spin_webapp_context_get(request):
         if not token_valid:
             return group_id, None, {}, JsonResponse({'success': False, 'message': auth_error or token_error}, status=403)
         auth_payload = {}
+    elif not is_valid:
+        return group_id, None, {}, JsonResponse({'success': False, 'message': auth_error}, status=403)
     group_config = GroupRegistry.get_instance().get_group(group_id)
     if not group_config or not is_spin_workflow(group_config):
         return group_id, None, auth_payload, JsonResponse({'success': False, 'message': 'This Telegram group is not configured for SPIN/CRB requests.'}, status=400)
@@ -966,23 +981,24 @@ def _spin_webapp_context_get(request):
 @require_http_methods(["GET"])
 def spin_form_requests(request):
     """List SPIN/CRB requests for dashboard."""
-    group_id, group_config, auth_payload, error_response = _spin_webapp_context_get(request)
+    group_id, group_config, auth_payload, error_response = _spin_webapp_context_get(
+        request,
+        allow_form_token=False,
+    )
     if error_response:
         return error_response
-    user_payload = {}
-    if auth_payload.get('user'):
-        try:
-            user_payload = json.loads(auth_payload['user'])
-        except json.JSONDecodeError:
-            pass
     from core.services.spin_credit import (
         REQUEST_TYPE_LABELS,
         batch_review_item_summary,
         format_sheet_datetime,
-        is_user_spin_analyst,
         spin_request_id,
     )
-    is_analyst = is_user_spin_analyst(user_payload)
+    is_analyst = _spin_user_is_designated_analyst(auth_payload, group_config=group_config)
+    if not is_analyst:
+        return JsonResponse(
+            {'success': False, 'message': 'Only designated credit analysts can view SPIN requests.'},
+            status=403,
+        )
     from core.models import SpinCreditRequest
     queryset = SpinCreditRequest.objects.filter(group_id=group_id)
     queryset = queryset.order_by('-request_datetime', '-created_at')
@@ -1034,26 +1050,33 @@ def spin_form_requests(request):
 def spin_form_complete(request):
     """Accept analyst completing a SPIN/CRB request and uploading reports."""
     payload = request.POST.dict()
-    group_id, group_config, auth_payload, error_response = _spin_webapp_context(payload)
+    group_id, group_config, auth_payload, error_response = _spin_webapp_context(
+        payload,
+        allow_form_token=False,
+    )
     if error_response:
         return error_response
-    user_payload = {}
-    if auth_payload.get('user'):
-        try:
-            user_payload = json.loads(auth_payload['user'])
-        except json.JSONDecodeError:
-            pass
-    from core.services.spin_credit import is_user_spin_analyst
-    if not is_user_spin_analyst(user_payload):
+    if not _spin_user_is_designated_analyst(auth_payload, group_config=group_config):
         return JsonResponse({'success': False, 'message': 'Only designated credit analysts can complete requests.'}, status=403)
     request_id = payload.get('request_id')
     if not request_id:
         return JsonResponse({'success': False, 'message': 'Request ID is required.'}, status=400)
     from core.models import SpinCreditRequest
     try:
-        record = SpinCreditRequest.objects.get(id=request_id)
+        record = SpinCreditRequest.objects.get(id=request_id, group_id=group_id)
     except (SpinCreditRequest.DoesNotExist, ValueError):
         return JsonResponse({'success': False, 'message': 'Request not found.'}, status=404)
+    if record.import_status == 'completed':
+        parsed_fields = record.parsed_fields or {}
+        return JsonResponse({
+            'success': True,
+            'message': 'Request was already completed.',
+            'spin_report_url': parsed_fields.get('spin_report_url'),
+            'crb_report_url': parsed_fields.get('crb_report_url'),
+            'credit_analysis_report_url': parsed_fields.get('credit_analysis_report_url'),
+            'sheet_synced': True,
+            'idempotent_replay': True,
+        })
     spin_report = request.FILES.get('spin_report')
     crb_report = request.FILES.get('crb_report')
     credit_analysis = request.FILES.get('credit_analysis')
@@ -1126,9 +1149,18 @@ def spin_form_review_update(request):
     except json.JSONDecodeError:
         return JsonResponse({'success': False, 'message': 'Invalid request body.'}, status=400)
 
-    group_id, group_config, _auth_payload, error_response = _spin_webapp_context(payload)
+    group_id, group_config, auth_payload, error_response = _spin_webapp_context(
+        payload,
+        allow_form_token=False,
+    )
     if error_response:
         return error_response
+
+    if not _spin_user_is_designated_analyst(auth_payload, group_config=group_config):
+        return JsonResponse(
+            {'success': False, 'message': 'Only designated credit analysts can update SPIN reviews.'},
+            status=403,
+        )
 
     request_id = str(payload.get('request_id') or '').strip()
     if not request_id:
@@ -1162,9 +1194,17 @@ def spin_batch_review_resolve(request):
     except json.JSONDecodeError:
         return JsonResponse({'success': False, 'message': 'Invalid request body.'}, status=400)
 
-    group_id, group_config, auth_payload, error_response = _spin_webapp_context(payload)
+    group_id, group_config, auth_payload, error_response = _spin_webapp_context(
+        payload,
+        allow_form_token=False,
+    )
     if error_response:
         return error_response
+    if not _spin_user_is_designated_analyst(auth_payload, group_config=group_config):
+        return JsonResponse(
+            {'success': False, 'message': 'Only designated credit analysts can resolve SPIN review items.'},
+            status=403,
+        )
     item_id = str(payload.get('item_id') or '').strip()
     if not item_id:
         return JsonResponse({'success': False, 'message': 'Batch review item is required.'}, status=400)
@@ -1187,7 +1227,44 @@ def spin_batch_review_resolve(request):
 
 
 
-def _spin_webapp_context(payload: dict):
+def _spin_user_payload(auth_payload: dict) -> dict:
+    user_json = (auth_payload or {}).get('user')
+    if not user_json:
+        return {}
+    try:
+        value = json.loads(user_json)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _spin_user_is_designated_analyst(auth_payload: dict, *, group_config=None) -> bool:
+    """Prefer canonical User/AccessGrant permissions, with legacy fallback during migration."""
+    if not getattr(settings, 'SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH', True):
+        return True
+    user_payload = _spin_user_payload(auth_payload)
+    if user_payload:
+        from core.services.access_policies import canonical_access_role
+        from core.services.telegram_identity import (
+            identity_from_user_payload,
+            resolve_or_bind_telegram_user,
+            user_access,
+        )
+        canonical_user = resolve_or_bind_telegram_user(identity_from_user_payload(user_payload))
+        access = user_access(
+            canonical_user,
+            'spin_credit_analysis',
+            group_configuration=group_config,
+        ) if canonical_user else None
+        if access and access.get('authorized'):
+            roles = {canonical_access_role('spin_credit_analysis', role) for role in access.get('roles', [])}
+            if roles.intersection({'CREDIT_ANALYST', 'ADMIN'}):
+                return True
+    from core.services.spin_credit import is_user_spin_analyst
+    return is_user_spin_analyst(user_payload)
+
+
+def _spin_webapp_context(payload: dict, *, allow_form_token: bool = True):
     from core.services.group_config import GroupRegistry
     from core.services.spin_credit import (
         is_spin_workflow,
@@ -1199,7 +1276,7 @@ def _spin_webapp_context(payload: dict):
     is_valid, auth_error, auth_payload = validate_spin_telegram_webapp_init_data(
         (payload or {}).get('init_data', '')
     )
-    if not is_valid:
+    if not is_valid and allow_form_token:
         token_valid, token_error = validate_spin_form_token(
             token=(payload or {}).get('form_token', ''),
             group_id=group_id,
@@ -1212,6 +1289,13 @@ def _spin_webapp_context(payload: dict):
                 JsonResponse({'success': False, 'message': auth_error or token_error}, status=403),
             )
         auth_payload = {}
+    elif not is_valid:
+        return (
+            group_id,
+            None,
+            {},
+            JsonResponse({'success': False, 'message': auth_error}, status=403),
+        )
 
     group_config = GroupRegistry.get_instance().get_group(group_id)
     if not group_config or not is_spin_workflow(group_config):

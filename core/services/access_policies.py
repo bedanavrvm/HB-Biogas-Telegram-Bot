@@ -28,6 +28,10 @@ WORKFLOW_ROLES = {
         ('IT', 'IT / Override'),
         ('MANAGEMENT', 'Management'),
     ),
+    'spin_credit_analysis': (
+        ('CREDIT_ANALYST', 'Credit Analyst'),
+        ('ADMIN', 'SPIN Administrator'),
+    ),
 }
 
 ROLE_ALIASES = {
@@ -36,12 +40,18 @@ ROLE_ALIASES = {
         'credit_analyst': 'CREDIT_ANALYST', 'operations': 'HB_STAFF',
         'hb_staff': 'HB_STAFF', 'head_rural': 'ADMIN',
     },
+    'spin_credit_analysis': {
+        'analyst': 'CREDIT_ANALYST',
+        'credit_analyst': 'CREDIT_ANALYST',
+        'admin': 'ADMIN',
+    },
 }
 
 WORKFLOW_GROUP_TYPES = {
     'jawabu_portal': {'jawabu', 'jawabu_homebiogas'},
     'complaint_cases': {'case'},
     'tat_tracker': {'tat_tracker'},
+    'spin_credit_analysis': {'spin_credit_analysis'},
 }
 
 
@@ -69,6 +79,7 @@ def workflow_label(workflow: str) -> str:
         'jawabu_portal': 'Jawabu Portal',
         'complaint_cases': 'Complaint Cases',
         'tat_tracker': 'TAT Tracker',
+        'spin_credit_analysis': 'SPIN / Credit Analysis',
     }.get(workflow, workflow)
 
 

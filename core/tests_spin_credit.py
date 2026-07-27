@@ -4,10 +4,11 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from core.models import GroupSheetConfiguration, SpinBatchReviewItem, SpinCreditRequest
+from core.models import AccessGrant, GroupSheetConfiguration, SpinBatchReviewItem, SpinCreditRequest, UserProfile
 from core.services.spin_credit import (
     classify_spin_message,
     classify_spin_progress_event,
@@ -439,6 +440,17 @@ class SpinCreditMiniAppTestCase(TestCase):
         self.assertIn('utils.escapeHtml', source)
 
     @override_settings(SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, ALLOWED_HOSTS=['testserver'])
+    def test_form_submission_rejects_non_object_json(self):
+        response = self.client.post(
+            '/api/spin/submit/',
+            data='[]',
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('JSON object', response.json()['message'])
+
+    @override_settings(SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, ALLOWED_HOSTS=['testserver'])
     @patch('core.api.views._post_telegram_reply')
     @patch('core.services.spin_credit.append_spin_requests_to_sheet')
     def test_form_submission_normalizes_phone_and_syncs_sheet(self, mock_append, mock_reply):
@@ -563,6 +575,49 @@ class SpinCreditMiniAppTestCase(TestCase):
         self.assertIn('SPIN request received', reply_text)
         self.assertIn('The credit team can now review it', reply_text)
         self.assertNotIn('REQUEST SUBMITTED', reply_text)
+
+    @override_settings(SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, ALLOWED_HOSTS=['testserver'])
+    @patch('core.services.spin_credit.append_spin_requests_to_sheet')
+    def test_miniapp_submission_request_id_replays_without_duplicate_sheet_row(self, mock_append):
+        mock_append.return_value = {'success': True, 'row_numbers': [9], 'sheet_name': 'SPIN Requests'}
+        from core.services.spin_credit import process_spin_form_submission
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-100spinretry',
+            display_name='Nakuru SPIN Requests',
+            sheet_id='sheet-id',
+            sheet_name='SPIN Requests',
+            enabled=True,
+            workflow={'type': 'spin_credit_analysis', 'header_row': 1},
+        )
+
+        fields = {
+            'request_type': 'spin_crb',
+            'customer_name': 'Peter Mwangi',
+            'national_id': '12345678',
+            'primary_phone': '0712345678',
+            'requested_amount': '54000',
+            'tenor': '12 months',
+        }
+        first = process_spin_form_submission(
+            config,
+            fields,
+            sender='Telegram Mini App',
+            received_at=timezone.now(),
+            client_request_id='miniapp-retry-123',
+        )
+        second = process_spin_form_submission(
+            config,
+            fields,
+            sender='Telegram Mini App',
+            received_at=timezone.now(),
+            client_request_id='miniapp-retry-123',
+        )
+
+        self.assertTrue(first['success'])
+        self.assertTrue(second['success'])
+        self.assertTrue(second['idempotent_replay'])
+        self.assertEqual(SpinCreditRequest.objects.filter(group_id=config.group_id).count(), 1)
+        mock_append.assert_called_once()
 
 
 class SpinCreditSheetSyncTestCase(TestCase):
@@ -783,6 +838,132 @@ class SpinCreditPortalTestCase(TestCase):
         names = [item['customer_name'] for item in response.json()['requests']]
         self.assertIn('JOHN DOE', names)
         self.assertNotIn('OTHER GROUP', names)
+
+    @patch('core.services.spin_credit.validate_spin_telegram_webapp_init_data')
+    def test_spin_access_accepts_canonical_user_access_grant(self, mock_validate):
+        mock_validate.return_value = (True, None, {'user': json.dumps({'username': 'canonical_analyst', 'id': '99123'})})
+        user = get_user_model().objects.create_user(username='canonical-analyst')
+        UserProfile.objects.create(user=user, telegram_id='99123', telegram_username='canonical_analyst')
+        AccessGrant.objects.create(
+            user=user,
+            workflow='spin_credit_analysis',
+            role='CREDIT_ANALYST',
+            group_configuration=self.config,
+        )
+
+        with override_settings(SPIN_ANALYSTS=[]):
+            response = self.client.get(
+                f'/api/spin/requests/?group_id={self.config.group_id}&init_data=mock_data',
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['is_analyst'])
+
+    def test_spin_dashboard_rejects_submit_form_token_without_signed_identity(self):
+        from core.services.spin_credit import create_spin_form_token
+
+        token = create_spin_form_token(self.config.group_id)
+        response = self.client.get(
+            f'/api/spin/requests/?group_id={self.config.group_id}&form_token={token}',
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(response.json()['success'])
+
+    def test_spin_review_update_rejects_submit_form_token_without_signed_identity(self):
+        from core.services.spin_credit import create_spin_form_token
+
+        token = create_spin_form_token(self.config.group_id)
+        payload = {
+            'request_id': str(self.record.id),
+            'group_id': self.config.group_id,
+            'form_token': token,
+            'fields': {},
+        }
+        response = self.client.post(
+            '/api/spin/review/update/',
+            data=json.dumps(payload),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(response.json()['success'])
+
+    @patch('core.services.spin_credit.validate_spin_telegram_webapp_init_data')
+    def test_spin_review_update_requires_designated_analyst(self, mock_validate):
+        mock_validate.return_value = (True, None, {'user': json.dumps({'username': 'officer1', 'id': '12345'})})
+        payload = {
+            'request_id': str(self.record.id),
+            'group_id': self.config.group_id,
+            'init_data': 'mock_data',
+            'fields': {},
+        }
+        with override_settings(SPIN_ANALYSTS=['analyst1']):
+            response = self.client.post(
+                '/api/spin/review/update/',
+                data=json.dumps(payload),
+                content_type='application/json',
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(response.json()['success'])
+
+    @patch('core.services.spin_credit.validate_spin_telegram_webapp_init_data')
+    def test_spin_completion_cannot_cross_group_boundary(self, mock_validate):
+        mock_validate.return_value = (True, None, {'user': json.dumps({'username': 'analyst1', 'id': '12345'})})
+        other_record = SpinCreditRequest.objects.create(
+            group_id='-100other_spin',
+            request_type='spin',
+            customer_name='OTHER GROUP',
+            national_id='99999999',
+            primary_phone='254700000000',
+        )
+        payload = {
+            'request_id': str(other_record.id),
+            'group_id': self.config.group_id,
+            'init_data': 'mock_data',
+        }
+        with override_settings(SPIN_ANALYSTS=['analyst1']):
+            response = self.client.post('/api/spin/complete/', payload)
+
+        self.assertEqual(response.status_code, 404)
+        self.assertFalse(response.json()['success'])
+
+    @patch('core.services.spin_credit.upload_report')
+    @patch('core.services.spin_credit.update_spin_request_in_sheet')
+    @patch('core.api.views._post_telegram_reply')
+    @patch('core.services.spin_credit.validate_spin_telegram_webapp_init_data')
+    def test_spin_completion_retry_does_not_duplicate_side_effects(
+        self,
+        mock_validate,
+        mock_reply,
+        mock_update_sheet,
+        mock_upload,
+    ):
+        mock_validate.return_value = (True, None, {'user': json.dumps({'username': 'analyst1', 'id': '12345'})})
+        self.record.import_status = 'completed'
+        self.record.parsed_fields = {
+            'spin_report_url': 'https://drive.test/spin',
+            'crb_report_url': 'https://drive.test/crb',
+            'credit_analysis_report_url': 'https://drive.test/analysis',
+        }
+        self.record.save(update_fields=['import_status', 'parsed_fields', 'updated_at'])
+
+        with override_settings(SPIN_ANALYSTS=['analyst1']):
+            response = self.client.post('/api/spin/complete/', {
+                'request_id': str(self.record.id),
+                'group_id': self.config.group_id,
+                'init_data': 'mock_data',
+            })
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body['success'])
+        self.assertTrue(body['idempotent_replay'])
+        self.assertEqual(body['spin_report_url'], 'https://drive.test/spin')
+        mock_upload.assert_not_called()
+        mock_update_sheet.assert_not_called()
+        mock_reply.assert_not_called()
 
     @override_settings(STORAGES={
         'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},

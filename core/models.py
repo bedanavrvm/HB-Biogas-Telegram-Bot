@@ -1242,6 +1242,7 @@ class AccessGrant(models.Model):
         ('jawabu_portal', 'Jawabu Portal'),
         ('complaint_cases', 'Complaint Cases'),
         ('tat_tracker', 'TAT Tracker'),
+        ('spin_credit_analysis', 'SPIN / Credit Analysis'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -1895,6 +1896,7 @@ class InvoiceUploadBatch(models.Model):
     content_type = models.CharField(max_length=255, blank=True, default='application/pdf')
     size = models.PositiveIntegerField(default=0)
     uploaded_by = models.CharField(max_length=255, blank=True, default='')
+    client_request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
     order_number = models.CharField(max_length=128, blank=True, default='', db_index=True)
     drive_file_id = models.CharField(max_length=255, blank=True, default='')
     drive_url = models.URLField(max_length=1000, blank=True, default='')
@@ -1915,6 +1917,13 @@ class InvoiceUploadBatch(models.Model):
         indexes = [
             models.Index(fields=['status', 'created_at']),
             models.Index(fields=['uploaded_by', 'created_at']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['client_request_id'],
+                condition=~models.Q(client_request_id=''),
+                name='unique_invoice_upload_client_request',
+            ),
         ]
         verbose_name = 'Invoice upload batch'
         verbose_name_plural = 'Invoice upload batches'

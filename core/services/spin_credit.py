@@ -1501,6 +1501,7 @@ def process_spin_form_submission(
     sender: str = '',
     received_at=None,
     uploaded_files: list | None = None,
+    client_request_id: str = '',
 ) -> dict[str, Any]:
     cleaned, errors = validate_spin_form_fields(fields)
     if not errors:
@@ -1518,6 +1519,25 @@ def process_spin_form_submission(
 
     received_at = received_at or timezone.now()
     uploaded_files = uploaded_files or []
+    client_request_id = str(client_request_id or '').strip()[:128]
+    request_hash = ''
+    if client_request_id:
+        request_hash = hashlib.sha256(
+            f"{group_config.group_id}\nminiapp-request:{client_request_id}".encode('utf-8')
+        ).hexdigest()
+        existing = SpinCreditRequest.objects.filter(
+            group_id=str(group_config.group_id),
+            source_message_hash=request_hash,
+        ).first()
+        if existing:
+            return {
+                'success': True,
+                'status': 'already_submitted',
+                'message': 'This request was already submitted.',
+                'request_id': spin_request_id(existing),
+                'customer_name': existing.customer_name,
+                'idempotent_replay': True,
+            }
     media_links: list[str] = []
     media_warnings: list[str] = []
     attachment_names = uploaded_file_names(uploaded_files)
@@ -1565,9 +1585,9 @@ def process_spin_form_submission(
         attachment_names=attachment_names,
         raw_message=raw_message,
         source_filename='Telegram Mini App',
-        source_message_hash=hashlib.sha256(
+        source_message_hash=(request_hash or hashlib.sha256(
             f"{group_config.group_id}\n{received_at.isoformat()}\n{sender}\n{raw_message}".encode('utf-8')
-        ).hexdigest(),
+        ).hexdigest()),
     )
     parsed.missing_fields = missing_fields_for(parsed)
     parsed.parsed_fields = parsed_fields(parsed)
@@ -1583,6 +1603,20 @@ def process_spin_form_submission(
             import_status='imported' if parsed.is_complete else 'review_needed',
         )
     except IntegrityError:
+        if request_hash:
+            existing = SpinCreditRequest.objects.filter(
+                group_id=str(group_config.group_id),
+                source_message_hash=request_hash,
+            ).first()
+            if existing:
+                return {
+                    'success': True,
+                    'status': 'already_submitted',
+                    'message': 'This request was already submitted.',
+                    'request_id': spin_request_id(existing),
+                    'customer_name': existing.customer_name,
+                    'idempotent_replay': True,
+                }
         return {
             'success': False,
             'status': 'duplicate',

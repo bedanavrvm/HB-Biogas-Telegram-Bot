@@ -137,6 +137,53 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
 
     @patch('core.services.invoice_parser.parse_invoice_pdf_bytes')
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_invoice_upload_request_id_is_idempotent(self, storage, parse_pdf):
+        storage.return_value.upload.return_value = ('drive-id', 'https://drive.test/pdf')
+        parse_pdf.return_value = ([], 0)
+
+        first = ingest_invoice_upload_batch(
+            pdf_bytes=b'%PDF-1.4',
+            filename='invoices.pdf',
+            uploaded_by='Tester',
+            order_number='ORDER-001',
+            client_request_id='retry-123',
+        )
+        second = ingest_invoice_upload_batch(
+            pdf_bytes=b'%PDF-1.4-retried',
+            filename='invoices.pdf',
+            uploaded_by='Tester',
+            order_number='ORDER-001',
+            client_request_id='retry-123',
+        )
+
+        self.assertEqual(first.pk, second.pk)
+        self.assertEqual(InvoiceUploadBatch.objects.count(), 1)
+        storage.return_value.upload.assert_called_once()
+        parse_pdf.assert_called_once()
+
+    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_invoice_upload_request_id_cannot_be_reused_for_another_order(self, storage, parse_pdf):
+        storage.return_value.upload.return_value = ('drive-id', 'https://drive.test/pdf')
+        parse_pdf.return_value = ([], 0)
+
+        ingest_invoice_upload_batch(
+            pdf_bytes=b'%PDF-1.4',
+            filename='invoices.pdf',
+            order_number='ORDER-001',
+            client_request_id='retry-123',
+        )
+
+        with self.assertRaisesMessage(ValueError, 'already used for another order'):
+            ingest_invoice_upload_batch(
+                pdf_bytes=b'%PDF-1.4',
+                filename='invoices.pdf',
+                order_number='ORDER-002',
+                client_request_id='retry-123',
+            )
+
+    @patch('core.services.invoice_parser.parse_invoice_pdf_bytes')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_invoice_pool_upload_accepts_multiple_pdfs(self, storage, parse_pdf):
         storage.return_value.upload.side_effect = [
             ('drive-id-1', 'https://drive.test/pdf-1'),

@@ -1570,6 +1570,7 @@ def portal_upload_batch_invoices(request):
 
     try:
         pdf_bytes = pdf_file.read()
+        request_id = _portal_request_id(request, request.POST.dict())
         logger.info(
             'Invoice upload received: order=%s filename=%s size=%s bytes',
             order_number or 'invoice_pool',
@@ -1587,6 +1588,7 @@ def portal_upload_batch_invoices(request):
             content_type=getattr(pdf_file, 'content_type', '') or 'application/pdf',
             uploaded_by=_portal_sender_from_request(request),
             order_number=order_number or '',
+            client_request_id=request_id,
         )
         if not order_number:
             return JsonResponse({
@@ -1651,7 +1653,8 @@ def portal_invoice_pool_upload(request):
 
     max_mb = max(1, int(getattr(settings, 'INVOICE_UPLOAD_MAX_FILE_SIZE_MB', 8) or 8))
     max_bytes = max_mb * 1024 * 1024
-    for pdf_file in pdf_files:
+    request_id = _portal_request_id(request, request.POST.dict())
+    for pdf_index, pdf_file in enumerate(pdf_files, start=1):
         if not str(pdf_file.name or '').lower().endswith('.pdf'):
             return JsonResponse({'ok': False, 'error': f'Only PDF files are supported: {pdf_file.name}'}, status=400)
         if getattr(pdf_file, 'size', 0) and pdf_file.size > max_bytes:
@@ -1666,7 +1669,7 @@ def portal_invoice_pool_upload(request):
     batches = []
     failures = []
     uploaded_by = _portal_sender_from_request(request)
-    for pdf_file in pdf_files:
+    for pdf_index, pdf_file in enumerate(pdf_files, start=1):
         filename = getattr(pdf_file, 'name', '') or 'hb_invoices.pdf'
         try:
             batch = ingest_invoice_upload_batch(
@@ -1674,6 +1677,7 @@ def portal_invoice_pool_upload(request):
                 filename=filename,
                 content_type=getattr(pdf_file, 'content_type', '') or 'application/pdf',
                 uploaded_by=uploaded_by,
+                client_request_id=(f'{request_id}:{pdf_index}' if request_id else ''),
             )
             batches.append(batch)
         except InvoiceUploadStorageError as exc:

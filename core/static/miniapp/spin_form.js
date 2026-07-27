@@ -30,6 +30,7 @@
   const summaryList = document.getElementById('summaryList');
   const draftKey = `spin_form_draft:${config.group_id || 'unknown'}`;
   let bannerTimeout = null;
+  let clientRequestId = '';
 
   // Dashboard & Modal Elements
   const tabDashboardBtn = document.getElementById('tab-dashboard-btn');
@@ -321,7 +322,7 @@
     saveDraft();
   }
 
-  function buildSubmitOptions(data) {
+  function buildSubmitOptions(data, requestId) {
     const files = selectedFiles();
     if (!files.length) {
       return {
@@ -331,6 +332,7 @@
           group_id: config.group_id || '',
           form_token: config.form_token || '',
           init_data: tg ? tg.initData || '' : '',
+          client_request_id: requestId || '',
           fields: data
         })
       };
@@ -340,6 +342,7 @@
     payload.set('group_id', config.group_id || '');
     payload.set('form_token', config.form_token || '');
     payload.set('init_data', tg ? tg.initData || '' : '');
+    payload.set('client_request_id', requestId || '');
     Object.entries(data).forEach(([key, value]) => payload.set(key, value || ''));
     files.forEach(({ fieldName, file }) => payload.append(fieldName, file, file.name));
     return { method: 'POST', body: payload };
@@ -368,9 +371,14 @@
 
     setButtonLoading(submitBtn, true, 'Submitting');
     try {
+      if (!clientRequestId) {
+        clientRequestId = (window.crypto && typeof window.crypto.randomUUID === 'function')
+          ? window.crypto.randomUUID()
+          : `spin-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      }
       const response = spinApi.postForm
-        ? await spinApi.postForm('/api/spin/submit/', buildSubmitOptions(data))
-        : await fetch('/api/spin/submit/', buildSubmitOptions(data)).then(async res => ({ ok: res.ok, data: await res.json().catch(() => ({})) }));
+        ? await spinApi.postForm('/api/spin/submit/', buildSubmitOptions(data, clientRequestId))
+        : await fetch('/api/spin/submit/', buildSubmitOptions(data, clientRequestId)).then(async res => ({ ok: res.ok, data: await res.json().catch(() => ({})) }));
       const result = response.data || {};
       if (!response.ok || !result.success) {
         const messages = (result.errors && result.errors.length ? result.errors : [result.message || 'Submission failed.']);
@@ -381,6 +389,7 @@
       markInvalid([]);
       setBanner(`Submitted ${result.request_id || ''} for ${result.customer_name || 'customer'}.`, 'success');
       form.reset();
+      clientRequestId = '';
       if (branchSelect && branchSelect.name) branchSelect.value = config.default_branch || '';
       updateSummary();
       updateFileSummaries();

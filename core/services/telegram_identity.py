@@ -151,6 +151,7 @@ def user_access(user, workflow: str, *, group_configuration=None) -> dict:
             'jawabu_portal': 'ADMIN',
             'complaint_cases': 'MANAGER',
             'tat_tracker': 'ADMIN',
+            'spin_credit_analysis': 'ADMIN',
         }.get(workflow, 'ADMIN'))
     return {
         'authorized': bool(user.is_superuser or grants),

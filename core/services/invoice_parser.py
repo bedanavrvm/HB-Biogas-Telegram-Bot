@@ -504,6 +504,7 @@ def ingest_invoice_upload_batch(
     uploaded_by: str = '',
     order_number: str = '',
     group_config=None,
+    client_request_id: str = '',
 ) -> InvoiceUploadBatch:
     """
     Store an invoice PDF in Drive and create parsed invoice-pool records.
@@ -516,6 +517,13 @@ def ingest_invoice_upload_batch(
     safe_name = Path(filename or 'hb_invoices.pdf').name or 'hb_invoices.pdf'
     if not safe_name.lower().endswith('.pdf'):
         raise ValueError('Only PDF files are supported.')
+    client_request_id = str(client_request_id or '').strip()[:128]
+    if client_request_id:
+        existing = InvoiceUploadBatch.objects.filter(client_request_id=client_request_id).first()
+        if existing:
+            if str(existing.order_number or '').strip() != str(order_number or '').strip():
+                raise ValueError('This upload request ID was already used for another order.')
+            return existing
 
     received_at = timezone.now()
     try:
@@ -541,6 +549,7 @@ def ingest_invoice_upload_batch(
         content_type=content_type or 'application/pdf',
         size=len(pdf_bytes),
         uploaded_by=uploaded_by,
+        client_request_id=client_request_id,
         order_number=str(order_number or '').strip(),
         drive_file_id=drive_file_id,
         drive_url=drive_url,
