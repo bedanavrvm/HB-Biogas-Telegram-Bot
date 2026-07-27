@@ -597,10 +597,13 @@
       deps.showToast(status === 403 ? ('Error: ' + (data.error || 'Final review not approved')) : (data.error || 'Save failed'), 'error');
       return;
     }
-    deps.showToast('Order assigned', 'success');
+    deps.showToast('Order assigned. Showing it under Batches.', 'success');
     closeSheet();
     deps.reloadCurrentQueue();
     deps.loadDashboard();
+    if (deps.openAssignedOrder) {
+      await deps.openAssignedOrder(orderNumber);
+    }
   }
 
   function bindEvents() {

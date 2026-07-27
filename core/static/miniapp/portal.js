@@ -310,7 +310,7 @@
     jbl: { endpoint: '/jbl-queue/', fragmentEndpoint: '/queues/jbl/fragment/', listId: 'jbl-list', pageKey: 'jbl', mode: 'jbl_visit', emptyTitle: 'All caught up!', emptySub: 'No farmers are waiting for a JBL visit.' },
     credit: { endpoint: '/credit-queue/', fragmentEndpoint: '/queues/credit/fragment/', listId: 'credit-list', pageKey: 'credit', mode: 'credit', emptyTitle: 'No BRO analysis cases', emptySub: 'No farmers are awaiting BRO credit analysis.' },
     final: { endpoint: '/final-review-queue/', fragmentEndpoint: '/queues/final/fragment/', listId: 'final-list', pageKey: 'final', mode: 'final_review', emptyTitle: 'No final review cases', emptySub: 'No clients are awaiting Head of Rural review.' },
-    requisition: { endpoint: '/requisition-queue/', fragmentEndpoint: '/queues/requisition/fragment/', listId: 'req-list', pageKey: 'requisition', mode: 'requisition', emptyTitle: 'No approved cases', emptySub: 'No credit-approved farmers are awaiting an order number.' },
+    requisition: { endpoint: '/requisition-queue/', fragmentEndpoint: '/queues/requisition/fragment/', listId: 'req-list', pageKey: 'requisition', mode: 'requisition', emptyTitle: 'No approved cases', emptySub: 'No credit-approved farmers are awaiting an order number. Assigned orders are available under Batches.' },
     deferred: { endpoint: '/deferred/', fragmentEndpoint: '/queues/deferred/fragment/', listId: 'deferred-list', pageKey: 'deferred', mode: null, emptyTitle: 'No deferred cases', emptySub: 'No farmers are deferred or flagged.' },
     all: { endpoint: '/farmers/', fragmentEndpoint: '/queues/all/fragment/', listId: 'all-list', pageKey: 'all', mode: null, emptyTitle: 'No farmers found', emptySub: 'Try a different search term.' },
     batches: { endpoint: '/requisition-batches/', fragmentEndpoint: '/requisition-batches/fragment/', listId: 'batches-list', pageKey: 'batches', mode: null, emptyTitle: 'No batches found', emptySub: 'No requisition batches have been generated yet.' },
@@ -734,6 +734,17 @@
     const p = state.activePage;
     if (queueConfig[p]) loadQueue(p, state.pages[p] || 1);
   }
+
+  // An assigned order leaves the "Ready for order" queue by design.  Take the
+  // operator straight to the durable batch view so the newly assigned client
+  // and its in-app requisition preview remain visible instead of appearing to
+  // vanish after the form is submitted.
+  async function openAssignedOrder(orderNumber) {
+    if (!orderNumber) return;
+    switchPage('batches');
+    await loadQueue('batches', 1);
+    await openBatchDetail(orderNumber);
+  }
   // Search (All Cases tab)
   let searchTimer;
   el('all-search')?.addEventListener('input', e => {
@@ -953,6 +964,7 @@
       getCookie,
       loadDashboard,
       locationText,
+      openAssignedOrder,
       portalApi,
       reloadCurrentQueue,
       setButtonLoading,

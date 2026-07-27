@@ -891,6 +891,27 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(self.farmer.order_number, 'JBL-2026-X1')
         self.assertEqual(self.farmer.requisition_date, date(2026, 7, 2))
 
+        # Assignment intentionally removes the farmer from the ready queue,
+        # but the assigned order must remain discoverable as a batch so staff
+        # can open the clients and the in-app requisition preview.
+        batches_response = self.client.get(reverse('portal_requisition_batches'))
+        self.assertEqual(batches_response.status_code, 200)
+        batches = batches_response.json()['batches']
+        assigned = next((batch for batch in batches if batch['order_number'] == 'JBL-2026-X1'), None)
+        self.assertIsNotNone(assigned)
+        self.assertEqual(assigned['farmer_count'], 1)
+        self.assertEqual(assigned['farmers'][0]['id'], str(self.farmer.id))
+
+        detail_response = self.client.get(
+            reverse('portal_requisition_batch_detail', args=['JBL-2026-X1'])
+        )
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertTrue(detail_response.json()['ok'])
+        self.assertEqual(
+            detail_response.json()['batch']['farmers'][0]['id'],
+            str(self.farmer.id),
+        )
+
     def test_portal_requisition_preview_reports_ready_clients(self):
         self.farmer.final_decision = 'Approved'
         self.farmer.final_decision_comment = 'Customer confirmed during callup.'

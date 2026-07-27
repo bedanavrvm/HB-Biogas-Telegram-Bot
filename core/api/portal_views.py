@@ -268,7 +268,7 @@ PORTAL_QUEUE_FRAGMENT_CONFIG = {
     'jbl': {'service': 'jbl_visit_queue', 'mode': 'jbl_visit', 'empty_title': 'All caught up!', 'empty_sub': 'No farmers match the current JBL visit filters.'},
     'credit': {'service': 'credit_queue', 'mode': 'credit', 'empty_title': 'No BRO analysis cases', 'empty_sub': 'No farmers match the current credit filters.'},
     'final': {'service': 'final_review_queue', 'mode': 'final_review', 'empty_title': 'No final review cases', 'empty_sub': 'No clients match the current final review filters.'},
-    'requisition': {'service': 'requisition_queue', 'mode': 'requisition', 'empty_title': 'No approved cases', 'empty_sub': 'No credit-approved farmers match the current filters.'},
+    'requisition': {'service': 'requisition_queue', 'mode': 'requisition', 'empty_title': 'No approved cases', 'empty_sub': 'No credit-approved farmers are awaiting an order number. Assigned orders are available under Batches.'},
     'deferred': {'service': 'deferred_queue', 'mode': '', 'empty_title': 'No deferred cases', 'empty_sub': 'No deferred or flagged farmers match the current filters.'},
     'all': {'service': 'all_cases', 'mode': '', 'empty_title': 'No farmers found', 'empty_sub': 'Try a different search term or filter.'},
 }
