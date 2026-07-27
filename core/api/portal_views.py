@@ -438,19 +438,51 @@ def _merge_requisition_farmers(selected_farmers, order_number: str, selected_ids
     return list(merged.values()), batch
 
 
+def _coerce_requisition_date(value):
+    """Return a date for legacy DateField/text values used in order checks."""
+    if not value:
+        return None
+    from datetime import date as _date, datetime as _datetime
+
+    if isinstance(value, _datetime):
+        return value.date()
+    if isinstance(value, _date):
+        return value
+    from core.services.jawabu_validation import parse_business_date
+    return parse_business_date(value)
+
+
+def _requisition_order_dates(existing, batch) -> set:
+    """Return canonical dates, preferring current farmer records over snapshots.
+
+    RequisitionBatch is a historical snapshot and may retain a date from an
+    older generation. The farmer master rows are canonical, so a stale batch
+    date must not block reusing an order when every current farmer agrees.
+    """
+    farmer_dates = {
+        parsed
+        for farmer in existing
+        if (parsed := _coerce_requisition_date(getattr(farmer, 'requisition_date', None)))
+    }
+    if farmer_dates:
+        return farmer_dates
+    batch_date = _coerce_requisition_date(getattr(batch, 'requisition_date', None)) if batch else None
+    return {batch_date} if batch_date else set()
+
+
 def _format_requisition_date(value):
-    return value.strftime('%d-%B-%Y') if value else ''
+    parsed = _coerce_requisition_date(value)
+    return parsed.strftime('%d-%B-%Y') if parsed else str(value or '')
 
 
 def _requisition_order_date_conflict(order_number: str, requested_date, selected_ids=None):
     """Return a stable error when one order is given multiple requisition dates."""
     existing, batch = _requisition_order_context(order_number, selected_ids)
-    dates = {farmer.requisition_date for farmer in existing if farmer.requisition_date}
-    if batch and batch.requisition_date:
-        dates.add(batch.requisition_date)
+    dates = _requisition_order_dates(existing, batch)
     if not dates:
         return '', existing, batch
-    if len(dates) == 1 and requested_date in dates:
+    requested = _coerce_requisition_date(requested_date)
+    if len(dates) == 1 and requested in dates:
         return '', existing, batch
     labels = ', '.join(sorted(_format_requisition_date(value) for value in dates))
     return (
@@ -1242,9 +1274,7 @@ def portal_assign_order(request, farmer_id: str):
             return JsonResponse({'ok': False, 'error': date_error, 'code': 'requisition_date_conflict'}, status=409)
     else:
         existing_farmers, existing_batch = _requisition_order_context(order_number)
-        known_dates = {farmer.requisition_date for farmer in existing_farmers if farmer.requisition_date}
-        if existing_batch and existing_batch.requisition_date:
-            known_dates.add(existing_batch.requisition_date)
+        known_dates = _requisition_order_dates(existing_farmers, existing_batch)
         if len(known_dates) == 1:
             requisition_date = next(iter(known_dates))
         elif len(known_dates) > 1:

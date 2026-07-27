@@ -1144,6 +1144,47 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(new_farmer.order_number, '')
         self.assertIsNone(new_farmer.requisition_date)
 
+    def test_same_date_is_allowed_when_batch_snapshot_has_a_stale_date(self):
+        original = self.farmer
+        original.final_decision = 'Approved'
+        original.imab_created = 'Yes'
+        original.customer_no = '15124'
+        original.order_number = '001'
+        original.requisition_date = date(2026, 7, 24)
+        original.save()
+        self.mark_requisition_location_ready(original)
+        RequisitionBatch.objects.create(
+            order_number='001',
+            requisition_date=date(2026, 7, 25),
+            farmer_ids=[str(original.id)],
+            farmer_count=1,
+        )
+
+        new_farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Same date client',
+            national_id='99999990',
+            primary_phone='254799999990',
+            county='Kiambu',
+            branch='Ruiru',
+            final_decision='Approved',
+            imab_created='Yes',
+            customer_no='15125',
+            status='active',
+        )
+        self.mark_requisition_location_ready(new_farmer)
+        response = self.client.post(
+            reverse('portal_requisition_preview'),
+            json.dumps({
+                'farmer_ids': [str(new_farmer.id)],
+                'order_number': '001',
+                'requisition_date': '2026-07-24',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['ok'])
+
     def test_assign_order_rejects_different_date_for_existing_order(self):
         original = self.farmer
         original.final_decision = 'Approved'
@@ -1169,6 +1210,31 @@ class JblPipelineApiTestCase(TestCase):
         new_farmer.refresh_from_db()
         self.assertEqual(new_farmer.order_number, '')
         self.assertIsNone(new_farmer.requisition_date)
+
+    def test_assign_order_allows_same_date_for_existing_order(self):
+        original = self.farmer
+        original.final_decision = 'Approved'
+        original.order_number = '001'
+        original.requisition_date = date(2026, 7, 24)
+        original.save()
+        new_farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Same assignment date client',
+            national_id='99999991',
+            primary_phone='254799999991',
+            final_decision='Approved',
+            status='active',
+        )
+
+        response = self.client.post(
+            reverse('portal_assign_order', args=[new_farmer.id]),
+            json.dumps({'order_number': '001', 'requisition_date': '2026-07-24'}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        new_farmer.refresh_from_db()
+        self.assertEqual(new_farmer.order_number, '001')
+        self.assertEqual(new_farmer.requisition_date, date(2026, 7, 24))
 
     @patch('core.services.requisition.generate_requisition_excel', return_value=b'xlsx-bytes')
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
