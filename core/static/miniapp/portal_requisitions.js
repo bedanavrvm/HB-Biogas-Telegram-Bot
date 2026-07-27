@@ -105,6 +105,32 @@
     return paymentValue(value) || '-';
   }
 
+  function bindPaymentReviewAccordion(container) {
+    const cards = [...(container?.querySelectorAll('[data-payment-case-card]') || [])];
+    cards.forEach(card => {
+      card.addEventListener('toggle', () => {
+        if (!card.open) return;
+        // Keep review focused on one client at a time while retaining native
+        // details keyboard and accessibility behaviour.
+        cards.forEach(other => {
+          if (other !== card) other.open = false;
+        });
+      });
+      const input = card.querySelector('.payment-case-comment');
+      const preview = card.querySelector('[data-payment-comment-preview]');
+      if (!input || !preview) return;
+      const syncCommentPreview = () => {
+        const value = String(input.value || '').trim();
+        const text = value || 'Not reviewed — no payment comment';
+        preview.textContent = text;
+        preview.title = text;
+        preview.classList.toggle('has-comment', Boolean(value));
+      };
+      input.addEventListener('input', syncCommentPreview);
+      syncCommentPreview();
+    });
+  }
+
   function renderPaymentReviewCards(preview, document) {
     const rows = preview.rows || [];
     const comments = document?.case_call_up_comments || {};
@@ -135,13 +161,13 @@
       const orderComment = row.order_call_up_comments
         ? `<div class="payment-review-reference"><strong>Order/requisition comment</strong><span>${deps.escapeHtml(row.order_call_up_comments)}</span></div>`
         : '';
-      return `<article class="payment-review-case-card">
-        <header><div><span class="payment-review-case-number">Case ${index + 1}</span><h3>${deps.escapeHtml(row.name || row.name_imab || 'Unnamed customer')}</h3><p>${deps.escapeHtml([row.cust_no && `Customer ${row.cust_no}`, row.order_no && `Order ${row.order_no}`].filter(Boolean).join(' | ') || 'Identifiers not recorded')}</p></div><span class="badge badge-orange">HOR review</span></header>
-        <div class="payment-review-grid">${fields.map(([label, key, options]) => `<div class="payment-review-field"><span>${deps.escapeHtml(label)}</span><strong>${paymentReviewValue(row, key, options)}</strong></div>`).join('')}</div>
+      return `<details class="payment-review-case-card" data-payment-case-card>
+        <summary class="payment-review-case-summary"><div><span class="payment-review-case-number">Case ${index + 1}</span><h3>${deps.escapeHtml(row.name || row.name_imab || 'Unnamed customer')}</h3><p>${deps.escapeHtml([row.cust_no && `Customer ${row.cust_no}`, row.order_no && `Order ${row.order_no}`].filter(Boolean).join(' | ') || 'Identifiers not recorded')}</p><p class="payment-review-comment-preview${comment ? ' has-comment' : ''}" data-payment-comment-preview>${deps.escapeHtml(comment || 'Not reviewed — no payment comment')}</p></div><span class="badge badge-orange">HOR review</span></summary>
+        <div class="payment-review-case-body"><div class="payment-review-grid">${fields.map(([label, key, options]) => `<div class="payment-review-field"><span>${deps.escapeHtml(label)}</span><strong>${paymentReviewValue(row, key, options)}</strong></div>`).join('')}</div>
         ${orderComment}
         <div class="payment-review-case-actions"><button type="button" class="btn btn-secondary payment-open-case" data-farmer-id="${deps.escapeHtml(farmerId)}">Open case</button></div>
         <label class="payment-review-comment"><span>Payment Call Up Comment (COL)</span><textarea class="payment-case-comment" data-farmer-id="${deps.escapeHtml(farmerId)}" rows="3" placeholder="HOR decision for this client" required>${deps.escapeHtml(comment)}</textarea></label>
-      </article>`;
+        </div></details>`;
     }).join('')}<div class="payment-review-submit"><button type="button" class="btn btn-primary" id="payment-review-approve" data-document-id="${deps.escapeHtml(document.id)}">Approve and create final payment</button></div></section>`;
   }
 
@@ -202,9 +228,10 @@
     if (el('payment-preview-content')) {
       // Pending payment documents are a case-by-case HOR decision surface.
       // Final documents retain the printable table for historical reference.
-      el('payment-preview-content').innerHTML = document.status === 'pending_review'
-        ? renderPaymentReviewCards(preview, document)
-        : renderPrintablePayment(preview);
+      const content = el('payment-preview-content');
+      const pendingReview = document.status === 'pending_review';
+      content.innerHTML = pendingReview ? renderPaymentReviewCards(preview, document) : renderPrintablePayment(preview);
+      if (pendingReview) bindPaymentReviewAccordion(content);
     }
     activePaymentReviewId = document.status === 'pending_review' ? document.id : null;
     activePaymentPrintPayload = { orderNumber: preview.order_number, paymentNumber: preview.payment_number };

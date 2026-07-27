@@ -254,6 +254,8 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('payment-review-case-card', requisitions_source)
         self.assertIn('payment-open-case', requisitions_source)
         self.assertIn('payment-case-comment', requisitions_source)
+        self.assertIn('data-payment-case-card', requisitions_source)
+        self.assertIn('bindPaymentReviewAccordion', requisitions_source)
 
     def test_head_of_rural_selector_only_contains_actual_hor_queues(self):
         response = self.client.get(reverse('portal_home'))
@@ -356,5 +358,5 @@ class MiniAppFrontendSmokeTests(TestCase):
         stylesheet = Path('core/static/miniapp/portal.css').read_text(encoding='utf-8')
         response = self.client.get(reverse('portal_home'))
 
-        self.assertContains(response, 'miniapp/portal.css?v=35')
+        self.assertContains(response, 'miniapp/portal.css?v=37')
         self.assertIn('#requisition-preview-overlay { z-index: 240; }', stylesheet)
