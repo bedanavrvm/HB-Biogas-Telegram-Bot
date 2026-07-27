@@ -5,7 +5,7 @@ Provides full traceability and deduplication support.
 import uuid
 import re
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.db.models.functions import Lower
 from django.utils import timezone
 
@@ -1273,6 +1273,32 @@ class AccessGrant(models.Model):
 
     def __str__(self):
         return f'{self.user} - {self.workflow}: {self.role}'
+
+    def save(self, *args, **kwargs):
+        """Keep TAT role assignment exclusive while retaining same-role scopes.
+
+        TAT access can legitimately have more than one branch/product scope,
+        but a person must have one active TAT role. Saving a replacement role
+        therefore retires any other active TAT grants for that user. This is
+        enforced at the model boundary so admin edits, guided enrolment, and
+        service code all behave consistently.
+        """
+        from core.services.access_policies import canonical_access_role
+
+        if self.workflow:
+            self.role = canonical_access_role(self.workflow, self.role)
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            if self.workflow == 'tat_tracker' and self.active:
+                type(self).objects.filter(
+                    user_id=self.user_id,
+                    workflow='tat_tracker',
+                    active=True,
+                ).exclude(
+                    pk=self.pk,
+                ).exclude(
+                    role__iexact=self.role,
+                ).update(active=False, updated_at=timezone.now())
 
     def clean(self):
         super().clean()

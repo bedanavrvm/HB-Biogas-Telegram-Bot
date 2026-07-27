@@ -7,6 +7,7 @@ from unittest.mock import patch
 from urllib.parse import urlencode
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.contrib import admin
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -313,6 +314,26 @@ class TelegramUserAuthenticationTests(TestCase):
         self.assertTrue(resolved['authorized'])
         self.assertIn('BRO', resolved['roles'])
         self.assertIn(self.user.get_full_name() or self.user.get_username(), names)
+
+    def test_tat_role_replacement_deactivates_previous_role(self):
+        from core.services.telegram_identity import user_access
+
+        self.user.groups.add(Group.objects.create(name='BRO'))
+        AccessGrant.objects.create(user=self.user, workflow='tat_tracker', role='BRO')
+        AccessGrant.objects.create(user=self.user, workflow='tat_tracker', role='FINANCE')
+
+        active_roles = set(
+            AccessGrant.objects.filter(
+                user=self.user, workflow='tat_tracker', active=True,
+            ).values_list('role', flat=True)
+        )
+        self.assertEqual(active_roles, {'FINANCE'})
+        self.assertFalse(
+            AccessGrant.objects.filter(
+                user=self.user, workflow='tat_tracker', role='BRO', active=True,
+            ).exists()
+        )
+        self.assertEqual(user_access(self.user, 'tat_tracker')['roles'], ['FINANCE'])
 
     def test_superuser_receives_workflow_admin_roles_without_explicit_grants(self):
         from core.services.telegram_identity import user_access

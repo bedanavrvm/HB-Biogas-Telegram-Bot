@@ -14,6 +14,10 @@
     creatingCase: false,
     refreshing: false,
     home: { action_required: [], recent: [], pagination: {} },
+    // Keep the last server-confirmed queue so a transient return request
+    // cannot leave the user looking at an empty list.
+    lastSuccessfulHome: null,
+    homeRequestNumber: 0,
     loadingHomePage: { action_required: false, recent: false },
   };
 
@@ -347,6 +351,38 @@
     updateLoadMoreButton('loadMoreRecentBtn', state.home.pagination.recent, 'Recent Activity');
   }
 
+  function snapshotHome() {
+    return {
+      action_required: (state.home.action_required || []).slice(),
+      recent: (state.home.recent || []).slice(),
+      pagination: Object.assign({}, state.home.pagination || {}, {
+        action_required: Object.assign({}, (state.home.pagination || {}).action_required || {}),
+        recent: Object.assign({}, (state.home.pagination || {}).recent || {}),
+      }),
+      filters: currentHomeFilters(),
+    };
+  }
+
+  function restoreLastSuccessfulHome() {
+    if (!state.lastSuccessfulHome) return false;
+    renderHome(state.lastSuccessfulHome);
+    return true;
+  }
+
+  function homeHasItems(home) {
+    return Boolean(
+      home
+      && ((home.action_required && home.action_required.length)
+        || (home.recent && home.recent.length)),
+    );
+  }
+
+  function sameHomeFilters(left, right) {
+    return Boolean(left && right)
+      && String(left.product_key || '') === String(right.product_key || '')
+      && String(left.branch || '') === String(right.branch || '');
+  }
+
   function updateLoadMoreButton(id, page, label) {
     const button = $(id);
     const total = Number((page || {}).total || 0);
@@ -464,6 +500,7 @@
     fillSelect(broInput, broOptions, 'value', 'label');
     if ((data.bro_names || []).includes(currentUserName())) broInput.value = currentUserName();
     renderHome(data);
+    state.lastSuccessfulHome = snapshotHome();
     if (isTargetManager()) {
       $('targetSettingsTab').classList.remove('hidden');
       $('trackerTabs').classList.add('has-settings');
@@ -473,14 +510,41 @@
 
   async function refresh(options) {
     const background = Boolean(options && options.background);
+    const requestNumber = (state.homeRequestNumber || 0) + 1;
+    state.homeRequestNumber = requestNumber;
     if (!background) setStatus('Refreshing queue...', 'busy');
     try {
       const result = await api('/api/tat-tracker/home/', homePayload());
-      renderHome(result.data);
+      const nextHome = result && result.data;
+      if (!nextHome || typeof nextHome !== 'object') {
+        throw new Error('Queue refresh returned an invalid response. Tap Refresh to retry.');
+      }
+      const cachedHome = state.lastSuccessfulHome;
+      if (
+        cachedHome
+        && homeHasItems(cachedHome)
+        && sameHomeFilters(cachedHome.filters, currentHomeFilters())
+        && !homeHasItems(nextHome)
+      ) {
+        throw new Error('Queue refresh returned no cases. Showing the last loaded queue; tap Refresh to retry.');
+      }
+      // A slower request started before this one must not overwrite the
+      // current queue with stale (or empty) data.
+      if (requestNumber !== state.homeRequestNumber) return result;
+      renderHome(nextHome);
+      state.lastSuccessfulHome = snapshotHome();
       if (!background) setStatus('Queue updated.', 'ok');
       return result;
     } catch (error) {
-      if (!background) setStatus(error.message, 'error');
+      if (requestNumber === state.homeRequestNumber && !background) {
+        const restored = restoreLastSuccessfulHome();
+        setStatus(
+          restored
+            ? 'Queue refresh failed. Showing the last loaded queue; tap Refresh to retry.'
+            : (error.message || 'Queue refresh failed. Tap Refresh to retry.'),
+          'error',
+        );
+      }
       throw error;
     }
   }
@@ -664,6 +728,7 @@
         : { recent_offset: offset };
       const result = await api('/api/tat-tracker/home/', homePayload(payload));
       renderHome(result.data, kind);
+      state.lastSuccessfulHome = snapshotHome();
     } catch (error) {
       setStatus(error.message, 'error');
     } finally {
@@ -695,7 +760,16 @@
     state.refreshing = true;
     window.location.reload();
   });
-  $('backBtn').addEventListener('click', () => { show('queue'); refresh().catch(() => {}); });
+  $('backBtn').addEventListener('click', async () => {
+    show('queue');
+    try {
+      await refresh();
+    } catch (error) {
+      // refresh() restores the cached queue and reports the failure. Keep the
+      // catch here so an expected network error does not become an unhandled
+      // promise rejection in Telegram's WebView.
+    }
+  });
   $('loadMoreQueueBtn').addEventListener('click', () => loadMoreHome('action_required'));
   $('loadMoreRecentBtn').addEventListener('click', () => loadMoreHome('recent'));
   $('queueProductFilter').addEventListener('change', () => refresh().catch(() => {}));
