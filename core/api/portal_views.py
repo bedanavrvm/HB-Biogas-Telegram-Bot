@@ -411,6 +411,15 @@ def _serialize_batch(batch, farmers, request, include_farmers: bool = True) -> d
                 'sub_county': farmer.sub_county,
                 'village': farmer.village,
                 'branch': farmer.branch,
+                'hb_sales_person': farmer.hb_sales_person,
+                'credit_decision': farmer.credit_decision,
+                'final_decision_comment': farmer.final_decision_comment,
+                'customer_no': farmer.customer_no,
+                'imab_customer_name': farmer.imab_customer_name,
+                'lead_source': farmer.lead_source,
+                'actual_receipts': str(farmer.actual_receipts) if farmer.actual_receipts is not None else '',
+                'deposit_paid_hbg': str(farmer.deposit_paid_hbg) if farmer.deposit_paid_hbg is not None else '',
+                'system_deposit_paid_jbl': str(farmer.system_deposit_paid_jbl) if farmer.system_deposit_paid_jbl is not None else '',
                 'invoice_number': farmer.invoice_number,
                 'invoice_date': farmer.invoice_date.strftime('%Y-%m-%d') if farmer.invoice_date else None,
                 'invoice_amount': str(farmer.invoice_amount) if farmer.invoice_amount is not None else None,
@@ -1198,7 +1207,9 @@ def portal_requisition_preview(request):
     farmer_ids = body.get('farmer_ids') or []
     order_number = str(body.get('order_number') or '').strip()
     requisition_date_raw = str(body.get('requisition_date') or '').strip()
-    preview_format = str(body.get('preview_format') or 'workbook').strip().lower()
+    # The in-app preview is intentionally data-only. Workbook rendering in a
+    # Telegram WebView is unreliable and belongs to the confirmed download.
+    preview_format = 'document'
     if not farmer_ids:
         return JsonResponse({'ok': False, 'error': 'No farmers selected.'}, status=400)
     if not order_number:
@@ -1228,17 +1239,6 @@ def portal_requisition_preview(request):
         warnings.append({
             'message': f"Order number {order_number} already exists on {existing_order} other client(s). Generating will add/update this same batch.",
         })
-    workbook_preview = None
-    if not blocked and preview_format in {'workbook', 'print'}:
-        from core.services.requisition import RequisitionTemplateError, generate_requisition_excel
-        from core.services.workbook_preview import serialize_workbook_preview
-        try:
-            workbook_preview = serialize_workbook_preview(
-                generate_requisition_excel(farmers, order_number, requisition_date),
-                print_only=preview_format == 'print',
-            )
-        except (RequisitionTemplateError, FileNotFoundError) as exc:
-            warnings.append({'message': f'Excel preview unavailable: {exc}'})
     return JsonResponse({
         'ok': True,
         'order_number': order_number,
@@ -1249,7 +1249,7 @@ def portal_requisition_preview(request):
         'ready': ready,
         'blocked': blocked,
         'warnings': warnings,
-        'workbook_preview': workbook_preview,
+        'workbook_preview': None,
         'preview_format': preview_format,
     })
 
@@ -1257,7 +1257,11 @@ def portal_requisition_preview(request):
 @csrf_exempt
 @require_http_methods(["POST"])
 def portal_requisition_workbook_preview(request):
-    """Generate a Drive-backed requisition workbook preview without finalizing the batch."""
+    """Legacy Drive-backed preview endpoint retained for old Mini App clients.
+
+    The current UI never calls this side-effecting endpoint: it renders the
+    values in-app and only generates the confirmed Excel output after review.
+    """
     from django.utils import timezone
     from core.models import RequisitionBatch
     from core.services.requisition import RequisitionTemplateError, generate_requisition_excel
@@ -1521,12 +1525,6 @@ def portal_requisition_batch_detail(request, order_number: str):
         if access_error:
             return access_error
         payload = _serialize_batch(batch, farmers, request)
-        if batch.file_content and request.GET.get('include_preview') == '1':
-            try:
-                from core.services.workbook_preview import serialize_workbook_preview
-                payload['workbook_preview'] = serialize_workbook_preview(batch.file_content, print_only=True)
-            except Exception:
-                logger.info('Requisition workbook preview unavailable for batch %s', batch.order_number)
         return JsonResponse({'ok': True, 'batch': payload})
     except RequisitionBatch.DoesNotExist:
         farmers = list(JawabuFarmerMaster.objects.filter(order_number=order_number).order_by('customer_name'))
@@ -2428,7 +2426,7 @@ def portal_payment_selection(request):
     immutable final payment artifact.
     """
     from core.services.payment_documents import (
-        PaymentTemplateError, create_payment_document, generate_payment_workbook,
+        PaymentTemplateError, create_payment_document,
         normalize_payment_number, payment_readiness, serialize_payment_document,
     )
     body = _json_body(request)
@@ -2491,12 +2489,13 @@ def portal_payment_selection(request):
                 'document': serialize_payment_document(document),
                 'requires_head_rural_review': True,
             })
-        workbook_bytes, _summary = generate_payment_workbook(scope, payment_number, farmer_ids=farmer_ids)
-        from core.services.workbook_preview import serialize_workbook_preview
+        # Previewing a payment is deliberately data-only. Generating an Excel
+        # workbook here made preview depend on Drive/template availability and
+        # triggered the blank-canvas failure in Telegram WebViews.
         return JsonResponse({
             'ok': True,
             'readiness': readiness,
-            'workbook_preview': serialize_workbook_preview(workbook_bytes, print_only=True),
+            'workbook_preview': None,
         })
     except PaymentTemplateError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
@@ -2505,7 +2504,7 @@ def portal_payment_selection(request):
 @require_http_methods(["GET"])
 def portal_payment_preview_data(request, order_number: str):
     """Return canonical payment rows for the printable in-app preview."""
-    from core.services.payment_documents import PaymentTemplateError, generate_payment_workbook, normalize_payment_number, payment_readiness
+    from core.services.payment_documents import PaymentTemplateError, normalize_payment_number, payment_readiness
 
     try:
         payment_number = normalize_payment_number(request.GET.get('payment_number'))
@@ -2523,18 +2522,10 @@ def portal_payment_preview_data(request, order_number: str):
     for key in amount_keys:
         values = [row.get(key) for row in rows if row.get(key) not in (None, '')]
         totals[key] = str(sum(values)) if values else None
-    workbook_preview = None
-    if readiness.get('blocked_count', 0) == 0 and request.GET.get('format') == 'print':
-        from core.services.workbook_preview import serialize_workbook_preview
-        try:
-            workbook_bytes, _summary = generate_payment_workbook(order_number, payment_number)
-            workbook_preview = serialize_workbook_preview(workbook_bytes, print_only=True)
-        except PaymentTemplateError as exc:
-            return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     return JsonResponse({'ok': readiness.get('blocked_count', 0) == 0, 'preview': {
         'order_number': order_number, 'payment_number': payment_number, 'rows': rows, 'totals': totals,
         'ready_count': readiness.get('ready_count', 0), 'blocked': readiness.get('blocked', []),
-    }, 'workbook_preview': workbook_preview})
+    }, 'workbook_preview': None})
 
 
 @csrf_exempt
@@ -2714,7 +2705,7 @@ def portal_payment_document_detail(request, document_id: str):
     """Return the printable snapshot for a payment review or final artifact."""
     from django.shortcuts import get_object_or_404
     from core.models import PaymentDocument
-    from core.services.payment_documents import generate_payment_workbook, payment_readiness, serialize_payment_document
+    from core.services.payment_documents import payment_readiness, serialize_payment_document
 
     doc = get_object_or_404(
         PaymentDocument,
@@ -2733,24 +2724,8 @@ def portal_payment_document_detail(request, document_id: str):
         values = [row.get(key) for row in rows if row.get(key) not in (None, '')]
         from decimal import Decimal
         totals[key] = str(sum(Decimal(str(value)) for value in values)) if values else None
-    workbook_preview = None
-    try:
-        from core.services.workbook_preview import serialize_workbook_preview
-        workbook_bytes, _summary = generate_payment_workbook(
-            doc.order_number,
-            doc.payment_number,
-            farmer_ids=list(doc.farmer_ids or []),
-            call_up_comments=doc.call_up_comments if doc.status == 'final' else None,
-        )
-        workbook_preview = serialize_workbook_preview(workbook_bytes, print_only=True)
-    except Exception:
-        # Older payment documents may not retain farmer IDs or may reference
-        # clients that have since been archived; keep the historical compact
-        # preview available without turning that compatibility case into a
-        # server error.
-        logger.info('Template preview unavailable for legacy payment document %s', doc.id)
     return JsonResponse({'ok': True, 'document': serialize_payment_document(doc), 'preview': {
         'order_number': ', '.join(summary.get('order_numbers') or [doc.order_number]),
         'payment_number': doc.payment_number,
         'ready_count': len(rows), 'rows': rows, 'totals': totals,
-    }, 'workbook_preview': workbook_preview})
+    }, 'workbook_preview': None})

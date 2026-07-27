@@ -11,45 +11,16 @@
   function state() { return deps.state; }
   function csrfHeader() { return { 'X-CSRFToken': deps.getCookie('csrftoken') || '' }; }
 
-  function workbookBorder(style) {
-    if (!style) return 'none';
-    return `${style === 'medium' ? 2 : style === 'thick' ? 3 : 1}px solid #7d8793`;
-  }
-
-  function renderWorkbookPreview(workbook) {
-    const sheets = workbook?.sheets || [];
-    if (!sheets.length) return '<div class="empty-state">Workbook preview is unavailable.</div>';
-    const active = workbook.active_sheet || 0;
-    const renderedSheets = sheets.map((sheet, index) => {
-      const images = new Map((sheet.images || []).map(image => [`${image.row}:${image.column}`, image]));
-      const columns = (sheet.columns || []).map(col => `<col style="width:${col.hidden ? 0 : Math.max(24, col.width * 7)}px">`).join('');
-      const rows = (sheet.rows || []).filter(row => !row.hidden).map(row => {
-        const cells = (row.cells || []).map(cell => {
-          const s = cell.style || {};
-          const css = [`background:${s.background || '#fff'}`, `color:${s.color || '#111827'}`,
-            `font-weight:${s.bold ? '700' : '400'}`, `font-style:${s.italic ? 'italic' : 'normal'}`,
-            `font-size:${Math.max(8, s.font_size || 11)}px`,
-            `text-align:${s.horizontal === 'center' ? 'center' : s.horizontal === 'right' ? 'right' : 'left'}`,
-            `vertical-align:${s.vertical === 'top' ? 'top' : s.vertical === 'bottom' ? 'bottom' : 'middle'}`,
-            `white-space:${s.wrap ? 'normal' : 'nowrap'}`, `border-top:${workbookBorder(s.border_top)}`,
-            `border-right:${workbookBorder(s.border_right)}`, `border-bottom:${workbookBorder(s.border_bottom)}`,
-            `border-left:${workbookBorder(s.border_left)}`].join(';');
-          const image = images.get(`${row.number}:${cell.column}`);
-          const imageHtml = image ? `<img class="workbook-cell-image" src="${image.data_url}" alt="" style="width:${Math.max(1, image.width || 1)}px;height:${Math.max(1, image.height || 1)}px">` : '';
-          return `<td colspan="${cell.col_span || 1}" rowspan="${cell.row_span || 1}" style="${css}">${imageHtml}${deps.escapeHtml(cell.value || '')}</td>`;
-        }).join('');
-        return `<tr style="height:${Math.max(10, row.height || 18)}px">${cells}</tr>`;
-      }).join('');
-      return `<section class="workbook-sheet" data-sheet-index="${index}" ${index === active ? '' : 'hidden'}><table><colgroup>${columns}</colgroup><tbody>${rows}</tbody></table>${sheet.truncated ? '<div class="batch-warning">Preview shortened for display. The saved Excel retains all cells.</div>' : ''}</section>`;
-    }).join('');
-    const tabs = sheets.length > 1 ? `<div class="workbook-tabs">${sheets.map((sheet, index) => `<button type="button" class="workbook-tab ${index === active ? 'active' : ''}" data-sheet-index="${index}">${deps.escapeHtml(sheet.name)}</button>`).join('')}</div>` : '';
-    return `<div class="workbook-preview"><div class="workbook-preview-scroll">${renderedSheets}</div>${tabs}</div>`;
-  }
-
   function renderPrintableRequisition(data) {
-    const farmers = [...(data.ready || []), ...(data.blocked || []).map(item => item.farmer)];
+    const farmers = data.farmers || [...(data.ready || []), ...(data.blocked || []).map(item => item.farmer)];
     const rows = farmers.map((farmer, index) => {
-      const preview = farmer.requisition_preview || {};
+      const isJbl = farmer.lead_source && String(farmer.lead_source).toLowerCase().includes('jbl');
+      const deposit = farmer.deposit_paid_hbg || farmer.actual_receipts || '';
+      const preview = farmer.requisition_preview || {
+        location: [farmer.sub_county, farmer.village].filter(Boolean).join(' - '),
+        hbg_deposit: isJbl ? '' : deposit,
+        jbl_deposit: isJbl ? (farmer.system_deposit_paid_jbl || deposit) : '',
+      };
       return `<tr>
         <td>${index + 1}</td>
         <td>${deps.escapeHtml(farmer.customer_name || '-')}</td>
@@ -99,21 +70,27 @@
 
   function renderPrintablePayment(preview) {
     const rows = (preview.rows || []).map((row, index) => `<tr>
-      <td>${index + 1}</td>
-      <td class="payment-customer"><strong>${paymentValue(row.name)}</strong><small>IMAB: ${paymentValue(row.name_imab) || '-'}</small><small>Customer: ${paymentValue(row.cust_no) || '-'}</small><small>${paymentValue(row.mobile_no) || '-'}</small></td>
-      <td><strong>${paymentValue(row.branch)}</strong><small>${paymentValue(row.loan_officer)}</small></td>
-      <td class="amount">${paymentAmount(row.hb_invoice_amount)}</td><td class="amount">${paymentAmount(row.discount)}</td>
-      <td class="amount"><strong>HBG: ${paymentAmount(row.deposit_paid_hbg) || '-'}</strong><small>JBL: ${paymentAmount(row.deposit_paid_jbl) || '-'}</small></td>
-      <td><strong>${paymentValue(row.product)}</strong><small>${deps.escapeHtml(deps.fmtDate(row.repayment_dates))} / ${paymentValue(row.tenor)} months</small></td>
-      <td>${deps.escapeHtml(deps.fmtDate(row.requisition_date))}<small>Order ${paymentValue(row.order_no)}</small></td>
+      <td>${index + 1}</td><td>${deps.escapeHtml(deps.fmtDate(row.requisition_date))}</td>
+      <td>${paymentValue(row.order_no)}</td><td>${paymentValue(row.cust_no)}</td>
+      <td>${paymentValue(row.name_imab)}</td><td>${paymentValue(row.name)}</td>
+      <td>${paymentValue(row.mobile_no)}</td><td>${paymentValue(row.secondary_mobile)}</td>
+      <td>${paymentValue(row.branch)}</td><td>${paymentValue(row.loan_officer)}</td>
+      <td class="amount">${paymentAmount(row.hb_invoice_amount)}</td>
+      <td class="amount">${paymentAmount(row.expected_invoice_amount)}</td>
+      <td class="amount">${paymentAmount(row.discount)}</td>
+      <td class="amount">${paymentAmount(row.deposit_paid_hbg)}</td>
+      <td class="amount">${paymentAmount(row.deposit_paid_jbl)}</td>
+      <td class="amount">${paymentAmount(row.loan_amount)}</td>
+      <td>${deps.escapeHtml(deps.fmtDate(row.repayment_dates))}</td><td>${paymentValue(row.tenor)}</td>
+      <td>${paymentValue(row.product)}</td><td>${paymentValue(row.call_up_comments)}</td>
     </tr>`).join('');
     const totals = preview.totals || {};
     return `<article class="payment-print-preview">
       <header><h3>JBL Payment Schedule #${deps.escapeHtml(preview.payment_number || '-')}</h3><div><strong>Order No:</strong> ${deps.escapeHtml(preview.order_number || '-')}</div><div><strong>Clients:</strong> ${deps.escapeHtml(preview.ready_count || 0)}</div></header>
       <div class="payment-total-strip"><span>Balance due <strong>${paymentAmount(totals.hb_invoice_amount) || '0'}</strong></span><span>Discount <strong>${paymentAmount(totals.discount) || '0'}</strong></span><span>HBG deposit <strong>${paymentAmount(totals.deposit_paid_hbg) || '0'}</strong></span><span>JBL deposit <strong>${paymentAmount(totals.deposit_paid_jbl) || '0'}</strong></span></div>
       <div class="payment-print-scroll"><table>
-        <thead><tr><th>No.</th><th>Customer</th><th>Branch / loan officer</th><th>Balance due</th><th>Discount</th><th>Deposits</th><th>Product / repayment</th><th>Requisition / order</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="8">No payment rows available.</td></tr>'}</tbody>
+        <thead><tr><th>No.</th><th>Requisition date</th><th>Order no.</th><th>Cust no.</th><th>Name in IMAB</th><th>Name</th><th>Primary mobile</th><th>Secondary mobile</th><th>Branch</th><th>Loan officer</th><th>HB invoice amount</th><th>Expected invoice amount</th><th>Discount</th><th>Deposit paid to HBG</th><th>Deposit paid to JBL</th><th>Loan amount</th><th>Repayment dates</th><th>Tenor</th><th>Product</th><th>Call up comments</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="20">No payment rows available.</td></tr>'}</tbody>
       </table></div>
       <footer><span><strong>Prepared by:</strong> __________________</span><span><strong>Checked by:</strong> __________________</span><span><strong>Authorized by:</strong> __________________</span><span><strong>Date:</strong> __________________</span></footer>
     </article>`;
@@ -149,7 +126,7 @@
   }
 
   async function openFinalOrderHistory(orderNumber) {
-    const response = await deps.apiFetch('/requisition-batches/' + encodeURIComponent(orderNumber) + '/?include_preview=1');
+    const response = await deps.apiFetch('/requisition-batches/' + encodeURIComponent(orderNumber) + '/');
     if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.error || 'Could not load final order.', 'error');
     const batch = response.data.batch || {};
     openRequisitionPreview({
@@ -168,14 +145,11 @@
     const overlay = el('payment-preview-overlay');
     if (el('payment-preview-sub')) el('payment-preview-sub').textContent = `Payment #${preview.payment_number || '-'} - Order ${preview.order_number || '-'}`;
     if (el('payment-preview-content')) {
-      const workbook = response.data.workbook_preview
-        ? `<h3 class="workbook-preview-title">Payment Excel Preview</h3>${renderWorkbookPreview(response.data.workbook_preview)}`
-        : renderPrintablePayment(preview);
+      const valuePreview = renderPrintablePayment(preview);
       const reviewActions = document.status === 'pending_review'
         ? `<div class="form-section" style="margin-top:12px;"><strong>Head of Rural review</strong><p class="meta">Confirm the repayment date and tenor above, then enter the Call Up Comments that must be written to COL in the final payment.</p><label style="display:grid;gap:6px;margin-top:8px;">Call Up Comments (COL)<textarea id="payment-review-call-up-comments" rows="3" placeholder="Approval comments"></textarea></label><button type="button" class="btn btn-primary" id="payment-review-approve" data-document-id="${deps.escapeHtml(document.id)}" style="margin-top:8px;">Approve and create final payment</button></div>`
         : '';
-      el('payment-preview-content').innerHTML = workbook + reviewActions;
-      if (response.data.workbook_preview) activateWorkbookTabs(el('payment-preview-content'));
+      el('payment-preview-content').innerHTML = valuePreview + reviewActions;
     }
     activePaymentReviewId = document.status === 'pending_review' ? document.id : null;
     activePaymentPrintPayload = { orderNumber: preview.order_number, paymentNumber: preview.payment_number };
@@ -205,14 +179,6 @@
     } finally {
       deps.setButtonLoading(button, false);
     }
-  }
-
-  function activateWorkbookTabs(container) {
-    container?.querySelectorAll('.workbook-tab').forEach(tab => tab.addEventListener('click', () => {
-      const index = tab.dataset.sheetIndex;
-      container.querySelectorAll('.workbook-tab').forEach(item => item.classList.toggle('active', item === tab));
-      container.querySelectorAll('.workbook-sheet').forEach(sheet => { sheet.hidden = sheet.dataset.sheetIndex !== index; });
-    }));
   }
 
   function updateBatchPanel() {
@@ -348,12 +314,8 @@
           renderPaymentResult(target, { readiness: { blocked: preview.blocked || [], ready_count: preview.ready_count || 0 } });
           throw new Error('Payment preview is blocked. Resolve the listed fields.');
         }
-        const rows = preview.rows || [];
-        target.innerHTML = `<div class="form-section"><h3>Payment Preview — Order ${deps.escapeHtml(orderNumber)}</h3>
-          <div class="batch-client-list">${rows.map(row => `<div class="batch-client-row"><div class="name">${deps.escapeHtml(row.name || row.name_imab || '-')}</div><div class="meta">Customer ${deps.escapeHtml(row.cust_no || '-')} | Balance due ${paymentAmount(row.hb_invoice_amount) || '-'} | Discount ${paymentAmount(row.discount) || '-'} | HB deposit ${paymentAmount(row.deposit_paid_hbg) || '-'} | JBL deposit ${paymentAmount(row.deposit_paid_jbl) || '-'}</div></div>`).join('')}</div></div>`;
-        target.innerHTML = `<div class="form-section"><h3>Excel Preview - Order ${deps.escapeHtml(orderNumber)}</h3>${renderWorkbookPreview(preview.workbook_preview)}</div>`;
-        activateWorkbookTabs(target);
-        deps.showToast('Payment Excel preview shown in the Mini App.', 'success');
+        target.innerHTML = renderPrintablePayment(preview);
+        deps.showToast('Payment values preview shown in the Mini App.', 'success');
         return;
       }
       const path = '/payment-documents/' + encodeURIComponent(orderNumber) + '/' + (final ? 'finalize/' : 'preview/');
@@ -405,26 +367,6 @@
       openBatchDetail(batch.order_number);
     } catch (err) {
       deps.showToast(err.message || 'Could not generate the requisition form.', 'error');
-    } finally {
-      deps.setButtonLoading(button, false);
-    }
-  }
-
-  async function previewRequisitionWorkbook(payload, button) {
-    if (!payload) return;
-    deps.setButtonLoading(button, true, 'Previewing...');
-    try {
-      const response = await deps.portalApi.postJson('/requisition-queue/preview-workbook/', payload, deps.tg, csrfHeader());
-      const result = response.data || {};
-      if (!response.ok || !result.ok || !result.drive_url) {
-        deps.showToast(result.error || 'Could not generate workbook preview.', 'error');
-        return;
-      }
-      deps.openPortalLink(result.drive_url);
-      deps.showToast('Workbook preview stored in Drive.', 'success');
-      deps.loadQueue('batches', state().pages.batches || 1);
-    } catch (err) {
-      deps.showToast(err.message || 'Could not generate workbook preview.', 'error');
     } finally {
       deps.setButtonLoading(button, false);
     }
@@ -524,28 +466,12 @@
       { label: 'Warnings', value: String(data.warning_count || 0) },
     ]);
     deps.renderWarnings(warnings, data.warnings || []);
-    const allFarmers = [...(data.ready || []), ...(data.blocked || []).map(item => item.farmer)];
-    list.innerHTML = readOnly
-      ? (data.workbook_preview
-        ? `<h3 class="workbook-preview-title">Excel Preview v${deps.escapeHtml(data.version || '-')}</h3>${renderWorkbookPreview(data.workbook_preview)}`
-        : renderPrintableRequisition(data))
-      : (data.workbook_preview
-        ? `<h3 class="workbook-preview-title">Excel Preview</h3>${renderWorkbookPreview(data.workbook_preview)}`
-        : deps.batchClientRows(allFarmers, blockedById));
-    if (data.workbook_preview) activateWorkbookTabs(list);
+    list.innerHTML = renderPrintableRequisition(data);
     confirm.hidden = readOnly;
     confirm.disabled = readOnly || (data.blocked_count || 0) > 0 || !(data.ready_count || 0);
     confirm.textContent = confirm.disabled && !readOnly ? 'Resolve Blocked Items' : 'Generate and Save Excel';
     if (cancel) cancel.textContent = readOnly ? 'Close Preview' : 'Back';
-    const preview = el('requisition-preview-workbook');
-    if (preview) preview.hidden = true;
     overlay.classList.add('open');
-  }
-
-  async function generateWorkbookPreviewFromSelection() {
-    const payload = state().pendingRequisitionPayload;
-    if (!payload) return;
-    await previewRequisitionWorkbook(payload, el('requisition-preview-workbook'));
   }
 
   async function generateRequisitionFromPreview() {
@@ -717,8 +643,7 @@
       document.addEventListener('click', event => {
         const action = event.target.closest(
           '#btn-generate-requisition, #requisition-preview-confirm, '
-          + '#requisition-preview-workbook, #requisition-preview-close, '
-          + '#requisition-preview-cancel, #batch-detail-close, '
+          + '#requisition-preview-close, #requisition-preview-cancel, #batch-detail-close, '
           + '#batch-detail-download, #batch-detail-generate, #batch-detail-preview, '
           + '#batch-detail-upload'
         );
@@ -726,7 +651,6 @@
           event.preventDefault();
           if (action.id === 'btn-generate-requisition') requestRequisitionPreview();
           else if (action.id === 'requisition-preview-confirm') generateRequisitionFromPreview();
-          else if (action.id === 'requisition-preview-workbook') generateWorkbookPreviewFromSelection();
           else if (action.id === 'requisition-preview-close' || action.id === 'requisition-preview-cancel') {
             el('requisition-preview-overlay')?.classList.remove('open');
           }
@@ -778,7 +702,7 @@
     openPaymentPreview,
     openFinalOrderHistory,
     openFinalPaymentHistory,
-    renderWorkbookPreview,
+    renderPrintablePayment,
     updateBatchPanel,
   };
 })();

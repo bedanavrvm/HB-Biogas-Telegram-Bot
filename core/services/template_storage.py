@@ -12,10 +12,25 @@ from core.services.order_approval import GoogleDriveMediaStorage, drive_file_url
 
 
 WORKBOOK_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+REQUISITION_TEMPLATE_FILENAME = 'JBL_Requisition_Form_Reconciled.xlsx'
 
 
 class TemplateStorageError(RuntimeError):
     pass
+
+
+def canonical_template_filename(category: str, filename: str) -> str:
+    """Return the stable Drive name for a known template family.
+
+    Django may append a random suffix to a repeated FileField upload. That
+    suffix must not become a new Drive template. Only the known requisition
+    family is canonicalised here; other categories retain the administrator's
+    supplied filename until their naming convention is explicitly defined.
+    """
+    name = Path(str(filename or '')).name
+    if str(category or '').strip().casefold() == 'requisition':
+        return REQUISITION_TEMPLATE_FILENAME
+    return name or 'template.xlsx'
 
 
 class GoogleDriveTemplateStorage:
@@ -39,10 +54,8 @@ class GoogleDriveTemplateStorage:
         replacement resource, not an append-only media stream, so callers use
         this list to update one canonical file and retire any older copies.
         """
-        escaped_name = filename.replace("\\", "\\\\").replace("'", "\\'")
         escaped_folder = folder_id.replace("\\", "\\\\").replace("'", "\\'")
         query = (
-            f"name = '{escaped_name}' and "
             f"mimeType = '{WORKBOOK_MIME_TYPE}' and "
             f"'{escaped_folder}' in parents and trashed = false"
         )
@@ -66,11 +79,18 @@ class GoogleDriveTemplateStorage:
             page_token = response.get('nextPageToken')
             if not page_token:
                 break
-        return results
+        base_stem = Path(filename).stem.casefold()
+        matching = []
+        for item in results:
+            candidate_stem = Path(str(item.get('name') or '')).stem.casefold()
+            if candidate_stem == base_stem or candidate_stem.startswith(base_stem + '_'):
+                matching.append(item)
+        return sorted(matching, key=lambda item: str(item.get('modifiedTime') or ''), reverse=True)
 
     def upload_template(self, data: bytes, *, filename: str, category: str) -> tuple[str, str]:
         from googleapiclient.http import MediaIoBaseUpload
 
+        filename = canonical_template_filename(category, filename)
         folder_id = self._template_folder(category)
         media = MediaIoBaseUpload(io.BytesIO(data), mimetype=WORKBOOK_MIME_TYPE, resumable=False)
         files = self.service.files()

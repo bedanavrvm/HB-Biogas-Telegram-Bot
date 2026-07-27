@@ -4,7 +4,7 @@
   let deps = null;
   const selected = new Set();
   let readyIds = [];
-  let activeWorkbook = null;
+  let activePaymentPreview = null;
   let reviewDocument = null;
 
   function el(id) { return deps.el(id); }
@@ -80,8 +80,29 @@
     try {
       const response = await deps.portalApi.postJson('/payments/selection/', body, deps.tg, {'X-CSRFToken': deps.getCookie('csrftoken') || ''});
       if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not prepare payment preview.');
-      activeWorkbook = response.data.workbook_preview;
-      el('payments-workbook-content').innerHTML = deps.requisitions.renderWorkbookPreview(activeWorkbook);
+      const readiness = response.data.readiness || {};
+      const rows = (readiness.ready || []).map(item => item.row || {});
+      const blocked = readiness.blocked || [];
+      const amountKeys = ['hb_invoice_amount', 'discount', 'deposit_paid_hbg', 'deposit_paid_jbl'];
+      const totals = {};
+      amountKeys.forEach(key => {
+        const values = rows
+          .map(row => Number(String(row[key] ?? '').replace(/,/g, '')))
+          .filter(Number.isFinite);
+        totals[key] = values.length ? String(values.reduce((sum, value) => sum + value, 0)) : '';
+      });
+      const orderNumbers = [...new Set(rows.map(row => row.order_no).filter(Boolean))];
+      activePaymentPreview = {
+        payment_number: body.payment_number,
+        order_number: orderNumbers.join(', '),
+        ready_count: rows.length,
+        rows,
+        totals,
+      };
+      const warning = blocked.length
+        ? `<div class="batch-warning">${blocked.length} selected case(s) are blocked and are not included in this values preview. Resolve: ${escape(blocked.slice(0, 3).map(item => (item.missing || []).join(', ')).filter(Boolean).join(' | ') || 'missing payment fields')}.</div>`
+        : '';
+      el('payments-workbook-content').innerHTML = warning + deps.requisitions.renderPrintablePayment(activePaymentPreview);
       el('payments-workbook-preview').hidden = false;
       el('payments-workbook-preview').scrollIntoView({behavior: 'smooth', block: 'start'});
     } catch (error) {

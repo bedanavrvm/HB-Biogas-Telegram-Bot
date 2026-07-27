@@ -571,7 +571,7 @@
     const correctionButton = $('correctCaseDetailsBtn');
     if (correctionButton) {
       correctionButton.classList.toggle('hidden', !detail.can_correct_details);
-      fillCaseCorrectionForm(summary);
+      fillCaseCorrectionForm(summary, detail.correction_branches || []);
     }
     $('detailSummary').innerHTML = `
       <div class="detail-header-block">
@@ -729,12 +729,16 @@
     }
   }
 
-  function fillCaseCorrectionForm(summary) {
+  function fillCaseCorrectionForm(summary, branches) {
     const form = $('caseCorrectionForm');
     if (!form || !summary) return;
     ['client_name', 'national_id', 'primary_phone', 'branch', 'bro_name', 'amount'].forEach((field) => {
       const input = form.elements[field];
-      if (input) input.value = summary[field] || '';
+      if (!input) return;
+      if (field === 'branch' && input.tagName === 'SELECT') {
+        input.innerHTML = (branches || []).map((branch) => `<option value="${escapeHtml(branch)}">${escapeHtml(branch)}</option>`).join('');
+      }
+      input.value = summary[field] || '';
     });
   }
 
