@@ -32,15 +32,87 @@ class GoogleDriveTemplateStorage:
         root = self._media_storage.ensure_child_folder(self._media_storage.parent_folder_id, 'Templates')
         return self._media_storage.ensure_child_folder(root, category)
 
+    def _same_name_templates(self, folder_id: str, filename: str) -> list[dict[str, Any]]:
+        """Return live workbook files with this name, newest first.
+
+        Drive permits duplicate names in a folder. Template files are a
+        replacement resource, not an append-only media stream, so callers use
+        this list to update one canonical file and retire any older copies.
+        """
+        escaped_name = filename.replace("\\", "\\\\").replace("'", "\\'")
+        escaped_folder = folder_id.replace("\\", "\\\\").replace("'", "\\'")
+        query = (
+            f"name = '{escaped_name}' and "
+            f"mimeType = '{WORKBOOK_MIME_TYPE}' and "
+            f"'{escaped_folder}' in parents and trashed = false"
+        )
+        files = self.service.files()
+        results: list[dict[str, Any]] = []
+        page_token = None
+        while True:
+            params = {
+                'q': query,
+                'spaces': 'drive',
+                'fields': 'nextPageToken, files(id, name, modifiedTime, webViewLink)',
+                'pageSize': 1000,
+                'orderBy': 'modifiedTime desc',
+                'includeItemsFromAllDrives': True,
+                'supportsAllDrives': True,
+            }
+            if page_token:
+                params['pageToken'] = page_token
+            response = files.list(**params).execute()
+            results.extend(response.get('files', []))
+            page_token = response.get('nextPageToken')
+            if not page_token:
+                break
+        return results
+
     def upload_template(self, data: bytes, *, filename: str, category: str) -> tuple[str, str]:
         from googleapiclient.http import MediaIoBaseUpload
 
         folder_id = self._template_folder(category)
         media = MediaIoBaseUpload(io.BytesIO(data), mimetype=WORKBOOK_MIME_TYPE, resumable=False)
+        files = self.service.files()
+        existing = self._same_name_templates(folder_id, filename)
+        if existing:
+            # Keep the newest Drive ID stable so links and audit references do
+            # not change when an administrator replaces a template.
+            current = existing[0]
+            uploaded_at = timezone.now().isoformat()
+            updated = (
+                files.update(
+                    fileId=current['id'],
+                    body={
+                        'name': filename,
+                        'description': f'JBL {category} template; latest upload {uploaded_at}',
+                    },
+                    media_body=media,
+                    fields='id, webViewLink',
+                    supportsAllDrives=True,
+                )
+                .execute()
+            )
+            # Clean up duplicates already created by the previous create-only
+            # implementation. Trashing them keeps the folder unambiguous while
+            # preserving Drive recovery/audit history.
+            for duplicate in existing[1:]:
+                files.update(
+                    fileId=duplicate['id'],
+                    body={'trashed': True},
+                    fields='id',
+                    supportsAllDrives=True,
+                ).execute()
+            file_id = updated['id']
+            return file_id, updated.get('webViewLink') or drive_file_url(file_id)
+
         created = (
-            self.service.files()
-            .create(
-                body={'name': filename, 'parents': [folder_id]},
+            files.create(
+                body={
+                    'name': filename,
+                    'parents': [folder_id],
+                    'description': f'JBL {category} template; latest upload {timezone.now().isoformat()}',
+                },
                 media_body=media,
                 fields='id, webViewLink',
                 supportsAllDrives=True,

@@ -54,7 +54,9 @@ class PaymentTemplateLayout:
 
 
 def _template_source():
-    active_template = PaymentDocumentTemplate.objects.filter(is_active=True).first()
+    active_template = PaymentDocumentTemplate.objects.filter(
+        is_active=True,
+    ).order_by('-updated_at', '-created_at').first()
     fallback_path = Path('requisition') / PAYMENT_TEMPLATE_FILENAME
     try:
         return workbook_source_from_template(active_template, fallback_path=fallback_path)

@@ -10,6 +10,23 @@ Media is stored under the folder configured by:
 GOOGLE_DRIVE_MEDIA_FOLDER_ID=<shared-drive-folder-id>
 ```
 
+Workbook templates use a separate replacement-only branch:
+
+```text
+Order Approval Media/
+└── Templates/
+    ├── Requisition/
+    │   └── <template filename>.xlsx
+    └── Payment Documents/
+        └── <template filename>.xlsx
+```
+
+Template uploads are not append-only. Within each category, an upload with
+the same filename updates the newest existing Drive file, keeps its Drive ID
+stable, and trashes older same-name duplicates. The active Django template
+record is the version used for generation; its `drive_uploaded_at` timestamp
+identifies the latest upload and the Django Admin marks it `CURRENT / USED`.
+
 The bot creates this structure below that folder. The first child folder is
 the Telegram group name from Django admin `display_name`, unless the workflow
 sets `media_root_folder`.

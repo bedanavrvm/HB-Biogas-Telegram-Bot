@@ -9,11 +9,21 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.drawing.image import Image as XlsxImage
 from PIL import Image as PilImage
 
+from core.models import RequisitionTemplate
 from core.services.requisition import RequisitionTemplateError, generate_requisition_excel
 from core.services.workbook_preview import serialize_workbook_preview
 
 
 class RequisitionTemplateGenerationTests(TestCase):
+    def test_same_named_requisition_template_keeps_only_latest_active(self):
+        first = RequisitionTemplate.objects.create(name='JBL Requisition Form', is_active=True)
+        latest = RequisitionTemplate.objects.create(name='jbl requisition form', is_active=True)
+
+        first.refresh_from_db()
+        latest.refresh_from_db()
+        self.assertFalse(first.is_active)
+        self.assertTrue(latest.is_active)
+
     def farmer(self, **overrides):
         data = {
             'customer_name': 'Mary Wanjiku',
@@ -70,7 +80,7 @@ class RequisitionTemplateGenerationTests(TestCase):
     def generate_with_template(self, template_path: Path, farmers):
         fake_template = SimpleNamespace(file=SimpleNamespace(path=str(template_path)))
         with patch('core.models.RequisitionTemplate') as model:
-            model.objects.filter.return_value.first.return_value = fake_template
+            model.objects.filter.return_value.order_by.return_value.first.return_value = fake_template
             return generate_requisition_excel(farmers, 'REQ-TEST-001', date(2026, 7, 23))
 
     def test_reconciled_layout_preserves_id_and_writes_callup_comment_column(self):
@@ -227,7 +237,7 @@ class RequisitionTemplateGenerationTests(TestCase):
             'core.services.requisition.workbook_source_from_template',
             return_value=io.BytesIO(template_bytes),
         ) as source:
-            model.objects.filter.return_value.first.return_value = fake_template
+            model.objects.filter.return_value.order_by.return_value.first.return_value = fake_template
             output_path.write_bytes(generate_requisition_excel([self.farmer()], 'REQ-DRIVE-001', date(2026, 7, 23)))
 
         source.assert_called_once()

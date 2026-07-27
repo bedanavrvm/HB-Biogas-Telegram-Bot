@@ -1826,7 +1826,7 @@ class RequisitionTemplateAdmin(ModelAdmin):
     compressed_fields = True
     list_filter_submit = True
     list_fullwidth = True
-    list_display = ('name', 'is_active', 'file', 'drive_url', 'drive_uploaded_at', 'created_at', 'updated_at')
+    list_display = ('name', 'version_status', 'is_active', 'file', 'drive_url', 'drive_uploaded_at', 'created_at', 'updated_at')
     list_editable = ('is_active',)
     readonly_fields = (
         'original_filename', 'content_type', 'size', 'checksum',
@@ -1834,6 +1834,10 @@ class RequisitionTemplateAdmin(ModelAdmin):
         'created_at', 'updated_at',
     )
     search_fields = ('name', 'original_filename', 'drive_file_id', 'drive_url')
+
+    @admin.display(description='Version')
+    def version_status(self, obj):
+        return 'CURRENT / USED' if obj.is_active else 'Archived'
 
     def save_model(self, request, obj, form, change):
         super().save_model(request, obj, form, change)
@@ -1848,7 +1852,7 @@ class PaymentDocumentTemplateAdmin(ModelAdmin):
     compressed_fields = True
     list_filter_submit = True
     list_fullwidth = True
-    list_display = ('name', 'is_active', 'file', 'drive_url', 'drive_uploaded_at', 'created_at', 'updated_at')
+    list_display = ('name', 'version_status', 'is_active', 'file', 'drive_url', 'drive_uploaded_at', 'created_at', 'updated_at')
     list_editable = ('is_active',)
     readonly_fields = (
         'original_filename', 'content_type', 'size', 'checksum',
@@ -1856,6 +1860,10 @@ class PaymentDocumentTemplateAdmin(ModelAdmin):
         'created_at', 'updated_at',
     )
     search_fields = ('name', 'original_filename', 'drive_file_id', 'drive_url')
+
+    @admin.display(description='Version')
+    def version_status(self, obj):
+        return 'CURRENT / USED' if obj.is_active else 'Archived'
 
     def save_model(self, request, obj, form, change):
         super().save_model(request, obj, form, change)

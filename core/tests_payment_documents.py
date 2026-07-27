@@ -522,6 +522,15 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(layout.columns['cust_no'], 5)
         self.assertIn('header_row config=5 visible=7', layout.config_warnings)
 
+    def test_same_named_payment_template_keeps_only_latest_active(self):
+        first = PaymentDocumentTemplate.objects.create(name='HB Payment Document', is_active=True)
+        latest = PaymentDocumentTemplate.objects.create(name='hb payment document', is_active=True)
+
+        first.refresh_from_db()
+        latest.refresh_from_db()
+        self.assertFalse(first.is_active)
+        self.assertTrue(latest.is_active)
+
     def test_payment_workbook_generation_uses_active_admin_uploaded_template(self):
         farmer = self.farmer(order_number='ORDER-UPLOADED')
         self.invoice_batch(farmer)

@@ -74,7 +74,9 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
     from django.conf import settings
     from core.models import RequisitionTemplate
 
-    active_template = RequisitionTemplate.objects.filter(is_active=True).first()
+    active_template = RequisitionTemplate.objects.filter(
+        is_active=True,
+    ).order_by('-updated_at', '-created_at').first()
     fallback_path = os.path.join(settings.BASE_DIR, 'requisition', 'JBL_Requisition_Form_184.xlsx')
     try:
         template_source = workbook_source_from_template(active_template, fallback_path=fallback_path)

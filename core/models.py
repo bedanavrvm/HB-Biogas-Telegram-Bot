@@ -1656,6 +1656,18 @@ class RequisitionTemplate(models.Model):
         verbose_name = 'Requisition template'
         verbose_name_plural = 'Requisition templates'
 
+    def save(self, *args, **kwargs):
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            if self.is_active:
+                type(self).objects.filter(
+                    name__iexact=self.name,
+                    is_active=True,
+                ).exclude(pk=self.pk).update(
+                    is_active=False,
+                    updated_at=timezone.now(),
+                )
+
     def __str__(self):
         return f"{self.name} ({'Active' if self.is_active else 'Inactive'})"
 
@@ -1686,6 +1698,18 @@ class PaymentDocumentTemplate(models.Model):
         ordering = ['-is_active', '-updated_at']
         verbose_name = 'Payment document template'
         verbose_name_plural = 'Payment document templates'
+
+    def save(self, *args, **kwargs):
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            if self.is_active:
+                type(self).objects.filter(
+                    name__iexact=self.name,
+                    is_active=True,
+                ).exclude(pk=self.pk).update(
+                    is_active=False,
+                    updated_at=timezone.now(),
+                )
 
     def __str__(self):
         return f"{self.name} ({'Active' if self.is_active else 'Inactive'})"
