@@ -119,12 +119,13 @@
       const input = card.querySelector('.payment-case-comment');
       const preview = card.querySelector('[data-payment-comment-preview]');
       if (!input || !preview) return;
+      const previewContainer = preview.closest('.payment-review-comment-preview') || preview;
       const syncCommentPreview = () => {
         const value = String(input.value || '').trim();
         const text = value || 'Not reviewed — no payment comment';
         preview.textContent = text;
         preview.title = text;
-        preview.classList.toggle('has-comment', Boolean(value));
+        previewContainer.classList.toggle('has-comment', Boolean(value));
       };
       input.addEventListener('input', syncCommentPreview);
       syncCommentPreview();
@@ -159,10 +160,10 @@
       const farmerId = String(row.farmer_id || document?.farmer_ids?.[index] || '');
       const comment = row.call_up_comments || comments[farmerId] || '';
       const orderComment = row.order_call_up_comments
-        ? `<div class="payment-review-reference"><strong>Order/requisition comment</strong><span>${deps.escapeHtml(row.order_call_up_comments)}</span></div>`
+        ? `<div class="payment-review-reference"><strong>Order/requisition comment (reference only)</strong><span>${deps.escapeHtml(row.order_call_up_comments)}</span></div>`
         : '';
       return `<details class="payment-review-case-card" data-payment-case-card>
-        <summary class="payment-review-case-summary"><div><span class="payment-review-case-number">Case ${index + 1}</span><h3>${deps.escapeHtml(row.name || row.name_imab || 'Unnamed customer')}</h3><p>${deps.escapeHtml([row.cust_no && `Customer ${row.cust_no}`, row.order_no && `Order ${row.order_no}`].filter(Boolean).join(' | ') || 'Identifiers not recorded')}</p><p class="payment-review-comment-preview${comment ? ' has-comment' : ''}" data-payment-comment-preview>${deps.escapeHtml(comment || 'Not reviewed — no payment comment')}</p></div><span class="badge badge-orange">HOR review</span></summary>
+        <summary class="payment-review-case-summary"><div><span class="payment-review-case-number">Case ${index + 1}</span><h3>${deps.escapeHtml(row.name || row.name_imab || 'Unnamed customer')}</h3><p>${deps.escapeHtml([row.cust_no && `Customer ${row.cust_no}`, row.order_no && `Order ${row.order_no}`].filter(Boolean).join(' | ') || 'Identifiers not recorded')}</p><p class="payment-review-comment-preview${comment ? ' has-comment' : ''}"><span class="payment-review-comment-label">Payment comment (COL)</span><span data-payment-comment-preview>${deps.escapeHtml(comment || 'Not reviewed — no payment comment')}</span></p></div><span class="badge badge-orange">HOR review</span></summary>
         <div class="payment-review-case-body"><div class="payment-review-grid">${fields.map(([label, key, options]) => `<div class="payment-review-field"><span>${deps.escapeHtml(label)}</span><strong>${paymentReviewValue(row, key, options)}</strong></div>`).join('')}</div>
         ${orderComment}
         <div class="payment-review-case-actions"><button type="button" class="btn btn-secondary payment-open-case" data-farmer-id="${deps.escapeHtml(farmerId)}">Open case</button></div>

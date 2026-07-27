@@ -736,6 +736,7 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .payment-review-case-summary p { margin:0; color:var(--text-muted); font-size:10px; }
 .payment-review-comment-preview { display:-webkit-box; max-width:100%; overflow:hidden; color:var(--color-warning) !important; font-weight:800; overflow-wrap:anywhere; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
 .payment-review-comment-preview.has-comment { color:var(--color-success) !important; }
+.payment-review-comment-label { display:block; margin-bottom:2px; color:var(--text-muted); font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; }
 .payment-review-case-body { display:grid; gap:10px; padding:0 12px 12px; }
 .payment-review-case-number { color:var(--text-muted); font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; }
 .payment-review-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
