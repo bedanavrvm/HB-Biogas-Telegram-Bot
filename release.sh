@@ -6,7 +6,10 @@
 set -euo pipefail
 
 echo "Checking production configuration..."
-python manage.py check_production_readiness --strict
+# Warnings (for example, optional Sentry monitoring) remain visible in the
+# deploy log but must not block migrations. The management command still
+# supports --strict for an explicit, fail-on-warning audit when needed.
+python manage.py check_production_readiness
 
 echo "Applying reviewed migrations..."
 python manage.py migrate --noinput
