@@ -4,6 +4,8 @@
   let deps = null;
   let invoiceUploadInProgress = false;
   let activeBatch = null;
+  let activePaymentPrintPayload = null;
+  let activePaymentReviewId = null;
 
   function el(id) { return deps.el(id); }
   function state() { return deps.state; }
@@ -160,18 +162,49 @@
 
   async function openFinalPaymentHistory(documentId) {
     const response = await deps.apiFetch('/payment-document-history/' + encodeURIComponent(documentId) + '/');
-    if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.error || 'Could not load final payment.', 'error');
+    if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.error || 'Could not load payment document.', 'error');
+    const document = response.data.document || {};
     const preview = response.data.preview || {};
     const overlay = el('payment-preview-overlay');
     if (el('payment-preview-sub')) el('payment-preview-sub').textContent = `Payment #${preview.payment_number || '-'} - Order ${preview.order_number || '-'}`;
     if (el('payment-preview-content')) {
-      el('payment-preview-content').innerHTML = response.data.workbook_preview
+      const workbook = response.data.workbook_preview
         ? `<h3 class="workbook-preview-title">Payment Excel Preview</h3>${renderWorkbookPreview(response.data.workbook_preview)}`
         : renderPrintablePayment(preview);
+      const reviewActions = document.status === 'pending_review'
+        ? `<div class="form-section" style="margin-top:12px;"><strong>Head of Rural review</strong><p class="meta">Confirm the repayment date and tenor above, then enter the Call Up Comments that must be written to COL in the final payment.</p><label style="display:grid;gap:6px;margin-top:8px;">Call Up Comments (COL)<textarea id="payment-review-call-up-comments" rows="3" placeholder="Approval comments"></textarea></label><button type="button" class="btn btn-primary" id="payment-review-approve" data-document-id="${deps.escapeHtml(document.id)}" style="margin-top:8px;">Approve and create final payment</button></div>`
+        : '';
+      el('payment-preview-content').innerHTML = workbook + reviewActions;
       if (response.data.workbook_preview) activateWorkbookTabs(el('payment-preview-content'));
     }
+    activePaymentReviewId = document.status === 'pending_review' ? document.id : null;
     activePaymentPrintPayload = { orderNumber: preview.order_number, paymentNumber: preview.payment_number };
     overlay?.classList.add('open');
+  }
+
+  async function approvePaymentReview(button) {
+    const documentId = button?.dataset.documentId || activePaymentReviewId;
+    const comment = String(el('payment-review-call-up-comments')?.value || '').trim();
+    if (!documentId || !comment) {
+      deps.showToast('Head of Rural Call Up Comments are required.', 'error');
+      return;
+    }
+    deps.setButtonLoading(button, true, 'Approving...');
+    try {
+      const response = await deps.portalApi.postJson(
+        '/payment-document/' + encodeURIComponent(documentId) + '/approve/',
+        { call_up_comments: comment },
+        deps.tg,
+        csrfHeader(),
+      );
+      if (!response.ok || !response.data?.ok) throw new Error(response.data?.error || 'Could not approve payment.');
+      deps.showToast('Payment approved and final workbook stored.', 'success');
+      await openFinalPaymentHistory(response.data.document.id);
+    } catch (error) {
+      deps.showToast(error.message || 'Could not approve payment.', 'error');
+    } finally {
+      deps.setButtonLoading(button, false);
+    }
   }
 
   function activateWorkbookTabs(container) {
@@ -256,7 +289,11 @@
     }
     if (payload.document) {
       const doc = payload.document;
-      const label = doc.status === 'final' ? 'Final payment document' : 'Payment preview';
+      const label = doc.status === 'final'
+        ? 'Final payment document'
+        : doc.status === 'pending_review'
+          ? 'Payment draft awaiting Head of Rural review'
+          : 'Payment preview';
       target.innerHTML = `
         <div class="batch-warning" style="background:#f0fdf4;border-color:#bbf7d0;color:#166534;margin-top:10px;">
           ${label} generated: ${deps.escapeHtml(doc.filename || '')}
@@ -328,7 +365,9 @@
         return;
       }
       renderPaymentResult(target, data);
-      deps.showToast('Final payment document stored in Drive.', 'success');
+      deps.showToast(data.document?.status === 'pending_review'
+        ? 'Payment draft submitted for Head of Rural review.'
+        : 'Payment document stored in Drive.', 'success');
     } catch (err) {
       deps.showToast(err.message || 'Payment document generation failed.', 'error');
     } finally {
@@ -714,6 +753,12 @@
         const batchOverlay = event.target.closest('#batch-detail-overlay');
         if (batchOverlay && event.target === batchOverlay) batchOverlay.classList.remove('open');
         if (event.target.closest('#payment-preview-close, #payment-preview-done')) el('payment-preview-overlay')?.classList.remove('open');
+        const approvePaymentButton = event.target.closest('#payment-review-approve');
+        if (approvePaymentButton) {
+          event.preventDefault();
+          approvePaymentReview(approvePaymentButton);
+          return;
+        }
         const paymentOverlay = event.target.closest('#payment-preview-overlay');
         if (paymentOverlay && event.target === paymentOverlay) paymentOverlay.classList.remove('open');
       });

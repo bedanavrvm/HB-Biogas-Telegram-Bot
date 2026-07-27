@@ -731,14 +731,15 @@
     const target = el('history-list');
     if (!target) return;
     if (!documents.length) {
-      target.innerHTML = `<div class="empty-state"><div class="es-title">No final ${kind} yet</div><div class="es-sub">Generated final documents will appear here.</div></div>`;
+      target.innerHTML = `<div class="empty-state"><div class="es-title">No ${kind} documents yet</div><div class="es-sub">Generated payment reviews and final documents will appear here.</div></div>`;
       return;
     }
     target.innerHTML = documents.map(doc => `<article class="farmer-card history-document-card">
       <div class="fc-name">${kind === 'payments' ? `Payment #${escapeHtml(doc.payment_number || '-')}` : `Order ${escapeHtml(doc.order_number || '-')}`}</div>
       <div class="fc-sub">${kind === 'payments' ? `Order ${escapeHtml(doc.order_number || '-')} | ` : ''}${escapeHtml(doc.row_count || 0)} client(s) | Version ${escapeHtml(doc.version || 0)}</div>
       <div class="fc-sub">${escapeHtml(fmtDate(doc.generated_at))}${doc.generated_by ? ` | ${escapeHtml(doc.generated_by)}` : ''}</div>
-      <div class="history-document-actions"><button type="button" class="btn btn-secondary history-view-document" data-kind="${kind}" data-id="${escapeHtml(doc.id)}" data-order="${escapeHtml(doc.order_number || '')}">View preview</button>${doc.drive_url || doc.download_url ? `<button type="button" class="btn btn-primary history-open-excel" data-url="${escapeHtml(doc.drive_url || doc.download_url)}">Open Excel</button>` : ''}</div>
+      ${kind === 'payments' ? `<span class="badge ${doc.status === 'final' ? 'badge-green' : 'badge-orange'}">${doc.status === 'final' ? 'Final' : 'Awaiting Head of Rural review'}</span>` : ''}
+      <div class="history-document-actions"><button type="button" class="btn btn-secondary history-view-document" data-kind="${kind}" data-id="${escapeHtml(doc.id)}" data-order="${escapeHtml(doc.order_number || '')}">${kind === 'payments' && doc.status !== 'final' ? 'Review payment' : 'View preview'}</button>${doc.drive_url || doc.download_url ? `<button type="button" class="btn btn-primary history-open-excel" data-url="${escapeHtml(doc.drive_url || doc.download_url)}">Open Excel</button>` : ''}</div>
     </article>`).join('');
   }
   async function loadHistory(kind = historyKind) {

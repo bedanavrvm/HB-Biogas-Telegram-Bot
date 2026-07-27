@@ -1910,7 +1910,7 @@ class ParsedInvoiceAdmin(ReadOnlyAuditAdmin):
 class PaymentDocumentAdmin(ReadOnlyAuditAdmin):
     list_display = (
         'order_number', 'payment_number', 'status', 'version', 'filename', 'row_count',
-        'generated_by', 'finalized_by', 'drive_url', 'created_at',
+        'generated_by', 'reviewed_by', 'finalized_by', 'drive_url', 'created_at',
     )
     list_filter = ('status', 'created_at')
     search_fields = ('order_number', 'payment_number', 'filename', 'generated_by', 'finalized_by', 'drive_file_id', 'drive_url')

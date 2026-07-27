@@ -246,12 +246,15 @@
       <div><strong id="payments-selected-count">0 selected</strong><span id="payments-ready-summary">Loading invoiced cases...</span></div>
       <button type="button" class="btn btn-secondary" id="payments-select-ready">Select all ready</button>
       <button type="button" class="btn btn-secondary" id="payments-preview">Preview selected</button>
-      <button type="button" class="btn btn-primary" id="payments-finalize">Generate final payment</button>
+      <button type="button" class="btn btn-primary" id="payments-finalize">Submit for Head of Rural review</button>
     </div>
     <div id="payments-list" class="payment-candidate-list"><div class="empty-state"><div class="spinner-inline"></div></div></div>
     <section id="payments-workbook-preview" class="payment-selection-preview" hidden>
       <header><div><h2>Selected Payment Sheet</h2><p>Generated print area for the selected cases. Generate the Excel file to download or print it.</p></div></header>
       <div id="payments-workbook-content"></div>
+    </section>
+    <section id="payments-review-panel" class="payment-selection-preview" hidden>
+      <div id="payments-review-content"></div>
     </section>
   </section>
 
@@ -327,10 +330,10 @@
   </section>
 
   <section id="page-history" class="page{% if active_screen == 'history' %} active{% endif %}">
-    <header><h1>Document History</h1><p class="meta">Final generated orders and payment schedules</p></header>
+    <header><h1>Document History</h1><p class="meta">Generated orders plus payment reviews and approved payment schedules</p></header>
     <div class="history-tabs" role="tablist">
       <button type="button" class="btn btn-primary history-kind" data-kind="orders">Final Orders</button>
-      <button type="button" class="btn btn-secondary history-kind" data-kind="payments">Final Payments</button>
+      <button type="button" class="btn btn-secondary history-kind" data-kind="payments">Payment Reviews / Finals</button>
     </div>
     <div id="history-list" class="farmer-list"><div class="empty-state"><div class="spinner-inline"></div></div></div>
   </section>

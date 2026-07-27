@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import json
 import logging
 import re
 from dataclasses import dataclass
@@ -12,6 +13,7 @@ from typing import Any
 
 import openpyxl
 from django.db import transaction
+from django.core.serializers.json import DjangoJSONEncoder
 from django.utils import timezone
 from openpyxl.formula.translate import Translator
 from openpyxl.utils import column_index_from_string, get_column_letter
@@ -149,6 +151,7 @@ def _column_mapping_from_headers(ws, header_row: int) -> dict[str, int]:
         'requisition_date', 'order_no', 'cust_no', 'no', 'name_imab', 'name',
         'mobile_no', 'branch', 'hb_invoice_amount', 'discount',
         'deposit_paid_hbg', 'deposit_paid_jbl', 'loan_amount',
+        'repayment_dates', 'tenor', 'call_up_comments',
     }
     missing = sorted(required - set(mapping))
     if missing:
@@ -289,7 +292,11 @@ def _invoice_for_farmer(farmer: JawabuFarmerMaster) -> ParsedInvoice | None:
     )
 
 
-def _row_payload(farmer: JawabuFarmerMaster) -> tuple[dict[str, Any], list[str], ParsedInvoice | None]:
+def _row_payload(
+    farmer: JawabuFarmerMaster,
+    *,
+    call_up_comments: str | None = None,
+) -> tuple[dict[str, Any], list[str], ParsedInvoice | None]:
     invoice = _invoice_for_farmer(farmer)
     missing = []
     if not farmer.customer_no:
@@ -333,16 +340,25 @@ def _row_payload(farmer: JawabuFarmerMaster) -> tuple[dict[str, Any], list[str],
         # Head of Rural's comment is the call-up comment on the payment
         # template; retain earlier JBL/master comments as a fallback.
         'call_up_comments': (
-            farmer.final_decision_comment
-            or farmer.jbl_visit_comment
-            or farmer.comments
-            or ''
+            call_up_comments
+            if call_up_comments is not None
+            else (
+                farmer.final_decision_comment
+                or farmer.jbl_visit_comment
+                or farmer.comments
+                or ''
+            )
         ),
     }
     return row, missing, invoice
 
 
-def payment_readiness(order_number: str = '', farmer_ids: list[str] | None = None) -> dict[str, Any]:
+def payment_readiness(
+    order_number: str = '',
+    farmer_ids: list[str] | None = None,
+    *,
+    call_up_comments: str | None = None,
+) -> dict[str, Any]:
     queryset = JawabuFarmerMaster.objects.filter(status='active')
     if farmer_ids is not None:
         queryset = queryset.filter(id__in=farmer_ids)
@@ -353,7 +369,7 @@ def payment_readiness(order_number: str = '', farmer_ids: list[str] | None = Non
     blocked = []
     invoice_batch_ids = set()
     for farmer in farmers:
-        row, missing, invoice = _row_payload(farmer)
+        row, missing, invoice = _row_payload(farmer, call_up_comments=call_up_comments)
         item = {
             'farmer_id': str(farmer.id),
             'customer_name': farmer.customer_name,
@@ -447,9 +463,19 @@ def _write_payment_rows(ws, layout: PaymentTemplateLayout, rows: list[dict[str, 
     return totals_row
 
 
-def generate_payment_workbook(order_number: str, payment_number: str, farmer_ids: list[str] | None = None) -> tuple[bytes, dict[str, Any]]:
+def generate_payment_workbook(
+    order_number: str,
+    payment_number: str,
+    farmer_ids: list[str] | None = None,
+    *,
+    call_up_comments: str | None = None,
+) -> tuple[bytes, dict[str, Any]]:
     payment_number = normalize_payment_number(payment_number)
-    readiness = payment_readiness(order_number, farmer_ids=farmer_ids)
+    readiness = payment_readiness(
+        order_number,
+        farmer_ids=farmer_ids,
+        call_up_comments=call_up_comments,
+    )
     if farmer_ids is not None and len(readiness['ready']) + len(readiness['blocked']) != len(set(farmer_ids)):
         raise PaymentTemplateError('One or more selected payment cases was not found or is inactive.')
     if not readiness['ready']:
@@ -512,13 +538,33 @@ def create_payment_document(
     actor: str = '',
     final: bool = False,
     farmer_ids: list[str] | None = None,
+    status: str | None = None,
+    call_up_comments: str | None = None,
 ) -> PaymentDocument:
+    """Create a preview or Head-of-Rural review artifact.
+
+    ``final`` remains in the signature for old callers, but direct final
+    generation is rejected so approval is always an explicit state transition.
+    """
     payment_number = normalize_payment_number(payment_number)
-    xlsx, summary = generate_payment_workbook(order_number, payment_number, farmer_ids=farmer_ids)
-    status = 'final' if final else 'preview'
-    readiness_snapshot = payment_readiness(order_number, farmer_ids=farmer_ids)
-    from django.core.serializers.json import DjangoJSONEncoder
-    import json
+    if final or status == 'final':
+        raise PaymentTemplateError(
+            'Direct final payment generation is disabled. Submit a payment review and approve it through Head of Rural.'
+        )
+    artifact_status = status or 'preview'
+    if artifact_status not in {'preview', 'pending_review'}:
+        raise PaymentTemplateError('Unsupported payment document status.')
+    xlsx, summary = generate_payment_workbook(
+        order_number,
+        payment_number,
+        farmer_ids=farmer_ids,
+        call_up_comments=call_up_comments,
+    )
+    readiness_snapshot = payment_readiness(
+        order_number,
+        farmer_ids=farmer_ids,
+        call_up_comments=call_up_comments,
+    )
     printable_rows = json.loads(json.dumps(
         [item['row'] for item in readiness_snapshot['ready']], cls=DjangoJSONEncoder,
     ))
@@ -542,13 +588,17 @@ def create_payment_document(
             .order_by('-version', '-created_at').first()
         )
         version = (latest.version + 1) if latest else 1
-        filename = f"HB_Payment_{payment_number}_{order_number}_{status}_v{version}.xlsx"
+        filename_status = 'review' if artifact_status == 'pending_review' else artifact_status
+        filename = f"HB_Payment_{payment_number}_{order_number}_{filename_status}_v{version}.xlsx"
         document_values = {
             'order_number': order_number,
             'payment_number': payment_number,
             'version': version,
             'filename': filename,
             'generated_by': actor,
+            'reviewed_by': '',
+            'reviewed_at': None,
+            'call_up_comments': call_up_comments or '',
             'finalized_by': '',
             'finalized_at': None,
             'row_count': summary.get('ready_count', 0),
@@ -561,7 +611,7 @@ def create_payment_document(
         }
         # A failed upload remains visible as a retryable artifact instead of
         # leaving the workflow with no audit record.
-        doc = PaymentDocument.objects.create(status='preview', **document_values)
+        doc = PaymentDocument.objects.create(status=artifact_status, **document_values)
     try:
         drive_file_id, drive_url = _upload_payment_workbook(xlsx, filename, actor, order_number)
     except Exception:
@@ -575,22 +625,23 @@ def create_payment_document(
         from core.models import JawabuFarmerMaster
         from core.services.jawabu_case360 import record_pipeline_event
         with transaction.atomic():
-            doc.status = status
+            doc.status = artifact_status
             doc.drive_file_id = drive_file_id
             doc.drive_url = drive_url
-            doc.finalized_by = actor if final else ''
-            doc.finalized_at = timezone.now() if final else None
             doc.error = ''
             doc.save(update_fields=[
-                'status', 'drive_file_id', 'drive_url', 'finalized_by',
-                'finalized_at', 'error', 'updated_at',
+                'status', 'drive_file_id', 'drive_url', 'error', 'updated_at',
             ])
-            if final:
+            if artifact_status == 'pending_review':
                 for farmer in JawabuFarmerMaster.objects.filter(id__in=doc.farmer_ids):
                     record_pipeline_event(
-                        farmer, action='payment_finalized', stage_key='payment', actor=actor,
-                        request_id=f'payment-document:{doc.id}:{farmer.id}', source='payment_document',
-                        new_values={'order_number': farmer.order_number, 'payment_number': payment_number, 'version': doc.version},
+                        farmer,
+                        action='payment_review_submitted',
+                        stage_key='payment',
+                        actor=actor,
+                        request_id=f'payment-review:{doc.id}:{farmer.id}',
+                        source='payment_document',
+                        new_values={'payment_number': payment_number, 'version': doc.version},
                         metadata={'payment_document_id': str(doc.id)},
                     )
     except Exception:
@@ -604,6 +655,164 @@ def create_payment_document(
     return doc
 
 
+def approve_payment_document(
+    document_id: str,
+    *,
+    actor: str = '',
+    call_up_comments: str = '',
+) -> PaymentDocument:
+    """Approve a payment review snapshot and create the immutable final file.
+
+    The review snapshot is retained as an audit record.  Approval regenerates
+    the workbook with the Head of Rural's Call Up Comment in every payment row
+    and creates a separate final artifact, so a generated draft can never be
+    mistaken for the approved payment.
+    """
+    comment = str(call_up_comments or '').strip()
+    if not comment:
+        raise PaymentTemplateError('Head of Rural Call Up Comments are required before approval.')
+
+    from core.models import JawabuFarmerMaster
+
+    with transaction.atomic():
+        review = PaymentDocument.objects.select_for_update().get(pk=document_id)
+        if review.status == 'final':
+            return review
+        if review.status == 'reviewed':
+            final_id = str((review.validation_summary or {}).get('final_document_id') or '')
+            if final_id:
+                existing_final = PaymentDocument.objects.filter(pk=final_id, status='final').first()
+                if existing_final:
+                    return existing_final
+            raise PaymentTemplateError('This payment review has already been completed.')
+        if review.status != 'pending_review':
+            raise PaymentTemplateError('This payment document is no longer awaiting Head of Rural review.')
+        farmer_ids = list(review.farmer_ids or [])
+        if not farmer_ids:
+            raise PaymentTemplateError('The payment review has no selected cases.')
+        readiness = payment_readiness(
+            review.order_number,
+            farmer_ids=farmer_ids,
+            call_up_comments=comment,
+        )
+        if readiness['blocked_count']:
+            raise PaymentTemplateError('Payment data changed since review. Resolve the blocked rows and regenerate the review.')
+
+        # Reserve the next artifact version while holding the review lock.  A
+        # final version is unique per order, and concurrent approvals must not
+        # produce two files with the same version/name.
+        latest = (
+            PaymentDocument.objects.select_for_update()
+            .filter(order_number=review.order_number)
+            .order_by('-version', '-created_at')
+            .first()
+        )
+        version = (latest.version + 1) if latest else 1
+        final = PaymentDocument.objects.create(
+            order_number=review.order_number,
+            payment_number=review.payment_number,
+            # Reserve the version without claiming that the final artifact is
+            # complete.  The status becomes ``final`` only after Drive upload
+            # and local audit updates succeed.
+            status='failed',
+            version=version,
+            filename=f'HB_Payment_{review.payment_number}_{review.order_number}_final_v{version}.xlsx',
+            generated_by=review.generated_by,
+            error='Final workbook upload pending.',
+            call_up_comments=comment,
+            row_count=readiness['ready_count'],
+            farmer_ids=farmer_ids,
+            invoice_batch_ids=readiness.get('invoice_batch_ids', []),
+            validation_summary={
+                **{key: value for key, value in readiness.items() if key not in {'ready', 'blocked'}},
+                'preview_rows': json.loads(json.dumps(
+                    [item['row'] for item in readiness['ready']], cls=DjangoJSONEncoder,
+                )),
+                'review_document_id': str(review.id),
+            },
+        )
+
+    # Generate/upload outside the transaction.  The final row remains visible
+    # as failed if Drive is unavailable, making reconciliation explicit.
+    try:
+        xlsx, _summary = generate_payment_workbook(
+            review.order_number,
+            review.payment_number,
+            farmer_ids=farmer_ids,
+            call_up_comments=comment,
+        )
+        drive_file_id, drive_url = _upload_payment_workbook(
+            xlsx, final.filename, actor, review.order_number,
+        )
+    except Exception:
+        logger.exception(
+            'Payment approval upload failed: document=%s order=%s payment=%s',
+            review.id, review.order_number, review.payment_number,
+        )
+        final.status = 'failed'
+        final.error = 'Drive upload failed; retry required.'
+        final.save(update_fields=['status', 'error', 'updated_at'])
+        raise
+
+    try:
+        from core.services.jawabu_case360 import record_pipeline_event
+        with transaction.atomic():
+            final.status = 'final'
+            final.drive_file_id = drive_file_id
+            final.drive_url = drive_url
+            final.error = ''
+            final.finalized_by = actor
+            final.finalized_at = timezone.now()
+            final.reviewed_by = actor
+            final.reviewed_at = timezone.now()
+            final.save(update_fields=[
+                'status', 'drive_file_id', 'drive_url', 'error', 'finalized_by',
+                'finalized_at', 'reviewed_by', 'reviewed_at', 'updated_at',
+            ])
+            review.status = 'reviewed'
+            review.reviewed_by = actor
+            review.reviewed_at = timezone.now()
+            review.call_up_comments = comment
+            review.validation_summary = {
+                **(review.validation_summary or {}),
+                'final_document_id': str(final.id),
+            }
+            review.save(update_fields=[
+                'status', 'reviewed_by', 'reviewed_at', 'call_up_comments',
+                'validation_summary', 'updated_at',
+            ])
+            for farmer in JawabuFarmerMaster.objects.filter(id__in=farmer_ids):
+                record_pipeline_event(
+                    farmer,
+                    action='payment_finalized',
+                    stage_key='payment',
+                    actor=actor,
+                    request_id=f'payment-document:{final.id}:{farmer.id}',
+                    source='payment_document',
+                    new_values={
+                        'order_number': farmer.order_number,
+                        'payment_number': review.payment_number,
+                        'version': final.version,
+                        'call_up_comments': comment,
+                    },
+                    metadata={
+                        'payment_document_id': str(final.id),
+                        'review_document_id': str(review.id),
+                    },
+                )
+    except Exception:
+        logger.exception(
+            'Payment approval finalization failed after Drive upload: document=%s', review.id,
+        )
+        final.status = 'failed'
+        final.drive_file_id = drive_file_id
+        final.drive_url = drive_url
+        final.error = 'Local finalization failed after Drive upload; reconciliation is required.'
+        final.save(update_fields=['status', 'drive_file_id', 'drive_url', 'error', 'updated_at'])
+        raise
+    return final
+
+
 def serialize_payment_document(doc: PaymentDocument) -> dict[str, Any]:
     return {
         'id': str(doc.id),
@@ -613,6 +822,9 @@ def serialize_payment_document(doc: PaymentDocument) -> dict[str, Any]:
         'version': doc.version,
         'filename': doc.filename,
         'drive_url': doc.drive_url,
+        'reviewed_by': doc.reviewed_by,
+        'reviewed_at': doc.reviewed_at.isoformat() if doc.reviewed_at else None,
+        'call_up_comments': doc.call_up_comments,
         'row_count': doc.row_count,
         'validation_summary': doc.validation_summary,
         'created_at': doc.created_at.isoformat() if doc.created_at else None,

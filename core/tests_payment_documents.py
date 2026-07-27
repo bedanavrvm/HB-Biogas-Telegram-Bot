@@ -716,6 +716,96 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(PaymentDocument.objects.get().status, 'preview')
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_payment_generation_creates_review_and_head_rural_approval_creates_final(self, storage):
+        farmer = self.farmer()
+        self.invoice_batch(farmer)
+        storage.return_value.upload.side_effect = [
+            ('review-xlsx', 'https://drive.test/review'),
+            ('final-xlsx', 'https://drive.test/final'),
+        ]
+
+        review = create_payment_document(
+            'ORDER-001', '89', actor='Operations', status='pending_review',
+        )
+        self.assertEqual(review.status, 'pending_review')
+        self.assertEqual(review.call_up_comments, '')
+
+        response = self.client.post(
+            reverse('portal_payment_document_approve', args=[str(review.id)]),
+            data=json.dumps({'call_up_comments': 'Approved for call up on 04-July-2026.'}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        final = PaymentDocument.objects.get(status='final')
+        review.refresh_from_db()
+        self.assertEqual(final.version, 2)
+        self.assertEqual(final.drive_url, 'https://drive.test/final')
+        self.assertEqual(final.call_up_comments, 'Approved for call up on 04-July-2026.')
+        self.assertEqual(review.status, 'reviewed')
+        self.assertEqual(review.reviewed_by, '')
+        self.assertTrue(farmer.pipeline_events.filter(action='payment_finalized').exists())
+
+        replay = self.client.post(
+            reverse('portal_payment_document_approve', args=[str(review.id)]),
+            data=json.dumps({'call_up_comments': 'Same retry'}),
+            content_type='application/json',
+        )
+        self.assertEqual(replay.status_code, 200)
+        self.assertEqual(replay.json()['document']['id'], str(final.id))
+        self.assertEqual(PaymentDocument.objects.filter(status='final').count(), 1)
+
+        xlsx, _summary = generate_payment_workbook(
+            'ORDER-001', '89', farmer_ids=[str(farmer.id)],
+            call_up_comments=final.call_up_comments,
+        )
+        workbook = load_workbook(io.BytesIO(xlsx), data_only=False)
+        ws = workbook['#89']
+        layout = payment_template_layout(workbook)
+        self.assertEqual(ws.cell(row=layout.data_start_row, column=layout.columns['call_up_comments']).value, final.call_up_comments)
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_selected_payment_submission_is_not_final(self, storage):
+        farmer = self.farmer()
+        self.invoice_batch(farmer)
+        storage.return_value.upload.return_value = ('review-xlsx', 'https://drive.test/review')
+
+        response = self.client.post(
+            reverse('portal_payment_selection'),
+            data=json.dumps({
+                'payment_number': '90',
+                'farmer_ids': [str(farmer.id)],
+                'final': True,
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['requires_head_rural_review'])
+        self.assertEqual(response.json()['document']['status'], 'pending_review')
+        self.assertFalse(PaymentDocument.objects.filter(status='final').exists())
+
+    def test_payment_history_includes_pending_review_for_head_of_rural(self):
+        farmer = self.farmer()
+        review = PaymentDocument.objects.create(
+            order_number='ORDER-001',
+            payment_number='91',
+            status='pending_review',
+            row_count=1,
+            farmer_ids=[str(farmer.id)],
+            filename='HB_Payment_91_ORDER-001_review_v1.xlsx',
+            validation_summary={'preview_rows': [{'name': farmer.customer_name}]},
+        )
+
+        history = self.client.get(reverse('portal_document_history'), {'kind': 'payments'})
+        detail = self.client.get(reverse('portal_payment_document_detail', args=[str(review.id)]))
+
+        self.assertEqual(history.status_code, 200)
+        self.assertEqual(history.json()['documents'][0]['status'], 'pending_review')
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json()['document']['status'], 'pending_review')
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_payment_preview_endpoint_does_not_require_csrf_cookie(self, storage):
         farmer = self.farmer()
         self.invoice_batch(farmer)

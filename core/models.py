@@ -1879,10 +1879,17 @@ class ParsedInvoiceEvent(models.Model):
 
 
 class PaymentDocument(models.Model):
-    """Drive-backed payment workbook preview/final artifact."""
+    """Drive-backed payment workbook, review snapshot, or final artifact.
+
+    A workbook generated for operations is deliberately not a final payment.
+    It remains a review snapshot until Head of Rural approves it and supplies
+    the batch Call Up Comment used in the payment template's COL column.
+    """
 
     STATUS_CHOICES = [
         ('preview', 'Preview'),
+        ('pending_review', 'Pending Head of Rural review'),
+        ('reviewed', 'Reviewed'),
         ('final', 'Final'),
         ('failed', 'Failed'),
     ]
@@ -1900,6 +1907,13 @@ class PaymentDocument(models.Model):
     drive_file_id = models.CharField(max_length=255, blank=True, default='')
     drive_url = models.URLField(max_length=1000, blank=True, default='')
     generated_by = models.CharField(max_length=255, blank=True, default='')
+    reviewed_by = models.CharField(max_length=255, blank=True, default='')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    call_up_comments = models.TextField(
+        blank=True,
+        default='',
+        help_text='Head of Rural approval comment written to the payment template COL column.',
+    )
     finalized_by = models.CharField(max_length=255, blank=True, default='')
     row_count = models.PositiveIntegerField(default=0)
     farmer_ids = models.JSONField(blank=True, default=list)

@@ -2377,7 +2377,12 @@ def portal_payment_candidates(request):
 @csrf_exempt
 @require_http_methods(["POST"])
 def portal_payment_selection(request):
-    """Preview or finalize an explicitly selected set of invoice-matched cases."""
+    """Preview or submit an explicitly selected payment batch for review.
+
+    ``final=true`` is retained for client compatibility, but it now creates a
+    review snapshot.  Only the Head of Rural approval endpoint can create the
+    immutable final payment artifact.
+    """
     from core.services.payment_documents import (
         PaymentTemplateError, create_payment_document, generate_payment_workbook,
         normalize_payment_number, payment_readiness, serialize_payment_document,
@@ -2411,11 +2416,37 @@ def portal_payment_selection(request):
         scope = f'PAYMENT-{payment_number}'
         readiness = payment_readiness(scope, farmer_ids=farmer_ids)
         if final:
+            from core.models import PaymentDocument
+            selected_set = set(farmer_ids)
+            existing_review = next(
+                (
+                    candidate for candidate in PaymentDocument.objects.filter(
+                        order_number=scope,
+                        payment_number=payment_number,
+                        status='pending_review',
+                    ).order_by('-created_at')
+                    if set(str(value) for value in (candidate.farmer_ids or [])) == selected_set
+                ),
+                None,
+            )
+            if existing_review:
+                return JsonResponse({
+                    'ok': True,
+                    'document': serialize_payment_document(existing_review),
+                    'requires_head_rural_review': True,
+                    'idempotent_replay': True,
+                })
             document = create_payment_document(
                 scope, payment_number, actor=_portal_sender_from_request(request),
-                final=True, farmer_ids=farmer_ids,
+                final=False,
+                status='pending_review',
+                farmer_ids=farmer_ids,
             )
-            return JsonResponse({'ok': True, 'document': serialize_payment_document(document)})
+            return JsonResponse({
+                'ok': True,
+                'document': serialize_payment_document(document),
+                'requires_head_rural_review': True,
+            })
         workbook_bytes, _summary = generate_payment_workbook(scope, payment_number, farmer_ids=farmer_ids)
         from core.services.workbook_preview import serialize_workbook_preview
         return JsonResponse({
@@ -2495,7 +2526,11 @@ def portal_payment_document_preview(request, order_number: str):
 @csrf_exempt
 @require_http_methods(["POST"])
 def portal_payment_document_finalize(request, order_number: str):
-    """Create an immutable Drive-backed final payment workbook."""
+    """Create a Drive-backed payment review snapshot.
+
+    The historical URL is kept so older Mini App clients continue to work,
+    but it no longer bypasses Head of Rural approval.
+    """
     from core.services.payment_documents import (
         PaymentTemplateError,
         create_payment_document,
@@ -2512,19 +2547,77 @@ def portal_payment_document_finalize(request, order_number: str):
             order_number,
             payment_number=_json_body(request).get('payment_number'),
             actor=_portal_sender_from_request(request),
-            final=True,
+            final=False,
+            status='pending_review',
         )
     except PaymentTemplateError as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'readiness': payment_readiness(order_number)}, status=400)
     except Exception as exc:
-        logger.exception("Payment final generation failed for order %s", order_number)
-        return JsonResponse({'ok': False, 'error': 'Payment final could not be stored. Check synchronization status and retry.'}, status=502)
-    return JsonResponse({'ok': True, 'document': serialize_payment_document(doc)})
+        logger.exception("Payment review generation failed for order %s", order_number)
+        return JsonResponse({'ok': False, 'error': 'Payment review could not be stored. Check synchronization status and retry.'}, status=502)
+    return JsonResponse({
+        'ok': True,
+        'document': serialize_payment_document(doc),
+        'requires_head_rural_review': True,
+    })
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_payment_document_approve(request, document_id: str):
+    """Approve a payment review and create the true final workbook."""
+    from core.models import JawabuFarmerMaster, PaymentDocument
+    from core.services.payment_documents import (
+        PaymentTemplateError,
+        approve_payment_document,
+        payment_readiness,
+        serialize_payment_document,
+    )
+
+    try:
+        document = PaymentDocument.objects.get(pk=document_id)
+    except PaymentDocument.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Payment review not found.'}, status=404)
+
+    farmers = list(JawabuFarmerMaster.objects.filter(id__in=document.farmer_ids or []))
+    if len(farmers) != len(set(document.farmer_ids or [])):
+        return JsonResponse({'ok': False, 'error': 'The payment review references a missing case.'}, status=409)
+    role_error = _portal_role_error(request, {'head_rural'})
+    if role_error:
+        return role_error
+    for farmer in farmers:
+        role_error = _portal_role_error(request, {'head_rural'}, farmer)
+        if role_error:
+            return role_error
+
+    body = _json_body(request)
+    comment = str(body.get('call_up_comments') or body.get('decision_comment') or '').strip()
+    if not comment:
+        return JsonResponse({'ok': False, 'error': 'Head of Rural Call Up Comments are required before approval.'}, status=400)
+    try:
+        final_document = approve_payment_document(
+            str(document.id),
+            actor=_portal_sender_from_request(request),
+            call_up_comments=comment,
+        )
+    except PaymentTemplateError as exc:
+        return JsonResponse({
+            'ok': False,
+            'error': str(exc),
+            'readiness': payment_readiness(
+                document.order_number,
+                farmer_ids=list(document.farmer_ids or []),
+            ),
+        }, status=400)
+    except Exception:
+        logger.exception('Payment approval failed for review %s', document_id)
+        return JsonResponse({'ok': False, 'error': 'Payment approval could not be completed. Check synchronization status and retry.'}, status=502)
+    return JsonResponse({'ok': True, 'document': serialize_payment_document(final_document)})
 
 
 @require_http_methods(["GET"])
 def portal_document_history(request):
-    """List generated final order and payment documents for the History screen."""
+    """List generated order documents and payment review/final artifacts."""
     from core.models import PaymentDocument, RequisitionBatch
 
     access_error = _portal_read_access_error(request)
@@ -2533,10 +2626,17 @@ def portal_document_history(request):
 
     kind = request.GET.get('kind', 'orders')
     if kind == 'payments':
-        documents = PaymentDocument.objects.filter(status='final').order_by('-finalized_at', '-created_at')[:100]
+        # Keep pending review snapshots visible to Head of Rural.  Final
+        # history and review work are one payment register, but their status
+        # remains explicit so a draft can never be mistaken for a final.
+        documents = PaymentDocument.objects.filter(
+            status__in=['pending_review', 'final'],
+        ).order_by('-created_at')[:100]
         return JsonResponse({'ok': True, 'kind': kind, 'documents': [
             {
-                'id': str(doc.id), 'order_number': doc.order_number,
+                'id': str(doc.id),
+                'order_number': ', '.join((doc.validation_summary or {}).get('order_numbers') or [doc.order_number]),
+                'status': doc.status,
                 'version': doc.version,
                 'filename': doc.filename,
                 'payment_number': doc.payment_number, 'row_count': doc.row_count,
@@ -2567,12 +2667,16 @@ def portal_document_history(request):
 
 @require_http_methods(["GET"])
 def portal_payment_document_detail(request, document_id: str):
-    """Return the immutable printable snapshot for a finalized payment."""
+    """Return the printable snapshot for a payment review or final artifact."""
     from django.shortcuts import get_object_or_404
     from core.models import PaymentDocument
     from core.services.payment_documents import generate_payment_workbook, payment_readiness, serialize_payment_document
 
-    doc = get_object_or_404(PaymentDocument, pk=document_id, status='final')
+    doc = get_object_or_404(
+        PaymentDocument,
+        pk=document_id,
+        status__in=['pending_review', 'final'],
+    )
     if not _portal_saved_document_in_scope(request, doc.order_number, doc.farmer_ids):
         return JsonResponse({'ok': False, 'error': 'You do not have access to this payment document.'}, status=403)
     summary = doc.validation_summary or {}
@@ -2589,7 +2693,10 @@ def portal_payment_document_detail(request, document_id: str):
     try:
         from core.services.workbook_preview import serialize_workbook_preview
         workbook_bytes, _summary = generate_payment_workbook(
-            doc.order_number, doc.payment_number, farmer_ids=list(doc.farmer_ids or []),
+            doc.order_number,
+            doc.payment_number,
+            farmer_ids=list(doc.farmer_ids or []),
+            call_up_comments=doc.call_up_comments if doc.status == 'final' else None,
         )
         workbook_preview = serialize_workbook_preview(workbook_bytes, print_only=True)
     except Exception:
@@ -2599,6 +2706,7 @@ def portal_payment_document_detail(request, document_id: str):
         # server error.
         logger.info('Template preview unavailable for legacy payment document %s', doc.id)
     return JsonResponse({'ok': True, 'document': serialize_payment_document(doc), 'preview': {
-        'order_number': doc.order_number, 'payment_number': doc.payment_number,
+        'order_number': ', '.join(summary.get('order_numbers') or [doc.order_number]),
+        'payment_number': doc.payment_number,
         'ready_count': len(rows), 'rows': rows, 'totals': totals,
     }, 'workbook_preview': workbook_preview})
