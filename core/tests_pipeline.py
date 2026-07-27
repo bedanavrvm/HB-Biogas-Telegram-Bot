@@ -1210,6 +1210,45 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['ok'])
 
+    def test_requisition_preview_repairs_inconsistent_order_when_known_date_is_selected(self):
+        original = self.farmer
+        original.final_decision = 'Approved'
+        original.imab_created = 'Yes'
+        original.customer_no = '15124'
+        original.order_number = '001'
+        original.requisition_date = date(2026, 7, 13)
+        original.save()
+        self.mark_requisition_location_ready(original)
+
+        other = JawabuFarmerMaster.objects.create(
+            customer_name='Older inconsistent client',
+            national_id='99999990',
+            primary_phone='254799999990',
+            county='Kiambu',
+            branch='Ruiru',
+            final_decision='Approved',
+            imab_created='Yes',
+            customer_no='15125',
+            order_number='001',
+            requisition_date=date(2026, 7, 27),
+            status='active',
+        )
+        self.mark_requisition_location_ready(other)
+
+        response = self.client.post(
+            reverse('portal_requisition_preview'),
+            json.dumps({
+                'farmer_ids': [str(original.id)],
+                'order_number': '001',
+                'requisition_date': '2026-07-13',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(any('inconsistent existing requisition dates' in item['message'] for item in data['warnings']))
+
     def test_assign_order_rejects_different_date_for_existing_order(self):
         original = self.farmer
         original.final_decision = 'Approved'

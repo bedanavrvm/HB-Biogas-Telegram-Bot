@@ -475,14 +475,28 @@ def _format_requisition_date(value):
     return parsed.strftime('%d-%B-%Y') if parsed else str(value or '')
 
 
-def _requisition_order_date_conflict(order_number: str, requested_date, selected_ids=None):
-    """Return a stable error when one order is given multiple requisition dates."""
+def _requisition_order_date_conflict(
+    order_number: str,
+    requested_date,
+    selected_ids=None,
+    *,
+    allow_known_date_when_inconsistent: bool = False,
+):
+    """Return a stable error when one order is given a new requisition date.
+
+    Older batches can contain clients with different dates. The confirmed
+    requisition preview may repair that inconsistency when staff explicitly
+    choose one of the dates already present; direct single-client assignment
+    remains strict so it cannot silently leave a split batch behind.
+    """
     existing, batch = _requisition_order_context(order_number, selected_ids)
     dates = _requisition_order_dates(existing, batch)
     if not dates:
         return '', existing, batch
     requested = _coerce_requisition_date(requested_date)
-    if len(dates) == 1 and requested in dates:
+    if requested in dates and (
+        len(dates) == 1 or allow_known_date_when_inconsistent
+    ):
         return '', existing, batch
     labels = ', '.join(sorted(_format_requisition_date(value) for value in dates))
     return (
@@ -627,15 +641,26 @@ def _parse_requisition_workbook_payload(request, *, allow_blocked: bool = False)
     if access_error:
         return None, access_error
 
-    date_error, existing_farmers, _ = _requisition_order_date_conflict(
+    date_error, existing_farmers, existing_batch = _requisition_order_date_conflict(
         order_number,
         requisition_date,
         None,
+        allow_known_date_when_inconsistent=True,
     )
     if date_error:
         return None, JsonResponse({'ok': False, 'error': date_error, 'code': 'requisition_date_conflict'}, status=409)
 
     ready, blocked, warnings = _validate_requisition_farmers(farmers)
+    known_dates = _requisition_order_dates(existing_farmers, existing_batch)
+    if len(known_dates) > 1 and requisition_date in known_dates:
+        labels = ', '.join(sorted(_format_requisition_date(value) for value in known_dates))
+        warnings.append({
+            'message': (
+                f"Order {order_number} has inconsistent existing requisition dates ({labels}). "
+                f"This preview uses {_format_requisition_date(requisition_date)} and generation "
+                "will normalize all clients in the batch to that date."
+            ),
+        })
     if blocked and not allow_blocked:
         first = blocked[0]
         name = first['farmer'].get('customer_name') or first['farmer'].get('national_id') or 'Selected client'
