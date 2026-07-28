@@ -685,7 +685,14 @@ def jawabu_farmers_review(request):
             {'message': 'This Farmers upload review batch was not found.'},
             status=404,
         )
-    payload = {'batch_id': str(batch.id), 'token': token, 'rows': batch.parsed_rows or [], 'status': batch.status}
+    from core.services.branches import global_branch_choices
+    payload = {
+        'batch_id': str(batch.id),
+        'token': token,
+        'rows': batch.parsed_rows or [],
+        'status': batch.status,
+        'branch_choices': global_branch_choices(),
+    }
     return render(request, 'jawabu_farmers/review.html', {'batch': batch, 'batch_json': mark_safe(json.dumps(payload, ensure_ascii=True).replace('</', '<\\/'))})
 
 

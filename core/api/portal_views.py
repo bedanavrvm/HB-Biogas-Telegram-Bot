@@ -355,7 +355,8 @@ def _portal_queue_queryset(queue_key: str, request):
             else:
                 qs = jawabu_pipeline.final_review_queue()
         else:
-            qs = getattr(jawabu_pipeline, config['service'])()
+            service = getattr(jawabu_pipeline, config['service'])
+            qs = service(request.GET.get('search', '').strip()) if queue_key == 'jbl' else service()
         qs = _apply_county_branch_filters(qs, request)
     return qs, config
 
@@ -950,7 +951,7 @@ def portal_jbl_queue(request):
         return access_error
     """GET /api/portal/jbl-queue/ — farmers awaiting JBL visit."""
     from core.services.jawabu_pipeline import jbl_visit_queue, farmer_to_card
-    qs = _apply_county_branch_filters(jbl_visit_queue(), request)
+    qs = _apply_county_branch_filters(jbl_visit_queue(request.GET.get('search', '')), request)
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
@@ -1470,6 +1471,8 @@ def portal_farmer_detail(request, farmer_id: str):
     """GET /api/portal/farmers/<farmer_id>/ — full detail for one farmer."""
     from core.models import JawabuFarmerMaster
     from core.services.jawabu_pipeline import farmer_to_card
+    from django.db.models import Q
+    from core.models import SpinCreditRequest
     try:
         farmer = JawabuFarmerMaster.objects.get(pk=farmer_id)
     except JawabuFarmerMaster.DoesNotExist:
@@ -1478,7 +1481,40 @@ def portal_farmer_detail(request, farmer_id: str):
     if access_error:
         return access_error
     from core.services.jawabu_case360 import serialize_case360
-    return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer), 'case360': serialize_case360(farmer)})
+    card = farmer_to_card(farmer)
+    identity_filters = None
+    if farmer.national_id:
+        identity_filters = Q(national_id=farmer.national_id)
+    if farmer.primary_phone:
+        identity_filters = (identity_filters | Q(primary_phone=farmer.primary_phone)) if identity_filters is not None else Q(primary_phone=farmer.primary_phone)
+    if farmer.customer_name and not farmer.national_id and not farmer.primary_phone:
+        identity_filters = (identity_filters | Q(customer_name__iexact=farmer.customer_name)) if identity_filters is not None else Q(customer_name__iexact=farmer.customer_name)
+    spin_references = []
+    if identity_filters:
+        for record in SpinCreditRequest.objects.filter(identity_filters).order_by('-created_at')[:20]:
+            parsed = record.parsed_fields or {}
+            links = []
+            for key, label in (
+                ('spin_report_url', 'SPIN report'),
+                ('crb_report_url', 'CRB report'),
+                ('credit_analysis_report_url', 'Credit analysis'),
+            ):
+                url = str(parsed.get(key) or '').strip()
+                if url:
+                    links.append({'label': label, 'url': url})
+            for index, url in enumerate(str(parsed.get('media_urls') or '').splitlines(), start=1):
+                url = url.strip()
+                if url:
+                    links.append({'label': f'Uploaded SPIN/CRB file {index}', 'url': url})
+            spin_references.append({
+                'request_type': record.get_request_type_display(),
+                'status': record.get_import_status_display(),
+                'created_at': record.created_at.isoformat() if record.created_at else '',
+                'links': links,
+                'attachment_names': record.attachment_names or [],
+            })
+    card['spin_references'] = spin_references
+    return JsonResponse({'ok': True, 'farmer': card, 'case360': serialize_case360(farmer)})
 
 
 

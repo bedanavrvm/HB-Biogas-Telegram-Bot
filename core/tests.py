@@ -1359,6 +1359,7 @@ Mary Njeri njihia
         )
         rows = list(batch.parsed_rows)
         rows[0]['County'] = 'Meru'
+        rows[0]['Branch'] = 'Meru Branch'
         rows[0]['approved'] = True
 
         result = commit_farmup_review_batch(batch, rows)
@@ -1372,10 +1373,36 @@ Mary Njeri njihia
         self.assertEqual(farmer.national_id, '23215888')
         self.assertEqual(farmer.primary_phone, '254721997481')
         self.assertEqual(farmer.county, 'MERU')
+        self.assertEqual(farmer.branch, 'MERU BRANCH')
         self.assertEqual(farmer.sign_date, '24-June-2026')
         self.assertEqual(farmer.actual_receipts, '5000')
         self.assertEqual(farmer.lead_source, 'HOMEBIOGAS')
         self.assertEqual(farmer.installation_status, '')
+
+    def test_farmup_update_without_branch_preserves_existing_branch(self):
+        from core.services.jawabu_master import commit_farmup_review_batch, create_farmup_review_batch
+
+        existing = JawabuFarmerMaster.objects.create(
+            customer_name='DAVID MUGAMBI', national_id='23215888',
+            primary_phone='254721997481', branch='LIMURU', status='active',
+        )
+        batch, _stats = create_farmup_review_batch(
+            group_id=self.group.group_id,
+            telegram_message_id='farmup_preserve_branch',
+            sender='Uploader',
+            source_filename='farmers.csv',
+            csv_text=(
+                'Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Sign Date,Sales Person\n'
+                'David Mugambi [23215888],,Embu,+254721997481,+254704408281,5000,24/06/2026,Jane Sales\n'
+            ),
+        )
+        rows = list(batch.parsed_rows)
+        rows[0]['approved'] = True
+        result = commit_farmup_review_batch(batch, rows)
+
+        self.assertTrue(result['success'])
+        existing.refresh_from_db()
+        self.assertEqual(existing.branch, 'LIMURU')
 
     def test_jawabu_farmup_commit_removes_committed_rows_and_keeps_remaining(self):
         from core.services.jawabu_master import (

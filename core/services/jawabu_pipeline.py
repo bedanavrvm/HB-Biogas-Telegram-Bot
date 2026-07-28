@@ -20,7 +20,7 @@ from typing import Any
 
 from django.utils import timezone
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import F, Q
 
 from core.models import JawabuFarmerMaster, JawabuPipelineEvent
 
@@ -84,16 +84,29 @@ def reappraisal_required_queue():
 
 # ── Queue filters ─────────────────────────────────────────────────────────────
 
-def jbl_visit_queue():
+def jbl_visit_queue(search: str = ''):
     """
     Stage 2 queue — farmers HB has visited but JBL has not yet called on.
 
     Filter: HBG Visit Date present AND JBL Visit Date absent.
     """
-    return JawabuFarmerMaster.objects.filter(
+    qs = JawabuFarmerMaster.objects.filter(
         jbl_visit_date__isnull=True,
         status='active',
-    ).exclude(sign_date='').order_by('county', 'customer_name')
+    ).filter(Q(hbg_visit_date__isnull=False) | ~Q(sign_date=''))
+    search = str(search or '').strip()
+    if search:
+        qs = qs.filter(
+            Q(customer_name__icontains=search)
+            | Q(national_id__icontains=search)
+            | Q(primary_phone__icontains=search)
+            | Q(customer_no__icontains=search)
+            | Q(county__icontains=search)
+            | Q(branch__icontains=search)
+        )
+    # The operational hand-off starts with the oldest HBG visit. County is
+    # not a workflow ordering key and caused records to appear out of sequence.
+    return qs.order_by(F('hbg_visit_date').asc(nulls_last=True), 'sign_date', 'customer_name')
 
 
 
@@ -222,6 +235,18 @@ def log_jbl_visit(
     valid_statuses = {choice[0] for choice in JawabuFarmerMaster.JBL_VISIT_STATUS_CHOICES}
     if visit_status and visit_status not in valid_statuses:
         return False, f"Invalid JBL visit status: '{visit_status}'"
+
+    # HBG is always the first field visit in this workflow. Reject a JBL
+    # visit dated before that hand-off instead of allowing the timeline to
+    # become chronologically impossible.
+    from core.services.jawabu_validation import parse_business_date
+    hbg_visit_date = farmer.hbg_visit_date or parse_business_date(farmer.sign_date)
+    jbl_visit_date = visit_date if isinstance(visit_date, date) else parse_business_date(visit_date)
+    if hbg_visit_date and jbl_visit_date and jbl_visit_date < hbg_visit_date:
+        return False, 'JBL visit date cannot be earlier than the HBG visit date.'
+    if jbl_visit_date is None:
+        return False, 'A valid JBL visit date is required.'
+    visit_date = jbl_visit_date
 
     farmer.jbl_visit_date = visit_date
     farmer.jbl_officer = str(officer or sender or '').strip()
@@ -689,7 +714,7 @@ def farmer_to_card(farmer: JawabuFarmerMaster) -> dict[str, Any]:
         'jbl_visit_status': farmer.jbl_visit_status,
         'jbl_visit_comment': farmer.jbl_visit_comment,
         # Stage 3
-        'credit_decision': farmer.credit_decision,
+        'credit_decision': farmer.credit_decision or 'Pending',
         'imab_created': farmer.imab_created,
         'customer_no': farmer.customer_no,
         'imab_customer_name': farmer.imab_customer_name,

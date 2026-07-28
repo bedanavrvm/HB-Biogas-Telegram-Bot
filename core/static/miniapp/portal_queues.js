@@ -40,6 +40,7 @@
     if (!cfg) return '';
     const params = new URLSearchParams({ page: String(page || 1) });
     if (queueKey === 'all' && state.search) params.set('search', state.search);
+    if (queueKey === 'jbl' && state.jblSearch) params.set('search', state.jblSearch);
     if (queueKey === 'all' || cfg.fragmentEndpoint) appendCommonFilters(params, state);
     return cfg.endpoint + '?' + params.toString();
   }
@@ -49,6 +50,7 @@
     if (!cfg || !cfg.fragmentEndpoint) return '';
     const params = new URLSearchParams({ page: String(page || 1) });
     if (queueKey === 'all' && state.search) params.set('search', state.search);
+    if (queueKey === 'jbl' && state.jblSearch) params.set('search', state.jblSearch);
     appendCommonFilters(params, state);
     return cfg.fragmentEndpoint + '?' + params.toString();
   }

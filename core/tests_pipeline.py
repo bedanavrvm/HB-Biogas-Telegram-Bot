@@ -137,6 +137,16 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertNotIn(self.farmer_stage3, queue)
         self.assertNotIn(self.farmer_stage4, queue)
 
+    def test_jbl_visit_queue_orders_by_hbg_visit_and_supports_search(self):
+        later = JawabuFarmerMaster.objects.create(
+            customer_name='Later HBG Visit', national_id='99999999',
+            primary_phone='254799999999', sign_date='30-June-2026',
+            county='Kiambu', branch='Ruiru', status='active',
+        )
+        queue = list(jbl_visit_queue())
+        self.assertLess(queue.index(self.farmer_stage1), queue.index(later))
+        self.assertEqual(list(jbl_visit_queue('Later HBG')), [later])
+
     def test_credit_queue(self):
         """Verify that credit_queue only returns Stage 2 (JBL visited but credit decision not set)."""
         queue = list(credit_queue())
@@ -219,6 +229,20 @@ class JblPipelineServiceTestCase(TestCase):
         mock_sync.assert_called_once_with(self.farmer_stage1)
         mock_order_sync.assert_called_once_with(self.farmer_stage1)
 
+    @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
+    @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
+    def test_log_jbl_visit_rejects_date_before_hbg_visit(self, mock_order_sync, mock_sync):
+        ok, error = log_jbl_visit(
+            self.farmer_stage1,
+            visit_date=date(2026, 6, 23),
+            officer='Officer Joe',
+            visit_status='Awaiting Analysis',
+        )
+        self.assertFalse(ok)
+        self.assertIn('cannot be earlier than the HBG visit date', error)
+        mock_sync.assert_not_called()
+        mock_order_sync.assert_not_called()
+
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
     def test_master_sheet_sync_writes_jbl_location_fields(self, mock_get_sheets):
         """Verify editable JBL visit location fields are pushed to Master Data."""
@@ -290,7 +314,7 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertFalse(ok)
         self.assertIn('created in IMAB', error)
         self.farmer_stage2.refresh_from_db()
-        self.assertEqual(self.farmer_stage2.credit_decision, '')
+        self.assertEqual(self.farmer_stage2.credit_decision, 'Pending')
         mock_sync.assert_not_called()
         mock_order_sync.assert_not_called()
 
@@ -870,7 +894,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertIn('created in IMAB', response.json()['error'])
 
         self.farmer.refresh_from_db()
-        self.assertEqual(self.farmer.credit_decision, '')
+        self.assertEqual(self.farmer.credit_decision, 'Pending')
 
     def test_portal_all_cases_filters_by_branch(self):
         """Verify all cases endpoint honors the branch filter from the Mini App."""

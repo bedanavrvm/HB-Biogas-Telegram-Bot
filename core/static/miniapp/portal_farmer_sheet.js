@@ -4,6 +4,7 @@
   let deps = null;
   let mapInstance = null;
   let mapMarker = null;
+  let currentMapLocation = null;
 
   function el(id) { return deps.el(id); }
   function state() { return deps.state; }
@@ -260,6 +261,7 @@
   function initMap(lat, lng) {
     const mapContainer = el('sheet-map-container');
     if (!mapContainer) return;
+    currentMapLocation = { lat, lng };
     mapContainer.style.display = 'block';
     const mapLink = el('sheet-map-link');
     const mapMeta = el('sheet-map-meta');
@@ -313,10 +315,29 @@
     if (mapLink) mapLink.hidden = true;
     const fallback = el('sheet-map-fallback');
     if (fallback) fallback.hidden = true;
+    currentMapLocation = null;
+  }
+
+  function refreshMap() {
+    if (!currentMapLocation) return;
+    const { lat, lng } = currentMapLocation;
+    const fallback = el('sheet-map-fallback');
+    if (fallback) fallback.hidden = true;
+    if (mapInstance) {
+      mapInstance.invalidateSize(true);
+      mapInstance.setView([lat, lng], 15);
+      mapInstance.eachLayer(layer => {
+        if (layer instanceof window.L.TileLayer) layer.redraw();
+      });
+    } else {
+      initMap(lat, lng);
+    }
   }
 
   function buildJblForm(farmer) {
     const today = new Date().toISOString().split('T')[0];
+    const hbgVisitDate = farmer.hbg_visit_date || '';
+    const defaultVisitDate = hbgVisitDate && hbgVisitDate > today ? hbgVisitDate : today;
     const statusOptions = state().metaStatuses.map(status =>
       `<option value="${deps.escapeHtml(status)}"${farmer.jbl_visit_status === status ? ' selected' : ''}>${deps.escapeHtml(status)}</option>`
     ).join('');
@@ -325,7 +346,7 @@
     ).join('');
     return `
       <div class="form-section">
-        <div class="form-row"><label>Visit Date</label><input type="date" id="jbl-date" value="${deps.escapeHtml(farmer.jbl_visit_date || today)}"></div>
+        <div class="form-row"><label title="JBL visits follow the HBG visit and cannot be dated earlier.">Visit Date <span class="label-help" aria-hidden="true">?</span></label><input type="date" id="jbl-date" min="${deps.escapeHtml(hbgVisitDate)}" value="${deps.escapeHtml(farmer.jbl_visit_date || defaultVisitDate)}"></div>
         <div class="form-row"><label>Status / Outcome</label><select id="jbl-status"><option value="">- Select -</option>${statusOptions}</select></div>
         <div class="form-row"><label>Officer Name</label><input type="text" id="jbl-officer" placeholder="Your name" value="${deps.escapeHtml(farmer.jbl_officer || '')}"></div>
         <div class="form-row"><label>County</label><input type="text" id="jbl-county" list="jbl-county-options" placeholder="County" value="${deps.escapeHtml(farmer.county || '')}"><datalist id="jbl-county-options">${countyOptions}</datalist></div>
@@ -400,30 +421,38 @@
   }
 
   function openLocationSettings() {
-    // Telegram has no cross-platform API for OS location settings. These
-    // intents work on Android Telegram; iOS/browser falls back to guidance.
+    // Telegram does not expose a portable OS-settings API. Android accepts
+    // this intent in most clients; other platforms receive a clear fallback.
     const isAndroid = /Android/i.test(navigator.userAgent || '');
     const settingsUrl = isAndroid
       ? 'intent:#Intent;action=android.settings.LOCATION_SOURCE_SETTINGS;end'
-      : 'App-Prefs:root=Privacy&path=LOCATION';
+      : '';
     try {
-      window.location.href = settingsUrl;
+      if (settingsUrl) window.location.href = settingsUrl;
+      else deps.showToast('Open phone Settings → Privacy/Location and allow Telegram to use your location, then try again.', 'error');
     } catch (error) {
       deps.showToast('Open your phone settings and enable Location for Telegram.', 'error');
     }
   }
 
   function buildCreditForm(farmer) {
-    const decisionOptions = state().metaDecisions.map(decision =>
+    const decisionOptions = state().metaDecisions.filter(decision => decision !== 'Pending').map(decision =>
       `<option value="${deps.escapeHtml(decision)}"${farmer.credit_decision === decision ? ' selected' : ''}>${deps.escapeHtml(decision)}</option>`
     ).join('');
     const imabOptions = (state().metaImabOptions.length ? state().metaImabOptions : ['Yes', 'No', 'Pending']).map(value =>
       `<option value="${deps.escapeHtml(value)}"${farmer.imab_created === value ? ' selected' : ''}>${deps.escapeHtml(value)}</option>`
     ).join('');
     const customerNoDisabled = farmer.imab_created !== 'Yes';
+    const spinReferences = (farmer.spin_references || []).map((reference, index) => {
+      const links = (reference.links || []).map(link => `<a class="media-link" href="${deps.escapeHtml(link.url)}" target="_blank" rel="noopener">${deps.escapeHtml(link.label)}</a>`).join('');
+      const names = (reference.attachment_names || []).map(name => deps.escapeHtml(name)).join(', ');
+      return `<article class="credit-reference"><div><strong>${deps.escapeHtml(reference.request_type || `SPIN/CRB request ${index + 1}`)}</strong><small>${deps.escapeHtml(reference.status || '')}${reference.created_at ? ` · ${deps.escapeHtml(deps.fmtDate(reference.created_at))}` : ''}</small></div>${links || (names ? `<small>Uploaded: ${names}</small>` : '<small>No report link recorded yet.</small>')}</article>`;
+    }).join('');
     return `
       <div class="form-section">
-        <div class="form-row"><label>Credit Decision</label><select id="credit-decision"><option value="">- Select -</option>${decisionOptions}</select></div>
+        ${spinReferences ? `<div class="credit-reference-panel"><div class="field-help"><strong>SPIN / CRB reference</strong> · reports already uploaded for this customer</div>${spinReferences}</div>` : ''}
+        <div class="field-help credit-status-help"><strong>Status guide:</strong> Pending = not yet analysed; Approved = move to Head of Rural review; Rejected = stop the case; Deferred = pause and reappraise after the deferral window; Exemption Approved = approved under the exemption path.</div>
+        <div class="form-row"><label title="Pending is the default until a credit analyst records a decision.">Credit Decision <span class="label-help" aria-hidden="true">?</span></label><select id="credit-decision"><option value="Pending"${(!farmer.credit_decision || farmer.credit_decision === 'Pending') ? ' selected' : ''}>Pending</option>${decisionOptions}</select></div>
         <div class="form-row"><label>IS CUSTOMER CREATED ON IMAB?</label><select id="credit-imab"><option value="">- Select -</option>${imabOptions}</select></div>
         <div class="form-row">
           <label>CUSTOMER NO</label>
@@ -607,8 +636,8 @@
     const imabCreated = el('credit-imab')?.value || '';
     const customerNo = (el('credit-customer-no')?.value || '').replace(/[^0-9]/g, '');
     if (!decision) return deps.showToast('Please select a decision', 'error');
-    if (imabCreated !== 'Yes') return deps.showToast('Create the customer in IMAB before sending this case to Head of Rural review.', 'error');
-    if (!customerNo) return deps.showToast('Enter the IMAB Customer No before sending this case to Head of Rural review.', 'error');
+    if (decision !== 'Pending' && imabCreated !== 'Yes') return deps.showToast('Create the customer in IMAB before sending this case to Head of Rural review.', 'error');
+    if (decision !== 'Pending' && !customerNo) return deps.showToast('Enter the IMAB Customer No before sending this case to Head of Rural review.', 'error');
 
     const btn = el('btn-submit-credit');
     deps.setButtonLoading(btn, true, 'Saving...');
@@ -698,6 +727,10 @@
     document.addEventListener('click', event => {
       if (event.target.closest('#sheet-close')) {
         closeSheet();
+        return;
+      }
+      if (event.target.closest('#sheet-map-refresh')) {
+        refreshMap();
         return;
       }
       const overlay = event.target.closest('#sheet-overlay');

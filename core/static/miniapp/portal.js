@@ -25,6 +25,7 @@
     pagination: {},
     pages: { jbl: 1, credit: 1, final: 1, requisition: 1, deferred: 1, all: 1, batches: 1 },
     search: '',
+    jblSearch: '',
     metaStatuses: [],
     metaDecisions: [],
     metaImabOptions: [],
@@ -958,6 +959,17 @@
     event.preventDefault();
     if (viewButton.dataset.kind === 'payments') portalRequisitions.openFinalPaymentHistory?.(viewButton.dataset.id);
     else portalRequisitions.openFinalOrderHistory?.(viewButton.dataset.order);
+  });
+  let jblSearchTimer;
+  el('jbl-search')?.addEventListener('input', e => {
+    clearTimeout(jblSearchTimer);
+    state.jblSearch = e.target.value.trim();
+    jblSearchTimer = setTimeout(() => loadQueue('jbl', 1), 350);
+  });
+  el('jbl-search-clear')?.addEventListener('click', () => {
+    state.jblSearch = '';
+    if (el('jbl-search')) el('jbl-search').value = '';
+    loadQueue('jbl', 1);
   });
 
   document.addEventListener('submit', event => {

@@ -108,6 +108,11 @@
       <h1>JBL Visit Queue</h1>
       <p class="meta">Farmers visited by HB, not yet visited by JBL</p>
     </header>
+    <div class="queue-search-row">
+      <label class="sr-only" for="jbl-search">Search JBL visit queue</label>
+      <input id="jbl-search" type="search" placeholder="Search name, ID, phone, county, or branch..." autocomplete="off" enterkeyhint="search">
+      <button type="button" class="btn btn-secondary" id="jbl-search-clear" aria-label="Clear JBL queue search">Clear</button>
+    </div>
     <div id="jbl-list" class="farmer-list">
       <div class="empty-state"><div class="spinner-inline"></div></div>
     </div>
@@ -365,7 +370,7 @@
       <ul class="info-list" id="sheet-info"></ul>
       <button type="button" id="case360-toggle" class="btn btn-secondary case360-toggle">Open Case History</button>
       <div id="sheet-map-container" style="display:none; margin: 12px 0;">
-        <div class="sheet-map-heading"><strong>Recorded location</strong><span id="sheet-map-meta">GPS unavailable</span><a id="sheet-map-link" href="#" target="_blank" rel="noopener" hidden>Open in Maps</a></div>
+        <div class="sheet-map-heading"><strong>Recorded location</strong><span id="sheet-map-meta">GPS unavailable</span><span class="sheet-map-actions"><button type="button" id="sheet-map-refresh" class="map-refresh-button" title="Refresh map" aria-label="Refresh map">↻</button><a id="sheet-map-link" href="#" target="_blank" rel="noopener" hidden>Open in Maps</a></span></div>
         <div id="sheet-map"></div>
         <div id="sheet-map-fallback" class="sheet-map-fallback" hidden>Map tiles are unavailable. Use “Open in Maps” to view this location.</div>
       </div>

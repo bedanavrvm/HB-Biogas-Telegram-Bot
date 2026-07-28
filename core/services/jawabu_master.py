@@ -58,7 +58,9 @@ HEADER_ALIASES = {
     'ward': {'ward'},
     'village': {'village', 'estate', 'area'},
     'landmark': {'landmark', 'nearest landmark', 'location', 'address'},
-    'branch': {'branch', 'office', 'hbg hub'},
+    # HBG Hub is the county/source location, not JBL's operational branch.
+    # Only an explicit Branch/Office column may populate this field.
+    'branch': {'branch', 'office'},
     'gps_link': {'gps link', 'map link', 'maps link', 'google map', 'google maps'},
     'latitude': {'latitude', 'lat'},
     'longitude': {'longitude', 'long', 'lng', 'lon'},
@@ -180,7 +182,7 @@ FARMERS_TO_MASTER_MAPPING = [
 
 MASTER_PREVIEW_HEADERS = [
     'Customer Name', 'National ID', 'Primary Phone', 'Secondary Phone', 'County',
-    'Constituency', 'Village', 'Lead Source', 'HB Sales Person', 'HBG Visit Date',
+    'Branch', 'Constituency', 'Village', 'Lead Source', 'HB Sales Person', 'HBG Visit Date',
     'HBG Visit Comment', 'Additional Comments', 'Deposit Paid to HB',
     'Installation Status', 'Order No.', 'Import Status', 'Cleaning Notes',
     'Source File', 'Source Row', 'Ignored HBG Contract Name', 'Raw Sign Date',
@@ -1061,7 +1063,10 @@ def cleaned_master_row_from_review(
         'ward': '',
         'village': clean_text(row.get('Village', '')).upper(),
         'landmark': '',
-        'branch': county,
+        # Branch is an operational routing field, not a geographic alias.
+        # Older FarmUp imports incorrectly copied County here, which routed
+        # every county's cases to the same branch (for example EMBU).
+        'branch': clean_text(row.get('Branch', '')).upper(),
         'gps_link': '',
         'latitude': '',
         'longitude': '',
@@ -1372,6 +1377,7 @@ def master_preview_row(cleaned: dict, source_name: str, source_row_number: int) 
         # when the same customer is explicitly applying for another unit.
         'Application Action': 'update_existing',
         'County': cleaned.get('county', ''),
+        'Branch': cleaned.get('branch', ''),
         'Constituency': cleaned.get('sub_county', ''),
         'Village': cleaned.get('village') or cleaned.get('landmark', ''),
         'Lead Source': cleaned.get('lead_source', ''),
@@ -1519,6 +1525,11 @@ def upsert_farmer(cleaned: dict) -> tuple[bool, str]:
     if existing:
         restarted = restart_expired_reappraisal(existing, fresh_sign_date=cleaned.get('sign_date', ''))
         for field, value in defaults.items():
+            # FarmUp files often contain county but no operational branch.
+            # Do not erase a previously assigned branch merely because this
+            # upload omitted that separate field.
+            if field == 'branch' and not str(value or '').strip():
+                continue
             setattr(existing, field, value)
         from core.services.jawabu_validation import canonicalize_farmer
         canonicalize_farmer(existing, strict=True)
