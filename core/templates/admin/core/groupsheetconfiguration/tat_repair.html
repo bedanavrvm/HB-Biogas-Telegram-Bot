@@ -1,7 +1,7 @@
 {% extends "admin/base_site.html" %}
 
 {% block content %}
-<div id="content-main">
+<div id="content-main" class="admin-custom-page">
   <h1>Reconcile TAT cases with the Sheet</h1>
   <p><strong>{{ config.display_name|default:config.group_id }}</strong> &mdash; {{ config.group_id }}</p>
   <p>This operation re-writes each case's current Django-owned values to its primary product Sheet by searching the exact case ID in column A. After a successful write, pending events are marked as synced to that Sheet and row. It does not write to the unused AUDIT LOG. Select the missing-row option when quota failures left a case with no stored Sheet row; the case is appended only when its exact ID is absent from the Sheet.</p>

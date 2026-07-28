@@ -116,6 +116,7 @@
 {% endblock %}
 
 {% block content %}
+<div id="content-main" class="admin-custom-page">
 <p>
   This page reads and changes the live Google Sheet. Existing Django mirror and audit
   tables are read-only. Formula cells and system tracking identifiers are shown
@@ -221,4 +222,5 @@
     </table>
   </div>
 {% endif %}
+</div>
 {% endblock %}

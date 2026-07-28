@@ -3,7 +3,7 @@ from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.test import Client, RequestFactory, TestCase, override_settings
-from django.urls import resolve
+from django.urls import resolve, reverse
 from unfold.admin import ModelAdmin
 
 from core.admin_dashboard import dashboard_callback
@@ -155,6 +155,34 @@ class AdminMonitoringTests(TestCase):
         self.assertTrue(GroupSheetConfigurationAdmin.compressed_fields)
         self.assertTrue(GroupSheetConfigurationAdmin.list_filter_submit)
         self.assertTrue(GroupSheetConfigurationAdmin.list_fullwidth)
+
+    def test_custom_group_configuration_pages_use_shared_admin_shell(self):
+        group = GroupSheetConfiguration.objects.create(
+            group_id='-1003',
+            display_name='Maintenance Test',
+            sheet_id='sheet',
+            workflow={'type': 'tat_tracker'},
+        )
+        user = get_user_model().objects.create_superuser(
+            username='maintenance-admin',
+            email='maintenance@example.test',
+            password='password',
+        )
+        client = Client()
+        client.force_login(user)
+
+        response = client.get(
+            reverse(
+                'admin:core_groupsheetconfiguration_reset_data',
+                args=[group.pk],
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'class="admin-custom-page"')
+        self.assertContains(response, 'Reset local DB data')
+        self.assertContains(response, 'class="submit-row"')
+        self.assertContains(response, '/static/admin/css/compact_unfold.css')
 
     def _processed_message_id(self):
         from core.models import ProcessedMessage, RawMessage
