@@ -1193,28 +1193,70 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
             'status_url_template': reverse('admin:core_groupsheetconfiguration_tat_repair_status', args=[config.pk, '00000000-0000-0000-0000-000000000000']),
         }
         if request.method == 'POST':
-            if request.POST.get('confirm') != 'REPAIR':
+            action = request.POST.get('action') or 'repair'
+            if action == 'retry_failures':
+                from core.services.tat_repair_jobs import create_repair_job, serialize_repair_job, start_repair_job
+
+                retry_job = TatRepairJob.objects.filter(
+                    pk=request.POST.get('job_id'),
+                    group_configuration=config,
+                ).first()
+                if retry_job is None or retry_job.status not in {'completed', 'completed_with_errors', 'failed'}:
+                    context['confirmation_error'] = 'That repair job is not available for retry.'
+                elif request.POST.get('confirm') != 'RETRY FAILED':
+                    context['confirmation_error'] = 'Type RETRY FAILED exactly to retry the recorded failures.'
+                else:
+                    failed_case_ids = [
+                        str(failure.get('case_id') or '').strip()
+                        for failure in (retry_job.failures or [])
+                        if isinstance(failure, dict) and str(failure.get('case_id') or '').strip()
+                    ]
+                    if not failed_case_ids:
+                        context['confirmation_error'] = 'This job has no recorded case IDs to retry.'
+                    else:
+                        new_job = create_repair_job(
+                            config,
+                            product_key=retry_job.product_key,
+                            requested_by=request.user.get_username(),
+                            include_unlinked=True,
+                            case_ids=failed_case_ids,
+                        )
+                        start_repair_job(new_job.id)
+                        self.message_user(
+                            request,
+                            f'Retry started for {new_job.total_cases} failed case(s).',
+                            level=messages.SUCCESS,
+                        )
+                        return HttpResponseRedirect(f'{request.path}?job={new_job.id}')
+                context['repair_job'] = serialize_repair_job(retry_job) if retry_job else None
+                if retry_job:
+                    context['repair_job_status_url'] = reverse(
+                        'admin:core_groupsheetconfiguration_tat_repair_status',
+                        args=[config.pk, retry_job.id],
+                    )
+            elif request.POST.get('confirm') != 'REPAIR':
                 context['confirmation_error'] = 'Type REPAIR exactly to authorize this batch.'
                 return TemplateResponse(request, 'admin/core/groupsheetconfiguration/tat_repair.html', context)
-            preview_key = {
-                'config_id': str(config.pk),
-                'product': selected_product,
-                'offset': offset,
-                'include_unlinked': include_unlinked,
-            }
-            if request.session.get('tat_repair_preview') != preview_key:
-                context['confirmation_error'] = 'Preview this exact batch before running its repair.'
-                return TemplateResponse(request, 'admin/core/groupsheetconfiguration/tat_repair.html', context)
-            from core.services.tat_repair_jobs import create_repair_job, start_repair_job
-            job = create_repair_job(
-                config,
-                product_key=selected_product,
-                requested_by=request.user.get_username(),
-                include_unlinked=include_unlinked,
-            )
-            start_repair_job(job.id)
-            self.message_user(request, 'TAT case reconciliation started in the background. Progress is checkpointed after every case.', level=messages.SUCCESS)
-            return HttpResponseRedirect(f'{request.path}?job={job.id}')
+            else:
+                preview_key = {
+                    'config_id': str(config.pk),
+                    'product': selected_product,
+                    'offset': offset,
+                    'include_unlinked': include_unlinked,
+                }
+                if request.session.get('tat_repair_preview') != preview_key:
+                    context['confirmation_error'] = 'Preview this exact batch before running its repair.'
+                    return TemplateResponse(request, 'admin/core/groupsheetconfiguration/tat_repair.html', context)
+                from core.services.tat_repair_jobs import create_repair_job, start_repair_job
+                job = create_repair_job(
+                    config,
+                    product_key=selected_product,
+                    requested_by=request.user.get_username(),
+                    include_unlinked=include_unlinked,
+                )
+                start_repair_job(job.id)
+                self.message_user(request, 'TAT case reconciliation started in the background. Progress is checkpointed after every case.', level=messages.SUCCESS)
+                return HttpResponseRedirect(f'{request.path}?job={job.id}')
         else:
             job_id = str(request.GET.get('job') or '').strip()
             if job_id:

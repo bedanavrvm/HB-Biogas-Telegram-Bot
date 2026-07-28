@@ -1197,6 +1197,43 @@ def next_case_id(group_config, product: ProductConfig) -> str:
     return f'{prefix}-{max_num + 1:03d}'
 
 
+def _tat_google_quota_error(exc: Exception) -> bool:
+    text = str(exc or '').lower()
+    return any(
+        marker in text
+        for marker in (
+            'resource_exhausted',
+            'rate_limit',
+            'quota exceeded',
+            '429',
+            'read requests per minute',
+            'write requests per minute',
+        )
+    )
+
+
+def _tat_sheet_call(operation, *, description: str):
+    """Run one gspread call with bounded quota backoff for repair jobs."""
+    max_attempts = max(1, int(getattr(settings, 'GOOGLE_SHEETS_MAX_RETRIES', 4) or 4))
+    base_delay = max(0.25, float(getattr(settings, 'TAT_REPAIR_RETRY_BASE_SECONDS', 2) or 2))
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return operation()
+        except Exception as exc:
+            if not _tat_google_quota_error(exc) or attempt >= max_attempts:
+                raise
+            delay = min(60.0, base_delay * (2 ** (attempt - 1)))
+            logger.warning(
+                'TAT Sheet quota/rate limit during %s; retrying in %.1fs (%s/%s): %s',
+                description,
+                delay,
+                attempt,
+                max_attempts,
+                exc,
+            )
+            time.sleep(delay)
+
+
 def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
     product = product_by_key(case.product_key)
     service = get_sheets_service(sheet_id=group_config.sheet_id, sheet_name=product.sheet_name)
@@ -1219,14 +1256,20 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
         row = None
         if case.row_number:
             try:
-                current_id = str(sheet.cell(case.row_number, 1).value or '').strip()
+                current_id = str(_tat_sheet_call(
+                    lambda: sheet.cell(case.row_number, 1).value,
+                    description=f'read case ID for {case.case_id}',
+                ) or '').strip()
             except (AttributeError, IndexError, KeyError):
                 current_id = ''
             if current_id == str(case.case_id).strip():
                 row = case.row_number
                 existing_row = True
         if row is None:
-            case_ids = sheet.col_values(1) if hasattr(sheet, 'col_values') else None
+            case_ids = _tat_sheet_call(
+                lambda: sheet.col_values(1),
+                description=f'scan case IDs for {case.case_id}',
+            ) if hasattr(sheet, 'col_values') else None
             row = resolve_case_sheet_row(sheet, case, case_ids=case_ids)
             existing_row = bool(
                 case_ids is None and case.row_number and not hasattr(sheet, 'col_values')
@@ -1235,11 +1278,21 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
                 and 1 <= row <= len(case_ids)
                 and str(case_ids[row - 1] or '').strip() == str(case.case_id).strip()
             )
-        values = sheet.row_values(row) if existing_row else []
+        values = _tat_sheet_call(
+            lambda: sheet.row_values(row),
+            description=f'read row {row} for {case.case_id}',
+        ) if existing_row else []
         row_data = build_tat_sheet_row_data(group_config, case, product, headers, values)
         width = len(row_data)
         if existing_row:
-            sheet.update(f'A{row}:{column_letter(width)}{row}', [row_data], value_input_option='USER_ENTERED')
+            _tat_sheet_call(
+                lambda: sheet.update(
+                    f'A{row}:{column_letter(width)}{row}',
+                    [row_data],
+                    value_input_option='USER_ENTERED',
+                ),
+                description=f'update row {row} for {case.case_id}',
+            )
         else:
             row = append_case_row(sheet, row_data)
         case.row_number = row
@@ -1436,12 +1489,25 @@ def validate_tracker_identity_headers(headers: list[Any]) -> None:
 def append_case_row(sheet, row_data: list[Any]) -> int:
     result = None
     if hasattr(sheet, 'append_row'):
-        result = sheet.append_row(row_data, value_input_option='USER_ENTERED')
+        result = _tat_sheet_call(
+            lambda: sheet.append_row(row_data, value_input_option='USER_ENTERED'),
+            description='append TAT case row',
+        )
     elif hasattr(sheet, 'append_rows'):
-        result = sheet.append_rows([row_data], value_input_option='USER_ENTERED')
+        result = _tat_sheet_call(
+            lambda: sheet.append_rows([row_data], value_input_option='USER_ENTERED'),
+            description='append TAT case row',
+        )
     else:
         row = next_sheet_row(sheet)
-        sheet.update(f'A{row}:{column_letter(len(row_data))}{row}', [row_data], value_input_option='USER_ENTERED')
+        _tat_sheet_call(
+            lambda: sheet.update(
+                f'A{row}:{column_letter(len(row_data))}{row}',
+                [row_data],
+                value_input_option='USER_ENTERED',
+            ),
+            description=f'write new TAT case row {row}',
+        )
         return row
     row = row_number_from_update_result(result)
     if row:

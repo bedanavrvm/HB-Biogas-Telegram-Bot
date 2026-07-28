@@ -53,6 +53,7 @@ from core.services.tat_tracker import (
     resync_tat_tracker_cases,
     inspect_tat_sheet_duplicate_case_ids,
     cleanup_tat_sheet_duplicate_case_ids,
+    _tat_sheet_call,
     search_cases,
     soft_delete_tat_case,
     sync_tat_target_settings_to_sheet,
@@ -944,6 +945,17 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(sheet.updates[0][1][0][20], 30.0)
         self.assertEqual(sheet.updates[0][1][0][21], 1.25)
         self.assertFalse(any(str(value).startswith('=IF(') for value in sheet.updates[0][1][0]))
+
+    @override_settings(GOOGLE_SHEETS_MAX_RETRIES=2, TAT_REPAIR_RETRY_BASE_SECONDS=0.25)
+    @patch('core.services.tat_tracker.time.sleep')
+    def test_tat_sheet_call_retries_google_quota_errors(self, sleep):
+        operation = MagicMock(side_effect=[Exception('429 rate limit'), 'ok'])
+
+        result = _tat_sheet_call(operation, description='test repair write')
+
+        self.assertEqual(result, 'ok')
+        self.assertEqual(operation.call_count, 2)
+        sleep.assert_called_once_with(0.25)
 
     def test_sync_case_to_sheet_keeps_register_approval_tat_numeric(self):
         class FakeSheet:
@@ -2502,6 +2514,57 @@ class TatTrackerRepairAdminTest(TestCase):
         self.assertEqual(job.case_ids, ['JBL-BS-MISSING-ROW'])
         self.assertEqual(job.skipped_unlinked, 0)
         start_job.assert_called_once_with(job.id)
+
+    def test_repair_page_renders_recorded_failure_details(self):
+        job = TatRepairJob.objects.create(
+            group_configuration=self.config,
+            case_ids=['JBL-BS-FAILED'],
+            total_cases=1,
+            cursor=1,
+            status='completed_with_errors',
+            failures=[{
+                'case_id': 'JBL-BS-FAILED',
+                'error': 'Google Sheets quota exceeded; retry later.',
+            }],
+        )
+
+        response = self.client.get(f'{self.url}?job={job.id}')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'JBL-BS-FAILED')
+        self.assertContains(response, 'Google Sheets quota exceeded; retry later.')
+
+    @patch('core.services.tat_repair_jobs.start_repair_job')
+    def test_repair_page_can_retry_only_recorded_failures(self, start_job):
+        TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-Business',
+            case_id='JBL-BS-FAILED',
+            product_key='business',
+            product_label='Business',
+            client_name='Failed Client',
+            branch='Nakuru',
+        )
+        job = TatRepairJob.objects.create(
+            group_configuration=self.config,
+            case_ids=['JBL-BS-FAILED'],
+            total_cases=1,
+            cursor=1,
+            status='completed_with_errors',
+            failures=[{'case_id': 'JBL-BS-FAILED', 'error': 'quota'}],
+        )
+
+        response = self.client.post(self.url, {
+            'action': 'retry_failures',
+            'job_id': str(job.id),
+            'confirm': 'RETRY FAILED',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        retry_job = TatRepairJob.objects.exclude(pk=job.pk).get()
+        self.assertEqual(retry_job.case_ids, ['JBL-BS-FAILED'])
+        start_job.assert_called_once_with(retry_job.id)
 
     @patch('core.admin.resync_tat_tracker_cases')
     def test_repair_page_rejects_a_write_without_matching_preview(self, resync):

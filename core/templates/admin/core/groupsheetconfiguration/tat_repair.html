@@ -13,8 +13,8 @@
   {% if preview %}
     <h2>Preview only</h2>
     <ul>
-      <li>{{ preview.candidates }} case(s) in this batch of {{ preview.total_candidates }} linked case(s).</li>
-      <li>{{ preview.skipped_unlinked }} case(s) will be skipped because their Sheet row is unknown.</li>
+      <li>{{ preview.candidates }} case(s) in this batch of {{ preview.total_candidates }}{% if include_unlinked %} case(s){% else %} linked case(s){% endif %}.</li>
+      {% if preview.skipped_unlinked %}<li>{{ preview.skipped_unlinked }} case(s) will be skipped because their Sheet row is unknown.</li>{% endif %}
       {% if preview.next_offset %}<li>More cases remain after this batch.</li>{% endif %}
     </ul>
   {% endif %}
@@ -40,6 +40,38 @@
         <li>{{ repair_job.skipped_unlinked }} unlinked case(s) skipped.</li>
       </ul>
       <p id="repair-job-note">You may leave this page. Progress is saved after every case; reopening this job resumes an interrupted worker.</p>
+      <details id="repair-failure-details"{% if repair_job.failures %} open{% endif %}>
+        <summary>Failure details (<span id="repair-failure-summary-count">{{ repair_job.failure_count }}</span>)</summary>
+        <div class="module" style="overflow-x:auto">
+          <table>
+            <thead><tr><th>Case ID</th><th>Error</th></tr></thead>
+            <tbody id="repair-failure-list">
+              {% for failure in repair_job.failures %}
+                <tr><td>{{ failure.case_id|default:"Unknown" }}</td><td>{{ failure.error|default:"Unknown sync failure" }}</td></tr>
+              {% empty %}
+                <tr><td colspan="2">No failure details recorded.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+      {% if repair_job.complete and repair_job.failure_count %}
+        <form method="post" style="margin-top:1rem">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="retry_failures">
+          <input type="hidden" name="job_id" value="{{ repair_job.id }}">
+          <fieldset class="module aligned">
+            <div class="form-row">
+              <label for="id_retry_confirm">Retry confirmation</label>
+              <input id="id_retry_confirm" name="confirm" type="text" autocomplete="off">
+              <div class="help">Type RETRY FAILED to retry only the case IDs listed above. Successful cases will not be reprocessed.</div>
+            </div>
+          </fieldset>
+          <div class="submit-row">
+            <input type="submit" value="Retry failed cases">
+          </div>
+        </form>
+      {% endif %}
     </section>
     <script>
       (() => {
@@ -58,9 +90,32 @@
             document.getElementById('repair-total').textContent = job.total_cases;
             document.getElementById('repair-synced').textContent = job.synced_cases;
             document.getElementById('repair-failed').textContent = job.failure_count;
+            document.getElementById('repair-failure-summary-count').textContent = job.failure_count;
+            const failureList = document.getElementById('repair-failure-list');
+            failureList.replaceChildren();
+            const failures = Array.isArray(job.failures) ? job.failures : [];
+            if (!failures.length) {
+              const emptyRow = document.createElement('tr');
+              const emptyCell = document.createElement('td');
+              emptyCell.colSpan = 2;
+              emptyCell.textContent = 'No failure details recorded.';
+              emptyRow.appendChild(emptyCell);
+              failureList.appendChild(emptyRow);
+            } else {
+              failures.forEach((failure) => {
+                const row = document.createElement('tr');
+                const caseCell = document.createElement('td');
+                const errorCell = document.createElement('td');
+                caseCell.textContent = failure.case_id || 'Unknown';
+                errorCell.textContent = failure.error || 'Unknown sync failure';
+                row.append(caseCell, errorCell);
+                failureList.appendChild(row);
+              });
+            }
+            document.getElementById('repair-failure-details').open = failures.length > 0;
             if (job.complete) {
               document.getElementById('repair-job-note').textContent = job.failure_count
-                ? 'Repair finished with failures. Review server logs for the affected case IDs.'
+                ? 'Repair finished with failures. The affected case IDs and provider errors are listed above.'
                 : 'Repair completed successfully.';
               return;
             }

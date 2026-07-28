@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 import uuid
 from datetime import timedelta
 
+from django.conf import settings
 from django.db import close_old_connections, transaction
 from django.utils import timezone
 
@@ -23,10 +25,14 @@ def create_repair_job(
     product_key: str = '',
     requested_by: str = '',
     include_unlinked: bool = False,
+    case_ids: list[str] | None = None,
 ) -> TatRepairJob:
     queryset = TatTrackerCase.objects.filter(group_id=config.group_id, is_deleted=False)
     if product_key:
         queryset = queryset.filter(product_key=product_key)
+    requested_case_ids = [str(case_id).strip() for case_id in (case_ids or []) if str(case_id).strip()]
+    if requested_case_ids:
+        queryset = queryset.filter(case_id__in=requested_case_ids)
     candidate_queryset = queryset if include_unlinked else queryset.filter(row_number__gt=0)
     case_ids = list(
         candidate_queryset.order_by('product_key', 'case_id').values_list('case_id', flat=True)
@@ -126,6 +132,13 @@ def run_repair_job(job_id, *, worker_token=None) -> None:
             )
             synced = int(result.get('synced') or 0)
             failures = list(result.get('failed') or [])
+            for failure in failures:
+                logger.error(
+                    'TAT repair case sync failed: job=%s case_id=%s error=%s',
+                    job_id,
+                    failure.get('case_id') if isinstance(failure, dict) else case_id,
+                    failure.get('error') if isinstance(failure, dict) else str(failure),
+                )
         except Exception as exc:
             logger.exception('TAT repair job %s failed for case %s.', job_id, case_id)
             synced = 0
@@ -141,6 +154,13 @@ def run_repair_job(job_id, *, worker_token=None) -> None:
                 job.failures = [*job.failures, *failures]
             job.heartbeat_at = timezone.now()
             job.save(update_fields=['cursor', 'synced_cases', 'failures', 'heartbeat_at', 'updated_at'])
+
+        # Google Sheets write quotas are per minute. A repair that performs one
+        # update per case must be paced; otherwise a large retry can turn a
+        # recoverable quota response into a wall of permanent failures.
+        delay = max(0.0, float(getattr(settings, 'TAT_REPAIR_CASE_DELAY_SECONDS', 1.1) or 0))
+        if delay and job.cursor < job.total_cases:
+            time.sleep(delay)
 
 
 def serialize_repair_job(job: TatRepairJob) -> dict:
