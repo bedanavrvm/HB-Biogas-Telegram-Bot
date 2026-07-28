@@ -331,6 +331,8 @@ def set_credit_decision(
     valid_decisions = {choice[0] for choice in JawabuFarmerMaster.CREDIT_DECISION_CHOICES}
     if decision not in valid_decisions:
         return False, f"Invalid credit decision: '{decision}'. Must be one of: {', '.join(sorted(valid_decisions))}"
+    if decision == 'Pending':
+        return False, 'Pending is the initial credit state and cannot be selected as an analyst decision.'
 
     imab_created = str(imab_created or '').strip()
     customer_no = str(customer_no or '').strip()

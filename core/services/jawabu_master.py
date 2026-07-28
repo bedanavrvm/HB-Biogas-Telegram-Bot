@@ -182,7 +182,7 @@ FARMERS_TO_MASTER_MAPPING = [
 
 MASTER_PREVIEW_HEADERS = [
     'Customer Name', 'National ID', 'Primary Phone', 'Secondary Phone', 'County',
-    'Branch', 'Constituency', 'Village', 'Lead Source', 'HB Sales Person', 'HBG Visit Date',
+    'Constituency', 'Village', 'Lead Source', 'HB Sales Person', 'HBG Visit Date',
     'HBG Visit Comment', 'Additional Comments', 'Deposit Paid to HB',
     'Installation Status', 'Order No.', 'Import Status', 'Cleaning Notes',
     'Source File', 'Source Row', 'Ignored HBG Contract Name', 'Raw Sign Date',
@@ -1063,10 +1063,9 @@ def cleaned_master_row_from_review(
         'ward': '',
         'village': clean_text(row.get('Village', '')).upper(),
         'landmark': '',
-        # Branch is an operational routing field, not a geographic alias.
-        # Older FarmUp imports incorrectly copied County here, which routed
-        # every county's cases to the same branch (for example EMBU).
-        'branch': clean_text(row.get('Branch', '')).upper(),
+        # Branch is populated later from the authoritative system export.
+        # FarmUp must never infer or overwrite operational routing data.
+        'branch': '',
         'gps_link': '',
         'latitude': '',
         'longitude': '',
@@ -1377,7 +1376,6 @@ def master_preview_row(cleaned: dict, source_name: str, source_row_number: int) 
         # when the same customer is explicitly applying for another unit.
         'Application Action': 'update_existing',
         'County': cleaned.get('county', ''),
-        'Branch': cleaned.get('branch', ''),
         'Constituency': cleaned.get('sub_county', ''),
         'Village': cleaned.get('village') or cleaned.get('landmark', ''),
         'Lead Source': cleaned.get('lead_source', ''),

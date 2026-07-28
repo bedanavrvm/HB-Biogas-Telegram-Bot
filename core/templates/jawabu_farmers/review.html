@@ -37,11 +37,10 @@
   <section class="review-search" aria-label="Search upload rows">
     <label for="rowSearch">Search rows</label>
     <button type="button" id="reviewOnlyFilter" class="filter-toggle" aria-pressed="false">Need review only</button>
-    <input id="rowSearch" type="search" placeholder="Name, ID, phone, county, branch, sales person, notes..." autocomplete="off">
+    <input id="rowSearch" type="search" placeholder="Name, ID, phone, county, sales person, notes..." autocomplete="off">
     <button type="button" id="clearSearch">Clear</button>
     <span id="visibleCount" class="visible-count">Showing all rows</span>
   </section>
-  <p class="field-help">Branch is the operational JBL branch, not the county. When branch routing is needed and the upload does not include one, choose it from the central branch list.</p>
 
   <div class="table-wrap">
     <table aria-label="Extracted farmers rows">
@@ -54,7 +53,6 @@
           <th class="phone">Secondary Phone</th>
           <th class="staff-col">Application</th>
           <th class="hub-col">County</th>
-          <th class="hub-col">Branch</th>
           <th class="date">HBG Visit Date</th>
           <th class="deposit-col">Deposit Paid to HB</th>
           <th class="staff-col">HB Sales Person</th>
@@ -67,7 +65,6 @@
 </main>
 <script id="batch-data" type="application/json">{{ batch_json|safe }}</script>
 <script src="{% static 'miniapp/telegram.js' %}"></script>
-<datalist id="farmupBranchOptions"></datalist>
-<script src="{% static 'miniapp/farmup_review.js' %}?v=6"></script>
+<script src="{% static 'miniapp/farmup_review.js' %}?v=7"></script>
 </body>
 </html>

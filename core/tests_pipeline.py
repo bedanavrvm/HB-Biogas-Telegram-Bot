@@ -320,6 +320,24 @@ class JblPipelineServiceTestCase(TestCase):
 
     @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
+    def test_pending_credit_decision_is_display_only(self, mock_sync, mock_order_sync):
+        """Pending is the initial state, not an analyst-submittable decision."""
+        ok, error = set_credit_decision(
+            self.farmer_stage2,
+            decision='Pending',
+            imab_created='Yes',
+            customer_no='15121',
+            sender='analyst_1',
+        )
+        self.assertFalse(ok)
+        self.assertIn('initial credit state', error)
+        self.farmer_stage2.refresh_from_db()
+        self.assertEqual(self.farmer_stage2.credit_decision, 'Pending')
+        mock_sync.assert_not_called()
+        mock_order_sync.assert_not_called()
+
+    @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
+    @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
     @patch('core.services.jawabu_pipeline._notify_final_approved')
     def test_set_final_decision(self, mock_notify, mock_sync, mock_order_sync):
         """Verify Head of Rural final decision update and notification trigger."""

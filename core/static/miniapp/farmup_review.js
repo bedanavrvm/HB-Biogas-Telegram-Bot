@@ -10,11 +10,10 @@
   });
   const batchId = payload.batch_id;
   const token = payload.token;
-  const branchChoices = payload.branch_choices || [];
   const initData = tg ? tg.initData : '';
   const draftKey = 'farmupReviewDraft:' + batchId;
   const draftMaxAgeMs = 7 * 24 * 60 * 60 * 1000;
-  const fields = ['Customer Name', 'National ID', 'Primary Phone', 'Secondary Phone', 'Application Action', 'County', 'Branch', 'HBG Visit Date', 'Deposit Paid to HB', 'HB Sales Person', 'Cleaning Notes'];
+  const fields = ['Customer Name', 'National ID', 'Primary Phone', 'Secondary Phone', 'Application Action', 'County', 'HBG Visit Date', 'Deposit Paid to HB', 'HB Sales Person', 'Cleaning Notes'];
   const body = document.getElementById('rowsBody');
   const statusEl = document.getElementById('status');
   const rowSearch = document.getElementById('rowSearch');
@@ -24,22 +23,13 @@
   let searchText = '';
   let reviewOnly = false;
 
-  const branchList = document.getElementById('farmupBranchOptions');
-  if (branchList) {
-    branchList.innerHTML = branchChoices.map((branch) => {
-      const option = document.createElement('option');
-      option.value = branch;
-      return option.outerHTML;
-    }).join('');
-  }
-
   function isBlank(value) {
     return !String(value || '').trim();
   }
 
   function isReview(row) {
     return row['Import Status'] === 'review_needed' || fields.some((fieldName) => (
-      !['Cleaning Notes', 'Application Action', 'Branch'].includes(fieldName) && isBlank(row[fieldName])
+      !['Cleaning Notes', 'Application Action'].includes(fieldName) && isBlank(row[fieldName])
     ));
   }
 
@@ -51,7 +41,7 @@
     // Application Action has a safe default and Cleaning Notes is purely
     // informational. Neither field should receive validation highlighting.
     if (['Application Action', 'Cleaning Notes'].includes(fieldName)) return false;
-    if (fieldName !== 'Cleaning Notes' && fieldName !== 'Branch' && isBlank(row[fieldName])) return true;
+    if (fieldName !== 'Cleaning Notes' && isBlank(row[fieldName])) return true;
     if (!isReview(row)) return false;
     const notes = rowNotes(row);
     if (fieldName === 'Customer Name') {
@@ -76,7 +66,6 @@
       row['Primary Phone'],
       row['Secondary Phone'],
       row['County'],
-      row['Branch'],
       row['Constituency'],
       row['Village'],
       row['HBG Visit Date'],
@@ -131,7 +120,6 @@
         } else {
           input = name === 'Cleaning Notes' ? document.createElement('textarea') : document.createElement('input');
         }
-        if (name === 'Branch') input.setAttribute('list', 'farmupBranchOptions');
         if (fieldHasProblem(row, name)) {
           td.classList.add('field-error');
           input.classList.add('field-error-input');

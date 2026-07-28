@@ -436,8 +436,9 @@
   }
 
   function buildCreditForm(farmer) {
+    const currentDecision = farmer.credit_decision || 'Pending';
     const decisionOptions = state().metaDecisions.filter(decision => decision !== 'Pending').map(decision =>
-      `<option value="${deps.escapeHtml(decision)}"${farmer.credit_decision === decision ? ' selected' : ''}>${deps.escapeHtml(decision)}</option>`
+      `<option value="${deps.escapeHtml(decision)}"${currentDecision === decision ? ' selected' : ''}>${deps.escapeHtml(decision)}</option>`
     ).join('');
     const imabOptions = (state().metaImabOptions.length ? state().metaImabOptions : ['Yes', 'No', 'Pending']).map(value =>
       `<option value="${deps.escapeHtml(value)}"${farmer.imab_created === value ? ' selected' : ''}>${deps.escapeHtml(value)}</option>`
@@ -451,8 +452,8 @@
     return `
       <div class="form-section">
         ${spinReferences ? `<div class="credit-reference-panel"><div class="field-help"><strong>SPIN / CRB reference</strong> · reports already uploaded for this customer</div>${spinReferences}</div>` : ''}
-        <div class="field-help credit-status-help"><strong>Status guide:</strong> Pending = not yet analysed; Approved = move to Head of Rural review; Rejected = stop the case; Deferred = pause and reappraise after the deferral window; Exemption Approved = approved under the exemption path.</div>
-        <div class="form-row"><label title="Pending is the default until a credit analyst records a decision.">Credit Decision <span class="label-help" aria-hidden="true">?</span></label><select id="credit-decision"><option value="Pending"${(!farmer.credit_decision || farmer.credit_decision === 'Pending') ? ' selected' : ''}>Pending</option>${decisionOptions}</select></div>
+        <div class="field-help credit-status-help"><strong>Status guide:</strong> Pending = the initial state until an analyst records a decision; Approved = move to Head of Rural review; Rejected = stop the case; Deferred = pause and reappraise after the deferral window; Exemption Approved = approved under the exemption path.</div>
+        <div class="form-row"><label title="Pending is the default until a credit analyst records a decision.">Credit Decision <span class="label-help" aria-hidden="true">?</span></label><select id="credit-decision"><option value="">- Select a decision -</option>${decisionOptions}</select><small class="field-help">Current status: <strong>${deps.escapeHtml(currentDecision)}</strong>. Pending is display-only and cannot be submitted as a decision.</small></div>
         <div class="form-row"><label>IS CUSTOMER CREATED ON IMAB?</label><select id="credit-imab"><option value="">- Select -</option>${imabOptions}</select></div>
         <div class="form-row">
           <label>CUSTOMER NO</label>
@@ -636,8 +637,8 @@
     const imabCreated = el('credit-imab')?.value || '';
     const customerNo = (el('credit-customer-no')?.value || '').replace(/[^0-9]/g, '');
     if (!decision) return deps.showToast('Please select a decision', 'error');
-    if (decision !== 'Pending' && imabCreated !== 'Yes') return deps.showToast('Create the customer in IMAB before sending this case to Head of Rural review.', 'error');
-    if (decision !== 'Pending' && !customerNo) return deps.showToast('Enter the IMAB Customer No before sending this case to Head of Rural review.', 'error');
+    if (imabCreated !== 'Yes') return deps.showToast('Create the customer in IMAB before sending this case to Head of Rural review.', 'error');
+    if (!customerNo) return deps.showToast('Enter the IMAB Customer No before sending this case to Head of Rural review.', 'error');
 
     const btn = el('btn-submit-credit');
     deps.setButtonLoading(btn, true, 'Saving...');

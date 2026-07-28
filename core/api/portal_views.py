@@ -1485,10 +1485,10 @@ def portal_farmer_detail(request, farmer_id: str):
     identity_filters = None
     if farmer.national_id:
         identity_filters = Q(national_id=farmer.national_id)
-    if farmer.primary_phone:
-        identity_filters = (identity_filters | Q(primary_phone=farmer.primary_phone)) if identity_filters is not None else Q(primary_phone=farmer.primary_phone)
-    if farmer.customer_name and not farmer.national_id and not farmer.primary_phone:
-        identity_filters = (identity_filters | Q(customer_name__iexact=farmer.customer_name)) if identity_filters is not None else Q(customer_name__iexact=farmer.customer_name)
+    for phone in (farmer.primary_phone, farmer.secondary_phone):
+        if phone:
+            phone_filter = Q(primary_phone=phone) | Q(secondary_phone=phone)
+            identity_filters = (identity_filters | phone_filter) if identity_filters is not None else phone_filter
     spin_references = []
     if identity_filters:
         for record in SpinCreditRequest.objects.filter(identity_filters).order_by('-created_at')[:20]:

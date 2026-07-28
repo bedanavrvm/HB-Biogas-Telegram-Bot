@@ -1373,7 +1373,10 @@ Mary Njeri njihia
         self.assertEqual(farmer.national_id, '23215888')
         self.assertEqual(farmer.primary_phone, '254721997481')
         self.assertEqual(farmer.county, 'MERU')
-        self.assertEqual(farmer.branch, 'MERU BRANCH')
+        # FarmUp no longer owns operational routing.  Branch is populated by
+        # the later authoritative system export, so an edited FarmUp value is
+        # deliberately ignored here.
+        self.assertEqual(farmer.branch, '')
         self.assertEqual(farmer.sign_date, '24-June-2026')
         self.assertEqual(farmer.actual_receipts, '5000')
         self.assertEqual(farmer.lead_source, 'HOMEBIOGAS')
