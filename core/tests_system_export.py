@@ -137,7 +137,8 @@ class SystemExportImportTests(TestCase):
         case360 = serialize_case360(self.farmer)
 
         self.assertEqual(case360['sections']['identity']['system_name'], 'WANJIKU, JANE')
-        self.assertEqual(case360['sections']['order']['system_loan_officer'], 'System Officer')
+        self.assertEqual(case360['sections']['jbl_visit']['system_loan_officer'], 'System Officer')
+        self.assertNotIn('system_loan_officer', case360['sections']['order'])
         self.assertEqual(case360['sections']['final_review']['comment'], 'Order comment from final review')
         self.assertEqual(case360['sections']['final_review']['payment_comment'], 'Payment COL comment')
 

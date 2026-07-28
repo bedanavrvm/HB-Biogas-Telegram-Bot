@@ -20,8 +20,13 @@
       const preview = farmer.requisition_preview || {
         location: [farmer.sub_county, farmer.village].filter(Boolean).join(' - '),
         hbg_deposit: isJbl ? '' : deposit,
-        jbl_deposit: isJbl ? (farmer.system_deposit_paid_jbl || deposit) : '',
+        // JBL deposit is not collected at requisition/order stage. The
+        // payment workflow uses the later IMAB/LGF value separately.
+        jbl_deposit: '0',
       };
+      if (preview.jbl_deposit === null || preview.jbl_deposit === undefined || preview.jbl_deposit === '') {
+        preview.jbl_deposit = '0';
+      }
       return `<tr>
         <td>${index + 1}</td>
         <td>${deps.escapeHtml(farmer.customer_name || '-')}</td>

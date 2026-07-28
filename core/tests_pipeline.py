@@ -1052,7 +1052,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertIsNone(data['workbook_preview'])
         self.assertEqual(data['ready'][0]['requisition_preview']['hbg_deposit'], '5000.00')
 
-    def test_portal_requisition_preview_routes_jawabu_receipt_to_jbl_deposit(self):
+    def test_portal_requisition_preview_sets_jbl_deposit_to_zero(self):
         self.farmer.final_decision = 'Approved'
         self.farmer.imab_created = 'Yes'
         self.farmer.customer_no = '15124'
@@ -1075,7 +1075,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         preview = response.json()['ready'][0]['requisition_preview']
         self.assertEqual(preview['hbg_deposit'], '')
-        self.assertEqual(preview['jbl_deposit'], '7500')
+        self.assertEqual(preview['jbl_deposit'], '0')
 
     def test_portal_requisition_preview_blocks_missing_customer_no(self):
         self.farmer.final_decision = 'Approved'

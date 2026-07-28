@@ -412,14 +412,14 @@ def _invoice_summary_for_farmers(farmers) -> dict:
 
 def _validate_requisition_farmers(farmers) -> tuple[list[dict], list[dict], list[dict]]:
     from core.services.jawabu_pipeline import farmer_to_card
-    from core.services.requisition import requisition_deposit_values
+    from core.services.requisition import requisition_order_deposit_values
 
     ready = []
     blocked = []
     warnings = []
     for farmer in farmers:
         card = farmer_to_card(farmer)
-        hbg_deposit, jbl_deposit = requisition_deposit_values(farmer)
+        hbg_deposit, jbl_deposit = requisition_order_deposit_values(farmer)
         card['requisition_preview'] = {
             'location': ' - '.join(part for part in (
                 str(farmer.sub_county or '').strip(), str(farmer.village or '').strip(),
@@ -644,13 +644,13 @@ def _serialize_batch(batch, farmers, request, include_farmers: bool = True) -> d
 
 def _batch_amount_summary(farmers) -> dict:
     from decimal import Decimal, InvalidOperation
-    from core.services.requisition import requisition_deposit_values
+    from core.services.requisition import requisition_order_deposit_values
 
     keys = ('deposit_hb', 'deposit_jbl', 'invoice_amount', 'discount', 'payment', 'balance_due')
     totals = {key: Decimal('0') for key in keys}
     present = {key: False for key in keys}
     for farmer in farmers:
-        deposit_hb, deposit_jbl = requisition_deposit_values(farmer)
+        deposit_hb, deposit_jbl = requisition_order_deposit_values(farmer)
         raw = {
             'deposit_hb': deposit_hb,
             'deposit_jbl': deposit_jbl,

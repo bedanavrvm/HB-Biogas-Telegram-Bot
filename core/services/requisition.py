@@ -29,7 +29,7 @@ def clean_deposit_float(val: Any) -> float | int | None:
 
 
 def requisition_deposit_values(farmer: JawabuFarmerMaster) -> tuple[Any, Any]:
-    """Return the HBG and JBL deposits for an order row.
+    """Return the canonical HBG and later JBL deposit values.
 
     Jawabu records use ``JAWABU`` as the lead-source label, while older
     records used ``JBL``.  Both identify the JBL-funded path.  Prefer the
@@ -39,7 +39,7 @@ def requisition_deposit_values(farmer: JawabuFarmerMaster) -> tuple[Any, Any]:
     """
     if farmer.deposit_paid_hbg is not None:
         canonical_deposit = farmer.deposit_paid_hbg
-    elif farmer.payment is not None:
+    elif getattr(farmer, 'payment', None) is not None:
         # Older invoice matches populated only ``payment``. The invoice's
         # Payment column is the operational HBG deposit, so use it before the
         # older pre-invoice receipt field when no canonical value exists.
@@ -52,6 +52,19 @@ def requisition_deposit_values(farmer: JawabuFarmerMaster) -> tuple[Any, Any]:
     if is_jbl_source:
         return None, explicit_jbl if explicit_jbl is not None else canonical_deposit
     return canonical_deposit, explicit_jbl
+
+
+def requisition_order_deposit_values(farmer: JawabuFarmerMaster) -> tuple[Any, int]:
+    """Return deposit values for the requisition/order document.
+
+    The order is raised before JBL has received its deposit, so the JBL
+    deposit column is always an explicit numeric zero.  Payment documents use
+    :func:`requisition_deposit_values` instead because they may contain the
+    later IMAB/LGF deposit actually received by JBL.
+    """
+    hbg_deposit, _ = requisition_deposit_values(farmer)
+    return hbg_deposit, 0
+
 
 def copy_row_formatting(ws: Any, src_row: int, dst_row: int) -> None:
     for col in range(1, ws.max_column + 1):
@@ -276,7 +289,7 @@ def generate_requisition_excel(farmers: list[JawabuFarmerMaster], order_number: 
         location_text = requisition_location_text(farmer)
         _write_system_value(ws, r, col_landmark, location_text, wrap=True)  # LOCATION & NEAREST LANDMARK
         
-        hbg_deposit, jbl_deposit = requisition_deposit_values(farmer)
+        hbg_deposit, jbl_deposit = requisition_order_deposit_values(farmer)
         _write_system_value(ws, r, col_hbg, hbg_deposit if hbg_deposit is not None else "")  # HBG
         _write_system_value(ws, r, col_jbl, jbl_deposit if jbl_deposit is not None else "")  # JBL
         ws.cell(row=r, column=col_hbg).number_format = '0'

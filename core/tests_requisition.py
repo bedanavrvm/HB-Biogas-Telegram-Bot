@@ -111,6 +111,7 @@ class RequisitionTemplateGenerationTests(TestCase):
         self.assertEqual(ws['I14'].value, 'Nakuru')
         self.assertEqual(ws['J14'].value, 'Kieni - Mweiga')
         self.assertEqual(ws['K14'].value, 25000)
+        self.assertEqual(ws['L14'].value, 0)
         self.assertEqual(ws['K14'].number_format, '0')
         self.assertEqual(ws['M14'].value, 'Sales One')
         self.assertTrue(ws['D14'].alignment.wrap_text)
@@ -122,7 +123,7 @@ class RequisitionTemplateGenerationTests(TestCase):
         for cell_ref in ('C14', 'D14', 'E14', 'F14', 'G14', 'H14', 'I14', 'J14', 'K14', 'L14', 'M14'):
             self.assertEqual(ws[cell_ref].alignment.horizontal, 'center')
 
-    def test_jawabu_source_writes_receipt_to_jbl_deposit_column(self):
+    def test_order_always_writes_zero_to_jbl_deposit_column(self):
         template_path = Path('tmp_requisition_jbl_deposit.xlsx')
         output_path = Path('tmp_requisition_jbl_deposit_output.xlsx')
         self.addCleanup(lambda: template_path.exists() and template_path.unlink())
@@ -136,7 +137,7 @@ class RequisitionTemplateGenerationTests(TestCase):
         ws = load_workbook(output_path, data_only=False).active
 
         self.assertIn(ws['K14'].value, (None, ''))
-        self.assertEqual(ws['L14'].value, 25000)
+        self.assertEqual(ws['L14'].value, 0)
 
 
     def test_template_validation_rejects_customer_data_but_allows_numbers_and_footer_labels(self):
@@ -214,7 +215,7 @@ class RequisitionTemplateGenerationTests(TestCase):
         self.assertEqual(ws['D15'].value, 'John Kamau')
         self.assertEqual(ws['F15'].value, '87654321')
         self.assertEqual(ws['J15'].value, 'Manyatta - Gatunduri')
-        self.assertEqual(ws['L15'].value, 30000)
+        self.assertEqual(ws['L15'].value, 0)
         self.assertIn(ws['D16'].value, (None, ''))
         self.assertIn(ws['E16'].value, (None, ''))
         self.assertNotIn('TOTAL', str(ws['D16'].value or '').upper())
