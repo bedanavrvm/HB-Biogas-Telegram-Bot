@@ -694,6 +694,10 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(history.json()['documents'][0]['payment_number'], '89')
         self.assertEqual(history.json()['documents'][0]['version'], 1)
         self.assertEqual(history.json()['documents'][0]['filename'], 'HB_Payment_89_ORDER-001_final_v1.xlsx')
+        self.assertEqual(
+            history.json()['documents'][0]['workbook_generated_at'],
+            history.json()['documents'][0]['generated_at'],
+        )
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()['preview']['rows'][0]['hb_invoice_amount'], '43500.00')
         self.assertEqual(detail.json()['preview']['totals']['hb_invoice_amount'], '43500.00')
@@ -728,6 +732,42 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(regenerated.case_call_up_comments, {str(farmer.id): 'Existing case comment'})
         self.assertEqual(regenerated.drive_url, 'https://drive.test/regenerated-payment')
 
+    def test_regenerating_pending_payment_review_is_idempotent(self):
+        farmer = self.farmer()
+        review = PaymentDocument.objects.create(
+            order_number='ORDER-001', payment_number='89', status='pending_review',
+            version=2, row_count=1, farmer_ids=[str(farmer.id)],
+            filename='HB_Payment_89_ORDER-001_review_v2.xlsx',
+        )
+
+        response = self.client.post(
+            reverse('portal_payment_document_regenerate', args=[str(review.id)]),
+            data=json.dumps({}), content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['idempotent_replay'])
+        self.assertEqual(response.json()['document']['id'], str(review.id))
+        self.assertEqual(PaymentDocument.objects.filter(order_number='ORDER-001').count(), 1)
+
+    def test_payment_finalize_replays_existing_pending_review(self):
+        farmer = self.farmer()
+        review = PaymentDocument.objects.create(
+            order_number='ORDER-001', payment_number='89', status='pending_review',
+            version=2, row_count=1, farmer_ids=[str(farmer.id)],
+            filename='HB_Payment_89_ORDER-001_review_v2.xlsx',
+        )
+
+        response = self.client.post(
+            reverse('portal_payment_document_finalize', args=['ORDER-001']),
+            data=json.dumps({'payment_number': '89'}), content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['idempotent_replay'])
+        self.assertEqual(response.json()['document']['id'], str(review.id))
+        self.assertEqual(PaymentDocument.objects.filter(order_number='ORDER-001').count(), 1)
+
     def test_batch_detail_uses_live_invoice_count_over_stored_snapshot(self):
         farmer = self.farmer()
         RequisitionBatch.objects.create(
@@ -735,7 +775,13 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
             requisition_date=date(2026, 7, 23),
             farmer_ids=[str(farmer.id)],
             farmer_count=1,
-            invoice_summary={'invoiced_count': 0, 'pending_invoice_count': 1},
+            invoice_summary={
+                'invoiced_count': 0,
+                'pending_invoice_count': 1,
+                'last_invoice_upload_status': 'success',
+                'last_invoice_upload_error': '',
+                'invoice_batch_id': 'upload-001',
+            },
         )
 
         response = self.client.get(reverse('portal_requisition_batch_detail', args=['ORDER-001']))
@@ -744,6 +790,8 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         summary = response.json()['batch']['invoice_summary']
         self.assertEqual(summary['invoiced_count'], 1)
         self.assertEqual(summary['pending_invoice_count'], 0)
+        self.assertEqual(summary['last_invoice_upload_status'], 'success')
+        self.assertEqual(summary['invoice_batch_id'], 'upload-001')
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_payment_preview_endpoint_returns_drive_document(self, storage):

@@ -410,6 +410,17 @@ def _invoice_summary_for_farmers(farmers) -> dict:
     }
 
 
+def _invoice_summary_for_batch(farmers, stored_summary=None) -> dict:
+    """Recalculate invoice counts without discarding upload audit metadata."""
+    # Farmer invoice fields are canonical for counts. Upload status/error and
+    # the invoice-batch reference are workflow metadata and must survive a
+    # later order regeneration or preview update.
+    return {
+        **(stored_summary or {}),
+        **_invoice_summary_for_farmers(farmers),
+    }
+
+
 def _validate_requisition_farmers(farmers) -> tuple[list[dict], list[dict], list[dict]]:
     from core.services.jawabu_pipeline import farmer_to_card
     from core.services.requisition import requisition_order_deposit_values
@@ -576,12 +587,7 @@ def _requisition_order_date_conflict(
 
 
 def _serialize_batch(batch, farmers, request, include_farmers: bool = True) -> dict:
-    summary = _invoice_summary_for_farmers(farmers)
-    stored_summary = batch.invoice_summary or {}
-    if stored_summary:
-        # Counts come from current farmer records. Keep upload metadata from the
-        # stored snapshot, but never let stale snapshot counts override reality.
-        summary = {**stored_summary, **summary}
+    summary = _invoice_summary_for_batch(farmers, batch.invoice_summary)
     farmers_payload = []
     if include_farmers:
         for farmer in farmers:
@@ -1595,7 +1601,6 @@ def portal_requisition_workbook_preview(request):
         }, status=400)
 
     sender = _portal_sender_from_request(request)
-    summary = _invoice_summary_for_farmers(farmers)
     from django.db import transaction
 
     # Reserve a new preview version before the external upload. This keeps
@@ -1623,6 +1628,7 @@ def portal_requisition_workbook_preview(request):
         batch.farmer_count = len(farmers)
         if not batch.version:
             batch.status = 'preview'
+        summary = _invoice_summary_for_batch(farmers, batch.invoice_summary)
         batch.invoice_summary = summary
         batch.save()
     try:
@@ -1698,7 +1704,6 @@ def portal_requisition_generate(request):
                 request_id=f'{batch_request_id}:{farmer.id}' if batch_request_id else '',
             )
 
-    summary = _invoice_summary_for_farmers(farmers)
     from django.db import transaction
 
     # Reserve a monotonic version before contacting Drive.  The batch row is
@@ -1724,6 +1729,7 @@ def portal_requisition_generate(request):
         batch.farmer_ids = [str(farmer.id) for farmer in farmers]
         batch.farmer_count = len(farmers)
         batch.status = 'needs_review'
+        summary = _invoice_summary_for_batch(farmers, batch.invoice_summary)
         batch.invoice_summary = summary
         batch.save()
     try:
@@ -2932,6 +2938,7 @@ def portal_payment_document_finalize(request, order_number: str):
     from core.services.payment_documents import (
         PaymentTemplateError,
         create_payment_document,
+        normalize_payment_number,
         payment_readiness,
         serialize_payment_document,
     )
@@ -2940,10 +2947,28 @@ def portal_payment_document_finalize(request, order_number: str):
     if access_error:
         return access_error
 
+    body = _json_body(request)
     try:
+        payment_number = normalize_payment_number(body.get('payment_number'))
+        # The batch detail page can be retried by Telegram/WebView or by a
+        # double tap. Reuse the current review snapshot instead of creating a
+        # second visible payment card for the same order and payment number.
+        from core.models import PaymentDocument
+        existing_review = PaymentDocument.objects.filter(
+            order_number=order_number,
+            payment_number=payment_number,
+            status='pending_review',
+        ).order_by('-version', '-created_at').first()
+        if existing_review:
+            return JsonResponse({
+                'ok': True,
+                'document': serialize_payment_document(existing_review),
+                'requires_head_rural_review': True,
+                'idempotent_replay': True,
+            })
         doc = create_payment_document(
             order_number,
-            payment_number=_json_body(request).get('payment_number'),
+            payment_number=payment_number,
             actor=_portal_sender_from_request(request),
             final=False,
             status='pending_review',
@@ -3078,6 +3103,18 @@ def portal_payment_document_regenerate(request, document_id: str):
     if access_error:
         return access_error
 
+    # A pending review is already the current editable payment snapshot. A
+    # repeated regenerate click must replay that document instead of creating
+    # another indistinguishable review row/version.
+    if source.status == 'pending_review':
+        return JsonResponse({
+            'ok': True,
+            'document': serialize_payment_document(source),
+            'regenerated_from_document_id': str(source.id),
+            'requires_head_rural_review': True,
+            'idempotent_replay': True,
+        })
+
     try:
         regenerated = create_payment_document(
             source.order_number,
@@ -3139,7 +3176,12 @@ def portal_document_history(request):
                 'filename': doc.filename,
                 'payment_number': doc.payment_number, 'row_count': doc.row_count,
                 'generated_by': doc.finalized_by or doc.generated_by,
-                'generated_at': (doc.finalized_at or doc.created_at).isoformat(),
+                # For a final document, finalized_at is set after the final
+                # workbook upload. A review's updated_at is set after its
+                # workbook upload, so it is more accurate than created_at
+                # (which is reserved before the Drive call).
+                'generated_at': (doc.finalized_at or doc.updated_at or doc.created_at).isoformat(),
+                'workbook_generated_at': (doc.finalized_at or doc.updated_at or doc.created_at).isoformat(),
                 'drive_url': doc.drive_url,
                 'farmer_ids': [str(value) for value in (doc.farmer_ids or [])],
             }
@@ -3158,6 +3200,7 @@ def portal_document_history(request):
             'generated_at': doc.updated_at.isoformat(),
             'drive_url': doc.drive_url,
             'requisition_date': doc.requisition_date.isoformat() if doc.requisition_date else None,
+            'workbook_generated_at': doc.updated_at.isoformat(),
             'farmer_ids': [str(value) for value in (doc.farmer_ids or [])],
         }
         for doc in documents

@@ -170,6 +170,14 @@
     return `${day}-${month}-${year}`;
   }
 
+  function fmtDateTime(v) {
+    if (!v) return '-';
+    if (utils.formatDateTime) return utils.formatDateTime(v);
+    const text = String(v);
+    const match = text.match(/(?:T|\s)(\d{1,2}):(\d{2})/);
+    return `${fmtDate(v)}${match ? ` ${String(match[1]).padStart(2, '0')}:${match[2]}` : ''}`;
+  }
+
   function stageBadge(farmer) {
     if (portalHelpers.stageBadge) return portalHelpers.stageBadge(farmer);
     const stage = farmer.pipeline_stage || 1;
@@ -804,6 +812,31 @@
     state.metaCounties = data.counties || [];
     portalFilters.updateFilterOptions(state.queues[state.activePage] || []);
   }
+
+  function paymentHistoryScope(document) {
+    // Payment number plus order is the operator-facing batch identity.
+    // Versions may carry different farmer snapshots, but they are still
+    // revisions of the same payment/order and should not become duplicate
+    // top-level cards. Keeping the order in the key prevents an unrelated
+    // batch that happens to reuse a payment number from being merged.
+    const payment = String(document?.payment_number || '').trim();
+    const order = String(document?.order_number || '').trim();
+    return payment ? `payment:${payment}::order:${order}` : `order:${order}`;
+  }
+
+  function collapsePaymentHistoryVersions(documents) {
+    const grouped = new Map();
+    (documents || []).forEach(document => {
+      const key = paymentHistoryScope(document);
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push(document);
+    });
+    return [...grouped.values()].map(versions => {
+      versions.sort((left, right) => Number(right.version || 0) - Number(left.version || 0));
+      return { ...versions[0], previous_versions: versions.slice(1) };
+    });
+  }
+
   function renderDocumentHistory(documents, kind) {
     const target = el('history-list');
     if (!target) return;
@@ -811,19 +844,25 @@
       target.innerHTML = `<div class="empty-state"><div class="es-title">No ${kind} documents yet</div><div class="es-sub">Generated payment reviews and final documents will appear here.</div></div>`;
       return;
     }
-    target.innerHTML = documents.map(doc => `<article class="farmer-card history-document-card">
-      <div class="fc-name">${kind === 'payments' ? `Payment #${escapeHtml(doc.payment_number || '-')}` : `Order ${escapeHtml(doc.order_number || '-')}`}</div>
-      <div class="fc-sub">${kind === 'payments' ? `Order ${escapeHtml(doc.order_number || '-')} | ` : ''}${escapeHtml(doc.row_count || 0)} client(s) | Version ${escapeHtml(doc.version || 0)}</div>
-      <div class="fc-sub">${escapeHtml(fmtDate(doc.generated_at))}${doc.generated_by ? ` | ${escapeHtml(doc.generated_by)}` : ''}</div>
-      ${kind === 'payments' ? `<span class="badge ${doc.status === 'final' ? 'badge-green' : 'badge-orange'}">${doc.status === 'final' ? 'Final' : 'Awaiting Head of Rural review'}</span>` : ''}
-      <div class="history-document-actions">
-        <button type="button" class="btn btn-secondary history-view-document" data-kind="${kind}" data-id="${escapeHtml(doc.id)}" data-order="${escapeHtml(doc.order_number || '')}">${kind === 'payments' && doc.status !== 'final' ? 'Review payment' : 'View preview'}</button>
-        ${doc.drive_url || doc.download_url ? `<button type="button" class="btn btn-primary history-open-excel" data-url="${escapeHtml(doc.drive_url || doc.download_url)}">Open Excel</button>` : ''}
-        ${kind === 'payments'
-          ? `<button type="button" class="btn btn-secondary history-regenerate-payment" data-id="${escapeHtml(doc.id)}">Regenerate payment doc</button>`
-          : `<button type="button" class="btn btn-secondary history-regenerate-order" data-order="${escapeHtml(doc.order_number || '')}" data-requisition-date="${escapeHtml(doc.requisition_date || '')}" data-farmer-ids="${escapeHtml((doc.farmer_ids || []).join(','))}">Regenerate requisition/order</button>`}
-      </div>
-    </article>`).join('');
+    target.innerHTML = documents.map(doc => {
+      const previousVersions = kind === 'payments' && doc.previous_versions?.length
+        ? `<details class="history-previous-versions"><summary>${doc.previous_versions.length} previous version${doc.previous_versions.length === 1 ? '' : 's'} retained</summary><div>${doc.previous_versions.map(previous => `<div class="history-previous-version"><span>v${escapeHtml(previous.version || 0)} - ${escapeHtml(previous.status === 'final' ? 'Final' : previous.status === 'pending_review' ? 'Awaiting Head of Rural review' : 'Saved')}</span><button type="button" class="btn btn-secondary history-view-document" data-kind="payments" data-id="${escapeHtml(previous.id)}">View</button></div>`).join('')}</div></details>`
+        : '';
+      return `<article class="farmer-card history-document-card">
+        <div class="fc-name">${kind === 'payments' ? `Payment #${escapeHtml(doc.payment_number || '-')}` : `Order ${escapeHtml(doc.order_number || '-')}`}</div>
+        <div class="fc-sub">${kind === 'payments' ? `Order ${escapeHtml(doc.order_number || '-')} | ` : ''}${escapeHtml(doc.row_count || 0)} client(s) | Version ${escapeHtml(doc.version || 0)}</div>
+        <div class="fc-sub">Workbook generated: ${escapeHtml(fmtDateTime(doc.workbook_generated_at || doc.generated_at))}${doc.generated_by ? ` | ${escapeHtml(doc.generated_by)}` : ''}</div>
+        ${kind === 'payments' ? `<span class="badge ${doc.status === 'final' ? 'badge-green' : 'badge-orange'}">${doc.status === 'final' ? 'Final' : 'Awaiting Head of Rural review'}</span>` : ''}
+        <div class="history-document-actions">
+          <button type="button" class="btn btn-secondary history-view-document" data-kind="${kind}" data-id="${escapeHtml(doc.id)}" data-order="${escapeHtml(doc.order_number || '')}">${kind === 'payments' && doc.status !== 'final' ? 'Review payment' : 'View preview'}</button>
+          ${doc.drive_url || doc.download_url ? `<button type="button" class="btn btn-primary history-open-excel" data-url="${escapeHtml(doc.drive_url || doc.download_url)}">Open Excel</button>` : ''}
+          ${kind === 'payments'
+            ? (doc.status === 'final' ? `<button type="button" class="btn btn-secondary history-regenerate-payment" data-id="${escapeHtml(doc.id)}">Regenerate payment doc</button>` : '')
+            : `<button type="button" class="btn btn-secondary history-regenerate-order" data-order="${escapeHtml(doc.order_number || '')}" data-requisition-date="${escapeHtml(doc.requisition_date || '')}" data-farmer-ids="${escapeHtml((doc.farmer_ids || []).join(','))}">Regenerate requisition/order</button>`}
+        </div>
+        ${previousVersions}
+      </article>`;
+    }).join('');
   }
   async function loadHistory(kind = historyKind) {
     historyKind = kind;
@@ -838,7 +877,10 @@
       if (target) target.innerHTML = '<div class="empty-state"><div class="es-title">Could not load document history</div></div>';
       return;
     }
-    renderDocumentHistory(data.documents || [], kind);
+    const documents = kind === 'payments'
+      ? collapsePaymentHistoryVersions(data.documents || [])
+      : (data.documents || []);
+    renderDocumentHistory(documents, kind);
   }
 
   function caseHistoryUrl(farmerId) {

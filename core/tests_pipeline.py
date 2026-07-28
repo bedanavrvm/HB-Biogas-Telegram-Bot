@@ -1376,6 +1376,14 @@ class JblPipelineApiTestCase(TestCase):
         self.farmer.customer_no = '15124'
         self.farmer.save()
         self.mark_requisition_location_ready()
+        RequisitionBatch.objects.create(
+            order_number='REQ-BATCH-99',
+            invoice_summary={
+                'last_invoice_upload_status': 'success',
+                'last_invoice_upload_error': '',
+                'invoice_batch_id': 'upload-001',
+            },
+        )
 
         payload = {
             'farmer_ids': [str(self.farmer.id)],
@@ -1390,6 +1398,8 @@ class JblPipelineApiTestCase(TestCase):
         self.assertTrue(data['ok'])
         self.assertEqual(data['filename'], 'JBL_Requisition_Form_REQ-BATCH-99_v1.xlsx')
         self.assertEqual(data['drive_url'], 'https://drive.test/requisition')
+        self.assertEqual(data['batch']['invoice_summary']['last_invoice_upload_status'], 'success')
+        self.assertEqual(data['batch']['invoice_summary']['invoice_batch_id'], 'upload-001')
         self.assertIn('/api/portal/requisition-download/', data['download_url'])
         self.assertTrue(RequisitionBatch.objects.filter(order_number='REQ-BATCH-99', drive_file_id='drive-xlsx').exists())
 

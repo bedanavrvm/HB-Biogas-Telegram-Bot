@@ -913,6 +913,10 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 
 #invoice-pool-list { gap: 7px; }
 .history-document-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+.history-previous-versions { margin-top: 7px; border-top: 1px solid var(--border-color); padding-top: 6px; }
+.history-previous-versions summary { color: var(--text-muted); cursor: pointer; font-size: 10px; font-weight: 700; }
+.history-previous-version { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 5px; color: var(--text-muted); font-size: 10px; }
+.history-previous-version .btn { min-height: 28px; padding: 3px 9px; }
 .invoice-upload-dropzone { display: grid; min-height: 76px; place-items: center; align-content: center; gap: 3px; border: 1px dashed var(--color-primary); border-radius: 10px; background: color-mix(in srgb, var(--color-primary) 5%, var(--bg-surface)); color: var(--text-primary); cursor: pointer; text-align: center; }
 .invoice-upload-dropzone small { color: var(--text-muted); font-size: 10px; }
 .invoice-upload-dropzone .upload-icon { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 50%; background: var(--color-primary); color: #fff; font-weight: 800; }

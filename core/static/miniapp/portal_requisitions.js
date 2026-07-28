@@ -283,7 +283,9 @@
         throw new Error(response.data?.error || 'Could not regenerate the payment document.');
       }
       const newDocument = response.data.document || {};
-      deps.showToast('New payment review generated. Head of Rural approval is required.', 'success');
+      deps.showToast(response.data.idempotent_replay
+        ? 'The existing payment review is already current.'
+        : 'New payment review generated. Head of Rural approval is required.', 'success');
       await deps.loadHistory?.('payments');
       if (newDocument.id) await openFinalPaymentHistory(newDocument.id);
     } catch (error) {
@@ -494,7 +496,9 @@
         return;
       }
       renderPaymentResult(target, data);
-      deps.showToast(data.document?.status === 'pending_review'
+      deps.showToast(data.idempotent_replay
+        ? 'The existing payment review is already current.'
+        : data.document?.status === 'pending_review'
         ? 'Payment draft submitted for Head of Rural review.'
         : 'Payment document stored in Drive.', 'success');
     } catch (err) {
@@ -824,6 +828,10 @@
               if (!confirmed.ok && confirmed.status !== 202) throw new Error(confirmed.data?.error || 'Batch confirmation failed.');
               deps.showToast(confirmed.data?.batch?.sync_status === 'success' ? 'Invoice batch confirmed and synchronized.' : 'Batch committed; Sheet synchronization needs retry.', confirmed.data?.batch?.sync_status === 'success' ? 'success' : 'warning');
               deps.loadQueue('batches', state().pages.batches || 1);
+              // Refresh the open batch so the invoiced/pending counters and
+              // upload-status badge change immediately after confirmation.
+              closeInvoiceOverlay();
+              if (activeBatch?.order_number) await openBatchDetail(activeBatch.order_number);
             } catch (err) { deps.showToast(err.message, 'error'); }
             finally { deps.setButtonLoading(event.currentTarget, false); }
           });
