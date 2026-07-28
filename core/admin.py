@@ -950,14 +950,14 @@ class JawabuFarmerMasterAdmin(ModelAdmin):
                 'created_date', 'comments',
             ),
         }),
-        ('Stage 2 â€” JBL Visit', {
+        ('Stage 2 — JBL Visit', {
             'fields': (
                 'jbl_visit_date', 'jbl_officer',
                 'jbl_visit_status', 'jbl_visit_comment',
             ),
             'description': 'Logged by the JBL BRO after visiting the farmer.',
         }),
-        ('Stage 3 â€” Credit Decision', {
+        ('Stage 3 — Credit Decision', {
             'fields': (
                 'credit_decision', 'credit_decided_by', 'credit_decided_at',
             ),
@@ -966,11 +966,11 @@ class JawabuFarmerMasterAdmin(ModelAdmin):
                 'can a requisition date and order number be assigned.'
             ),
         }),
-        ('Stage 4 â€” Requisition', {
+        ('Stage 4 — Requisition', {
             'fields': ('requisition_date', 'order_number'),
             'description': 'Filled by admin once credit is approved. Gate enforced by the portal.',
         }),
-        ('Stage 7 â€” Invoice', {
+        ('Stage 7 — Invoice', {
             'fields': (
                 'invoice_number', 'invoice_date',
                 'invoice_amount', 'discount', 'payment', 'balance_due',

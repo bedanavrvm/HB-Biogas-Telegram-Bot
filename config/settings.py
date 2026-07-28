@@ -61,8 +61,19 @@ INSTALLED_APPS = [
 UNFOLD = {
     'SITE_TITLE': 'JBL Workflow Admin',
     'SITE_HEADER': 'JBL/Jawabu HomeBiogas Operations',
+    'SITE_SUBHEADER': 'Operations console',
     'SITE_URL': '/',
     'DASHBOARD_CALLBACK': 'core.admin_dashboard.dashboard_callback',
+    'COMMAND': {
+        'search_models': True,
+        'show_history': False,
+    },
+    'SIDEBAR': {
+        'show_search': True,
+        'command_search': True,
+        'show_all_applications': False,
+        'navigation': 'core.admin_navigation.get_admin_navigation',
+    },
     'STYLES': [
         '/static/admin/css/compact_unfold.css',
     ],

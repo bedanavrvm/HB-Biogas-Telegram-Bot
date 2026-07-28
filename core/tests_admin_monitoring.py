@@ -85,8 +85,48 @@ class AdminMonitoringTests(TestCase):
         response = client.get('/admin/', follow=True)
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Operations Overview')
+        self.assertContains(response, 'Operations dashboard')
         self.assertContains(response, '/static/admin/css/compact_unfold.css')
+
+    def test_admin_index_uses_curated_sidebar_and_global_search(self):
+        user = get_user_model().objects.create_superuser(
+            username='navigation-admin',
+            email='navigation@example.test',
+            password='password',
+        )
+        client = Client()
+        client.force_login(user)
+
+        response = client.get('/admin/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Operations')
+        self.assertContains(response, 'Reviews and workflows')
+        self.assertContains(response, 'Configuration')
+        self.assertContains(response, 'Technical records')
+        self.assertContains(response, 'Branches and counties')
+        self.assertContains(response, 'search-input-command')
+        self.assertContains(response, 'admin-operations-dashboard')
+        # The raw 32-model app list must not be dumped into the dashboard.
+        self.assertNotContains(response, 'Complaint case sequences')
+
+    def test_admin_dashboard_preserves_private_data_boundary(self):
+        user = get_user_model().objects.create_superuser(
+            username='dashboard-admin',
+            email='dashboard@example.test',
+            password='password',
+        )
+        client = Client()
+        client.force_login(user)
+
+        response = client.get('/admin/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Needs attention')
+        self.assertContains(response, 'Workflow overview')
+        self.assertContains(response, 'Status distribution')
+        self.assertNotContains(response, 'private complaint body')
+        self.assertNotContains(response, 'Private Name')
 
     def test_builtin_auth_models_use_unfold_admin(self):
         self.assertIsInstance(admin.site._registry[get_user_model()], ModelAdmin)

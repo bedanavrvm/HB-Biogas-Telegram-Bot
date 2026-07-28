@@ -3,24 +3,6 @@
 {% block extrahead %}{{ block.super }}{{ media }}{% endblock %}
 
 {% block content %}
-  <style>
-    .staff-create { max-width: 920px; color: var(--body-fg, #1f2937); }
-    .staff-create h1 { font-size: 24px; font-weight: 700; margin: 0 0 8px; }
-    .staff-intro { color: var(--body-quiet-color, #64748b); margin: 0 0 22px; }
-    .staff-card { background: var(--body-bg, #fff); border: 1px solid var(--hairline-color, #d7dde5); border-radius: 12px; margin-bottom: 18px; padding: 22px; }
-    .staff-card h2 { font-size: 17px; font-weight: 700; margin: 0 0 16px; }
-    .staff-grid { display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .staff-field label { display: block; font-weight: 650; margin-bottom: 6px; }
-    .staff-field input, .staff-field select { box-sizing: border-box; width: 100%; min-height: 44px; border: 1px solid var(--border-color, #aeb7c4); border-radius: 8px; background: var(--darkened-bg, #fff); color: var(--body-fg, #111827); padding: 9px 12px; }
-    .staff-help { color: var(--body-quiet-color, #64748b); display: block; font-size: 12px; line-height: 1.4; margin-top: 5px; }
-    .staff-errors { color: #dc2626; font-size: 13px; margin-top: 5px; }
-    .staff-submit { background: #0f9488; border: 0; border-radius: 8px; color: #fff; cursor: pointer; font-weight: 700; min-height: 44px; padding: 11px 18px; }
-    .staff-actions { align-items: center; display: flex; gap: 16px; }
-    @media (max-width: 720px) { .staff-grid { grid-template-columns: 1fr; } .staff-card { padding: 16px; } }
-    .dark .staff-card { background: #18181b; border-color: #34343a; }
-    .dark .staff-field input, .dark .staff-field select { background: #111214; border-color: #45464d; color: #f4f4f5; }
-  </style>
-
   <div class="staff-create" id="staff-user-creation">
     <h1>Add staff user</h1>
     <p class="staff-intro">Create the account and its first workflow role tag together. More role tags and scopes can be added from the saved user.</p>

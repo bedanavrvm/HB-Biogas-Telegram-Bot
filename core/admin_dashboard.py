@@ -12,13 +12,19 @@ from core.models import (
     ComplaintCaseEvidence,
     FcaImportRecord,
     GroupSheetConfiguration,
+    JawabuDataQualityIssue,
+    JawabuFarmerMaster,
+    JawabuFarmerUploadBatch,
     JawabuVisitRecord,
     MediaAttachment,
     OrderApprovalUpdate,
     ParsedMessage,
+    PaymentDocument,
+    RequisitionBatch,
     SpinCreditRequest,
     TatTrackerCase,
     TatTrackerEvent,
+    UserProfile,
 )
 
 
@@ -30,12 +36,24 @@ class StatusGroup:
 
 
 def dashboard_callback(request, context: dict[str, Any]) -> dict[str, Any]:
-    """Populate the Unfold index with aggregate operational state only."""
+    """Populate the Unfold index with aggregate operational state only.
+
+    The dashboard is intentionally an exception-first control surface.  It
+    links to the existing Admin changelists, but never renders customer names,
+    raw messages, phone numbers, document contents, or other private payloads.
+    """
     now = timezone.now()
     last_day = now - timezone.timedelta(hours=24)
     last_week = now - timezone.timedelta(days=7)
 
     active_tat_cases = TatTrackerCase.objects.filter(is_deleted=False)
+    enabled_groups = GroupSheetConfiguration.objects.filter(enabled=True)
+    active_farmers = JawabuFarmerMaster.objects.filter(status='active')
+    pending_spin = SpinCreditRequest.objects.filter(import_status='review_needed')
+    pending_payment_review = PaymentDocument.objects.filter(status='pending_review')
+    pending_uploads = JawabuFarmerUploadBatch.objects.filter(status='pending_review')
+    open_orders = RequisitionBatch.objects.exclude(status='completed')
+    active_quality_issues = JawabuDataQualityIssue.objects.filter(active=True)
 
     context['ops_dashboard'] = {
         'generated_at': timezone.localtime(now),
@@ -49,7 +67,7 @@ def dashboard_callback(request, context: dict[str, Any]) -> dict[str, Any]:
             {
                 'title': 'SPIN Requests',
                 'value': SpinCreditRequest.objects.count(),
-                'detail': f"{SpinCreditRequest.objects.filter(created_at__gte=last_week).count()} created in 7 days",
+                'detail': f"{pending_spin.count()} need analyst review",
                 'url': reverse('admin:core_spincreditrequest_changelist'),
             },
             {
@@ -60,9 +78,33 @@ def dashboard_callback(request, context: dict[str, Any]) -> dict[str, Any]:
             },
             {
                 'title': 'Enabled Groups',
-                'value': GroupSheetConfiguration.objects.filter(enabled=True).count(),
+                'value': enabled_groups.count(),
                 'detail': 'Configured Telegram workflows',
                 'url': reverse('admin:core_groupsheetconfiguration_changelist'),
+            },
+            {
+                'title': 'Jawabu Pipeline',
+                'value': active_farmers.count(),
+                'detail': f'{pending_uploads.count()} upload batch(es) awaiting review',
+                'url': reverse('admin:core_jawabufarmermaster_changelist'),
+            },
+            {
+                'title': 'Orders and Payments',
+                'value': open_orders.count(),
+                'detail': f'{pending_payment_review.count()} payment document(s) awaiting review',
+                'url': reverse('admin:core_requisitionbatch_changelist'),
+            },
+            {
+                'title': 'Data Quality',
+                'value': active_quality_issues.count(),
+                'detail': 'Active issues requiring attention',
+                'url': reverse('admin:core_jawabudataqualityissue_changelist'),
+            },
+            {
+                'title': 'Staff Access',
+                'value': UserProfile.objects.filter(user__is_active=True).count(),
+                'detail': 'Active canonical staff profiles',
+                'url': reverse('admin:auth_user_changelist'),
             },
         ],
         'status_sections': [
@@ -80,7 +122,11 @@ def dashboard_callback(request, context: dict[str, Any]) -> dict[str, Any]:
             },
             {
                 'title': 'Workflow Groups',
-                'items': _status_counts(GroupSheetConfiguration.objects.filter(enabled=True), 'workflow__type', empty_label='Unspecified'),
+                'items': _status_counts(enabled_groups, 'workflow__type', empty_label='Unspecified'),
+            },
+            {
+                'title': 'Payment Documents',
+                'items': _status_counts(PaymentDocument.objects.all(), 'status'),
             },
         ],
         'alerts': [
@@ -114,6 +160,26 @@ def dashboard_callback(request, context: dict[str, Any]) -> dict[str, Any]:
                 'count': _failed_import_count(),
                 'url': reverse('admin:core_fcaimportrecord_changelist'),
             },
+            {
+                'label': 'Jawabu upload batches awaiting review',
+                'count': pending_uploads.count(),
+                'url': reverse('admin:core_jawabufarmeruploadbatch_changelist'),
+            },
+            {
+                'label': 'Payment documents awaiting review',
+                'count': pending_payment_review.count(),
+                'url': reverse('admin:core_paymentdocument_changelist'),
+            },
+            {
+                'label': 'Active data quality issues',
+                'count': active_quality_issues.count(),
+                'url': reverse('admin:core_jawabudataqualityissue_changelist'),
+            },
+            {
+                'label': 'Orders still in progress',
+                'count': open_orders.count(),
+                'url': reverse('admin:core_requisitionbatch_changelist'),
+            },
         ],
     }
     return context
@@ -132,12 +198,15 @@ def _status_counts(queryset: QuerySet, field: str, *, empty_label: str = 'Blank'
 
 
 def _status_tone(value: str) -> str:
-    normalized = value.lower().strip()
+    normalized = value.lower().strip().replace(' ', '_')
     if normalized in {'completed', 'closed', 'success', 'synced', 'imported', 'disbursed'}:
         return 'success'
     if normalized in {'failed', 'rejected', 'declined', 'duplicate', 'duplicate_review'}:
         return 'danger'
-    if normalized in {'pending', 'review_needed', 'pending docs', 'active', 'in progress'}:
+    if normalized in {
+        'pending', 'review_needed', 'pending_docs', 'active', 'in_progress',
+        'awaiting_review', 'awaiting_analysis', 'awaiting_signature', 'under_review',
+    }:
         return 'warning'
     return 'muted'
 

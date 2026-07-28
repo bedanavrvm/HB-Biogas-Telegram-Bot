@@ -206,3 +206,483 @@ body[class*='app-'] a.cancel-link {
         margin-right: 0 !important;
     }
 }
+
+/* -------------------------------------------------------------------------
+ * Operations dashboard
+ *
+ * The dashboard uses stable project classes instead of relying on Django's
+ * optional bodyclass values. This keeps the layout working across Unfold
+ * releases and on the custom Admin views that extend base_site.html.
+ * ---------------------------------------------------------------------- */
+#admin-operations-dashboard {
+    box-sizing: border-box;
+    max-width: 1500px;
+    margin: 0 auto;
+    padding: .5rem 0 2rem;
+}
+
+#admin-operations-dashboard h1,
+#admin-operations-dashboard h2,
+#admin-operations-dashboard h3,
+#admin-operations-dashboard p {
+    margin-top: 0;
+}
+
+.admin-ops-header {
+    align-items: flex-start;
+    display: flex;
+    gap: 1rem;
+    justify-content: space-between;
+    margin-bottom: 1.25rem;
+}
+
+.admin-ops-header h1 {
+    color: rgb(var(--color-font-important-light));
+    font-size: clamp(1.5rem, 2vw, 2rem);
+    font-weight: 700;
+    letter-spacing: -.02em;
+    margin-bottom: .35rem;
+}
+
+.dark .admin-ops-header h1 {
+    color: rgb(var(--color-font-important-dark));
+}
+
+.admin-ops-header p,
+.admin-ops-section-heading p,
+.admin-ops-actions p {
+    color: rgb(var(--color-font-subtle-light));
+    font-size: .875rem;
+    line-height: 1.45;
+    margin-bottom: 0;
+}
+
+.dark .admin-ops-header p,
+.dark .admin-ops-section-heading p,
+.dark .admin-ops-actions p {
+    color: rgb(var(--color-font-subtle-dark));
+}
+
+.admin-ops-kicker {
+    color: rgb(var(--color-primary-600));
+    font-size: .7rem !important;
+    font-weight: 700;
+    letter-spacing: .1em;
+    margin-bottom: .4rem !important;
+    text-transform: uppercase;
+}
+
+.admin-ops-refresh {
+    color: rgb(var(--color-font-subtle-light));
+    font-size: .75rem;
+    white-space: nowrap;
+}
+
+.dark .admin-ops-refresh {
+    color: rgb(var(--color-font-subtle-dark));
+}
+
+.admin-ops-actions,
+.admin-ops-attention,
+.admin-ops-status-card,
+.admin-ops-card {
+    background: rgb(var(--color-base-50));
+    border: 1px solid rgb(var(--color-base-200));
+    border-radius: .75rem;
+}
+
+.dark .admin-ops-actions,
+.dark .admin-ops-attention,
+.dark .admin-ops-status-card,
+.dark .admin-ops-card {
+    background: rgb(var(--color-base-900));
+    border-color: rgb(var(--color-base-800));
+}
+
+.admin-ops-actions {
+    align-items: center;
+    display: flex;
+    gap: 1.25rem;
+    justify-content: space-between;
+    margin-bottom: 1.25rem;
+    padding: 1rem 1.125rem;
+}
+
+.admin-ops-actions h2,
+.admin-ops-section-heading h2 {
+    color: rgb(var(--color-font-important-light));
+    font-size: 1rem;
+    font-weight: 700;
+    margin-bottom: .25rem;
+}
+
+.dark .admin-ops-actions h2,
+.dark .admin-ops-section-heading h2 {
+    color: rgb(var(--color-font-important-dark));
+}
+
+.admin-ops-action-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    justify-content: flex-end;
+}
+
+.admin-ops-action {
+    align-items: center;
+    background: rgb(var(--color-base-100));
+    border: 1px solid rgb(var(--color-base-300));
+    border-radius: .5rem;
+    color: rgb(var(--color-font-default-light));
+    display: inline-flex;
+    font-size: .8rem;
+    font-weight: 600;
+    gap: .35rem;
+    min-height: 2.35rem;
+    padding: .45rem .7rem;
+    text-decoration: none;
+}
+
+.admin-ops-action:hover,
+.admin-ops-action:focus-visible {
+    border-color: rgb(var(--color-primary-500));
+    color: rgb(var(--color-primary-700));
+}
+
+.admin-ops-action-primary {
+    background: rgb(var(--color-primary-600));
+    border-color: rgb(var(--color-primary-600));
+    color: white;
+}
+
+.admin-ops-action-primary:hover,
+.admin-ops-action-primary:focus-visible {
+    background: rgb(var(--color-primary-700));
+    color: white;
+}
+
+.dark .admin-ops-action {
+    background: rgb(var(--color-base-800));
+    border-color: rgb(var(--color-base-700));
+    color: rgb(var(--color-font-default-dark));
+}
+
+.admin-ops-attention {
+    border-left: 4px solid rgb(var(--color-primary-500));
+    margin-bottom: 1.5rem;
+    padding: 1rem 1.125rem;
+}
+
+.admin-ops-section-heading {
+    align-items: flex-start;
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: .85rem;
+}
+
+.admin-ops-section-icon {
+    color: rgb(var(--color-primary-600));
+    font-size: 1.25rem;
+}
+
+.admin-ops-alert-list {
+    display: grid;
+    gap: .4rem 1.25rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.admin-ops-alert {
+    align-items: center;
+    border-bottom: 1px solid rgb(var(--color-base-200));
+    color: rgb(var(--color-font-default-light));
+    display: flex;
+    gap: .75rem;
+    justify-content: space-between;
+    min-height: 2.5rem;
+    padding: .35rem .1rem;
+    text-decoration: none;
+}
+
+.admin-ops-alert:hover,
+.admin-ops-alert:focus-visible {
+    color: rgb(var(--color-primary-700));
+}
+
+.admin-ops-alert strong {
+    background: rgb(var(--color-base-200));
+    border-radius: 999px;
+    color: rgb(var(--color-font-important-light));
+    min-width: 2rem;
+    padding: .2rem .5rem;
+    text-align: center;
+}
+
+.admin-ops-alert-active strong {
+    background: rgb(254 226 226);
+    color: rgb(185 28 28);
+}
+
+.dark .admin-ops-alert {
+    border-color: rgb(var(--color-base-800));
+    color: rgb(var(--color-font-default-dark));
+}
+
+.dark .admin-ops-alert strong {
+    background: rgb(var(--color-base-800));
+    color: rgb(var(--color-font-important-dark));
+}
+
+.admin-ops-card-grid {
+    display: grid;
+    gap: .75rem;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    margin-bottom: 1.5rem;
+}
+
+.admin-ops-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 8.75rem;
+    padding: 1rem;
+    text-decoration: none;
+    transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+
+.admin-ops-card:hover,
+.admin-ops-card:focus-visible {
+    border-color: rgb(var(--color-primary-500));
+    box-shadow: 0 5px 16px rgb(15 23 42 / .09);
+    transform: translateY(-1px);
+}
+
+.admin-ops-card-label {
+    color: rgb(var(--color-font-subtle-light));
+    font-size: .8rem;
+    font-weight: 600;
+}
+
+.admin-ops-card-value {
+    color: rgb(var(--color-font-important-light));
+    font-size: 1.9rem;
+    line-height: 1.1;
+    margin: .6rem 0 .3rem;
+}
+
+.dark .admin-ops-card-label {
+    color: rgb(var(--color-font-subtle-dark));
+}
+
+.dark .admin-ops-card-value {
+    color: rgb(var(--color-font-important-dark));
+}
+
+.admin-ops-card-detail,
+.admin-ops-card-link {
+    color: rgb(var(--color-font-subtle-light));
+    font-size: .75rem;
+    line-height: 1.35;
+}
+
+.admin-ops-card-link {
+    color: rgb(var(--color-primary-700));
+    font-weight: 600;
+    margin-top: auto;
+    padding-top: .7rem;
+}
+
+.dark .admin-ops-card-detail {
+    color: rgb(var(--color-font-subtle-dark));
+}
+
+.admin-ops-status-columns {
+    display: grid;
+    gap: .75rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.admin-ops-status-card {
+    padding: 1rem;
+}
+
+.admin-ops-status-card h3 {
+    color: rgb(var(--color-font-important-light));
+    font-size: .9rem;
+    font-weight: 700;
+    margin-bottom: .8rem;
+}
+
+.dark .admin-ops-status-card h3 {
+    color: rgb(var(--color-font-important-dark));
+}
+
+.admin-ops-status-list {
+    display: grid;
+    gap: .45rem;
+}
+
+.admin-ops-status-row {
+    align-items: center;
+    color: rgb(var(--color-font-default-light));
+    display: flex;
+    font-size: .8rem;
+    gap: .6rem;
+    justify-content: space-between;
+}
+
+.dark .admin-ops-status-row {
+    color: rgb(var(--color-font-default-dark));
+}
+
+.admin-ops-status-pill {
+    background: rgb(var(--color-base-200));
+    border-radius: 999px;
+    color: rgb(var(--color-font-important-light));
+    font-size: .72rem;
+    min-width: 1.75rem;
+    padding: .15rem .45rem;
+    text-align: center;
+}
+
+.admin-ops-status-success { background: rgb(220 252 231); color: rgb(22 101 52); }
+.admin-ops-status-warning { background: rgb(254 243 199); color: rgb(146 64 14); }
+.admin-ops-status-danger { background: rgb(254 226 226); color: rgb(185 28 28); }
+
+.admin-ops-empty,
+.admin-ops-footnote {
+    color: rgb(var(--color-font-subtle-light));
+    font-size: .8rem;
+}
+
+.admin-ops-footnote {
+    border-top: 1px solid rgb(var(--color-base-200));
+    margin: 1.5rem 0 0;
+    padding-top: 1rem;
+}
+
+.dark .admin-ops-empty,
+.dark .admin-ops-footnote {
+    color: rgb(var(--color-font-subtle-dark));
+}
+
+/* Shared styling for custom admin pages that still use Django's legacy
+ * submit-row/button classes. */
+.staff-create {
+    color: rgb(var(--color-font-default-light));
+    max-width: 980px;
+}
+
+.staff-create h1 {
+    color: rgb(var(--color-font-important-light));
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin-bottom: .4rem;
+}
+
+.staff-intro,
+.staff-help {
+    color: rgb(var(--color-font-subtle-light));
+}
+
+.staff-intro {
+    margin-bottom: 1.25rem;
+}
+
+.staff-grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.staff-field label {
+    color: rgb(var(--color-font-important-light));
+    display: block;
+    font-size: .8rem;
+    font-weight: 600;
+    margin-bottom: .35rem;
+}
+
+.staff-field input,
+.staff-field select,
+.staff-field textarea {
+    box-sizing: border-box;
+    width: 100%;
+}
+
+.staff-help {
+    display: block;
+    font-size: .75rem;
+    line-height: 1.4;
+    margin-top: .3rem;
+}
+
+.staff-errors {
+    color: rgb(185 28 28);
+    font-size: .8rem;
+    margin-top: .35rem;
+}
+
+.staff-actions {
+    align-items: center;
+    display: flex;
+    gap: .75rem;
+}
+
+.staff-card {
+    background: rgb(var(--color-base-50));
+    border: 1px solid rgb(var(--color-base-200));
+    border-radius: .75rem;
+    margin-bottom: 1rem;
+    padding: 1.25rem;
+}
+
+.staff-field input,
+.staff-field select,
+.staff-field textarea {
+    min-height: 2.5rem;
+}
+
+.staff-submit,
+.staff-actions a,
+#content-main .submit-row input,
+#content-main .submit-row a.button {
+    align-items: center;
+    border-radius: .5rem;
+    display: inline-flex;
+    font-size: .8rem;
+    font-weight: 600;
+    justify-content: center;
+    min-height: 2.5rem;
+    padding: .55rem .9rem;
+    text-decoration: none;
+}
+
+.staff-submit,
+#content-main .submit-row input[type='submit'] {
+    background: rgb(var(--color-primary-600));
+    border: 1px solid rgb(var(--color-primary-600));
+    color: white;
+}
+
+.staff-submit:hover,
+#content-main .submit-row input[type='submit']:hover {
+    background: rgb(var(--color-primary-700));
+}
+
+@media (max-width: 1100px) {
+    .admin-ops-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .admin-ops-status-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 720px) {
+    #admin-operations-dashboard { padding-bottom: 1rem; }
+    .admin-ops-header,
+    .admin-ops-actions { align-items: stretch; flex-direction: column; }
+    .admin-ops-refresh { white-space: normal; }
+    .admin-ops-action-list { justify-content: flex-start; }
+    .admin-ops-alert-list,
+    .admin-ops-card-grid,
+    .admin-ops-status-columns { grid-template-columns: 1fr; }
+    .admin-ops-card-grid { gap: .6rem; }
+    .staff-grid { grid-template-columns: 1fr; }
+    .staff-card { padding: 1rem; }
+}
