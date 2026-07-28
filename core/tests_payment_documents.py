@@ -982,7 +982,56 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         failed = PaymentDocument.objects.get(order_number='ORDER-001')
         self.assertEqual(failed.status, 'failed')
         self.assertEqual(failed.error, 'Drive upload failed; retry required.')
+        self.assertEqual(failed.drive_sync_attempts, 1)
+        self.assertIsNotNone(failed.drive_next_retry_at)
         self.assertFalse(failed.drive_url)
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_failed_payment_document_can_be_retried_without_losing_audit_row(self, storage):
+        farmer = self.farmer()
+        self.invoice_batch(farmer)
+        failed = PaymentDocument.objects.create(
+            order_number='ORDER-001', payment_number='89', status='failed', version=2,
+            row_count=1, farmer_ids=[str(farmer.id)],
+            filename='HB_Payment_89_ORDER-001_preview_v2.xlsx',
+            error='Drive upload failed; retry required.',
+            validation_summary={'artifact_status': 'preview', 'preview_rows': [{'farmer_id': str(farmer.id)}]},
+        )
+        storage.return_value.upload.return_value = ('retry-payment', 'https://drive.test/retry-payment')
+
+        response = self.client.post(
+            reverse('portal_payment_document_regenerate', args=[str(failed.id)]),
+            data=json.dumps({}), content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        replacement = PaymentDocument.objects.get(pk=response.json()['document']['id'])
+        self.assertNotEqual(replacement.id, failed.id)
+        self.assertEqual(replacement.status, 'preview')
+        self.assertEqual(replacement.drive_url, 'https://drive.test/retry-payment')
+        self.assertTrue(PaymentDocument.objects.filter(pk=failed.id, status='failed').exists())
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_reconciliation_replaces_failed_payment_without_requeueing_old_row(self, storage):
+        farmer = self.farmer()
+        self.invoice_batch(farmer)
+        failed = PaymentDocument.objects.create(
+            order_number='ORDER-001', payment_number='89', status='failed', version=2,
+            row_count=1, farmer_ids=[str(farmer.id)],
+            filename='HB_Payment_89_ORDER-001_preview_v2.xlsx',
+            error='Drive upload failed; retry required.',
+            validation_summary={'artifact_status': 'preview', 'preview_rows': [{'farmer_id': str(farmer.id)}]},
+        )
+        storage.return_value.upload.return_value = ('retry-payment-2', 'https://drive.test/retry-payment-2')
+
+        from core.services.portal_reconciliation import retry_payment_document
+        result = retry_payment_document(failed, actor='system:test')
+
+        self.assertTrue(result['ok'])
+        failed.refresh_from_db()
+        self.assertFalse(failed.error)
+        self.assertIsNone(failed.drive_next_retry_at)
+        self.assertIn('reconciliation_note', failed.validation_summary)
 
     @patch('core.services.payment_documents._upload_payment_workbook')
     def test_repeated_payment_preview_creates_versioned_local_documents(self, upload):

@@ -367,6 +367,28 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertIn('not Approved', error)
         self.assertEqual(self.farmer_stage2.order_number, '')
 
+    def test_assign_order_rejects_mixed_requisition_dates_at_service_boundary(self):
+        self.farmer_stage3.requisition_date = date(2026, 7, 13)
+        self.farmer_stage3.order_number = 'ORDER-SAME-DATE'
+        self.farmer_stage3.save(update_fields=['requisition_date', 'order_number', 'updated_at'])
+        candidate = JawabuFarmerMaster.objects.create(
+            customer_name='Farmer Same Batch', national_id='55555555',
+            primary_phone='254755555555', sign_date='24-June-2026',
+            jbl_visit_date=date(2026, 6, 25), jbl_visit_status='Approved',
+            credit_decision='Approved', imab_created='Yes', customer_no='15120',
+            final_decision='Approved', status='active',
+        )
+
+        ok, error = assign_order(
+            candidate, order_number='ORDER-SAME-DATE',
+            requisition_date=date(2026, 7, 14),
+        )
+
+        self.assertFalse(ok)
+        self.assertIn('already has requisition date', error)
+        candidate.refresh_from_db()
+        self.assertEqual(candidate.order_number, '')
+
 
 class PortalMiniAppAuthTestCase(TestCase):
     def grant_portal_access(self, role='JBL_OFFICER', branches=None):
@@ -443,6 +465,30 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertIn(data['status'], {'healthy', 'degraded'})
         self.assertIn('requisition_template', data['checks'])
         self.assertIn('payment_template', data['checks'])
+        self.assertIn('due_order_retries', data)
+        self.assertIn('due_payment_retries', data)
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, SECURE_SSL_REDIRECT=False)
+    def test_portal_health_counts_due_failed_artifacts(self):
+        from django.utils import timezone
+        RequisitionBatch.objects.create(
+            order_number='HEALTH-RETRY-1',
+            drive_upload_error='Drive upload failed; retry required.',
+            drive_next_retry_at=timezone.now(),
+        )
+        PaymentDocument.objects.create(
+            order_number='HEALTH-ORDER-1', payment_number='1', status='failed',
+            error='Drive upload failed; retry required.',
+            drive_next_retry_at=timezone.now(),
+        )
+
+        response = self.client.get(reverse('portal_health'))
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertGreaterEqual(data['failed_order_syncs'], 1)
+        self.assertGreaterEqual(data['failed_payment_syncs'], 1)
+        self.assertGreaterEqual(data['due_order_retries'], 1)
+        self.assertGreaterEqual(data['due_payment_retries'], 1)
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_portal_api_rejects_valid_but_unregistered_telegram_user(self):
@@ -1528,6 +1574,33 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(batch.drive_file_id, 'previous-drive-id')
         self.assertEqual(batch.drive_url, 'https://drive.test/previous-order')
         self.assertEqual(batch.drive_upload_error, 'Drive upload failed; retry required.')
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_requisition_batch_retry_uploads_stored_workbook(self, mock_storage):
+        batch = RequisitionBatch.objects.create(
+            order_number='REQ-RETRY-SUCCESS',
+            filename='JBL_Requisition_Form_REQ-RETRY-SUCCESS_v1.xlsx',
+            file_content=b'previous-xlsx',
+            drive_upload_error='Drive upload failed; retry required.',
+            drive_sync_attempts=1,
+            farmer_ids=[str(self.farmer.id)],
+            farmer_count=1,
+        )
+        mock_storage.return_value.upload.return_value = (
+            'retry-drive-id', 'https://drive.test/retried-order',
+        )
+
+        response = self.client.post(
+            reverse('portal_requisition_batch_retry_sync', args=[batch.order_number]),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        batch.refresh_from_db()
+        self.assertEqual(batch.drive_file_id, 'retry-drive-id')
+        self.assertEqual(batch.drive_url, 'https://drive.test/retried-order')
+        self.assertEqual(batch.drive_upload_error, '')
+        self.assertEqual(batch.drive_sync_attempts, 2)
+        self.assertIn('_retry2.xlsx', batch.filename)
 
     def test_portal_requisition_batch_detail_and_download(self):
         self.farmer.order_number = 'REQ-DETAIL-1'

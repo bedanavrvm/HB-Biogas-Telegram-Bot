@@ -231,6 +231,9 @@ def log_jbl_visit(
     from core.services.jawabu_case360 import event_request_already_processed
     if event_request_already_processed(farmer, request_id):
         return True, ''
+    # Serialize concurrent assignments for the selected farmer and any rows
+    # already carrying this order number before evaluating the batch invariant.
+    JawabuFarmerMaster.objects.select_for_update().filter(pk=farmer.pk).exists()
     # Validate status value
     valid_statuses = {choice[0] for choice in JawabuFarmerMaster.JBL_VISIT_STATUS_CHOICES}
     if visit_status and visit_status not in valid_statuses:
@@ -649,7 +652,31 @@ def assign_order(
     if not order_number:
         return False, 'Order number is required.'
 
-    from core.services.jawabu_validation import parse_repayment_day, parse_tenor_months
+    from core.services.jawabu_validation import parse_business_date, parse_repayment_day, parse_tenor_months
+    requested_requisition_date = requisition_date
+    if requested_requisition_date is None:
+        requested_requisition_date = timezone.localdate()
+    elif not isinstance(requested_requisition_date, date):
+        requested_requisition_date = parse_business_date(requested_requisition_date)
+    if requested_requisition_date is None:
+        return False, 'A valid requisition date is required.'
+
+    # An order number identifies one operational batch. Enforce this at the
+    # service boundary as well as in the portal preview so imports, scripts, and
+    # retries cannot silently split one order across different dates.
+    existing_dates = set(
+        JawabuFarmerMaster.objects.select_for_update().filter(order_number=order_number)
+        .exclude(pk=farmer.pk)
+        .exclude(requisition_date__isnull=True)
+        .values_list('requisition_date', flat=True)
+    )
+    if existing_dates and requested_requisition_date not in existing_dates:
+        labels = ', '.join(sorted(value.strftime('%d-%B-%Y') for value in existing_dates))
+        return False, (
+            f'Order number {order_number} already has requisition date {labels}. '
+            'Use the same date for this order or choose a new order number.'
+        )
+
     repayment_day = parse_repayment_day(repayment_date) if repayment_date is not None else farmer.repayment_day
     tenor_months = parse_tenor_months(repayment_tenor) if repayment_tenor is not None else farmer.repayment_tenor_months
     if repayment_date and repayment_day is None:
@@ -658,7 +685,7 @@ def assign_order(
         return False, 'Repayment tenor must be 1 to 120 months.'
 
     farmer.order_number = order_number
-    farmer.requisition_date = requisition_date or timezone.localdate()
+    farmer.requisition_date = requested_requisition_date
     update_fields = ['order_number', 'requisition_date', 'updated_at']
     if repayment_date is not None:
         farmer.repayment_date = str(repayment_date or '').strip()

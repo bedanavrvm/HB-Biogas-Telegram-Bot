@@ -616,7 +616,11 @@ def create_payment_document(
             'row_count': summary.get('ready_count', 0),
             'farmer_ids': [item['farmer_id'] for item in readiness_snapshot['ready']],
             'invoice_batch_ids': summary.get('invoice_batch_ids', []),
-            'validation_summary': {**summary, 'preview_rows': printable_rows},
+            'validation_summary': {
+                **summary,
+                'preview_rows': printable_rows,
+                'artifact_status': artifact_status,
+            },
             'drive_file_id': '',
             'drive_url': '',
             'error': '',
@@ -624,13 +628,15 @@ def create_payment_document(
         # A failed upload remains visible as a retryable artifact instead of
         # leaving the workflow with no audit record.
         doc = PaymentDocument.objects.create(status=artifact_status, **document_values)
+    from core.services.document_sync import mark_drive_attempt, mark_drive_failure, mark_drive_success
+    mark_drive_attempt(doc)
     try:
         drive_file_id, drive_url = _upload_payment_workbook(xlsx, filename, actor, order_number)
     except Exception:
         logger.exception('Payment workbook upload failed: order=%s payment=%s', order_number, payment_number)
+        mark_drive_failure(doc, 'Drive upload failed; retry required.', error_field='error')
         doc.status = 'failed'
-        doc.error = 'Drive upload failed; retry required.'
-        doc.save(update_fields=['status', 'error', 'updated_at'])
+        doc.save(update_fields=['status', 'updated_at'])
         raise
 
     try:
@@ -638,12 +644,10 @@ def create_payment_document(
         from core.services.jawabu_case360 import record_pipeline_event
         with transaction.atomic():
             doc.status = artifact_status
-            doc.drive_file_id = drive_file_id
-            doc.drive_url = drive_url
-            doc.error = ''
-            doc.save(update_fields=[
-                'status', 'drive_file_id', 'drive_url', 'error', 'updated_at',
-            ])
+            mark_drive_success(
+                doc, file_id=drive_file_id, url=drive_url, error_field='error',
+                update_fields=['status'],
+            )
             if artifact_status == 'pending_review':
                 for farmer in JawabuFarmerMaster.objects.filter(id__in=doc.farmer_ids):
                     record_pipeline_event(
@@ -750,6 +754,7 @@ def approve_payment_document(
             invoice_batch_ids=readiness.get('invoice_batch_ids', []),
             validation_summary={
                 **{key: value for key, value in readiness.items() if key not in {'ready', 'blocked'}},
+                'artifact_status': 'final',
                 'preview_rows': json.loads(json.dumps(
                     [item['row'] for item in readiness['ready']], cls=DjangoJSONEncoder,
                 )),
@@ -759,6 +764,8 @@ def approve_payment_document(
 
     # Generate/upload outside the transaction.  The final row remains visible
     # as failed if Drive is unavailable, making reconciliation explicit.
+    from core.services.document_sync import mark_drive_attempt, mark_drive_failure, mark_drive_success
+    mark_drive_attempt(final)
     try:
         xlsx, _summary = generate_payment_workbook(
             review.order_number,
@@ -775,25 +782,26 @@ def approve_payment_document(
             'Payment approval upload failed: document=%s order=%s payment=%s',
             review.id, review.order_number, review.payment_number,
         )
+        mark_drive_failure(final, 'Drive upload failed; retry required.', error_field='error')
         final.status = 'failed'
-        final.error = 'Drive upload failed; retry required.'
-        final.save(update_fields=['status', 'error', 'updated_at'])
+        final.save(update_fields=['status', 'updated_at'])
         raise
 
     try:
         from core.services.jawabu_case360 import record_pipeline_event
         with transaction.atomic():
             final.status = 'final'
-            final.drive_file_id = drive_file_id
-            final.drive_url = drive_url
-            final.error = ''
+            mark_drive_success(
+                final, file_id=drive_file_id, url=drive_url, error_field='error',
+                update_fields=['status', 'finalized_by', 'finalized_at', 'reviewed_by', 'reviewed_at'],
+            )
             final.finalized_by = actor
             final.finalized_at = timezone.now()
             final.reviewed_by = actor
             final.reviewed_at = timezone.now()
             final.save(update_fields=[
-                'status', 'drive_file_id', 'drive_url', 'error', 'finalized_by',
-                'finalized_at', 'reviewed_by', 'reviewed_at', 'updated_at',
+                'status', 'drive_file_id', 'drive_url', 'error', 'drive_next_retry_at',
+                'finalized_by', 'finalized_at', 'reviewed_by', 'reviewed_at', 'updated_at',
             ])
             review.status = 'reviewed'
             review.reviewed_by = actor
@@ -860,6 +868,8 @@ def serialize_payment_document(doc: PaymentDocument) -> dict[str, Any]:
         'drive_url': doc.drive_url,
         'sync_status': sync_status,
         'sync_error': sync_error,
+        'sync_attempts': int(getattr(doc, 'drive_sync_attempts', 0) or 0),
+        'next_retry_at': doc.drive_next_retry_at.isoformat() if getattr(doc, 'drive_next_retry_at', None) else None,
         'reviewed_by': doc.reviewed_by,
         'reviewed_at': doc.reviewed_at.isoformat() if doc.reviewed_at else None,
         'call_up_comments': doc.call_up_comments,

@@ -35,6 +35,14 @@ def signed_init_data(telegram_id='12345', token='test-token', username='unified_
 @override_settings(SECURE_SSL_REDIRECT=False)
 class CanonicalStaffAdminTests(TestCase):
 
+    def test_portal_action_policy_is_centralized_and_fails_closed(self):
+        from core.services.portal_permissions import PORTAL_ACTION_ROLES, portal_action_roles
+
+        self.assertIn('read', PORTAL_ACTION_ROLES)
+        self.assertIn('payment.review', PORTAL_ACTION_ROLES)
+        self.assertIn('ADMIN', portal_action_roles('payment.review'))
+        self.assertEqual(portal_action_roles('unrecognised.action'), frozenset())
+
     def test_user_admin_is_the_only_staff_management_surface(self):
         from core.admin import UserProfileAdminForm
 

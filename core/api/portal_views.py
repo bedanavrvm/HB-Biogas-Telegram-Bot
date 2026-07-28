@@ -237,14 +237,18 @@ def _portal_read_access_error(request, farmer=None):
     return _portal_role_error(request, PORTAL_VIEW_ROLES, farmer)
 
 
-def _portal_role_error(request, allowed_roles: set[str], farmer=None):
+def _portal_role_error(request, allowed_roles: set[str] | str, farmer=None):
     access = getattr(request, 'portal_access', None)
     if access is None:  # Authentication is intentionally disabled in local/test environments.
         return None
+    if isinstance(allowed_roles, str):
+        from core.services.portal_permissions import portal_action_roles
+        allowed_roles = set(portal_action_roles(allowed_roles))
     roles = {str(value).strip().lower() for value in access.get('roles', [])}
     if 'hb_staff' in roles:
         roles.add('operations')
-    if 'admin' not in roles and roles.isdisjoint(allowed_roles):
+    normalized_allowed = {str(value).strip().lower() for value in allowed_roles}
+    if 'admin' not in roles and roles.isdisjoint(normalized_allowed):
         return JsonResponse({'ok': False, 'error': 'You are not authorized for this Jawabu workflow action.'}, status=403)
     branches = {str(value).strip().casefold() for value in access.get('branches', []) if str(value).strip()}
     if farmer is not None and branches and str(farmer.branch or '').strip().casefold() not in branches:
@@ -681,6 +685,8 @@ def _serialize_batch(batch, farmers, request, include_farmers: bool = True) -> d
             getattr(batch, 'drive_url', '') or '',
             getattr(batch, 'drive_upload_error', '') or '',
         ),
+        'drive_sync_attempts': getattr(batch, 'drive_sync_attempts', 0) or 0,
+        'drive_next_retry_at': batch.drive_next_retry_at.isoformat() if getattr(batch, 'drive_next_retry_at', None) else None,
         'preview_filename': getattr(batch, 'preview_filename', '') or '',
         'preview_drive_url': getattr(batch, 'preview_drive_url', '') or '',
         'preview_drive_file_id': getattr(batch, 'preview_drive_file_id', '') or '',
@@ -691,6 +697,8 @@ def _serialize_batch(batch, farmers, request, include_farmers: bool = True) -> d
             getattr(batch, 'preview_drive_url', '') or '',
             getattr(batch, 'preview_error', '') or '',
         ),
+        'preview_drive_sync_attempts': getattr(batch, 'preview_drive_sync_attempts', 0) or 0,
+        'preview_drive_next_retry_at': batch.preview_drive_next_retry_at.isoformat() if getattr(batch, 'preview_drive_next_retry_at', None) else None,
         # The master records are canonical. Recalculate this instead of
         # trusting a stale snapshot count from an older append-only update.
         'farmer_count': len(farmers),
@@ -1086,29 +1094,28 @@ def portal_health(request):
     Google identifiers. It gives staff a useful explanation before they retry
     a workbook or invoice operation from a mobile WebView.
     """
-    role_error = _portal_role_error(request, {'operations', 'head_rural'})
+    role_error = _portal_role_error(request, 'health.read')
     if role_error:
         return role_error
-    from core.models import PaymentDocument, PaymentDocumentTemplate, RequisitionBatch, RequisitionTemplate
+    from core.services.portal_health import portal_sync_health
 
-    requisition_template_ready = RequisitionTemplate.objects.filter(is_active=True).exists()
-    payment_template_ready = PaymentDocumentTemplate.objects.filter(is_active=True).exists()
-    failed_orders = RequisitionBatch.objects.filter(drive_upload_error__gt='').count()
-    failed_payments = PaymentDocument.objects.filter(error__gt='').count()
+    health = portal_sync_health()
     checks = {
         'database': 'ok',
-        'requisition_template': 'ok' if requisition_template_ready else 'missing',
-        'payment_template': 'ok' if payment_template_ready else 'missing',
-        'order_storage': 'degraded' if failed_orders else 'ok',
-        'payment_storage': 'degraded' if failed_payments else 'ok',
+        'requisition_template': 'ok' if health['requisition_template_ready'] else 'missing',
+        'payment_template': 'ok' if health['payment_template_ready'] else 'missing',
+        'order_storage': 'degraded' if health['failed_order_syncs'] else 'ok',
+        'payment_storage': 'degraded' if health['failed_payment_syncs'] else 'ok',
     }
     degraded = any(value != 'ok' for value in checks.values())
     return JsonResponse({
         'ok': True,
         'status': 'degraded' if degraded else 'healthy',
         'checks': checks,
-        'failed_order_syncs': failed_orders,
-        'failed_payment_syncs': failed_payments,
+        'failed_order_syncs': health['failed_order_syncs'],
+        'failed_payment_syncs': health['failed_payment_syncs'],
+        'due_order_retries': health['due_order_retries'],
+        'due_payment_retries': health['due_payment_retries'],
     })
 
 
@@ -1128,7 +1135,7 @@ def portal_log_jbl_visit(request, farmer_id: str):
     except JawabuFarmerMaster.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
 
-    role_error = _portal_role_error(request, {'jbl_officer'}, farmer)
+    role_error = _portal_role_error(request, 'jbl_visit.write', farmer)
     if role_error:
         return role_error
 
@@ -1202,7 +1209,7 @@ def portal_upload_jbl_media(request, farmer_id: str):
     except JawabuFarmerMaster.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
 
-    role_error = _portal_role_error(request, {'jbl_officer'}, farmer)
+    role_error = _portal_role_error(request, 'jbl_visit.write', farmer)
     if role_error:
         return role_error
 
@@ -1319,7 +1326,7 @@ def portal_set_credit_decision(request, farmer_id: str):
     except JawabuFarmerMaster.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
 
-    role_error = _portal_role_error(request, {'credit_analyst'}, farmer)
+    role_error = _portal_role_error(request, 'credit.write', farmer)
     if role_error:
         return role_error
 
@@ -1401,7 +1408,7 @@ def portal_set_final_decision(request, farmer_id: str):
     except JawabuFarmerMaster.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
 
-    role_error = _portal_role_error(request, {'head_rural'}, farmer)
+    role_error = _portal_role_error(request, 'final_review.write', farmer)
     if role_error:
         return role_error
 
@@ -1469,7 +1476,7 @@ def portal_assign_order(request, farmer_id: str):
     except JawabuFarmerMaster.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
 
-    role_error = _portal_role_error(request, {'operations'}, farmer)
+    role_error = _portal_role_error(request, 'requisition.write', farmer)
     if role_error:
         return role_error
 
@@ -1729,24 +1736,25 @@ def portal_requisition_workbook_preview(request):
         summary = _invoice_summary_for_batch(farmers, batch.invoice_summary)
         batch.invoice_summary = summary
         batch.save()
+    from core.services.document_sync import mark_drive_attempt, mark_drive_failure, mark_drive_success
+    mark_drive_attempt(batch, prefix='preview_drive')
     try:
         drive_file_id, drive_url = _upload_generated_workbook_to_drive(xlsx_bytes, filename, order_number)
-        preview_error = ''
     except Exception as exc:
         logger.exception('Requisition preview workbook was not stored in Google Drive.')
-        batch.preview_error = 'Drive upload failed; retry required.'
-        batch.save(update_fields=['preview_error', 'updated_at'])
+        mark_drive_failure(
+            batch, 'Drive upload failed; retry required.',
+            prefix='preview_drive', error_field='preview_error',
+        )
         return JsonResponse({
             'ok': False,
             'error': 'Requisition preview could not be stored. Check synchronization status and retry.',
         }, status=502)
 
-    batch.preview_drive_file_id = drive_file_id
-    batch.preview_drive_url = drive_url
-    batch.preview_error = preview_error
-    batch.save(update_fields=[
-        'preview_drive_file_id', 'preview_drive_url', 'preview_error', 'updated_at',
-    ])
+    mark_drive_success(
+        batch, file_id=drive_file_id, url=drive_url,
+        prefix='preview_drive', error_field='preview_error',
+    )
 
     return JsonResponse({
         'ok': True,
@@ -1828,26 +1836,25 @@ def portal_requisition_generate(request):
         summary = _invoice_summary_for_batch(farmers, batch.invoice_summary)
         batch.invoice_summary = summary
         batch.save()
+    from core.services.document_sync import mark_drive_attempt, mark_drive_failure, mark_drive_success
+    mark_drive_attempt(batch)
     try:
         drive_file_id, drive_url = _upload_generated_workbook_to_drive(xlsx_bytes, filename, order_number)
-        drive_upload_error = ''
     except Exception as exc:
         logger.exception('Generated requisition workbook was not stored in Google Drive.')
-        batch.drive_upload_error = 'Drive upload failed; retry required.'
+        mark_drive_failure(batch, 'Drive upload failed; retry required.', error_field='drive_upload_error')
         batch.status = 'needs_review'
-        batch.save(update_fields=['drive_upload_error', 'status', 'updated_at'])
+        batch.save(update_fields=['status', 'updated_at'])
         return JsonResponse({
             'ok': False,
             'error': 'Generated requisition workbook could not be stored. Check synchronization status and retry.',
         }, status=502)
 
-    batch.drive_file_id = drive_file_id
-    batch.drive_url = drive_url
-    batch.drive_upload_error = drive_upload_error
+    mark_drive_success(
+        batch, file_id=drive_file_id, url=drive_url, error_field='drive_upload_error',
+    )
     batch.status = summary.get('status') or 'generated'
-    batch.save(update_fields=[
-        'drive_file_id', 'drive_url', 'drive_upload_error', 'status', 'updated_at',
-    ])
+    batch.save(update_fields=['status', 'updated_at'])
 
     if body.get('return_url'):
         return JsonResponse({
@@ -1985,10 +1992,37 @@ def portal_requisition_batch_download(request, order_number: str):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+def portal_requisition_batch_retry_sync(request, order_number: str):
+    """Retry Drive storage for the latest saved requisition workbook."""
+    from core.models import RequisitionBatch
+    from core.services.document_sync import retry_requisition_batch_upload
+
+    batch = RequisitionBatch.objects.filter(order_number=order_number).first()
+    if not batch:
+        return JsonResponse({'ok': False, 'error': 'Requisition batch not found.'}, status=404)
+    role_error = _portal_role_error(request, 'requisition.write')
+    if role_error:
+        return role_error
+    scope_error = _portal_order_scope_error(request, order_number)
+    if scope_error:
+        return scope_error
+    result = retry_requisition_batch_upload(batch, actor=_portal_sender_from_request(request))
+    if not result.get('ok'):
+        return JsonResponse({
+            'ok': False,
+            'error': 'Requisition workbook synchronization failed. Retry again after checking the storage status.',
+            'retry_at': result.get('retry_at').isoformat() if result.get('retry_at') else None,
+        }, status=502)
+    farmers = _farmers_for_batch(order_number, batch.farmer_ids or None)
+    return JsonResponse({'ok': True, 'batch': _serialize_batch(batch, farmers, request), 'retried': True})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
 def portal_upload_batch_invoices(request):
     """POST /api/portal/requisition-batches/upload-invoices/ — upload a combined PDF of invoices for a batch/order."""
     order_number = request.POST.get('order_number') or request.GET.get('order_number')
-    role_error = _portal_role_error(request, {'operations', 'credit_analyst'})
+    role_error = _portal_role_error(request, 'invoice.write')
     if role_error:
         return role_error
     if order_number:
@@ -2086,7 +2120,7 @@ def portal_upload_batch_invoices(request):
 @require_http_methods(["POST"])
 def portal_invoice_pool_upload(request):
     """Upload one or more HB invoice PDFs into the general unmatched invoice pool."""
-    role_error = _portal_role_error(request, {'operations', 'credit_analyst'})
+    role_error = _portal_role_error(request, 'invoice.write')
     if role_error:
         return role_error
     getlist = getattr(request.FILES, 'getlist', None)
@@ -2185,6 +2219,8 @@ def _serialize_invoice_batch(batch) -> dict:
         'drive_url': batch.drive_url,
         'sync_status': sync_state,
         'sync_error': sync_error,
+        'sync_attempts': getattr(batch, 'sync_attempts', 0) or 0,
+        'next_retry_at': batch.next_retry_at.isoformat() if getattr(batch, 'next_retry_at', None) else None,
         'status': batch.status,
         'total_pages': batch.total_pages,
         'total_parsed': batch.total_parsed,
@@ -2258,7 +2294,7 @@ def portal_invoice_draft_edit(request, invoice_id: str):
     try:
         payload = json.loads(request.body or b'{}')
         invoice = ParsedInvoice.objects.select_related('batch').get(pk=invoice_id)
-        role_error = _portal_role_error(request, {'operations', 'credit_analyst'}, invoice.matched_farmer)
+        role_error = _portal_role_error(request, 'invoice.write', invoice.matched_farmer)
         if role_error:
             return role_error
         invoice = edit_draft_invoice(invoice, payload, actor=_portal_sender_from_request(request))
@@ -2277,7 +2313,7 @@ def portal_invoice_batch_confirm(request, batch_id: str):
 
     try:
         batch = InvoiceUploadBatch.objects.get(pk=batch_id)
-        role_error = _portal_role_error(request, {'operations', 'credit_analyst'})
+        role_error = _portal_role_error(request, 'invoice.write')
         if role_error:
             return role_error
         if batch.order_number:
@@ -2666,7 +2702,7 @@ def portal_invoice_match(request, invoice_id: str):
         return JsonResponse({'ok': False, 'error': 'Invoice not found.'}, status=404)
     except JawabuFarmerMaster.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
-    role_error = _portal_role_error(request, {'viewer', 'jbl_officer', 'credit_analyst', 'head_rural', 'operations'}, farmer)
+    role_error = _portal_role_error(request, 'invoice.write', farmer)
     if role_error:
         return role_error
 
@@ -2695,7 +2731,7 @@ def portal_invoice_unmatch(request, invoice_id: str):
     except ParsedInvoice.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Invoice not found.'}, status=404)
 
-    role_error = _portal_read_access_error(request, invoice.matched_farmer)
+    role_error = _portal_role_error(request, 'invoice.write', invoice.matched_farmer)
     if role_error:
         return role_error
 
@@ -2724,7 +2760,7 @@ def portal_invoice_ignore(request, invoice_id: str):
     except ParsedInvoice.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Invoice not found.'}, status=404)
 
-    role_error = _portal_read_access_error(request, invoice.matched_farmer)
+    role_error = _portal_role_error(request, 'invoice.write', invoice.matched_farmer)
     if role_error:
         return role_error
 
@@ -2745,7 +2781,7 @@ def portal_invoice_restore(request, invoice_id: str):
     except ParsedInvoice.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Invoice not found.'}, status=404)
 
-    role_error = _portal_read_access_error(request, invoice.matched_farmer)
+    role_error = _portal_role_error(request, 'invoice.write', invoice.matched_farmer)
     if role_error:
         return role_error
 
@@ -2771,11 +2807,11 @@ def portal_invoice_bulk_action(request):
 
     actor = _portal_sender_from_request(request)
     invoices = list(ParsedInvoice.objects.filter(pk__in=invoice_ids).select_related('batch', 'matched_farmer'))
-    role_error = _portal_read_access_error(request)
+    role_error = _portal_role_error(request, 'invoice.write')
     if role_error:
         return role_error
     for invoice in invoices:
-        role_error = _portal_read_access_error(request, invoice.matched_farmer)
+        role_error = _portal_role_error(request, 'invoice.write', invoice.matched_farmer)
         if role_error:
             return role_error
     changed = []
@@ -3011,6 +3047,7 @@ def portal_payment_document_preview(request, order_number: str):
     """Create a Drive-backed payment workbook preview."""
     from core.services.payment_documents import (
         PaymentTemplateError,
+        approve_payment_document,
         create_payment_document,
         payment_readiness,
         serialize_payment_document,
@@ -3113,11 +3150,11 @@ def portal_payment_document_approve(request, document_id: str):
     farmers = list(JawabuFarmerMaster.objects.filter(id__in=document.farmer_ids or []))
     if len(farmers) != len(set(document.farmer_ids or [])):
         return JsonResponse({'ok': False, 'error': 'The payment review references a missing case.'}, status=409)
-    role_error = _portal_role_error(request, {'head_rural'})
+    role_error = _portal_role_error(request, 'payment.review')
     if role_error:
         return role_error
     for farmer in farmers:
-        role_error = _portal_role_error(request, {'head_rural'}, farmer)
+        role_error = _portal_role_error(request, 'payment.review', farmer)
         if role_error:
             return role_error
 
@@ -3172,7 +3209,7 @@ def portal_payment_document_regenerate(request, document_id: str):
     try:
         source = PaymentDocument.objects.get(
             pk=document_id,
-            status__in=['pending_review', 'final'],
+            status__in=['pending_review', 'final', 'failed'],
         )
     except PaymentDocument.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Payment document was not found or cannot be regenerated.'}, status=404)
@@ -3223,13 +3260,47 @@ def portal_payment_document_regenerate(request, document_id: str):
             'idempotent_replay': True,
         })
 
+    source_summary = source.validation_summary or {}
+    source_artifact_status = str(source_summary.get('artifact_status') or '').strip()
+    if source.status == 'failed' and source_artifact_status == 'final':
+        review_id = str(source_summary.get('review_document_id') or '').strip()
+        if not review_id:
+            return JsonResponse({
+                'ok': False,
+                'error': 'This failed final has no linked payment review. Recreate the payment review before retrying.',
+            }, status=409)
+        role_error = _portal_role_error(request, 'payment.review')
+        if role_error:
+            return role_error
+        try:
+            final_document = approve_payment_document(
+                review_id,
+                actor=_portal_sender_from_request(request),
+                call_up_comments=source.call_up_comments,
+                case_call_up_comments=source.case_call_up_comments or {},
+            )
+        except PaymentTemplateError as exc:
+            return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        except Exception:
+            logger.exception('Failed payment final retry failed for %s', document_id)
+            return JsonResponse({
+                'ok': False,
+                'error': 'Payment final retry failed. Check synchronization status and retry.',
+            }, status=502)
+        return JsonResponse({
+            'ok': True,
+            'document': serialize_payment_document(final_document),
+            'retried_from_document_id': str(source.id),
+            'idempotent_replay': False,
+        })
+
     try:
         regenerated = create_payment_document(
             source.order_number,
             payment_number=source.payment_number,
             actor=_portal_sender_from_request(request),
             final=False,
-            status='pending_review',
+            status=source_artifact_status if source.status == 'failed' and source_artifact_status in {'preview', 'pending_review'} else 'pending_review',
             farmer_ids=farmer_ids or None,
             call_up_comments=source.call_up_comments,
             case_call_up_comments=source.case_call_up_comments or {},
@@ -3273,7 +3344,7 @@ def portal_document_history(request):
         # history and review work are one payment register, but their status
         # remains explicit so a draft can never be mistaken for a final.
         documents = PaymentDocument.objects.filter(
-            status__in=['pending_review', 'final'],
+            status__in=['pending_review', 'final', 'failed'],
         ).order_by('-created_at')[:100]
         return JsonResponse({'ok': True, 'kind': kind, 'documents': [
             {
@@ -3295,6 +3366,8 @@ def portal_document_history(request):
                     'retryable_failure' if doc.error else 'succeeded' if doc.drive_url else 'pending'
                 ),
                 'sync_error': doc.error or '',
+                'sync_attempts': getattr(doc, 'drive_sync_attempts', 0) or 0,
+                'next_retry_at': doc.drive_next_retry_at.isoformat() if getattr(doc, 'drive_next_retry_at', None) else None,
                 'farmer_ids': [str(value) for value in (doc.farmer_ids or [])],
             }
             for doc in documents
@@ -3332,7 +3405,7 @@ def portal_payment_document_detail(request, document_id: str):
     doc = get_object_or_404(
         PaymentDocument,
         pk=document_id,
-        status__in=['pending_review', 'final'],
+        status__in=['pending_review', 'final', 'failed'],
     )
     if not _portal_saved_document_in_scope(request, doc.order_number, doc.farmer_ids):
         return JsonResponse({'ok': False, 'error': 'You do not have access to this payment document.'}, status=403)

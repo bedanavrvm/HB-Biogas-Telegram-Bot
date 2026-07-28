@@ -561,6 +561,7 @@
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               <button class="btn btn-secondary btn-view-batch" data-order="${escapeHtml(b.order_number)}">View</button>
               <button class="btn btn-primary btn-download-batch" data-url="${escapeHtml(b.drive_url || b.download_url || '')}" ${(b.drive_url || b.download_url) ? '' : 'disabled'}>Open Saved Excel</button>
+              ${b.drive_sync_status === 'retryable_failure' ? `<button class="btn btn-secondary btn-retry-batch" data-order="${escapeHtml(b.order_number)}">Retry storage</button>` : ''}
               <button class="btn btn-secondary btn-upload-invoices" data-order="${escapeHtml(b.order_number)}">Upload Invoices</button>
             </div>
           </div>
@@ -600,6 +601,27 @@
         e.preventDefault();
         e.stopPropagation();
         openInvoiceOverlay(btn.dataset.order);
+      });
+    });
+
+    listEl.querySelectorAll('.btn-retry-batch').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        btn.disabled = true;
+        btn.textContent = 'Retrying…';
+        const result = await portalApi.postJson(
+          `/requisition-batches/${encodeURIComponent(btn.dataset.order)}/retry-sync/`,
+          {}, tg,
+        );
+        if (!result.ok) {
+          showToast(result.data?.error || 'Storage retry failed.', 'error');
+          btn.disabled = false;
+          btn.textContent = 'Retry storage';
+          return;
+        }
+        showToast('Requisition workbook stored successfully.', 'success');
+        await loadQueue('batches', state.pages.batches || 1);
       });
     });
 
@@ -858,7 +880,7 @@
     }
     target.innerHTML = documents.map(doc => {
       const previousVersions = kind === 'payments' && doc.previous_versions?.length
-        ? `<details class="history-previous-versions"><summary>${doc.previous_versions.length} previous version${doc.previous_versions.length === 1 ? '' : 's'} retained</summary><div>${doc.previous_versions.map(previous => `<div class="history-previous-version"><span>v${escapeHtml(previous.version || 0)} - ${escapeHtml(previous.status === 'final' ? 'Final' : previous.status === 'pending_review' ? 'Awaiting Head of Rural review' : 'Saved')}</span><button type="button" class="btn btn-secondary history-view-document" data-kind="payments" data-id="${escapeHtml(previous.id)}">View</button></div>`).join('')}</div></details>`
+        ? `<details class="history-previous-versions"><summary>${doc.previous_versions.length} previous version${doc.previous_versions.length === 1 ? '' : 's'} retained</summary><div>${doc.previous_versions.map(previous => `<div class="history-previous-version"><span>v${escapeHtml(previous.version || 0)} - ${escapeHtml(previous.status === 'final' ? 'Final' : previous.status === 'pending_review' ? 'Awaiting Head of Rural review' : previous.status === 'failed' ? 'Storage failed' : 'Saved')}</span><button type="button" class="btn btn-secondary history-view-document" data-kind="payments" data-id="${escapeHtml(previous.id)}">View</button></div>`).join('')}</div></details>`
         : '';
       const syncBadge = doc.sync_status === 'retryable_failure'
         ? `<span class="badge badge-red" title="${escapeHtml(doc.sync_error || 'External storage failed')}">Storage retry needed</span>`
@@ -872,12 +894,12 @@
         <div class="fc-sub">${kind === 'payments' ? `Order ${escapeHtml(doc.order_number || '-')} | ` : ''}${escapeHtml(doc.row_count || 0)} client(s) | Version ${escapeHtml(doc.version || 0)}</div>
         <div class="fc-sub">Workbook generated: ${escapeHtml(fmtDateTime(doc.workbook_generated_at || doc.generated_at))}${doc.generated_by ? ` | ${escapeHtml(doc.generated_by)}` : ''}</div>
         ${syncBadge}
-        ${kind === 'payments' ? `<span class="badge ${doc.status === 'final' ? 'badge-green' : 'badge-orange'}">${doc.status === 'final' ? 'Final' : 'Awaiting Head of Rural review'}</span>` : ''}
+        ${kind === 'payments' ? `<span class="badge ${doc.status === 'final' ? 'badge-green' : doc.status === 'failed' ? 'badge-red' : 'badge-orange'}">${doc.status === 'final' ? 'Final' : doc.status === 'failed' ? 'Storage retry needed' : 'Awaiting Head of Rural review'}</span>` : ''}
         <div class="history-document-actions">
           <button type="button" class="btn btn-secondary history-view-document" data-kind="${kind}" data-id="${escapeHtml(doc.id)}" data-order="${escapeHtml(doc.order_number || '')}">${kind === 'payments' && doc.status !== 'final' ? 'Review payment' : 'View preview'}</button>
           ${doc.drive_url || doc.download_url ? `<button type="button" class="btn btn-primary history-open-excel" data-url="${escapeHtml(doc.drive_url || doc.download_url)}">Open Excel</button>` : ''}
           ${kind === 'payments'
-            ? (doc.status === 'final' ? `<button type="button" class="btn btn-secondary history-regenerate-payment" data-id="${escapeHtml(doc.id)}">Regenerate payment doc</button>` : '')
+            ? (doc.status === 'final' || doc.status === 'failed' ? `<button type="button" class="btn btn-secondary history-regenerate-payment" data-id="${escapeHtml(doc.id)}">${doc.status === 'failed' ? 'Retry payment doc' : 'Regenerate payment doc'}</button>` : '')
             : `<button type="button" class="btn btn-secondary history-regenerate-order" data-order="${escapeHtml(doc.order_number || '')}" data-requisition-date="${escapeHtml(doc.requisition_date || '')}" data-farmer-ids="${escapeHtml((doc.farmer_ids || []).join(','))}">Regenerate requisition/order</button>`}
         </div>
         ${previousVersions}
