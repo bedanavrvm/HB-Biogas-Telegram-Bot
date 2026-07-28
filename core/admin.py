@@ -1,3 +1,5 @@
+import json
+import logging
 import re
 import uuid
 
@@ -29,6 +31,7 @@ from core.services.workflow_presets import (
 from core.services.branches import global_branch_choices, workflow_branches as configured_workflow_branches
 from core.services.tat_tracker import (
     PRODUCTS,
+    cleanup_tat_sheet_duplicate_case_ids,
     configured_products,
     is_tat_tracker_workflow,
     resync_tat_tracker_cases,
@@ -68,6 +71,8 @@ from .models import (
     UserProfile,
     AccessGrant,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @admin.register(OperationalLocation)
@@ -1013,14 +1018,14 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
     list_display = [
         'display_label', 'group_id', 'enabled', 'sheet_name',
         'sheet_link', 'live_records_link', 'data_records_link',
-        'media_records_link', 'tat_repair_link', 'updated_at',
+        'media_records_link', 'tat_repair_link', 'tat_duplicate_link', 'updated_at',
     ]
     list_filter = ['enabled', 'sheet_name', 'updated_at']
     search_fields = ['group_id', 'display_name', 'sheet_id', 'sheet_name']
     readonly_fields = [
         'created_at', 'updated_at', 'sheet_link', 'sheet_analyzer_link',
         'live_records_link', 'data_records_link', 'media_records_link',
-        'reset_group_data_link', 'tat_repair_link',
+        'reset_group_data_link', 'tat_repair_link', 'tat_duplicate_link',
     ]
     fieldsets = (
         ('Group Routing', {
@@ -1028,7 +1033,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 'enabled', 'group_id', 'display_name', 'sheet_id',
                 'sheet_name', 'sheet_link', 'live_records_link', 'data_records_link',
                 'media_records_link', 'sheet_analyzer_link', 'reset_group_data_link',
-                'tat_repair_link',
+                'tat_repair_link', 'tat_duplicate_link',
             ),
             'description': (
                 'Map one Telegram group to one Google Sheet tab. '
@@ -1168,15 +1173,21 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
             offset = max(0, int(request.POST.get('offset') if request.method == 'POST' else request.GET.get('offset') or 0))
         except (TypeError, ValueError):
             offset = 0
+        include_unlinked = (
+            request.POST.get('include_unlinked') == '1'
+            if request.method == 'POST'
+            else request.GET.get('include_unlinked') == '1'
+        )
 
         context = {
             **self.admin_site.each_context(request),
-            'title': 'Repair TAT event Sheet status',
+            'title': 'Reconcile TAT cases with the Sheet',
             'opts': self.model._meta,
             'config': config,
             'product_options': product_options,
             'selected_product': selected_product,
             'offset': offset,
+            'include_unlinked': include_unlinked,
             'batch_limit': 25,
             'change_url': reverse('admin:core_groupsheetconfiguration_change', args=[config.pk]),
             'status_url_template': reverse('admin:core_groupsheetconfiguration_tat_repair_status', args=[config.pk, '00000000-0000-0000-0000-000000000000']),
@@ -1189,6 +1200,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 'config_id': str(config.pk),
                 'product': selected_product,
                 'offset': offset,
+                'include_unlinked': include_unlinked,
             }
             if request.session.get('tat_repair_preview') != preview_key:
                 context['confirmation_error'] = 'Preview this exact batch before running its repair.'
@@ -1198,9 +1210,10 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 config,
                 product_key=selected_product,
                 requested_by=request.user.get_username(),
+                include_unlinked=include_unlinked,
             )
             start_repair_job(job.id)
-            self.message_user(request, 'TAT repair started in the background. Progress is checkpointed after every case.', level=messages.SUCCESS)
+            self.message_user(request, 'TAT case reconciliation started in the background. Progress is checkpointed after every case.', level=messages.SUCCESS)
             return HttpResponseRedirect(f'{request.path}?job={job.id}')
         else:
             job_id = str(request.GET.get('job') or '').strip()
@@ -1222,13 +1235,187 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                     limit=25,
                     offset=offset,
                     product_key=selected_product,
+                    include_unlinked=include_unlinked,
                 )
                 request.session['tat_repair_preview'] = {
                     'config_id': str(config.pk),
                     'product': selected_product,
                     'offset': offset,
+                    'include_unlinked': include_unlinked,
                 }
         return TemplateResponse(request, 'admin/core/groupsheetconfiguration/tat_repair.html', context)
+
+    @staticmethod
+    def _tat_duplicate_signature(product_reports):
+        """Return a stable preview fingerprint for the confirmation step."""
+        normalized = []
+        for item in product_reports:
+            normalized.append({
+                'product': item['product'],
+                'reports': [
+                    {
+                        'case_id': report['case_id'],
+                        'rows': report['rows'],
+                        'keep_row': report['keep_row'],
+                        'delete_rows': report['delete_rows'],
+                        'canonical_row': report.get('canonical_row'),
+                        'linked': report['linked'],
+                    }
+                    for report in item.get('reports', [])
+                ],
+            })
+        return json.dumps(normalized, sort_keys=True, separators=(',', ':'))
+
+    def _scan_tat_duplicate_rows(self, config, selected_product=''):
+        """Read duplicate IDs from configured TAT sheets without modifying them."""
+        products = configured_products(config.workflow)
+        if selected_product:
+            products = [product for product in products if product.key == selected_product]
+
+        product_reports = []
+        errors = []
+        for product in products:
+            try:
+                from core.services.sheets import get_sheets_service
+
+                service = get_sheets_service(
+                    sheet_id=config.sheet_id,
+                    sheet_name=product.sheet_name,
+                )
+                if not service.is_available() or not getattr(service, '_sheet', None):
+                    raise RuntimeError('Google Sheets is unavailable for this product sheet.')
+                reports = cleanup_tat_sheet_duplicate_case_ids(
+                    service._sheet,
+                    group_id=config.group_id,
+                    apply=False,
+                )
+                product_reports.append({
+                    'product': product.key,
+                    'label': product.label,
+                    'sheet_name': product.sheet_name,
+                    'reports': reports,
+                })
+            except Exception:
+                # Keep provider details out of the Admin response; the server
+                # log retains the underlying exception for diagnosis.
+                logger.exception(
+                    'Could not scan TAT duplicate rows for group %s product %s',
+                    config.group_id,
+                    product.key,
+                )
+                errors.append(
+                    f'{product.label}: Google Sheets could not be read. Check the sheet configuration and server logs.'
+                )
+        return product_reports, errors
+
+    def tat_duplicate_view(self, request, object_id):
+        """Preview and explicitly clean duplicate TAT case-ID rows from Admin."""
+        config = self.get_object(request, object_id)
+        if config is None:
+            return HttpResponseRedirect(reverse('admin:core_groupsheetconfiguration_changelist'))
+        if not request.user.is_superuser:
+            raise PermissionDenied('Only superusers can clean duplicate TAT Sheet rows.')
+        if not is_tat_tracker_workflow(config):
+            self.message_user(request, 'This group is not configured for the TAT Tracker.', level=messages.ERROR)
+            return HttpResponseRedirect(reverse('admin:core_groupsheetconfiguration_change', args=[config.pk]))
+
+        products = configured_products(config.workflow)
+        product_options = [(product.key, product.label) for product in products]
+        selected_product = str(
+            (request.POST.get('product') if request.method == 'POST' else request.GET.get('product')) or ''
+        ).strip()
+        if selected_product and selected_product not in {key for key, _label in product_options}:
+            raise PermissionDenied('The selected product is not enabled for this TAT group.')
+        include_unlinked = (
+            request.POST.get('include_unlinked') == '1'
+            if request.method == 'POST'
+            else request.GET.get('include_unlinked') == '1'
+        )
+
+        product_reports, scan_errors = self._scan_tat_duplicate_rows(config, selected_product)
+        signature = self._tat_duplicate_signature(product_reports)
+        context = {
+            **self.admin_site.each_context(request),
+            'title': 'Clean duplicate TAT Sheet rows',
+            'opts': self.model._meta,
+            'config': config,
+            'product_options': product_options,
+            'selected_product': selected_product,
+            'include_unlinked': include_unlinked,
+            'product_reports': product_reports,
+            'scan_errors': scan_errors,
+            'duplicate_count': sum(len(item['reports']) for item in product_reports),
+            'change_url': reverse('admin:core_groupsheetconfiguration_change', args=[config.pk]),
+            'repair_url': reverse('admin:core_groupsheetconfiguration_tat_repair', args=[config.pk]),
+        }
+
+        if request.method == 'POST':
+            if request.POST.get('action') != 'clean':
+                context['confirmation_error'] = 'Use the Clean duplicate rows button to make changes.'
+            elif request.POST.get('confirm') != 'CLEAN DUPLICATES':
+                context['confirmation_error'] = 'Type CLEAN DUPLICATES exactly to authorize deletion.'
+            elif scan_errors:
+                context['confirmation_error'] = 'The preview could not be completed. Resolve the Sheet errors and preview again.'
+            elif request.session.get('tat_duplicate_preview') != {
+                'config_id': str(config.pk),
+                'product': selected_product,
+                'include_unlinked': include_unlinked,
+                'signature': signature,
+            }:
+                context['confirmation_error'] = 'Preview this exact selection immediately before cleaning.'
+            else:
+                cleaned = []
+                clean_errors = []
+                from core.services.sheets import get_sheets_service
+
+                for item in product_reports:
+                    if not item['reports']:
+                        continue
+                    try:
+                        service = get_sheets_service(
+                            sheet_id=config.sheet_id,
+                            sheet_name=item['sheet_name'],
+                        )
+                        reports = cleanup_tat_sheet_duplicate_case_ids(
+                            service._sheet,
+                            group_id=config.group_id,
+                            apply=True,
+                            include_unlinked=include_unlinked,
+                        )
+                        cleaned.append((item['label'], reports))
+                    except Exception:
+                        logger.exception(
+                            'Could not clean TAT duplicate rows for group %s product %s',
+                            config.group_id,
+                            item['product'],
+                        )
+                        clean_errors.append(
+                            f"{item['label']}: cleanup failed; no success was recorded for this product."
+                        )
+                request.session.pop('tat_duplicate_preview', None)
+                if clean_errors:
+                    context['confirmation_error'] = ' '.join(clean_errors)
+                else:
+                    removed = sum(
+                        len(report['delete_rows'])
+                        for _label, reports in cleaned
+                        for report in reports
+                        if not report.get('skipped_unlinked')
+                    )
+                    self.message_user(
+                        request,
+                        f'Cleanup completed. Removed {removed} duplicate Sheet row(s); canonical Django case IDs were preserved.',
+                        level=messages.SUCCESS,
+                    )
+                    return HttpResponseRedirect(request.path)
+        else:
+            request.session['tat_duplicate_preview'] = {
+                'config_id': str(config.pk),
+                'product': selected_product,
+                'include_unlinked': include_unlinked,
+                'signature': signature,
+            }
+        return TemplateResponse(request, 'admin/core/groupsheetconfiguration/tat_duplicates.html', context)
 
     def tat_repair_status_view(self, request, object_id, job_id):
         config = self.get_object(request, object_id)
@@ -1248,12 +1435,19 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
             actions.pop('publish_jbl_apps_launchers', None)
         return actions
 
-    @admin.display(description='Repair TAT event sync')
+    @admin.display(description='Reconcile TAT cases by case ID')
     def tat_repair_link(self, obj):
         if not obj or not obj.pk or not is_tat_tracker_workflow(obj):
             return '-'
         url = reverse('admin:core_groupsheetconfiguration_tat_repair', args=[obj.pk])
-        return format_html('<a class="button" href="{}">Repair event Sheet status</a>', url)
+        return format_html('<a class="button" href="{}">Reconcile TAT cases</a>', url)
+
+    @admin.display(description='Clean duplicate TAT rows')
+    def tat_duplicate_link(self, obj):
+        if not obj or not obj.pk or not is_tat_tracker_workflow(obj):
+            return '-'
+        url = reverse('admin:core_groupsheetconfiguration_tat_duplicates', args=[obj.pk])
+        return format_html('<a class="button" href="{}">Find duplicate TAT rows</a>', url)
 
     @admin.action(description='Publish / refresh JBL Apps launcher')
     def publish_jbl_apps_launchers(self, request, queryset):
@@ -1411,6 +1605,11 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 '<path:object_id>/tat-repair/',
                 self.admin_site.admin_view(self.tat_repair_view),
                 name='core_groupsheetconfiguration_tat_repair',
+            ),
+            path(
+                '<path:object_id>/tat-duplicates/',
+                self.admin_site.admin_view(self.tat_duplicate_view),
+                name='core_groupsheetconfiguration_tat_duplicates',
             ),
             path(
                 '<path:object_id>/tat-repair/<uuid:job_id>/status/',

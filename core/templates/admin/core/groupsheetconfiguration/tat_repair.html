@@ -2,9 +2,9 @@
 
 {% block content %}
 <div id="content-main">
-  <h1>Repair TAT event Sheet status</h1>
+  <h1>Reconcile TAT cases with the Sheet</h1>
   <p><strong>{{ config.display_name|default:config.group_id }}</strong> &mdash; {{ config.group_id }}</p>
-  <p>This operation re-writes each case's current Django-owned values to its primary product Sheet. After a successful write, pending events are marked as synced to that Sheet and row. It does not write to the unused AUDIT LOG, and cases without a stored row number are skipped.</p>
+  <p>This operation re-writes each case's current Django-owned values to its primary product Sheet by searching the exact case ID in column A. After a successful write, pending events are marked as synced to that Sheet and row. It does not write to the unused AUDIT LOG. Select the missing-row option when quota failures left a case with no stored Sheet row; the case is appended only when its exact ID is absent from the Sheet.</p>
 
   {% if confirmation_error %}
     <p class="errornote" role="alert">{{ confirmation_error }}</p>
@@ -89,6 +89,11 @@
         <label for="id_offset">Batch offset</label>
         <input id="id_offset" name="offset" type="number" min="0" value="{{ offset }}">
       </div>
+      <div class="form-row">
+        <label for="id_include_unlinked_preview">Include cases without a stored Sheet row</label>
+        <input id="id_include_unlinked_preview" name="include_unlinked" value="1" type="checkbox"{% if include_unlinked %} checked{% endif %}>
+        <p class="help">Use this after a Google write/quota failure. The case ID is checked in column A before an append; this does not create a duplicate row for an existing ID.</p>
+      </div>
     </fieldset>
     <div class="submit-row">
       <input type="submit" value="Preview this batch">
@@ -99,6 +104,7 @@
     {% csrf_token %}
     <input type="hidden" name="product" value="{{ selected_product }}">
     <input type="hidden" name="offset" value="{{ offset }}">
+    {% if include_unlinked %}<input type="hidden" name="include_unlinked" value="1">{% endif %}
     <fieldset class="module aligned">
       <div class="form-row">
         <label for="id_confirm">Confirmation</label>

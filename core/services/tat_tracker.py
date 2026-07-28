@@ -955,14 +955,33 @@ def sync_tat_batch_created_cases(group_config, cases: list[TatTrackerCase]) -> d
         try:
             headers = cached_tat_sheet_headers(group_config, product, sheet)
             validate_tracker_identity_headers(headers)
+            existing_case_ids = sheet.col_values(1) if hasattr(sheet, 'col_values') else None
+            existing_cases = []
+            new_cases = []
+            for case in product_cases:
+                if existing_case_ids is not None and any(
+                    idx >= 5 and str(value or '').strip() == str(case.case_id).strip()
+                    for idx, value in enumerate(existing_case_ids, start=1)
+                ):
+                    existing_cases.append(case)
+                else:
+                    new_cases.append(case)
+
+            # A retry may reach this function after Google accepted the
+            # append but before Django recorded row numbers. Reconcile those
+            # IDs in place instead of appending duplicate rows.
+            for case in existing_cases:
+                sync_case_to_sheet(group_config, case)
+                result['synced'] += 1
+
             rows = [
                 build_tat_sheet_row_data(group_config, case, product, headers)
-                for case in product_cases
+                for case in new_cases
             ]
-            append_result = append_tat_batch_rows(sheet, rows)
+            append_result = append_tat_batch_rows(sheet, rows) if rows else None
             start_row = row_number_from_update_result(append_result)
             now = timezone.now()
-            for index, case in enumerate(product_cases):
+            for index, case in enumerate(new_cases):
                 if start_row:
                     case.row_number = start_row + index
                 case.sheet_name = product.sheet_name
@@ -1192,11 +1211,34 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
         # of sheet formulas avoids delayed spreadsheet recalculation.
         headers = cached_tat_sheet_headers(group_config, product, sheet)
         validate_tracker_identity_headers(headers)
-        row = case.row_number
-        values = sheet.row_values(row) if row else []
+        # The persisted row number is only a hint: staff can sort or insert
+        # rows in Sheets. Resolve the immutable case ID in column A before
+        # writing so a stale row number cannot overwrite another customer.
+        case_ids = None
+        existing_row = False
+        row = None
+        if case.row_number:
+            try:
+                current_id = str(sheet.cell(case.row_number, 1).value or '').strip()
+            except (AttributeError, IndexError, KeyError):
+                current_id = ''
+            if current_id == str(case.case_id).strip():
+                row = case.row_number
+                existing_row = True
+        if row is None:
+            case_ids = sheet.col_values(1) if hasattr(sheet, 'col_values') else None
+            row = resolve_case_sheet_row(sheet, case, case_ids=case_ids)
+            existing_row = bool(
+                case_ids is None and case.row_number and not hasattr(sheet, 'col_values')
+            ) or bool(
+                case_ids is not None
+                and 1 <= row <= len(case_ids)
+                and str(case_ids[row - 1] or '').strip() == str(case.case_id).strip()
+            )
+        values = sheet.row_values(row) if existing_row else []
         row_data = build_tat_sheet_row_data(group_config, case, product, headers, values)
         width = len(row_data)
-        if row:
+        if existing_row:
             sheet.update(f'A{row}:{column_letter(width)}{row}', [row_data], value_input_option='USER_ENTERED')
         else:
             row = append_case_row(sheet, row_data)
@@ -1303,12 +1345,14 @@ def resync_tat_tracker_cases(
     dry_run: bool = False,
     limit: int | None = None,
     offset: int = 0,
+    include_unlinked: bool = False,
 ) -> dict[str, object]:
-    """Re-write linked TAT cases from Django without creating unknown rows.
+    """Re-write TAT cases from Django, resolving the exact case ID first.
 
-    This is intentionally an explicit repair operation. Cases that do not have
-    a stored tracker row are skipped, rather than appended, so an operator
-    cannot accidentally duplicate a manually maintained spreadsheet row.
+    The normal repair scope remains linked cases only. When ``include_unlinked``
+    is explicitly selected, cases with no stored Sheet row are also passed to
+    ``sync_case_to_sheet``; that helper searches column A and appends only when
+    the exact immutable case ID is absent.
     """
     selected_product = str(product_key or '').strip()
     if selected_product and selected_product not in PRODUCTS:
@@ -1321,15 +1365,16 @@ def resync_tat_tracker_cases(
     if selected_case_ids:
         queryset = queryset.filter(case_id__in=selected_case_ids)
 
-    linked_cases = queryset.filter(row_number__gt=0).order_by('product_key', 'case_id')
-    total_candidates = linked_cases.count()
+    candidate_cases = queryset if include_unlinked else queryset.filter(row_number__gt=0)
+    candidate_cases = candidate_cases.order_by('product_key', 'case_id')
+    total_candidates = candidate_cases.count()
     selected_offset = max(0, int(offset or 0))
-    skipped_unlinked = queryset.exclude(row_number__gt=0).count()
+    skipped_unlinked = 0 if include_unlinked else queryset.exclude(row_number__gt=0).count()
     if limit is not None:
-        linked_cases = linked_cases[selected_offset:selected_offset + max(0, int(limit))]
+        candidate_cases = candidate_cases[selected_offset:selected_offset + max(0, int(limit))]
     elif selected_offset:
-        linked_cases = linked_cases[selected_offset:]
-    candidates = list(linked_cases)
+        candidate_cases = candidate_cases[selected_offset:]
+    candidates = list(candidate_cases)
     result: dict[str, object] = {
         'total_candidates': total_candidates,
         'candidates': len(candidates),
@@ -1692,27 +1737,134 @@ def sla_status(minutes: Decimal | None, target: Decimal | None) -> str:
     return 'within'
 
 
-def resolve_case_sheet_row(sheet, case: TatTrackerCase) -> int:
-    """Return the safest row for this case, even after manual sheet edits."""
-    if case.row_number:
-        try:
-            current_id = str(sheet.cell(case.row_number, 1).value or '').strip()
-        except Exception:
-            current_id = ''
-        if current_id == case.case_id:
+def resolve_case_sheet_row(sheet, case: TatTrackerCase, *, case_ids: list[Any] | None = None) -> int:
+    """Return the existing case-ID row, or the append position if absent."""
+    if case_ids is None:
+        if not hasattr(sheet, 'col_values'):
+            # Lightweight test doubles and non-gspread adapters may not
+            # expose column reads. In production, gspread provides them and
+            # the case ID is always checked before a write.
+            return int(case.row_number or next_sheet_row(sheet))
+        case_ids = sheet.col_values(1)
+    if case.row_number and case.row_number <= len(case_ids):
+        current_id = str(case_ids[case.row_number - 1] or '').strip()
+        if current_id == str(case.case_id).strip():
             return case.row_number
-    case_ids = sheet.col_values(1)
     for idx, value in enumerate(case_ids, start=1):
         if idx >= 5 and str(value or '').strip() == case.case_id:
             return idx
-    return next_sheet_row(sheet)
+    return next_sheet_row(sheet, values=case_ids)
 
-def next_sheet_row(sheet) -> int:
-    values = sheet.col_values(1)
+def next_sheet_row(sheet, *, values: list[Any] | None = None) -> int:
+    values = values if values is not None else sheet.col_values(1)
     for idx in range(len(values), 4, -1):
         if str(values[idx - 1] or '').strip():
             return idx + 1
     return 5
+
+
+def inspect_tat_sheet_duplicate_case_ids(
+    sheet,
+    *,
+    group_id: str = '',
+    data_start_row: int = 5,
+) -> list[dict[str, Any]]:
+    """Report duplicate case-ID rows without changing the sheet.
+
+    The row with the most populated cells is the proposed keeper. A linked
+    Django row is used only as a tie-breaker, so a sparse stale copy cannot
+    displace a more complete operational record.
+    """
+    values = sheet.get_all_values()
+    grouped: dict[str, list[dict[str, int]]] = {}
+    for row_number, row in enumerate(values[data_start_row - 1:], start=data_start_row):
+        case_id = str((row or [''])[0] or '').strip()
+        if not case_id:
+            continue
+        populated = sum(1 for value in row if str(value or '').strip())
+        grouped.setdefault(case_id, []).append({
+            'row_number': row_number,
+            'populated_cells': populated,
+        })
+
+    duplicates = []
+    for case_id, rows in grouped.items():
+        if len(rows) < 2:
+            continue
+        canonical = None
+        if group_id:
+            canonical = TatTrackerCase.objects.filter(
+                group_id=str(group_id), case_id=case_id, is_deleted=False,
+            ).first()
+        canonical_row = int(canonical.row_number or 0) if canonical else 0
+        keeper = max(
+            rows,
+            key=lambda item: (
+                item['populated_cells'],
+                int(item['row_number'] == canonical_row),
+                -item['row_number'],
+            ),
+        )
+        duplicates.append({
+            'case_id': case_id,
+            'rows': rows,
+            'keep_row': keeper['row_number'],
+            'delete_rows': [item['row_number'] for item in rows if item['row_number'] != keeper['row_number']],
+            'canonical_row': canonical_row or None,
+            'linked': bool(canonical),
+        })
+    return sorted(duplicates, key=lambda item: item['case_id'])
+
+
+def cleanup_tat_sheet_duplicate_case_ids(
+    sheet,
+    *,
+    group_id: str = '',
+    apply: bool = False,
+    include_unlinked: bool = False,
+    data_start_row: int = 5,
+) -> list[dict[str, Any]]:
+    """Optionally delete duplicate sheet rows and repair Django row links.
+
+    ``apply=False`` is deliberately the default because deleting rows in a
+    shared Google Sheet is irreversible from Django's perspective. Deletions
+    are performed bottom-up so row numbers remain stable while the operation
+    runs; the linked Django case is then pointed at the surviving row.
+    """
+    reports = inspect_tat_sheet_duplicate_case_ids(
+        sheet, group_id=group_id, data_start_row=data_start_row,
+    )
+    if not apply:
+        return reports
+    if not hasattr(sheet, 'delete_rows'):
+        raise RuntimeError('The configured Google Sheet adapter cannot delete duplicate rows.')
+
+    # Delete every extra row globally from the bottom upward. Deleting one
+    # duplicate group before another would otherwise shift the second group's
+    # recorded row numbers and could remove the wrong customer row.
+    actionable = [
+        report for report in reports
+        if report['linked'] or include_unlinked
+    ]
+    for report in reports:
+        if report not in actionable:
+            report['skipped_unlinked'] = True
+    all_delete_rows = sorted(
+        {row_number for report in actionable for row_number in report['delete_rows']},
+        reverse=True,
+    )
+    for row_number in all_delete_rows:
+        sheet.delete_rows(row_number)
+
+    for report in actionable:
+        shift = sum(1 for row_number in all_delete_rows if row_number < report['keep_row'])
+        surviving_row = report['keep_row'] - shift
+        report['surviving_row'] = surviving_row
+        if group_id:
+            TatTrackerCase.objects.filter(
+                group_id=str(group_id), case_id=report['case_id'], is_deleted=False,
+            ).update(row_number=surviving_row, updated_at=timezone.now())
+    return reports
 
 
 def next_action(case: TatTrackerCase) -> StageConfig | None:

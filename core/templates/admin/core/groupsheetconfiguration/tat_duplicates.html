@@ -1,0 +1,119 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div id="content-main">
+  <h1>Clean duplicate TAT Sheet rows</h1>
+  <p><strong>{{ config.display_name|default:config.group_id }}</strong> &mdash; {{ config.group_id }}</p>
+  <p>
+    This page searches column A (the immutable case ID) in the configured TAT product Sheets.
+    It never deletes a Django case or frees a case ID. A cleanup removes only extra Sheet rows
+    and updates the surviving row link in Django. The most populated duplicate row is proposed
+    as the keeper; unlinked rows are shown but are not removed unless you explicitly include them.
+  </p>
+
+  {% if confirmation_error %}
+    <p class="errornote" role="alert">{{ confirmation_error }}</p>
+  {% endif %}
+
+  {% if scan_errors %}
+    <div class="errornote" role="alert">
+      <strong>Some product Sheets could not be scanned.</strong>
+      <ul>
+        {% for error in scan_errors %}<li>{{ error }}</li>{% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+  <form method="get">
+    <fieldset class="module aligned">
+      <div class="form-row">
+        <label for="id_product">Product</label>
+        <select id="id_product" name="product">
+          <option value="">All configured products</option>
+          {% for key, label in product_options %}
+            <option value="{{ key }}"{% if key == selected_product %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-row">
+        <label for="id_include_unlinked_preview">Show unlinked duplicates</label>
+        <input id="id_include_unlinked_preview" name="include_unlinked" value="1" type="checkbox"{% if include_unlinked %} checked{% endif %}>
+        <p class="help">Unlinked rows have no active Django case. They are always previewed, but are only deleted when this option is selected and the exact confirmation is supplied.</p>
+      </div>
+    </fieldset>
+    <div class="submit-row">
+      <input type="submit" value="Preview duplicate rows">
+    </div>
+  </form>
+
+  <h2>Preview</h2>
+  {% if duplicate_count %}
+    <p>{{ duplicate_count }} duplicate case-ID group{{ duplicate_count|pluralize }} found.</p>
+    {% for product in product_reports %}
+      {% if product.reports %}
+        <h3>{{ product.label }} <small>({{ product.sheet_name }})</small></h3>
+        <div class="module">
+          <table>
+            <thead>
+              <tr>
+                <th>Case ID</th>
+                <th>Rows</th>
+                <th>Keep</th>
+                <th>Remove</th>
+                <th>Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for report in product.reports %}
+                <tr>
+                  <td><strong>{{ report.case_id }}</strong></td>
+                  <td>
+                    {% for row in report.rows %}
+                      row {{ row.row_number }} ({{ row.populated_cells }} values){% if not forloop.last %}; {% endif %}
+                    {% endfor %}
+                  </td>
+                  <td>row {{ report.keep_row }}</td>
+                  <td>{% if report.delete_rows %}{{ report.delete_rows|join:", " }}{% else %}&mdash;{% endif %}</td>
+                  <td>
+                    {% if report.linked %}
+                      Linked Django case{% if report.canonical_row %}; current row {{ report.canonical_row }}{% endif %}
+                    {% else %}
+                      <span class="warning">No active Django case</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+    {% endfor %}
+  {% else %}
+    <p class="quiet">No duplicate case IDs were found in the selected product Sheets.</p>
+  {% endif %}
+
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="clean">
+    <input type="hidden" name="product" value="{{ selected_product }}">
+    {% if include_unlinked %}<input type="hidden" name="include_unlinked" value="1">{% endif %}
+    <fieldset class="module aligned">
+      <div class="form-row">
+        <label for="id_confirm">Confirmation</label>
+        <input id="id_confirm" name="confirm" type="text" autocomplete="off" aria-describedby="confirm-help">
+        <p id="confirm-help" class="help">Type <code>CLEAN DUPLICATES</code> exactly. Review the preview immediately before submitting; the operation deletes extra Google Sheet rows.</p>
+      </div>
+    </fieldset>
+    <div class="submit-row">
+      <a href="{{ change_url }}" class="button cancel-link">Cancel</a>
+      <input type="submit" value="Clean duplicate rows"{% if not duplicate_count or scan_errors %} disabled{% endif %}>
+    </div>
+  </form>
+
+  <p>
+    <a href="{{ repair_url }}">Repair TAT event Sheet status</a>
+    &nbsp; | &nbsp;
+    <a href="{{ change_url }}">Back to group configuration</a>
+  </p>
+</div>
+{% endblock %}

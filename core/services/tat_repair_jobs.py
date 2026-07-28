@@ -17,21 +17,26 @@ _active_jobs: set[str] = set()
 _active_jobs_lock = threading.Lock()
 
 
-def create_repair_job(config: GroupSheetConfiguration, *, product_key: str = '', requested_by: str = '') -> TatRepairJob:
+def create_repair_job(
+    config: GroupSheetConfiguration,
+    *,
+    product_key: str = '',
+    requested_by: str = '',
+    include_unlinked: bool = False,
+) -> TatRepairJob:
     queryset = TatTrackerCase.objects.filter(group_id=config.group_id, is_deleted=False)
     if product_key:
         queryset = queryset.filter(product_key=product_key)
+    candidate_queryset = queryset if include_unlinked else queryset.filter(row_number__gt=0)
     case_ids = list(
-        queryset.filter(row_number__gt=0)
-        .order_by('product_key', 'case_id')
-        .values_list('case_id', flat=True)
+        candidate_queryset.order_by('product_key', 'case_id').values_list('case_id', flat=True)
     )
     return TatRepairJob.objects.create(
         group_configuration=config,
         product_key=product_key,
         case_ids=case_ids,
         total_cases=len(case_ids),
-        skipped_unlinked=queryset.exclude(row_number__gt=0).count(),
+        skipped_unlinked=0 if include_unlinked else queryset.exclude(row_number__gt=0).count(),
         requested_by=requested_by,
     )
 
@@ -114,6 +119,10 @@ def run_repair_job(job_id, *, worker_token=None) -> None:
                 dry_run=False,
                 limit=None,
                 offset=0,
+                # The job contains an exact immutable case ID, so it is safe
+                # to reconcile an initially unlinked case and append it only
+                # when that ID is absent from column A.
+                include_unlinked=True,
             )
             synced = int(result.get('synced') or 0)
             failures = list(result.get('failed') or [])

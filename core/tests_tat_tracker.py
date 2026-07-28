@@ -51,6 +51,8 @@ from core.services.tat_tracker import (
     sync_case_to_sheet,
     sync_tat_batch_created_cases,
     resync_tat_tracker_cases,
+    inspect_tat_sheet_duplicate_case_ids,
+    cleanup_tat_sheet_duplicate_case_ids,
     search_cases,
     soft_delete_tat_case,
     sync_tat_target_settings_to_sheet,
@@ -1216,7 +1218,7 @@ class TatTrackerWorkflowTest(TestCase):
         index_mock.assert_not_called()
         audit_mock.assert_not_called()
 
-    def test_sync_case_to_sheet_appends_new_rows_without_scanning_existing_ids(self):
+    def test_sync_case_to_sheet_appends_new_rows_after_case_id_scan(self):
         class FakeSheet:
             def __init__(self):
                 self.appended = []
@@ -1266,7 +1268,126 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(case.row_number, 6)
         self.assertEqual(len(sheet.appended), 1)
         self.assertEqual(sheet.row_values_calls, [2])
-        self.assertFalse(sheet.col_values_called)
+        self.assertTrue(sheet.col_values_called)
+
+    def test_sync_case_to_sheet_follows_case_id_when_stored_row_is_stale(self):
+        class FakeSheet:
+            def __init__(self):
+                self.updates = []
+                self.appended = []
+
+            def row_values(self, row):
+                if row == 2:
+                    headers = [''] * 31
+                    headers[2] = 'ID NUMBER'
+                    headers[3] = 'PHONE NUMBER'
+                    return headers
+                return ['JBL-BS-2026-006'] + ['existing'] * 30
+
+            def col_values(self, _col):
+                return ['Case ID', '', '', '', 'OTHER-CASE', '', 'JBL-BS-2026-006']
+
+            def update(self, a1_range, values, value_input_option=None):
+                self.updates.append((a1_range, values, value_input_option))
+
+            def append_row(self, row, value_input_option=None):
+                self.appended.append((row, value_input_option))
+                return {'updates': {'updatedRange': 'TRACKER-Business!A8:AE8'}}
+
+        class FakeService:
+            def __init__(self, sheet):
+                self._sheet = sheet
+
+            def is_available(self):
+                return True
+
+        sheet = FakeSheet()
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-Business',
+            row_number=5,
+            case_id='JBL-BS-2026-006',
+            product_key='business',
+            product_label='Business',
+            client_name='Recovered Client',
+            national_id='12345678',
+            primary_phone='254712345678',
+            branch='Nakuru',
+            bro_name='BRO User',
+            amount='10000',
+            stage_values={'created': timezone.now().isoformat()},
+            status='Active',
+        )
+
+        with patch('core.services.tat_tracker.get_sheets_service', return_value=FakeService(sheet)):
+            sync_case_to_sheet(self.config, case)
+
+        case.refresh_from_db()
+        self.assertEqual(case.row_number, 7)
+        self.assertEqual(sheet.updates[0][0], 'A7:AE7')
+        self.assertEqual(sheet.appended, [])
+
+    def test_duplicate_case_rows_keep_the_most_populated_row(self):
+        class FakeSheet:
+            def __init__(self):
+                self.deleted = []
+
+            def get_all_values(self):
+                return [
+                    ['title'],
+                    ['headers'],
+                    [],
+                    [],
+                    ['JBL-BS-2026-007', 'client', 'id'],
+                    ['JBL-BS-2026-007', 'client', 'id', 'phone', 'branch', 'status'],
+                    [],
+                    ['JBL-BS-2026-008', 'client'],
+                    ['JBL-BS-2026-008', 'client', 'id', 'phone'],
+                ]
+
+            def delete_rows(self, row):
+                self.deleted.append(row)
+
+        sheet = FakeSheet()
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-Business',
+            row_number=5,
+            case_id='JBL-BS-2026-007',
+            product_key='business',
+            product_label='Business',
+            client_name='Duplicate Client',
+            stage_values={'created': timezone.now().isoformat()},
+            status='Active',
+        )
+        other_case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-Business',
+            row_number=8,
+            case_id='JBL-BS-2026-008',
+            product_key='business',
+            product_label='Business',
+            client_name='Second Duplicate Client',
+            stage_values={'created': timezone.now().isoformat()},
+            status='Active',
+        )
+
+        report = inspect_tat_sheet_duplicate_case_ids(sheet, group_id=self.config.group_id)
+        self.assertEqual(len(report), 2)
+        self.assertEqual(report[0]['keep_row'], 6)
+        self.assertEqual(report[0]['delete_rows'], [5])
+        self.assertEqual(report[1]['keep_row'], 9)
+        self.assertEqual(report[1]['delete_rows'], [8])
+
+        cleanup_tat_sheet_duplicate_case_ids(sheet, group_id=self.config.group_id, apply=True)
+        case.refresh_from_db()
+        other_case.refresh_from_db()
+        self.assertEqual(sheet.deleted, [8, 5])
+        self.assertEqual(case.row_number, 5)
+        self.assertEqual(other_case.row_number, 7)
 
     def test_sync_tat_batch_created_cases_appends_same_product_in_one_sheet_write(self):
         class FakeSheet:
@@ -2115,6 +2236,7 @@ class TatTrackerRepairTest(TestCase):
             dry_run=False,
             limit=None,
             offset=0,
+            include_unlinked=True,
         )
 
     @patch('core.services.tat_tracker.resync_tat_tracker_cases')
@@ -2180,7 +2302,103 @@ class TatTrackerRepairAdminTest(TestCase):
             workflow={'type': 'tat_tracker', 'products': ['business']},
         )
         self.url = reverse('admin:core_groupsheetconfiguration_tat_repair', args=[self.config.pk])
+        self.duplicates_url = reverse('admin:core_groupsheetconfiguration_tat_duplicates', args=[self.config.pk])
         self.client.force_login(self.user)
+
+    @patch('core.services.sheets.get_sheets_service')
+    def test_duplicate_page_previews_case_id_rows_without_writing(self, get_service):
+        fake_sheet = MagicMock()
+        fake_sheet.get_all_values.return_value = [
+            ['Case ID', 'Client'],
+            [],
+            [],
+            [],
+            ['JBL-BS-DUPLICATE', 'Old'],
+            ['JBL-BS-DUPLICATE', 'New', 'More data'],
+        ]
+        service = MagicMock(is_available=MagicMock(return_value=True), _sheet=fake_sheet)
+        get_service.return_value = service
+
+        response = self.client.get(self.duplicates_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'JBL-BS-DUPLICATE')
+        self.assertContains(response, 'Preview duplicate rows')
+        self.assertContains(response, 'Clean duplicate rows')
+        fake_sheet.delete_rows.assert_not_called()
+
+    @patch('core.services.sheets.get_sheets_service')
+    def test_duplicate_page_requires_preview_and_typed_confirmation(self, get_service):
+        fake_sheet = MagicMock()
+        fake_sheet.get_all_values.return_value = [
+            ['Case ID', 'Client'],
+            [],
+            [],
+            [],
+            ['JBL-BS-DUPLICATE', 'Old'],
+            ['JBL-BS-DUPLICATE', 'New', 'More data'],
+        ]
+        service = MagicMock(is_available=MagicMock(return_value=True), _sheet=fake_sheet)
+        get_service.return_value = service
+        TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-Business',
+            row_number=5,
+            case_id='JBL-BS-DUPLICATE',
+            product_key='business',
+            product_label='Business',
+            client_name='Duplicate Client',
+            branch='Nakuru',
+        )
+
+        self.client.get(self.duplicates_url + '?product=business')
+        response = self.client.post(self.duplicates_url, {
+            'action': 'clean',
+            'product': 'business',
+            'confirm': 'not the phrase',
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Type CLEAN DUPLICATES exactly')
+        fake_sheet.delete_rows.assert_not_called()
+
+    @patch('core.services.sheets.get_sheets_service')
+    def test_duplicate_page_cleans_only_after_preview_and_confirmation(self, get_service):
+        fake_sheet = MagicMock()
+        fake_sheet.get_all_values.return_value = [
+            ['Case ID', 'Client'],
+            [],
+            [],
+            [],
+            ['JBL-BS-DUPLICATE', 'Old'],
+            ['JBL-BS-DUPLICATE', 'New', 'More data'],
+        ]
+        service = MagicMock(is_available=MagicMock(return_value=True), _sheet=fake_sheet)
+        get_service.return_value = service
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-Business',
+            row_number=5,
+            case_id='JBL-BS-DUPLICATE',
+            product_key='business',
+            product_label='Business',
+            client_name='Duplicate Client',
+            branch='Nakuru',
+        )
+
+        self.client.get(self.duplicates_url + '?product=business')
+        response = self.client.post(self.duplicates_url, {
+            'action': 'clean',
+            'product': 'business',
+            'confirm': 'CLEAN DUPLICATES',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        fake_sheet.delete_rows.assert_called_once_with(5)
+        case.refresh_from_db()
+        self.assertEqual(case.row_number, 5)
 
     @patch('core.admin.resync_tat_tracker_cases')
     def test_repair_page_previews_a_bounded_batch_without_sheet_writes(self, resync):
@@ -2199,7 +2417,14 @@ class TatTrackerRepairAdminTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Preview only')
         self.assertContains(response, 'Type REPAIR')
-        resync.assert_called_once_with(self.config, dry_run=True, limit=25, offset=0, product_key='')
+        resync.assert_called_once_with(
+            self.config,
+            dry_run=True,
+            limit=25,
+            offset=0,
+            product_key='',
+            include_unlinked=False,
+        )
 
     @patch('core.admin.resync_tat_tracker_cases')
     def test_repair_page_requires_confirmation_before_writing(self, resync):
@@ -2231,6 +2456,52 @@ class TatTrackerRepairAdminTest(TestCase):
         self.assertEqual(job.status, 'queued')
         start_job.assert_called_once_with(job.id)
         self.assertIn(f'job={job.id}', response['Location'])
+
+    @patch('core.services.tat_repair_jobs.start_repair_job')
+    @patch('core.admin.resync_tat_tracker_cases')
+    def test_repair_page_can_include_cases_without_stored_sheet_rows(self, resync, start_job):
+        resync.return_value = {
+            'total_candidates': 1,
+            'candidates': 1,
+            'synced': 0,
+            'skipped_unlinked': 0,
+            'failed': [],
+            'offset': 0,
+            'next_offset': None,
+        }
+        TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-Business',
+            case_id='JBL-BS-MISSING-ROW',
+            product_key='business',
+            product_label='Business',
+            client_name='Missing Row Client',
+            branch='Nakuru',
+        )
+
+        self.client.get(self.url + '?product=business&include_unlinked=1')
+        resync.assert_called_once_with(
+            self.config,
+            dry_run=True,
+            limit=25,
+            offset=0,
+            product_key='business',
+            include_unlinked=True,
+        )
+        resync.reset_mock()
+        response = self.client.post(self.url, {
+            'confirm': 'REPAIR',
+            'product': 'business',
+            'offset': '0',
+            'include_unlinked': '1',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        job = TatRepairJob.objects.get()
+        self.assertEqual(job.case_ids, ['JBL-BS-MISSING-ROW'])
+        self.assertEqual(job.skipped_unlinked, 0)
+        start_job.assert_called_once_with(job.id)
 
     @patch('core.admin.resync_tat_tracker_cases')
     def test_repair_page_rejects_a_write_without_matching_preview(self, resync):
