@@ -690,6 +690,7 @@ def jawabu_farmers_review(request):
         'token': token,
         'rows': batch.parsed_rows or [],
         'status': batch.status,
+        'import_kind': batch.import_kind or 'farmers',
     }
     return render(request, 'jawabu_farmers/review.html', {'batch': batch, 'batch_json': mark_safe(json.dumps(payload, ensure_ascii=True).replace('</', '<\\/'))})
 
@@ -719,7 +720,15 @@ def jawabu_farmers_review_commit(request):
     from core.services.group_config import GroupRegistry
 
     group_config = GroupRegistry.get_instance().get_group(batch.group_id)
-    result = commit_farmup_review_batch(batch, rows, group_config=group_config)
+    if batch.import_kind == 'system_export':
+        from core.services.system_export import commit_system_export_review_batch
+        result = commit_system_export_review_batch(
+            batch,
+            rows,
+            actor=(str(getattr(request, 'user', '') or '') if getattr(request, 'user', None) and getattr(request.user, 'is_authenticated', False) else batch.sender),
+        )
+    else:
+        result = commit_farmup_review_batch(batch, rows, group_config=group_config)
     result['rows'] = batch.parsed_rows
     sheet_sync = result.get('sheet_sync') or {}
     reply_lines = [
@@ -1613,6 +1622,13 @@ def _process_telegram_message(message_data: dict) -> dict:
                         sender=sender,
                         telegram_message_id=telegram_message_id,
                     )
+                if _looks_like_sysup_command(content):
+                    return _process_jawabu_sysup_command(
+                        group_config=group_config,
+                        message_data=message_data,
+                        sender=sender,
+                        telegram_message_id=telegram_message_id,
+                    )
                 if _looks_like_farmup_command(content):
                     return _process_jawabu_farmup_command(
                         group_config=group_config,
@@ -1872,6 +1888,10 @@ def _looks_like_fcaup_command(content: str) -> bool:
 
 def _looks_like_farmup_command(content: str) -> bool:
     return bool(re.match(r'^/farmup(?:@\w+)?(?:\s|$)', str(content or '').strip(), re.IGNORECASE))
+
+
+def _looks_like_sysup_command(content: str) -> bool:
+    return bool(re.match(r'^/sysup(?:@\w+)?(?:\s|$)', str(content or '').strip(), re.IGNORECASE))
 
 
 def _looks_like_spin_form_command(content: str) -> bool:
@@ -2311,6 +2331,54 @@ def _process_jawabu_farmup_command(
     }
 
 
+def _process_jawabu_sysup_command(
+    group_config,
+    message_data: dict,
+    sender: str,
+    telegram_message_id: str,
+) -> dict:
+    raw, filename, document_error = _download_telegram_system_export_document(message_data)
+    if document_error:
+        return {'status': 'command', 'reply_text': document_error}
+    if not raw:
+        return {
+            'status': 'command',
+            'reply_text': (
+                "Attach the Customers Without Loans CSV/XLSX export and send:\n"
+                "@bot /sysup\n\n"
+                "The bot will open a review form before anything is written to customer records."
+            ),
+        }
+    from core.services.jawabu_master import build_farmup_mini_app_url, build_farmup_review_url
+    from core.services.system_export import create_system_export_review_batch
+    try:
+        batch, stats = create_system_export_review_batch(
+            group_id=group_config.group_id,
+            telegram_message_id=telegram_message_id,
+            sender=sender,
+            source_filename=filename,
+            content=raw,
+        )
+    except ValueError as exc:
+        return {'status': 'command', 'reply_text': f'System export could not be staged: {exc}'}
+    review_url = build_farmup_review_url(str(batch.id))
+    mini_app_url = build_farmup_mini_app_url(str(batch.id))
+    launch_url = mini_app_url or review_url
+    if not review_url:
+        return {'status': 'command', 'reply_text': 'System export parsed, but APP_BASE_URL is not configured so the review form cannot open.'}
+    button_text = 'Open System Export Review Mini App' if mini_app_url else 'Open System Export Review'
+    return {
+        'status': 'command',
+        'reply_text': (
+            'Customers Without Loans export ready for review\n'
+            f"Rows extracted: {stats.get('total_rows', 0)}\n"
+            f"Rows needing review: {stats.get('review_needed', 0)}\n\n"
+            'Confirm each customer match and correct any conflicts before committing.'
+        ),
+        'reply_markup': {'inline_keyboard': [[{'text': button_text, 'url': launch_url}]]},
+    }
+
+
 def _process_tat_tracker_command(group_config, sender: str, telegram_message_id: str) -> dict:
     from core.services.tat_tracker import build_tat_tracker_mini_app_url, build_tat_tracker_url
 
@@ -2713,6 +2781,58 @@ def _download_telegram_csv_document(message_data: dict) -> tuple[str, str, str]:
     except Exception as exc:
         logger.error('Failed to download Telegram Farmers CSV: %s', exc, exc_info=True)
         return '', filename, 'Could not download the Farmers CSV. Please resend it.'
+
+
+def _download_telegram_system_export_document(message_data: dict) -> tuple[bytes, str, str]:
+    """Download a /sysup CSV/XLSX without parsing it in the webhook view."""
+    document = message_data.get('document') or {}
+    if not document:
+        return b'', '', ''
+    filename = str(document.get('file_name') or '').strip() or 'system-export.csv'
+    lower_filename = filename.lower()
+    mime_type = str(document.get('mime_type') or '').lower()
+    allowed_mimes = {
+        'text/csv', 'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/octet-stream', '',
+    }
+    if not (lower_filename.endswith('.csv') or lower_filename.endswith('.xlsx') or mime_type in allowed_mimes):
+        return b'', filename, 'The /sysup command only supports a .csv or .xlsx Customers Without Loans export.'
+    if not lower_filename.endswith(('.csv', '.xlsx')):
+        filename += '.xlsx' if 'spreadsheetml' in mime_type else '.csv'
+    file_size = int(document.get('file_size') or 0)
+    max_mb = max(1, int(getattr(settings, 'FARMUP_MAX_FILE_SIZE_MB', 5)))
+    if file_size and file_size > max_mb * 1024 * 1024:
+        return b'', filename, f'System export is too large. Maximum size is {max_mb} MB.'
+    bot_token = settings.TELEGRAM_BOT_TOKEN
+    file_id = document.get('file_id')
+    if not bot_token or not file_id:
+        return b'', filename, 'Could not download the system export from Telegram.'
+    try:
+        file_meta = requests.get(
+            f'https://api.telegram.org/bot{bot_token}/getFile',
+            params={'file_id': file_id},
+            timeout=settings.API_REQUEST_TIMEOUT,
+        )
+        file_meta.raise_for_status()
+        file_path = file_meta.json().get('result', {}).get('file_path', '')
+        if not file_path:
+            return b'', filename, 'Telegram did not return a downloadable file path.'
+        file_response = requests.get(
+            f'https://api.telegram.org/file/bot{bot_token}/{file_path}',
+            timeout=settings.API_REQUEST_TIMEOUT,
+        )
+        file_response.raise_for_status()
+        raw = file_response.content
+        if len(raw) > max_mb * 1024 * 1024:
+            return b'', filename, f'System export is too large. Maximum size is {max_mb} MB.'
+        return raw, filename, ''
+    except requests.Timeout:
+        logger.warning('Timed out downloading Telegram system export')
+        return b'', filename, 'Timed out downloading the system export. Please resend it.'
+    except Exception as exc:
+        logger.error('Failed to download Telegram system export: %s', exc, exc_info=True)
+        return b'', filename, 'Could not download the system export. Please resend it.'
 
 
 def _download_telegram_tat_batch_document(message_data: dict) -> tuple[str, bytes, str]:

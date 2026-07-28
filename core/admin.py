@@ -864,10 +864,10 @@ class JawabuVisitRecordAdmin(ReadOnlyAuditAdmin):
 @admin.register(JawabuFarmerUploadBatch)
 class JawabuFarmerUploadBatchAdmin(ReadOnlyAuditAdmin):
     list_display = [
-        'source_filename', 'group_id', 'status', 'total_rows',
+        'source_filename', 'import_kind', 'group_id', 'status', 'total_rows',
         'review_needed', 'committed_count', 'skipped_count', 'sender', 'created_at',
     ]
-    list_filter = ['status', 'group_id', 'created_at', 'committed_at']
+    list_filter = ['import_kind', 'status', 'group_id', 'created_at', 'committed_at']
     search_fields = ['source_filename', 'group_id', 'sender', 'telegram_message_id', 'error']
     readonly_fields = ['id', 'created_at', 'updated_at', 'committed_at']
 class JawabuFarmerMasterAdminForm(forms.ModelForm):

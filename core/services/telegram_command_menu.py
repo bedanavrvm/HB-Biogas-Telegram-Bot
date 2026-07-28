@@ -42,6 +42,7 @@ ORDER_APPROVAL_BOT_COMMANDS = [
 JAWABU_BOT_COMMANDS = [
     {'command': 'batch', 'description': 'Import a Jawabu WhatsApp export'},
     {'command': 'farmup', 'description': 'Review and import Jawabu Farmers CSV'},
+    {'command': 'sysup', 'description': 'Review and import Customers Without Loans export'},
     {'command': 'fcaup', 'description': 'Update Master Data from FCA Section A'},
 ]
 

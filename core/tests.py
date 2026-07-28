@@ -5329,6 +5329,7 @@ class TelegramCommandMenuTest(TestCase):
         jawabu_commands = [item['command'] for item in jawabu_payload['commands']]
         self.assertIn('batch', jawabu_commands)
         self.assertIn('farmup', jawabu_commands)
+        self.assertIn('sysup', jawabu_commands)
         self.assertIn('fcaup', jawabu_commands)
         self.assertIn('group', jawabu_commands)
         self.assertNotIn('order', jawabu_commands)
@@ -5792,6 +5793,41 @@ class TelegramWebhookViewTest(TestCase):
 
         self.assertEqual(result['status'], 'fcaup_review_ready')
         mock_fcaup.assert_called_once()
+        mock_process.assert_not_called()
+
+    @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
+    @patch('core.api.views._process_jawabu_farmup_command')
+    @patch('core.api.views._process_single_message')
+    def test_sysup_without_document_returns_system_export_help(
+        self,
+        mock_process,
+        mock_farmup,
+    ):
+        """The dedicated system-export command must not fall through to FarmUp or case parsing."""
+        from core.api.views import _process_telegram_message
+        from core.services.group_config import GroupRegistry
+
+        GroupSheetConfiguration.objects.create(
+            group_id='-100123',
+            display_name='Jawabu group',
+            enabled=True,
+            sheet_id='sheet_master',
+            sheet_name='Jawabu Visits',
+            workflow={'type': 'jawabu_homebiogas'},
+        )
+        GroupRegistry._instance = None
+
+        result = _process_telegram_message({
+            'message_id': 123,
+            'from': {'first_name': 'Test'},
+            'chat': {'id': -100123, 'type': 'supergroup'},
+            'date': 1711123456,
+            'caption': '@biogas_bot /sysup',
+        })
+
+        self.assertEqual(result['status'], 'command')
+        self.assertIn('Customers Without Loans CSV/XLSX', result['reply_text'])
+        mock_farmup.assert_not_called()
         mock_process.assert_not_called()
 
     @override_settings(TELEGRAM_BOT_USERNAME='biogas_bot')
@@ -6330,8 +6366,8 @@ NATURE OF THE PROBLEM: No gas supply""",
         from core.services.jawabu_master import import_jawabu_farmers_csv
 
         csv_file = StringIO(
-            "Farmer Name,ID Number,Phone,Alternative Phone,County,Sub County,Branch\n"
-            "Mary Njeri,1382654,0720570031,0785116424,Embu County,Manyatta,Embu\n"
+            "Farmer Name,ID Number,Phone,Alternative Phone,County,Sub County,Branch,Sign Date,Actual Receipts,Sales Person\n"
+            "Mary Njeri,1382654,0720570031,0785116424,Embu County,Manyatta,Embu,24/06/2026,5000,Jane Sales\n"
         )
 
         result = import_jawabu_farmers_csv(csv_file, source_name='farmers.csv')
@@ -6387,14 +6423,15 @@ NATURE OF THE PROBLEM: No gas supply""",
         farmer = JawabuFarmerMaster.objects.get()
         self.assertEqual(farmer.customer_name, 'UNKNOWN FARMER')
         self.assertEqual(farmer.status, 'review_needed')
-        self.assertIn('Missing National ID and primary phone', farmer.cleaning_notes)
+        self.assertIn('Missing National ID', farmer.cleaning_notes)
+        self.assertIn('Missing primary phone', farmer.cleaning_notes)
 
     def test_jawabu_farmers_csv_import_applies_confirmed_master_mapping(self):
         from core.services.jawabu_master import import_jawabu_farmers_csv
 
         csv_file = StringIO(
-            "Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Sign Date,Sign Date,Created Date,HBG Contract Name\n"
-            "David Mugambi [23215888],,Embu,+254721997481,+254704408281,5000,01/05/2026,24/06/2026,30/06/2026,HBGC-14560\n"
+            "Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Sign Date,Sign Date,Created Date,HBG Contract Name,Sales Person\n"
+            "David Mugambi [23215888],,Embu,+254721997481,+254704408281,5000,01/05/2026,24/06/2026,30/06/2026,HBGC-14560,Jane Sales\n"
         )
 
         result = import_jawabu_farmers_csv(csv_file, source_name='farmers.csv')

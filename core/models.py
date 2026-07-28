@@ -1302,7 +1302,12 @@ class AccessGrant(models.Model):
 
 
 class JawabuFarmerUploadBatch(models.Model):
-    """Staged CSV upload for staff review before updating Jawabu farmer master data."""
+    """Staged FarmUp/system-export upload awaiting staff review and commit."""
+
+    IMPORT_KIND_CHOICES = [
+        ('farmers', 'Farmers CSV'),
+        ('system_export', 'Customers Without Loans export'),
+    ]
 
     STATUS_CHOICES = [
         ('pending_review', 'Pending Review'),
@@ -1316,6 +1321,12 @@ class JawabuFarmerUploadBatch(models.Model):
     telegram_message_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
     sender = models.CharField(max_length=255, blank=True, default='')
     source_filename = models.CharField(max_length=255, blank=True, default='')
+    import_kind = models.CharField(
+        max_length=32,
+        choices=IMPORT_KIND_CHOICES,
+        default='farmers',
+        db_index=True,
+    )
     status = models.CharField(
         max_length=32,
         choices=STATUS_CHOICES,
