@@ -698,6 +698,36 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertEqual(detail.json()['preview']['rows'][0]['hb_invoice_amount'], '43500.00')
         self.assertEqual(detail.json()['preview']['totals']['hb_invoice_amount'], '43500.00')
 
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_payment_document_history_can_regenerate_a_new_review_snapshot(self, storage):
+        farmer = self.farmer()
+        self.invoice_batch(farmer)
+        source = PaymentDocument.objects.create(
+            order_number='ORDER-001', payment_number='89', status='final', version=3,
+            row_count=1, farmer_ids=[str(farmer.id)],
+            filename='HB_Payment_89_ORDER-001_final_v3.xlsx',
+            call_up_comments='Legacy batch comment',
+            case_call_up_comments={str(farmer.id): 'Existing case comment'},
+            validation_summary={'preview_rows': [{'farmer_id': str(farmer.id)}]},
+        )
+        storage.return_value.upload.return_value = ('review-xlsx', 'https://drive.test/regenerated-payment')
+
+        response = self.client.post(
+            reverse('portal_payment_document_regenerate', args=[str(source.id)]),
+            data=json.dumps({}), content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['ok'])
+        self.assertTrue(data['requires_head_rural_review'])
+        regenerated = PaymentDocument.objects.get(pk=data['document']['id'])
+        self.assertEqual(regenerated.status, 'pending_review')
+        self.assertEqual(regenerated.version, 4)
+        self.assertEqual(regenerated.farmer_ids, [str(farmer.id)])
+        self.assertEqual(regenerated.case_call_up_comments, {str(farmer.id): 'Existing case comment'})
+        self.assertEqual(regenerated.drive_url, 'https://drive.test/regenerated-payment')
+
     def test_batch_detail_uses_live_invoice_count_over_stored_snapshot(self):
         farmer = self.farmer()
         RequisitionBatch.objects.create(

@@ -816,7 +816,13 @@
       <div class="fc-sub">${kind === 'payments' ? `Order ${escapeHtml(doc.order_number || '-')} | ` : ''}${escapeHtml(doc.row_count || 0)} client(s) | Version ${escapeHtml(doc.version || 0)}</div>
       <div class="fc-sub">${escapeHtml(fmtDate(doc.generated_at))}${doc.generated_by ? ` | ${escapeHtml(doc.generated_by)}` : ''}</div>
       ${kind === 'payments' ? `<span class="badge ${doc.status === 'final' ? 'badge-green' : 'badge-orange'}">${doc.status === 'final' ? 'Final' : 'Awaiting Head of Rural review'}</span>` : ''}
-      <div class="history-document-actions"><button type="button" class="btn btn-secondary history-view-document" data-kind="${kind}" data-id="${escapeHtml(doc.id)}" data-order="${escapeHtml(doc.order_number || '')}">${kind === 'payments' && doc.status !== 'final' ? 'Review payment' : 'View preview'}</button>${doc.drive_url || doc.download_url ? `<button type="button" class="btn btn-primary history-open-excel" data-url="${escapeHtml(doc.drive_url || doc.download_url)}">Open Excel</button>` : ''}</div>
+      <div class="history-document-actions">
+        <button type="button" class="btn btn-secondary history-view-document" data-kind="${kind}" data-id="${escapeHtml(doc.id)}" data-order="${escapeHtml(doc.order_number || '')}">${kind === 'payments' && doc.status !== 'final' ? 'Review payment' : 'View preview'}</button>
+        ${doc.drive_url || doc.download_url ? `<button type="button" class="btn btn-primary history-open-excel" data-url="${escapeHtml(doc.drive_url || doc.download_url)}">Open Excel</button>` : ''}
+        ${kind === 'payments'
+          ? `<button type="button" class="btn btn-secondary history-regenerate-payment" data-id="${escapeHtml(doc.id)}">Regenerate payment doc</button>`
+          : `<button type="button" class="btn btn-secondary history-regenerate-order" data-order="${escapeHtml(doc.order_number || '')}" data-requisition-date="${escapeHtml(doc.requisition_date || '')}" data-farmer-ids="${escapeHtml((doc.farmer_ids || []).join(','))}">Regenerate requisition/order</button>`}
+      </div>
     </article>`).join('');
   }
   async function loadHistory(kind = historyKind) {
@@ -954,6 +960,26 @@
       openPortalLink(excelButton.dataset.url || '');
       return;
     }
+    const regenerateOrderButton = event.target.closest('.history-regenerate-order');
+    if (regenerateOrderButton) {
+      event.preventDefault();
+      portalRequisitions.regenerateOrderHistory?.(
+        regenerateOrderButton.dataset.order || '',
+        String(regenerateOrderButton.dataset.farmerIds || '').split(',').filter(Boolean),
+        regenerateOrderButton.dataset.requisitionDate || '',
+        regenerateOrderButton,
+      );
+      return;
+    }
+    const regeneratePaymentButton = event.target.closest('.history-regenerate-payment');
+    if (regeneratePaymentButton) {
+      event.preventDefault();
+      portalRequisitions.regeneratePaymentHistory?.(
+        regeneratePaymentButton.dataset.id || '',
+        regeneratePaymentButton,
+      );
+      return;
+    }
     const viewButton = event.target.closest('.history-view-document');
     if (!viewButton) return;
     event.preventDefault();
@@ -1055,6 +1081,7 @@
       escapeHtml,
       fmtDate,
       getCookie,
+      loadHistory,
       loadQueue,
       openPortalLink,
       portalApi,

@@ -3019,6 +3019,100 @@ def portal_payment_document_approve(request, document_id: str):
     return JsonResponse({'ok': True, 'document': serialize_payment_document(final_document)})
 
 
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_payment_document_regenerate(request, document_id: str):
+    """Create a new payment review snapshot from a saved payment document.
+
+    Regeneration deliberately re-enters the Head-of-Rural review state.  A
+    saved final workbook is an audit artifact and must never be overwritten or
+    silently treated as an approved replacement.
+    """
+    from core.models import JawabuFarmerMaster, PaymentDocument
+    from core.services.payment_documents import (
+        PaymentTemplateError,
+        create_payment_document,
+        payment_readiness,
+        serialize_payment_document,
+    )
+
+    try:
+        source = PaymentDocument.objects.get(
+            pk=document_id,
+            status__in=['pending_review', 'final'],
+        )
+    except PaymentDocument.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Payment document was not found or cannot be regenerated.'}, status=404)
+
+    farmer_ids = [str(value) for value in (source.farmer_ids or []) if value]
+    if not farmer_ids:
+        # Payment documents created before farmer_ids became part of the
+        # snapshot can still be regenerated from their stored preview rows.
+        farmer_ids = [
+            str((row or {}).get('farmer_id')).strip()
+            for row in (source.validation_summary or {}).get('preview_rows', [])
+            if (row or {}).get('farmer_id')
+        ]
+    if not farmer_ids:
+        farmer_ids = [
+            str(value)
+            for value in JawabuFarmerMaster.objects.filter(
+                order_number=source.order_number,
+                status='active',
+            ).values_list('id', flat=True)
+        ]
+    if not farmer_ids:
+        return JsonResponse({
+            'ok': False,
+            'error': 'The saved payment document has no linked active cases. It cannot be regenerated safely.',
+        }, status=409)
+    farmers = list(
+        JawabuFarmerMaster.objects.filter(id__in=farmer_ids, status='active')
+    ) if farmer_ids else []
+    if farmer_ids and len(farmers) != len(set(farmer_ids)):
+        return JsonResponse({'ok': False, 'error': 'The saved payment document references a missing case.'}, status=409)
+    if farmers:
+        access_error = _portal_farmers_scope_error(request, farmers)
+    else:
+        access_error = _portal_order_scope_error(request, source.order_number)
+    if access_error:
+        return access_error
+
+    try:
+        regenerated = create_payment_document(
+            source.order_number,
+            payment_number=source.payment_number,
+            actor=_portal_sender_from_request(request),
+            final=False,
+            status='pending_review',
+            farmer_ids=farmer_ids or None,
+            call_up_comments=source.call_up_comments,
+            case_call_up_comments=source.case_call_up_comments or {},
+        )
+    except PaymentTemplateError as exc:
+        return JsonResponse({
+            'ok': False,
+            'error': str(exc),
+            'readiness': payment_readiness(
+                source.order_number,
+                farmer_ids=farmer_ids or None,
+            ),
+        }, status=400)
+    except Exception:
+        logger.exception('Payment document regeneration failed for %s', document_id)
+        return JsonResponse({
+            'ok': False,
+            'error': 'Payment document could not be regenerated. Check synchronization status and retry.',
+        }, status=502)
+
+    return JsonResponse({
+        'ok': True,
+        'document': serialize_payment_document(regenerated),
+        'regenerated_from_document_id': str(source.id),
+        'requires_head_rural_review': True,
+    })
+
+
 @require_http_methods(["GET"])
 def portal_document_history(request):
     """List generated order documents and payment review/final artifacts."""
@@ -3047,6 +3141,7 @@ def portal_document_history(request):
                 'generated_by': doc.finalized_by or doc.generated_by,
                 'generated_at': (doc.finalized_at or doc.created_at).isoformat(),
                 'drive_url': doc.drive_url,
+                'farmer_ids': [str(value) for value in (doc.farmer_ids or [])],
             }
             for doc in documents
             if _portal_saved_document_in_scope(request, doc.order_number, doc.farmer_ids)
@@ -3063,6 +3158,7 @@ def portal_document_history(request):
             'generated_at': doc.updated_at.isoformat(),
             'drive_url': doc.drive_url,
             'requisition_date': doc.requisition_date.isoformat() if doc.requisition_date else None,
+            'farmer_ids': [str(value) for value in (doc.farmer_ids or [])],
         }
         for doc in documents
         if _portal_saved_document_in_scope(request, doc.order_number, doc.farmer_ids)

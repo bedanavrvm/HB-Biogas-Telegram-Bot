@@ -220,6 +220,74 @@
     }, { readOnly: true });
   }
 
+  async function regenerateOrderHistory(orderNumber, farmerIds = [], requisitionDate = '', button) {
+    if (!orderNumber) {
+      deps.showToast('This requisition document has no order number.', 'error');
+      return;
+    }
+    let ids = (farmerIds || []).map(value => String(value || '').trim()).filter(Boolean);
+    let date = String(requisitionDate || '').trim();
+    let batch = {
+      order_number: orderNumber,
+      requisition_date: date,
+      farmers: ids.map(id => ({ id })),
+    };
+    // History records from older deployments did not expose their farmer
+    // snapshot. Resolve the current batch before reusing the normal, audited
+    // requisition generation path.
+    if (!ids.length || !date) {
+      const response = await deps.apiFetch('/requisition-batches/' + encodeURIComponent(orderNumber) + '/');
+      if (!response.ok || !response.data?.ok) {
+        deps.showToast(response.data?.error || 'Could not load the requisition batch.', 'error');
+        return;
+      }
+      batch = response.data.batch || batch;
+      ids = (batch.farmers || []).map(farmer => String(farmer.id || '').trim()).filter(Boolean);
+      date = String(batch.requisition_date || '').trim();
+      batch.farmers = (batch.farmers || []).filter(farmer => farmer.id);
+    }
+    if (!ids.length) {
+      deps.showToast('No clients are linked to this requisition order.', 'error');
+      return;
+    }
+    if (!date) {
+      deps.showToast('This requisition has no date and cannot be regenerated.', 'error');
+      return;
+    }
+    batch.order_number = orderNumber;
+    batch.requisition_date = date;
+    batch.farmers = batch.farmers?.length ? batch.farmers : ids.map(id => ({ id }));
+    await generateRequisitionForBatch(batch, button);
+    await deps.loadHistory?.('orders');
+  }
+
+  async function regeneratePaymentHistory(documentId, button) {
+    if (!documentId) {
+      deps.showToast('This payment document has no identifier.', 'error');
+      return;
+    }
+    deps.setButtonLoading(button, true, 'Regenerating...');
+    try {
+      const response = await deps.portalApi.postJson(
+        '/payment-document/' + encodeURIComponent(documentId) + '/regenerate/',
+        {},
+        deps.tg,
+        csrfHeader(),
+      );
+      if (!response.ok || !response.data?.ok) {
+        throw new Error(response.data?.error || 'Could not regenerate the payment document.');
+      }
+      const newDocument = response.data.document || {};
+      deps.showToast('New payment review generated. Head of Rural approval is required.', 'success');
+      await deps.loadHistory?.('payments');
+      if (newDocument.id) await openFinalPaymentHistory(newDocument.id);
+    } catch (error) {
+      deps.showToast(error.message || 'Could not regenerate the payment document.', 'error');
+    } finally {
+      deps.setButtonLoading(button, false);
+    }
+  }
+
   async function openFinalPaymentHistory(documentId) {
     const response = await deps.apiFetch('/payment-document-history/' + encodeURIComponent(documentId) + '/');
     if (!response.ok || !response.data?.ok) return deps.showToast(response.data?.error || 'Could not load payment document.', 'error');
@@ -864,6 +932,8 @@
     openPaymentPreview,
     openFinalOrderHistory,
     openFinalPaymentHistory,
+    regenerateOrderHistory,
+    regeneratePaymentHistory,
     renderPrintablePayment,
     updateBatchPanel,
   };
