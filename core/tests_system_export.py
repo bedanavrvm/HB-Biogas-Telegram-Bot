@@ -142,6 +142,28 @@ class SystemExportImportTests(TestCase):
         self.assertEqual(case360['sections']['final_review']['comment'], 'Order comment from final review')
         self.assertEqual(case360['sections']['final_review']['payment_comment'], 'Payment COL comment')
 
+    def test_case_documents_keep_only_latest_payment_workbook(self):
+        self.farmer.order_number = 'ORDER-001'
+        self.farmer.save(update_fields=['order_number', 'updated_at'])
+        PaymentDocument.objects.create(
+            order_number='ORDER-001', payment_number='89', status='final', version=1,
+            farmer_ids=[str(self.farmer.id)], row_count=1,
+            filename='HB_Payment_89_ORDER-001_final_v1.xlsx',
+            drive_url='https://drive.test/payment-v1',
+        )
+        PaymentDocument.objects.create(
+            order_number='ORDER-001', payment_number='89', status='final', version=2,
+            farmer_ids=[str(self.farmer.id)], row_count=1,
+            filename='HB_Payment_89_ORDER-001_final_v2.xlsx',
+            drive_url='https://drive.test/payment-v2',
+        )
+
+        case360 = serialize_case360(self.farmer)
+
+        self.assertEqual(len(case360['documents']['payments']), 1)
+        self.assertEqual(case360['documents']['payments'][0]['version'], 2)
+        self.assertEqual(case360['documents']['payments'][0]['url'], 'https://drive.test/payment-v2')
+
     def test_conflicting_identifiers_require_review(self):
         other = JawabuFarmerMaster.objects.create(
             customer_name='Other Farmer', customer_no='9002', status='active',

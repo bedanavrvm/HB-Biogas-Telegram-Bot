@@ -85,6 +85,31 @@ def _payment_documents_for_farmer(farmer: JawabuFarmerMaster) -> list[PaymentDoc
     return matched
 
 
+def _latest_payment_documents(documents: list[PaymentDocument]) -> list[PaymentDocument]:
+    """Return one latest payment artifact per payment/order scope.
+
+    PaymentDocument rows are append-only audit artifacts. Case Documents is a
+    current-record view, so it must not expose every historical final workbook
+    as if it were a separate live document.
+    """
+    latest: dict[tuple[str, str], PaymentDocument] = {}
+    ordered = sorted(
+        documents,
+        key=lambda document: (
+            int(document.version or 0),
+            document.finalized_at or document.updated_at or document.created_at,
+        ),
+        reverse=True,
+    )
+    for document in ordered:
+        scope = (
+            str(document.payment_number or '').strip(),
+            str(document.order_number or '').strip(),
+        )
+        latest.setdefault(scope, document)
+    return list(latest.values())
+
+
 def _payment_comment_for_farmer(
     farmer: JawabuFarmerMaster,
     documents: list[PaymentDocument] | None = None,
@@ -271,10 +296,17 @@ def serialize_case360(farmer: JawabuFarmerMaster) -> dict[str, Any]:
     validation = validation_warnings(farmer)
     events = farmer.pipeline_events.order_by('occurred_at', 'created_at')
     invoice = ParsedInvoice.objects.filter(matched_farmer=farmer, status='matched').order_by('-updated_at').first()
-    requisition = RequisitionBatch.objects.filter(order_number=farmer.order_number).first() if farmer.order_number else None
+    requisition = (
+        RequisitionBatch.objects.filter(order_number=farmer.order_number)
+        .order_by('-updated_at', '-version')
+        .first()
+        if farmer.order_number else None
+    )
     payment_documents = _payment_documents_for_farmer(farmer)
     payment_comment = _payment_comment_for_farmer(farmer, payment_documents)
-    payments = [document for document in payment_documents if document.status == 'final']
+    payments = _latest_payment_documents(
+        [document for document in payment_documents if document.status == 'final']
+    )
     return {
         'sections': {
             'identity': {'customer_name': farmer.customer_name, 'system_name': farmer.imab_customer_name, 'national_id': farmer.national_id, 'primary_phone': farmer.primary_phone, 'secondary_phone': farmer.secondary_phone, 'customer_no': farmer.customer_no, 'unit_number': farmer.unit_number},
@@ -297,8 +329,19 @@ def serialize_case360(farmer: JawabuFarmerMaster) -> dict[str, Any]:
         'validation': validation,
         'documents': {
             'visit_media': [url.strip() for url in farmer.jbl_media_urls.splitlines() if url.strip()],
-            'requisition': {'name': requisition.filename, 'url': requisition.drive_url} if requisition and requisition.drive_url else None,
+            'requisition': {
+                'name': requisition.filename,
+                'url': requisition.drive_url,
+                'version': requisition.version,
+                'generated_at': _case_datetime(requisition.updated_at),
+            } if requisition and requisition.drive_url else None,
             'invoice': {'name': invoice.batch.original_filename, 'url': invoice.batch.drive_url} if invoice and invoice.batch.drive_url else None,
-            'payments': [{'name': item.filename, 'url': item.drive_url, 'version': item.version} for item in payments if item.drive_url],
+            'payments': [{
+                'name': item.filename,
+                'url': item.drive_url,
+                'version': item.version,
+                'status': item.status,
+                'generated_at': _case_datetime(item.finalized_at or item.updated_at or item.created_at),
+            } for item in payments if item.drive_url],
         },
     }
