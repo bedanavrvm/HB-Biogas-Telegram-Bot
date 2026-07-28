@@ -3,16 +3,24 @@
   const tg = window.Telegram?.WebApp;
   let backHandler = null;
   let mainHandler = null;
+  let lastFocusedElement = null;
 
   function setSidebar(open) {
     const sidebar = document.getElementById('sidebar');
     const backdrop = document.getElementById('sidebar-backdrop');
     const button = document.getElementById('shell-menu-button');
     if (!sidebar) return;
+    if (open) lastFocusedElement = document.activeElement;
     sidebar.classList.toggle('open', open);
     backdrop?.classList.toggle('open', open);
     button?.setAttribute('aria-expanded', String(open));
     document.body.classList.toggle('sidebar-is-open', open);
+    if (open) {
+      window.requestAnimationFrame(() => sidebar.querySelector('.shell-nav-link')?.focus());
+    } else if (lastFocusedElement && typeof lastFocusedElement.focus === 'function') {
+      lastFocusedElement.focus();
+      lastFocusedElement = null;
+    }
   }
 
   // Overlay controls are delegated because several panels are rendered or
@@ -112,6 +120,9 @@
 
   document.body.addEventListener('htmx:configRequest', event => {
     if (tg?.initData) event.detail.headers['X-Telegram-Init-Data'] = tg.initData;
+    event.detail.headers['X-Request-ID'] = window.crypto?.randomUUID
+      ? window.crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   });
   document.body.addEventListener('htmx:afterSwap', activateScreen);
   window.addEventListener('popstate', () => {

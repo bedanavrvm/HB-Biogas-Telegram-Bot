@@ -843,6 +843,13 @@ def approve_payment_document(
 
 
 def serialize_payment_document(doc: PaymentDocument) -> dict[str, Any]:
+    sync_error = str(doc.error or '').strip()
+    if sync_error:
+        sync_status = 'pending' if 'pending' in sync_error.casefold() else 'retryable_failure'
+    elif str(doc.drive_url or '').strip():
+        sync_status = 'succeeded'
+    else:
+        sync_status = 'not_requested'
     return {
         'id': str(doc.id),
         'order_number': doc.order_number,
@@ -851,6 +858,8 @@ def serialize_payment_document(doc: PaymentDocument) -> dict[str, Any]:
         'version': doc.version,
         'filename': doc.filename,
         'drive_url': doc.drive_url,
+        'sync_status': sync_status,
+        'sync_error': sync_error,
         'reviewed_by': doc.reviewed_by,
         'reviewed_at': doc.reviewed_at.isoformat() if doc.reviewed_at else None,
         'call_up_comments': doc.call_up_comments,

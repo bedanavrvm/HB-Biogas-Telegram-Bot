@@ -416,9 +416,33 @@ class PortalMiniAppAuthTestCase(TestCase):
         response = self.client.get(
             reverse('portal_dashboard'),
             HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
+            HTTP_X_REQUEST_ID='portal-test-request-001',
         )
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['ok'])
+        self.assertEqual(response['X-Request-ID'], 'portal-test-request-001')
+        self.assertEqual(response.json()['request_id'], 'portal-test-request-001')
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
+    def test_portal_api_generates_request_id_when_client_does_not_supply_one(self):
+        self.grant_portal_access(role='ADMIN')
+        response = self.client.get(
+            reverse('portal_dashboard'),
+            HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response['X-Request-ID'])
+        self.assertEqual(response['X-Request-ID'], response.json()['request_id'])
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, SECURE_SSL_REDIRECT=False)
+    def test_portal_health_reports_template_and_storage_state(self):
+        response = self.client.get(reverse('portal_health'))
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['ok'])
+        self.assertIn(data['status'], {'healthy', 'degraded'})
+        self.assertIn('requisition_template', data['checks'])
+        self.assertIn('payment_template', data['checks'])
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_portal_api_rejects_valid_but_unregistered_telegram_user(self):
@@ -1468,6 +1492,43 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(second_batch.preview_filename, 'JBL_Requisition_Form_REQ-PREVIEW-99_preview_v2.xlsx')
         self.assertEqual(mock_generate.call_count, 2)
 
+    @patch('core.services.requisition.generate_requisition_excel', return_value=b'new-xlsx')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_requisition_generation_failure_preserves_last_successful_drive_link(self, mock_storage, mock_generate):
+        self.farmer.final_decision = 'Approved'
+        self.farmer.imab_created = 'Yes'
+        self.farmer.customer_no = '15124'
+        self.farmer.save()
+        self.mark_requisition_location_ready()
+        RequisitionBatch.objects.create(
+            order_number='REQ-RETRY-1',
+            version=1,
+            filename='JBL_Requisition_Form_REQ-RETRY-1_v1.xlsx',
+            file_content=b'previous-xlsx',
+            drive_file_id='previous-drive-id',
+            drive_url='https://drive.test/previous-order',
+            farmer_ids=[str(self.farmer.id)],
+            farmer_count=1,
+        )
+        mock_storage.return_value.upload.side_effect = RuntimeError('Drive unavailable')
+
+        response = self.client.post(
+            reverse('portal_requisition_generate'),
+            json.dumps({
+                'farmer_ids': [str(self.farmer.id)],
+                'order_number': 'REQ-RETRY-1',
+                'requisition_date': '2026-07-06',
+                'return_url': True,
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 502)
+        batch = RequisitionBatch.objects.get(order_number='REQ-RETRY-1')
+        self.assertEqual(batch.drive_file_id, 'previous-drive-id')
+        self.assertEqual(batch.drive_url, 'https://drive.test/previous-order')
+        self.assertEqual(batch.drive_upload_error, 'Drive upload failed; retry required.')
+
     def test_portal_requisition_batch_detail_and_download(self):
         self.farmer.order_number = 'REQ-DETAIL-1'
         self.farmer.requisition_date = date(2026, 7, 6)
@@ -1488,6 +1549,8 @@ class JblPipelineApiTestCase(TestCase):
         self.assertTrue(detail_data['ok'])
         self.assertEqual(detail_data['batch']['order_number'], 'REQ-DETAIL-1')
         self.assertEqual(len(detail_data['batch']['farmers']), 1)
+
+        self.assertEqual(detail_data['batch']['drive_sync_status'], 'not_requested')
 
         download = self.client.get(reverse('portal_requisition_batch_download', args=['REQ-DETAIL-1']))
         self.assertEqual(download.status_code, 200)

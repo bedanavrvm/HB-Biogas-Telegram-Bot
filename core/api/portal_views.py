@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 import uuid
 from functools import wraps
 from urllib.parse import parse_qsl, quote
@@ -52,11 +53,14 @@ def validate_portal_telegram_init_data(init_data: str) -> tuple[bool, str, dict]
 def portal_auth_required(view_func):
     @wraps(view_func)
     def wrapper(request, *args, **kwargs):
+        request.portal_request_id = _portal_request_id(request)
+        started_at = time.monotonic()
         is_valid, error, payload = validate_portal_telegram_init_data(
             _portal_init_data_from_request(request)
         )
         if not is_valid:
-            return JsonResponse({'ok': False, 'error': error}, status=403)
+            response = JsonResponse({'ok': False, 'error': error}, status=403)
+            return _finish_portal_response(request, response, started_at)
         request.portal_auth_payload = payload
         if getattr(settings, 'PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH', True):
             from core.services.telegram_identity import (
@@ -77,15 +81,24 @@ def portal_auth_required(view_func):
             access = user_access(canonical_user, 'jawabu_portal') if canonical_user else None
             if not (access and access['authorized']):
                 account_label = f' (ID {telegram_id})' if telegram_id else ''
-                return JsonResponse({
+                response = JsonResponse({
                     'ok': False,
                     'error': f'Your Telegram account{account_label} is not authorized for the Jawabu Portal.',
                 }, status=403)
+                return _finish_portal_response(request, response, started_at)
             if access and access['authorized']:
                 login(request, canonical_user, backend='core.auth_backends.TelegramMiniAppBackend')
                 request.portal_user = canonical_user
                 request.portal_access = access
-        return view_func(request, *args, **kwargs)
+        try:
+            response = view_func(request, *args, **kwargs)
+        except Exception:
+            logger.exception(
+                'Portal request failed: request_id=%s method=%s path=%s',
+                request.portal_request_id, request.method, request.path,
+            )
+            raise
+        return _finish_portal_response(request, response, started_at)
     return wrapper
 
 
@@ -114,7 +127,41 @@ def _portal_sender_from_request(request) -> str:
 
 
 def _portal_request_id(request, body: dict | None = None) -> str:
-    return str(request.headers.get('X-Request-ID') or (body or {}).get('request_id') or '').strip()[:128]
+    supplied = str(
+        request.headers.get('X-Request-ID')
+        or (body or {}).get('request_id')
+        or getattr(request, 'portal_request_id', '')
+        or ''
+    ).strip()
+    value = supplied[:128] or uuid.uuid4().hex
+    request.portal_request_id = value
+    return value
+
+
+def _finish_portal_response(request, response, started_at: float):
+    """Attach a correlation id to every authenticated portal response.
+
+    The portal has several independently evolved clients. Adding the id at
+    this boundary keeps their response shapes compatible while making a
+    failed Drive/Sheets operation traceable from the browser to server logs.
+    """
+    request_id = getattr(request, 'portal_request_id', '') or _portal_request_id(request)
+    response['X-Request-ID'] = request_id
+    elapsed_ms = round((time.monotonic() - started_at) * 1000, 1)
+    response['Server-Timing'] = f'portal;dur={elapsed_ms}'
+    if isinstance(response, JsonResponse):
+        try:
+            payload = json.loads(response.content.decode(response.charset or 'utf-8'))
+            if isinstance(payload, dict) and 'request_id' not in payload:
+                payload['request_id'] = request_id
+                response.content = json.dumps(payload, ensure_ascii=False).encode(response.charset or 'utf-8')
+        except (TypeError, ValueError, UnicodeDecodeError):
+            logger.warning('Could not attach portal request id to JSON response: %s', request_id)
+    logger.info(
+        'Portal request completed: request_id=%s method=%s path=%s status=%s duration_ms=%s',
+        request_id, request.method, request.path, response.status_code, elapsed_ms,
+    )
+    return response
 
 
 def _portal_actor_telegram_id(request) -> str:
@@ -630,12 +677,20 @@ def _serialize_batch(batch, farmers, request, include_farmers: bool = True) -> d
         'drive_url': getattr(batch, 'drive_url', '') or '',
         'drive_file_id': getattr(batch, 'drive_file_id', '') or '',
         'drive_upload_error': getattr(batch, 'drive_upload_error', '') or '',
+        'drive_sync_status': _artifact_sync_status(
+            getattr(batch, 'drive_url', '') or '',
+            getattr(batch, 'drive_upload_error', '') or '',
+        ),
         'preview_filename': getattr(batch, 'preview_filename', '') or '',
         'preview_drive_url': getattr(batch, 'preview_drive_url', '') or '',
         'preview_drive_file_id': getattr(batch, 'preview_drive_file_id', '') or '',
         'preview_generated_by': getattr(batch, 'preview_generated_by', '') or '',
         'preview_generated_at': batch.preview_generated_at.isoformat() if getattr(batch, 'preview_generated_at', None) else None,
         'preview_error': getattr(batch, 'preview_error', '') or '',
+        'preview_sync_status': _artifact_sync_status(
+            getattr(batch, 'preview_drive_url', '') or '',
+            getattr(batch, 'preview_error', '') or '',
+        ),
         # The master records are canonical. Recalculate this instead of
         # trusting a stale snapshot count from an older append-only update.
         'farmer_count': len(farmers),
@@ -646,6 +701,17 @@ def _serialize_batch(batch, farmers, request, include_farmers: bool = True) -> d
         'last_invoice_result': batch.last_invoice_result or {},
         'farmers': farmers_payload,
     }
+
+
+def _artifact_sync_status(url: str, error: str) -> str:
+    """Return one stable sync state for workbook/document consumers."""
+    if str(error or '').strip():
+        if 'pending' in str(error).casefold():
+            return 'pending'
+        return 'retryable_failure'
+    if str(url or '').strip():
+        return 'succeeded'
+    return 'not_requested'
 
 
 def _batch_amount_summary(farmers) -> dict:
@@ -1009,6 +1075,40 @@ def portal_queue_fragment(request, queue_key: str):
         'review_stage': review_stage,
         'empty_title': config['empty_title'],
         'empty_sub': config['empty_sub'],
+    })
+
+
+@require_http_methods(["GET"])
+def portal_health(request):
+    """Return safe operational checks for portal staff and support admins.
+
+    This intentionally reports configuration/state, never credentials or
+    Google identifiers. It gives staff a useful explanation before they retry
+    a workbook or invoice operation from a mobile WebView.
+    """
+    role_error = _portal_role_error(request, {'operations', 'head_rural'})
+    if role_error:
+        return role_error
+    from core.models import PaymentDocument, PaymentDocumentTemplate, RequisitionBatch, RequisitionTemplate
+
+    requisition_template_ready = RequisitionTemplate.objects.filter(is_active=True).exists()
+    payment_template_ready = PaymentDocumentTemplate.objects.filter(is_active=True).exists()
+    failed_orders = RequisitionBatch.objects.filter(drive_upload_error__gt='').count()
+    failed_payments = PaymentDocument.objects.filter(error__gt='').count()
+    checks = {
+        'database': 'ok',
+        'requisition_template': 'ok' if requisition_template_ready else 'missing',
+        'payment_template': 'ok' if payment_template_ready else 'missing',
+        'order_storage': 'degraded' if failed_orders else 'ok',
+        'payment_storage': 'degraded' if failed_payments else 'ok',
+    }
+    degraded = any(value != 'ok' for value in checks.values())
+    return JsonResponse({
+        'ok': True,
+        'status': 'degraded' if degraded else 'healthy',
+        'checks': checks,
+        'failed_order_syncs': failed_orders,
+        'failed_payment_syncs': failed_payments,
     })
 
 
@@ -1619,8 +1719,6 @@ def portal_requisition_workbook_preview(request):
         filename = f"JBL_Requisition_Form_{order_number}_preview_v{batch.preview_version}.xlsx"
         batch.requisition_date = requisition_date
         batch.preview_filename = filename
-        batch.preview_drive_file_id = ''
-        batch.preview_drive_url = ''
         batch.preview_generated_by = sender
         batch.preview_generated_at = timezone.now()
         batch.preview_error = 'Drive synchronization pending.'
@@ -1723,8 +1821,6 @@ def portal_requisition_generate(request):
         batch.generated_by = sender
         batch.filename = filename
         batch.file_content = xlsx_bytes
-        batch.drive_file_id = ''
-        batch.drive_url = ''
         batch.drive_upload_error = 'Drive synchronization pending.'
         batch.farmer_ids = [str(farmer.id) for farmer in farmers]
         batch.farmer_count = len(farmers)
@@ -2069,6 +2165,16 @@ def portal_invoice_pool_upload(request):
 
 
 def _serialize_invoice_batch(batch) -> dict:
+    sync_error = str(getattr(batch, 'sync_error', '') or getattr(batch, 'error', '') or '').strip()
+    sync_status = str(getattr(batch, 'sync_status', '') or '').strip().lower()
+    if sync_status in {'success', 'succeeded'} or str(batch.drive_url or '').strip():
+        sync_state = 'succeeded'
+    elif sync_status in {'pending', 'processing', 'queued'}:
+        sync_state = 'pending'
+    elif sync_error or sync_status in {'failed', 'error'}:
+        sync_state = 'retryable_failure'
+    else:
+        sync_state = 'not_requested'
     return {
         'id': str(batch.id),
         'original_filename': batch.original_filename,
@@ -2077,6 +2183,8 @@ def _serialize_invoice_batch(batch) -> dict:
         'uploaded_by': batch.uploaded_by,
         'drive_file_id': batch.drive_file_id,
         'drive_url': batch.drive_url,
+        'sync_status': sync_state,
+        'sync_error': sync_error,
         'status': batch.status,
         'total_pages': batch.total_pages,
         'total_parsed': batch.total_parsed,
@@ -3183,6 +3291,10 @@ def portal_document_history(request):
                 'generated_at': (doc.finalized_at or doc.updated_at or doc.created_at).isoformat(),
                 'workbook_generated_at': (doc.finalized_at or doc.updated_at or doc.created_at).isoformat(),
                 'drive_url': doc.drive_url,
+                'sync_status': (
+                    'retryable_failure' if doc.error else 'succeeded' if doc.drive_url else 'pending'
+                ),
+                'sync_error': doc.error or '',
                 'farmer_ids': [str(value) for value in (doc.farmer_ids or [])],
             }
             for doc in documents
@@ -3202,6 +3314,8 @@ def portal_document_history(request):
             'requisition_date': doc.requisition_date.isoformat() if doc.requisition_date else None,
             'workbook_generated_at': doc.updated_at.isoformat(),
             'farmer_ids': [str(value) for value in (doc.farmer_ids or [])],
+            'sync_status': _artifact_sync_status(doc.drive_url, doc.drive_upload_error),
+            'sync_error': doc.drive_upload_error or '',
         }
         for doc in documents
         if _portal_saved_document_in_scope(request, doc.order_number, doc.farmer_ids)

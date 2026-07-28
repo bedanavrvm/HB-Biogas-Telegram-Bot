@@ -82,7 +82,7 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         self.assertIn('/\\/portal\\/cases\\/[^/]+\\//', source)
         self.assertIn("return 'case_history'", source)
-        self.assertContains(response, 'miniapp/miniapp-nav.js?v=6')
+        self.assertContains(response, 'miniapp/miniapp-nav.js?v=7')
 
     def test_portal_helpers_expose_pure_ui_primitives(self):
         source = Path('core/static/miniapp/portal_helpers.js').read_text(encoding='utf-8')
@@ -358,5 +358,5 @@ class MiniAppFrontendSmokeTests(TestCase):
         stylesheet = Path('core/static/miniapp/portal.css').read_text(encoding='utf-8')
         response = self.client.get(reverse('portal_home'))
 
-        self.assertContains(response, 'miniapp/portal.css?v=39')
+        self.assertContains(response, 'miniapp/portal.css?v=41')
         self.assertIn('#requisition-preview-overlay { z-index: 240; }', stylesheet)

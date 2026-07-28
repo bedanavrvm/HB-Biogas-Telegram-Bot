@@ -808,6 +808,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         data = response.json()
         self.assertTrue(data['ok'])
         self.assertEqual(data['document']['drive_url'], 'https://drive.test/payment')
+        self.assertEqual(data['document']['sync_status'], 'succeeded')
         self.assertEqual(data['document']['payment_number'], '89')
         self.assertEqual(PaymentDocument.objects.get().status, 'preview')
 

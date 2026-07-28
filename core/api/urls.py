@@ -42,6 +42,7 @@ from .portal_views import (
     portal_navigation,
     portal_dashboard,
     portal_meta,
+    portal_health,
     portal_jbl_queue,
     portal_jbl_queue_fragment,
     portal_queue_fragment,
@@ -158,6 +159,7 @@ urlpatterns = [
     path('portal/navigation/', portal_navigation, name='portal_navigation'),
     path('portal/dashboard/', portal_auth_required(portal_dashboard), name='portal_dashboard'),
     path('portal/meta/', portal_auth_required(portal_meta), name='portal_meta'),
+    path('portal/health/', portal_auth_required(portal_health), name='portal_health'),
     # Stage 2 - JBL Visit
     path('portal/jbl-queue/', portal_auth_required(portal_jbl_queue), name='portal_jbl_queue'),
     path('portal/jbl-queue/fragment/', portal_auth_required(portal_jbl_queue_fragment), name='portal_jbl_queue_fragment'),

@@ -140,6 +140,9 @@
 
 /* ── Farmer list cards ──────────────────────────────────────────────────────── */
 .farmer-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.queue-error { gap: 8px; }
+.queue-error .btn { align-self: flex-start; min-height: 40px; }
+.error-reference { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; opacity: .8; }
 
 .farmer-card {
   background: var(--bg-surface);

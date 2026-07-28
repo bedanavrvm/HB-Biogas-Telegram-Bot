@@ -9,6 +9,7 @@
 }
 
 html, body { background: var(--tg-bg); color: var(--tg-text); }
+body.sidebar-is-open { overflow: hidden; }
 body { margin: 0; padding-bottom: calc(64px + env(safe-area-inset-bottom)); overflow-x: hidden; }
 .workflow-standard .app-shell-header { position: sticky; top: 0; z-index: 70; box-sizing: border-box; min-height: 48px; height: 48px; display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; margin: 0; padding: 4px 10px; background: var(--tg-secondary-bg); color: var(--tg-text); border-bottom: 1px solid color-mix(in srgb, var(--tg-hint) 25%, transparent); }
 .app-shell-header h1, .app-shell-header p { margin: 0; }
@@ -26,6 +27,7 @@ body { margin: 0; padding-bottom: calc(64px + env(safe-area-inset-bottom)); over
 .app-sidebar .shell-nav-link { justify-content: flex-start; min-width: 0; font-size: 14px; overflow-wrap: anywhere; }
 .app-sidebar .shell-nav-link span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shell-nav-link.active { color: var(--tg-button-text); background: var(--tg-button); }
+.shell-nav-link:focus-visible, .shell-menu-button:focus-visible { outline: 3px solid color-mix(in srgb, var(--tg-button) 60%, transparent); outline-offset: 2px; }
 .shell-nav-link svg { width: 19px; height: 19px; }
 .app-bottom-tabs { box-sizing: border-box; position: fixed; z-index: 80; inset: auto 0 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 1px; width: 100%; overflow: hidden; padding: 4px max(3px, env(safe-area-inset-right)) calc(4px + env(safe-area-inset-bottom)) max(3px, env(safe-area-inset-left)); background: var(--tg-secondary-bg); border-top: 1px solid color-mix(in srgb, var(--tg-hint) 25%, transparent); }
 .app-bottom-tabs .shell-nav-link { box-sizing: border-box; min-width: 0; min-height: 52px; flex-direction: column; gap: 2px; padding: 4px 1px; font-size: 10px; overflow: hidden; }
