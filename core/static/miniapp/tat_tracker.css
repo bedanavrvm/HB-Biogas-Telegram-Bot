@@ -608,6 +608,15 @@ h2 { font-size: 13px; font-weight: 750; }
   display: grid;
   gap: 8px;
 }
+
+/* Telegram's mobile WebView can otherwise treat dynamically rendered form
+   controls as non-selectable. Keep clipboard interaction explicit for the
+   case-detail fields while retaining the normal browser editing behaviour. */
+.tat-paste-field {
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+}
 .form-heading h2, .search-title-block h2 { font-size: 13px; font-weight: 800; color: var(--tat-text); text-transform: uppercase; }
 .form-heading p, .search-title-block p { font-size: 11px; color: var(--tat-muted); margin-top: 1px; }
 

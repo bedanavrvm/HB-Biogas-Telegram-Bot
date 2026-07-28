@@ -174,6 +174,46 @@
     return String(value == null ? '' : value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
   }
 
+  function normalizePastedFieldValue(input, value) {
+    const text = String(value == null ? '' : value).replace(/\r\n?/g, '\n').trim();
+    if (input.dataset.pasteNormalize === 'digits') return text.replace(/\D/g, '');
+    if (input.dataset.pasteNormalize === 'amount') {
+      // Keep the decimal sign and digits, while accepting values copied as
+      // "KES 10,000" or "10,000" from another operational system.
+      return text.replace(/[^\d.,-]/g, '').replace(/,/g, '');
+    }
+    return text;
+  }
+
+  function insertPastedFieldValue(input, value) {
+    if (input.type === 'number') {
+      input.value = value;
+    } else {
+      const start = typeof input.selectionStart === 'number' ? input.selectionStart : input.value.length;
+      const end = typeof input.selectionEnd === 'number' ? input.selectionEnd : input.value.length;
+      if (typeof input.setRangeText === 'function') {
+        input.setRangeText(value, start, end, 'end');
+      } else {
+        input.value = input.value.slice(0, start) + value + input.value.slice(end);
+      }
+    }
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function configureClipboardFields() {
+    // Delegation also covers the stage-correction input created on demand.
+    document.addEventListener('paste', (event) => {
+      const input = event.target && event.target.closest ? event.target.closest('.tat-paste-field') : null;
+      if (!input || input.disabled || input.readOnly) return;
+      const clipboard = event.clipboardData || window.clipboardData;
+      const text = clipboard && clipboard.getData ? clipboard.getData('text/plain') : '';
+      if (!text) return;
+      event.preventDefault();
+      insertPastedFieldValue(input, normalizePastedFieldValue(input, text));
+    });
+  }
+
   function statusClass(status) {
     return String(status || 'active').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
   }
@@ -754,6 +794,7 @@
   function openStageCorrection(actionWrap, field) {
     const current = field.raw_value || '';
     const input = document.createElement('input');
+    input.className = 'tat-paste-field';
     input.type = field.kind === 'timestamp' ? 'datetime-local' : 'text';
     input.value = field.kind === 'timestamp' ? correctionDateTimeValue(current) : current;
     input.setAttribute('aria-label', 'Correct ' + field.label);
@@ -918,6 +959,7 @@
   });
 
   $('closeNoticeBtn').addEventListener('click', closeNotice);
+  configureClipboardFields();
 
   $('searchBtn').addEventListener('click', runSearch);
   $('searchInput').addEventListener('input', scheduleSearch);
