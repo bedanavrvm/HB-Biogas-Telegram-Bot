@@ -4,7 +4,8 @@ from decimal import Decimal
 
 from django.test import TestCase
 
-from core.models import JawabuFarmerMaster
+from core.models import JawabuFarmerMaster, PaymentDocument
+from core.services.jawabu_case360 import serialize_case360
 from core.services.system_export import (
     commit_system_export_review_batch,
     create_system_export_review_batch,
@@ -101,6 +102,44 @@ class SystemExportImportTests(TestCase):
         self.assertEqual(self.farmer.system_deposit_paid_jbl, Decimal('5000'))
         self.assertEqual(batch.status, 'committed')
         self.assertTrue(self.farmer.pipeline_events.filter(source='system_export').exists())
+
+    def test_case_history_uses_committed_system_identity_and_payment_comment(self):
+        self.farmer.customer_name = 'Free Form Name'
+        self.farmer.jbl_officer = 'Field Officer'
+        self.farmer.final_decision = 'Approved'
+        self.farmer.final_decision_comment = 'Order comment from final review'
+        self.farmer.order_number = 'ORDER-001'
+        self.farmer.save()
+        batch, _stats = create_system_export_review_batch(
+            group_id='-100sysup',
+            telegram_message_id='sysup-case-history',
+            sender='Officer',
+            source_filename='customers.csv',
+            content=export_csv([{
+                'Customer ID': '9001', 'Name': 'WANJIKU, JANE', 'Mobile No': '0712345678',
+                'ID NO': '12345678', 'Branch': 'Embu', 'Loan Officer': 'System Officer',
+                'Product Name': 'Biogas', 'LGF Balance': '5000',
+            }]),
+        )
+
+        result = commit_system_export_review_batch(batch, batch.parsed_rows, actor='Officer')
+        self.assertTrue(result['success'])
+        self.farmer.refresh_from_db()
+        PaymentDocument.objects.create(
+            order_number='PAYMENT-89',
+            payment_number='89',
+            status='final',
+            farmer_ids=[str(self.farmer.id)],
+            case_call_up_comments={str(self.farmer.id): 'Payment COL comment'},
+            row_count=1,
+        )
+
+        case360 = serialize_case360(self.farmer)
+
+        self.assertEqual(case360['sections']['identity']['system_name'], 'WANJIKU, JANE')
+        self.assertEqual(case360['sections']['order']['system_loan_officer'], 'System Officer')
+        self.assertEqual(case360['sections']['final_review']['comment'], 'Order comment from final review')
+        self.assertEqual(case360['sections']['final_review']['payment_comment'], 'Payment COL comment')
 
     def test_conflicting_identifiers_require_review(self):
         other = JawabuFarmerMaster.objects.create(

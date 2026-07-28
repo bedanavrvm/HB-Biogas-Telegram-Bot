@@ -54,6 +54,55 @@ def _case_amount(value: Any) -> str | None:
     return text.rstrip('0').rstrip('.') if '.' in text else text
 
 
+def _payment_documents_for_farmer(farmer: JawabuFarmerMaster) -> list[PaymentDocument]:
+    """Resolve payment snapshots linked to this application.
+
+    Payment batches selected in the Mini App use a ``PAYMENT-*`` scope rather
+    than the customer's order number, so matching only on ``order_number``
+    would make the payment comment disappear from Case History.  The immutable
+    payment snapshot stores the selected farmer IDs; use those first and keep
+    the order-number fallback for older documents.
+    """
+    farmer_id = str(farmer.id)
+    documents = []
+    if farmer.order_number:
+        documents.extend(PaymentDocument.objects.filter(
+            status__in=['final', 'pending_review'],
+            order_number=farmer.order_number,
+        ).order_by('-created_at'))
+    seen = {document.id for document in documents}
+    documents.extend(PaymentDocument.objects.filter(
+        status__in=['final', 'pending_review'],
+    ).exclude(pk__in=seen).order_by('-created_at')[:200])
+    matched = []
+    for document in documents:
+        selected_ids = {str(value) for value in (document.farmer_ids or []) if value}
+        rows = (document.validation_summary or {}).get('preview_rows') or []
+        row_match = any(str((row or {}).get('farmer_id') or '') == farmer_id for row in rows)
+        if farmer_id not in selected_ids and not row_match and document.order_number != farmer.order_number:
+            continue
+        matched.append(document)
+    return matched
+
+
+def _payment_comment_for_farmer(
+    farmer: JawabuFarmerMaster,
+    documents: list[PaymentDocument] | None = None,
+) -> str:
+    farmer_id = str(farmer.id)
+    source_documents = documents if documents is not None else _payment_documents_for_farmer(farmer)
+    for document in source_documents:
+        comments = document.case_call_up_comments or {}
+        comment = str(comments.get(farmer_id) or '').strip()
+        if not comment:
+            # Older final documents only stored one payment COL comment.  It is
+            # still a payment comment, not the order/requisition comment.
+            comment = str(document.call_up_comments or '').strip()
+        if comment:
+            return comment
+    return ''
+
+
 def event_request_already_processed(farmer: JawabuFarmerMaster, request_id: str) -> bool:
     return bool(request_id) and farmer.pipeline_events.filter(request_id=request_id).exists()
 
@@ -223,17 +272,19 @@ def serialize_case360(farmer: JawabuFarmerMaster) -> dict[str, Any]:
     events = farmer.pipeline_events.order_by('occurred_at', 'created_at')
     invoice = ParsedInvoice.objects.filter(matched_farmer=farmer, status='matched').order_by('-updated_at').first()
     requisition = RequisitionBatch.objects.filter(order_number=farmer.order_number).first() if farmer.order_number else None
-    payments = PaymentDocument.objects.filter(order_number=farmer.order_number, status='final').order_by('-version') if farmer.order_number else PaymentDocument.objects.none()
+    payment_documents = _payment_documents_for_farmer(farmer)
+    payment_comment = _payment_comment_for_farmer(farmer, payment_documents)
+    payments = [document for document in payment_documents if document.status == 'final']
     return {
         'sections': {
-            'identity': {'customer_name': farmer.customer_name, 'national_id': farmer.national_id, 'primary_phone': farmer.primary_phone, 'secondary_phone': farmer.secondary_phone, 'customer_no': farmer.customer_no, 'unit_number': farmer.unit_number},
+            'identity': {'customer_name': farmer.customer_name, 'system_name': farmer.imab_customer_name, 'national_id': farmer.national_id, 'primary_phone': farmer.primary_phone, 'secondary_phone': farmer.secondary_phone, 'customer_no': farmer.customer_no, 'unit_number': farmer.unit_number},
             # Ward is retained for source/import compatibility, but is not a
             # captured or used field in the staff-facing case history.
             'intake': {'hbg_visit_date': _case_date(farmer.hbg_visit_date or farmer.sign_date), 'county': farmer.county, 'constituency': farmer.sub_county, 'village': farmer.village, 'branch': farmer.branch, 'lead_source': farmer.lead_source, 'hb_sales_person': farmer.hb_sales_person, 'deposit_paid_hbg': _case_amount(farmer.deposit_paid_hbg if farmer.deposit_paid_hbg is not None else farmer.actual_receipts)},
             'jbl_visit': {'visit_date': _case_date(farmer.jbl_visit_date), 'officer': farmer.jbl_officer, 'status': farmer.jbl_visit_status, 'comment': farmer.jbl_visit_comment, 'gps_link': farmer.gps_link},
             'credit': {'decision': farmer.credit_decision, 'decided_by': farmer.credit_decided_by, 'decided_at': _case_datetime(farmer.credit_decided_at), 'imab_created': farmer.imab_created, 'customer_no': farmer.customer_no},
-            'final_review': {'decision': farmer.final_decision, 'comment': farmer.final_decision_comment, 'decided_by': farmer.final_decided_by, 'decided_at': _case_datetime(farmer.final_decided_at), 'repayment_day': farmer.repayment_day, 'tenor_months': farmer.repayment_tenor_months},
-            'order': {'order_number': farmer.order_number, 'requisition_date': _case_date(farmer.requisition_date), 'payment_product': farmer.payment_product},
+            'final_review': {'decision': farmer.final_decision, 'comment': farmer.final_decision_comment, 'payment_comment': payment_comment, 'decided_by': farmer.final_decided_by, 'decided_at': _case_datetime(farmer.final_decided_at), 'repayment_day': farmer.repayment_day, 'tenor_months': farmer.repayment_tenor_months},
+            'order': {'order_number': farmer.order_number, 'requisition_date': _case_date(farmer.requisition_date), 'payment_product': farmer.payment_product, 'system_loan_officer': farmer.system_loan_officer or farmer.jbl_officer},
             'invoice': {'number': farmer.invoice_number, 'date': _case_date(farmer.invoice_date), 'amount': _case_amount(farmer.invoice_amount), 'discount': _case_amount(farmer.discount), 'payment': _case_amount(farmer.payment), 'balance_due': _case_amount(farmer.balance_due)},
         },
         'timeline': [{

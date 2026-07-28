@@ -51,9 +51,9 @@
     return deps.escapeHtml(text);
   }
 
-  function renderBusinessSection(section) {
+  function renderBusinessSection(section, sectionName = '') {
     return `<div class="case360-grid">${Object.entries(section || {}).map(([key, value]) =>
-      `<div class="case360-field ${['comment', 'gps_link'].includes(key) ? 'wide' : ''} ${value === null || value === '' ? 'empty' : ''}"><span>${deps.escapeHtml(humanLabel(key))}</span><strong>${renderCaseFieldValue(key, value)}</strong></div>`
+      `<div class="case360-field ${['comment', 'payment_comment', 'gps_link'].includes(key) ? 'wide' : ''} ${value === null || value === '' ? 'empty' : ''}"><span>${deps.escapeHtml(sectionName === 'final_review' && key === 'comment' ? 'Order / requisition comment' : sectionName === 'final_review' && key === 'payment_comment' ? 'Payment comment (COL)' : humanLabel(key))}</span><strong>${renderCaseFieldValue(key, value)}</strong></div>`
     ).join('')}</div>`;
   }
 
@@ -81,11 +81,14 @@
   function caseHeader(sections) {
     const identity = sections.identity || {};
     const intake = sections.intake || {};
+    const systemName = identity.system_name && identity.system_name !== identity.customer_name
+      ? `IMAB: ${identity.system_name}`
+      : '';
     const status = sections.invoice?.number ? 'Invoiced'
       : sections.order?.order_number ? 'Ordered'
       : sections.final_review?.decision || sections.credit?.decision || sections.jbl_visit?.status || 'Application received';
     return `<header class="case360-hero">
-      <div class="case360-identity"><span class="case360-eyebrow">Customer case</span><h2>${deps.escapeHtml(identity.customer_name || 'Unnamed customer')}</h2><p>${deps.escapeHtml([identity.national_id && `ID ${identity.national_id}`, identity.primary_phone, intake.branch].filter(Boolean).join('  |  ') || 'Identifiers not recorded')}</p></div>
+      <div class="case360-identity"><span class="case360-eyebrow">Customer case</span><h2>${deps.escapeHtml(identity.customer_name || 'Unnamed customer')}</h2><p>${deps.escapeHtml([systemName, identity.national_id && `ID ${identity.national_id}`, identity.primary_phone, intake.branch].filter(Boolean).join('  |  ') || 'Identifiers not recorded')}</p></div>
       <span class="case360-status">${deps.escapeHtml(status)}</span>
     </header>${caseStageFlow(sections)}`;
   }
@@ -114,7 +117,7 @@
     ];
     const sectionCards = Object.entries(sections).map(([name, values]) => {
       const meta = CASE_SECTION_META[name] || [humanLabel(name), ''];
-      return `<details class="case360-section"><summary><div><h3>${deps.escapeHtml(meta[0])}</h3><p>${deps.escapeHtml(meta[1])}</p></div><span class="case360-chevron" aria-hidden="true"></span></summary>${renderBusinessSection(values)}</details>`;
+      return `<details class="case360-section"><summary><div><h3>${deps.escapeHtml(meta[0])}</h3><p>${deps.escapeHtml(meta[1])}</p></div><span class="case360-chevron" aria-hidden="true"></span></summary>${renderBusinessSection(values, name)}</details>`;
     }).join('');
     root.innerHTML = `
       ${caseHeader(sections)}
