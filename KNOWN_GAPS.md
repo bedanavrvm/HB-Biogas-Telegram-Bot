@@ -21,6 +21,16 @@ the generated workbook in a proper spreadsheet application for printing. Do
 not reintroduce `window.print()` as a production document workflow without a
 new verified Telegram-client test and ADR.
 
+## Physical document signing
+
+Requisitions and final payment schedules support retention of a physically
+signed-and-stamped PDF/JPG/PNG scan. The system records the authorised staff
+attestation, source-workbook hash, scan hash, and Drive outcome; it does **not**
+verify handwritten signatures, stamps, or legal e-signature validity. The
+external e-signature integration remains deliberately on hold. Existing
+documents without locally retained source workbook bytes are legacy records and
+must be regenerated before a new traceable physical sign-off can be attached.
+
 ## Mini App recovery drafts
 
 `core.0072_miniapp_drafts` is committed but not authorized for production

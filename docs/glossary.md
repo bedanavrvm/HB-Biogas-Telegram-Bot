@@ -18,6 +18,7 @@ respective service modules.
 | Capability | A stable code-controlled permission such as `portal.jbl_visit.write`. Policies decide which roles receive existing capabilities. |
 | Effective access | The intersection of an active user's scoped grants/emergency grants and the approved role-capability policy. |
 | Emergency access | A separately audited, reason-required grant that expires automatically. It is not a substitute for a permanent AccessGrant. |
+| Physical document sign-off | An authorised Portal role's attested upload of a scan of a paper-signed and stamped generated workbook. It is not an e-signature or handwriting-verification service. |
 
 ## Workflow keys and role codes
 
@@ -40,7 +41,7 @@ or template.
 
 | Prefix | Scope | Examples |
 |---|---|---|
-| `portal.*` | Jawabu Portal | `portal.dashboard.view`, `portal.jbl_visit.write`, `portal.payment.review`, `portal.documents.regenerate` |
+| `portal.*` | Jawabu Portal | `portal.dashboard.view`, `portal.jbl_visit.write`, `portal.payment.review`, `portal.documents.regenerate`, `portal.documents.sign` |
 | `complaint.*` | Complaint Cases | `complaint.queue.view`, `complaint.case.create`, `complaint.case.update`, `complaint.case.manage` |
 | `tat.*` | TAT Tracker | `tat.home.view`, `tat.case.create`, `tat.case.correct`, `tat.stage.<stage>.update` |
 | `spin.*` | SPIN / Credit | `spin.request.view`, `spin.request.create`, `spin.request.review`, `spin.request.complete` |
@@ -61,6 +62,7 @@ request can be approved.
 | Requisition/order | Approved cases grouped under an order number and requisition date. |
 | Invoice | Supplier/customer invoice parsing, review, matching, and confirmation. |
 | Payment review/final | Per-case Head of Rural payment call-up review followed by a generated payment schedule. |
+| Signed scan approved | A retained generated workbook has a separately stored PDF/JPG/PNG scan of its physically signed and stamped copy, confirmed by the configured authorised role. |
 | Deferred | A paused case. A deferred application must be reappraised after the configured maximum deferral period. |
 | Workflow revision | Monotonic case version returned to a Mini App. A write must include the version it read; a newer stored version causes a refresh-and-review conflict instead of a lost update. |
 | Workflow transition | A validated movement between responsible workflow states. It records source, target, actor, authority, reason where required, and before/after revisions. |

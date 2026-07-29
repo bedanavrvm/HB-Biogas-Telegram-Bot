@@ -956,6 +956,35 @@
     });
   }
 
+  function physicalSignoffMarkup(document, kind) {
+    const signoff = document?.physical_signoff || {};
+    const type = kind === 'payments' ? 'payment' : 'requisition';
+    const status = String(signoff.status || 'awaiting_signed_scan');
+    const role = signoff.approval_role ? `Configured approver: ${escapeHtml(signoff.approval_role)}.` : 'No approver role is configured.';
+    if (status === 'signed_approved') {
+      return `<section class="physical-signoff physical-signoff-approved"><div><strong>Signed &amp; stamped scan retained</strong><span>${role} Hash: ${escapeHtml(String(signoff.scan_checksum || '').slice(0, 12))}&hellip;</span></div>${signoff.drive_url ? `<button type="button" class="btn btn-secondary history-open-signed-scan" data-url="${escapeHtml(signoff.drive_url)}">Open signed scan</button>` : ''}</section>`;
+    }
+    if (status === 'legacy_not_signable') {
+      return `<section class="physical-signoff physical-signoff-muted"><div><strong>Legacy workbook</strong><span>Its source bytes were not retained. Regenerate this document before attaching a signed scan.</span></div></section>`;
+    }
+    if (status === 'upload_failed') {
+      return `<section class="physical-signoff physical-signoff-warning"><div><strong>Signed scan retained locally; Drive retry needed</strong><span>${escapeHtml(signoff.drive_error || 'The scan has not reached Drive yet.')}</span></div>${signoff.id ? `<button type="button" class="btn btn-secondary history-retry-signed-scan" data-signoff-id="${escapeHtml(signoff.id)}">Retry upload</button>` : ''}</section>`;
+    }
+    if (status === 'rejected') {
+      return `<section class="physical-signoff physical-signoff-warning"><div><strong>Signed scan rejected</strong><span>${escapeHtml(signoff.rejection_reason || 'Attach a new signed scan after correcting it.')}</span></div></section>`;
+    }
+    if (!signoff.can_upload) {
+      return `<section class="physical-signoff physical-signoff-muted"><div><strong>Awaiting signed &amp; stamped scan</strong><span>${role}</span></div></section>`;
+    }
+    return `<details class="physical-signoff physical-signoff-upload"><summary><span><strong>Attach signed &amp; stamped scan</strong><small>${role} The original Excel stays unchanged.</small></span></summary><div class="physical-signoff-form"><label class="invoice-upload-dropzone"><span class="upload-icon">&#8593;</span><strong>Tap to choose signed PDF or image</strong><small>PDF, JPG, or PNG. One complete, readable scan.</small><input class="history-signed-scan" type="file" accept="application/pdf,image/jpeg,image/png" hidden></label><label class="physical-signoff-attestation"><input class="history-signoff-attest" type="checkbox"> I confirm this is the complete signed and stamped copy of this exact document version.</label><button type="button" class="btn btn-primary history-upload-signed-scan" data-document-type="${type}" data-document-id="${escapeHtml(document.id)}">Upload signed scan</button></div></details>`;
+  }
+
+  function priorPhysicalSignoffsMarkup(document) {
+    const prior = document?.physical_signoff?.previous_approved || [];
+    if (!prior.length) return '';
+    return `<details class="history-previous-versions physical-signoff-prior"><summary>${prior.length} earlier signed version${prior.length === 1 ? '' : 's'} retained</summary><div>${prior.map(item => `<div class="history-previous-version"><span>v${escapeHtml(item.source_version || 0)} - signed scan retained</span>${item.drive_url ? `<button type="button" class="btn btn-secondary history-open-signed-scan" data-url="${escapeHtml(item.drive_url)}">Open signed scan</button>` : ''}</div>`).join('')}</div></details>`;
+  }
+
   function renderDocumentHistory(documents, kind) {
     const target = el('history-list');
     if (!target) return;
@@ -965,7 +994,7 @@
     }
     target.innerHTML = documents.map(doc => {
       const previousVersions = kind === 'payments' && doc.previous_versions?.length
-        ? `<details class="history-previous-versions"><summary>${doc.previous_versions.length} previous version${doc.previous_versions.length === 1 ? '' : 's'} retained</summary><div>${doc.previous_versions.map(previous => `<div class="history-previous-version"><span>v${escapeHtml(previous.version || 0)} - ${escapeHtml(previous.status === 'final' ? 'Final' : previous.status === 'pending_review' ? 'Awaiting Head of Rural review' : previous.status === 'failed' ? 'Storage failed' : 'Saved')}</span><button type="button" class="btn btn-secondary history-view-document" data-kind="payments" data-id="${escapeHtml(previous.id)}">View</button></div>`).join('')}</div></details>`
+        ? `<details class="history-previous-versions"><summary>${doc.previous_versions.length} previous version${doc.previous_versions.length === 1 ? '' : 's'} retained</summary><div>${doc.previous_versions.map(previous => `<div class="history-previous-version"><span>v${escapeHtml(previous.version || 0)} - ${escapeHtml(previous.status === 'final' ? 'Final' : previous.status === 'pending_review' ? 'Awaiting Head of Rural review' : previous.status === 'failed' ? 'Storage failed' : 'Saved')}</span><button type="button" class="btn btn-secondary history-view-document" data-kind="payments" data-id="${escapeHtml(previous.id)}">View</button>${previous.physical_signoff?.status === 'signed_approved' && previous.physical_signoff?.drive_url ? `<button type="button" class="btn btn-secondary history-open-signed-scan" data-url="${escapeHtml(previous.physical_signoff.drive_url)}">Open signed scan</button>` : ''}</div>`).join('')}</div></details>`
         : '';
       const syncBadge = doc.sync_status === 'retryable_failure'
         ? `<span class="badge badge-red" title="${escapeHtml(doc.sync_error || 'External storage failed')}">Storage retry needed</span>`
@@ -987,6 +1016,8 @@
             ? (doc.status === 'final' || doc.status === 'failed' ? `<button type="button" class="btn btn-secondary history-regenerate-payment" data-id="${escapeHtml(doc.id)}">${doc.status === 'failed' ? 'Retry payment doc' : 'Regenerate payment doc'}</button>` : '')
             : (hasCapability('portal.documents.regenerate') && kind === 'orders' ? `<button type="button" class="btn btn-secondary history-regenerate-order" data-order="${escapeHtml(doc.order_number || '')}" data-requisition-date="${escapeHtml(doc.requisition_date || '')}" data-farmer-ids="${escapeHtml((doc.farmer_ids || []).join(','))}">Regenerate requisition/order</button>` : '')}
         </div>
+        ${physicalSignoffMarkup(doc, kind)}
+        ${priorPhysicalSignoffsMarkup(doc)}
         ${previousVersions}
       </article>`;
     }).join('');
@@ -1136,6 +1167,54 @@
       // This handler lives in the portal shell, not the requisitions module;
       // using the module's `deps` here throws before the link can open.
       openPortalLink(excelButton.dataset.url || '');
+      return;
+    }
+    const signedScanButton = event.target.closest('.history-open-signed-scan');
+    if (signedScanButton) {
+      event.preventDefault();
+      openPortalLink(signedScanButton.dataset.url || '');
+      return;
+    }
+    const uploadSignedScanButton = event.target.closest('.history-upload-signed-scan');
+    if (uploadSignedScanButton) {
+      event.preventDefault();
+      const card = uploadSignedScanButton.closest('.history-document-card');
+      const file = card?.querySelector('.history-signed-scan')?.files?.[0];
+      const attested = Boolean(card?.querySelector('.history-signoff-attest')?.checked);
+      if (!file || !attested) {
+        showToast('Choose the signed scan and confirm that it is complete, signed, stamped, readable, and matches this document version.', 'error');
+        return;
+      }
+      const formData = new FormData();
+      formData.append('signed_scan', file);
+      formData.append('attested_complete', 'true');
+      setButtonLoading(uploadSignedScanButton, true, 'Uploading...');
+      portalApi.postForm(
+        `/document-signoffs/${encodeURIComponent(uploadSignedScanButton.dataset.documentType || '')}/${encodeURIComponent(uploadSignedScanButton.dataset.documentId || '')}/upload/`,
+        formData,
+        tg,
+      ).then(async result => {
+        if (!result.ok && !result.data?.pending_retry) throw new Error(result.data?.error || 'Could not store the signed scan.');
+        showToast(result.data?.pending_retry ? 'Signed scan retained; its Drive upload needs a retry.' : 'Signed and stamped scan retained.', result.data?.pending_retry ? 'error' : 'success');
+        await loadHistory(historyKind);
+      }).catch(error => showToast(error.message || 'Could not store the signed scan.', 'error'))
+        .finally(() => setButtonLoading(uploadSignedScanButton, false));
+      return;
+    }
+    const retrySignedScanButton = event.target.closest('.history-retry-signed-scan');
+    if (retrySignedScanButton) {
+      event.preventDefault();
+      setButtonLoading(retrySignedScanButton, true, 'Retrying...');
+      portalApi.postForm(
+        `/document-signoffs/${encodeURIComponent(retrySignedScanButton.dataset.signoffId || '')}/retry/`,
+        new FormData(),
+        tg,
+      ).then(async result => {
+        if (!result.ok && !result.data?.pending_retry) throw new Error(result.data?.error || 'Could not retry the signed scan upload.');
+        showToast(result.data?.pending_retry ? 'Drive still unavailable; the signed scan remains retained for retry.' : 'Signed scan uploaded and approved.', result.data?.pending_retry ? 'error' : 'success');
+        await loadHistory(historyKind);
+      }).catch(error => showToast(error.message || 'Could not retry the signed scan upload.', 'error'))
+        .finally(() => setButtonLoading(retrySignedScanButton, false));
       return;
     }
     const regenerateOrderButton = event.target.closest('.history-regenerate-order');

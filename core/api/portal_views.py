@@ -3558,12 +3558,26 @@ def portal_payment_document_regenerate(request, document_id: str):
 def portal_document_history(request):
     """List generated order documents and payment review/final artifacts."""
     from core.models import PaymentDocument, RequisitionBatch
+    from core.services.document_signoffs import (
+        can_approve_physical_signoff,
+        document_signoff_summary,
+    )
 
     access_error = _portal_read_access_error(request, capability='portal.documents.view')
     if access_error:
         return access_error
 
     kind = request.GET.get('kind', 'orders')
+    can_sign_requisition = can_approve_physical_signoff(
+        getattr(request, 'portal_user', None),
+        getattr(request, 'portal_access', None),
+        'requisition',
+    )
+    can_sign_payment = can_approve_physical_signoff(
+        getattr(request, 'portal_user', None),
+        getattr(request, 'portal_access', None),
+        'payment',
+    )
     if kind == 'payments':
         # Keep pending review snapshots visible to Head of Rural.  Final
         # history and review work are one payment register, but their status
@@ -3594,6 +3608,9 @@ def portal_document_history(request):
                 'sync_attempts': getattr(doc, 'drive_sync_attempts', 0) or 0,
                 'next_retry_at': doc.drive_next_retry_at.isoformat() if getattr(doc, 'drive_next_retry_at', None) else None,
                 'farmer_ids': [str(value) for value in (doc.farmer_ids or [])],
+                'physical_signoff': document_signoff_summary(
+                    'payment', doc, can_upload=can_sign_payment,
+                ),
             }
             for doc in documents
             if _portal_saved_document_in_scope(request, doc.order_number, doc.farmer_ids)
@@ -3614,10 +3631,115 @@ def portal_document_history(request):
             'farmer_ids': [str(value) for value in (doc.farmer_ids or [])],
             'sync_status': _artifact_sync_status(doc.drive_url, doc.drive_upload_error),
             'sync_error': doc.drive_upload_error or '',
+            'physical_signoff': document_signoff_summary(
+                'requisition', doc, can_upload=can_sign_requisition,
+            ),
         }
         for doc in documents
         if _portal_saved_document_in_scope(request, doc.order_number, doc.farmer_ids)
     ]})
+
+
+def _portal_document_signoff_document(request, document_type: str, document_id: str):
+    """Resolve an artifact and apply the normal document/scope guard first."""
+    from django.shortcuts import get_object_or_404
+    from core.models import PaymentDocument, RequisitionBatch
+
+    if document_type == 'requisition':
+        document = get_object_or_404(RequisitionBatch, pk=document_id)
+        farmer_ids = document.farmer_ids
+        order_number = document.order_number
+    elif document_type == 'payment':
+        document = get_object_or_404(PaymentDocument, pk=document_id)
+        farmer_ids = document.farmer_ids
+        order_number = document.order_number
+    else:
+        return None, JsonResponse({'ok': False, 'error': 'Unsupported document type.'}, status=404)
+    if _portal_capability_error(request, 'portal.documents.sign') or not _portal_saved_document_in_scope(request, order_number, farmer_ids):
+        return None, JsonResponse({'ok': False, 'error': 'You do not have access to sign this document.'}, status=403)
+    return document, None
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_document_physical_signoff_upload(request, document_type: str, document_id: str):
+    """Upload one externally signed/stamped scan for a retained workbook."""
+    from core.services.document_signoffs import PhysicalSignoffError, submit_physical_signoff, serialize_physical_signoff
+
+    _document, access_error = _portal_document_signoff_document(request, document_type, document_id)
+    if access_error:
+        return access_error
+    if str(request.POST.get('attested_complete') or '').casefold() not in {'1', 'true', 'yes', 'on'}:
+        return JsonResponse({
+            'ok': False,
+            'error': 'Confirm that the scan is complete, signed, stamped, readable, and matches this exact document version.',
+        }, status=400)
+    try:
+        signoff, replayed = submit_physical_signoff(
+            document_type=document_type,
+            document_id=document_id,
+            uploaded_file=request.FILES.get('signed_scan'),
+            actor=getattr(request, 'portal_user', None),
+            access=getattr(request, 'portal_access', None),
+            request_id=_portal_request_id(request),
+        )
+    except PhysicalSignoffError as exc:
+        return JsonResponse({'ok': False, 'error': '; '.join(exc.messages)}, status=400)
+    except Exception:
+        logger.exception('Physical sign-off submission failed: document_type=%s document_id=%s', document_type, document_id)
+        return JsonResponse({'ok': False, 'error': 'The signed scan could not be stored. Retry without changing the document version.'}, status=502)
+    payload = serialize_physical_signoff(
+        signoff,
+        document_type=document_type,
+        source_available=True,
+        can_upload=True,
+    )
+    return JsonResponse({
+        'ok': signoff.status != 'upload_failed',
+        'pending_retry': signoff.status == 'upload_failed',
+        'idempotent_replay': replayed,
+        'signoff': payload,
+    }, status=202 if signoff.status == 'upload_failed' else 200)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_document_physical_signoff_retry(request, signoff_id: str):
+    """Retry a failed Drive upload without accepting a second scan."""
+    from core.models import DocumentPhysicalSignoff
+    from core.services.document_signoffs import (
+        PhysicalSignoffError,
+        retry_physical_signoff,
+        serialize_physical_signoff,
+    )
+
+    try:
+        existing = DocumentPhysicalSignoff.objects.select_related('requisition_batch', 'payment_document').get(pk=signoff_id)
+    except DocumentPhysicalSignoff.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Signed-scan record not found.'}, status=404)
+    document = existing.requisition_batch or existing.payment_document
+    if _portal_capability_error(request, 'portal.documents.sign') or not _portal_saved_document_in_scope(
+        request,
+        getattr(document, 'order_number', ''),
+        getattr(document, 'farmer_ids', []),
+    ):
+        return JsonResponse({'ok': False, 'error': 'You do not have access to retry this signed scan.'}, status=403)
+    try:
+        signoff = retry_physical_signoff(
+            signoff_id=signoff_id,
+            actor=getattr(request, 'portal_user', None),
+            access=getattr(request, 'portal_access', None),
+        )
+    except PhysicalSignoffError as exc:
+        return JsonResponse({'ok': False, 'error': '; '.join(exc.messages)}, status=400)
+    except Exception:
+        logger.exception('Physical sign-off retry failed: signoff=%s', signoff_id)
+        return JsonResponse({'ok': False, 'error': 'The signed-scan upload could not be retried.'}, status=502)
+    return JsonResponse({
+        'ok': signoff.status != 'upload_failed',
+        'pending_retry': signoff.status == 'upload_failed',
+        'signoff': serialize_physical_signoff(signoff, document_type=signoff.document_type, source_available=True, can_upload=True),
+    }, status=202 if signoff.status == 'upload_failed' else 200)
 
 
 @require_http_methods(["GET"])

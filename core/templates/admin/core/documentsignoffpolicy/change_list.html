@@ -1,0 +1,14 @@
+{% extends "admin/change_list.html" %}
+
+{% block content %}
+  {% if request.user.is_superuser %}
+    <section class="mb-6 rounded border border-base-200 bg-white p-5 shadow-sm dark:border-base-800 dark:bg-base-900">
+      <h2 class="text-lg font-semibold text-font-important-light dark:text-font-important-dark">Physical document sign-off</h2>
+      <p class="mt-1 text-sm text-font-subtle-light dark:text-font-subtle-dark">
+        Generated workbooks are printed, physically signed and stamped outside the system, then an authorised role uploads the scan. Changing the responsible role is maker-checker controlled.
+      </p>
+      <a href="{% url 'admin:core_documentsignoffpolicy_propose' %}" class="mt-4 inline-flex min-h-11 items-center rounded bg-primary-600 px-4 font-medium text-white hover:bg-primary-700">Propose role change</a>
+    </section>
+  {% endif %}
+  {{ block.super }}
+{% endblock %}

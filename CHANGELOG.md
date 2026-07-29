@@ -6,6 +6,22 @@ approved action.
 
 ## Unreleased — 29-July-2026
 
+- Documents & finance: generated requisitions and final payment workbooks can
+  now retain an authorised, physically signed-and-stamped PDF/JPG/PNG scan
+  without overwriting the Excel source. The scan and exact source workbook are
+  hash-bound, Drive retries are auditable, and the responsible Portal role is
+  maker-checker configurable. E-signatures remain intentionally disabled.
+
+Migration `core.0080_physical_document_signoffs` adds retained payment source
+bytes, document sign-off policy, append-only sign-off attempts/events, and the
+Admin-only `portal.documents.sign` capability. It has **not** been applied to
+production by this change. To undo after an approved migration, export any
+sign-off evidence that must be retained, then run:
+
+```powershell
+python manage.py migrate core 0079_remove_workflowtatdailymetric_unique_workflow_tat_daily_metric_and_more
+```
+
 - Customer History and TAT: Portal and TAT now present a single internal
   chronological history for each case, including operational events, customer
   provenance, documents, decisions, corrections/redactions, accountable

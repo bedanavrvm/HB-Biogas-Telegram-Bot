@@ -1157,6 +1157,25 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .payment-number-field input { width: 74px; min-height: 28px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-base); padding: 3px 6px; }
 .history-tabs { display: flex; gap: 8px; margin: 0 4px 10px; }
 .history-document-card { cursor: default; }
+.physical-signoff { display: flex; align-items: center; justify-content: space-between; gap: 9px; margin-top: 10px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-muted); padding: 9px 10px; }
+.physical-signoff > div { min-width: 0; }
+.physical-signoff strong, .physical-signoff span, .physical-signoff small { display: block; }
+.physical-signoff strong { font-size: 11px; }
+.physical-signoff span, .physical-signoff small { margin-top: 2px; color: var(--text-muted); font-size: 9px; line-height: 1.35; }
+.physical-signoff-approved { border-color: rgba(16,185,129,.32); background: rgba(16,185,129,.09); }
+.physical-signoff-warning { border-color: rgba(245,158,11,.36); background: rgba(245,158,11,.09); }
+.physical-signoff-muted { opacity: .86; }
+.physical-signoff-upload { display: block; padding: 0; }
+.physical-signoff-upload > summary { display: flex; min-height: 44px; align-items: center; cursor: pointer; list-style: none; padding: 9px 10px; }
+.physical-signoff-upload > summary::-webkit-details-marker { display: none; }
+.physical-signoff-upload > summary::after { content: '+'; margin-left: auto; color: var(--color-primary); font-size: 19px; font-weight: 500; }
+.physical-signoff-upload[open] > summary { border-bottom: 1px solid var(--border-color); }
+.physical-signoff-upload[open] > summary::after { content: '−'; }
+.physical-signoff-form { display: grid; gap: 8px; padding: 10px; }
+.physical-signoff-form .invoice-upload-dropzone { min-height: 70px; }
+.physical-signoff-attestation { display: flex; align-items: flex-start; gap: 8px; color: var(--text-primary); font-size: 10px; line-height: 1.35; }
+.physical-signoff-attestation input { width: 18px; height: 18px; margin: 0; accent-color: var(--color-primary); }
+@media (max-width: 520px) { .physical-signoff { align-items: flex-start; flex-direction: column; } .physical-signoff .btn { width: 100%; } }
 .payment-builder-toolbar { display: grid; grid-template-columns: 150px minmax(220px, 1fr) auto; align-items: end; gap: 8px; margin-bottom: 8px; }
 .payment-builder-toolbar label { display: grid; gap: 4px; color: var(--text-muted); font-size: 10px; font-weight: 700; }
 .payment-builder-toolbar input { min-height: 40px; border: 1px solid var(--border-color); border-radius: 9px; background: var(--bg-surface); color: var(--text-primary); padding: 8px 10px; }

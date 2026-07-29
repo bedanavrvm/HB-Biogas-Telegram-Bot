@@ -606,6 +606,7 @@ def create_payment_document(
             'payment_number': payment_number,
             'version': version,
             'filename': filename,
+            'file_content': xlsx,
             'generated_by': actor,
             'reviewed_by': '',
             'reviewed_at': None,
@@ -774,6 +775,11 @@ def approve_payment_document(
             call_up_comments=comment,
             case_call_up_comments=comments,
         )
+        # Preserve the exact final workbook before Drive upload.  A later
+        # physical signature/stamp scan must be bound to these bytes, never a
+        # mutable Drive URL or regenerated live case data.
+        final.file_content = xlsx
+        final.save(update_fields=['file_content', 'updated_at'])
         drive_file_id, drive_url = _upload_payment_workbook(
             xlsx, final.filename, actor, review.order_number,
         )

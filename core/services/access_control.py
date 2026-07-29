@@ -21,7 +21,7 @@ from core.models import (
     AccessControlChangeRequest, AccessControlNotification,
     AccessControlPolicySnapshot, AccessControlPolicyState, AccessGrant,
     CapabilityUsageDaily, EmergencyAccessGrant, UserProfile,
-    WorkflowRoleCapability, WorkflowRoleCapabilityAuditEvent,
+    DocumentSignoffPolicy, WorkflowRoleCapability, WorkflowRoleCapabilityAuditEvent,
 )
 from core.services.access_policies import canonical_access_role, validate_access_scope
 from core.services.workflow_capabilities import capabilities_for_workflow, dependency_closure
@@ -58,6 +58,11 @@ def _policy_snapshot() -> dict:
     return {
         'capabilities': list(WorkflowRoleCapability.objects.order_by('workflow', 'role', 'capability_key').values('workflow', 'role', 'capability_key', 'effect')),
         'grants': grants,
+        'document_signoff_policies': list(
+            DocumentSignoffPolicy.objects.order_by('document_type').values(
+                'document_type', 'workflow', 'approval_role', 'is_active',
+            )
+        ),
     }
 
 
@@ -119,6 +124,55 @@ def create_grant_request(*, requester, user, workflow, role, reason, branch='', 
     return request
 
 
+def create_document_signoff_policy_request(*, requester, document_type: str, approval_role: str, reason: str, source_request=None):
+    """Propose the responsible role for a physical finance-document sign-off.
+
+    A role selection changes who may attest a signed/stamped scan, so it uses
+    the same maker-checker ledger and policy-version guard as capabilities and
+    staff grants.  The request itself never changes effective access.
+    """
+    if not reason.strip():
+        raise ValidationError('A business reason is required for a document sign-off policy change.')
+    valid_types = {value for value, _label in DocumentSignoffPolicy.DOCUMENT_TYPE_CHOICES}
+    if document_type not in valid_types:
+        raise ValidationError({'document_type': 'Select a supported document type.'})
+    role = validate_access_scope(workflow='jawabu_portal', role=approval_role)
+    if not WorkflowRoleCapability.objects.filter(
+        workflow='jawabu_portal',
+        role=role,
+        capability_key='portal.documents.sign',
+        effect=WorkflowRoleCapability.EFFECT_ALLOW,
+    ).exists():
+        raise ValidationError(
+            'Give this role the approved portal.documents.sign capability before making it a document sign-off approver.'
+        )
+    current = DocumentSignoffPolicy.objects.filter(document_type=document_type).first()
+    before = {
+        'document_type': current.document_type,
+        'workflow': current.workflow,
+        'approval_role': current.approval_role,
+        'is_active': current.is_active,
+    } if current else {}
+    proposed = {
+        'document_type': document_type,
+        'workflow': 'jawabu_portal',
+        'approval_role': role,
+        'is_active': True,
+    }
+    request = AccessControlChangeRequest.objects.create(
+        change_type=AccessControlChangeRequest.TYPE_DOCUMENT_SIGNOFF,
+        workflow='jawabu_portal', role=role,
+        before_snapshot={'document_signoff_policy': before},
+        proposed_snapshot={'document_signoff_policy': proposed},
+        impact=capability_impact('jawabu_portal', role),
+        reason=reason.strip(), status=AccessControlChangeRequest.STATUS_PENDING,
+        policy_version=AccessControlPolicyState.current().version,
+        requested_by=requester, source_request=source_request,
+    )
+    transaction.on_commit(lambda: notify_approvers(request, 'pending'))
+    return request
+
+
 def request_diff(request: AccessControlChangeRequest) -> dict:
     if request.change_type == request.TYPE_CAPABILITY:
         before = (request.before_snapshot or {}).get('capabilities') or {}
@@ -126,6 +180,11 @@ def request_diff(request: AccessControlChangeRequest) -> dict:
         return {
             'allowed': sorted(key for key, value in after.items() if value == 'allow' and before.get(key) != 'allow'),
             'denied': sorted(key for key, value in after.items() if value == 'deny' and before.get(key) != 'deny'),
+        }
+    if request.change_type == request.TYPE_DOCUMENT_SIGNOFF:
+        return {
+            'before': (request.before_snapshot or {}).get('document_signoff_policy') or {},
+            'after': (request.proposed_snapshot or {}).get('document_signoff_policy') or {},
         }
     return {'before': (request.before_snapshot or {}).get('grant') or {}, 'after': (request.proposed_snapshot or {}).get('grant') or {}}
 
@@ -166,6 +225,20 @@ def _apply_grant_request(request: AccessControlChangeRequest) -> None:
     grant.save()
 
 
+def _apply_document_signoff_policy_request(request: AccessControlChangeRequest) -> None:
+    data = (request.proposed_snapshot or {}).get('document_signoff_policy') or {}
+    policy, _created = DocumentSignoffPolicy.objects.update_or_create(
+        document_type=data['document_type'],
+        defaults={
+            'workflow': data.get('workflow') or 'jawabu_portal',
+            'approval_role': data['approval_role'],
+            'is_active': bool(data.get('is_active', True)),
+        },
+    )
+    policy.full_clean()
+    policy.save()
+
+
 def approve_request(*, request_id, approver, review_comment='') -> AccessControlChangeRequest:
     """Approve and apply one unchanged request in a single database transaction."""
     if not can_approve_access_change(approver):
@@ -190,8 +263,12 @@ def approve_request(*, request_id, approver, review_comment='') -> AccessControl
         request.status = request.STATUS_APPROVED
         if request.change_type == request.TYPE_CAPABILITY:
             _apply_capability_request(request)
-        else:
+        elif request.change_type == request.TYPE_GRANT:
             _apply_grant_request(request)
+        elif request.change_type == request.TYPE_DOCUMENT_SIGNOFF:
+            _apply_document_signoff_policy_request(request)
+        else:
+            raise ValidationError('Unsupported access-control change type.')
         state.version += 1
         state.save(update_fields=['version', 'updated_at'])
         AccessControlPolicySnapshot.objects.create(version=state.version, request=request, state=_policy_snapshot())
@@ -250,6 +327,17 @@ def create_rollback_request(*, snapshot, requester, reason: str):
             requester=requester, workflow=original.workflow, role=original.role,
             capability_keys={key for key, effect in prior.items() if effect == 'allow'},
             reason=reason, source_request=original,
+        )
+    if original.change_type == original.TYPE_DOCUMENT_SIGNOFF:
+        before = (original.before_snapshot or {}).get('document_signoff_policy') or {}
+        if not before:
+            raise ValidationError('This policy did not have an earlier value to restore.')
+        return create_document_signoff_policy_request(
+            requester=requester,
+            document_type=before['document_type'],
+            approval_role=before['approval_role'],
+            reason=reason,
+            source_request=original,
         )
     before = (original.before_snapshot or {}).get('grant') or {}
     proposed = (original.proposed_snapshot or {}).get('grant') or {}

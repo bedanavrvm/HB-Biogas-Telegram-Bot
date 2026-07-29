@@ -86,6 +86,9 @@ from .models import (
     EmergencyAccessGrant,
     AccessControlNotification,
     CapabilityUsageDaily,
+    DocumentSignoffPolicy,
+    DocumentPhysicalSignoff,
+    DocumentPhysicalSignoffEvent,
 )
 
 logger = logging.getLogger(__name__)
@@ -2376,6 +2379,81 @@ class PaymentDocumentAdmin(ReadOnlyAuditAdmin):
     )
     list_filter = ('status', 'created_at')
     search_fields = ('order_number', 'payment_number', 'filename', 'generated_by', 'finalized_by', 'drive_file_id', 'drive_url')
+
+
+@admin.register(DocumentSignoffPolicy)
+class DocumentSignoffPolicyAdmin(CompactModelAdmin):
+    """Read-only effective policy with maker-checker proposals only."""
+
+    list_display = ('document_type', 'approval_role', 'is_active', 'updated_at')
+    list_filter = ('document_type', 'is_active')
+    readonly_fields = ('document_type', 'workflow', 'approval_role', 'is_active', 'updated_at')
+    change_list_template = 'admin/core/documentsignoffpolicy/change_list.html'
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_urls(self):
+        return [
+            path('propose/', self.admin_site.admin_view(self.propose_policy), name='core_documentsignoffpolicy_propose'),
+        ] + super().get_urls()
+
+    def propose_policy(self, request):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        from core.services.access_control import create_document_signoff_policy_request
+        from core.services.access_policies import WORKFLOW_ROLES
+
+        role_options = list(WORKFLOW_ROLES['jawabu_portal'])
+        if request.method == 'POST':
+            try:
+                change_request = create_document_signoff_policy_request(
+                    requester=request.user,
+                    document_type=str(request.POST.get('document_type') or ''),
+                    approval_role=str(request.POST.get('approval_role') or ''),
+                    reason=str(request.POST.get('reason') or ''),
+                )
+            except ValidationError as exc:
+                messages.error(request, '; '.join(exc.messages))
+            else:
+                messages.success(request, 'Document sign-off policy proposal is pending independent approval. No live sign-off access changed.')
+                return HttpResponseRedirect(reverse('admin:core_accesscontrolchangerequest_change', args=[change_request.pk]))
+        return TemplateResponse(request, 'admin/core/documentsignoffpolicy/propose.html', {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': 'Propose document sign-off policy',
+            'document_types': DocumentSignoffPolicy.DOCUMENT_TYPE_CHOICES,
+            'role_options': role_options,
+            'policies': DocumentSignoffPolicy.objects.order_by('document_type'),
+        })
+
+
+@admin.register(DocumentPhysicalSignoff)
+class DocumentPhysicalSignoffAdmin(ReadOnlyAuditAdmin):
+    list_display = (
+        'document_type', 'source_version', 'status', 'source_filename',
+        'scan_filename', 'uploaded_by', 'approved_by', 'approved_at', 'created_at',
+    )
+    list_filter = ('document_type', 'status', 'created_at')
+    search_fields = (
+        'requisition_batch__order_number', 'payment_document__order_number',
+        'payment_document__payment_number', 'scan_filename', 'source_checksum', 'scan_checksum',
+    )
+    readonly_fields = [field.name for field in DocumentPhysicalSignoff._meta.fields]
+
+
+@admin.register(DocumentPhysicalSignoffEvent)
+class DocumentPhysicalSignoffEventAdmin(ReadOnlyAuditAdmin):
+    list_display = ('created_at', 'signoff', 'action', 'actor')
+    list_filter = ('action', 'created_at')
+    search_fields = ('signoff__scan_filename', 'actor__username', 'note')
+    readonly_fields = [field.name for field in DocumentPhysicalSignoffEvent._meta.fields]
 
 @admin.register(SpinCreditRequest)
 class SpinCreditRequestAdmin(TestDataDeleteAdmin):

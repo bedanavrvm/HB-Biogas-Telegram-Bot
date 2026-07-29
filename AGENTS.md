@@ -130,6 +130,7 @@ Key modules:
 - `workflow_capabilities.py` — centrally defined Mini App capabilities and role policy resolution
 - `access_control.py` — maker-checker access changes, emergency grants, notifications, and policy versioning
 - `access_control_reporting.py` — access-control evidence exports, parity, and least-privilege diagnostics
+- `document_signoffs.py` — immutable source/workbook binding and physically signed/stamped scan retention for requisitions and payments
 
 ### Frontend Mini Apps
 
@@ -185,6 +186,7 @@ This is a template of variables this class of system typically needs. Treat it a
 | `GOOGLE_SERVICE_ACCOUNT_JSON` / `GOOGLE_APPLICATION_CREDENTIALS` | Service-account credentials for Sheets/Drive API access | Yes |
 | Sheet/Drive IDs (e.g. `*_SHEET_ID`, `*_FOLDER_ID`) | Identify target spreadsheets/folders per workflow | Treat as sensitive unless confirmed non-sensitive |
 | `TAT_TRACKER_SIGNATURES_ENABLED` | Enables external TAT e-signature dispatch and stage gating | No |
+| `DOCUMENT_SIGNOFF_MAX_FILE_SIZE_MB` | Maximum accepted PDF/JPG/PNG physical sign-off scan; real scan files remain in approved Drive storage | No |
 | `TAT_REPAIR_RETRY_BASE_SECONDS` | Base delay for bounded Google Sheets quota backoff during Admin TAT repair retries | No |
 | `TAT_REPAIR_CASE_DELAY_SECONDS` | Delay between Admin TAT repair case writes to stay below Google Sheets per-minute quotas | No |
 | `COMPLAINT_CASES_MINI_APP_SHORT_NAME` | Telegram Mini App short name for complaint cases | No |
@@ -546,7 +548,7 @@ Use this table to locate the likely change surface for a given workflow, and wha
 | **Group/workflow configuration** | `services/group_config.py`, `services/workflow_presets.py`, `services/workflow_capabilities.py`, `services/access_control.py`, `services/telegram_command_menu.py`, `core/models.py`, `core/admin.py`, `core/tests_pipeline.py`, `core/tests_workflow_capabilities.py` | Database-managed group configuration and Mini App role capability policy; permanent access changes require independent approval and audit evidence |
 | **Jawabu/FCA pipeline** | `services/jawabu.py`, `services/jawabu_master.py`, `services/jawabu_pipeline.py`, `services/fca.py`, `core/api/views.py`, `core/api/portal_views.py`, `templates/jawabu_farmers/`, `templates/fca_review/`, `templates/portal/`, `static/miniapp/portal.*`, `core/tests_pipeline.py` | Controlled state transitions, decision history, actor/timestamp metadata |
 | **Jawabu customer data quality** | `services/jawabu_customer_quality.py`, `services/jawabu_data_quality.py`, `services/jawabu_validation.py`, `services/system_export.py`, `core/tests_system_export.py`, `core/tests_jawabu_data_quality.py` | Exact identifier matching only, review-only name candidates, append-only provenance, controlled branches/counties/products, and no Sheet-originated overwrite |
-| **Requisitions and invoices** | `services/requisition.py`, `services/invoice_parser.py`, `core/api/portal_views.py`, `core/models.py`, requisition templates/workbooks, `core/tests_pipeline.py` | Money handling, order numbers, filenames, generated workbook contents, download authorization, idempotency |
+| **Requisitions and invoices** | `services/requisition.py`, `services/invoice_parser.py`, `services/document_signoffs.py`, `core/api/portal_views.py`, `core/models.py`, requisition templates/workbooks, `core/tests_pipeline.py` | Money handling, order numbers, filenames, generated workbook contents, physical signed-scan/source-hash binding, download authorization, idempotency |
 | **Order approval** | `services/order_approval.py`, `core/api/views.py`, `templates/order_approval/`, `services/storage.py`, `core/models.py`, `core/tests_order_approval.py`, `order_approval_apps_script.gs` | Telegram authentication, lookup/suggestion APIs, attachment limits, duplicate submissions, media storage failures, sheet sync |
 | **SPIN credit** | `services/spin_credit.py`, `core/api/views.py`, `templates/spin/`, `static/miniapp/spin_form.*`, `core/models.py`, `core/tests_spin_credit.py` | Analyst authorization, request-type requirements, phone/ID/amount normalization, attachment handling, completion audit fields |
 | **TAT tracker** | `services/tat_tracker.py`, `services/business_calendar.py`, `services/workflow_sla.py`, `services/workflow_timeline.py`, `core/api/views.py`, `templates/tat_tracker/`, `static/miniapp/tat_tracker.*`, `tat_tracker_apps_script.gs`, `core/models.py`, `core/tests_tat_tracker.py` | Role restrictions, branch/product scope, stage prerequisites, duplicate create requests, official business-hour SLA calculations, append-only event history, and idempotent escalation snapshots |
