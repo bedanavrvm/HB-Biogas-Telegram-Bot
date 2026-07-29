@@ -1385,4 +1385,15 @@ body.change-list #changelist-filter li {
     body.change-form .inline-group .tabular table {
         min-width: 38rem;
     }
+
+    /* Maintenance/audit tables are intentionally detailed; scroll their
+       card instead of forcing the entire mobile page wider. */
+    #content-main.admin-custom-page .module:has(> table) {
+        -webkit-overflow-scrolling: touch;
+        overflow-x: auto;
+    }
+
+    #content-main.admin-custom-page .module:has(> table) table {
+        min-width: 38rem;
+    }
 }

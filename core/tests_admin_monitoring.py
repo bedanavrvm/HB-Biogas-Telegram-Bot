@@ -186,6 +186,36 @@ class AdminMonitoringTests(TestCase):
         self.assertContains(response, 'field-jbl_media_urls')
         self.assertContains(response, 'lg:grid-cols-2')
 
+    def test_registered_admin_model_lists_and_available_add_forms_render(self):
+        """Guard the shared Unfold shell against one model page breaking it all."""
+        user = get_user_model().objects.create_superuser(
+            username='render-audit-admin',
+            email='render-audit@example.test',
+            password='password',
+        )
+        client = Client()
+        client.force_login(user)
+
+        permission_request = RequestFactory().get('/admin/')
+        permission_request.user = user
+        for model, model_admin in admin.site._registry.items():
+            changelist_url = reverse(
+                f'admin:{model._meta.app_label}_{model._meta.model_name}_changelist'
+            )
+            with self.subTest(page=changelist_url):
+                self.assertEqual(client.get(changelist_url).status_code, 200)
+
+            if not model_admin.has_add_permission(permission_request):
+                continue
+            add_url = reverse(
+                f'admin:{model._meta.app_label}_{model._meta.model_name}_add'
+            )
+            with self.subTest(page=add_url):
+                response = client.get(add_url)
+                # The User admin deliberately redirects to its guided staff
+                # creation screen; every other permitted add form is rendered.
+                self.assertIn(response.status_code, {200, 302})
+
     def test_custom_group_configuration_pages_use_shared_admin_shell(self):
         group = GroupSheetConfiguration.objects.create(
             group_id='-1003',

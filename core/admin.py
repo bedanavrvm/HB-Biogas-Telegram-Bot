@@ -75,8 +75,16 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
+class CompactModelAdmin(ModelAdmin):
+    """Shared dense layout for editable operational records."""
+
+    compressed_fields = True
+    list_filter_submit = True
+    list_fullwidth = True
+
+
 @admin.register(OperationalLocation)
-class OperationalLocationAdmin(ModelAdmin):
+class OperationalLocationAdmin(CompactModelAdmin):
     """Central editable list used by Portal, forms, parsers, and grants."""
 
     list_display = ('location_type', 'name', 'code', 'active', 'sort_order', 'updated_at')
@@ -85,18 +93,43 @@ class OperationalLocationAdmin(ModelAdmin):
     list_editable = ('active', 'sort_order')
     ordering = ('location_type', 'sort_order', 'name')
     readonly_fields = ('created_at', 'updated_at')
+    fieldsets = (
+        ('Location', {
+            'fields': (
+                ('location_type', 'name'),
+                ('code', 'sort_order'),
+                'active',
+            ),
+        }),
+        ('Audit', {
+            'fields': (('created_at', 'updated_at'),),
+            'classes': ('collapse',),
+        }),
+    )
 
 
 @admin.register(JawabuCustomer)
-class JawabuCustomerAdmin(ModelAdmin):
+class JawabuCustomerAdmin(CompactModelAdmin):
     list_display = ('national_id', 'primary_phone', 'customer_no', 'identity_enforced', 'updated_at')
     list_filter = ('identity_enforced',)
     search_fields = ('national_id', 'primary_phone', 'customer_no')
     readonly_fields = ('created_at', 'updated_at')
+    fieldsets = (
+        ('Customer identity', {
+            'fields': (
+                ('national_id', 'primary_phone'),
+                ('customer_no', 'identity_enforced'),
+            ),
+        }),
+        ('Audit', {
+            'fields': (('created_at', 'updated_at'),),
+            'classes': ('collapse',),
+        }),
+    )
 
 
 @admin.register(JawabuPipelineEvent)
-class JawabuPipelineEventAdmin(ModelAdmin):
+class JawabuPipelineEventAdmin(CompactModelAdmin):
     list_display = ('farmer', 'action', 'stage_key', 'actor', 'occurred_at')
     list_filter = ('action', 'stage_key', 'source', 'occurred_at')
     search_fields = ('farmer__national_id', 'farmer__primary_phone', 'actor')
@@ -104,7 +137,7 @@ class JawabuPipelineEventAdmin(ModelAdmin):
 
 
 @admin.register(JawabuDataQualityIssue)
-class JawabuDataQualityIssueAdmin(ModelAdmin):
+class JawabuDataQualityIssueAdmin(CompactModelAdmin):
     list_display = ('farmer', 'field_name', 'severity', 'active', 'detected_at', 'resolved_at')
     list_filter = ('active', 'severity', 'field_name')
     search_fields = ('farmer__customer_name', 'farmer__national_id', 'message')
