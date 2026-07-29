@@ -849,7 +849,9 @@ Mary Njeri njihia
         self.assertEqual(result['duplicate_review'], 0)
         self.assertEqual(len(fake_sheet.appended_rows), 1)
         self.assertEqual(fake_sheet.row_values_calls, 1)
-        self.assertEqual(fake_sheet.get_all_values_calls, 1)
+        # Sheet data rows are never read for duplicate detection; Django is
+        # the canonical identity/index source.
+        self.assertEqual(fake_sheet.get_all_values_calls, 0)
         self.assertEqual(fake_sheet.append_rows_calls, 1)
         record = JawabuVisitRecord.objects.get()
         self.assertEqual(record.import_status, 'imported')
@@ -975,7 +977,7 @@ John Mwangi
         self.assertEqual(result['imported'], 2)
         self.assertEqual(len(fake_sheet.appended_rows), 2)
         self.assertEqual(fake_sheet.row_values_calls, 1)
-        self.assertEqual(fake_sheet.get_all_values_calls, 1)
+        self.assertEqual(fake_sheet.get_all_values_calls, 0)
         self.assertEqual(fake_sheet.append_rows_calls, 1)
 
     @patch('core.services.jawabu.get_sheets_service')
@@ -1103,7 +1105,7 @@ Jane Wanjiku
         self.assertEqual(JawabuVisitRecord.objects.count(), 2)
 
     @patch('core.services.jawabu.get_sheets_service')
-    def test_jawabu_import_ignores_stale_db_duplicates_removed_from_sheet(self, mock_service):
+    def test_jawabu_import_keeps_django_duplicate_history(self, mock_service):
         from core.services.jawabu import JAWABU_FIELD_HEADERS, process_jawabu_batch_export
 
         JawabuVisitRecord.objects.create(
@@ -1139,15 +1141,18 @@ Mary Njeri njihia
             sender='Importer',
         )
 
-        self.assertEqual(result['imported'], 1)
-        self.assertEqual(result['duplicate_review'], 0)
-        self.assertEqual(JawabuVisitRecord.objects.count(), 1)
-        record = JawabuVisitRecord.objects.get()
-        self.assertEqual(record.import_status, 'imported')
-        self.assertEqual(record.telegram_message_id, '907_jawabu_0')
+        self.assertEqual(result['imported'], 0)
+        self.assertEqual(result['duplicate_review'], 1)
+        self.assertEqual(JawabuVisitRecord.objects.count(), 2)
+        self.assertTrue(JawabuVisitRecord.objects.filter(
+            telegram_message_id='old_jawabu_1', import_status='imported'
+        ).exists())
+        self.assertTrue(JawabuVisitRecord.objects.filter(
+            telegram_message_id='907_jawabu_0', import_status='duplicate_review'
+        ).exists())
 
     @patch('core.services.jawabu.get_sheets_service')
-    def test_jawabu_import_flags_duplicates_still_present_on_sheet(self, mock_service):
+    def test_jawabu_import_does_not_use_sheet_rows_for_duplicate_detection(self, mock_service):
         from core.services.jawabu import JAWABU_FIELD_HEADERS, process_jawabu_batch_export
 
         headers = list(JAWABU_FIELD_HEADERS.values())
@@ -1171,10 +1176,12 @@ Mary Njeri njihia
             sender='Importer',
         )
 
-        self.assertEqual(result['imported'], 0)
-        self.assertEqual(result['duplicate_review'], 1)
+        # Existing Sheet rows are not an input source.  Django's canonical
+        # identity index is the only duplicate authority.
+        self.assertEqual(result['imported'], 1)
+        self.assertEqual(result['duplicate_review'], 0)
         status_index = headers.index('Import Status')
-        self.assertEqual(fake_sheet.appended_rows[-1][status_index], 'Duplicate Review')
+        self.assertEqual(fake_sheet.appended_rows[-1][status_index], 'Imported')
 
 
     @patch('core.services.jawabu.get_sheets_service')
@@ -3292,7 +3299,7 @@ class StorageServiceTest(TestCase):
 
     @patch('core.services.sheet_sync.get_sheets_service')
     def test_sync_sheet_to_backend_mirrors_sheet_rows(self, mock_service):
-        """Sheet sync should create, update, and delete local case rows."""
+        """View-only Sheets must never create, update, or delete local rows."""
         existing = create_parsed_case(
             'MSG_KEEP',
             customer_name='Old Name',
@@ -3361,34 +3368,19 @@ class StorageServiceTest(TestCase):
             delete_missing=True,
         )
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['created_count'], 1)
-        self.assertEqual(result['updated_count'], 1)
-        self.assertEqual(result['deleted_count'], 1)
-        self.assertFalse(ParsedMessage.objects.filter(message_id='MSG_DELETE').exists())
-        self.assertFalse(ProcessedMessage.objects.filter(pk=deleted_processed_id).exists())
-        self.assertFalse(RawMessage.objects.filter(pk=deleted_raw_id).exists())
+        self.assertEqual(result['status'], 'disabled')
+        self.assertEqual(result['code'], 'SHEET_IMPORT_DISABLED')
+        mock_service.assert_not_called()
+        self.assertTrue(ParsedMessage.objects.filter(message_id='MSG_DELETE').exists())
+        self.assertTrue(ProcessedMessage.objects.filter(pk=deleted_processed_id).exists())
+        self.assertTrue(RawMessage.objects.filter(pk=deleted_raw_id).exists())
+        self.assertFalse(ParsedMessage.objects.filter(message_id='MSG_NEW').exists())
 
         existing.refresh_from_db()
-        self.assertEqual(existing.customer_name, 'Updated Name')
-        self.assertEqual(existing.complaint_status, 'Closed')
-        self.assertEqual(existing.resolution_details, 'Fixed')
-        self.assertEqual(existing.sheet_id, 'sheet_123')
-        self.assertEqual(existing.sheet_name, 'Cases')
-        self.assertTrue(existing.synced_to_sheets)
-        self.assertTrue(existing.image_flag)
+        self.assertEqual(existing.customer_name, 'Old Name')
+        self.assertEqual(existing.complaint_status, 'Open')
         self.assertEqual(existing.processed_message_id, original_processed_id)
-        self.assertEqual(
-            existing.processed_message.raw_message.telegram_message_id,
-            '777',
-        )
-
-        created = ParsedMessage.objects.get(message_id='MSG_NEW')
-        self.assertEqual(created.customer_name, 'New Customer')
-        self.assertEqual(created.complaint_description, 'Created from sheet')
-        self.assertEqual(created.group_id, '-100123')
-        self.assertEqual(created.sheet_id, 'sheet_123')
-        self.assertEqual(created.sheet_name, 'Cases')
+        self.assertEqual(existing.processed_message.raw_message.telegram_message_id, '777')
 
     @override_settings(CASE_BATCH_SHEET_CHUNK_SIZE=1)
     def test_append_rows_uses_chunked_batch_update_for_case_batch(self):
@@ -3426,7 +3418,7 @@ class StorageServiceTest(TestCase):
 
     @patch('core.services.sheet_sync.get_sheets_service')
     def test_sync_sheet_to_backend_clear_sheet_removes_group_cases_and_dedupe(self, mock_service):
-        """When the sheet is cleared, backend cases and stale dedupe rows are cleared too."""
+        """Clearing a view-only Sheet cannot clear backend cases or dedupe rows."""
         first = create_parsed_case('MSG_CLEAR_1', group_id='-100clear')
         second = create_parsed_case('MSG_CLEAR_2', group_id='-100clear')
         other = create_parsed_case('MSG_OTHER_GROUP', group_id='-100other')
@@ -3459,15 +3451,14 @@ class StorageServiceTest(TestCase):
             delete_missing=True,
         )
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['row_count'], 0)
-        self.assertEqual(result['deleted_count'], 2)
-        self.assertEqual(result['backend_count'], 0)
-        self.assertFalse(ParsedMessage.objects.filter(group_id='-100clear').exists())
-        self.assertFalse(ProcessedMessage.objects.filter(pk__in=[first_processed_id, second_processed_id]).exists())
-        self.assertFalse(RawMessage.objects.filter(pk__in=[first_raw_id, second_raw_id]).exists())
-        self.assertFalse(ProcessedMessage.objects.filter(pk=stale_processed.pk).exists())
-        self.assertFalse(RawMessage.objects.filter(pk=stale_raw.pk).exists())
+        self.assertEqual(result['status'], 'disabled')
+        self.assertEqual(result['code'], 'SHEET_IMPORT_DISABLED')
+        mock_service.assert_not_called()
+        self.assertTrue(ParsedMessage.objects.filter(group_id='-100clear').exists())
+        self.assertTrue(ProcessedMessage.objects.filter(pk__in=[first_processed_id, second_processed_id]).exists())
+        self.assertTrue(RawMessage.objects.filter(pk__in=[first_raw_id, second_raw_id]).exists())
+        self.assertTrue(ProcessedMessage.objects.filter(pk=stale_processed.pk).exists())
+        self.assertTrue(RawMessage.objects.filter(pk=stale_raw.pk).exists())
         self.assertTrue(ParsedMessage.objects.filter(pk=other.pk).exists())
         self.assertTrue(ProcessedMessage.objects.filter(pk=other.processed_message_id).exists())
         self.assertTrue(RawMessage.objects.filter(pk=other.processed_message.raw_message_id).exists())
@@ -3571,74 +3562,20 @@ class LiveSheetRecordServiceTest(TestCase):
         self.assertEqual(table['rows'][0]['row_number'], 4)
 
     @patch('core.services.live_sheet_records.get_sheets_service')
-    def test_update_live_sheet_row_batches_only_changed_non_formula_cells(self, mock_service):
+    def test_update_live_sheet_row_is_rejected_as_view_only(self, mock_service):
         from core.services.live_sheet_records import update_live_sheet_row
+        from core.services.live_sheet_records import LiveSheetRecordError
 
-        sheet = MagicMock()
-        sheet.get_all_values.side_effect = [
-            [
-                ['TITLE'],
-                ['Complaint ID', 'message_id', 'Customer Name'],
-                ['CMP-1', 'MSG_1', 'Jane Doe'],
-            ],
-            [
-                ['TITLE'],
-                ['Complaint ID', 'message_id', 'Customer Name'],
-                ['=ROW()-2', 'MSG_1', 'Jane Doe'],
-            ],
-        ]
-        service = MagicMock()
-        service.is_available.return_value = True
-        service._sheet = sheet
-        mock_service.return_value = service
-
-        result = update_live_sheet_row(
-            self.config,
-            'Complaints',
-            3,
-            {
-                0: 'DO NOT CHANGE FORMULA',
-                1: 'MSG_1',
-                2: 'Jane Smith',
-            },
-        )
-
-        self.assertTrue(result['changed'])
-        self.assertEqual(
-            result['changes'],
-            {'Customer Name': {'old': 'Jane Doe', 'new': 'Jane Smith'}},
-        )
-        sheet.batch_update.assert_called_once_with(
-            [{'range': 'C3', 'values': [['Jane Smith']]}],
-            raw=True,
-        )
+        with self.assertRaisesRegex(LiveSheetRecordError, 'SHEET_IMPORT_DISABLED'):
+            update_live_sheet_row(self.config, 'Complaints', 3, {2: 'Jane Smith'})
 
     @patch('core.services.live_sheet_records.get_sheets_service')
-    def test_delete_live_sheet_row_deletes_the_selected_live_row(self, mock_service):
+    def test_delete_live_sheet_row_is_rejected_as_view_only(self, mock_service):
         from core.services.live_sheet_records import delete_live_sheet_row
+        from core.services.live_sheet_records import LiveSheetRecordError
 
-        sheet = MagicMock()
-        sheet.get_all_values.side_effect = [
-            [
-                ['TITLE'],
-                ['Complaint ID', 'message_id', 'Customer Name'],
-                ['CMP-1', 'MSG_1', 'Jane Doe'],
-            ],
-            [
-                ['TITLE'],
-                ['Complaint ID', 'message_id', 'Customer Name'],
-                ['=ROW()-2', 'MSG_1', 'Jane Doe'],
-            ],
-        ]
-        service = MagicMock()
-        service.is_available.return_value = True
-        service._sheet = sheet
-        mock_service.return_value = service
-
-        result = delete_live_sheet_row(self.config, 'Complaints', 3)
-
-        self.assertEqual(result['record_key'], 'MSG_1')
-        sheet.delete_rows.assert_called_once_with(3)
+        with self.assertRaisesRegex(LiveSheetRecordError, 'SHEET_IMPORT_DISABLED'):
+            delete_live_sheet_row(self.config, 'Complaints', 3)
 
 
 class GroupResetServiceTest(TestCase):
@@ -4079,7 +4016,8 @@ class GroupConfigurationServiceTest(TestCase):
         self.assertContains(response, 'Complaint ID')
         self.assertContains(response, 'Customer Name')
         self.assertContains(response, 'Jane Doe')
-        self.assertContains(response, 'Edit')
+        self.assertContains(response, 'View only')
+        self.assertNotContains(response, 'Edit live row')
 
     @override_settings(
         STORAGES={
@@ -4091,16 +4029,12 @@ class GroupConfigurationServiceTest(TestCase):
             },
         },
     )
-    @patch('core.admin.GroupSheetConfigurationAdmin._sync_case_mirror')
     @patch('core.services.live_sheet_records.load_live_sheet_table')
-    @patch('core.services.live_sheet_records.update_live_sheet_row')
     def test_live_sheet_records_admin_update_creates_audit_record(
         self,
-        mock_update_row,
         mock_load_table,
-        mock_sync_mirror,
     ):
-        """Admin live-row saves should be applied through the sheet service and audited."""
+        """Legacy live-row writes are rejected because Sheets are view-only."""
         user = get_user_model().objects.create_superuser(
             username='admin',
             email='admin@example.com',
@@ -4113,15 +4047,6 @@ class GroupConfigurationServiceTest(TestCase):
             sheet_name='Complaints',
             workflow={'type': 'case'},
         )
-        mock_update_row.return_value = {
-            'changed': True,
-            'changes': {
-                'Customer Name': {'old': 'Jane Doe', 'new': 'Jane Smith'},
-            },
-            'record_key': 'MSG_1',
-            'sheet_tab': 'Complaints',
-            'row_number': 3,
-        }
         mock_load_table.return_value = {
             'sheet_tab': 'Complaints',
             'header_row': 2,
@@ -4131,7 +4056,6 @@ class GroupConfigurationServiceTest(TestCase):
             'formula_indexes': [],
             'workflow_type': 'case',
         }
-        mock_sync_mirror.return_value = {'status': 'success'}
         self.client.force_login(user)
 
         response = self.client.post(
@@ -4146,13 +4070,7 @@ class GroupConfigurationServiceTest(TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        mock_update_row.assert_called_once()
-        mock_sync_mirror.assert_called_once_with(config)
-        audit = LiveSheetRecordChange.objects.get()
-        self.assertEqual(audit.action, 'update')
-        self.assertEqual(audit.record_key, 'MSG_1')
-        self.assertEqual(audit.changed_by, 'admin')
-        self.assertEqual(audit.status, 'success')
+        self.assertEqual(LiveSheetRecordChange.objects.count(), 0)
 
     def test_sheet_mirror_and_audit_admins_are_read_only(self):
         """Backend mirror and audit tables should not allow direct admin edits."""

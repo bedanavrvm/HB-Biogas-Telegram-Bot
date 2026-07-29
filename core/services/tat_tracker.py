@@ -1373,6 +1373,30 @@ def build_tat_sheet_row_data(
         if col:
             minutes = stage_tat_minutes(case, stage)
             row_data[col - 1] = float(minutes) if minutes is not None else ''
+
+    # Optional operational headers are populated only when the existing
+    # workbook already exposes them; no columns are created or reordered.
+    header_indexes = {
+        normalize_header(header): index
+        for index, header in enumerate(headers)
+        if str(header or '').strip()
+    }
+
+    def put_optional(value, *names):
+        for name in names:
+            index = header_indexes.get(normalize_header(name))
+            if index is not None:
+                if index >= len(row_data):
+                    row_data.extend([''] * (index + 1 - len(row_data)))
+                row_data[index] = value if value is not None else ''
+                return
+
+    put_optional(case.product_label or product.label, 'Product', 'Product Name')
+    put_optional(case.current_stage, 'Current Stage')
+    put_optional(case.status, 'Status')
+    put_optional(case.created_at, 'Created At')
+    put_optional(case.updated_at, 'Last Updated At')
+    put_optional(case.last_updated_by, 'Last Updated By')
     return row_data
 
 

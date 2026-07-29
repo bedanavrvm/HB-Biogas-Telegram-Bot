@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 import re
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -20,6 +21,8 @@ from django.utils import timezone
 from core.models import JawabuCustomer, JawabuFarmerMaster, JawabuFarmerUploadBatch
 from core.services.jawabu import is_valid_phone, normalise_phone
 from core.services.jawabu_master import clean_text, row_fingerprint
+
+logger = logging.getLogger(__name__)
 
 
 REQUIRED_HEADERS = (
@@ -476,6 +479,22 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
             old_values=old_values,
             new_values=new_values,
         )
+        # The system export is a Django-owned correction/update path. Publish
+        # the committed identity and JBL financial values to any configured
+        # operational registers, while keeping Sheet failures non-fatal to the
+        # canonical database transaction.
+        try:
+            from core.services.jawabu_pipeline import (
+                sync_farmer_to_internal_order_sheet,
+                sync_farmer_to_master_sheet,
+            )
+
+            sync_farmer_to_master_sheet(farmer)
+            sync_farmer_to_internal_order_sheet(farmer)
+        except Exception as exc:  # pragma: no cover - publishers already fail safely
+            # A transient Drive/Sheets failure must not undo an accepted
+            # system-export update; the publisher logs its own failure.
+            logger.warning('System-export publication failed for farmer %s: %s', farmer.id, exc, exc_info=True)
         committed += 1
     batch.parsed_rows = remaining
     batch.committed_count += committed

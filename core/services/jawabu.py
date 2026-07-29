@@ -144,7 +144,9 @@ def process_jawabu_batch_export(
     analysis = analyze_whatsapp_export(export_text)
     entries = analysis.get('entries') or []
     import_start_date = configured_import_start_date(group_config)
-    sheet_state = sync_jawabu_state_from_sheet(group_config)
+    # Duplicate detection is local and Django-owned. A Sheet row must never
+    # delete or suppress a canonical import because Sheets are view-only.
+    sheet_state = None
     latest_processed_at = latest_jawabu_processed_at(group_config)
     entries_after_start = [
         entry for entry in entries
@@ -301,6 +303,14 @@ def process_jawabu_batch_export(
 
 
 def sync_jawabu_state_from_sheet(group_config) -> dict[str, Any] | None:
+    """Deprecated Sheet-state import; never mutate or inspect backend state."""
+    logger.info(
+        'SHEET_IMPORT_DISABLED: ignoring Jawabu Sheet state for %s',
+        getattr(group_config, 'group_id', ''),
+    )
+    return {'code': 'SHEET_IMPORT_DISABLED', 'duplicate_keys': set(), 'latest_message_at': None}
+
+    """Legacy implementation retained below for history."""
     """Return sheet duplicate keys/latest time and remove stale local rows.
 
     The Jawabu sheet is the staff-facing database. If staff delete rows there,

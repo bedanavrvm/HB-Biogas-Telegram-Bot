@@ -235,8 +235,10 @@ class GoogleSheetsService:
             else:
                 self._sheet = self._client.open_by_key(self._sheet_id).sheet1
 
-            # Smoke-test that the sheet is accessible
-            self._sheet.get_all_values()
+            # Smoke-test only the configured header row.  Sheets are a
+            # publication surface, so availability checks must not download
+            # operational data rows merely to establish connectivity.
+            self._sheet.row_values(self.header_row)
 
             # Optional: Google Sheets API v4 for dropdown metadata
             if _google_sheets_api_available:

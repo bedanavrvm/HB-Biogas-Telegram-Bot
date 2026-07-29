@@ -208,21 +208,30 @@ MASTER_FIELD_HEADERS = {
     'national_id': ['National ID'],
     'primary_phone': ['Primary Phone'],
     'secondary_phone': ['Secondary Phone'],
+    'branch': ['Branch', 'Branch / Region'],
     'county': ['County'],
     'sub_county': ['Constituency', 'Sub County', 'Sub-County'],
+    'ward': ['Ward'],
     'village': ['Village'],
+    'landmark': ['Landmark', 'Location & Nearest Landmark'],
+    'hbg_contract_name': ['HBG Contract Name', 'Contract Name'],
     'lead_source': ['Lead Source'],
     'hb_sales_person': ['HB Sales Person'],
     'sign_date': ['HBG Visit Date'],
     'comments': ['Additional Comments'],
-    'actual_receipts': ['Deposit Paid to HB', 'Deposit Paid to HBG', 'Deposit Paid to JBL'],
+    # FarmUp actual receipts are the HomeBiogas deposit.  The JBL deposit is
+    # owned by the later system export and must never be inferred from this
+    # import field.
+    'actual_receipts': ['Deposit Paid to HB', 'Deposit Paid to HBG'],
+    'actual_receipts_currency': ['Deposit Currency', 'Actual Receipts Currency'],
     'installation_status': ['Installation Status'],
 }
 
 MASTER_NORMAL_WRITE_FIELDS = [
-    'unit_number', 'customer_name', 'national_id', 'primary_phone', 'secondary_phone', 'county',
-    'sub_county', 'village', 'lead_source', 'hb_sales_person', 'sign_date',
-    'comments', 'actual_receipts', 'installation_status',
+    'unit_number', 'customer_name', 'national_id', 'primary_phone', 'secondary_phone', 'branch',
+    'county', 'sub_county', 'ward', 'village', 'landmark', 'hbg_contract_name', 'lead_source',
+    'hb_sales_person', 'sign_date', 'comments', 'actual_receipts',
+    'actual_receipts_currency', 'installation_status',
 ]
 
 

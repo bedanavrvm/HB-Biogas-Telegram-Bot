@@ -1,9 +1,8 @@
-"""
-Mirror Google Sheets rows into the local database.
+"""Compatibility boundary for retired Sheet-to-Django imports.
 
-Google Sheets is the operational source of truth for cases. This service reads
-the live sheet, upserts backend case rows from it, and optionally removes local
-case rows that are no longer present in the sheet.
+Google Sheets is a view-only publication surface.  The old import functions
+remain as stable, explicit ``SHEET_IMPORT_DISABLED`` responses so scheduled
+jobs, admin links, and older callers fail safely without mutating Django.
 """
 import hashlib
 import logging
@@ -20,10 +19,23 @@ from core.services.sheets import get_sheets_service
 
 
 logger = logging.getLogger(__name__)
+SHEET_IMPORT_DISABLED = 'SHEET_IMPORT_DISABLED'
+
+
+def _disabled_result(group_id: str | None = None) -> dict:
+    return {
+        'status': 'disabled',
+        'code': SHEET_IMPORT_DISABLED,
+        'message': 'Google Sheets are view-only publication surfaces; no Sheet rows were imported.',
+        'group_id': str(group_id or ''),
+        'errors': [SHEET_IMPORT_DISABLED],
+    }
 
 
 def sync_group_from_sheet(group_id: str, delete_missing: bool = True) -> dict:
-    """Sync one Telegram group's configured Google Sheet into the backend."""
+    """Reject one Sheet-to-Django import with a stable compatibility response."""
+    return _disabled_result(group_id)
+    """Legacy implementation retained below for history."""
     registry = GroupRegistry.get_instance()
     config = registry.get_group(str(group_id))
     if not config:
@@ -55,6 +67,7 @@ def sync_sheet_to_backend(
     rows without message_id get a stable generated backend ID from Complaint ID,
     or row number as a last resort.
     """
+    return _disabled_result(group_id)
     result = _result(status='success')
     from core.services.sheet_schema import SheetSchema
 
@@ -175,7 +188,9 @@ def _delete_orphaned_dedupe_records() -> int:
 
 
 def sync_all_configured_groups(delete_missing: bool = True) -> dict:
-    """Sync every explicitly configured group, or the default group in legacy mode."""
+    """Reject bulk Sheet-to-Django imports with a stable compatibility response."""
+    return _disabled_result()
+    """Legacy implementation retained below for history."""
     registry = GroupRegistry.get_instance()
     groups = registry.list_groups()
     if not groups:

@@ -2222,40 +2222,13 @@ def _batch_append_case_results(results: list[dict], group_id: str) -> dict:
 
 
 def _sync_case_sheet_for_batch(group_id: str, delete_missing: bool) -> dict:
-    """Best-effort case sheet mirror used before/after WhatsApp batch imports."""
-    try:
-        from core.services.sheet_sync import sync_group_from_sheet
-        result = sync_group_from_sheet(
-            group_id=group_id,
-            delete_missing=delete_missing,
-        )
-        return {
-            'status': result.get('status', 'unknown'),
-            'row_count': result.get('row_count'),
-            'created_count': result.get('created_count', 0),
-            'updated_count': result.get('updated_count', 0),
-            'deleted_count': result.get('deleted_count', 0),
-            'skipped_count': result.get('skipped_count', 0),
-            'backend_count': result.get('backend_count'),
-            'errors': (result.get('errors') or [])[:3],
-        }
-    except Exception as exc:
-        logger.warning(
-            "Case sheet batch mirror failed for group %s: %s",
-            group_id,
-            exc,
-            exc_info=True,
-        )
-        return {
-            'status': 'error',
-            'row_count': None,
-            'created_count': 0,
-            'updated_count': 0,
-            'deleted_count': 0,
-            'skipped_count': 0,
-            'backend_count': None,
-            'errors': [str(exc)],
-        }
+    """Return a compatibility marker; Sheet rows are never imported."""
+    return {
+        'status': 'disabled',
+        'code': 'SHEET_IMPORT_DISABLED',
+        'group_id': str(group_id or ''),
+        'errors': ['SHEET_IMPORT_DISABLED'],
+    }
 
 
 
@@ -3063,14 +3036,8 @@ def _process_single_message(
         if parsed_message is None:
             return {'status': 'duplicate', 'message_id': telegram_message_id}
 
-        if sync_after_success and getattr(parsed_message, 'synced_to_sheets', False) is True:
-            try:
-                from core.services.sheet_sync import sync_group_from_sheet
-                sync_group_from_sheet(group_id=group_id, delete_missing=True)
-            except Exception as exc:
-                logger.warning(
-                    f"Post-append sheet mirror failed for group {group_id}: {exc}"
-                )
+        # The publish operation above is one-way.  Do not refresh Django from
+        # the Sheet after appending a row.
 
         # Collect captured fields for the Telegram reply
         captured_fields = {}
@@ -3764,7 +3731,7 @@ def resend_unsynced(request):
 @require_http_methods(["POST"])
 def sync_from_sheets(request):
     """
-    Mirror Google Sheets data into the backend database.
+    Deprecated Sheet-to-Django import endpoint.
 
     Body (optional JSON):
     { "group_id": "-1001234567890", "delete_missing": true }
@@ -3772,6 +3739,17 @@ def sync_from_sheets(request):
     If group_id is omitted, every configured group is synced. In legacy
     single-sheet mode this syncs the default group.
     """
+    if not _authorize_manual_request(request):
+        return error_response(
+            'Unauthorized: Missing or invalid API token',
+            code='UNAUTHORIZED',
+            status_code=401,
+        )
+    return error_response(
+        'Google Sheets are view-only; Sheet-to-Django imports are disabled.',
+        code='SHEET_IMPORT_DISABLED',
+        status_code=410,
+    )
     try:
         try:
             validate_request_size(request)

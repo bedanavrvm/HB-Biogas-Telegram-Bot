@@ -855,6 +855,7 @@ def sync_farmer_to_master_sheet(
         update_master_sheet_row,
         normalize_header,
     )
+    from core.services.sheet_publication import aliases_for
 
     group_config = None
     # 1. Try GroupRegistry (loaded from settings at startup)
@@ -931,49 +932,69 @@ def sync_farmer_to_master_sheet(
 
         from core.services.jawabu_validation import normalize_date_text, parse_business_date
         hbg_visit_date = farmer.hbg_visit_date or parse_business_date(farmer.sign_date)
+        def candidates(field_name, *fallback):
+            return list(dict.fromkeys((*aliases_for('jawabu_master', field_name), *fallback)))
+
         pipeline_fields = {
-            'unit_number': (['Unit Number'], farmer.unit_number),
+            'unit_number': (candidates('unit_number', 'Unit Number'), farmer.unit_number),
+            'customer_name': (candidates('customer_name', 'Customer Name'), farmer.customer_name),
+            'national_id': (candidates('national_id', 'National ID'), farmer.national_id),
+            'primary_phone': (candidates('primary_phone', 'Primary Phone'), farmer.primary_phone),
+            'secondary_phone': (candidates('secondary_phone', 'Secondary Phone'), farmer.secondary_phone),
+            'branch': (candidates('branch', 'Branch'), farmer.branch),
             'hbg_visit_date': (
-                ['HBG Visit Date', 'Sign Date', 'Sign Date__2'],
+                candidates('hbg_visit_date', 'Sign Date', 'Sign Date__2'),
                 normalize_date_text(hbg_visit_date) if hbg_visit_date else '',
             ),
-            'jbl_visit_date': (['Jawabu Visit Date', 'JBL Visit Date'], farmer.jbl_visit_date.strftime('%d-%B-%Y') if farmer.jbl_visit_date else ''),
-            'jbl_officer': (['JBL BRO', 'JBL Officer'], farmer.jbl_officer),
-            'jbl_visit_status': (['Jawabu Comment After Visit', 'JBL Visit Status'], farmer.jbl_visit_status),
-            'jbl_visit_comment': (['Additional Comments', 'Jawabu Visit Comment', 'JBL Visit Comment'], farmer.jbl_visit_comment),
-            'county': (['County'], farmer.county),
-            'sub_county': (['Sub-County', 'SUB-COUNTY', 'Constituency'], farmer.sub_county),
-            'village': (['Village'], farmer.village),
-            'credit_decision': (['Credit Analysis', 'Credit Decision'], farmer.credit_decision),
-            'imab_created': (['IS CUSTOMER CREATED ON IMAB?', 'IMAB Created', 'Customer Created On IMAB'], farmer.imab_created),
-            'customer_no': (['CUSTOMER NO', 'Customer No', 'Customer Number'], farmer.customer_no),
-            'imab_customer_name': (['NAME (IMAB)', 'IMAB Name', 'Customer Name (IMAB)'], farmer.imab_customer_name),
-            'system_branch': (['System Branch', 'IMAB Branch'], farmer.system_branch),
-            'system_loan_officer': (['Loan Officer', 'System Loan Officer'], farmer.system_loan_officer),
-            'system_deposit_paid_jbl': (['Deposit Paid to JBL'], _sheet_number(farmer.system_deposit_paid_jbl)),
-            'deposit_paid_hbg': (
-                ['Deposit Paid to HBG', 'Deposit Paid to HB', 'DEPOSIT / HB'],
-                _sheet_number(farmer.deposit_paid_hbg if farmer.deposit_paid_hbg is not None else farmer.actual_receipts),
-            ),
-            'repayment_date': (['Repayment Dates', 'Repayment Date'], farmer.repayment_date),
-            'repayment_tenor': (['Tenor'], farmer.repayment_tenor),
-            'payment_product': (['Payment Product', 'Product'], farmer.payment_product),
-            'jbl_media_urls': (['Media URLs', 'Media URLS', 'Drive Links'], farmer.jbl_media_urls),
-            'final_decision_comment': (['Decision Comment', 'Final Decision Comment', 'Additional Comments'], farmer.final_decision_comment),
-            'final_decision': (['Final Decision', 'Head of Rural Decision'], farmer.final_decision),
-            'final_decided_by': (['Final Decided By', 'Decision By'], farmer.final_decided_by),
-            'final_decided_at': (['Final Decided At', 'Decision Date'], farmer.final_decided_at.strftime('%d-%B-%Y %H:%M') if farmer.final_decided_at else ''),
-            'requisition_date': (['Jawabu Requisition Date', 'Requisition Date'], farmer.requisition_date.strftime('%d-%B-%Y') if farmer.requisition_date else ''),
-            'order_number': (['Order No.'], farmer.order_number),
-            'latitude': (['Latitude', 'Lat'], str(farmer.latitude) if farmer.latitude is not None else ''),
-            'longitude': (['Longitude', 'Long', 'Lng'], str(farmer.longitude) if farmer.longitude is not None else ''),
-            'gps_link': (['GPS Link', 'Google Maps Link', 'Maps Link', 'GPS'], farmer.gps_link or ''),
-            'invoice_number': (['Invoice Number', 'HBG Invoice Number'], farmer.invoice_number),
-            'invoice_date': (['Invoice Date', 'HBG Invoice Date'], farmer.invoice_date.strftime('%d-%B-%Y') if farmer.invoice_date else ''),
-            'invoice_amount': (['Invoice Amount', 'Invoice Value', 'Total Amount'], _sheet_number(farmer.invoice_amount)),
-            'discount': (['Discount'], _sheet_number(farmer.discount)),
-            'payment': (['Payment'], _sheet_number(farmer.payment)),
-            'balance_due': (['Balance Due'], _sheet_number(farmer.balance_due)),
+            'jbl_visit_date': (candidates('jbl_visit_date'), farmer.jbl_visit_date.strftime('%d-%B-%Y') if farmer.jbl_visit_date else ''),
+            'jbl_officer': (candidates('jbl_officer'), farmer.jbl_officer),
+            'jbl_visit_status': (candidates('jbl_visit_status'), farmer.jbl_visit_status),
+            'jbl_visit_comment': (candidates('jbl_visit_comment'), farmer.jbl_visit_comment),
+            'hbg_visit_comment': (candidates('hbg_visit_comment'), farmer.comments),
+            'county': (candidates('county'), farmer.county),
+            'sub_county': (candidates('sub_county'), farmer.sub_county),
+            'ward': (candidates('ward'), farmer.ward),
+            'village': (candidates('village'), farmer.village),
+            'landmark': (candidates('landmark'), farmer.landmark),
+            'lead_source': (candidates('lead_source'), farmer.lead_source),
+            'hbg_contract_name': (candidates('hbg_contract_name'), farmer.hbg_contract_name),
+            'contract_type': (candidates('contract_type'), farmer.contract_type),
+            'installation_status': (candidates('installation_status'), farmer.installation_status),
+            'hb_sales_person': (candidates('hb_sales_person'), farmer.hb_sales_person),
+            'actual_receipts_currency': (candidates('actual_receipts_currency'), farmer.actual_receipts_currency),
+            'credit_decision': (candidates('credit_decision'), farmer.credit_decision),
+            'credit_decided_by': (['Credit Decided By', 'Credit Analyst'], farmer.credit_decided_by),
+            'credit_decided_at': (['Credit Decided At', 'Credit Decision Date'], _datetime_text(farmer.credit_decided_at)),
+            'imab_created': (candidates('imab_created'), farmer.imab_created),
+            'customer_no': (candidates('customer_no'), farmer.customer_no),
+            'imab_customer_name': (candidates('imab_customer_name'), farmer.imab_customer_name),
+            'system_branch': (candidates('system_branch'), farmer.system_branch),
+            'system_loan_officer': (candidates('system_loan_officer'), farmer.system_loan_officer),
+            'system_deposit_paid_jbl': (candidates('system_deposit_paid_jbl'), _sheet_number(farmer.system_deposit_paid_jbl)),
+            'deposit_paid_hbg': (candidates('deposit_paid_hbg'), _sheet_number(farmer.deposit_paid_hbg if farmer.deposit_paid_hbg is not None else farmer.actual_receipts)),
+            'repayment_date': (candidates('repayment_date'), farmer.repayment_date),
+            'repayment_day': (candidates('repayment_day'), farmer.repayment_day),
+            'repayment_tenor': (candidates('repayment_tenor'), farmer.repayment_tenor),
+            'repayment_tenor_months': (candidates('repayment_tenor_months'), farmer.repayment_tenor_months),
+            'payment_product': (candidates('payment_product'), farmer.payment_product),
+            'deferred_stage': (candidates('deferred_stage'), farmer.deferred_stage),
+            'deferred_until': (candidates('deferred_until'), _date_text(farmer.deferred_until)),
+            'jbl_media_urls': (candidates('jbl_media_urls'), farmer.jbl_media_urls),
+            'payment_call_up_comment': (candidates('payment_call_up_comment'), farmer.final_decision_comment),
+            'final_decision': (candidates('final_decision'), farmer.final_decision),
+            'final_decided_by': (candidates('final_decided_by'), farmer.final_decided_by),
+            'final_decided_at': (candidates('final_decided_at'), _datetime_text(farmer.final_decided_at)),
+            'requisition_date': (candidates('requisition_date'), _date_text(farmer.requisition_date)),
+            'order_number': (candidates('order_number'), farmer.order_number),
+            'latitude': (candidates('latitude'), str(farmer.latitude) if farmer.latitude is not None else ''),
+            'longitude': (candidates('longitude'), str(farmer.longitude) if farmer.longitude is not None else ''),
+            'gps_link': (candidates('gps_link'), farmer.gps_link or ''),
+            'invoice_number': (candidates('invoice_number'), farmer.invoice_number),
+            'invoice_date': (candidates('invoice_date'), _date_text(farmer.invoice_date)),
+            'invoice_amount': (candidates('invoice_amount', 'Total Amount'), _sheet_number(farmer.invoice_amount)),
+            'discount': (candidates('discount'), _sheet_number(farmer.discount)),
+            'payment': (candidates('payment'), _sheet_number(farmer.payment)),
+            'balance_due': (candidates('balance_due'), _sheet_number(farmer.balance_due)),
         }
 
         for field_name, (candidates, new_val) in pipeline_fields.items():
@@ -1075,6 +1096,7 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
         set_header_value,
         write_master_date_cells,
     )
+    from core.services.sheet_publication import aliases_for
 
     group_config = _jawabu_group_config()
     if not group_config:
@@ -1123,6 +1145,9 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
         now_text = timezone.now().strftime('%d-%B-%Y %H:%M')
         changes = {}
 
+        def candidates(field_name, *fallback):
+            return list(dict.fromkeys((*aliases_for('internal_order', field_name), *fallback)))
+
         def put(candidates: list[str], value):
             header = first_existing_header(header_lookup, candidates)
             if not header:
@@ -1133,36 +1158,48 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
                 set_header_value(row_values, header_lookup, header, value)
                 changes[header] = {'before': current, 'after': value}
 
-        put(['ORDER RECORD ID', 'Record ID'], record_id)
-        put(['ORDER NO', 'Order No.', 'Order No'], farmer.order_number)
-        put(['REQUISITION DATE', 'Jawabu Requisition Date', 'Requisition Date'], _date_text(farmer.requisition_date))
-        put(['DATE VISITED', 'JBL Visit Date', 'Jawabu Visit Date'], _date_text(farmer.jbl_visit_date))
-        put(['CUSTOMER NAME', 'Name'], farmer.customer_name)
-        put(['BRANCH'], farmer.branch)
-        put(['ID NUMBER', 'National ID'], farmer.national_id)
-        put(['CONTACTS / PRIMARY', 'Primary Phone', 'First Phone Number'], farmer.primary_phone)
-        put(['CONTACTS / SECONDARY', 'Secondary Phone', 'Second Phone Number'], farmer.secondary_phone)
-        put(['COUNTY'], farmer.county)
-        put(['SUB-COUNTY', 'Sub-County', 'Constituency'], farmer.sub_county)
-        put(['LOCATION AND NEAREST LANDMARK', 'Landmark', 'Village'], farmer.landmark or farmer.village)
-        put(['GPS Link', 'Google Maps Link', 'Maps Link'], farmer.gps_link)
-        put(['Latitude', 'Lat'], farmer.latitude)
-        put(['Longitude', 'Long', 'Lng'], farmer.longitude)
-        put(['VISITED BY', 'JBL BRO', 'JBL Officer'], farmer.jbl_officer)
-        put(['HB STAFF', 'Sales Person'], farmer.hb_sales_person)
+        put(candidates('order_record_id'), record_id)
+        put(candidates('order_number'), farmer.order_number)
+        put(candidates('requisition_date'), _date_text(farmer.requisition_date))
+        put(candidates('hbg_visit_date'), _date_text(farmer.hbg_visit_date))
+        put(candidates('jbl_visit_date'), _date_text(farmer.jbl_visit_date))
+        put(candidates('customer_name'), farmer.customer_name)
+        put(candidates('branch'), farmer.branch)
+        put(candidates('system_branch'), farmer.system_branch)
+        put(candidates('national_id'), farmer.national_id)
+        put(candidates('primary_phone'), farmer.primary_phone)
+        put(candidates('secondary_phone'), farmer.secondary_phone)
+        put(candidates('county'), farmer.county)
+        put(candidates('sub_county'), farmer.sub_county)
+        put(candidates('ward'), farmer.ward)
+        put(candidates('village'), farmer.village)
+        put(candidates('landmark'), farmer.landmark or farmer.village)
+        put(candidates('gps_link'), farmer.gps_link)
+        put(candidates('latitude'), farmer.latitude)
+        put(candidates('longitude'), farmer.longitude)
+        put(candidates('jbl_officer'), farmer.jbl_officer)
+        put(candidates('system_loan_officer'), farmer.system_loan_officer)
+        put(candidates('hb_sales_person'), farmer.hb_sales_person)
         put(
-            ['DEPOSIT / HB', 'Deposit Paid to HBG', 'Deposit Paid to HB'],
+            candidates('deposit_paid_hbg'),
             farmer.deposit_paid_hbg if farmer.deposit_paid_hbg is not None else farmer.actual_receipts,
         )
-        put(['BRO COMMENT', 'COMMENT', 'JBL Visit Comment'], farmer.jbl_visit_comment)
-        put(['CREDIT ANALYSIS', 'Credit Analysis', 'Credit Decision'], farmer.credit_decision)
-        put(['IS CUSTOMER CREATED ON IMAB?', 'IMAB Created', 'Customer Created On IMAB'], farmer.imab_created)
-        put(['CUSTOMER NO', 'Customer No', 'Customer Number'], farmer.customer_no)
-        put(['Media URLs', 'MEDIA URLS', 'Drive Links'], farmer.jbl_media_urls)
-        put(['DECISION COMMENT', 'Final Decision Comment', 'Additional Comments'], farmer.final_decision_comment)
-        put(['FINAL DECISION', 'Final Decision', 'Head of Rural Decision'], farmer.final_decision)
-        put(['Final Decided By', 'Decision By'], farmer.final_decided_by)
-        put(['Final Decided At', 'Decision Date'], _datetime_text(farmer.final_decided_at))
+        put(candidates('system_deposit_paid_jbl'), farmer.system_deposit_paid_jbl if farmer.system_deposit_paid_jbl is not None else 0)
+        put(candidates('hbg_visit_comment'), farmer.comments)
+        put(candidates('jbl_visit_comment'), farmer.jbl_visit_comment)
+        put(candidates('credit_decision'), farmer.credit_decision)
+        put(candidates('imab_created'), farmer.imab_created)
+        put(candidates('customer_no'), farmer.customer_no)
+        put(candidates('repayment_date'), farmer.repayment_date)
+        put(candidates('repayment_tenor'), farmer.repayment_tenor)
+        put(candidates('payment_product'), farmer.payment_product)
+        put(candidates('payment_call_up_comment'), farmer.final_decision_comment)
+        put(candidates('final_decision'), farmer.final_decision)
+        put(candidates('jbl_media_urls'), farmer.jbl_media_urls)
+        put(candidates('deferred_stage'), farmer.deferred_stage)
+        put(candidates('deferred_until'), _date_text(farmer.deferred_until))
+        put(candidates('final_decided_by'), farmer.final_decided_by)
+        put(candidates('final_decided_at'), _datetime_text(farmer.final_decided_at))
         put(['Duplicate Key'], farmer.duplicate_key)
         put(['Last Updated At'], now_text)
 

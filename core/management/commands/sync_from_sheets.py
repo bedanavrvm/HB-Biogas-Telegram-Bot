@@ -1,16 +1,9 @@
-"""
-Sync Google Sheets source-of-truth data into the local backend.
-"""
-from django.core.management.base import BaseCommand, CommandError
-
-from core.services.sheet_sync import (
-    sync_all_configured_groups,
-    sync_group_from_sheet,
-)
+"""Compatibility command for the retired Sheet-to-Django import path."""
+from django.core.management.base import BaseCommand
 
 
 class Command(BaseCommand):
-    help = "Mirror Google Sheets rows into the backend database."
+    help = "Deprecated: Google Sheets are view-only publication surfaces."
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -25,18 +18,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        delete_missing = not options['keep_missing']
-        group_id = options.get('group_id')
-
-        if group_id:
-            result = sync_group_from_sheet(
-                group_id=group_id,
-                delete_missing=delete_missing,
-            )
-        else:
-            result = sync_all_configured_groups(delete_missing=delete_missing)
-
-        if result.get('status') not in {'success', 'partial'}:
-            raise CommandError(result)
-
-        self.stdout.write(self.style.SUCCESS(str(result)))
+        self.stdout.write(self.style.WARNING(
+            'SHEET_IMPORT_DISABLED: Google Sheets are view-only. '
+            'No backend records were changed. Use the explicit CSV/XLSX import workflows.'
+        ))

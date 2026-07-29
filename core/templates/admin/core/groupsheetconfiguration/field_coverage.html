@@ -1,0 +1,78 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+  &rsaquo; <a href="{% url 'admin:core_groupsheetconfiguration_changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+  &rsaquo; <a href="{% url 'admin:core_groupsheetconfiguration_change' config.pk %}">{{ config }}</a>
+  &rsaquo; Published field coverage
+</div>
+{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<style>
+  .coverage-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin:16px 0; }
+  .coverage-card, .coverage-panel { border:1px solid var(--border-color); border-radius:6px; padding:14px; background:var(--body-bg); }
+  .coverage-card strong { display:block; font-size:22px; margin-top:4px; }
+  .coverage-panel { margin:16px 0; overflow:auto; }
+  .coverage-table { width:100%; border-collapse:collapse; min-width:720px; }
+  .coverage-table th, .coverage-table td { border-bottom:1px solid var(--hairline-color); padding:8px; text-align:left; vertical-align:top; }
+  .coverage-table th { background:var(--darkened-bg); }
+  .coverage-missing { color:var(--error-fg); }
+  .coverage-present { color:var(--success-fg, #087f23); }
+  .coverage-actions { display:flex; gap:8px; flex-wrap:wrap; margin:16px 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="content-main" class="admin-custom-page">
+  <p>
+    This audit reads only the header row for <strong>{{ config.sheet_name }}</strong>.
+    Django owns operational data; Sheets are view-only publication surfaces.
+  </p>
+
+  {% if error %}
+    <div class="errornote">{{ error }}</div>
+  {% elif reports %}
+    {% for coverage in reports %}
+      <div class="coverage-summary">
+        <div class="coverage-card">Publication surface<strong>{{ coverage.surface }}</strong></div>
+        <div class="coverage-card">Sheet tab<strong>{{ coverage.sheet_name }}</strong></div>
+        <div class="coverage-card">Headers present<strong class="coverage-present">{{ coverage.present_count|default:"0" }}</strong></div>
+        <div class="coverage-card">Expected headers missing<strong class="coverage-missing">{{ coverage.missing_count|default:"0" }}</strong></div>
+      </div>
+      {% if coverage.error %}
+        <div class="errornote">{{ coverage.error }}</div>
+      {% else %}
+        <div class="coverage-panel">
+          <h2>Published operational fields</h2>
+          <table class="coverage-table">
+            <thead><tr><th>Field</th><th>Django source</th><th>Category</th><th>Matched Sheet header</th></tr></thead>
+            <tbody>
+              {% for item in coverage.present %}<tr><td>{{ item.field }}</td><td>{{ item.source }}</td><td>{{ item.category }}</td><td class="coverage-present">{{ item.header }}</td></tr>
+              {% empty %}<tr><td colspan="4">No operational fields matched.</td></tr>{% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="coverage-panel">
+          <h2>Expected but not currently exposed</h2>
+          <table class="coverage-table">
+            <thead><tr><th>Field</th><th>Django source</th><th>Category</th><th>Accepted headers</th></tr></thead>
+            <tbody>
+              {% for item in coverage.missing %}<tr><td>{{ item.field }}</td><td>{{ item.source }}</td><td>{{ item.category }}</td><td class="coverage-missing">{{ item.aliases|join:", " }}</td></tr>
+              {% empty %}<tr><td colspan="4">All registered operational fields are exposed.</td></tr>{% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+
+  <div class="coverage-actions">
+    <a class="button" href="{% url 'admin:core_groupsheetconfiguration_change' config.pk %}">Back to configuration</a>
+    <a class="button" href="{{ config.sheet_url }}" target="_blank" rel="noopener">Open Sheet (view only)</a>
+  </div>
+</div>
+{% endblock %}

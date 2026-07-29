@@ -76,8 +76,9 @@ def handle_bot_command(
             'reply_text': _format_sheet_sync(group_id=group_id),
         }
 
-    if _should_refresh_from_sheet(normalized, group_id):
-        _refresh_group_from_sheet(group_id)
+    # Google Sheets are a read-only publication surface.  Command reads use
+    # the canonical Django database and never refresh or delete local rows
+    # from a workbook that staff may have edited independently.
 
     match = re.fullmatch(r'/?update\s+(\S+)\s+(.+)', text, flags=re.IGNORECASE | re.DOTALL)
     if match:
@@ -351,76 +352,18 @@ def _workflow_type_for_group(group_id: str) -> str:
 
 
 def _should_refresh_from_sheet(normalized: str, group_id: str = '') -> bool:
-    if _workflow_type_for_group(group_id) != 'case':
-        return False
-    command = normalized.lstrip('/').split()[0] if normalized else ''
-    return command in {
-        'today',
-        'week',
-        'group',
-        'health',
-        'last',
-        'recent',
-        'unsynced',
-        'phone',
-        'tel',
-        'id',
-        'customerid',
-        'account',
-        'open',
-        'pending',
-        'closed',
-        'missing',
-        'lowconfidence',
-        'risk',
-        'duplicates',
-        'top',
-        'stale',
-        'errors',
-        'summary',
-        'case',
-        'search',
-    }
+    return False
 
 
 def _refresh_group_from_sheet(group_id: str) -> None:
-    try:
-        from core.services.sheet_sync import sync_group_from_sheet
-        result = sync_group_from_sheet(group_id=group_id, delete_missing=True)
-        if result.get('status') != 'success':
-            # Command reads should continue using the last local mirror if the
-            # sheet is temporarily unavailable.
-            return
-    except Exception:
-        return
+    # Kept as a no-op for callers in older deployments.
+    return None
 
 
 def _format_sheet_sync(group_id: str) -> str:
-    workflow_type = _workflow_type_for_group(group_id)
-    if workflow_type != 'case':
-        workflow_label = workflow_type or 'an unconfigured'
-        return (
-            '/sync is only available for Case workflow groups. '
-            f'This group uses {workflow_label} workflow.'
-        )
-
-    try:
-        from core.services.sheet_sync import sync_group_from_sheet
-        result = sync_group_from_sheet(group_id=group_id, delete_missing=True)
-    except Exception:
-        return "Sheet sync failed."
-
-    if result.get('status') != 'success':
-        error = _compact("; ".join(result.get('errors', [])), 200)
-        return f"Sheet sync failed: {error or 'unknown error'}"
-
     return (
-        "Sheet sync complete:\n"
-        f"Rows in sheet: {result.get('row_count', 0)}\n"
-        f"Created: {result.get('created_count', 0)}\n"
-        f"Updated: {result.get('updated_count', 0)}\n"
-        f"Deleted locally: {result.get('deleted_count', 0)}\n"
-        f"Backend cases: {result.get('backend_count', 0)}"
+        "SHEET_IMPORT_DISABLED: Google Sheets are view-only publication surfaces.\n"
+        "Use the Portal or an explicit CSV/XLSX import to change Django records."
     )
 
 

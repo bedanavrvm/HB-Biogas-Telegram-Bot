@@ -12,6 +12,9 @@ class LiveSheetRecordError(Exception):
     """Raised when a live sheet record operation cannot be completed safely."""
 
 
+SHEET_IMPORT_DISABLED = 'SHEET_IMPORT_DISABLED'
+
+
 def allowed_sheet_tabs(group_config) -> list[str]:
     """Return worksheet tabs that the configured workflow is allowed to manage."""
     workflow = group_config.workflow or {}
@@ -118,73 +121,17 @@ def update_live_sheet_row(
     row_number: int,
     submitted_values: dict[int, str],
 ) -> dict[str, Any]:
-    """Update changed non-formula cells for one live sheet row."""
-    table = load_live_sheet_table(group_config, sheet_tab)
-    row = _table_row(table, row_number)
-    headers = table['headers']
-    protected = set(row.get('protected_indexes') or row['formula_indexes'])
-    changes = {}
-    ranges = []
-
-    for index, header in enumerate(headers):
-        if index in protected or not str(header or '').strip():
-            continue
-        if index not in submitted_values:
-            continue
-        old_value = str(row['values'][index] or '')
-        new_value = str(submitted_values[index] or '')
-        if new_value == old_value:
-            continue
-        changes[str(header)] = {'old': old_value, 'new': new_value}
-        ranges.append({
-            'range': f'{_column_letter(index + 1)}{row_number}',
-            'values': [[new_value]],
-        })
-
-    if not ranges:
-        return {
-            'changed': False,
-            'changes': {},
-            'record_key': row['record_key'],
-            'sheet_tab': table['sheet_tab'],
-            'row_number': row_number,
-        }
-
-    service = _service_for_tab(group_config, table['sheet_tab'])
-    try:
-        service._sheet.batch_update(ranges, raw=True)
-    except Exception as exc:
-        raise LiveSheetRecordError(f'Google Sheets rejected the row update: {exc}') from exc
-
-    return {
-        'changed': True,
-        'changes': changes,
-        'record_key': row['record_key'],
-        'sheet_tab': table['sheet_tab'],
-        'row_number': row_number,
-    }
+    """Reject Sheet-originated edits; Django is the source of truth."""
+    raise LiveSheetRecordError(
+        f'{SHEET_IMPORT_DISABLED}: Sheets are view-only; update the record in Django.'
+    )
 
 
 def delete_live_sheet_row(group_config, sheet_tab: str, row_number: int) -> dict[str, Any]:
-    """Delete one confirmed live worksheet row."""
-    table = load_live_sheet_table(group_config, sheet_tab)
-    row = _table_row(table, row_number)
-    service = _service_for_tab(group_config, table['sheet_tab'])
-    try:
-        service._sheet.delete_rows(row_number)
-    except Exception as exc:
-        raise LiveSheetRecordError(f'Google Sheets rejected the row deletion: {exc}') from exc
-
-    return {
-        'record_key': row['record_key'],
-        'sheet_tab': table['sheet_tab'],
-        'row_number': row_number,
-        'deleted_values': {
-            str(header): str(value or '')
-            for header, value in zip(table['headers'], row['values'])
-            if str(header or '').strip() and str(value or '').strip()
-        },
-    }
+    """Reject Sheet-originated deletions; Django owns lifecycle state."""
+    raise LiveSheetRecordError(
+        f'{SHEET_IMPORT_DISABLED}: Sheets are view-only; archive or correct the record in Django.'
+    )
 
 
 def _service_for_tab(group_config, tab: str):

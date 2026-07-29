@@ -87,6 +87,7 @@ class AdminMonitoringTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Operations dashboard')
         self.assertContains(response, '/static/admin/css/compact_unfold.css')
+        self.assertContains(response, 'compact_unfold.css?v=2')
 
     def test_admin_index_uses_curated_sidebar_and_global_search(self):
         user = get_user_model().objects.create_superuser(

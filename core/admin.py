@@ -1017,14 +1017,14 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
     actions = ['publish_jbl_apps_launchers', 'preview_jbl_apps_launchers']
     list_display = [
         'display_label', 'group_id', 'enabled', 'sheet_name',
-        'sheet_link', 'live_records_link', 'data_records_link',
+        'sheet_link', 'sheet_coverage_link', 'live_records_link', 'data_records_link',
         'media_records_link', 'tat_repair_link', 'tat_duplicate_link', 'updated_at',
     ]
     list_filter = ['enabled', 'sheet_name', 'updated_at']
     search_fields = ['group_id', 'display_name', 'sheet_id', 'sheet_name']
     readonly_fields = [
         'created_at', 'updated_at', 'sheet_link', 'sheet_analyzer_link',
-        'live_records_link', 'data_records_link', 'media_records_link',
+        'sheet_coverage_link', 'live_records_link', 'data_records_link', 'media_records_link',
         'reset_group_data_link', 'tat_repair_link', 'tat_duplicate_link',
     ]
     fieldsets = (
@@ -1032,7 +1032,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
             'fields': (
                 'enabled', 'group_id', 'display_name', 'sheet_id',
                 'sheet_name', 'sheet_link', 'live_records_link', 'data_records_link',
-                'media_records_link', 'sheet_analyzer_link', 'reset_group_data_link',
+                'media_records_link', 'sheet_analyzer_link', 'sheet_coverage_link', 'reset_group_data_link',
                 'tat_repair_link', 'tat_duplicate_link',
             ),
             'description': (
@@ -1576,6 +1576,15 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
         url = reverse('admin:core_groupsheetconfiguration_live_records', args=[obj.pk])
         return format_html('<a class="button" href="{}">Open live sheet records</a>', url)
 
+    @admin.display(description='Field coverage')
+    def sheet_coverage_link(self, obj):
+        if not obj or not obj.pk:
+            return 'Save this configuration before checking field coverage.'
+        if not obj.sheet_id:
+            return 'Add a Google Sheet ID before checking field coverage.'
+        url = reverse('admin:core_groupsheetconfiguration_coverage', args=[obj.pk])
+        return format_html('<a class="button" href="{}">Check published fields</a>', url)
+
     @admin.display(description='Django data')
     def data_records_link(self, obj):
         if not obj or not obj.pk:
@@ -1664,6 +1673,11 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                 name='core_groupsheetconfiguration_analyze',
             ),
             path(
+                '<path:object_id>/field-coverage/',
+                self.admin_site.admin_view(self.field_coverage_view),
+                name='core_groupsheetconfiguration_coverage',
+            ),
+            path(
                 '<path:object_id>/live-records/',
                 self.admin_site.admin_view(self.live_records_view),
                 name='core_groupsheetconfiguration_live_records',
@@ -1675,6 +1689,70 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
             ),
         ]
         return custom_urls + urls
+
+    def field_coverage_view(self, request, object_id):
+        """Inspect only the configured header row; never import Sheet rows."""
+        config = self.get_object(request, object_id)
+        if not config:
+            messages.error(request, 'Configuration was not found.')
+            return HttpResponseRedirect('../')
+        if not self.has_view_permission(request, config):
+            messages.error(request, 'You do not have permission to view this configuration.')
+            return HttpResponseRedirect('../')
+
+        from core.services.sheet_publication import coverage_for_headers, surfaces_for_configuration
+        from core.services.sheets import get_sheets_service
+
+        reports = []
+        error = ''
+        for target in surfaces_for_configuration(config):
+            try:
+                header_row = max(int(target.get('header_row') or 1), 1)
+            except (TypeError, ValueError):
+                header_row = 1
+            try:
+                service = get_sheets_service(
+                    sheet_id=target.get('sheet_id') or config.sheet_id,
+                    sheet_name=target.get('sheet_name') or config.sheet_name,
+                    sheet_schema=config.sheet_schema or {},
+                )
+                if not service.is_available():
+                    reports.append({
+                        'surface': target['surface'],
+                        'sheet_name': target['sheet_name'],
+                        'error': 'Google Sheets service unavailable or sheet not accessible.',
+                    })
+                    continue
+                # Header-only read is intentional: Sheets are a publication
+                # surface and must not be treated as a backend import source.
+                headers = service._sheet.row_values(header_row)
+                report = coverage_for_headers(target['surface'], headers)
+                report.update({'sheet_name': target['sheet_name'], 'header_row': header_row})
+                reports.append(report)
+            except Exception as exc:
+                logger.warning('Sheet field coverage failed for %s: %s', config, exc, exc_info=True)
+                reports.append({
+                    'surface': target['surface'],
+                    'sheet_name': target['sheet_name'],
+                    'error': 'Could not read the configured Sheet header row.',
+                })
+        if not reports:
+            error = 'No publication Sheet is configured for this workflow.'
+
+        context = {
+            **self.admin_site.each_context(request),
+            'title': f'Sheet field coverage: {config.display_name or config.group_id}',
+            'opts': self.model._meta,
+            'original': config,
+            'config': config,
+            'reports': reports,
+            'error': error,
+        }
+        return TemplateResponse(
+            request,
+            'admin/core/groupsheetconfiguration/field_coverage.html',
+            context,
+        )
 
     def reset_group_data_view(self, request, object_id):
         config = self.get_object(request, object_id)
@@ -1810,9 +1888,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
         from core.services.live_sheet_records import (
             LiveSheetRecordError,
             allowed_sheet_tabs,
-            delete_live_sheet_row,
             load_live_sheet_table,
-            update_live_sheet_row,
         )
 
         tabs = allowed_sheet_tabs(config)
@@ -1827,68 +1903,13 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
         action = request.POST.get('action', '')
 
         if request.method == 'POST' and action in {'update', 'delete'}:
-            if not self.has_change_permission(request, config):
-                messages.error(request, 'You do not have permission to change live sheet rows.')
-                return HttpResponseRedirect(request.path)
-            try:
-                if action == 'update':
-                    submitted = {
-                        int(key[4:]): value
-                        for key, value in request.POST.items()
-                        if key.startswith('col_') and key[4:].isdigit()
-                    }
-                    result = update_live_sheet_row(
-                        config,
-                        selected_tab,
-                        edit_row,
-                        submitted,
-                    )
-                    if result.get('changed'):
-                        self._audit_live_sheet_change(
-                            config=config,
-                            request=request,
-                            action='update',
-                            result=result,
-                        )
-                        mirror_result = self._sync_case_mirror(config)
-                        messages.success(
-                            request,
-                            f"Updated live sheet row {edit_row}.",
-                        )
-                        self._warn_on_mirror_failure(request, mirror_result)
-                    else:
-                        messages.info(request, 'No sheet values changed.')
-                else:
-                    if request.POST.get('confirm_delete') != 'yes':
-                        raise LiveSheetRecordError(
-                            'Confirm the deletion before removing the live sheet row.'
-                        )
-                    result = delete_live_sheet_row(config, selected_tab, edit_row)
-                    self._audit_live_sheet_change(
-                        config=config,
-                        request=request,
-                        action='delete',
-                        result=result,
-                    )
-                    mirror_result = self._sync_case_mirror(config)
-                    messages.success(
-                        request,
-                        f"Deleted live sheet row {edit_row}.",
-                    )
-                    self._warn_on_mirror_failure(request, mirror_result)
-                return HttpResponseRedirect(
-                    f"{request.path}?{urlencode({'sheet_tab': selected_tab})}"
-                )
-            except LiveSheetRecordError as exc:
-                self._audit_live_sheet_failure(
-                    config=config,
-                    request=request,
-                    action=action,
-                    sheet_tab=selected_tab,
-                    row_number=edit_row,
-                    error=str(exc),
-                )
-                messages.error(request, str(exc))
+            messages.error(
+                request,
+                'SHEET_IMPORT_DISABLED: Sheets are view-only. Update or archive the record in Django.',
+            )
+            return HttpResponseRedirect(
+                f"{request.path}?{urlencode({'sheet_tab': selected_tab})}"
+            )
 
         table = None
         load_error = ''
@@ -1920,7 +1941,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
             'table': table,
             'load_error': load_error,
             'edit_record': edit_record,
-            'has_change_permission': self.has_change_permission(request, config),
+            'has_change_permission': False,
         }
         return TemplateResponse(
             request,
@@ -1938,15 +1959,15 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
 
     @staticmethod
     def _sync_case_mirror(config):
-        workflow_type = str((config.workflow or {}).get('type') or 'case')
-        if workflow_type != 'case':
-            return None
-        from core.services.sheet_sync import sync_group_from_sheet
-        return sync_group_from_sheet(group_id=config.group_id, delete_missing=True)
+        return {
+            'status': 'disabled',
+            'code': 'SHEET_IMPORT_DISABLED',
+            'errors': ['SHEET_IMPORT_DISABLED'],
+        }
 
     @staticmethod
     def _warn_on_mirror_failure(request, result):
-        if result and result.get('status') != 'success':
+        if result and result.get('status') not in {'success', 'disabled'}:
             messages.warning(
                 request,
                 'The live Google Sheet changed, but the Django case mirror could '
