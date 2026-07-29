@@ -1,5 +1,6 @@
 (function () {
   const tg = window.MiniAppTelegram ? window.MiniAppTelegram.init() : null;
+  const utils = window.MiniAppUtils || {};
   const payload = JSON.parse(document.getElementById('batch-data').textContent);
   let rows = payload.rows || [];
   // Batches created before Application Action was introduced have no stored
@@ -11,8 +12,6 @@
   const batchId = payload.batch_id;
   const token = payload.token;
   const initData = tg ? tg.initData : '';
-  const draftKey = 'farmupReviewDraft:' + batchId;
-  const draftMaxAgeMs = 7 * 24 * 60 * 60 * 1000;
   const fields = ['Customer Name', 'National ID', 'Primary Phone', 'Secondary Phone', 'Application Action', 'County', 'HBG Visit Date', 'Deposit Paid to HB', 'HB Sales Person', 'Cleaning Notes'];
   const body = document.getElementById('rowsBody');
   const statusEl = document.getElementById('status');
@@ -22,6 +21,17 @@
   const visibleCount = document.getElementById('visibleCount');
   let searchText = '';
   let reviewOnly = false;
+  const draft = utils.createServerDraft ? utils.createServerDraft({
+    workflow: 'farmup_review',
+    contextKey: batchId,
+    initData: () => tg ? tg.initData || '' : '',
+    token: () => token || '',
+    onSaved: () => setStatus('Draft saved securely. Commit when the review is complete.', ''),
+    onError: (error) => {
+      if (navigator.onLine === false) setStatus('Offline. Changes remain open here; reconnect to save the draft.', 'error');
+      else if (!error.conflict) setStatus(error.message || 'Draft could not be saved.', 'error');
+    },
+  }) : null;
 
   function isBlank(value) {
     return !String(value || '').trim();
@@ -171,52 +181,31 @@
     statusEl.className = 'status ' + (kind || '');
   }
 
-  function canUseStorage() {
-    try {
-      const probe = '__farmup_review_probe__';
-      window.localStorage.setItem(probe, '1');
-      window.localStorage.removeItem(probe);
-      return true;
-    } catch (err) {
-      return false;
-    }
-  }
-
-  const storageAvailable = canUseStorage();
-
   function saveDraft() {
-    if (!storageAvailable) return;
-    if (!rows.length) {
-      window.localStorage.removeItem(draftKey);
-      return;
-    }
-    window.localStorage.setItem(draftKey, JSON.stringify({ savedAt: new Date().toISOString(), rows }));
+    if (draft && rows.length) draft.schedule({ rows });
   }
 
-  function restoreDraftIfFresh() {
-    if (!storageAvailable) return;
+  async function restoreDraft() {
+    if (!draft) return;
     try {
-      const raw = window.localStorage.getItem(draftKey);
-      const draft = raw ? JSON.parse(raw) : null;
-      const saved = draft && draft.savedAt ? Date.parse(draft.savedAt) : NaN;
-      if (!draft || !Array.isArray(draft.rows) || Number.isNaN(saved) || Date.now() - saved > draftMaxAgeMs) {
-        window.localStorage.removeItem(draftKey);
-        return;
+      const saved = await draft.load();
+      if (saved && Array.isArray(saved.payload?.rows)) {
+        rows = saved.payload.rows;
+        setStatus('Secure draft restored. Review and commit when ready.', '');
+        render();
       }
-      rows = draft.rows;
-      setStatus('Unsaved review draft restored from this device.', '');
-    } catch (err) {
-      window.localStorage.removeItem(draftKey);
+    } catch (error) {
+      setStatus('Draft recovery is unavailable. The original batch values are still shown.', 'error');
     }
   }
 
   function clearDraft() {
-    if (storageAvailable) window.localStorage.removeItem(draftKey);
+    return draft ? draft.clear().catch(() => {}) : Promise.resolve();
   }
 
-  window.addEventListener('pagehide', saveDraft);
-  window.addEventListener('offline', () => setStatus('Offline. Review edits are saved on this device; commit when online.', 'error'));
-  window.addEventListener('online', () => setStatus('Back online. Review edits are still saved locally until commit succeeds.', ''));
+  window.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveDraft(); });
+  window.addEventListener('offline', () => setStatus('Offline. Changes remain open here; reconnect to save the secure draft.', 'error'));
+  window.addEventListener('online', () => setStatus('Back online. Your next edit will save the secure draft.', ''));
   document.getElementById('approveAll').addEventListener('click', () => {
     rows.forEach((row) => { if (!isReview(row)) row.approved = true; });
     saveDraft();
@@ -256,7 +245,7 @@
     const btn = document.getElementById('commitBtn');
     if (navigator.onLine === false) {
       saveDraft();
-      setStatus('Offline. Review edits are saved on this device. Commit when online.', 'error');
+      setStatus('Offline. Changes remain open in this screen. Reconnect and wait for “Draft saved” before closing, then commit.', 'error');
       return;
     }
     saveDraft();
@@ -280,6 +269,9 @@
       const remaining = Array.isArray(result.rows) ? result.rows : [];
       if (remaining.length) {
         rows = remaining;
+        // The response is now the canonical outstanding set. Remove the old
+        // draft so a later recovery cannot reintroduce committed rows.
+        clearDraft();
         render();
         const sync = result.sheet_sync || {};
         const syncText = sync.enabled
@@ -293,17 +285,20 @@
         ? ` Master sync: ${sync.created || 0} created, ${sync.updated || 0} updated, ${sync.conflicts || 0} conflict(s).`
         : ' Master sync is not enabled for this group.';
       setStatus(`Committed ${result.committed} row(s). All rows are complete.${syncText}`, 'ok');
+      clearDraft();
+      utils.haptic?.('success');
       if (tg) setTimeout(() => tg.close(), 900);
     } catch (err) {
       saveDraft();
-      setStatus('Could not commit rows. Review edits were saved on this device. Check your connection and try again.', 'error');
+      setStatus('Could not commit rows. Review edits remain open; reconnect to save the secure draft and retry.', 'error');
+      utils.haptic?.('error');
     } finally {
       btn.disabled = false;
     }
   });
 
-  restoreDraftIfFresh();
   render();
+  restoreDraft();
 })();
 
 

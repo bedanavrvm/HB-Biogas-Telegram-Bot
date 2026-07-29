@@ -101,6 +101,7 @@
   }
 
   function showNotice(message, tone) {
+    if (tone === 'ok' || tone === 'error') utils.haptic?.(tone === 'ok' ? 'success' : 'error');
     if (noticeTimeout) clearTimeout(noticeTimeout);
     $('noticeTitle').textContent = tone === 'error' ? 'Action needed' : 'Success';
     $('noticeMessage').textContent = message;

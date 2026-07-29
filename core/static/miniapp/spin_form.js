@@ -28,7 +28,6 @@
   const clearBtn = document.getElementById('clearDraft');
   const draftState = document.getElementById('draftState');
   const summaryList = document.getElementById('summaryList');
-  const draftKey = `spin_form_draft:${config.group_id || 'unknown'}`;
   let bannerTimeout = null;
   let clientRequestId = '';
 
@@ -282,20 +281,39 @@
     return String(value).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
   }
 
+  const serverDraft = utils.createServerDraft ? utils.createServerDraft({
+    workflow: 'spin_request',
+    contextKey: config.group_id || 'unknown',
+    initData: () => tg ? tg.initData || '' : '',
+    token: () => config.form_token || '',
+    onSaving: () => { if (draftState) draftState.textContent = 'Saving draft…'; },
+    onSaved: () => { if (draftState) draftState.textContent = 'Draft saved'; },
+    onCleared: () => { if (draftState) draftState.textContent = 'Draft cleared'; },
+    onError: (error) => {
+      if (draftState) draftState.textContent = error.conflict ? 'Draft changed elsewhere' : 'Draft not saved';
+    },
+  }) : null;
+
   function saveDraft() {
-    try {
-      localStorage.setItem(draftKey, JSON.stringify(formValues()));
-      draftState.textContent = 'Draft saved';
-    } catch (_) {
-      draftState.textContent = 'Draft not saved';
+    if (!serverDraft) {
+      draftState.textContent = 'Draft unavailable';
+      return;
     }
+    serverDraft.schedule(formValues());
   }
 
-  function loadDraft() {
+  async function loadDraft() {
+    if (!serverDraft) {
+      draftState.textContent = 'Draft unavailable';
+      return;
+    }
     try {
-      const raw = localStorage.getItem(draftKey);
-      if (!raw) return;
-      const data = JSON.parse(raw);
+      const saved = await serverDraft.load();
+      if (!saved || !saved.payload) {
+        draftState.textContent = 'No saved draft';
+        return;
+      }
+      const data = saved.payload;
       Object.entries(data).forEach(([name, value]) => {
         if (name === 'request_type') {
           const option = form.querySelector(`input[name="request_type"][value="${value}"]`);
@@ -310,8 +328,13 @@
     }
   }
 
-  function clearDraft() {
-    localStorage.removeItem(draftKey);
+  async function clearDraft() {
+    try {
+      await serverDraft?.clear();
+    } catch (_) {
+      draftState.textContent = 'Draft not cleared';
+      return;
+    }
     form.reset();
     if (branchSelect && branchSelect.name) branchSelect.value = config.default_branch || '';
     field('primary_phone').value = '';
@@ -320,7 +343,7 @@
     setBanner('', '');
     updateSummary();
     updateFileSummaries();
-    saveDraft();
+    draftState.textContent = 'Draft cleared';
   }
 
   function buildSubmitOptions(data, requestId) {
@@ -386,7 +409,7 @@
         setBanner(messages, 'error');
         return;
       }
-      localStorage.removeItem(draftKey);
+      await serverDraft?.clear();
       markInvalid([]);
       setBanner(`Submitted ${result.request_id || ''} for ${result.customer_name || 'customer'}.`, 'success');
       form.reset();
@@ -969,6 +992,9 @@
   form.addEventListener('input', () => { updateSummary(); saveDraft(); });
   form.addEventListener('change', () => { updateSummary(); updateFileSummaries(); saveDraft(); });
   form.addEventListener('submit', submitForm);
+  window.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && serverDraft) serverDraft.save(formValues()).catch(() => {});
+  });
   clearBtn.addEventListener('click', clearDraft);
 
   loadDraft();

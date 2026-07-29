@@ -189,10 +189,10 @@
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
-.badge-blue { background: rgba(36,129,204,0.12); color: #2481cc; }
-.badge-green { background: rgba(52,199,89,0.12); color: #1a9a42; }
-.badge-orange { background: rgba(255,149,0,0.12); color: #b56a00; }
-.badge-red { background: rgba(255,59,48,0.12); color: #c0392b; }
+.badge-blue { background: var(--status-info-bg); color: var(--status-info); }
+.badge-green { background: var(--status-success-bg); color: var(--status-success); }
+.badge-orange { background: var(--status-warning-bg); color: var(--status-warning); }
+.badge-red { background: var(--status-danger-bg); color: var(--status-danger); }
 .badge-grey { background: var(--color-soft); color: var(--text-muted); }
 
 /* ── Search bar ─────────────────────────────────────────────────────────────── */

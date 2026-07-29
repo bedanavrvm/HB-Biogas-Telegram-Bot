@@ -18,14 +18,16 @@
     tg.expand();
   }
   // State
+  const portalUiContext = utils.createUiContext ? utils.createUiContext('portal') : null;
+  const restoredPortalUi = portalUiContext?.read?.() || {};
   let state = {
     activePage: document.getElementById('portal-screen')?.dataset.screen || 'dashboard',
     counts: {},
     queues: { jbl: [], credit: [], final: [], requisition: [], deferred: [], all: [], batches: [] },
     pagination: {},
     pages: { jbl: 1, credit: 1, final: 1, requisition: 1, deferred: 1, all: 1, batches: 1 },
-    search: '',
-    jblSearch: '',
+    search: String(restoredPortalUi.search || ''),
+    jblSearch: String(restoredPortalUi.jblSearch || ''),
     metaStatuses: [],
     metaDecisions: [],
     metaImabOptions: [],
@@ -36,12 +38,27 @@
     accessPolicyVersion: null,
     selectedFarmer: null,
     activeMode: null, // 'jbl_visit' | 'credit' | 'final_review' | 'requisition'
-    filters: { county: '', branch: '', reviewStage: 'decision' },
+    filters: {
+      county: String(restoredPortalUi.county || ''),
+      branch: String(restoredPortalUi.branch || ''),
+      reviewStage: String(restoredPortalUi.reviewStage || 'decision'),
+    },
     selectedRequisitions: new Set(),
     pendingRequisitionPayload: null
   };
   let historyKind = 'orders';
   let lastShellScreen = null;
+
+  function rememberPortalUi() {
+    portalUiContext?.write?.({
+      activePage: state.activePage,
+      search: state.search,
+      jblSearch: state.jblSearch,
+      county: state.filters.county,
+      branch: state.filters.branch,
+      reviewStage: state.filters.reviewStage,
+    });
+  }
 
   const PAGE_CAPABILITIES = {
     dashboard: 'portal.dashboard.view',
@@ -251,6 +268,7 @@
 
   function switchPage(page) {
     state.activePage = page;
+    rememberPortalUi();
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.page === page));
     document.querySelectorAll('.shell-nav-link').forEach(link => link.classList.toggle('active', link.dataset.screen === page));
 
@@ -367,7 +385,9 @@
     const cfg = queueConfig[qKey];
     if (!cfg) return;
     const listEl = el(cfg.listId);
-    listEl.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
+    listEl.innerHTML = '<div class="mini-skeleton-list" role="status" aria-label="Loading queue">'
+      + (utils.skeletonCards ? utils.skeletonCards(3) : '<div class="empty-state"><div class="spinner-inline"></div></div>')
+      + '</div>';
 
     const url = portalQueues.queueUrl ? portalQueues.queueUrl(qKey, page, state) : cfg.endpoint + '?page=' + page;
 
@@ -879,6 +899,7 @@
   el('all-search')?.addEventListener('input', e => {
     clearTimeout(searchTimer);
     state.search = e.target.value.trim();
+    rememberPortalUi();
     searchTimer = setTimeout(() => loadQueue('all', 1), 400);
   });
   // Meta (dropdown values)
@@ -1058,7 +1079,10 @@
     configureHtmx();
     await loadMeta();
     window.setInterval(loadMeta, 60000);
-    const requestedPage = document.getElementById('portal-screen')?.dataset.screen || state.activePage || 'dashboard';
+    const shellScreen = document.getElementById('portal-screen')?.dataset.screen || 'dashboard';
+    const requestedPage = shellScreen === 'dashboard' && restoredPortalUi.activePage
+      ? restoredPortalUi.activePage
+      : shellScreen;
     const initialPage = hasCapability(PAGE_CAPABILITIES[requestedPage]) ? requestedPage : firstPermittedPage();
     if (!initialPage) {
       document.getElementById('portal-screen').innerHTML = '<section class="shell-error" role="alert"><h2>Access not configured</h2><p>Ask an administrator to assign a Portal role and capability.</p></section>';
@@ -1135,12 +1159,22 @@
   el('jbl-search')?.addEventListener('input', e => {
     clearTimeout(jblSearchTimer);
     state.jblSearch = e.target.value.trim();
+    rememberPortalUi();
     jblSearchTimer = setTimeout(() => loadQueue('jbl', 1), 350);
   });
   el('jbl-search-clear')?.addEventListener('click', () => {
     state.jblSearch = '';
+    rememberPortalUi();
     if (el('jbl-search')) el('jbl-search').value = '';
     loadQueue('jbl', 1);
+  });
+
+  // The filter module deliberately owns filtering mechanics. Persisting this
+  // harmless view context here keeps all Portal navigation state in one place.
+  document.addEventListener('change', event => {
+    if (event.target.matches('#final-review-stage, #filter-county, #filter-branch')) {
+      window.setTimeout(rememberPortalUi, 0);
+    }
   });
 
   document.addEventListener('submit', event => {

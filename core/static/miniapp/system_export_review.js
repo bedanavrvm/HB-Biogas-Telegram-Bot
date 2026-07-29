@@ -1,16 +1,27 @@
 (function () {
   const tg = window.MiniAppTelegram ? window.MiniAppTelegram.init() : null;
+  const utils = window.MiniAppUtils || {};
   const payload = JSON.parse(document.getElementById('batch-data').textContent);
   let rows = payload.rows || [];
   const batchId = payload.batch_id;
   const token = payload.token;
-  const draftKey = 'systemExportReviewDraft:' + batchId;
   const body = document.getElementById('rowsBody');
   const statusEl = document.getElementById('status');
   const searchEl = document.getElementById('rowSearch');
   const visibleCount = document.getElementById('visibleCount');
   let searchText = '';
   let reviewOnly = false;
+  const draft = utils.createServerDraft ? utils.createServerDraft({
+    workflow: 'system_export_review',
+    contextKey: batchId,
+    initData: () => tg ? tg.initData || '' : '',
+    token: () => token || '',
+    onSaved: () => setStatus('Draft saved securely. Commit when the review is complete.', ''),
+    onError: (error) => {
+      if (navigator.onLine === false) setStatus('Offline. Changes remain open here; reconnect to save the draft.', 'error');
+      else if (!error.conflict) setStatus(error.message || 'Draft could not be saved.', 'error');
+    },
+  }) : null;
 
   const fields = ['Customer ID', 'Name', 'Mobile No', 'ID NO', 'Branch', 'Loan Officer', 'Product Name', 'LGF Balance'];
 
@@ -127,14 +138,21 @@
   }
 
   function saveDraft() {
-    try { localStorage.setItem(draftKey, JSON.stringify({ savedAt: Date.now(), rows })); } catch (error) { /* optional device draft */ }
+    if (draft && rows.length) draft.schedule({ rows });
   }
 
-  function restoreDraft() {
+  async function restoreDraft() {
+    if (!draft) return;
     try {
-      const draft = JSON.parse(localStorage.getItem(draftKey) || 'null');
-      if (draft && Array.isArray(draft.rows) && Date.now() - Number(draft.savedAt || 0) < 7 * 24 * 60 * 60 * 1000) rows = draft.rows;
-    } catch (error) { localStorage.removeItem(draftKey); }
+      const saved = await draft.load();
+      if (saved && Array.isArray(saved.payload?.rows)) {
+        rows = saved.payload.rows;
+        setStatus('Secure draft restored. Review and commit when ready.', '');
+        render();
+      }
+    } catch (error) {
+      setStatus('Draft recovery is unavailable. The original batch values are still shown.', 'error');
+    }
   }
 
   document.getElementById('approveAll').addEventListener('click', () => { rows.forEach((row) => { if (!isReview(row)) row.approved = true; }); saveDraft(); render(); });
@@ -143,8 +161,22 @@
   document.getElementById('reviewMetricFilter')?.addEventListener('click', () => { reviewOnly = !reviewOnly; render(); });
   searchEl?.addEventListener('input', () => { searchText = searchEl.value || ''; render(); });
   document.getElementById('clearSearch')?.addEventListener('click', () => { searchText = ''; reviewOnly = false; searchEl.value = ''; render(); });
+  window.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') saveDraft();
+  });
+  window.addEventListener('offline', () => {
+    setStatus('Offline. Changes remain open here; reconnect to save the secure draft.', 'error');
+  });
+  window.addEventListener('online', () => {
+    setStatus('Back online. Your next edit will save the secure draft.', '');
+  });
   document.getElementById('commitBtn').addEventListener('click', async () => {
     const button = document.getElementById('commitBtn');
+    if (navigator.onLine === false) {
+      saveDraft();
+      setStatus('Offline. Changes remain open in this screen. Reconnect and wait for “Draft saved” before closing, then commit.', 'error');
+      return;
+    }
     button.disabled = true;
     setStatus('Committing selected system-export rows...', '');
     try {
@@ -155,16 +187,20 @@
       });
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.message || 'Commit failed.');
-      localStorage.removeItem(draftKey);
+      // The server returned the canonical remaining rows, so any prior local
+      // review draft must not be restored over that result on a later visit.
+      draft?.clear().catch(() => {});
       rows = result.rows || [];
       setStatus(result.message || 'System export committed.', 'success');
+      utils.haptic?.('success');
       render();
     } catch (error) {
       setStatus(error.message || 'Commit failed. Check the rows and retry.', 'error');
+      utils.haptic?.('error');
     } finally { button.disabled = false; }
   });
 
-  restoreDraft();
   render();
+  restoreDraft();
   if (tg) { tg.ready(); tg.expand(); }
 })();

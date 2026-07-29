@@ -1521,6 +1521,45 @@ class CapabilityUsageDaily(models.Model):
         indexes = [models.Index(fields=['workflow', 'capability_key', 'day'])]
 
 
+class MiniAppDraft(models.Model):
+    """Short-lived, server-owned recovery state for interrupted Mini App work.
+
+    Drafts intentionally hold fields only.  Attachments remain on the device until
+    the staff member explicitly submits the workflow action, so an interrupted
+    upload never becomes an untracked copy of a customer document.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='miniapp_drafts',
+    )
+    workflow = models.CharField(max_length=40, db_index=True)
+    context_key = models.CharField(max_length=180, db_index=True)
+    payload = models.JSONField(default=dict)
+    revision = models.PositiveIntegerField(default=1)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    expires_at = models.DateTimeField(db_index=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'workflow', 'context_key'],
+                name='unique_miniapp_draft_context_per_user',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['workflow', 'context_key', 'expires_at']),
+            models.Index(fields=['user', 'expires_at']),
+        ]
+
+    @property
+    def expired(self) -> bool:
+        return self.expires_at <= timezone.now()
+
+
 class JawabuFarmerUploadBatch(models.Model):
     """Staged FarmUp/system-export upload awaiting staff review and commit."""
 

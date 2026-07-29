@@ -3,17 +3,23 @@
   const complaintApi = window.ComplaintCasesMiniAppApi || {};
   const telegram = utils.initTelegram ? utils.initTelegram({ closingConfirmation: false }) : (window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null);
   if (telegram && !utils.initTelegram) { telegram.ready(); telegram.expand(); }
+  const uiContext = utils.createUiContext ? utils.createUiContext('complaint-cases') : null;
+  const restoredUi = uiContext?.read?.() || {};
 
   const state = {
     groupId: document.body.dataset.groupId || '',
     initData: telegram ? telegram.initData || '' : '',
-    status: 'active', branch: '', query: '', currentCase: null, map: null, marker: null,
+    status: String(restoredUi.status || 'active'), branch: String(restoredUi.branch || ''), query: String(restoredUi.query || ''), currentCase: null, map: null, marker: null,
     capturedLocation: null, createCapturedLocation: null, debounce: null,
     capabilities: new Set(),
   };
   const $ = (id) => document.getElementById(id);
   const escapeHtml = utils.escapeHtml || ((value) => String(value == null ? '' : value).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[character])));
   const requestId = () => window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : `complaint-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  function rememberUi() {
+    uiContext?.write?.({ status: state.status, branch: state.branch, query: state.query });
+  }
 
   function configureHtmx() {
     if (!window.htmx) return;
@@ -67,6 +73,7 @@
 
   function notify(message, error) {
     const toast = $('toast');
+    utils.haptic?.(error ? 'error' : 'success');
     if (utils.showToast) {
       utils.showToast(toast, message, { error, timeout: 5000, className: `toast visible${error ? ' error' : ''}`, resetClassName: 'toast' });
       return;
@@ -152,6 +159,11 @@
   }
 
   async function loadCases() {
+    const list = $('caseList');
+    if (list) {
+      list.innerHTML = `<div class="mini-skeleton-list" role="status" aria-label="Loading complaint cases">${utils.skeletonCards ? utils.skeletonCards(3) : ''}</div>`;
+      $('emptyState').hidden = true;
+    }
     if (await renderCasesFragment()) return;
     try {
       const response = await api('cases/', { query: state.query, status: state.status, branch: state.branch });
@@ -171,6 +183,7 @@
       renderCounts(data.counts || {});
       renderCreateOptions(data);
       renderBranchFilter(data.branches || []);
+      $('caseSearch').value = state.query;
       $('listView').hidden = false;
       await loadCases();
     } catch (error) { notify(error.message, true); }
@@ -347,6 +360,7 @@
 
   function applyStatusFilter(status) {
     state.status = status || 'active';
+    rememberUi();
     document.querySelectorAll('.filter-tabs button').forEach((node) => node.classList.toggle('active', node.dataset.status === state.status));
     showComplaintView('queue');
     loadCases();
@@ -354,8 +368,8 @@
 
   document.querySelectorAll('.filter-tabs button').forEach((button) => button.addEventListener('click', () => applyStatusFilter(button.dataset.status)));
   document.querySelectorAll('[data-status-filter]').forEach((button) => button.addEventListener('click', () => applyStatusFilter(button.dataset.statusFilter)));
-  $('branchFilter').addEventListener('change', (event) => { state.branch = event.target.value; loadCases(); });
-  $('caseSearch').addEventListener('input', (event) => { state.query = event.target.value; window.clearTimeout(state.debounce); state.debounce = window.setTimeout(loadCases, 250); });
+  $('branchFilter').addEventListener('change', (event) => { state.branch = event.target.value; rememberUi(); loadCases(); });
+  $('caseSearch').addEventListener('input', (event) => { state.query = event.target.value; rememberUi(); window.clearTimeout(state.debounce); state.debounce = window.setTimeout(loadCases, 250); });
   $('refreshBtn').addEventListener('click', () => window.location.reload());
   document.querySelectorAll('#complaintTabs [data-view]').forEach((button) => button.addEventListener('click', () => showComplaintView(button.dataset.view)));
   $('cancelCreateBtn').addEventListener('click', () => { showComplaintView('queue'); loadCases(); });

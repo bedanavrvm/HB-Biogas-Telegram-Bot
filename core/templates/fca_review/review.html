@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Review FCA Upload</title>
-  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}">
+  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=5">
   <link rel="stylesheet" href="{% static 'miniapp/fca_review.css' %}">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=14">
@@ -61,6 +61,7 @@
 </main>
 <script id="batch-data" type="application/json">{{ batch_json|safe }}</script>
 <script src="{% static 'miniapp/telegram.js' %}"></script>
-<script src="{% static 'miniapp/fca_review.js' %}"></script>
+<script src="{% static 'miniapp/utils.js' %}?v=3"></script>
+<script src="{% static 'miniapp/fca_review.js' %}?v=3"></script>
 </body>
 </html>

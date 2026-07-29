@@ -107,6 +107,7 @@ Key modules:
 - `jawabu_pipeline.py` — pipeline state and transition logic
 - `live_sheet_records.py` — sheet-originated record-change handling
 - `locations.py` — centralized branch and county configuration
+- `miniapp_drafts.py` — short-lived, user-owned recovery drafts for eligible Mini App forms
 - `order_approval.py` — order-approval workflow and attachments
 - `parser.py` — complaint/message parsing
 - `requisition.py` — requisition generation and files
@@ -882,6 +883,98 @@ Prefer documenting:
 Do not create another "implementation complete" or duplicate summary file. Update an existing canonical document or place historical notes under an archive location.
 
 Code comments should explain why a non-obvious rule exists, not repeat the code.
+
+---
+
+## Agent working standards
+
+These are standing controls for this repository. They are part of the
+definition of done, not follow-up documentation work.
+
+Last reviewed: 29-July-2026. Revisit this section whenever a Mini App is added
+or a settled architecture decision is explicitly reopened.
+
+### Canonical documentation
+
+- Record an ADR under `docs/adr/` **before** implementing a structural decision:
+  an architecture pattern, model with broad operational impact, external
+  dependency, workflow stage, or decision costly to reverse. Use Context →
+  Decision → Consequences → Alternatives considered.
+- Keep this file current in the same change as any new environment variable,
+  service, capability, external API dependency, or operational rule.
+- Keep `docs/glossary.md` as the shared vocabulary for workflow keys, role
+  codes, capability naming, stages, and canonical staff identity fields. The
+  code catalogues remain authoritative; do not create competing copies in
+  individual Mini Apps.
+- Append a dated, plain-language entry to `CHANGELOG.md` for every visible or
+  behaviour-changing release. Record diagnosed limitations and their supported
+  workaround in `KNOWN_GAPS.md` immediately.
+- Add a new secret/configuration value to `.env.example` in the same change.
+  Document only its purpose and the approved secret store; never a real value.
+
+### Settled architecture
+
+Do not reopen these decisions without stating the material change that makes
+the existing choice unsuitable and obtaining explicit approval:
+
+| Decision | Repository position |
+|---|---|
+| Mini App delivery | Telegram Bot API plus Django-rendered Telegram Mini Apps |
+| Frontend interaction | Server-rendered HTML, htmx, Alpine.js, and small shared JavaScript utilities; no SPA/build server |
+| Workflow authority | Django/PostgreSQL owns state; Sheets and Drive are synchronized operational views/files |
+| PDF rendering | Use the existing server-side WeasyPrint path where a PDF is explicitly required; never rely on mobile `window.print()` |
+| Workflow transitions | Server-side service/state-transition validation is mandatory. `django-fsm` is **not currently installed**; introducing it or replacing existing transition services requires an ADR, dependency justification, and explicit approval. |
+
+The repository does not currently have a Nuxt/Firebase frontend. Do not document
+or introduce one as if it were deployed.
+
+### High-blast-radius confirmation gate
+
+Always stop for explicit user approval before any of the following. Never infer
+approval from a prior session, a code change, or a passing test:
+
+- production Render deployment;
+- applying a migration to production, especially one touching `auth.User`,
+  `UserProfile`, `AccessGrant`, roles, or capability policy;
+- changing the effective permission/capability matrix or access-grant logic;
+- a schema migration without a documented rollback path;
+- adding an external dependency (state why it is needed and why the closest
+  alternative is insufficient);
+- an operation affecting payments, disbursement, sanctions, or production
+  customer financial data.
+
+For every schema migration, state the exact reversal command in the PR/commit
+and release record. For example: `python manage.py migrate core 0071_accesscontrolpolicystate_and_more`.
+
+### Required engineering evidence
+
+- Permission, capability, and FSM/state-transition changes require at least
+  one allowed/happy-path test and one explicit denial/invalid-transition test.
+- Writes reachable from Telegram/Mini App retries must have an idempotency key,
+  duplicate guard, or safe upsert; do not rely on the client avoiding a retry.
+- Changes to roles, access grants, or capabilities must state how active
+  sessions/cache are invalidated or refreshed. Do not leave stale access live.
+- Shared Mini App semantics live in `core/static/miniapp/base.css`,
+  `core/static/miniapp/utils.js`, and the capability services. Reuse them;
+  do not re-invent status colors, icons, feedback, or capability checks per
+  Mini App.
+- A cross-workflow identity or access change must be labelled as affecting
+  Portal, Complaint Cases, TAT, and/or SPIN rather than treated as local-only.
+
+### Session continuity and audit readiness
+
+- At the start of a new implementation session, recap the deployed state,
+  active migrations, and open questions, then wait for confirmation before
+  changing code. A previous chat summary is not authorization for an
+  irreversible action.
+- At the end of a notable implementation session, update `CHANGELOG.md` and/or
+  `KNOWN_GAPS.md` with what changed, what remains unverified, and any action
+  required from the operator.
+- Access-policy changes must remain maker-checker controlled and audit logged;
+  periodically run and record the access-control audit/spot-check.
+- Keep backup RPO/RTO targets, restoration-drill evidence, credential rotation,
+  and emergency-access procedures in `PRODUCTION_RUNBOOK.md`. Do not claim a
+  target is met without recorded evidence from a restoration drill.
 
 ---
 

@@ -20,13 +20,28 @@ Protect `main`: use a feature branch and pull request for every change, require 
 
 ## Standard release
 
-1. Define the change, affected workflows, migration impact, sheet/Apps Script impact, and rollback commit in the pull request.
+1. Define the change, affected workflows, migration impact, sheet/Apps Script impact, and rollback commit in the pull request. Obtain explicit approval before a production Render deploy, production migration, permission/access-policy change, external dependency, or action affecting payments/disbursements.
 2. Run the focused test suite, then `python manage.py test`, `python manage.py check`, `python manage.py makemigrations --check --dry-run`, `python manage.py collectstatic --noinput`, and `python manage.py check --deploy`.
 3. Test every changed Mini App on a narrow mobile viewport with loading, empty, error, authorization, slow-network, and double-submit cases.
 4. Deploy to staging and perform an end-to-end test with the staging bot and copied Sheets/Drive resources.
 5. Before production, confirm the PostgreSQL backup completed, preserve a copy/version of any affected Google Apps Script and Sheet layout, and record the current production commit.
 6. Deploy with `bash release.sh` as the pre-deploy command. After the new service is healthy, verify `/api/health/`, an authorized Mini App read flow, and webhook delivery without exposing customer data in the test.
 7. Monitor Render logs, Sentry, webhook errors, and unsynced integration records for at least one hour. Record the result in the release ticket.
+
+### Migration rollback record
+
+Every schema migration must include its exact rollback command in the release
+record before it is applied. Confirm first whether a forward data repair is
+safer than destructive reversal. For the current Mini App draft migration,
+drafts are non-canonical and may be removed only after confirming they are not
+needed:
+
+```powershell
+python manage.py migrate core 0071_accesscontrolpolicystate_and_more
+```
+
+Never apply a migration merely because it exists in the source tree; production
+application requires explicit approval for that release.
 
 ## Sheets, Drive, and Apps Script
 
@@ -40,3 +55,37 @@ Protect `main`: use a feature branch and pull request for every change, require 
 For an application fault, revert to the recorded Git commit and redeploy; verify health and a read-only workflow first. Do not blindly reverse database migrations. For a data incident, stop the affected write path, preserve logs/audit data, restore into staging, choose a forward corrective migration or controlled data repair, then review before production execution.
 
 Rotate a suspected credential immediately at its provider and update Render. Removing it from Git does not invalidate it. Escalate webhook delivery failures, repeated authorization errors, Google quota failures, and health-check failures immediately.
+
+## Evidence cadence and emergency access
+
+### Backup targets and restore drills
+
+The operational targets below are not evidence of a successful restoration.
+Record each actual drill date, backup timestamp, elapsed recovery time, owner,
+and result in the release/operations record.
+
+| Store | RPO target | RTO target | Drill cadence |
+|---|---:|---:|---|
+| Render PostgreSQL | 24 hours | 4 hours | Quarterly restore to staging |
+| Google Sheets / Drive | 24 hours | 8 hours | Quarterly copied-resource restore to staging |
+
+Do not claim either target is met until the target service has a recorded
+successful drill. Sheets and Drive are operational integrations, so preserve
+versioned layouts/files as part of every relevant release.
+
+### Secrets
+
+Rotate production Telegram, Django, Google, Sentry, and manual API credentials
+at least quarterly and immediately after a suspected exposure or staff-access
+incident. Record the date, owner, provider, and validation result in the
+approved private operations record—not in this repository. Render environment
+variables/secret files are the approved production store.
+
+### Emergency access
+
+Use the Django Admin **Emergency access** action only for an approved,
+time-sensitive operational need. Supply a specific reason, scope it to the
+smallest workflow/branch/product, verify its automatic expiry, and review the
+`EmergencyAccessGrant` and notification audit rows afterward. It creates
+temporary audited access; use the maker-checker access request flow for any
+permanent change.

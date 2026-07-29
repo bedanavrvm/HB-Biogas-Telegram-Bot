@@ -8,12 +8,12 @@
   --complaint-accent: var(--tg-theme-button-color, #1685d1);
   --complaint-accent-soft: color-mix(in srgb, var(--complaint-accent) 9%, transparent);
   --complaint-accent-text: var(--tg-theme-button-text-color, #ffffff);
-  --complaint-open: #d97706;
-  --complaint-open-soft: #fff7ed;
-  --complaint-progress: #1685d1;
-  --complaint-progress-soft: #eff6ff;
-  --complaint-closed: #16803c;
-  --complaint-closed-soft: #ecfdf5;
+  --complaint-open: var(--status-warning, #d97706);
+  --complaint-open-soft: var(--status-warning-bg, #fff7ed);
+  --complaint-progress: var(--status-info, #1685d1);
+  --complaint-progress-soft: var(--status-info-bg, #eff6ff);
+  --complaint-closed: var(--status-success, #16803c);
+  --complaint-closed-soft: var(--status-success-bg, #ecfdf5);
   --radius: 8px;
   --radius-sm: 6px;
 }

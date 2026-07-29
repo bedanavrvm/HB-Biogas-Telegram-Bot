@@ -103,6 +103,139 @@ def _tat_payload(request) -> dict:
     return _tat_json_body(request)
 
 
+def _miniapp_draft_payload(request) -> dict:
+    """Read the small JSON-only draft contract without accepting uploads."""
+    if request.method == 'GET':
+        return request.GET.dict()
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _miniapp_draft_user(init_data: str):
+    """Resolve a canonical active User for per-user recovery drafts."""
+    from core.services.telegram_identity import (
+        TelegramAuthenticationError,
+        resolve_or_bind_telegram_user,
+        validate_telegram_init_data,
+    )
+
+    try:
+        _, identity = validate_telegram_init_data(init_data)
+    except TelegramAuthenticationError as exc:
+        return None, str(exc)
+    user = resolve_or_bind_telegram_user(identity)
+    if not user:
+        return None, 'Your Telegram account is not enrolled for staff Mini Apps.'
+    return user, ''
+
+
+def _miniapp_draft_context(workflow: str, context_key: str, payload: dict):
+    """Authorize a recovery draft against the same scoped link/action as its form.
+
+    FCA and FarmUp review links use signed, batch-specific tokens.  Those
+    tokens remain the workflow authorization boundary while verified Telegram
+    identity gives the draft its per-user ownership.
+    """
+    init_data = str(
+        payload.get('init_data')
+        or payload.get('_header_init_data')
+        or ''
+    ).strip()
+    user, error = _miniapp_draft_user(init_data)
+    if not user:
+        return None, error
+
+    token = str(payload.get('token') or payload.get('form_token') or '').strip()
+    if workflow == 'spin_request':
+        group_id, group_config, auth_payload, response = _spin_webapp_context(
+            {'group_id': context_key, 'init_data': init_data},
+            allow_form_token=False,
+        )
+        if response:
+            try:
+                message = json.loads(response.content.decode('utf-8')).get('message')
+            except (AttributeError, UnicodeDecodeError, json.JSONDecodeError):
+                message = ''
+            return None, message or 'SPIN access is unavailable.'
+        if not _spin_user_has_capability(auth_payload, 'spin.request.create', group_config=group_config):
+            return None, 'Your assigned SPIN role cannot create requests.'
+        return user, ''
+    if workflow == 'fca_review':
+        from core.services.fca import validate_fcaup_review_token
+        valid, error = validate_fcaup_review_token(context_key, token)
+    elif workflow in {'farmup_review', 'system_export_review'}:
+        from core.services.jawabu_master import validate_farmup_review_token
+        valid, error = validate_farmup_review_token(context_key, token)
+    else:
+        return None, 'Unsupported draft workflow.'
+    return (user, '') if valid else (None, error or 'This review link is not authorized.')
+
+
+@csrf_exempt  # Verified Telegram initData and the scoped review token authenticate this API.
+@require_http_methods(['GET', 'POST', 'DELETE'])
+def miniapp_draft(request, workflow: str, context_key: str):
+    """Load, save, or clear a short-lived field-only Mini App draft."""
+    payload = _miniapp_draft_payload(request)
+    payload['_header_init_data'] = request.headers.get('X-Telegram-Init-Data', '')
+    if not payload.get('token'):
+        payload['token'] = request.headers.get('X-MiniApp-Context-Token', '')
+    user, error = _miniapp_draft_context(str(workflow), str(context_key), payload)
+    if not user:
+        return JsonResponse({'ok': False, 'error': error}, status=403)
+
+    from core.services.miniapp_drafts import (
+        MiniAppDraftConflict,
+        MiniAppDraftError,
+        delete_draft,
+        get_draft,
+        save_draft,
+    )
+
+    if request.method == 'GET':
+        draft = get_draft(user=user, workflow=workflow, context_key=context_key)
+        return JsonResponse({
+            'ok': True,
+            'draft': None if not draft else {
+                'payload': draft.payload,
+                'revision': draft.revision,
+                'updated_at': draft.updated_at.isoformat(),
+                'expires_at': draft.expires_at.isoformat(),
+            },
+        })
+    if request.method == 'DELETE':
+        delete_draft(user=user, workflow=workflow, context_key=context_key)
+        return JsonResponse({'ok': True})
+
+    try:
+        expected_revision = payload.get('revision')
+        expected_revision = int(expected_revision) if expected_revision not in (None, '') else None
+    except (TypeError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'Draft revision is invalid.'}, status=400)
+    try:
+        draft = save_draft(
+            user=user,
+            workflow=workflow,
+            context_key=context_key,
+            payload=payload.get('payload'),
+            expected_revision=expected_revision,
+        )
+    except MiniAppDraftConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except MiniAppDraftError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({
+        'ok': True,
+        'draft': {
+            'revision': draft.revision,
+            'updated_at': draft.updated_at.isoformat(),
+            'expires_at': draft.expires_at.isoformat(),
+        },
+    })
+
+
 def _tat_context(payload: dict):
     from core.services.group_config import GroupRegistry
     from core.services.tat_tracker import is_tat_tracker_workflow, staff_user_for_payload, validate_tat_form_token, validate_tat_telegram_webapp_init_data

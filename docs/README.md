@@ -1,0 +1,20 @@
+# Operational Documentation
+
+This directory contains the current, short-form documents that govern the
+running platform. Historical root-level summaries are context only; code,
+migrations, tests, settings, and these operational documents take precedence.
+
+| Document | Purpose |
+|---|---|
+| [Glossary](glossary.md) | Shared roles, capabilities, workflow language, and UI status semantics. |
+| [ADR 0001](adr/0001-server-owned-miniapp-recovery-drafts.md) | Decision and release safety record for server-owned Mini App recovery drafts. |
+| [../CHANGELOG.md](../CHANGELOG.md) | Dated visible/operational changes. |
+| [../KNOWN_GAPS.md](../KNOWN_GAPS.md) | Diagnosed limitations, workarounds, and release verification still required. |
+| [../PRODUCTION_RUNBOOK.md](../PRODUCTION_RUNBOOK.md) | Release, rollback, recovery, credentials, backups, and emergency access. |
+
+## ADR convention
+
+Use `NNNN-short-title.md`. Write the ADR before implementing a structural or
+costly-to-reverse decision. Include Context, Decision, Consequences, and
+Alternatives considered. If an ADR introduces a migration, dependency, or
+external side effect, include the required approval gate and rollback plan.

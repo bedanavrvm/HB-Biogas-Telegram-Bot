@@ -1,16 +1,26 @@
 (function () {
   const tg = window.MiniAppTelegram ? window.MiniAppTelegram.init() : null;
   const payload = JSON.parse(document.getElementById('batch-data').textContent);
+  const utils = window.MiniAppUtils || {};
   let rows = payload.rows || [];
   const statusValues = payload.status_values || [];
-  const draftKey = 'fcaReviewDraft:' + payload.batch_id;
-  const draftMaxAgeMs = 7 * 24 * 60 * 60 * 1000;
   const body = document.getElementById('rowsBody');
   const statusEl = document.getElementById('status');
   const pageHeader = document.querySelector('main > header');
   const toolbar = document.querySelector('.toolbar');
   const summary = document.querySelector('.summary');
   const fields = ['Customer Name', 'ID Number', 'Primary Phone', 'Hub', 'Field Officer', 'Location', 'HB Staff', 'Deposit', 'Jawabu Visit Date', 'JBL Officer', 'Status', 'Comment', 'Review Notes', 'Source'];
+  const draft = utils.createServerDraft ? utils.createServerDraft({
+    workflow: 'fca_review',
+    contextKey: payload.batch_id,
+    initData: () => tg ? tg.initData || '' : '',
+    token: () => payload.token || '',
+    onSaved: () => setStatus('Draft saved securely. Attachments are submitted only when you commit.', ''),
+    onError: (error) => {
+      if (navigator.onLine === false) setStatus('Offline. Changes are still on this screen; reconnect to save the draft.', 'error');
+      else if (!error.conflict) setStatus(error.message || 'Draft could not be saved.', 'error');
+    },
+  }) : null;
 
   function updateTableFrame() {
     const chrome = (pageHeader ? pageHeader.offsetHeight : 0)
@@ -96,52 +106,31 @@
     updateTableFrame();
   }
 
-  function canUseStorage() {
-    try {
-      const probe = '__fca_review_probe__';
-      window.localStorage.setItem(probe, '1');
-      window.localStorage.removeItem(probe);
-      return true;
-    } catch (err) {
-      return false;
-    }
-  }
-
-  const storageAvailable = canUseStorage();
-
   function saveDraft() {
-    if (!storageAvailable) return;
-    if (!rows.length) {
-      window.localStorage.removeItem(draftKey);
-      return;
-    }
-    window.localStorage.setItem(draftKey, JSON.stringify({ savedAt: new Date().toISOString(), rows }));
+    if (draft && rows.length) draft.schedule({ rows });
   }
 
-  function restoreDraftIfFresh() {
-    if (!storageAvailable) return;
+  async function restoreDraft() {
+    if (!draft) return;
     try {
-      const raw = window.localStorage.getItem(draftKey);
-      const draft = raw ? JSON.parse(raw) : null;
-      const saved = draft && draft.savedAt ? Date.parse(draft.savedAt) : NaN;
-      if (!draft || !Array.isArray(draft.rows) || Number.isNaN(saved) || Date.now() - saved > draftMaxAgeMs) {
-        window.localStorage.removeItem(draftKey);
-        return;
+      const saved = await draft.load();
+      if (saved && Array.isArray(saved.payload?.rows)) {
+        rows = saved.payload.rows;
+        setStatus('Secure draft restored. Review and commit when ready.', '');
+        render();
       }
-      rows = draft.rows;
-      setStatus('Unsaved FCA review draft restored from this device.', '');
-    } catch (err) {
-      window.localStorage.removeItem(draftKey);
+    } catch (error) {
+      setStatus('Draft recovery is unavailable. The original batch values are still shown.', 'error');
     }
   }
 
   function clearDraft() {
-    if (storageAvailable) window.localStorage.removeItem(draftKey);
+    return draft ? draft.clear().catch(() => {}) : Promise.resolve();
   }
 
-  window.addEventListener('pagehide', saveDraft);
-  window.addEventListener('offline', () => setStatus('Offline. Review edits are saved on this device; commit when online.', 'error'));
-  window.addEventListener('online', () => setStatus('Back online. Review edits are still saved locally until commit succeeds.', ''));
+  window.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveDraft(); });
+  window.addEventListener('offline', () => setStatus('Offline. Changes remain open here; reconnect to save the secure draft.', 'error'));
+  window.addEventListener('online', () => setStatus('Back online. Your next edit will save the secure draft.', ''));
   document.getElementById('approveAll').addEventListener('click', () => {
     rows.forEach((row) => { if (!isReview(row)) row.approved = true; });
     saveDraft();
@@ -158,7 +147,7 @@
     const btn = document.getElementById('commitBtn');
     if (navigator.onLine === false) {
       saveDraft();
-      setStatus('Offline. Review edits are saved on this device. Commit when online.', 'error');
+      setStatus('Offline. Changes remain open in this screen. Reconnect and wait for “Draft saved” before closing, then commit.', 'error');
       return;
     }
     saveDraft();
@@ -188,18 +177,21 @@
       render();
       const sync = result.sheet_sync || {};
       setStatus(`Committed ${result.committed || 0} row(s). MD updated: ${sync.updated || 0}, created: ${sync.created || 0}. ${rows.length} row(s) remain.`, 'ok');
+      clearDraft();
+      utils.haptic?.('success');
       if (!rows.length && tg) setTimeout(() => tg.close(), 900);
     } catch (err) {
       saveDraft();
-      setStatus('Could not commit rows. Review edits were saved on this device. Check your connection and try again.', 'error');
+      setStatus('Could not commit rows. Review edits remain open; reconnect to save the secure draft and retry.', 'error');
+      utils.haptic?.('error');
     } finally {
       btn.disabled = false;
     }
   });
 
   window.addEventListener('resize', updateTableFrame);
-  restoreDraftIfFresh();
   render();
+  restoreDraft();
   updateTableFrame();
 })();
 
