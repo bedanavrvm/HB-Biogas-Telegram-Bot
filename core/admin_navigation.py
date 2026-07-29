@@ -10,10 +10,22 @@ available through the global search command.
 from __future__ import annotations
 
 from collections.abc import Callable
+from urllib.parse import urlencode
 
 from django.apps import apps
 from django.contrib import admin
 from django.urls import NoReverseMatch, reverse
+
+from core.models import GroupSheetConfiguration
+
+
+WORKFLOW_GROUP_LABELS = {
+    "case": "Complaint cases",
+    "order_approval": "Order approvals",
+    "jawabu_homebiogas": "Jawabu HomeBiogas",
+    "spin_credit_analysis": "SPIN / Credit",
+    "tat_tracker": "TAT Tracker",
+}
 
 
 def _model_permission(label: str) -> Callable:
@@ -68,6 +80,130 @@ def _custom_item(title: str, link_name: str, icon: str, permission: Callable) ->
     }
 
 
+def _link_item(title: str, link: str, icon: str, permission: Callable) -> dict:
+    """Create a sidebar item for an object-specific admin route."""
+    return {
+        "title": title,
+        "link": link,
+        "icon": icon,
+        "permission": permission,
+    }
+
+
+def _filtered_model_item(label: str, title: str, icon: str, **filters) -> dict:
+    """Link to a normal admin list narrowed to one workflow group."""
+    item = _model_item(label, title, icon)
+    if not item:
+        return item
+    query = {
+        f"{field}__exact": value
+        for field, value in filters.items()
+        if value not in (None, "")
+    }
+    if query:
+        item["link"] = f"{item['link']}?{urlencode(query)}"
+    return item
+
+
+def _group_configuration_permission(config: GroupSheetConfiguration) -> Callable:
+    """Keep object-specific shortcuts behind the configuration's own access check."""
+
+    def allowed(request) -> bool:
+        if not getattr(request, "user", None) or not request.user.is_authenticated:
+            return False
+        model_admin = admin.site._registry.get(GroupSheetConfiguration)
+        if model_admin is None:
+            return False
+        return bool(
+            model_admin.has_view_permission(request, config)
+            or model_admin.has_change_permission(request, config)
+        )
+
+    return allowed
+
+
+def _group_workflow_items(config: GroupSheetConfiguration) -> list[dict]:
+    """Keep the operational register and maintenance tools beside its group."""
+    if not config.pk:
+        return []
+
+    permission = _group_configuration_permission(config)
+    group_id = config.group_id
+    workflow_type = str((config.workflow or {}).get("type") or "").strip()
+    items = [
+        _link_item(
+            "Configuration",
+            reverse("admin:core_groupsheetconfiguration_change", args=[config.pk]),
+            "settings",
+            permission,
+        ),
+        _link_item(
+            "Live Sheet (view only)",
+            reverse("admin:core_groupsheetconfiguration_live_records", args=[config.pk]),
+            "table_view",
+            permission,
+        ),
+    ]
+
+    if workflow_type == "tat_tracker":
+        items.extend([
+            _filtered_model_item("core.TatTrackerCase", "Cases", "schedule", group_id=group_id),
+            _filtered_model_item("core.TatTrackerEvent", "Event history", "timeline", group_id=group_id),
+            _link_item(
+                "Reconcile TAT Sheet",
+                reverse("admin:core_groupsheetconfiguration_tat_repair", args=[config.pk]),
+                "build_circle",
+                _superuser,
+            ),
+            _link_item(
+                "Find duplicate rows",
+                reverse("admin:core_groupsheetconfiguration_tat_duplicates", args=[config.pk]),
+                "content_copy",
+                _superuser,
+            ),
+        ])
+    elif workflow_type == "spin_credit_analysis":
+        items.append(
+            _filtered_model_item("core.SpinCreditRequest", "SPIN / CRB requests", "fact_check", group_id=group_id)
+        )
+    elif workflow_type == "order_approval":
+        items.extend([
+            _filtered_model_item("core.OrderApprovalUpdate", "Order updates", "approval", group_id=group_id),
+            _filtered_model_item("core.MediaAttachment", "Media uploads", "perm_media", group_id=group_id),
+        ])
+    elif workflow_type == "jawabu_homebiogas":
+        items.extend([
+            _filtered_model_item("core.JawabuVisitRecord", "JBL visit imports", "location_on", group_id=group_id),
+            _filtered_model_item("core.JawabuFarmerUploadBatch", "Farmer uploads", "cloud_upload", group_id=group_id),
+        ])
+    else:
+        # Complaint handling is also the safe fallback for legacy/manual group
+        # configurations that do not yet carry a workflow type.
+        items.extend([
+            _filtered_model_item("core.ParsedMessage", "Cases", "support_agent", group_id=group_id),
+            _filtered_model_item("core.CaseUpdate", "Case updates", "history", group_id=group_id),
+        ])
+    return [item for item in items if item]
+
+
+def _configured_workflow_groups() -> list[dict]:
+    """Generate one collapsible sidebar section per enabled configuration."""
+    groups = []
+    configurations = GroupSheetConfiguration.objects.filter(enabled=True).order_by(
+        "display_name", "group_id"
+    )
+    for config in configurations:
+        workflow_type = str((config.workflow or {}).get("type") or "").strip()
+        workflow_label = WORKFLOW_GROUP_LABELS.get(workflow_type, "Workflow group")
+        name = config.display_name or config.group_id
+        groups.append({
+            "title": f"{workflow_label}: {name}",
+            "collapsible": True,
+            "items": _group_workflow_items(config),
+        })
+    return groups
+
+
 def _superuser(request) -> bool:
     return bool(getattr(request, "user", None) and request.user.is_superuser)
 
@@ -115,10 +251,12 @@ def get_admin_navigation(request) -> list[dict]:
         _model_item("core.TatTrackerApprovalCertificate", "Approval certificates", "verified"),
     ]
 
+    configured_workflows = _configured_workflow_groups()
     groups = [
         {"title": "Operations", "items": [item for item in operations if item]},
+        *configured_workflows,
         {
-            "title": "Reviews and workflows",
+            "title": "All workflows",
             "collapsible": True,
             "items": [item for item in reviews if item],
         },

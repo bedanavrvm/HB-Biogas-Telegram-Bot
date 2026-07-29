@@ -8,6 +8,7 @@ from unfold.admin import ModelAdmin
 
 from core.admin_dashboard import dashboard_callback
 from core.admin import GroupSheetConfigurationAdmin
+from core.admin_navigation import get_admin_navigation
 from core.models import (
     GroupSheetConfiguration,
     JawabuFarmerMaster,
@@ -109,7 +110,7 @@ class AdminMonitoringTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Operations')
-        self.assertContains(response, 'Reviews and workflows')
+        self.assertContains(response, 'All workflows')
         self.assertContains(response, 'Configuration')
         self.assertContains(response, 'Technical records')
         self.assertContains(response, 'Branches and counties')
@@ -215,6 +216,41 @@ class AdminMonitoringTests(TestCase):
                 # The User admin deliberately redirects to its guided staff
                 # creation screen; every other permitted add form is rendered.
                 self.assertIn(response.status_code, {200, 302})
+
+    def test_sidebar_keeps_each_configured_workflow_group_together(self):
+        config = GroupSheetConfiguration.objects.create(
+            group_id='-1010',
+            display_name='North TAT Desk',
+            sheet_id='sheet',
+            workflow={'type': 'tat_tracker'},
+        )
+        user = get_user_model().objects.create_superuser(
+            username='workflow-navigation-admin',
+            email='workflow-navigation@example.test',
+            password='password',
+        )
+        request = RequestFactory().get('/admin/')
+        request.user = user
+
+        navigation = get_admin_navigation(request)
+        group = next(item for item in navigation if item['title'] == 'TAT Tracker: North TAT Desk')
+        item_titles = {item['title'] for item in group['items']}
+        item_links = {item['title']: item['link'] for item in group['items']}
+
+        self.assertTrue(group['collapsible'])
+        self.assertSetEqual(
+            item_titles,
+            {
+                'Configuration',
+                'Live Sheet (view only)',
+                'Cases',
+                'Event history',
+                'Reconcile TAT Sheet',
+                'Find duplicate rows',
+            },
+        )
+        self.assertIn(str(config.pk), item_links['Configuration'])
+        self.assertIn('group_id__exact=-1010', item_links['Cases'])
 
     def test_custom_group_configuration_pages_use_shared_admin_shell(self):
         group = GroupSheetConfiguration.objects.create(
