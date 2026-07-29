@@ -22,10 +22,10 @@
   }
 
   .sheet-analysis-metric {
-    border: 1px solid var(--border-color);
+    background: rgb(var(--color-base-50));
+    border: 1px solid rgb(var(--color-base-200));
     border-radius: 4px;
     padding: 12px;
-    background: var(--body-bg);
   }
 
   .sheet-analysis-metric strong {
@@ -35,45 +35,48 @@
   }
 
   .sheet-analysis-panel {
-    border: 1px solid var(--border-color);
+    background: rgb(var(--color-base-50));
+    border: 1px solid rgb(var(--color-base-200));
     border-radius: 4px;
     padding: 16px;
     margin: 16px 0;
-    background: var(--body-bg);
+    overflow-x: auto;
   }
 
   .sheet-analysis-table {
     width: 100%;
     border-collapse: collapse;
+    min-width: 58rem;
   }
 
   .sheet-analysis-table th,
   .sheet-analysis-table td {
-    border-bottom: 1px solid var(--hairline-color);
+    border-bottom: 1px solid rgb(var(--color-base-200));
     padding: 8px;
     text-align: left;
     vertical-align: top;
   }
 
   .sheet-analysis-table th {
-    background: var(--darkened-bg);
+    background: rgb(var(--color-base-100));
+    color: rgb(var(--color-font-important-light));
     font-weight: 600;
   }
 
   .sheet-analysis-tag {
     display: inline-block;
-    border: 1px solid var(--border-color);
+    background: rgb(var(--color-base-100));
+    border: 1px solid rgb(var(--color-base-200));
     border-radius: 4px;
     padding: 2px 6px;
     margin: 0 4px 4px 0;
-    background: var(--darkened-bg);
     white-space: nowrap;
   }
 
   .sheet-analysis-warnings {
-    border-left: 4px solid var(--message-warning-bg, #ffc);
+    background: rgb(255 247 237);
+    border-left: 4px solid rgb(217 119 6);
     padding: 8px 12px;
-    background: var(--darkened-bg);
   }
 
   .sheet-analysis-actions {
@@ -88,10 +91,21 @@
     max-height: 320px;
     overflow: auto;
     padding: 12px;
-    border: 1px solid var(--border-color);
+    background: rgb(var(--color-base-100));
+    border: 1px solid rgb(var(--color-base-200));
     border-radius: 4px;
-    background: var(--darkened-bg);
   }
+
+  .dark .sheet-analysis-metric,
+  .dark .sheet-analysis-panel { background: rgb(var(--color-base-900)); border-color: rgb(var(--color-base-700)); }
+  .dark .sheet-analysis-table th,
+  .dark .sheet-analysis-table td { border-color: rgb(var(--color-base-700)); }
+  .dark .sheet-analysis-table th,
+  .dark .sheet-analysis-tag,
+  .dark .sheet-analysis-pre { background: rgb(var(--color-base-800)); color: rgb(var(--color-font-important-dark)); }
+  .dark .sheet-analysis-tag,
+  .dark .sheet-analysis-pre { border-color: rgb(var(--color-base-700)); }
+  .dark .sheet-analysis-warnings { background: rgb(120 53 15 / .35); color: rgb(254 215 170); }
 </style>
 {% endblock %}
 

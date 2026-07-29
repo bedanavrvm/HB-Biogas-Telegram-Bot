@@ -1,3 +1,5 @@
+from unittest.mock import Mock, patch
+
 from django.contrib import admin
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
@@ -251,6 +253,92 @@ class AdminMonitoringTests(TestCase):
         )
         self.assertIn(str(config.pk), item_links['Configuration'])
         self.assertIn('group_id__exact=-1010', item_links['Cases'])
+
+    def test_live_sheet_sticky_cells_have_opaque_theme_backgrounds(self):
+        group = GroupSheetConfiguration.objects.create(
+            group_id='-1011',
+            display_name='Sheet style test',
+            sheet_id='sheet',
+            sheet_name='Tracker',
+            workflow={'type': 'case'},
+        )
+        user = get_user_model().objects.create_superuser(
+            username='live-sheet-style-admin',
+            email='live-sheet-style@example.test',
+            password='password',
+        )
+        client = Client()
+        client.force_login(user)
+        table = {
+            'sheet_tab': 'Tracker',
+            'header_row': 2,
+            'row_count': 1,
+            'headers': ['Case ID', 'Customer'],
+            'rows': [{
+                'row_number': 3,
+                'cells': [{'value': 'JBL-1'}, {'value': 'Customer'}],
+            }],
+        }
+
+        with patch('core.services.live_sheet_records.load_live_sheet_table', return_value=table):
+            response = client.get(
+                reverse('admin:core_groupsheetconfiguration_live_records', args=[group.pk])
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'isolation:isolate')
+        self.assertContains(response, 'background:rgb(var(--color-base-100))')
+        self.assertContains(response, 'th.row-number')
+        self.assertContains(response, 'z-index:4')
+
+    def test_sheet_audit_pages_use_unfold_theme_colours_and_mobile_safe_tables(self):
+        group = GroupSheetConfiguration.objects.create(
+            group_id='-1012',
+            display_name='Sheet audit style test',
+            sheet_id='sheet',
+            sheet_name='Tracker',
+            workflow={'type': 'tat_tracker'},
+        )
+        user = get_user_model().objects.create_superuser(
+            username='sheet-audit-style-admin',
+            email='sheet-audit-style@example.test',
+            password='password',
+        )
+        client = Client()
+        client.force_login(user)
+        service = Mock()
+        service.is_available.return_value = True
+        service._sheet.row_values.return_value = ['Case ID', 'Customer name']
+
+        with patch('core.services.sheets.get_sheets_service', return_value=service):
+            coverage_response = client.get(
+                reverse('admin:core_groupsheetconfiguration_coverage', args=[group.pk])
+            )
+        with patch(
+            'core.services.sheet_analyzer.analyze_google_sheet',
+            return_value={
+                'status': 'success',
+                'data_row_count': 1,
+                'header_row': 1,
+                'headers': ['Case ID'],
+                'sample_size': 1,
+                'warnings': [],
+                'columns': [],
+            },
+        ):
+            analysis_response = client.get(
+                reverse('admin:core_groupsheetconfiguration_analyze', args=[group.pk])
+            )
+
+        for response in (coverage_response, analysis_response):
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, 'rgb(var(--color-base-50))')
+            self.assertNotContains(response, 'var(--body-bg)')
+            self.assertNotContains(response, 'var(--darkened-bg)')
+            self.assertNotContains(response, 'var(--hairline-color)')
+        self.assertContains(coverage_response, 'overflow:auto')
+        self.assertContains(analysis_response, 'overflow-x: auto')
+        self.assertContains(analysis_response, 'min-width: 58rem')
 
     def test_custom_group_configuration_pages_use_shared_admin_shell(self):
         group = GroupSheetConfiguration.objects.create(

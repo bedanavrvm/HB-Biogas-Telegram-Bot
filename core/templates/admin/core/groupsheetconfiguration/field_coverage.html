@@ -14,15 +14,20 @@
 {{ block.super }}
 <style>
   .coverage-summary { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin:16px 0; }
-  .coverage-card, .coverage-panel { border:1px solid var(--border-color); border-radius:6px; padding:14px; background:var(--body-bg); }
+  .coverage-card, .coverage-panel { background:rgb(var(--color-base-50)); border:1px solid rgb(var(--color-base-200)); border-radius:6px; padding:14px; }
   .coverage-card strong { display:block; font-size:22px; margin-top:4px; }
   .coverage-panel { margin:16px 0; overflow:auto; }
   .coverage-table { width:100%; border-collapse:collapse; min-width:720px; }
-  .coverage-table th, .coverage-table td { border-bottom:1px solid var(--hairline-color); padding:8px; text-align:left; vertical-align:top; }
-  .coverage-table th { background:var(--darkened-bg); }
-  .coverage-missing { color:var(--error-fg); }
-  .coverage-present { color:var(--success-fg, #087f23); }
+  .coverage-table th, .coverage-table td { border-bottom:1px solid rgb(var(--color-base-200)); padding:8px; text-align:left; vertical-align:top; }
+  .coverage-table th { background:rgb(var(--color-base-100)); color:rgb(var(--color-font-important-light)); }
+  .coverage-missing { color:rgb(185 28 28); }
+  .coverage-present { color:rgb(var(--color-primary-700)); }
   .coverage-actions { display:flex; gap:8px; flex-wrap:wrap; margin:16px 0; }
+  .dark .coverage-card, .dark .coverage-panel { background:rgb(var(--color-base-900)); border-color:rgb(var(--color-base-700)); }
+  .dark .coverage-table th, .dark .coverage-table td { border-color:rgb(var(--color-base-700)); }
+  .dark .coverage-table th { background:rgb(var(--color-base-800)); color:rgb(var(--color-font-important-dark)); }
+  .dark .coverage-missing { color:rgb(254 202 202); }
+  .dark .coverage-present { color:rgb(var(--color-primary-400)); }
 </style>
 {% endblock %}
 

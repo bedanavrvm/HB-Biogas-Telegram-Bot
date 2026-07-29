@@ -57,7 +57,7 @@
     }
 
     body.model-groupsheetconfiguration.change-form fieldset.preset-tat_tracker > div > div {
-        border-bottom: 1px solid var(--color-base-200);
+        border-bottom: 1px solid rgb(var(--color-base-200));
         padding-bottom: .6rem !important;
     }
 
@@ -1094,6 +1094,37 @@ body[class*='app-'] a.cancel-link {
     #content-main.admin-custom-page {
         max-width: none;
         padding-bottom: 1rem;
+    }
+
+    /* Custom maintenance views do not receive Django's change-form body
+       class.  Without this explicit mobile rule their two-column label/input
+       grid can make the entire page wider than the phone viewport. */
+    #content-main.admin-custom-page .form-row {
+        gap: .35rem;
+        grid-template-columns: minmax(0, 1fr);
+        padding: .65rem 0;
+    }
+
+    #content-main.admin-custom-page .form-row input:not([type='checkbox']):not([type='radio']),
+    #content-main.admin-custom-page .form-row select,
+    #content-main.admin-custom-page .form-row textarea {
+        min-width: 0;
+        width: 100%;
+    }
+
+    #content-main.admin-custom-page .submit-row {
+        align-items: stretch;
+        display: grid;
+        gap: .5rem;
+        grid-template-columns: 1fr;
+    }
+
+    #content-main.admin-custom-page .submit-row a,
+    #content-main.admin-custom-page .submit-row button,
+    #content-main.admin-custom-page .submit-row input {
+        justify-content: center;
+        margin: 0;
+        width: 100%;
     }
 
     body.change-form #content-main,
