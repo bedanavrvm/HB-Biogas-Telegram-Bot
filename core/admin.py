@@ -11,9 +11,9 @@ from django.contrib.auth.admin import GroupAdmin as DjangoGroupAdmin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.contrib.auth.models import Group
 from django.conf import settings
-from django.http import HttpResponseRedirect, JsonResponse
+from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.template.response import TemplateResponse
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import DatabaseError, connections, transaction
 from django.urls import path, reverse
 from django.utils.html import format_html
@@ -72,6 +72,11 @@ from .models import (
     AccessGrant,
     WorkflowRoleCapability,
     WorkflowRoleCapabilityAuditEvent,
+    AccessControlChangeRequest,
+    AccessControlPolicySnapshot,
+    EmergencyAccessGrant,
+    AccessControlNotification,
+    CapabilityUsageDaily,
 )
 
 logger = logging.getLogger(__name__)
@@ -2396,6 +2401,13 @@ class AccessGrantAdminForm(forms.ModelForm):
         js = ('admin/js/access_grant_inline.js',)
 
 
+class AccessGrantRequestForm(AccessGrantAdminForm):
+    reason = forms.CharField(
+        widget=forms.Textarea(attrs={'rows': 3}),
+        help_text='Explain the operational need. The grant will remain inactive until a different designated approver applies it.',
+    )
+
+
 class AccessGrantInline(StackedInline):
     model = AccessGrant
     form = AccessGrantAdminForm
@@ -2406,6 +2418,15 @@ class AccessGrantInline(StackedInline):
         'source',
     )
     readonly_fields = ('source',)
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(WorkflowRoleCapability)
@@ -2439,7 +2460,8 @@ class WorkflowRoleCapabilityAdmin(CompactModelAdmin):
         if not request.user.is_superuser:
             raise PermissionDenied
         from core.services.access_policies import canonical_access_role, WORKFLOW_ROLES
-        from core.services.workflow_capabilities import capabilities_for_workflow, dependency_closure
+        from core.services.access_control import capability_impact, create_capability_request
+        from core.services.workflow_capabilities import capabilities_for_workflow
 
         selected_workflow = str(request.POST.get('workflow') or request.GET.get('workflow') or 'jawabu_portal')
         workflows = list(AccessGrant.WORKFLOW_CHOICES)
@@ -2447,7 +2469,7 @@ class WorkflowRoleCapabilityAdmin(CompactModelAdmin):
             selected_workflow = workflows[0][0]
         role_options = list(WORKFLOW_ROLES.get(selected_workflow, ()))
         definitions = capabilities_for_workflow(selected_workflow)
-        if request.method == 'POST' and request.POST.get('apply_matrix'):
+        if request.method == 'POST' and request.POST.get('propose_matrix'):
             selected_role = canonical_access_role(selected_workflow, request.POST.get('role', ''))
             valid_roles = {value for value, _label in role_options}
             if selected_role not in valid_roles:
@@ -2457,34 +2479,29 @@ class WorkflowRoleCapabilityAdmin(CompactModelAdmin):
                     item.key for item in definitions
                     if request.POST.get(f'capability:{item.key}') == 'on'
                 }
-                enabled_keys = dependency_closure(selected_workflow, submitted)
-                before = set(WorkflowRoleCapability.objects.filter(
-                    workflow=selected_workflow, role=selected_role, enabled=True,
-                ).values_list('capability_key', flat=True))
-                changed = sorted(before.symmetric_difference(enabled_keys))
-                with transaction.atomic():
-                    for definition in definitions:
-                        WorkflowRoleCapability.objects.update_or_create(
-                            workflow=selected_workflow,
-                            role=selected_role,
-                            capability_key=definition.key,
-                            defaults={'enabled': definition.key in enabled_keys},
+                target_roles = [selected_role]
+                for raw_role in request.POST.getlist('apply_roles'):
+                    normalized = canonical_access_role(selected_workflow, raw_role)
+                    if normalized in valid_roles and normalized not in target_roles:
+                        target_roles.append(normalized)
+                try:
+                    change_requests = [
+                        create_capability_request(
+                            requester=request.user, workflow=selected_workflow, role=target_role,
+                            capability_keys=submitted, reason=str(request.POST.get('reason') or ''),
                         )
-                    if changed:
-                        WorkflowRoleCapabilityAuditEvent.objects.create(
-                            workflow=selected_workflow,
-                            role=selected_role,
-                            actor=request.user,
-                            changes={
-                                'enabled': sorted(enabled_keys - before),
-                                'disabled': sorted(before - enabled_keys),
-                            },
-                        )
-                messages.success(request, f'Updated {selected_role} access. Required view capabilities were retained automatically.')
-                return HttpResponseRedirect(f'{reverse("admin:core_workflowrolecapability_matrix")}?workflow={selected_workflow}&role={selected_role}')
+                        for target_role in target_roles
+                    ]
+                except ValidationError as exc:
+                    messages.error(request, '; '.join(exc.messages))
+                else:
+                    messages.success(request, f'{len(change_requests)} change request(s) are pending independent approval. No live access changed.')
+                    return HttpResponseRedirect(reverse('admin:core_accesscontrolchangerequest_changelist'))
         selected_role = canonical_access_role(selected_workflow, request.GET.get('role') or (role_options[0][0] if role_options else ''))
+        copy_from_role = canonical_access_role(selected_workflow, request.GET.get('copy_from') or '')
         enabled_keys = set(WorkflowRoleCapability.objects.filter(
-            workflow=selected_workflow, role=selected_role, enabled=True,
+            workflow=selected_workflow, role=copy_from_role or selected_role,
+            effect=WorkflowRoleCapability.EFFECT_ALLOW,
         ).values_list('capability_key', flat=True))
         rows = [
             {'definition': definition, 'enabled': definition.key in enabled_keys}
@@ -2497,7 +2514,14 @@ class WorkflowRoleCapabilityAdmin(CompactModelAdmin):
             'workflows': workflows,
             'selected_workflow': selected_workflow,
             'role_options': role_options,
+            'role_rows': [
+                {'value': value, 'label': label, 'impact': capability_impact(selected_workflow, value)}
+                for value, label in role_options
+            ],
+            'role_impacts': {value: capability_impact(selected_workflow, value) for value, _label in role_options},
+            'impact': capability_impact(selected_workflow, selected_role),
             'selected_role': selected_role,
+            'copy_from_role': copy_from_role,
             'rows': rows,
             'audit_events': WorkflowRoleCapabilityAuditEvent.objects.filter(
                 workflow=selected_workflow, role=selected_role,
@@ -2521,6 +2545,147 @@ class WorkflowRoleCapabilityAuditEventAdmin(CompactModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(AccessControlChangeRequest)
+class AccessControlChangeRequestAdmin(CompactModelAdmin):
+    """Approval queue; direct model edits would bypass the recorded diff."""
+
+    list_display = ('requested_at', 'change_type', 'workflow', 'role', 'target_user', 'status', 'requested_by', 'reviewed_by')
+    list_filter = ('status', 'change_type', 'workflow')
+    search_fields = ('role', 'target_user__username', 'requested_by__username', 'reason')
+    readonly_fields = (
+        'change_type', 'workflow', 'role', 'target_user', 'before_snapshot', 'proposed_snapshot',
+        'impact', 'reason', 'status', 'policy_version', 'requested_by', 'requested_at',
+        'reviewed_by', 'reviewed_at', 'review_comment', 'applied_at', 'source_request',
+    )
+    change_form_template = 'admin/core/accesscontrolchangerequest/change_form.html'
+    change_list_template = 'admin/core/accesscontrolchangerequest/change_list.html'
+
+    def get_urls(self):
+        return [
+            path('export/csv/', self.admin_site.admin_view(self.export_csv), name='core_accesscontrolchangerequest_export_csv'),
+            path('export/pdf/', self.admin_site.admin_view(self.export_pdf), name='core_accesscontrolchangerequest_export_pdf'),
+        ] + super().get_urls()
+
+    def export_csv(self, request):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        from core.services.access_control_reporting import evidence_csv
+        response = HttpResponse(evidence_csv(), content_type='text/csv; charset=utf-8')
+        response['Content-Disposition'] = 'attachment; filename="miniapp-access-control-evidence.csv"'
+        return response
+
+    def export_pdf(self, request):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        from core.services.access_control_reporting import evidence_pdf
+        try:
+            payload = evidence_pdf()
+        except Exception as exc:
+            messages.error(request, f'Could not create the PDF evidence report: {exc}')
+            return HttpResponseRedirect(reverse('admin:core_accesscontrolchangerequest_changelist'))
+        response = HttpResponse(payload, content_type='application/pdf')
+        response['Content-Disposition'] = 'attachment; filename="miniapp-access-control-evidence.pdf"'
+        return response
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return bool(request.user.is_superuser or request.user.groups.filter(name='Access Policy Approvers').exists())
+
+    def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
+        if request.method == 'POST' and ('approve_request' in request.POST or 'reject_request' in request.POST):
+            from core.services.access_control import approve_request, reject_request
+            try:
+                if 'approve_request' in request.POST:
+                    result = approve_request(request_id=object_id, approver=request.user, review_comment=str(request.POST.get('review_comment') or ''))
+                    message = 'Request applied.' if result.status == result.STATUS_APPLIED else 'Request is stale and was not applied.'
+                    messages.success(request, message)
+                else:
+                    reject_request(request_id=object_id, approver=request.user, review_comment=str(request.POST.get('review_comment') or ''))
+                    messages.success(request, 'Request rejected.')
+            except (PermissionDenied, ValidationError) as exc:
+                messages.error(request, '; '.join(getattr(exc, 'messages', [str(exc)])))
+            return HttpResponseRedirect(reverse('admin:core_accesscontrolchangerequest_change', args=[object_id]))
+        if object_id:
+            from core.services.access_control import can_approve_access_change, request_diff
+            change_request = AccessControlChangeRequest.objects.get(pk=object_id)
+            extra_context = {**(extra_context or {}), 'request_diff': request_diff(change_request), 'can_approve_access_change': can_approve_access_change(request.user)}
+        return super().changeform_view(request, object_id, form_url, extra_context)
+
+    def get_readonly_fields(self, request, obj=None):
+        return self.readonly_fields
+
+
+@admin.register(AccessControlPolicySnapshot)
+class AccessControlPolicySnapshotAdmin(CompactModelAdmin):
+    list_display = ('version', 'request', 'created_at')
+    readonly_fields = ('version', 'request', 'state', 'created_at')
+    search_fields = ('request__workflow', 'request__role')
+    change_form_template = 'admin/core/accesscontrolpolicysnapshot/change_form.html'
+
+    def get_urls(self):
+        return [
+            path('<uuid:object_id>/propose-revert/', self.admin_site.admin_view(self.propose_revert), name='core_accesscontrolpolicysnapshot_propose_revert'),
+        ] + super().get_urls()
+
+    def propose_revert(self, request, object_id):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        snapshot = AccessControlPolicySnapshot.objects.get(pk=object_id)
+        if request.method == 'POST':
+            from core.services.access_control import create_rollback_request
+            try:
+                change_request = create_rollback_request(snapshot=snapshot, requester=request.user, reason=str(request.POST.get('reason') or ''))
+            except ValidationError as exc:
+                messages.error(request, '; '.join(exc.messages))
+            else:
+                messages.success(request, 'Rollback proposal submitted for independent approval.')
+                return HttpResponseRedirect(reverse('admin:core_accesscontrolchangerequest_change', args=[change_request.pk]))
+        return TemplateResponse(request, 'admin/core/accesscontrolpolicysnapshot/propose_revert.html', {
+            **self.admin_site.each_context(request), 'opts': self.model._meta, 'title': f'Propose rollback of policy version {snapshot.version}', 'snapshot': snapshot,
+        })
+
+    def has_add_permission(self, request): return False
+    def has_change_permission(self, request, obj=None): return False
+    def has_delete_permission(self, request, obj=None): return False
+
+
+@admin.register(EmergencyAccessGrant)
+class EmergencyAccessGrantAdmin(CompactModelAdmin):
+    list_display = ('user', 'workflow', 'role', 'activated_by', 'expires_at', 'revoked_at')
+    list_filter = ('workflow',)
+    search_fields = ('user__username', 'role', 'reason')
+    readonly_fields = ('activated_by', 'activated_at', 'expires_at', 'revoked_at', 'revoked_by')
+
+    def has_add_permission(self, request): return False
+    def has_delete_permission(self, request, obj=None): return False
+
+
+@admin.register(AccessControlNotification)
+class AccessControlNotificationAdmin(CompactModelAdmin):
+    list_display = ('created_at', 'event', 'channel', 'recipient', 'status')
+    list_filter = ('event', 'channel', 'status')
+    readonly_fields = ('request', 'recipient', 'channel', 'event', 'status', 'error', 'created_at', 'delivered_at')
+    def has_add_permission(self, request): return False
+    def has_change_permission(self, request, obj=None): return False
+    def has_delete_permission(self, request, obj=None): return False
+
+
+@admin.register(CapabilityUsageDaily)
+class CapabilityUsageDailyAdmin(CompactModelAdmin):
+    list_display = ('day', 'user', 'workflow', 'capability_key', 'use_count', 'last_used_at')
+    list_filter = ('workflow', 'day')
+    search_fields = ('user__username', 'capability_key')
+    readonly_fields = ('day', 'user', 'workflow', 'capability_key', 'use_count', 'last_used_at')
+    def has_add_permission(self, request): return False
+    def has_change_permission(self, request, obj=None): return False
+    def has_delete_permission(self, request, obj=None): return False
 
 
 class StaffUserCreationForm(forms.Form):
@@ -2628,6 +2793,7 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
     list_display = ('username', 'email', 'first_name', 'last_name', 'role_tags', 'is_staff', 'is_active')
     inlines = (UserProfileInline, AccessGrantInline)
     change_list_template = 'admin/auth/user/change_list.html'
+    change_form_template = 'admin/auth/user/change_form.html'
 
     def get_queryset(self, request):
         return super().get_queryset(request).prefetch_related('access_grants')
@@ -2707,6 +2873,9 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
                 self.admin_site.admin_view(self.add_staff_view),
                 name='auth_user_add_staff',
             ),
+            path('<int:object_id>/request-access/', self.admin_site.admin_view(self.request_access_view), name='auth_user_request_access'),
+            path('<int:object_id>/emergency-access/', self.admin_site.admin_view(self.emergency_access_view), name='auth_user_emergency_access'),
+            path('<int:object_id>/effective-access/', self.admin_site.admin_view(self.effective_access_view), name='auth_user_effective_access'),
         ]
         return custom_urls + super().get_urls()
 
@@ -2717,8 +2886,8 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
             raise PermissionDenied
         creation_form = StaffUserCreationForm(request.POST or None)
         if request.method == 'POST' and creation_form.is_valid():
-            user = self._create_staff_user(creation_form.cleaned_data)
-            messages.success(request, f'{user.get_full_name() or user.get_username()} was created with workflow access.')
+            user = self._create_staff_user(creation_form.cleaned_data, request.user)
+            messages.success(request, f'{user.get_full_name() or user.get_username()} was created. Their initial workflow access is pending independent approval.')
             return HttpResponseRedirect(reverse('admin:auth_user_change', args=(user.pk,)))
         context = {
             **self.admin_site.each_context(request),
@@ -2731,7 +2900,7 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
 
     @staticmethod
     @transaction.atomic
-    def _create_staff_user(data):
+    def _create_staff_user(data, requester):
         User = get_user_model()
         telegram_username = data.get('telegram_username', '')
         if data['login_method'] == StaffUserCreationForm.LOGIN_TELEGRAM:
@@ -2756,16 +2925,69 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
             user.set_unusable_password()
         user.save()
         UserProfile.objects.create(user=user, telegram_username=telegram_username)
-        AccessGrant.objects.create(
-            user=user,
-            workflow=data['workflow'],
-            role=data['role'],
-            branch=data.get('branch', ''),
-            product=data.get('product', ''),
+        from core.services.access_control import create_grant_request
+        create_grant_request(
+            requester=requester, user=user, workflow=data['workflow'], role=data['role'],
+            branch=data.get('branch', ''), product=data.get('product', ''),
             group_configuration=data.get('group_configuration'),
-            source='admin_user_creation',
+            reason='Initial workflow access for newly enrolled staff user.',
         )
         return user
+
+    def request_access_view(self, request, object_id):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        user = self.get_object(request, object_id)
+        if user is None:
+            raise PermissionDenied
+        form = AccessGrantRequestForm(request.POST or None)
+        if request.method == 'POST' and form.is_valid():
+            from core.services.access_control import create_grant_request
+            change_request = create_grant_request(
+                requester=request.user, user=user, workflow=form.cleaned_data['workflow'], role=form.cleaned_data['role'],
+                branch=form.cleaned_data.get('branch', ''), product=form.cleaned_data.get('product', ''),
+                group_configuration=form.cleaned_data.get('group_configuration'), active=form.cleaned_data.get('active', True),
+                reason=form.cleaned_data['reason'],
+            )
+            messages.success(request, 'Access request submitted for independent approval.')
+            return HttpResponseRedirect(reverse('admin:core_accesscontrolchangerequest_change', args=[change_request.pk]))
+        return TemplateResponse(request, 'admin/auth/user/access_request.html', {
+            **self.admin_site.each_context(request), 'opts': self.model._meta, 'title': f'Request Mini App access: {user.get_username()}', 'form': form, 'target_user': user,
+        })
+
+    def emergency_access_view(self, request, object_id):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        user = self.get_object(request, object_id)
+        if user is None:
+            raise PermissionDenied
+        form = AccessGrantRequestForm(request.POST or None)
+        if request.method == 'POST' and form.is_valid():
+            from core.services.access_control import create_emergency_grant
+            grant = create_emergency_grant(
+                actor=request.user, user=user, workflow=form.cleaned_data['workflow'], role=form.cleaned_data['role'],
+                branch=form.cleaned_data.get('branch', ''), product=form.cleaned_data.get('product', ''),
+                group_configuration=form.cleaned_data.get('group_configuration'), reason=form.cleaned_data['reason'],
+            )
+            messages.warning(request, f'Emergency access is active until {grant.expires_at:%d-%b-%Y %H:%M}. Approvers were notified.')
+            return HttpResponseRedirect(reverse('admin:auth_user_change', args=[user.pk]))
+        return TemplateResponse(request, 'admin/auth/user/access_request.html', {
+            **self.admin_site.each_context(request), 'opts': self.model._meta, 'title': f'Emergency access (four hours): {user.get_username()}', 'form': form, 'target_user': user, 'emergency': True,
+        })
+
+    def effective_access_view(self, request, object_id):
+        user = self.get_object(request, object_id)
+        if user is None or not request.user.is_superuser:
+            raise PermissionDenied
+        from core.services.telegram_identity import user_access
+        from core.services.workflow_capabilities import capabilities_payload
+        rows = []
+        for workflow, label in AccessGrant.WORKFLOW_CHOICES:
+            access = user_access(user, workflow)
+            rows.append({'workflow': label, 'roles': access['roles'], 'branches': access['branches'], 'products': access['products'], 'capabilities': capabilities_payload(user, workflow, access=access), 'emergency': access.get('emergency_grants', [])})
+        return TemplateResponse(request, 'admin/auth/user/effective_access.html', {
+            **self.admin_site.each_context(request), 'opts': self.model._meta, 'title': f'Effective Mini App access: {user.get_username()}', 'target_user': user, 'rows': rows,
+        })
 
 
 class UnfoldGroupAdmin(ModelAdmin, DjangoGroupAdmin):

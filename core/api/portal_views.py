@@ -239,6 +239,8 @@ def _portal_capability_error(request, capability: str, farmer=None):
 
     if not has_capability(request.portal_user, 'jawabu_portal', capability, access=access):
         return JsonResponse({'ok': False, 'error': 'You are not authorized for this Jawabu workflow action.'}, status=403)
+    from core.services.access_control import record_capability_usage
+    record_capability_usage(request.portal_user, 'jawabu_portal', capability)
     return _portal_branch_scope_error(request, farmer)
 
 
@@ -1043,6 +1045,7 @@ def portal_meta(request):
     from core.models import JawabuFarmerMaster
     from core.services.branches import global_branch_choices
     from core.services.locations import global_county_choices
+    from core.services.access_control import policy_version
     branches = global_branch_choices()
     staff_branches = {
         str(value).strip().casefold()
@@ -1060,6 +1063,7 @@ def portal_meta(request):
         'imab_created_options': ['Yes', 'No', 'Pending'],
         'final_decisions': [c[0] for c in JawabuFarmerMaster.FINAL_DECISION_CHOICES],
         'capabilities': _portal_capabilities(request),
+        'access_policy_version': policy_version(),
     })
 
 

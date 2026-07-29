@@ -129,6 +129,11 @@ def _tat_capability_error(user: dict, capability: str):
     """Return a consistent fail-closed response for the TAT role matrix."""
     if capability not in set(user.get('capabilities') or []):
         return JsonResponse({'ok': False, 'error': 'Your assigned TAT role does not permit this action.'}, status=403)
+    user_id = user.get('user_id')
+    if user_id:
+        from django.contrib.auth import get_user_model
+        from core.services.access_control import record_capability_usage
+        record_capability_usage(get_user_model().objects.filter(pk=user_id).first(), 'tat_tracker', capability)
     return None
 
 
@@ -143,7 +148,10 @@ def tat_tracker_bootstrap(request):
     if capability_error:
         return capability_error
     from core.services.tat_tracker import bootstrap
-    return JsonResponse({'ok': True, 'data': bootstrap(group_config, user_payload)})
+    from core.services.access_control import policy_version
+    data = bootstrap(group_config, user_payload)
+    data['access_policy_version'] = policy_version()
+    return JsonResponse({'ok': True, 'data': data})
 
 
 @csrf_exempt

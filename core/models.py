@@ -1313,7 +1313,16 @@ class WorkflowRoleCapability(models.Model):
     workflow = models.CharField(max_length=40, choices=AccessGrant.WORKFLOW_CHOICES, db_index=True)
     role = models.CharField(max_length=80, db_index=True)
     capability_key = models.CharField(max_length=120, db_index=True)
+    EFFECT_ALLOW = 'allow'
+    EFFECT_DENY = 'deny'
+    EFFECT_CHOICES = [(EFFECT_ALLOW, 'Allow'), (EFFECT_DENY, 'Explicit deny')]
+
+    # ``enabled`` remains during the approval-control rollout so existing
+    # reports and migrations remain readable.  New policy code uses effect;
+    # an explicit deny is intentionally preserved rather than treated as a
+    # missing row that a later default could accidentally restore.
     enabled = models.BooleanField(default=True)
+    effect = models.CharField(max_length=12, choices=EFFECT_CHOICES, default=EFFECT_ALLOW)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -1347,6 +1356,15 @@ class WorkflowRoleCapability(models.Model):
 
         if self.workflow:
             self.role = canonical_access_role(self.workflow, self.role)
+        update_fields = kwargs.get('update_fields')
+        # Preserve the pre-approval-control programmatic contract for callers
+        # that still set ``enabled`` directly during the rollout.
+        if update_fields and 'enabled' in update_fields:
+            self.effect = self.EFFECT_ALLOW if self.enabled else self.EFFECT_DENY
+            kwargs['update_fields'] = set(update_fields) | {'effect'}
+        self.enabled = self.effect == self.EFFECT_ALLOW
+        if update_fields and 'effect' in kwargs.get('update_fields', update_fields):
+            kwargs['update_fields'] = set(kwargs['update_fields']) | {'enabled'}
         super().save(*args, **kwargs)
 
 
@@ -1372,6 +1390,135 @@ class WorkflowRoleCapabilityAuditEvent(models.Model):
 
     def __str__(self):
         return f'{self.workflow}: {self.role} policy changed {self.created_at:%d-%b-%Y %H:%M}'
+
+
+class AccessControlPolicyState(models.Model):
+    """Single locked counter used to prevent approval of a stale policy diff."""
+
+    singleton = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    version = models.PositiveIntegerField(default=1)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @classmethod
+    def current(cls):
+        return cls.objects.get_or_create(singleton=1)[0]
+
+
+class AccessControlChangeRequest(models.Model):
+    """Maker-checker request for permanent Mini App access changes."""
+
+    TYPE_CAPABILITY = 'capability_policy'
+    TYPE_GRANT = 'access_grant'
+    TYPE_CHOICES = [(TYPE_CAPABILITY, 'Role capability policy'), (TYPE_GRANT, 'Staff access grant')]
+    STATUS_DRAFT = 'draft'
+    STATUS_PENDING = 'pending'
+    STATUS_APPROVED = 'approved'
+    STATUS_REJECTED = 'rejected'
+    STATUS_APPLIED = 'applied'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_STALE = 'stale'
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, 'Draft'), (STATUS_PENDING, 'Pending approval'),
+        (STATUS_APPROVED, 'Approved'), (STATUS_REJECTED, 'Rejected'),
+        (STATUS_APPLIED, 'Applied'), (STATUS_CANCELLED, 'Cancelled'), (STATUS_STALE, 'Stale'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    change_type = models.CharField(max_length=32, choices=TYPE_CHOICES, db_index=True)
+    workflow = models.CharField(max_length=40, choices=AccessGrant.WORKFLOW_CHOICES, blank=True, default='', db_index=True)
+    role = models.CharField(max_length=80, blank=True, default='', db_index=True)
+    target_user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='access_control_requests')
+    before_snapshot = models.JSONField(default=dict, blank=True)
+    proposed_snapshot = models.JSONField(default=dict, blank=True)
+    impact = models.JSONField(default=dict, blank=True)
+    reason = models.TextField()
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_DRAFT, db_index=True)
+    policy_version = models.PositiveIntegerField(default=1)
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='requested_access_control_changes')
+    requested_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='reviewed_access_control_changes')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_comment = models.TextField(blank=True, default='')
+    applied_at = models.DateTimeField(null=True, blank=True)
+    source_request = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL, related_name='derived_requests')
+
+    class Meta:
+        ordering = ['-requested_at']
+        indexes = [models.Index(fields=['status', 'requested_at']), models.Index(fields=['workflow', 'role', 'status'])]
+
+    def __str__(self):
+        return f'{self.get_change_type_display()} {self.workflow}/{self.role} ({self.status})'
+
+
+class AccessControlPolicySnapshot(models.Model):
+    """Immutable recoverable state created whenever an approved request applies."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    version = models.PositiveIntegerField(unique=True)
+    request = models.OneToOneField(AccessControlChangeRequest, null=True, blank=True, on_delete=models.PROTECT, related_name='applied_snapshot')
+    state = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-version']
+
+
+class EmergencyAccessGrant(models.Model):
+    """Short-lived, separately audited access for an operational emergency."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='emergency_access_grants')
+    workflow = models.CharField(max_length=40, choices=AccessGrant.WORKFLOW_CHOICES, db_index=True)
+    role = models.CharField(max_length=80)
+    branch = models.CharField(max_length=120, blank=True, default='')
+    product = models.CharField(max_length=120, blank=True, default='')
+    group_configuration = models.ForeignKey('GroupSheetConfiguration', null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    reason = models.TextField()
+    activated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='activated_emergency_access')
+    activated_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(db_index=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    revoked_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='revoked_emergency_access')
+
+    class Meta:
+        ordering = ['-activated_at']
+        indexes = [models.Index(fields=['user', 'workflow', 'expires_at'])]
+
+    @property
+    def active(self):
+        return self.revoked_at is None and self.expires_at > timezone.now()
+
+
+class AccessControlNotification(models.Model):
+    """Delivery ledger; notification failure never undoes an applied control."""
+
+    CHANNEL_ADMIN = 'admin'
+    CHANNEL_TELEGRAM = 'telegram'
+    CHANNEL_CHOICES = [(CHANNEL_ADMIN, 'Admin'), (CHANNEL_TELEGRAM, 'Telegram')]
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    request = models.ForeignKey(AccessControlChangeRequest, null=True, blank=True, on_delete=models.CASCADE, related_name='notifications')
+    recipient = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    channel = models.CharField(max_length=16, choices=CHANNEL_CHOICES)
+    event = models.CharField(max_length=64)
+    status = models.CharField(max_length=16, default='queued')
+    error = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+
+
+class CapabilityUsageDaily(models.Model):
+    """Small daily aggregate used for least-privilege drift reports."""
+
+    day = models.DateField(db_index=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='+')
+    workflow = models.CharField(max_length=40, db_index=True)
+    capability_key = models.CharField(max_length=120, db_index=True)
+    use_count = models.PositiveIntegerField(default=0)
+    last_used_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['day', 'user', 'workflow', 'capability_key'], name='unique_daily_capability_usage')]
+        indexes = [models.Index(fields=['workflow', 'capability_key', 'day'])]
 
 
 class JawabuFarmerUploadBatch(models.Model):

@@ -1,0 +1,9 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<div id="content-main" class="max-w-5xl">
+  <h1 class="text-xl font-semibold">{{ title }}</h1>
+  <p class="mt-1 text-sm text-font-subtle-light dark:text-font-subtle-dark">Resolved from approved Access Grants, active emergency grants, and the current role-capability policy.</p>
+  {% for row in rows %}<section class="mt-4 rounded border border-base-200 bg-white p-4 shadow-sm dark:border-base-800 dark:bg-base-900"><h2 class="font-semibold">{{ row.workflow }}</h2><dl class="mt-3 grid gap-3 sm:grid-cols-3"><div><dt class="text-sm">Roles</dt><dd>{{ row.roles|join:", "|default:"None" }}</dd></div><div><dt class="text-sm">Branches</dt><dd>{{ row.branches|join:", "|default:"All permitted" }}</dd></div><div><dt class="text-sm">Products</dt><dd>{{ row.products|join:", "|default:"All permitted" }}</dd></div></dl><p class="mt-3 text-sm"><strong>Capabilities:</strong> {{ row.capabilities|join:", "|default:"None" }}</p>{% if row.emergency %}<p class="mt-2 text-sm text-amber-700"><strong>Emergency grants:</strong> {{ row.emergency|length }} active</p>{% endif %}</section>{% endfor %}
+  <a class="mt-5 inline-flex min-h-11 items-center rounded border px-4" href="{% url 'admin:auth_user_change' target_user.pk %}">Back to user</a>
+</div>
+{% endblock %}

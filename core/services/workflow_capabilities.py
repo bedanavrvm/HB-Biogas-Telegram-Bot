@@ -143,7 +143,7 @@ def _policy_enabled_keys(workflow: str, roles: Iterable[str]) -> set[str]:
         WorkflowRoleCapability.objects.filter(
             workflow=workflow,
             role__in=normalized_roles,
-            enabled=True,
+            effect=WorkflowRoleCapability.EFFECT_ALLOW,
         ).values_list('capability_key', flat=True)
     )
 
@@ -167,4 +167,3 @@ def has_capability(user, workflow: str, capability_key: str, *, access: dict | N
 
 def capabilities_payload(user, workflow: str, *, access: dict | None = None) -> list[str]:
     return sorted(effective_capability_keys(user, workflow, access=access))
-

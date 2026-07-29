@@ -1,0 +1,9 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+{% block content %}
+<div id="content-main" class="max-w-3xl rounded border border-base-200 bg-white p-5 shadow-sm dark:border-base-800 dark:bg-base-900">
+  <h1 class="text-xl font-semibold">{{ title }}</h1>
+  <p class="mt-2 text-sm text-font-subtle-light dark:text-font-subtle-dark">{% if emergency %}This creates immediate, audited access that expires automatically after four hours. Use only for an approved operational emergency.{% else %}This request does not change the user's effective Mini App access until a designated approver other than you applies it.{% endif %}</p>
+  <form method="post" class="mt-5">{% csrf_token %}{{ form.as_p }}<div class="mt-4 flex gap-3"><button class="min-h-11 rounded bg-primary-600 px-5 font-medium text-white">{% if emergency %}Activate emergency access{% else %}Submit for approval{% endif %}</button><a class="inline-flex min-h-11 items-center rounded border px-4" href="{% url 'admin:auth_user_change' target_user.pk %}">Cancel</a></div></form>
+</div>
+{% endblock %}

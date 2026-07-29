@@ -518,7 +518,7 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.grant_portal_access()
         WorkflowRoleCapability.objects.filter(
             workflow='jawabu_portal', role='JBL_OFFICER', capability_key='portal.jbl_queue.view',
-        ).update(enabled=False)
+        ).update(enabled=False, effect='deny')
 
         navigation = self.client.get(
             reverse('portal_navigation'),

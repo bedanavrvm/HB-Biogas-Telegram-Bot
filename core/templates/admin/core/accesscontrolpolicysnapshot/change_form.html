@@ -1,0 +1,2 @@
+{% extends "admin/change_form.html" %}
+{% block after_field_sets %}{{ block.super }}{% if original and original.request and request.user.is_superuser %}<p class="mt-4"><a class="inline-flex min-h-11 items-center rounded border px-4" href="{% url 'admin:core_accesscontrolpolicysnapshot_propose_revert' original.pk %}">Propose rollback</a></p>{% endif %}{% endblock %}

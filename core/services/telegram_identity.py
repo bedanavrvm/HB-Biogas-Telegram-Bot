@@ -114,7 +114,8 @@ def user_access(user, workflow: str, *, group_configuration=None) -> dict:
     must not grant Mini App access: only an active, scoped AccessGrant may do
     that, so user management has one authoritative workflow access path.
     """
-    from core.models import AccessGrant
+    from core.models import AccessGrant, EmergencyAccessGrant
+    from django.utils import timezone
     from core.services.access_policies import canonical_access_role
     if not user or not user.is_active:
         return {'authorized': False, 'roles': [], 'branches': [], 'products': [], 'grants': []}
@@ -126,9 +127,18 @@ def user_access(user, workflow: str, *, group_configuration=None) -> dict:
         else:
             grants = grants.filter(group_configuration__in=[None, database_group])
     grants = list(grants.select_related('group_configuration'))
+    emergency_grants = EmergencyAccessGrant.objects.filter(
+        user=user, workflow=workflow, revoked_at__isnull=True, expires_at__gt=timezone.now(),
+    )
+    if group_configuration is not None:
+        if database_group is None:
+            emergency_grants = emergency_grants.filter(group_configuration__isnull=True)
+        else:
+            emergency_grants = emergency_grants.filter(group_configuration__in=[None, database_group])
+    emergency_grants = list(emergency_grants.select_related('group_configuration'))
     grant_roles = {
         canonical_access_role(workflow, grant.role)
-        for grant in grants
+        for grant in [*grants, *emergency_grants]
         if grant.role
     }
     roles = grant_roles
@@ -140,11 +150,12 @@ def user_access(user, workflow: str, *, group_configuration=None) -> dict:
             'spin_credit_analysis': 'ADMIN',
         }.get(workflow, 'ADMIN'))
     return {
-        'authorized': bool(user.is_superuser or grants),
+        'authorized': bool(user.is_superuser or grants or emergency_grants),
         'roles': sorted(roles),
-        'branches': sorted({grant.branch for grant in grants if grant.branch}),
-        'products': sorted({grant.product for grant in grants if grant.product}),
-        'grants': grants,
+        'branches': sorted({grant.branch for grant in [*grants, *emergency_grants] if grant.branch}),
+        'products': sorted({grant.product for grant in [*grants, *emergency_grants] if grant.product}),
+        'grants': [*grants, *emergency_grants],
+        'emergency_grants': emergency_grants,
     }
 
 

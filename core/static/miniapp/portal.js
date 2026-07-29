@@ -33,6 +33,7 @@
     metaBranches: [],
     metaCounties: [],
     capabilities: new Set(),
+    accessPolicyVersion: null,
     selectedFarmer: null,
     activeMode: null, // 'jbl_visit' | 'credit' | 'final_review' | 'requisition'
     filters: { county: '', branch: '', reviewStage: 'decision' },
@@ -890,6 +891,12 @@
     state.metaFinalDecisions = data.final_decisions || [];
     state.metaBranches = data.branches || [];
     state.metaCounties = data.counties || [];
+    const nextPolicyVersion = data.access_policy_version || null;
+    if (state.accessPolicyVersion && nextPolicyVersion && state.accessPolicyVersion !== nextPolicyVersion) {
+      window.location.reload();
+      return;
+    }
+    state.accessPolicyVersion = nextPolicyVersion;
     state.capabilities = new Set(data.capabilities || []);
     applyCapabilityVisibility();
     portalFilters.updateFilterOptions(state.queues[state.activePage] || []);
@@ -1050,6 +1057,7 @@
   async function init() {
     configureHtmx();
     await loadMeta();
+    window.setInterval(loadMeta, 60000);
     const requestedPage = document.getElementById('portal-screen')?.dataset.screen || state.activePage || 'dashboard';
     const initialPage = hasCapability(PAGE_CAPABILITIES[requestedPage]) ? requestedPage : firstPermittedPage();
     if (!initialPage) {

@@ -4,11 +4,13 @@ import json
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.core.exceptions import PermissionDenied
 from django.test.client import RequestFactory
 from django.test import TestCase
 
 from core.api.portal_views import portal_meta
-from core.models import AccessGrant, WorkflowRoleCapability, WorkflowRoleCapabilityAuditEvent
+from core.models import AccessControlChangeRequest, AccessGrant, EmergencyAccessGrant, WorkflowRoleCapability, WorkflowRoleCapabilityAuditEvent
+from core.services.access_control import APPROVER_GROUP_NAME, approve_request, create_capability_request, create_emergency_grant
 from core.services.telegram_identity import user_access
 from core.services.workflow_capabilities import (
     capabilities_for_workflow,
@@ -52,7 +54,7 @@ class WorkflowCapabilityPolicyTests(TestCase):
     def test_shared_portal_metadata_does_not_require_dashboard_capability(self):
         WorkflowRoleCapability.objects.filter(
             workflow='jawabu_portal', role='JBL_OFFICER', capability_key='portal.dashboard.view',
-        ).update(enabled=False)
+        ).update(enabled=False, effect='deny')
         access = user_access(self.user, 'jawabu_portal')
         request = RequestFactory().get('/api/portal/meta/')
         request.portal_user = self.user
@@ -76,6 +78,36 @@ class WorkflowCapabilityPolicyTests(TestCase):
             for item in capabilities_for_workflow('complaint_cases')
         ))
 
+    def test_maker_cannot_apply_own_policy_request_but_another_approver_can(self):
+        maker = get_user_model().objects.create_superuser(username='maker', email='maker@example.test', password='password')
+        approver = get_user_model().objects.create_superuser(username='checker', email='checker@example.test', password='password')
+        approver.groups.add(Group.objects.get_or_create(name=APPROVER_GROUP_NAME)[0])
+        request = create_capability_request(
+            requester=maker, workflow='jawabu_portal', role='JBL_OFFICER',
+            capability_keys={'portal.jbl_queue.view'}, reason='Least privilege review',
+        )
+        with self.assertRaises(PermissionDenied):
+            approve_request(request_id=request.pk, approver=maker)
+        self.assertEqual(request.status, AccessControlChangeRequest.STATUS_PENDING)
+        approve_request(request_id=request.pk, approver=approver)
+        request.refresh_from_db()
+        self.assertEqual(request.status, AccessControlChangeRequest.STATUS_APPLIED)
+        self.assertFalse(WorkflowRoleCapability.objects.get(
+            workflow='jawabu_portal', role='JBL_OFFICER', capability_key='portal.jbl_visit.write',
+        ).enabled)
+
+    def test_emergency_grant_is_resolved_without_creating_a_permanent_grant(self):
+        actor = get_user_model().objects.create_superuser(username='emergency-admin', email='emergency@example.test', password='password')
+        target = get_user_model().objects.create_user(username='emergency-user', is_active=True)
+        grant = create_emergency_grant(
+            actor=actor, user=target, workflow='tat_tracker', role='BRO', reason='Approved after-hours correction',
+        )
+        access = user_access(target, 'tat_tracker')
+        self.assertTrue(access['authorized'])
+        self.assertIn('BRO', access['roles'])
+        self.assertEqual(EmergencyAccessGrant.objects.filter(pk=grant.pk).count(), 1)
+        self.assertFalse(AccessGrant.objects.filter(user=target, workflow='tat_tracker').exists())
+
 
 class WorkflowCapabilityMatrixAdminTests(TestCase):
     def setUp(self):
@@ -84,16 +116,27 @@ class WorkflowCapabilityMatrixAdminTests(TestCase):
         )
         self.client.force_login(self.superuser)
 
-    def test_matrix_save_records_an_audit_event(self):
+    def test_matrix_submission_requires_an_independent_approval(self):
+        approver = get_user_model().objects.create_superuser(
+            username='matrix-approver', email='approver@example.test', password='password',
+        )
+        approver.groups.add(Group.objects.get_or_create(name=APPROVER_GROUP_NAME)[0])
         response = self.client.post('/admin/core/workflowrolecapability/matrix/', {
             'workflow': 'complaint_cases',
             'role': 'OFFICER',
-            'apply_matrix': '1',
+            'propose_matrix': '1',
             'capability:complaint.queue.view': 'on',
+            'reason': 'Test controlled change',
         })
         self.assertEqual(response.status_code, 302)
+        change = AccessControlChangeRequest.objects.get(workflow='complaint_cases', role='OFFICER')
+        self.assertEqual(change.status, AccessControlChangeRequest.STATUS_PENDING)
+        self.assertFalse(WorkflowRoleCapability.objects.get(
+            workflow='complaint_cases', role='OFFICER', capability_key='complaint.case.create',
+        ).effect == 'deny')
+        approve_request(request_id=change.pk, approver=approver)
         self.assertTrue(WorkflowRoleCapabilityAuditEvent.objects.filter(
-            workflow='complaint_cases', role='OFFICER', actor=self.superuser,
+            workflow='complaint_cases', role='OFFICER', actor=approver,
         ).exists())
         self.assertTrue(WorkflowRoleCapability.objects.get(
             workflow='complaint_cases', role='OFFICER', capability_key='complaint.queue.view',
@@ -101,3 +144,10 @@ class WorkflowCapabilityMatrixAdminTests(TestCase):
         self.assertFalse(WorkflowRoleCapability.objects.get(
             workflow='complaint_cases', role='OFFICER', capability_key='complaint.case.create',
         ).enabled)
+
+    def test_matrix_displays_impact_and_search_controls(self):
+        response = self.client.get('/admin/core/workflowrolecapability/matrix/?workflow=jawabu_portal&role=JBL_OFFICER')
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Impact:')
+        self.assertContains(response, 'Find capability')
+        self.assertContains(response, 'Submit for approval')

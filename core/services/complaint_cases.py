@@ -46,6 +46,7 @@ class ComplaintCaseError(ValueError):
 
 @dataclass(frozen=True)
 class ComplaintCaseActor:
+    user: Any
     name: str
     telegram_id: str
     username: str
@@ -78,6 +79,7 @@ def staff_actor_for_payload(group_config, auth_payload: dict) -> ComplaintCaseAc
         raise ComplaintCaseError('Your user has no complaint-case role for this group.')
     from core.services.workflow_capabilities import effective_capability_keys
     return ComplaintCaseActor(
+        user=canonical_user,
         name=canonical_user.get_full_name() or canonical_user.get_username(),
         telegram_id=telegram_id,
         username=username,

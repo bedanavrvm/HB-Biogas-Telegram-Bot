@@ -77,6 +77,8 @@ def _context(request, payload: dict):
 def _capability_error(actor, capability: str):
     if capability not in actor.capabilities:
         return JsonResponse({'ok': False, 'error': 'Your assigned complaint-case role does not permit this action.'}, status=403)
+    from core.services.access_control import record_capability_usage
+    record_capability_usage(actor.user, 'complaint_cases', capability)
     return None
 
 
@@ -90,7 +92,10 @@ def complaint_cases_bootstrap(request):
     capability_error = _capability_error(actor, 'complaint.queue.view')
     if capability_error:
         return capability_error
-    return JsonResponse({'ok': True, 'data': bootstrap_data(group_config, actor)})
+    from core.services.access_control import policy_version
+    data = bootstrap_data(group_config, actor)
+    data['access_policy_version'] = policy_version()
+    return JsonResponse({'ok': True, 'data': data})
 
 
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.

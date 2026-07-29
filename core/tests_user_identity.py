@@ -13,7 +13,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from core.models import (
-    AccessGrant, GroupSheetConfiguration, UserProfile,
+    AccessControlChangeRequest, AccessGrant, GroupSheetConfiguration, UserProfile,
 )
 
 
@@ -127,7 +127,10 @@ class CanonicalStaffAdminTests(TestCase):
         self.assertTrue(profile.user.is_active)
         self.assertFalse(profile.user.is_staff)
         self.assertFalse(profile.user.has_usable_password())
-        self.assertTrue(AccessGrant.objects.filter(user=profile.user, role='JBL_OFFICER').exists())
+        self.assertFalse(AccessGrant.objects.filter(user=profile.user, role='JBL_OFFICER').exists())
+        self.assertTrue(AccessControlChangeRequest.objects.filter(
+            target_user=profile.user, workflow='jawabu_portal', role='JBL_OFFICER', status='pending',
+        ).exists())
 
     def test_superuser_can_create_password_user_with_initial_access(self):
         superuser = get_user_model().objects.create_superuser(
@@ -147,7 +150,10 @@ class CanonicalStaffAdminTests(TestCase):
         user = get_user_model().objects.get(username='portal-admin')
         self.assertTrue(user.is_staff)
         self.assertTrue(user.check_password('secure-test-password'))
-        self.assertTrue(AccessGrant.objects.filter(user=user, workflow='jawabu_portal', role='ADMIN').exists())
+        self.assertFalse(AccessGrant.objects.filter(user=user, workflow='jawabu_portal', role='ADMIN').exists())
+        self.assertTrue(AccessControlChangeRequest.objects.filter(
+            target_user=user, workflow='jawabu_portal', role='ADMIN', status='pending',
+        ).exists())
 
         # The redirect target must render the canonical User form, including
         # dynamic AccessGrant choices, immediately after creation.
