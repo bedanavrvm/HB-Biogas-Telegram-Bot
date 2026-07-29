@@ -1,0 +1,14 @@
+{% extends "admin/change_list.html" %}
+
+{% block content %}
+  {% if request.user.is_superuser %}
+    <section class="mb-6 rounded border border-base-200 bg-white p-5 shadow-sm dark:border-base-800 dark:bg-base-900">
+      <h2 class="text-lg font-semibold text-font-important-light dark:text-font-important-dark">Mini App access matrix</h2>
+      <p class="mt-1 text-sm text-font-subtle-light dark:text-font-subtle-dark">
+        Assign reviewed Portal, Complaint, TAT, and SPIN capabilities to the existing workflow roles. Access grants still decide who has each role and its branch, product, and group scope.
+      </p>
+      <a href="{% url 'admin:core_workflowrolecapability_matrix' %}" class="mt-4 inline-flex min-h-11 items-center rounded bg-primary-600 px-4 font-medium text-white hover:bg-primary-700">Open access matrix</a>
+    </section>
+  {% endif %}
+  {{ block.super }}
+{% endblock %}

@@ -50,10 +50,11 @@ class ComplaintCaseActor:
     telegram_id: str
     username: str
     role: str
+    capabilities: frozenset[str]
 
     @property
     def is_manager(self) -> bool:
-        return self.role == MANAGER_ROLE
+        return 'complaint.case.manage' in self.capabilities
 
 
 def is_complaint_workflow(group_config) -> bool:
@@ -75,11 +76,13 @@ def staff_actor_for_payload(group_config, auth_payload: dict) -> ComplaintCaseAc
     role = MANAGER_ROLE if MANAGER_ROLE in roles else ('OFFICER' if 'OFFICER' in roles else '')
     if not role:
         raise ComplaintCaseError('Your user has no complaint-case role for this group.')
+    from core.services.workflow_capabilities import effective_capability_keys
     return ComplaintCaseActor(
         name=canonical_user.get_full_name() or canonical_user.get_username(),
         telegram_id=telegram_id,
         username=username,
         role=role,
+        capabilities=frozenset(effective_capability_keys(canonical_user, 'complaint_cases', access=access)),
     )
 
 
@@ -94,7 +97,10 @@ def bootstrap_data(group_config, actor: ComplaintCaseActor) -> dict[str, Any]:
         cases.exclude(branch_region='').order_by('branch_region').values_list('branch_region', flat=True).distinct()
     )
     return {
-        'actor': {'name': actor.name, 'role': actor.role, 'is_manager': actor.is_manager},
+        'actor': {
+            'name': actor.name, 'role': actor.role, 'is_manager': actor.is_manager,
+            'capabilities': sorted(actor.capabilities),
+        },
         'statuses': sorted(STATUS_VALUES),
         'branches': sorted(set(configured_branches) | set(observed_branches), key=str.casefold),
         'categories': list(

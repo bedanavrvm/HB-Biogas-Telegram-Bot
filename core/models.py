@@ -5,6 +5,7 @@ Provides full traceability and deduplication support.
 import uuid
 import re
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models.functions import Lower
 from django.utils import timezone
@@ -1299,6 +1300,78 @@ class AccessGrant(models.Model):
             product=self.product,
             group_configuration=self.group_configuration,
         )
+
+
+class WorkflowRoleCapability(models.Model):
+    """An administrator-managed capability assignment for a controlled role.
+
+    Roles and capability keys are deliberately code-owned.  This table only
+    decides which of those reviewed capabilities a role receives; it cannot
+    create a new unguarded permission by typo or by an Admin edit.
+    """
+
+    workflow = models.CharField(max_length=40, choices=AccessGrant.WORKFLOW_CHOICES, db_index=True)
+    role = models.CharField(max_length=80, db_index=True)
+    capability_key = models.CharField(max_length=120, db_index=True)
+    enabled = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['workflow', 'role', 'capability_key']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['workflow', 'role', 'capability_key'],
+                name='unique_workflow_role_capability',
+            ),
+        ]
+        verbose_name = 'workflow role capability'
+        verbose_name_plural = 'workflow role capabilities'
+
+    def __str__(self):
+        state = 'enabled' if self.enabled else 'disabled'
+        return f'{self.workflow}: {self.role} - {self.capability_key} ({state})'
+
+    def clean(self):
+        super().clean()
+        from core.services.access_policies import validate_access_scope
+        from core.services.workflow_capabilities import capability_definition
+
+        self.role = validate_access_scope(workflow=self.workflow, role=self.role)
+        if capability_definition(self.workflow, self.capability_key) is None:
+            raise ValidationError({
+                'capability_key': 'Choose a capability that belongs to the selected workflow.',
+            })
+
+    def save(self, *args, **kwargs):
+        from core.services.access_policies import canonical_access_role
+
+        if self.workflow:
+            self.role = canonical_access_role(self.workflow, self.role)
+        super().save(*args, **kwargs)
+
+
+class WorkflowRoleCapabilityAuditEvent(models.Model):
+    """Append-only record of a policy-matrix change made in Django Admin."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workflow = models.CharField(max_length=40, choices=AccessGrant.WORKFLOW_CHOICES, db_index=True)
+    role = models.CharField(max_length=80, db_index=True)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='+',
+    )
+    changes = models.JSONField(default=dict, blank=True)
+    source = models.CharField(max_length=40, default='admin_matrix')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['workflow', 'role', 'created_at'])]
+        verbose_name = 'workflow capability audit event'
+        verbose_name_plural = 'workflow capability audit events'
+
+    def __str__(self):
+        return f'{self.workflow}: {self.role} policy changed {self.created_at:%d-%b-%Y %H:%M}'
 
 
 class JawabuFarmerUploadBatch(models.Model):

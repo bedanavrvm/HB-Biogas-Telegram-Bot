@@ -125,6 +125,13 @@ def _tat_context(payload: dict):
     return group_id, group_config, user_payload, user, None
 
 
+def _tat_capability_error(user: dict, capability: str):
+    """Return a consistent fail-closed response for the TAT role matrix."""
+    if capability not in set(user.get('capabilities') or []):
+        return JsonResponse({'ok': False, 'error': 'Your assigned TAT role does not permit this action.'}, status=403)
+    return None
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def tat_tracker_bootstrap(request):
@@ -132,6 +139,9 @@ def tat_tracker_bootstrap(request):
     group_id, group_config, user_payload, user, error = _tat_context(payload)
     if error:
         return error
+    capability_error = _tat_capability_error(user, 'tat.home.view')
+    if capability_error:
+        return capability_error
     from core.services.tat_tracker import bootstrap
     return JsonResponse({'ok': True, 'data': bootstrap(group_config, user_payload)})
 
@@ -143,6 +153,9 @@ def tat_tracker_home(request):
     group_id, group_config, user_payload, user, error = _tat_context(payload)
     if error:
         return error
+    capability_error = _tat_capability_error(user, 'tat.home.view')
+    if capability_error:
+        return capability_error
     from core.services.tat_tracker import home_data
     return JsonResponse({
         'ok': True,
@@ -164,6 +177,9 @@ def tat_tracker_home_fragment(request):
     group_id, group_config, user_payload, user, error = _tat_context(payload)
     if error:
         return error
+    capability_error = _tat_capability_error(user, 'tat.home.view')
+    if capability_error:
+        return capability_error
     from core.services.tat_tracker import home_data
 
     list_key = str(payload.get('list') or 'action_required').strip()
@@ -202,6 +218,9 @@ def tat_tracker_search(request):
     group_id, group_config, user_payload, user, error = _tat_context(payload)
     if error:
         return error
+    capability_error = _tat_capability_error(user, 'tat.case.search')
+    if capability_error:
+        return capability_error
     from core.services.tat_tracker import search_cases
     return JsonResponse({'ok': True, 'results': search_cases(group_config, user, payload.get('query', ''))})
 
@@ -213,6 +232,9 @@ def tat_tracker_search_fragment(request):
     group_id, group_config, user_payload, user, error = _tat_context(payload)
     if error:
         return error
+    capability_error = _tat_capability_error(user, 'tat.case.search')
+    if capability_error:
+        return capability_error
     from core.services.tat_tracker import search_cases
     return render(request, 'tat_tracker/partials/case_list.html', {
         'cases': search_cases(group_config, user, payload.get('query', '')),
@@ -245,6 +267,9 @@ def tat_tracker_create(request):
     group_id, group_config, user_payload, user, error = _tat_context(payload)
     if error:
         return error
+    capability_error = _tat_capability_error(user, 'tat.case.create')
+    if capability_error:
+        return capability_error
     from core.services.tat_tracker import create_case
     try:
         data = create_case(group_config, user, payload)
@@ -264,6 +289,9 @@ def tat_tracker_detail(request):
     group_id, group_config, user_payload, user, error = _tat_context(payload)
     if error:
         return error
+    capability_error = _tat_capability_error(user, 'tat.home.view')
+    if capability_error:
+        return capability_error
     from core.services.tat_tracker import get_case_detail
     try:
         return JsonResponse({'ok': True, 'data': get_case_detail(group_config, user, payload.get('case_id', ''))})
@@ -281,6 +309,9 @@ def tat_tracker_update(request):
     group_id, group_config, user_payload, user, error = _tat_context(payload)
     if error:
         return error
+    capability_error = _tat_capability_error(user, 'tat.home.view')
+    if capability_error:
+        return capability_error
     from core.services.tat_tracker import update_case
     try:
         data = update_case(group_config, user, payload.get('case_id', ''), payload.get('updates') or [])
@@ -949,6 +980,8 @@ def spin_form_submit(request):
     group_id, group_config, auth_payload, error_response_obj = _spin_webapp_context(payload)
     if error_response_obj:
         return error_response_obj
+    if not _spin_user_has_capability(auth_payload, 'spin.request.create', group_config=group_config):
+        return JsonResponse({'success': False, 'message': 'Your assigned SPIN role cannot create requests.'}, status=403)
 
     from core.services.spin_credit import process_spin_form_submission
 
@@ -1008,7 +1041,8 @@ def spin_form_requests(request):
         format_sheet_datetime,
         spin_request_id,
     )
-    is_analyst = _spin_user_is_designated_analyst(auth_payload, group_config=group_config)
+    capabilities = _spin_user_capabilities(auth_payload, group_config=group_config)
+    is_analyst = 'spin.request.view' in capabilities
     if not is_analyst:
         return JsonResponse(
             {'success': False, 'message': 'Only designated credit analysts can view SPIN requests.'},
@@ -1055,6 +1089,7 @@ def spin_form_requests(request):
     return JsonResponse({
         'success': True,
         'is_analyst': is_analyst,
+        'capabilities': sorted(capabilities),
         'requests': data,
         'batch_review_items': [batch_review_item_summary(item) for item in batch_review_items],
     })
@@ -1071,7 +1106,7 @@ def spin_form_complete(request):
     )
     if error_response:
         return error_response
-    if not _spin_user_is_designated_analyst(auth_payload, group_config=group_config):
+    if not _spin_user_has_capability(auth_payload, 'spin.request.complete', group_config=group_config):
         return JsonResponse({'success': False, 'message': 'Only designated credit analysts can complete requests.'}, status=403)
     request_id = payload.get('request_id')
     if not request_id:
@@ -1171,7 +1206,7 @@ def spin_form_review_update(request):
     if error_response:
         return error_response
 
-    if not _spin_user_is_designated_analyst(auth_payload, group_config=group_config):
+    if not _spin_user_has_capability(auth_payload, 'spin.request.review', group_config=group_config):
         return JsonResponse(
             {'success': False, 'message': 'Only designated credit analysts can update SPIN reviews.'},
             status=403,
@@ -1215,7 +1250,7 @@ def spin_batch_review_resolve(request):
     )
     if error_response:
         return error_response
-    if not _spin_user_is_designated_analyst(auth_payload, group_config=group_config):
+    if not _spin_user_has_capability(auth_payload, 'spin.batch.review', group_config=group_config):
         return JsonResponse(
             {'success': False, 'message': 'Only designated credit analysts can resolve SPIN review items.'},
             status=403,
@@ -1253,13 +1288,15 @@ def _spin_user_payload(auth_payload: dict) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-def _spin_user_is_designated_analyst(auth_payload: dict, *, group_config=None) -> bool:
-    """Authorize SPIN analysts from canonical Users and AccessGrants."""
+def _spin_user_capabilities(auth_payload: dict, *, group_config=None) -> set[str]:
+    """Resolve SPIN capabilities from the canonical user and scoped grant."""
     if not getattr(settings, 'SPIN_WEBAPP_REQUIRE_TELEGRAM_AUTH', True):
-        return True
+        # Local/test mode keeps the existing permissive behavior without
+        # weakening production Telegram identity enforcement.
+        from core.services.workflow_capabilities import capabilities_for_workflow
+        return {item.key for item in capabilities_for_workflow('spin_credit_analysis')}
     user_payload = _spin_user_payload(auth_payload)
     if user_payload:
-        from core.services.access_policies import canonical_access_role
         from core.services.telegram_identity import (
             identity_from_user_payload,
             resolve_or_bind_telegram_user,
@@ -1272,10 +1309,18 @@ def _spin_user_is_designated_analyst(auth_payload: dict, *, group_config=None) -
             group_configuration=group_config,
         ) if canonical_user else None
         if access and access.get('authorized'):
-            roles = {canonical_access_role('spin_credit_analysis', role) for role in access.get('roles', [])}
-            if roles.intersection({'CREDIT_ANALYST', 'ADMIN'}):
-                return True
-    return False
+            from core.services.workflow_capabilities import effective_capability_keys
+            return effective_capability_keys(canonical_user, 'spin_credit_analysis', access=access)
+    return set()
+
+
+def _spin_user_has_capability(auth_payload: dict, capability: str, *, group_config=None) -> bool:
+    return capability in _spin_user_capabilities(auth_payload, group_config=group_config)
+
+
+def _spin_user_is_designated_analyst(auth_payload: dict, *, group_config=None) -> bool:
+    """Compatibility helper for older callers; now checks the view capability."""
+    return _spin_user_has_capability(auth_payload, 'spin.request.view', group_config=group_config)
 
 
 def _spin_webapp_context(payload: dict, *, allow_form_token: bool = True):

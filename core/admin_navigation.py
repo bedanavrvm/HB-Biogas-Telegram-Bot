@@ -236,6 +236,8 @@ def get_admin_navigation(request) -> list[dict]:
         _model_item("auth.Group", "Groups", "groups"),
         _model_item("core.OperationalLocation", "Branches and counties", "map"),
         _model_item("core.GroupSheetConfiguration", "Workflow groups", "hub"),
+        _custom_item("Mini App access matrix", "admin:core_workflowrolecapability_matrix", "admin_panel_settings", _superuser),
+        _model_item("core.WorkflowRoleCapabilityAuditEvent", "Access policy audit", "policy",),
         _model_item("core.RequisitionTemplate", "Requisition templates", "description"),
         _model_item("core.PaymentDocumentTemplate", "Payment templates", "article"),
         _custom_item("Add staff user", "admin:auth_user_add_staff", "person_add", _superuser),

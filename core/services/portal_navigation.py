@@ -1,56 +1,48 @@
-"""Server-owned Portal navigation visibility rules."""
+"""Server-owned Portal navigation driven by the editable role capability matrix."""
 
 from django.urls import reverse
 
 
+# ``key`` is stable in URLs/client state; the final item is the required
+# capability.  This is intentionally one source of truth for sidebar, tabs,
+# and direct-screen access checks.
 PORTAL_NAV_ITEMS = (
-    ('dashboard', 'Dashboard', 'bar-chart-3', ()),
-    ('jbl', 'JBL Queue', 'home', ('JBL_OFFICER', 'ADMIN')),
-    ('credit', 'Credit', 'shield-check', ('CREDIT_ANALYST', 'ADMIN')),
-    ('final', 'Review', 'phone-call', ('ADMIN',)),
-    ('requisition', 'Orders', 'shopping-bag', ('HB_STAFF', 'ADMIN')),
-    ('deferred', 'Deferred', 'clock', ('JBL_OFFICER', 'CREDIT_ANALYST', 'HB_STAFF', 'ADMIN')),
-    ('all', 'All Cases', 'database', ('JBL_OFFICER', 'CREDIT_ANALYST', 'HB_STAFF', 'ADMIN')),
-    ('case_history', 'Case History', 'route', ('JBL_OFFICER', 'CREDIT_ANALYST', 'HB_STAFF', 'ADMIN')),
-    ('batches', 'Batches', 'layers', ('HB_STAFF', 'ADMIN')),
-    ('invoices', 'Invoices', 'receipt-text', ('HB_STAFF', 'ADMIN')),
-    ('payments', 'Payments', 'banknote', ('HB_STAFF', 'ADMIN')),
-    ('history', 'Documents', 'history', ('HB_STAFF', 'ADMIN')),
+    ('dashboard', 'Dashboard', 'bar-chart-3', 'portal.dashboard.view'),
+    ('jbl', 'JBL Queue', 'home', 'portal.jbl_queue.view'),
+    ('credit', 'Credit', 'shield-check', 'portal.credit_queue.view'),
+    ('final', 'Review', 'phone-call', 'portal.final_review.view'),
+    ('requisition', 'Orders', 'shopping-bag', 'portal.requisition.view'),
+    ('deferred', 'Deferred', 'clock', 'portal.deferred.view'),
+    ('all', 'All Cases', 'database', 'portal.case.read'),
+    ('case_history', 'Case History', 'route', 'portal.case.read'),
+    ('batches', 'Batches', 'layers', 'portal.batches.view'),
+    ('invoices', 'Invoices', 'receipt-text', 'portal.invoice.view'),
+    ('payments', 'Payments', 'banknote', 'portal.payment.view'),
+    ('history', 'Documents', 'history', 'portal.documents.view'),
 )
-
-ROLE_ALIASES = {
-    'JBL_OFFICER': 'JBL_OFFICER', 'jbl_officer': 'JBL_OFFICER',
-    'CREDIT_ANALYST': 'CREDIT_ANALYST', 'credit_analyst': 'CREDIT_ANALYST',
-    'ADMIN': 'ADMIN', 'admin': 'ADMIN',
-    'HB_STAFF': 'HB_STAFF', 'hb_staff': 'HB_STAFF', 'operations': 'HB_STAFF',
-    'head_rural': 'ADMIN',
-}
-
-
-def normalized_portal_roles(user, *, access=None) -> set[str]:
-    """Translate canonical Groups/AccessGrants to shell navigation roles."""
-    if user is None and access is None:
-        return {'ADMIN'}
-    if access is None:
-        from core.services.telegram_identity import user_access
-        access = user_access(user, 'jawabu_portal')
-    return {
-        ROLE_ALIASES.get(str(role).strip(), str(role).strip().upper())
-        for role in access.get('roles', [])
-    }
 
 
 def get_portal_nav_items(user, *, access=None) -> list[dict]:
-    roles = normalized_portal_roles(user, access=access)
+    """Return only screens the server says this scoped user may open."""
+    # Direct browser loads in a development environment have no Telegram
+    # identity; preserve the existing readable shell there without creating
+    # a production authorization bypass.
+    if user is None and access is None:
+        permitted = {item[3] for item in PORTAL_NAV_ITEMS}
+    else:
+        from core.services.workflow_capabilities import effective_capability_keys
+
+        permitted = effective_capability_keys(user, 'jawabu_portal', access=access)
     return [
         {
             'key': key,
             'label': label,
             'icon': icon,
             'url': reverse('portal_screen', kwargs={'screen': key}),
+            'capability': capability,
         }
-        for key, label, icon, allowed_roles in PORTAL_NAV_ITEMS
-        if not allowed_roles or roles.intersection(allowed_roles)
+        for key, label, icon, capability in PORTAL_NAV_ITEMS
+        if capability in permitted
     ]
 
 

@@ -331,6 +331,7 @@ def staff_user_for_payload(group_config, user_payload: dict, fallback_name: str 
     canonical_user = resolve_or_bind_telegram_user(identity_from_user_payload(user_payload)) if telegram_id else None
     access = user_access(canonical_user, 'tat_tracker', group_configuration=group_config)
     if access['authorized']:
+        from core.services.workflow_capabilities import capabilities_payload
         profile = getattr(canonical_user, 'staff_profile', None)
         return {
             'authorized': True,
@@ -341,6 +342,7 @@ def staff_user_for_payload(group_config, user_payload: dict, fallback_name: str 
             'roles': access['roles'] or ['BRO'],
             'branches': access['branches'],
             'products': access['products'],
+            'capabilities': capabilities_payload(canonical_user, 'tat_tracker', access=access),
             'signing_national_id': str(getattr(profile, 'signing_national_id', '') or ''),
             'signing_phone_number': str(getattr(profile, 'signing_phone_number', '') or ''),
             'signing_email': str(getattr(profile, 'signing_email', '') or ''),
@@ -353,6 +355,7 @@ def staff_user_for_payload(group_config, user_payload: dict, fallback_name: str 
         'roles': [],
         'branches': [],
         'products': [],
+        'capabilities': [],
         'reason': 'Your Telegram account is not configured for the TAT Tracker. Ask an administrator to grant TAT access.',
     }
 
@@ -639,11 +642,10 @@ def process_tat_batch_upload(
             'status': 'command',
             'reply_text': user.get('reason') or 'Your Telegram account is not configured for the TAT Tracker.',
         }
-    roles = {str(role).upper() for role in user.get('roles') or []}
-    if 'BRO' not in roles and 'IT' not in roles:
+    if not _tat_has_capability(user, 'tat.batch.upload'):
         return {
             'status': 'command',
-            'reply_text': 'Only configured BRO users can upload TAT batches.',
+            'reply_text': 'Only configured BRO users or roles granted TAT batch-upload access can upload case batches.',
         }
 
     try:
@@ -680,11 +682,10 @@ def process_tat_batch_file(
             'status': 'command',
             'reply_text': user.get('reason') or 'Your Telegram account is not configured for the TAT Tracker.',
         }
-    roles = {str(role).upper() for role in user.get('roles') or []}
-    if 'BRO' not in roles and 'IT' not in roles:
+    if not _tat_has_capability(user, 'tat.batch.upload'):
         return {
             'status': 'command',
-            'reply_text': 'Only configured BRO users can upload TAT batches.',
+            'reply_text': 'Only configured BRO users or roles granted TAT batch-upload access can upload case batches.',
         }
 
     try:
@@ -1678,8 +1679,24 @@ def tat_targets_for_product(workflow: dict | None, product: ProductConfig) -> di
 
 def can_manage_tat_targets(user: dict | None) -> bool:
     """Return whether the staff member may change workflow-wide SLA targets."""
-    roles = {str(role).strip().upper() for role in (user or {}).get('roles') or []}
-    return bool(roles & TAT_TARGET_MANAGER_ROLES)
+    return _tat_has_capability(user, 'tat.targets.manage')
+
+
+def _tat_has_capability(user: dict | None, capability: str) -> bool:
+    """Use the matrix when present; retain service-level legacy test inputs.
+
+    HTTP callers always receive the explicit ``capabilities`` field from the
+    canonical access resolver.  The fallback only preserves existing pure
+    service callers that construct a historical ``{'roles': ...}`` payload.
+    """
+    user = user or {}
+    if 'capabilities' in user:
+        return capability in set(user.get('capabilities') or [])
+    from core.services.workflow_capabilities import capability_definition
+
+    definition = capability_definition('tat_tracker', capability)
+    roles = {str(role).strip().upper() for role in user.get('roles') or []}
+    return bool(definition and roles.intersection(definition.default_roles))
 
 
 def tat_target_settings(workflow: dict | None) -> list[dict]:
@@ -1980,10 +1997,7 @@ def previous_stages_complete(case: TatTrackerCase, stage: StageConfig) -> bool:
 
 
 def can_user_edit_stage(user: dict, case: TatTrackerCase, stage: StageConfig) -> bool:
-    roles = {str(role).upper() for role in user.get('roles') or []}
-    if 'IT' in roles:
-        return True
-    if stage.role.upper() not in roles:
+    if not _tat_has_capability(user, f'tat.stage.{stage.key}.update'):
         return False
     branches = user.get('branches') or []
     if branches and case.branch not in branches:
@@ -1996,9 +2010,6 @@ def can_user_edit_stage(user: dict, case: TatTrackerCase, stage: StageConfig) ->
 
 def can_user_correct_stage(user: dict, case: TatTrackerCase, stage: StageConfig) -> bool:
     """Allow explicit corrections without weakening normal stage sequencing."""
-    roles = {str(role).upper() for role in user.get('roles') or []}
-    if 'IT' in roles:
-        return True
     if stage.requires_signature_certificate:
         return False
     return can_user_edit_stage(user, case, stage)
@@ -2006,10 +2017,10 @@ def can_user_correct_stage(user: dict, case: TatTrackerCase, stage: StageConfig)
 
 def can_user_correct_case_details(user: dict, case: TatTrackerCase | None = None) -> bool:
     """Base identity/amount corrections are restricted and audited."""
-    roles = {str(role).upper() for role in user.get('roles') or []}
-    if not roles.intersection(TAT_CASE_CORRECTION_ROLES):
+    if not _tat_has_capability(user, 'tat.case.correct'):
         return False
     branches = user.get('branches') or []
+    roles = {str(role).strip().upper() for role in user.get('roles') or []}
     return not (case and branches and case.branch not in branches and 'IT' not in roles)
 
 
@@ -2104,7 +2115,11 @@ def lock_reason(case: TatTrackerCase, user: dict, stage: StageConfig) -> str:
 
 
 def public_user(user: dict) -> dict:
-    return {'name': user.get('name', ''), 'roles': user.get('roles') or [], 'telegram_id': user.get('telegram_id', ''), 'username': user.get('username', '')}
+    return {
+        'name': user.get('name', ''), 'roles': user.get('roles') or [],
+        'telegram_id': user.get('telegram_id', ''), 'username': user.get('username', ''),
+        'capabilities': user.get('capabilities') or [],
+    }
 
 
 def serialize_product(product: ProductConfig) -> dict:

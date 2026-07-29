@@ -32,6 +32,7 @@
     metaFinalDecisions: [],
     metaBranches: [],
     metaCounties: [],
+    capabilities: new Set(),
     selectedFarmer: null,
     activeMode: null, // 'jbl_visit' | 'credit' | 'final_review' | 'requisition'
     filters: { county: '', branch: '', reviewStage: 'decision' },
@@ -41,8 +42,37 @@
   let historyKind = 'orders';
   let lastShellScreen = null;
 
+  const PAGE_CAPABILITIES = {
+    dashboard: 'portal.dashboard.view',
+    jbl: 'portal.jbl_queue.view',
+    credit: 'portal.credit_queue.view',
+    final: 'portal.final_review.view',
+    requisition: 'portal.requisition.view',
+    deferred: 'portal.deferred.view',
+    all: 'portal.case.read',
+    case_history: 'portal.case.read',
+    batches: 'portal.batches.view',
+    invoices: 'portal.invoice.view',
+    payments: 'portal.payment.view',
+    history: 'portal.documents.view',
+  };
+
   // Helpers
   function el(id) { return document.getElementById(id); }
+
+  function hasCapability(capability) {
+    return !capability || state.capabilities.has(capability);
+  }
+
+  function applyCapabilityVisibility() {
+    document.querySelectorAll('[data-required-capability]').forEach(node => {
+      node.hidden = !hasCapability(node.dataset.requiredCapability);
+    });
+  }
+
+  function firstPermittedPage() {
+    return Object.keys(PAGE_CAPABILITIES).find(page => hasCapability(PAGE_CAPABILITIES[page])) || '';
+  }
 
   function apiBase() { return portalApi.apiBase ? portalApi.apiBase() : '/api/portal'; }
 
@@ -452,7 +482,17 @@
     root.querySelectorAll('.htmx-farmer-card[data-farmer-id]').forEach(card => {
       if (card.dataset.bound === '1') return;
       card.dataset.bound = '1';
-      card.querySelector('.farmer-card-checkbox')?.addEventListener('change', event => {
+      const requisitionCheckbox = card.querySelector('.farmer-card-checkbox');
+      if (requisitionCheckbox && !hasCapability('portal.requisition.write')) {
+        requisitionCheckbox.checked = false;
+        requisitionCheckbox.disabled = true;
+        requisitionCheckbox.setAttribute('aria-label', 'Order generation is not assigned to your role');
+      }
+      requisitionCheckbox?.addEventListener('change', event => {
+        if (!hasCapability('portal.requisition.write')) {
+          event.target.checked = false;
+          return;
+        }
         event.stopPropagation();
         const id = event.target.dataset.id;
         if (event.target.checked) state.selectedRequisitions.add(id);
@@ -481,6 +521,12 @@
   }
 
   function hydrateHtmxBatchCards(root) {
+    if (!hasCapability('portal.invoice.write')) {
+      root.querySelectorAll('.btn-upload-invoices').forEach(button => button.remove());
+    }
+    if (!hasCapability('portal.requisition.write')) {
+      root.querySelectorAll('.btn-retry-batch').forEach(button => button.remove());
+    }
     root.querySelectorAll('.btn-view-batch').forEach(btn => {
       if (btn.dataset.bound === '1') return;
       btn.dataset.bound = '1';
@@ -561,8 +607,8 @@
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               <button class="btn btn-secondary btn-view-batch" data-order="${escapeHtml(b.order_number)}">View</button>
               <button class="btn btn-primary btn-download-batch" data-url="${escapeHtml(b.drive_url || b.download_url || '')}" ${(b.drive_url || b.download_url) ? '' : 'disabled'}>Open Saved Excel</button>
-              ${b.drive_sync_status === 'retryable_failure' ? `<button class="btn btn-secondary btn-retry-batch" data-order="${escapeHtml(b.order_number)}">Retry storage</button>` : ''}
-              <button class="btn btn-secondary btn-upload-invoices" data-order="${escapeHtml(b.order_number)}">Upload Invoices</button>
+              ${b.drive_sync_status === 'retryable_failure' && hasCapability('portal.requisition.write') ? `<button class="btn btn-secondary btn-retry-batch" data-order="${escapeHtml(b.order_number)}">Retry storage</button>` : ''}
+              ${hasCapability('portal.invoice.write') ? `<button class="btn btn-secondary btn-upload-invoices" data-order="${escapeHtml(b.order_number)}">Upload Invoices</button>` : ''}
             </div>
           </div>
           <div style="border-top:1px solid var(--border-color);padding-top:8px;margin-top:8px;display:flex;gap:4px;flex-wrap:wrap;">
@@ -844,6 +890,8 @@
     state.metaFinalDecisions = data.final_decisions || [];
     state.metaBranches = data.branches || [];
     state.metaCounties = data.counties || [];
+    state.capabilities = new Set(data.capabilities || []);
+    applyCapabilityVisibility();
     portalFilters.updateFilterOptions(state.queues[state.activePage] || []);
   }
 
@@ -898,9 +946,9 @@
         <div class="history-document-actions">
           <button type="button" class="btn btn-secondary history-view-document" data-kind="${kind}" data-id="${escapeHtml(doc.id)}" data-order="${escapeHtml(doc.order_number || '')}">${kind === 'payments' && doc.status !== 'final' ? 'Review payment' : 'View preview'}</button>
           ${doc.drive_url || doc.download_url ? `<button type="button" class="btn btn-primary history-open-excel" data-url="${escapeHtml(doc.drive_url || doc.download_url)}">Open Excel</button>` : ''}
-          ${kind === 'payments'
+          ${hasCapability('portal.documents.regenerate') && kind === 'payments'
             ? (doc.status === 'final' || doc.status === 'failed' ? `<button type="button" class="btn btn-secondary history-regenerate-payment" data-id="${escapeHtml(doc.id)}">${doc.status === 'failed' ? 'Retry payment doc' : 'Regenerate payment doc'}</button>` : '')
-            : `<button type="button" class="btn btn-secondary history-regenerate-order" data-order="${escapeHtml(doc.order_number || '')}" data-requisition-date="${escapeHtml(doc.requisition_date || '')}" data-farmer-ids="${escapeHtml((doc.farmer_ids || []).join(','))}">Regenerate requisition/order</button>`}
+            : (hasCapability('portal.documents.regenerate') && kind === 'orders' ? `<button type="button" class="btn btn-secondary history-regenerate-order" data-order="${escapeHtml(doc.order_number || '')}" data-requisition-date="${escapeHtml(doc.requisition_date || '')}" data-farmer-ids="${escapeHtml((doc.farmer_ids || []).join(','))}">Regenerate requisition/order</button>` : '')}
         </div>
         ${previousVersions}
       </article>`;
@@ -1002,7 +1050,12 @@
   async function init() {
     configureHtmx();
     await loadMeta();
-    const initialPage = document.getElementById('portal-screen')?.dataset.screen || state.activePage || 'dashboard';
+    const requestedPage = document.getElementById('portal-screen')?.dataset.screen || state.activePage || 'dashboard';
+    const initialPage = hasCapability(PAGE_CAPABILITIES[requestedPage]) ? requestedPage : firstPermittedPage();
+    if (!initialPage) {
+      document.getElementById('portal-screen').innerHTML = '<section class="shell-error" role="alert"><h2>Access not configured</h2><p>Ask an administrator to assign a Portal role and capability.</p></section>';
+      return;
+    }
     lastShellScreen = initialPage;
     switchPage(initialPage);
     loadPage(initialPage);
@@ -1191,6 +1244,7 @@
       portalApi,
       setButtonLoading,
       showToast,
+      state,
       summaryGrid,
       tg,
     });
@@ -1206,6 +1260,7 @@
       requisitions: portalRequisitions,
       setButtonLoading,
       showToast,
+      state,
       tg,
     });
   }

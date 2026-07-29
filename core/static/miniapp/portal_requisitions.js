@@ -141,6 +141,7 @@
     const rows = preview.rows || [];
     const comments = document?.case_call_up_comments || {};
     const pendingReview = document?.status === 'pending_review';
+    const canReviewPayment = Boolean(state().capabilities?.has('portal.payment.review'));
     if (!rows.length) return '<div class="batch-warning">No payment cases are available for review.</div>';
     const fields = [
       ['Requisition date', 'requisition_date', { date: true }],
@@ -178,9 +179,9 @@
         <div class="payment-review-case-body"><div class="payment-review-grid">${fields.map(([label, key, options]) => `<div class="payment-review-field"><span>${deps.escapeHtml(label)}</span><strong>${paymentReviewValue(row, key, options)}</strong></div>`).join('')}</div>
         ${orderComment}
         <div class="payment-review-case-actions"><button type="button" class="btn btn-secondary payment-open-case" data-farmer-id="${deps.escapeHtml(farmerId)}">Open case</button></div>
-        <label class="payment-review-comment"><span>Payment Call Up Comment (COL)</span><textarea class="payment-case-comment" data-farmer-id="${deps.escapeHtml(farmerId)}" rows="3" placeholder="HOR decision for this client" required>${deps.escapeHtml(comment)}</textarea></label>
+        <label class="payment-review-comment"><span>Payment Call Up Comment (COL)</span><textarea class="payment-case-comment" data-farmer-id="${deps.escapeHtml(farmerId)}" rows="3" placeholder="HOR decision for this client" required ${canReviewPayment ? '' : 'readonly'}>${deps.escapeHtml(comment)}</textarea></label>
         </div></details>`;
-    }).join('')}<div class="payment-review-submit"><button type="button" class="btn btn-primary" id="payment-review-approve" data-document-id="${deps.escapeHtml(document.id)}">Approve and create final payment</button></div></section>`;
+    }).join('')}${canReviewPayment ? `<div class="payment-review-submit"><button type="button" class="btn btn-primary" id="payment-review-approve" data-document-id="${deps.escapeHtml(document.id)}">Approve and create final payment</button></div>` : ''}</section>`;
   }
 
   async function openPaymentPreview(orderNumber, button) {
@@ -353,6 +354,12 @@
   function updateBatchPanel() {
     const panel = el('requisition-batch-panel');
     if (!panel) return;
+    if (!state().capabilities?.has('portal.requisition.write')) {
+      state().selectedRequisitions.clear();
+      panel.hidden = true;
+      panel.style.display = 'none';
+      return;
+    }
     const count = state().selectedRequisitions.size;
     if (count > 0) {
       panel.style.display = 'block';

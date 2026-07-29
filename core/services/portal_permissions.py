@@ -1,26 +1,43 @@
-"""Portal action-to-role policy definitions.
+"""Compatibility mapping from established portal actions to capability keys.
 
-The Mini App has several independently evolved endpoints.  Keeping the
-action policy in one small module makes authorization reviewable without
-duplicating role literals across views and navigation code.
+The persisted role matrix is the authorization source of truth.  Keeping the
+older endpoint action names here lets the portal migrate one route at a time
+without duplicating the policy in every view.
 """
 
 from __future__ import annotations
 
 
-PORTAL_ACTION_ROLES: dict[str, frozenset[str]] = {
-    'read': frozenset({'VIEWER', 'JBL_OFFICER', 'CREDIT_ANALYST', 'HB_STAFF', 'ADMIN'}),
-    'health.read': frozenset({'HB_STAFF', 'ADMIN'}),
-    'jbl_visit.write': frozenset({'JBL_OFFICER', 'ADMIN'}),
-    'credit.write': frozenset({'CREDIT_ANALYST', 'ADMIN'}),
-    'final_review.write': frozenset({'ADMIN'}),
-    'requisition.write': frozenset({'HB_STAFF', 'ADMIN'}),
-    'invoice.write': frozenset({'HB_STAFF', 'CREDIT_ANALYST', 'ADMIN'}),
-    'payment.review': frozenset({'ADMIN'}),
+PORTAL_ACTION_CAPABILITIES: dict[str, str] = {
+    'read': 'portal.case.read',
+    'dashboard.view': 'portal.dashboard.view',
+    'health.read': 'portal.health.read',
+    'jbl_visit.write': 'portal.jbl_visit.write',
+    'credit.write': 'portal.credit.write',
+    'final_review.write': 'portal.final_review.write',
+    'requisition.write': 'portal.requisition.write',
+    'invoice.write': 'portal.invoice.write',
+    'payment.review': 'portal.payment.review',
 }
 
 
-def portal_action_roles(action: str) -> frozenset[str]:
-    """Return canonical roles for an action, failing closed for unknown keys."""
-    return PORTAL_ACTION_ROLES.get(str(action or '').strip(), frozenset())
+def portal_action_capability(action: str) -> str:
+    """Return the reviewed capability for an old action key, failing closed."""
+    return PORTAL_ACTION_CAPABILITIES.get(str(action or '').strip(), '')
 
+
+def portal_action_roles(action: str) -> frozenset[str]:
+    """Legacy inspection helper; authorization must use capabilities instead."""
+    from core.services.workflow_capabilities import capability_definition
+
+    capability = portal_action_capability(action)
+    definition = capability_definition('jawabu_portal', capability)
+    return definition.default_roles if definition else frozenset()
+
+
+# Kept as a read-only compatibility export for integrations/tests that used
+# this constant before the matrix was introduced.
+PORTAL_ACTION_ROLES = {
+    action: portal_action_roles(action)
+    for action in PORTAL_ACTION_CAPABILITIES
+}

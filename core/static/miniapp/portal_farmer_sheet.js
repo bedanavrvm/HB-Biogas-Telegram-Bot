@@ -6,8 +6,16 @@
   let mapMarker = null;
   let currentMapLocation = null;
 
+  const MODE_WRITE_CAPABILITIES = {
+    jbl_visit: 'portal.jbl_visit.write',
+    credit: 'portal.credit.write',
+    final_review: 'portal.final_review.write',
+    requisition: 'portal.requisition.write',
+  };
+
   function el(id) { return deps.el(id); }
   function state() { return deps.state; }
+  function hasCapability(capability) { return !capability || state().capabilities?.has(capability); }
   function requestId() { return window.crypto?.randomUUID?.() || `portal-${Date.now()}-${Math.random().toString(16).slice(2)}`; }
 
   function humanLabel(value) {
@@ -217,7 +225,10 @@
     footerEl.innerHTML = '';
     el('sheet-gate-warning').style.display = 'none';
 
-    if (mode === 'jbl_visit') {
+    const writeCapability = MODE_WRITE_CAPABILITIES[mode];
+    if (writeCapability && !hasCapability(writeCapability)) {
+      formEl.innerHTML = '<div class="field-help">Your role can view this case but is not assigned to update this workflow stage.</div>';
+    } else if (mode === 'jbl_visit') {
       formEl.innerHTML = buildJblForm(farmer);
       footerEl.innerHTML = '<button class="primary" id="btn-submit-jbl">Log JBL Visit</button>';
       el('btn-submit-jbl').addEventListener('click', submitJblVisit);
@@ -347,15 +358,7 @@
     const countyOptions = (state().metaCounties || []).map(county =>
       `<option value="${deps.escapeHtml(county)}"></option>`
     ).join('');
-    return `
-      <div class="form-section">
-        <div class="form-row"><label title="JBL visits follow the HBG visit and cannot be dated earlier.">Visit Date <span class="label-help" aria-hidden="true">?</span></label><input type="date" id="jbl-date" min="${deps.escapeHtml(hbgVisitDate)}" value="${deps.escapeHtml(farmer.jbl_visit_date || defaultVisitDate)}"></div>
-        <div class="form-row"><label>Status / Outcome</label><select id="jbl-status"><option value="">- Select -</option>${statusOptions}</select></div>
-        <div class="form-row"><label>Officer Name</label><input type="text" id="jbl-officer" placeholder="Your name" value="${deps.escapeHtml(farmer.jbl_officer || '')}"></div>
-        <div class="form-row"><label>County</label><input type="text" id="jbl-county" list="jbl-county-options" placeholder="County" value="${deps.escapeHtml(farmer.county || '')}"><datalist id="jbl-county-options">${countyOptions}</datalist></div>
-        <div class="form-row"><label>Constituency</label><input type="text" id="jbl-sub-county" placeholder="Constituency / sub-county" value="${deps.escapeHtml(farmer.sub_county || '')}"></div>
-        <div class="form-row"><label>Village</label><input type="text" id="jbl-village" placeholder="Village / area" value="${deps.escapeHtml(farmer.village || '')}"></div>
-        <div class="form-row"><label>Comment (optional)</label><textarea id="jbl-comment" rows="2" placeholder="Additional notes...">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea></div>
+    const mediaFields = hasCapability('portal.jbl_media.write') ? `
         <div class="form-row media-upload-row">
           <label>Visit Media</label>
           <div class="media-upload-control">
@@ -371,7 +374,17 @@
             </div>
             ${farmer.jbl_media_count ? `<small>${farmer.jbl_media_count} existing Drive link${farmer.jbl_media_count === 1 ? '' : 's'} on this record.</small>` : ''}
           </div>
-        </div>
+        </div>` : '';
+    return `
+      <div class="form-section">
+        <div class="form-row"><label title="JBL visits follow the HBG visit and cannot be dated earlier.">Visit Date <span class="label-help" aria-hidden="true">?</span></label><input type="date" id="jbl-date" min="${deps.escapeHtml(hbgVisitDate)}" value="${deps.escapeHtml(farmer.jbl_visit_date || defaultVisitDate)}"></div>
+        <div class="form-row"><label>Status / Outcome</label><select id="jbl-status"><option value="">- Select -</option>${statusOptions}</select></div>
+        <div class="form-row"><label>Officer Name</label><input type="text" id="jbl-officer" placeholder="Your name" value="${deps.escapeHtml(farmer.jbl_officer || '')}"></div>
+        <div class="form-row"><label>County</label><input type="text" id="jbl-county" list="jbl-county-options" placeholder="County" value="${deps.escapeHtml(farmer.county || '')}"><datalist id="jbl-county-options">${countyOptions}</datalist></div>
+        <div class="form-row"><label>Constituency</label><input type="text" id="jbl-sub-county" placeholder="Constituency / sub-county" value="${deps.escapeHtml(farmer.sub_county || '')}"></div>
+        <div class="form-row"><label>Village</label><input type="text" id="jbl-village" placeholder="Village / area" value="${deps.escapeHtml(farmer.village || '')}"></div>
+        <div class="form-row"><label>Comment (optional)</label><textarea id="jbl-comment" rows="2" placeholder="Additional notes...">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea></div>
+        ${mediaFields}
         <div class="form-row" style="border-bottom: none; background: transparent; padding: 12px 0 0;">
           <button type="button" id="btn-gps" style="width: 100%; height: 38px; display: flex; align-items: center; justify-content: center; gap: 8px;">- Capture GPS Location</button>
           <div id="gps-coords" style="font-size: 11px; font-weight: 600; color: var(--text-muted); text-align: center; margin-top: 6px;">Not captured</div>
@@ -502,11 +515,11 @@
           </div>
         </div>
         <div class="form-row"><label>Final Decision</label><select id="final-decision"><option value="">- Select -</option>${decisionOptions}</select></div>
-        <div class="form-row">
+        ${hasCapability('portal.jbl_media.view') ? `<div class="form-row">
           <label>LAF document</label>
           <button type="button" class="secondary" id="btn-view-laf">View LAF document(s)</button>
           <div id="final-laf-media" class="media-links" hidden></div>
-        </div>
+        </div>` : ''}
         <div class="form-row"><label>Repayment Dates</label><input type="text" id="final-repayment-date" placeholder="e.g. 10TH" value="${deps.escapeHtml(farmer.repayment_date || '')}"></div>
         <div class="form-row"><label>Tenor</label><input type="text" id="final-repayment-tenor" placeholder="e.g. 6 months" value="${deps.escapeHtml(farmer.repayment_tenor || '')}"></div>
         <div class="form-row"><label>After-call Comments</label><textarea id="final-comment" rows="4" placeholder="Summarize the call and reason for the decision...">${deps.escapeHtml(farmer.final_decision_comment || '')}</textarea></div>

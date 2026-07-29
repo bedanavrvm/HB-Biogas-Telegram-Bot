@@ -119,6 +119,7 @@ Key modules:
 - `tat_tracker.py` — TAT workflow configuration and transitions
 - `telegram_command_menu.py` — Telegram command registration
 - `workflow_presets.py` — workflow definitions/presets
+- `workflow_capabilities.py` — centrally defined Mini App capabilities and role policy resolution
 
 ### Frontend Mini Apps
 
@@ -532,7 +533,7 @@ Use this table to locate the likely change surface for a given workflow, and wha
 |---|---|---|
 | **Complaint/case ingestion** | `core/api/views.py`, `services/parser.py`, `services/deduplication.py`, `services/case_updates.py`, `services/sheets.py`, `services/sheet_sync.py`, `core/models.py`, `core/tests.py`, `core/tests_data_quality.py` | Raw-message audit history, deduplication, group context, bot-owned vs. staff-owned sheet fields |
 | **Complaint Cases Mini App** | `core/api/complaint_case_views.py`, `services/complaint_cases.py`, `templates/complaint_cases/`, `static/miniapp/complaint_cases.*`, `core/tests_complaint_cases.py` | Verified Telegram identity plus named group staff roles, group-scoped reads/writes, append-only case/evidence records, idempotent updates, and Drive failure metadata |
-| **Group/workflow configuration** | `services/group_config.py`, `services/workflow_presets.py`, `services/telegram_command_menu.py`, `core/models.py`, `core/admin.py`, `core/tests_pipeline.py` | Database-managed group configuration; don't introduce environment-only config unless backward compatibility is deliberate |
+| **Group/workflow configuration** | `services/group_config.py`, `services/workflow_presets.py`, `services/workflow_capabilities.py`, `services/telegram_command_menu.py`, `core/models.py`, `core/admin.py`, `core/tests_pipeline.py`, `core/tests_workflow_capabilities.py` | Database-managed group configuration and Mini App role capability policy; don't introduce environment-only config unless backward compatibility is deliberate |
 | **Jawabu/FCA pipeline** | `services/jawabu.py`, `services/jawabu_master.py`, `services/jawabu_pipeline.py`, `services/fca.py`, `core/api/views.py`, `core/api/portal_views.py`, `templates/jawabu_farmers/`, `templates/fca_review/`, `templates/portal/`, `static/miniapp/portal.*`, `core/tests_pipeline.py` | Controlled state transitions, decision history, actor/timestamp metadata |
 | **Requisitions and invoices** | `services/requisition.py`, `services/invoice_parser.py`, `core/api/portal_views.py`, `core/models.py`, requisition templates/workbooks, `core/tests_pipeline.py` | Money handling, order numbers, filenames, generated workbook contents, download authorization, idempotency |
 | **Order approval** | `services/order_approval.py`, `core/api/views.py`, `templates/order_approval/`, `services/storage.py`, `core/models.py`, `core/tests_order_approval.py`, `order_approval_apps_script.gs` | Telegram authentication, lookup/suggestion APIs, attachment limits, duplicate submissions, media storage failures, sheet sync |

@@ -37,7 +37,7 @@
       </div>
     </div>
     <div id="dash-counts" class="count-grid" style="display:none">
-      <button type="button" class="count-card priority-queue" data-page="jbl" id="card-jbl">
+      <button type="button" class="count-card priority-queue" data-page="jbl" id="card-jbl" data-required-capability="portal.jbl_queue.view">
         <span class="queue-card-icon"><i data-lucide="home"></i></span>
         <span class="queue-card-body">
           <span class="count-num" id="cnt-jbl">-</span>
@@ -45,7 +45,7 @@
         </span>
         <span class="queue-card-action">Open <i data-lucide="arrow-up-right"></i></span>
       </button>
-      <button type="button" class="count-card" data-page="credit" id="card-credit">
+      <button type="button" class="count-card" data-page="credit" id="card-credit" data-required-capability="portal.credit_queue.view">
         <span class="queue-card-icon"><i data-lucide="shield-check"></i></span>
         <span class="queue-card-body">
           <span class="count-num" id="cnt-credit">-</span>
@@ -53,7 +53,7 @@
         </span>
         <span class="queue-card-action">Open <i data-lucide="arrow-up-right"></i></span>
       </button>
-      <button type="button" class="count-card" data-page="final" id="card-final">
+      <button type="button" class="count-card" data-page="final" id="card-final" data-required-capability="portal.final_review.view">
         <span class="queue-card-icon"><i data-lucide="phone-call"></i></span>
         <span class="queue-card-body">
           <span class="count-num" id="cnt-final">-</span>
@@ -61,7 +61,7 @@
         </span>
         <span class="queue-card-action">Open <i data-lucide="arrow-up-right"></i></span>
       </button>
-      <button type="button" class="count-card success" data-page="requisition" id="card-requisition">
+      <button type="button" class="count-card success" data-page="requisition" id="card-requisition" data-required-capability="portal.requisition.view">
         <span class="queue-card-icon"><i data-lucide="shopping-bag"></i></span>
         <span class="queue-card-body">
           <span class="count-num" id="cnt-requisition">-</span>
@@ -69,7 +69,7 @@
         </span>
         <span class="queue-card-action">Open <i data-lucide="arrow-up-right"></i></span>
       </button>
-      <button type="button" class="count-card warning" data-page="deferred" id="card-deferred">
+      <button type="button" class="count-card warning" data-page="deferred" id="card-deferred" data-required-capability="portal.deferred.view">
         <span class="queue-card-icon"><i data-lucide="clock"></i></span>
         <span class="queue-card-body">
           <span class="count-num" id="cnt-deferred">-</span>
@@ -79,7 +79,7 @@
       </button>
     </div>
 
-    <button type="button" class="dashboard-total" data-page="all">
+    <button type="button" class="dashboard-total" data-page="all" data-required-capability="portal.case.read">
       <span class="queue-card-icon"><i data-lucide="database"></i></span>
       <span class="queue-card-body">
         <span class="count-num" id="cnt-total">-</span>
@@ -156,7 +156,7 @@
       <h1>Requisition Queue</h1>
       <p class="meta">Final decision approved - assign order number</p>
     </header>
-    <div id="requisition-batch-panel" class="batch-panel" style="display: none;">
+    <div id="requisition-batch-panel" class="batch-panel" data-required-capability="portal.requisition.write" style="display: none;">
       <div class="batch-title">
         <span class="badge" id="batch-selected-count">0 selected</span>
         <span>Assign Order No &amp; Generate Requisition Sheet</span>
@@ -172,7 +172,7 @@
             <label for="batch-req-date">Requisition Date</label>
             <input type="date" id="batch-req-date">
           </div>
-          <button class="btn btn-primary" id="btn-generate-requisition" style="display: inline-flex; align-items: center; gap: 6px;">
+          <button class="btn btn-primary" id="btn-generate-requisition" data-required-capability="portal.requisition.write" style="display: inline-flex; align-items: center; gap: 6px;">
             <i data-lucide="file-spreadsheet"></i> Generate Form
           </button>
         </div>
@@ -189,7 +189,7 @@
       <h1>Invoices</h1>
       <p class="meta">General HB invoice pool, parsed records, and reconciliation status</p>
     </header>
-    <div class="batch-panel" style="display:block;">
+    <div class="batch-panel" data-required-capability="portal.invoice.write" style="display:block;">
       <div class="batch-title">
         <span class="badge badge-blue">Invoice pool</span>
         <span>Upload invoices without selecting an order</span>
@@ -231,7 +231,7 @@
       </div>
       <button class="btn-clear-filters" id="invoice-pool-clear" type="button" title="Clear invoice filters" aria-label="Clear invoice filters">Clear</button>
     </div>
-    <div class="batch-panel" id="invoice-bulk-toolbar" style="display:none;">
+    <div class="batch-panel" id="invoice-bulk-toolbar" data-required-capability="portal.invoice.write" style="display:none;">
       <div class="batch-title">
         <span class="badge badge-blue" id="invoice-selected-count">0 selected</span>
         <span>Bulk review actions</span>
@@ -251,12 +251,12 @@
   <!-- Payment batch selection -->
   <section id="page-payments" class="page{% if active_screen == 'payments' %} active{% endif %}">
     <header><h1>Payments</h1><p class="meta">Select invoice-matched cases for a numbered payment batch</p></header>
-    <div class="payment-builder-toolbar">
+    <div class="payment-builder-toolbar" data-required-capability="portal.payment.prepare">
       <label><span>Payment No.</span><input id="payments-number" inputmode="numeric" pattern="[0-9]*" placeholder="e.g. 89"></label>
       <label class="payment-builder-search"><span>Find a case</span><input id="payments-search" type="search" placeholder="Name, ID, phone, invoice, or order"></label>
       <button type="button" class="btn btn-secondary" id="payments-search-button">Search</button>
     </div>
-    <div class="payment-builder-actions">
+    <div class="payment-builder-actions" data-required-capability="portal.payment.prepare">
       <div><strong id="payments-selected-count">0 selected</strong><span id="payments-ready-summary">Loading invoiced cases...</span></div>
       <button type="button" class="btn btn-secondary" id="payments-select-ready">Select all ready</button>
       <button type="button" class="btn btn-secondary" id="payments-preview">Preview selected</button>

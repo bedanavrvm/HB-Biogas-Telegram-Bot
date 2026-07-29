@@ -9,11 +9,16 @@
           Create a staff account and assign its initial workflow role tag and access scope in one guided form.
         </p>
       </div>
-      <div class="grid gap-3 md:grid-cols-1">
+      <div class="grid gap-3 md:grid-cols-2">
         <a href="{% url 'admin:auth_user_add_staff' %}"
            class="flex min-h-20 flex-col justify-center rounded bg-primary-600 px-5 py-4 text-white shadow-sm transition hover:bg-primary-700">
           <strong>Add staff user</strong>
           <span class="mt-1 text-sm opacity-90">Choose Telegram or Django Admin login, then assign a workflow role tag and scope.</span>
+        </a>
+        <a href="{% url 'admin:core_workflowrolecapability_matrix' %}"
+           class="flex min-h-20 flex-col justify-center rounded border border-base-300 bg-base-50 px-5 py-4 shadow-sm transition hover:bg-base-100 dark:border-base-700 dark:bg-base-800 dark:hover:bg-base-700">
+          <strong>Manage Mini App access matrix</strong>
+          <span class="mt-1 text-sm text-font-subtle-light dark:text-font-subtle-dark">Choose which existing workflow role can see and use each Portal, Complaint, TAT, and SPIN capability.</span>
         </a>
       </div>
     </section>

@@ -9,8 +9,10 @@
 
   function el(id) { return deps.el(id); }
   function escape(value) { return deps.escapeHtml(value == null ? '' : value); }
+  function canPreparePayments() { return !deps.state || deps.state.capabilities?.has('portal.payment.prepare'); }
 
   function updateSelection() {
+    if (!canPreparePayments()) selected.clear();
     const count = el('payments-selected-count');
     if (count) count.textContent = `${selected.size} selected`;
     document.querySelectorAll('.payment-candidate-checkbox').forEach(input => {
@@ -27,11 +29,11 @@
 
   function candidateCard(item, blocked, pending) {
     const row = item.row || {};
-    const disabled = blocked || pending ? 'disabled' : '';
+    const disabled = blocked || pending || !canPreparePayments() ? 'disabled' : '';
     const missing = (item.missing || []).map(value => String(value).replace(/_/g, ' ')).join(', ');
     return `<article class="payment-candidate ${blocked ? 'blocked' : ''}${pending ? ' pending-review' : ''}${selected.has(String(item.farmer_id)) ? ' selected' : ''}">
       <label class="payment-candidate-main">
-        <input class="payment-candidate-checkbox" type="checkbox" value="${escape(item.farmer_id)}" ${disabled}>
+        ${canPreparePayments() ? `<input class="payment-candidate-checkbox" type="checkbox" value="${escape(item.farmer_id)}" ${disabled}>` : ''}
         <span><strong>${escape(item.customer_name || row.name || 'Unnamed customer')}</strong><small>${escape([item.national_id, item.primary_phone].filter(Boolean).join(' | '))}</small></span>
       </label>
       <div class="payment-candidate-meta"><span>Invoice <strong>${escape(item.invoice_number || '-')}</strong></span><span>Order <strong>${escape(row.order_no || '-')}</strong></span><span>Balance due <strong>${escape(amount(row.hb_invoice_amount))}</strong></span><span>Branch <strong>${escape(row.branch || '-')}</strong></span><span>Repayment <strong>${escape([row.repayment_dates, row.tenor ? `${row.tenor} months` : ''].filter(Boolean).join(' / ') || '-')}</strong></span></div>
@@ -187,6 +189,7 @@
     document.addEventListener('change', event => {
       const input = event.target.closest('.payment-candidate-checkbox');
       if (!input) return;
+      if (!canPreparePayments()) return;
       if (input.checked) selected.add(input.value); else selected.delete(input.value);
       updateSelection();
     });
@@ -194,6 +197,7 @@
       const target = event.target;
       if (target.closest('#payments-search-button')) load();
       else if (target.closest('#payments-select-ready')) {
+        if (!canPreparePayments()) return;
         if (readyIds.length && readyIds.every(id => selected.has(id))) readyIds.forEach(id => selected.delete(id));
         else readyIds.forEach(id => selected.add(id));
         updateSelection();

@@ -74,6 +74,12 @@ def _context(request, payload: dict):
         return None, None, JsonResponse({'ok': False, 'error': str(exc)}, status=403)
 
 
+def _capability_error(actor, capability: str):
+    if capability not in actor.capabilities:
+        return JsonResponse({'ok': False, 'error': 'Your assigned complaint-case role does not permit this action.'}, status=403)
+    return None
+
+
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
 @require_http_methods(['POST'])
 def complaint_cases_bootstrap(request):
@@ -81,6 +87,9 @@ def complaint_cases_bootstrap(request):
     group_config, actor, error = _context(request, payload)
     if error:
         return error
+    capability_error = _capability_error(actor, 'complaint.queue.view')
+    if capability_error:
+        return capability_error
     return JsonResponse({'ok': True, 'data': bootstrap_data(group_config, actor)})
 
 
@@ -91,7 +100,9 @@ def complaint_cases_list(request):
     group_config, actor, error = _context(request, payload)
     if error:
         return error
-    del actor
+    capability_error = _capability_error(actor, 'complaint.queue.view')
+    if capability_error:
+        return capability_error
     return JsonResponse(
         {
             'ok': True,
@@ -112,7 +123,9 @@ def complaint_cases_list_fragment(request):
     group_config, actor, error = _context(request, payload)
     if error:
         return error
-    del actor
+    capability_error = _capability_error(actor, 'complaint.queue.view')
+    if capability_error:
+        return capability_error
     cases = list_cases(
         group_config,
         query=str(payload.get('query') or ''),
@@ -129,6 +142,9 @@ def complaint_cases_create(request):
     group_config, actor, error = _context(request, payload)
     if error:
         return error
+    capability_error = _capability_error(actor, 'complaint.case.create')
+    if capability_error:
+        return capability_error
     try:
         result = create_complaint_case(
             group_config,
@@ -141,7 +157,7 @@ def complaint_cases_create(request):
     except Exception:
         logger.exception('Complaint case creation failed for group %s.', group_config.group_id)
         return JsonResponse({'ok': False, 'error': 'The complaint could not be created. Try again.'}, status=500)
-    if not actor.is_manager:
+    if 'complaint.case.manage' not in actor.capabilities:
         result['case'].pop('raw_message', None)
     message = 'Complaint created.' if result['created'] else 'Existing complaint opened.'
     if not result['synced_to_sheet']:
@@ -156,11 +172,14 @@ def complaint_cases_detail(request, case_id: str):
     group_config, actor, error = _context(request, payload)
     if error:
         return error
+    capability_error = _capability_error(actor, 'complaint.queue.view')
+    if capability_error:
+        return capability_error
     try:
         detail = case_detail(group_config, case_id)
     except ComplaintCaseError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=404)
-    if not actor.is_manager:
+    if 'complaint.case.manage' not in actor.capabilities:
         detail.pop('raw_message', None)
     return JsonResponse({'ok': True, 'case': detail})
 
@@ -172,6 +191,9 @@ def complaint_cases_update(request, case_id: str):
     group_config, actor, error = _context(request, payload)
     if error:
         return error
+    capability_error = _capability_error(actor, 'complaint.case.update')
+    if capability_error:
+        return capability_error
     try:
         result = update_case(
             group_config,
@@ -185,6 +207,6 @@ def complaint_cases_update(request, case_id: str):
     except Exception:
         logger.exception('Complaint case update failed for group %s case %s.', group_config.group_id, case_id)
         return JsonResponse({'ok': False, 'error': 'The case update could not be saved. Try again.'}, status=500)
-    if not actor.is_manager:
+    if 'complaint.case.manage' not in actor.capabilities:
         result.pop('raw_message', None)
     return JsonResponse({'ok': True, 'case': result, 'message': 'Case update saved.'})

@@ -46,7 +46,7 @@
 
       <nav id="complaintTabs" class="tabs" aria-label="Complaint views">
         <button type="button" data-view="queue" class="active"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg><span>Queue</span></button>
-        <button type="button" data-view="create"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Create</span></button>
+        <button type="button" data-view="create" data-required-capability="complaint.case.create"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Create</span></button>
         <button type="button" data-view="find"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><span>Find</span></button>
       </nav>
 
@@ -92,7 +92,7 @@
         <div id="detailIdentifiers" class="identifiers"></div><p id="detailDescription" class="description"></p><div id="detailMeta" class="case-meta"></div>
       </article>
       <section class="detail-card location-card"><div class="section-title"><div><h2>Location</h2><p>Captured case location or latest field pin.</p></div></div><div id="caseMap" class="case-map" hidden></div><p id="noLocation" class="empty-copy">No location has been captured for this case yet.</p><a id="mapsLink" class="link-button" target="_blank" rel="noopener" hidden>Open in Google Maps &nearr;</a></section>
-      <form id="updateForm" class="form-card" novalidate>
+      <form id="updateForm" class="form-card" novalidate data-required-capability="complaint.case.update">
         <div class="form-heading"><h2>Update case</h2><p>Add a clear note, field location, or supporting evidence.</p></div>
         <div class="form-grid"><label>Status<select id="statusInput" name="status"><option>Open</option><option>In Progress</option><option>Closed</option></select></label><label class="full-width">Update note<textarea id="noteInput" name="resolution_text" rows="3" placeholder="What happened, what is next, and who owns it?"></textarea></label></div>
         <div class="location-actions" hidden><button id="captureLocationBtn" class="secondary" type="button">Use my current location</button><span id="captureState" class="capture-state">No new location selected</span></div>

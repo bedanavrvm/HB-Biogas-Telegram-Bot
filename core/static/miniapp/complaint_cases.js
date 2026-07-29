@@ -9,6 +9,7 @@
     initData: telegram ? telegram.initData || '' : '',
     status: 'active', branch: '', query: '', currentCase: null, map: null, marker: null,
     capturedLocation: null, createCapturedLocation: null, debounce: null,
+    capabilities: new Set(),
   };
   const $ = (id) => document.getElementById(id);
   const escapeHtml = utils.escapeHtml || ((value) => String(value == null ? '' : value).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[character])));
@@ -117,6 +118,12 @@
     });
   }
 
+  function applyCapabilities() {
+    document.querySelectorAll('[data-required-capability]').forEach((node) => {
+      node.hidden = !state.capabilities.has(node.dataset.requiredCapability);
+    });
+  }
+
   function hydrateCaseRows(root) {
     root.querySelectorAll('[data-case-id]').forEach((button) => {
       if (button.dataset.bound === '1') return;
@@ -158,6 +165,8 @@
     try {
       const response = await api('bootstrap/');
       const data = response.data || {};
+      state.capabilities = new Set((data.actor && data.actor.capabilities) || []);
+      applyCapabilities();
       $('actorLine').textContent = `${data.actor && data.actor.name || 'Staff'} · ${data.actor && data.actor.is_manager ? 'Case manager' : 'Case officer'}`;
       renderCounts(data.counts || {});
       renderCreateOptions(data);

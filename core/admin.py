@@ -70,6 +70,8 @@ from .models import (
     TatRepairJob,
     UserProfile,
     AccessGrant,
+    WorkflowRoleCapability,
+    WorkflowRoleCapabilityAuditEvent,
 )
 
 logger = logging.getLogger(__name__)
@@ -2406,6 +2408,121 @@ class AccessGrantInline(StackedInline):
     readonly_fields = ('source',)
 
 
+@admin.register(WorkflowRoleCapability)
+class WorkflowRoleCapabilityAdmin(CompactModelAdmin):
+    """A deliberately constrained, audited role-to-capability policy matrix."""
+
+    list_display = ('workflow', 'role', 'capability_key', 'enabled', 'updated_at')
+    list_filter = ('workflow', 'role', 'enabled')
+    search_fields = ('role', 'capability_key')
+    readonly_fields = ('updated_at',)
+    change_list_template = 'admin/core/workflowrolecapability/change_list.html'
+
+    # The matrix is the only editing surface.  It records a before/after audit
+    # event and applies capability dependencies, neither of which an inline
+    # list edit or a per-row form can guarantee.
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_urls(self):
+        return [
+            path('matrix/', self.admin_site.admin_view(self.matrix_view), name='core_workflowrolecapability_matrix'),
+        ] + super().get_urls()
+
+    def matrix_view(self, request):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        from core.services.access_policies import canonical_access_role, WORKFLOW_ROLES
+        from core.services.workflow_capabilities import capabilities_for_workflow, dependency_closure
+
+        selected_workflow = str(request.POST.get('workflow') or request.GET.get('workflow') or 'jawabu_portal')
+        workflows = list(AccessGrant.WORKFLOW_CHOICES)
+        if selected_workflow not in dict(workflows):
+            selected_workflow = workflows[0][0]
+        role_options = list(WORKFLOW_ROLES.get(selected_workflow, ()))
+        definitions = capabilities_for_workflow(selected_workflow)
+        if request.method == 'POST' and request.POST.get('apply_matrix'):
+            selected_role = canonical_access_role(selected_workflow, request.POST.get('role', ''))
+            valid_roles = {value for value, _label in role_options}
+            if selected_role not in valid_roles:
+                messages.error(request, 'Choose a valid role for this workflow.')
+            else:
+                submitted = {
+                    item.key for item in definitions
+                    if request.POST.get(f'capability:{item.key}') == 'on'
+                }
+                enabled_keys = dependency_closure(selected_workflow, submitted)
+                before = set(WorkflowRoleCapability.objects.filter(
+                    workflow=selected_workflow, role=selected_role, enabled=True,
+                ).values_list('capability_key', flat=True))
+                changed = sorted(before.symmetric_difference(enabled_keys))
+                with transaction.atomic():
+                    for definition in definitions:
+                        WorkflowRoleCapability.objects.update_or_create(
+                            workflow=selected_workflow,
+                            role=selected_role,
+                            capability_key=definition.key,
+                            defaults={'enabled': definition.key in enabled_keys},
+                        )
+                    if changed:
+                        WorkflowRoleCapabilityAuditEvent.objects.create(
+                            workflow=selected_workflow,
+                            role=selected_role,
+                            actor=request.user,
+                            changes={
+                                'enabled': sorted(enabled_keys - before),
+                                'disabled': sorted(before - enabled_keys),
+                            },
+                        )
+                messages.success(request, f'Updated {selected_role} access. Required view capabilities were retained automatically.')
+                return HttpResponseRedirect(f'{reverse("admin:core_workflowrolecapability_matrix")}?workflow={selected_workflow}&role={selected_role}')
+        selected_role = canonical_access_role(selected_workflow, request.GET.get('role') or (role_options[0][0] if role_options else ''))
+        enabled_keys = set(WorkflowRoleCapability.objects.filter(
+            workflow=selected_workflow, role=selected_role, enabled=True,
+        ).values_list('capability_key', flat=True))
+        rows = [
+            {'definition': definition, 'enabled': definition.key in enabled_keys}
+            for definition in definitions
+        ]
+        context = {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': 'Mini App access matrix',
+            'workflows': workflows,
+            'selected_workflow': selected_workflow,
+            'role_options': role_options,
+            'selected_role': selected_role,
+            'rows': rows,
+            'audit_events': WorkflowRoleCapabilityAuditEvent.objects.filter(
+                workflow=selected_workflow, role=selected_role,
+            ).select_related('actor')[:8],
+        }
+        return TemplateResponse(request, 'admin/core/workflowrolecapability/matrix.html', context)
+
+
+@admin.register(WorkflowRoleCapabilityAuditEvent)
+class WorkflowRoleCapabilityAuditEventAdmin(CompactModelAdmin):
+    list_display = ('created_at', 'workflow', 'role', 'actor', 'source')
+    list_filter = ('workflow', 'role', 'source')
+    search_fields = ('role', 'actor__username', 'actor__first_name', 'actor__last_name')
+    readonly_fields = ('workflow', 'role', 'actor', 'changes', 'source', 'created_at')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 class StaffUserCreationForm(forms.Form):
     from core.services.access_policies import (
         branch_choices, product_choices, role_choices, role_workflow_map,
@@ -2639,8 +2756,6 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
             user.set_unusable_password()
         user.save()
         UserProfile.objects.create(user=user, telegram_username=telegram_username)
-        group, _ = Group.objects.get_or_create(name=data['role'])
-        user.groups.add(group)
         AccessGrant.objects.create(
             user=user,
             workflow=data['workflow'],

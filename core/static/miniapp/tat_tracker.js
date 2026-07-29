@@ -467,8 +467,8 @@
   }
 
   function isTargetManager() {
-    const roles = ((state.data || {}).user || {}).roles || [];
-    return roles.some((role) => String(role).toUpperCase() === 'IT');
+    const capabilities = ((state.data || {}).user || {}).capabilities || [];
+    return capabilities.includes('tat.targets.manage');
   }
 
   function appendTargetInput(container, label, productKey, stageKey, minutes) {
@@ -537,6 +537,10 @@
     if (!data.authorized) throw new Error(data.reason || 'Unauthorized.');
     $('loadingBrand').classList.add('hidden');
     const user = data.user || {};
+    const capabilities = new Set(user.capabilities || []);
+    document.querySelectorAll('[data-required-capability]').forEach((node) => {
+      node.hidden = !capabilities.has(node.dataset.requiredCapability);
+    });
     const roles = (user.roles || []).join(', ') || 'Staff';
     $('userLine').textContent = `${user.name || 'Staff'} | ${roles}`;
     $('statRole').textContent = user.name || 'Staff';

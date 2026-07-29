@@ -108,7 +108,12 @@ def resolve_or_bind_telegram_user(identity: TelegramIdentity):
 
 
 def user_access(user, workflow: str, *, group_configuration=None) -> dict:
-    """Return normalized roles and scopes from Groups plus active AccessGrants."""
+    """Return canonical Mini App roles and scopes from active AccessGrants.
+
+    Django Groups remain available for Django Admin permission bundles.  They
+    must not grant Mini App access: only an active, scoped AccessGrant may do
+    that, so user management has one authoritative workflow access path.
+    """
     from core.models import AccessGrant
     from core.services.access_policies import canonical_access_role
     if not user or not user.is_active:
@@ -126,16 +131,7 @@ def user_access(user, workflow: str, *, group_configuration=None) -> dict:
         for grant in grants
         if grant.role
     }
-    roles = {name for name in user.groups.values_list('name', flat=True)}
-    # Workflow grants are authoritative whenever present. A guided user
-    # creation historically also added the role name to Django Groups, so
-    # leaving group names in the result would duplicate stale role tags. All
-    # active grant roles are retained; a user may legitimately have multiple
-    # TAT responsibilities (for example BRO and CA).
-    if workflow == 'tat_tracker' and grant_roles:
-        roles = grant_roles
-    else:
-        roles.update(grant_roles)
+    roles = grant_roles
     if user.is_superuser:
         roles.add({
             'jawabu_portal': 'ADMIN',

@@ -13,7 +13,7 @@ from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import AccessGrant, GroupSheetConfiguration, InvoiceUploadBatch, JawabuFarmerMaster, LiveSheetRecordChange, MediaAttachment, ParsedInvoice, PaymentDocument, RequisitionBatch, UserProfile
+from core.models import AccessGrant, GroupSheetConfiguration, InvoiceUploadBatch, JawabuFarmerMaster, LiveSheetRecordChange, MediaAttachment, ParsedInvoice, PaymentDocument, RequisitionBatch, UserProfile, WorkflowRoleCapability
 from core.services.jawabu_pipeline import (
     assign_order,
     all_cases,
@@ -512,6 +512,26 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertContains(response, 'JBL Queue')
         self.assertNotContains(response, 'Credit')
         self.assertNotContains(response, 'Invoices')
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
+    def test_matrix_change_hides_a_portal_module_and_blocks_its_endpoint(self):
+        self.grant_portal_access()
+        WorkflowRoleCapability.objects.filter(
+            workflow='jawabu_portal', role='JBL_OFFICER', capability_key='portal.jbl_queue.view',
+        ).update(enabled=False)
+
+        navigation = self.client.get(
+            reverse('portal_navigation'),
+            HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
+        )
+        queue = self.client.get(
+            reverse('portal_jbl_queue'),
+            HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
+        )
+
+        self.assertEqual(navigation.status_code, 200)
+        self.assertNotContains(navigation, 'JBL Queue')
+        self.assertEqual(queue.status_code, 403)
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_portal_reads_are_limited_to_staff_branch_scope(self):

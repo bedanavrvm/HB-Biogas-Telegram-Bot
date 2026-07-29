@@ -66,6 +66,7 @@
   let batchReviewItems = [];
   let reviewTarget = null;
   let isAnalyst = false;
+  let capabilities = new Set();
 
   document.getElementById('groupId').value = config.group_id || '';
   document.getElementById('formToken').value = config.form_token || '';
@@ -437,7 +438,7 @@
         <div class="card-body">
           <div class="card-field wide"><label>Why it needs review</label><p>${escapeHtml(item.reason || 'This message could not be safely imported automatically.')}</p></div>
           <div class="card-field wide"><label>Original batch message</label><p class="batch-review-raw">${escapeHtml(item.raw_message || '')}</p></div>
-          <div class="card-actions"><button type="button" class="secondary batch-review-action-btn" data-id="${escapeHtml(item.id)}"><i data-lucide="scan-search" style="width:14px; height:14px;"></i> Review candidate</button></div>
+          ${capabilities.has('spin.batch.review') ? `<div class="card-actions"><button type="button" class="secondary batch-review-action-btn" data-id="${escapeHtml(item.id)}"><i data-lucide="scan-search" style="width:14px; height:14px;"></i> Review candidate</button></div>` : ''}
         </div>
       </details>`;
   }
@@ -507,7 +508,7 @@
 
       let actions = '';
       const actionButtons = [];
-      if (r.import_status === 'review_needed') {
+      if (r.import_status === 'review_needed' && capabilities.has('spin.request.review')) {
         actionButtons.push(`
             <button type="button" class="secondary review-action-btn" data-id="${escapeHtml(r.id)}">
               <i data-lucide="edit-3" style="width:14px; height:14px; display:inline-block; vertical-align:middle; margin-right:4px;"></i>
@@ -515,7 +516,7 @@
             </button>
         `);
       }
-      if (isAnalyst && r.import_status !== 'completed') {
+      if (capabilities.has('spin.request.complete') && r.import_status !== 'completed') {
         actionButtons.push(`
             <button type="button" class="primary complete-action-btn" data-id="${escapeHtml(r.id)}">
               <i data-lucide="check-square" style="width:14px; height:14px; display:inline-block; vertical-align:middle; margin-right:4px;"></i>
@@ -635,6 +636,8 @@
       requests = (result.requests || []).filter(r => r.import_status !== 'failed');
       batchReviewItems = result.batch_review_items || [];
       isAnalyst = !!result.is_analyst;
+      capabilities = new Set(result.capabilities || []);
+      if (submitBtn) submitBtn.disabled = !capabilities.has('spin.request.create');
 
       // Update summary count values
       const countAllVal = requests.length;
@@ -971,6 +974,11 @@
   loadDraft();
   updateSummary();
   updateFileSummaries();
+  // Load the signed-in user's policy before allowing a submission. The
+  // server remains authoritative, but this prevents a role without create
+  // access from being presented with a misleading active form.
+  if (submitBtn) submitBtn.disabled = true;
+  fetchRequests();
   
   if (window.lucide) window.lucide.createIcons();
 }());

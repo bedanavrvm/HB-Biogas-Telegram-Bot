@@ -33,6 +33,10 @@
     return token ? { 'X-CSRFToken': token } : {};
   }
 
+  function canWriteInvoices() {
+    return !deps.state || deps.state.capabilities?.has('portal.invoice.write');
+  }
+
   function money(value) {
     if (value === null || value === undefined || value === '') return '-';
     const raw = String(value).replace(/,/g, '').trim();
@@ -81,6 +85,7 @@
   function updateBulkToolbar() {
     const toolbar = el('invoice-bulk-toolbar');
     const count = el('invoice-selected-count');
+    if (!canWriteInvoices()) state.selectedIds.clear();
     const selectedCount = state.selectedIds.size;
     if (toolbar) toolbar.style.display = selectedCount ? 'block' : 'none';
     if (count) count.textContent = selectedCount + ' selected';
@@ -110,16 +115,16 @@
         : '';
       const actions = [
         '<button class="btn btn-secondary invoice-detail-action" data-invoice="' + escapeHtml(invoice.id) + '">Details</button>',
-        invoice.status !== 'matched' ? '<button class="btn btn-secondary invoice-match-action" data-invoice="' + escapeHtml(invoice.id) + '">Match</button>' : '',
-        invoice.status === 'matched' ? '<button class="btn btn-secondary invoice-unmatch-action" data-invoice="' + escapeHtml(invoice.id) + '">Unmatch</button>' : '',
-        invoice.status !== 'ignored' ? '<button class="btn btn-secondary invoice-ignore-action" data-invoice="' + escapeHtml(invoice.id) + '">Ignore</button>' : '',
-        invoice.status === 'ignored' ? '<button class="btn btn-secondary invoice-restore-action" data-invoice="' + escapeHtml(invoice.id) + '">Restore</button>' : '',
+        canWriteInvoices() && invoice.status !== 'matched' ? '<button class="btn btn-secondary invoice-match-action" data-invoice="' + escapeHtml(invoice.id) + '">Match</button>' : '',
+        canWriteInvoices() && invoice.status === 'matched' ? '<button class="btn btn-secondary invoice-unmatch-action" data-invoice="' + escapeHtml(invoice.id) + '">Unmatch</button>' : '',
+        canWriteInvoices() && invoice.status !== 'ignored' ? '<button class="btn btn-secondary invoice-ignore-action" data-invoice="' + escapeHtml(invoice.id) + '">Ignore</button>' : '',
+        canWriteInvoices() && invoice.status === 'ignored' ? '<button class="btn btn-secondary invoice-restore-action" data-invoice="' + escapeHtml(invoice.id) + '">Restore</button>' : '',
       ].join('');
       const checked = state.selectedIds.has(invoice.id) ? ' checked' : '';
       return [
         '<article class="farmer-card invoice-pool-card invoice-status-' + escapeHtml(invoice.status || 'unknown') + (checked ? ' is-selected' : '') + '">',
         '<div class="invoice-card-main">',
-        '<input type="checkbox" class="invoice-select-row" data-invoice="' + escapeHtml(invoice.id) + '" aria-label="Select invoice ' + escapeHtml(invoice.invoice_no || '') + '"' + checked + '>',
+        canWriteInvoices() ? '<input type="checkbox" class="invoice-select-row" data-invoice="' + escapeHtml(invoice.id) + '" aria-label="Select invoice ' + escapeHtml(invoice.invoice_no || '') + '"' + checked + '>' : '',
         '<div class="invoice-card-content">',
         '<div class="invoice-card-heading"><div class="fc-name">Invoice ' + escapeHtml(invoice.invoice_no || '-') + '</div><span class="badge ' + badgeClass(invoice.status) + '">' + escapeHtml(invoice.status || '-') + '</span></div>',
         '<div class="invoice-card-customer">' + escapeHtml(invoice.customer_name || 'Unknown customer') + '</div>',
