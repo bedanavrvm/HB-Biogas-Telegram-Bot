@@ -10,13 +10,25 @@ from typing import Any
 from django.utils import timezone
 
 from core.models import JawabuDataQualityIssue, JawabuFarmerMaster
+from core.services.branches import global_branch_choices
 from core.services.identifiers import normalize_kenyan_phone, normalize_national_id
+from core.services.jawabu_customer_quality import national_id_quality_message, product_quality_message
+from core.services.locations import global_county_choices
 
 
 class JawabuValidationError(ValueError):
     def __init__(self, errors: dict[str, str]):
         self.errors = errors
         super().__init__('; '.join(f'{field}: {message}' for field, message in errors.items()))
+
+
+def _quality_code(field_name: str) -> str:
+    return {
+        'national_id': 'review_required',
+        'branch': 'unknown_branch',
+        'county': 'unknown_county',
+        'payment_product': 'unknown_product',
+    }.get(field_name, 'invalid_format')
 
 
 def parse_business_date(value: Any) -> date | None:
@@ -101,20 +113,28 @@ def parse_coordinate(value: Any, *, latitude: bool) -> Decimal | None:
     return coordinate if -limit <= coordinate <= limit else None
 
 
-def canonicalize_farmer(farmer: JawabuFarmerMaster, *, strict: bool = False) -> dict[str, str]:
+def canonicalize_farmer(
+    farmer: JawabuFarmerMaster, *, strict: bool = False, product_catalog: list[str] | None = None,
+    branch_catalog: list[str] | None = None, county_catalog: list[str] | None = None,
+) -> dict[str, str]:
     """Populate canonical fields and return field-level errors/warnings."""
     errors: dict[str, str] = {}
+    blocking_errors: dict[str, str] = {}
     national_id = normalize_national_id(farmer.national_id)
-    if national_id and not 5 <= len(national_id) <= 12:
-        errors['national_id'] = 'National ID must contain 5 to 12 digits.'
-    elif national_id:
+    if national_id:
         farmer.national_id = national_id
+        message = national_id_quality_message(national_id)
+        if message:
+            # Historical/exceptional IDs must be reviewable rather than forcing
+            # staff to enter a made-up value just to pass a hard form rule.
+            errors['national_id'] = message
 
     for field_name in ('primary_phone', 'secondary_phone'):
         raw = getattr(farmer, field_name)
         normalized = normalize_kenyan_phone(raw)
         if raw and not normalized:
             errors[field_name] = 'Enter a valid Kenyan mobile number.'
+            blocking_errors[field_name] = errors[field_name]
         elif normalized:
             setattr(farmer, field_name, normalized)
 
@@ -123,58 +143,93 @@ def canonicalize_farmer(farmer: JawabuFarmerMaster, *, strict: bool = False) -> 
         farmer.hbg_visit_date = parse_business_date(farmer.sign_date)
         if farmer.hbg_visit_date is None:
             errors['sign_date'] = 'HBG visit date is not a recognized date.'
+            blocking_errors['sign_date'] = errors['sign_date']
     if farmer.actual_receipts not in (None, ''):
         farmer.deposit_paid_hbg = parse_money(farmer.actual_receipts)
         if farmer.deposit_paid_hbg is None:
             errors['actual_receipts'] = 'HB deposit must be a non-negative amount.'
+            blocking_errors['actual_receipts'] = errors['actual_receipts']
     if farmer.latitude not in (None, ''):
         farmer.latitude_value = parse_coordinate(farmer.latitude, latitude=True)
         if farmer.latitude_value is None:
             errors['latitude'] = 'Latitude must be between -90 and 90.'
+            blocking_errors['latitude'] = errors['latitude']
     if farmer.longitude not in (None, ''):
         farmer.longitude_value = parse_coordinate(farmer.longitude, latitude=False)
         if farmer.longitude_value is None:
             errors['longitude'] = 'Longitude must be between -180 and 180.'
+            blocking_errors['longitude'] = errors['longitude']
     if farmer.repayment_date:
         farmer.repayment_day = parse_repayment_day(farmer.repayment_date)
         if farmer.repayment_day is None:
             errors['repayment_date'] = 'Repayment day must be between 1 and 31.'
+            blocking_errors['repayment_date'] = errors['repayment_date']
     if farmer.repayment_tenor:
         farmer.repayment_tenor_months = parse_tenor_months(farmer.repayment_tenor)
         if farmer.repayment_tenor_months is None:
             errors['repayment_tenor'] = 'Repayment tenor must be 1 to 120 months.'
+            blocking_errors['repayment_tenor'] = errors['repayment_tenor']
+    branches = set(branch_catalog if branch_catalog is not None else global_branch_choices())
+    counties = set(county_catalog if county_catalog is not None else global_county_choices())
+    if farmer.branch and farmer.branch not in branches:
+        errors['branch'] = 'Branch is not in the controlled branch list; confirm before it is used operationally.'
+    if farmer.county and farmer.county not in counties:
+        errors['county'] = 'County is not in the controlled county list; confirm before it is used operationally.'
+    product_message = product_quality_message(farmer.payment_product, configured_products=product_catalog)
+    if product_message:
+        errors['payment_product'] = product_message
 
-    if strict and errors:
-        raise JawabuValidationError(errors)
+    if strict and blocking_errors:
+        raise JawabuValidationError(blocking_errors)
     return errors
 
 
 def refresh_data_quality_issues(farmer: JawabuFarmerMaster) -> list[dict[str, str]]:
     errors = canonicalize_farmer(farmer, strict=False)
     now = timezone.now()
-    active_keys = {(field, 'invalid_format') for field in errors}
+    active_keys = {
+        (field, _quality_code(field))
+        for field in errors
+    }
     for issue in farmer.data_quality_issues.filter(active=True):
         if (issue.field_name, issue.code) not in active_keys:
             issue.active = False
             issue.resolved_at = now
             issue.save(update_fields=['active', 'resolved_at'])
     for field, message in errors.items():
+        code = _quality_code(field)
         JawabuDataQualityIssue.objects.update_or_create(
             farmer=farmer,
             field_name=field,
-            code='invalid_format',
+            code=code,
             defaults={'severity': 'warning', 'message': message, 'active': True, 'resolved_at': None},
         )
     return [
-        {'field': field, 'code': 'invalid_format', 'severity': 'warning', 'message': message}
+        {
+            'field': field,
+            'code': _quality_code(field),
+            'severity': 'warning',
+            'message': message,
+        }
         for field, message in errors.items()
     ]
 
 
-def validation_warnings(farmer: JawabuFarmerMaster) -> list[dict[str, str]]:
+def validation_warnings(
+    farmer: JawabuFarmerMaster, *, product_catalog: list[str] | None = None,
+    branch_catalog: list[str] | None = None, county_catalog: list[str] | None = None,
+) -> list[dict[str, str]]:
     """Read-only validation projection for GET/detail endpoints."""
-    errors = canonicalize_farmer(farmer, strict=False)
+    errors = canonicalize_farmer(
+        farmer, strict=False, product_catalog=product_catalog,
+        branch_catalog=branch_catalog, county_catalog=county_catalog,
+    )
     return [
-        {'field': field, 'code': 'invalid_format', 'severity': 'warning', 'message': message}
+        {
+            'field': field,
+            'code': _quality_code(field),
+            'severity': 'warning',
+            'message': message,
+        }
         for field, message in errors.items()
     ]

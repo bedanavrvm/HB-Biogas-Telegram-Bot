@@ -1067,6 +1067,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         response = self.client.post(
             reverse('portal_assign_order', args=[str(farmer.id)]),
             data=json.dumps({
+                'workflow_revision': farmer.workflow_revision,
                 'order_number': 'ORDER-009',
                 'requisition_date': '2026-07-23',
                 'repayment_date': '15TH',

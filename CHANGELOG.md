@@ -6,6 +6,23 @@ approved action.
 
 ## Unreleased — 29-July-2026
 
+- Jawabu data quality: `/sysup` and FarmUp now share governed customer identity
+  normalization, retain historical phone observations, flag 7-9 digit ID
+  exceptions for review, preserve system-export field provenance, and validate
+  system products against one Admin-managed catalog. The Admin dashboard now
+  reports active-case data-quality coverage and a dry-run command can audit
+  active Jawabu cases or a staged `/sysup` batch without writing data.
+
+Migration: `core.0076_governed_jawabu_data_quality` and
+`core.0077_seed_operational_products` are required for governed phone history,
+provenance, review evidence, and the product catalog. They have **not** been
+applied to production by this change. To undo after an approved migration,
+first export any provenance/review evidence that must be retained, then run:
+
+```powershell
+python manage.py migrate core 0075_tat_workflow_receipts
+```
+
 - Workflow integrity: Jawabu Pipeline and TAT now reject stale Mini App
   updates, record explicit transition metadata, preserve reasoned rework
   routes, and expose safe SLA-escalation dry runs. Payment approval behaviour

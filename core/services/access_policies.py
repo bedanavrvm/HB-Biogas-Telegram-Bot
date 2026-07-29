@@ -101,7 +101,13 @@ def branch_choices():
 
 def product_choices():
     from core.services.tat_tracker import PRODUCTS
-    return [('', 'All products')] + [(key, config.label) for key, config in PRODUCTS.items()]
+    from core.services.jawabu_customer_quality import configured_operational_product_options
+
+    configured = [
+        (key, label) for key, label in configured_operational_product_options()
+        if key in PRODUCTS
+    ]
+    return [('', 'All products')] + (configured or [(key, config.label) for key, config in PRODUCTS.items()])
 
 
 def validate_access_scope(*, workflow, role, branch='', product='', group_configuration=None):
@@ -118,7 +124,8 @@ def validate_access_scope(*, workflow, role, branch='', product='', group_config
         errors['product'] = f'{workflow_label(workflow)} does not use product scope.'
     elif workflow == 'tat_tracker':
         from core.services.tat_tracker import PRODUCTS
-        if product and product not in PRODUCTS:
+        valid_products = {key for key, _label in product_choices() if key}
+        if product and (product not in PRODUCTS or product not in valid_products):
             errors['product'] = 'Select a valid TAT Tracker product.'
     if group_configuration is not None:
         group_type = str((group_configuration.workflow or {}).get('type') or '')

@@ -930,6 +930,36 @@ class JawabuCustomer(models.Model):
         return self.national_id or self.primary_phone or self.customer_no or str(self.id)
 
 
+class JawabuCustomerPhoneHistory(models.Model):
+    """Observed customer phone numbers without discarding a previous SIM."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    customer = models.ForeignKey(
+        JawabuCustomer, on_delete=models.CASCADE, related_name='phone_history',
+    )
+    phone = models.CharField(max_length=32, db_index=True)
+    source = models.CharField(max_length=40, blank=True, default='', db_index=True)
+    is_current = models.BooleanField(default=False, db_index=True)
+    first_seen_at = models.DateTimeField(default=timezone.now)
+    last_seen_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ['-last_seen_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['customer', 'phone'], name='jawabu_unique_customer_phone_history',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['phone', 'is_current']),
+        ]
+        verbose_name = 'Jawabu customer phone history'
+        verbose_name_plural = 'Jawabu customer phone history'
+
+    def __str__(self):
+        return f'{self.customer}: {self.phone}'
+
+
 class JawabuFarmerMaster(models.Model):
     """Clean internal master data for Jawabu farmers used by visit forms."""
 
@@ -1277,6 +1307,96 @@ class JawabuDataQualityIssue(models.Model):
         constraints = [
             models.UniqueConstraint(fields=['farmer', 'field_name', 'code'], name='jawabu_unique_quality_issue'),
         ]
+
+
+class JawabuDataQualityResolution(models.Model):
+    """Append-only staff decision for a Jawabu data-quality exception."""
+
+    ACTION_CHOICES = [
+        ('corrected', 'Corrected canonical value'),
+        ('accepted', 'Accepted source value'),
+        ('linked', 'Linked to existing customer'),
+        ('ignored', 'Accepted documented exception'),
+        ('rejected', 'Rejected source row'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    issue = models.ForeignKey(
+        JawabuDataQualityIssue, on_delete=models.CASCADE, related_name='resolutions',
+    )
+    action = models.CharField(max_length=20, choices=ACTION_CHOICES, db_index=True)
+    note = models.TextField(blank=True, default='')
+    actor = models.CharField(max_length=255, blank=True, default='')
+    before_value = models.TextField(blank=True, default='')
+    after_value = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Jawabu data-quality resolution'
+        verbose_name_plural = 'Jawabu data-quality resolutions'
+
+
+class JawabuCustomerFieldProvenance(models.Model):
+    """Append-only source history for customer fields that cross system boundaries."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    farmer = models.ForeignKey(
+        JawabuFarmerMaster, on_delete=models.CASCADE, related_name='field_provenance',
+    )
+    field_name = models.CharField(max_length=80, db_index=True)
+    old_value = models.TextField(blank=True, default='')
+    new_value = models.TextField(blank=True, default='')
+    source = models.CharField(max_length=40, db_index=True)
+    source_reference = models.CharField(max_length=255, blank=True, default='')
+    source_row_number = models.PositiveIntegerField(null=True, blank=True)
+    actor = models.CharField(max_length=255, blank=True, default='')
+    occurred_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ['-occurred_at']
+        indexes = [
+            models.Index(fields=['farmer', 'field_name', 'occurred_at']),
+            models.Index(fields=['source', 'occurred_at']),
+        ]
+        verbose_name = 'Jawabu customer field provenance'
+        verbose_name_plural = 'Jawabu customer field provenance'
+
+
+class OperationalProduct(models.Model):
+    """Single controlled catalog for products used by imports, scopes, and TAT."""
+
+    name = models.CharField(max_length=128)
+    code = models.CharField(max_length=64, blank=True, default='')
+    active = models.BooleanField(default=True, db_index=True)
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['sort_order', 'name']
+        constraints = [
+            models.UniqueConstraint(Lower('name'), name='jawabu_unique_operational_product_name_ci'),
+            models.UniqueConstraint(
+                Lower('code'), condition=~models.Q(code=''),
+                name='jawabu_unique_operational_product_code_ci',
+            ),
+        ]
+        verbose_name = 'Operational product'
+        verbose_name_plural = 'Operational products'
+
+    def clean(self):
+        super().clean()
+        self.name = ' '.join(str(self.name or '').split())
+        # Access scopes use the stable, lowercase TAT product keys.  Keep an
+        # Admin-entered code compatible with that convention rather than
+        # creating display-case variants that silently match no scope.
+        self.code = re.sub(r'[^a-z0-9]+', '_', str(self.code or '').casefold()).strip('_')
+        if not self.name:
+            raise ValidationError({'name': 'Enter a product name.'})
+
+    def __str__(self):
+        return self.name
 
 
 class UserProfile(models.Model):

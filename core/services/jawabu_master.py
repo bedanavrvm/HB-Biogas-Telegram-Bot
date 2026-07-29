@@ -439,7 +439,11 @@ def commit_farmup_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict],
     for index, row in enumerate(rows, start=1):
         row = dict(row or {})
         row['row_id'] = row.get('row_id') or index
-        if row.get('Import Status') == 'review_needed':
+        # A reviewer may explicitly approve an otherwise valid exception
+        # (for example, a historical numeric ID outside the usual 7-9 digit
+        # range).  Do not confuse that supervised approval with a missing
+        # review decision.
+        if row.get('Import Status') == 'review_needed' and not row.get('approved'):
             remaining_rows.append(row)
             continue
         if not row.get('approved'):
@@ -1101,7 +1105,7 @@ def farmup_review_validation_notes(row: dict, cleaned: dict) -> list[str]:
     notes = []
     raw_national_id = clean_text(row.get('National ID', ''))
     if raw_national_id and not clean_national_id(raw_national_id):
-        notes.append('National ID must be 5-12 digits only')
+        notes.append('National ID must contain digits only')
     required = [
         ('National ID', 'national_id'),
         ('Primary Phone', 'primary_phone'),
@@ -1313,9 +1317,13 @@ def clean_farmer_row(raw_row: dict, header_map: dict[str, str]) -> dict:
     if not customer_name:
         review_notes.append('Missing customer name')
     if raw_national_id and not explicit_national_id:
-        review_notes.append('National ID must be 5-12 digits only')
-    if bracketed_id_value and not is_valid_national_id(bracketed_id_value):
-        review_notes.append('Bracketed National ID in Full Name must be 5-12 digits only')
+        review_notes.append('National ID must contain digits only')
+    elif national_id and not is_valid_national_id(national_id):
+        review_notes.append('National ID should contain 7-9 digits; reviewer confirmation is required')
+    if bracketed_id_value and not clean_national_id(bracketed_id_value):
+        review_notes.append('Bracketed National ID in Full Name must contain digits only')
+    elif bracketed_id_value and not is_valid_national_id(bracketed_id_value):
+        review_notes.append('Bracketed National ID in Full Name should contain 7-9 digits; reviewer confirmation is required')
     if not national_id:
         review_notes.append('Missing National ID')
     if not primary_phone:
@@ -1428,11 +1436,14 @@ def clean_name(value: str) -> str:
 
 def clean_national_id(value: str) -> str:
     text = clean_text(value)
-    return text if is_valid_national_id(text) else ''
+    # Preserve exceptional numeric historical IDs for supervised review.
+    # Validation decides whether they are standard; normalization must not
+    # force staff to fabricate a seven-to-nine-digit value to continue.
+    return text if re.fullmatch(r'\d{1,64}', text) else ''
 
 
 def is_valid_national_id(value: str) -> bool:
-    return bool(re.fullmatch(r'\d{5,12}', clean_text(value)))
+    return bool(re.fullmatch(r'\d{7,9}', clean_text(value)))
 
 
 def bracketed_id_token(value: str) -> str:
@@ -1442,7 +1453,7 @@ def bracketed_id_token(value: str) -> str:
 
 def extract_bracketed_id(value: str) -> str:
     token = bracketed_id_token(value)
-    return token if is_valid_national_id(token) else ''
+    return clean_national_id(token)
 
 
 def remove_bracketed_id(value: str) -> str:
@@ -1530,6 +1541,7 @@ def upsert_farmer(cleaned: dict) -> tuple[bool, str]:
     defaults['customer'] = customer
     defaults['unit_number'] = unit_number
     if existing:
+        old_values = _farmup_provenance_values(existing)
         restarted = restart_expired_reappraisal(existing, fresh_sign_date=cleaned.get('sign_date', ''))
         for field, value in defaults.items():
             # FarmUp files often contain county but no operational branch.
@@ -1543,6 +1555,17 @@ def upsert_farmer(cleaned: dict) -> tuple[bool, str]:
         existing.save()
         from core.services.jawabu_validation import refresh_data_quality_issues
         refresh_data_quality_issues(existing)
+        from core.services.jawabu_customer_quality import record_customer_phone, record_field_provenance
+        if existing.customer_id:
+            record_customer_phone(existing.customer, existing.primary_phone, source='farmup')
+        record_field_provenance(
+            existing,
+            old_values=old_values,
+            new_values=_farmup_provenance_values(existing),
+            source='farmup',
+            source_reference=existing.source_name or existing.external_id or existing.source_fingerprint,
+            source_row_number=existing.source_row_number,
+        )
         from core.services.jawabu_case360 import record_pipeline_event
         record_pipeline_event(
             existing,
@@ -1562,6 +1585,17 @@ def upsert_farmer(cleaned: dict) -> tuple[bool, str]:
     ])
     from core.services.jawabu_validation import refresh_data_quality_issues
     refresh_data_quality_issues(farmer)
+    from core.services.jawabu_customer_quality import record_customer_phone, record_field_provenance
+    if farmer.customer_id:
+        record_customer_phone(farmer.customer, farmer.primary_phone, source='farmup')
+    record_field_provenance(
+        farmer,
+        old_values={},
+        new_values=_farmup_provenance_values(farmer),
+        source='farmup',
+        source_reference=farmer.source_name or farmer.external_id or farmer.source_fingerprint,
+        source_row_number=farmer.source_row_number,
+    )
     from core.services.jawabu_case360 import record_pipeline_event
     record_pipeline_event(farmer, action='application_imported', stage_key='intake', source='farmup')
     if action == 'create_additional_unit':
@@ -1572,6 +1606,19 @@ def upsert_farmer(cleaned: dict) -> tuple[bool, str]:
 def model_fields(cleaned: dict) -> dict:
     allowed = {field.name for field in JawabuFarmerMaster._meta.fields if field.name != 'id'}
     return {key: value for key, value in cleaned.items() if key in allowed}
+
+
+def _farmup_provenance_values(farmer: JawabuFarmerMaster) -> dict[str, object]:
+    """Fields which FarmUp can authoritatively create or update at intake."""
+    return {
+        field_name: getattr(farmer, field_name)
+        for field_name in (
+            'customer_name', 'national_id', 'customer_no', 'primary_phone',
+            'secondary_phone', 'county', 'sub_county', 'ward', 'village',
+            'landmark', 'branch', 'payment_product', 'sign_date',
+            'hbg_visit_date', 'actual_receipts', 'deposit_paid_hbg',
+        )
+    }
 
 
 def farmer_lookup(cleaned: dict) -> dict[str, str]:

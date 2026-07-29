@@ -66,6 +66,9 @@ request can be approved.
 | Workflow transition | A validated movement between responsible workflow states. It records source, target, actor, authority, reason where required, and before/after revisions. |
 | Workflow correction | A restricted, append-only correction of completed-stage or base-case data. It is not a normal stage transition. |
 | SLA escalation | A pending operational alert created after a configured stage target is exceeded. It never automatically approves, rejects, or moves a case. |
+| Customer identity resolution | Matching a Jawabu case to a canonical customer using one exact national ID, customer number, or current/historical phone. Name similarity only produces a review candidate. |
+| Data-quality issue | An active warning about a canonical Jawabu value or controlled reference value. It is resolved through an append-only staff resolution record. |
+| Field provenance | The append-only source, timestamp, actor, and before/after values for a cross-system customer field update. |
 
 Use `Pending` for work not yet decided. Do not substitute an ambiguous visual
 label such as “in review” for a server-side state.

@@ -1974,7 +1974,7 @@ Mary Njeri njihia
         self.assertEqual(rows[0]['Customer Name'], 'DAVID MUGAMBI')
         self.assertEqual(rows[0]['National ID'], '')
         self.assertEqual(rows[0]['Import Status'], 'review_needed')
-        self.assertIn('Bracketed National ID in Full Name must be 5-12 digits only', rows[0]['Cleaning Notes'])
+        self.assertIn('Bracketed National ID in Full Name must contain digits only', rows[0]['Cleaning Notes'])
 
     def test_farmup_preview_flags_invalid_explicit_national_id(self):
         import io
@@ -1989,9 +1989,9 @@ Mary Njeri njihia
 
         self.assertEqual(stats['review_needed'], 1)
         self.assertEqual(rows[0]['Customer Name'], 'DAVID MUGAMBI')
-        self.assertEqual(rows[0]['National ID'], '')
+        self.assertEqual(rows[0]['National ID'], '123')
         self.assertEqual(rows[0]['Import Status'], 'review_needed')
-        self.assertIn('National ID must be 5-12 digits only', rows[0]['Cleaning Notes'])
+        self.assertIn('National ID should contain 7-9 digits; reviewer confirmation is required', rows[0]['Cleaning Notes'])
 
 
 class FcaWorkflowServiceTest(TestCase):

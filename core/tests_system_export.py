@@ -4,7 +4,14 @@ from decimal import Decimal
 
 from django.test import TestCase
 
-from core.models import JawabuFarmerMaster, PaymentDocument
+from core.models import (
+    JawabuCustomer,
+    JawabuCustomerFieldProvenance,
+    JawabuCustomerPhoneHistory,
+    JawabuFarmerMaster,
+    OperationalProduct,
+    PaymentDocument,
+)
 from core.services.jawabu_case360 import serialize_case360
 from core.services.system_export import (
     commit_system_export_review_batch,
@@ -215,3 +222,127 @@ class SystemExportImportTests(TestCase):
         self.assertEqual(self.farmer.customer_no, '')
         self.assertIsNone(self.farmer.customer)
         self.assertEqual(batch.status, 'pending_review')
+
+    def test_historical_phone_is_an_exact_reviewable_match_key(self):
+        customer = JawabuCustomer.objects.create(
+            national_id='12345678', primary_phone='254712345678', customer_no='9001',
+        )
+        JawabuCustomerPhoneHistory.objects.create(
+            customer=customer, phone='254799999999', source='admin', is_current=False,
+        )
+        self.farmer.customer = customer
+        self.farmer.save(update_fields=['customer', 'updated_at'])
+
+        rows, _stats = parse_system_export(export_csv([{
+            'Customer ID': '9001', 'Name': 'WANJIKU, JANE', 'Mobile No': '0799999999',
+            'ID NO': '12345678', 'Branch': 'Embu', 'Loan Officer': 'Officer A',
+            'Product Name': 'Biogas', 'LGF Balance': '0',
+        }]), 'customers.csv')
+
+        self.assertTrue(rows[0]['approved'])
+        self.assertEqual(rows[0]['Matched Farmer ID'], str(self.farmer.id))
+
+    def test_nine_digit_national_id_is_supported_without_review_note(self):
+        self.farmer.national_id = '123456789'
+        self.farmer.save(update_fields=['national_id', 'updated_at'])
+
+        rows, _stats = parse_system_export(export_csv([{
+            'Customer ID': '9001', 'Name': 'WANJIKU, JANE', 'Mobile No': '0712345678',
+            'ID NO': '123456789', 'Branch': 'Embu', 'Loan Officer': 'Officer A',
+            'Product Name': 'Biogas', 'LGF Balance': '0',
+        }]), 'customers.csv')
+
+        self.assertTrue(rows[0]['approved'])
+        self.assertNotIn('7-9 digits', rows[0]['Cleaning Notes'])
+
+    def test_reviewer_can_accept_a_numeric_historical_id_exception(self):
+        historical = JawabuFarmerMaster.objects.create(
+            customer_name='Historical Identifier', national_id='123456',
+            primary_phone='254799999999', status='active',
+        )
+        batch, _stats = create_system_export_review_batch(
+            group_id='-100sysup', telegram_message_id='sysup-historical-id', sender='Officer',
+            source_filename='customers.csv', content=export_csv([{
+                'Customer ID': '9006', 'Name': 'HISTORICAL, IDENTIFIER', 'Mobile No': '0799999999',
+                'ID NO': '123456', 'Branch': 'Embu', 'Loan Officer': 'Officer A',
+                'Product Name': 'Biogas', 'LGF Balance': '0',
+            }]),
+        )
+        row = dict(batch.parsed_rows[0])
+        self.assertEqual(row['Import Status'], 'review_needed')
+        row['approved'] = True
+
+        result = commit_system_export_review_batch(batch, [row], actor='Officer')
+
+        self.assertTrue(result['success'])
+        self.assertTrue(
+            historical.data_quality_issues.filter(
+                field_name='national_id', code='review_required', active=True,
+            ).exists()
+        )
+
+    def test_unknown_product_requires_review_before_commit(self):
+        OperationalProduct.objects.filter(name__iexact='Unsupported Product').delete()
+        rows, _stats = parse_system_export(export_csv([{
+            'Customer ID': '9001', 'Name': 'WANJIKU, JANE', 'Mobile No': '0712345678',
+            'ID NO': '12345678', 'Branch': 'Embu', 'Loan Officer': 'Officer A',
+            'Product Name': 'Unsupported Product', 'LGF Balance': '0',
+        }]), 'customers.csv')
+
+        self.assertFalse(rows[0]['approved'])
+        self.assertEqual(rows[0]['Import Status'], 'review_needed')
+        self.assertIn('operational product catalog', rows[0]['Cleaning Notes'])
+
+    def test_system_export_commit_records_changed_field_provenance(self):
+        batch, _stats = create_system_export_review_batch(
+            group_id='-100sysup', telegram_message_id='sysup-provenance', sender='Officer',
+            source_filename='customers.csv', content=export_csv([{
+                'Customer ID': '9001', 'Name': 'WANJIKU, JANE', 'Mobile No': '0712345678',
+                'ID NO': '12345678', 'Branch': 'Embu', 'Loan Officer': 'Officer A',
+                'Product Name': 'Biogas', 'LGF Balance': '5000',
+            }]),
+        )
+
+        result = commit_system_export_review_batch(batch, batch.parsed_rows, actor='Officer')
+
+        self.assertTrue(result['success'])
+        provenance = JawabuCustomerFieldProvenance.objects.filter(
+            farmer=self.farmer, source='system_export', source_reference='customers.csv',
+        )
+        self.assertTrue(provenance.filter(field_name='customer_no', new_value='9001').exists())
+        self.assertTrue(provenance.filter(field_name='system_deposit_paid_jbl', new_value='5000').exists())
+
+    def test_reviewed_export_can_update_the_selected_unit_for_one_canonical_customer(self):
+        customer = JawabuCustomer.objects.create(
+            national_id='12345678', primary_phone='254712345678', customer_no='9001',
+        )
+        self.farmer.customer = customer
+        self.farmer.customer_no = '9001'
+        self.farmer.save(update_fields=['customer', 'customer_no', 'updated_at'])
+        JawabuFarmerMaster.objects.create(
+            customer=customer,
+            unit_number=2,
+            customer_name='Jane Wanjiku',
+            national_id='12345678',
+            primary_phone='254712345678',
+            customer_no='9001',
+            status='active',
+        )
+        batch, _stats = create_system_export_review_batch(
+            group_id='-100sysup', telegram_message_id='sysup-repeat-unit', sender='Officer',
+            source_filename='customers.csv', content=export_csv([{
+                'Customer ID': '9001', 'Name': 'WANJIKU, JANE', 'Mobile No': '0712345678',
+                'ID NO': '12345678', 'Branch': 'Embu', 'Loan Officer': 'Officer A',
+                'Product Name': 'Biogas', 'LGF Balance': '0',
+            }]),
+        )
+        row = dict(batch.parsed_rows[0])
+        self.assertEqual(row['Import Status'], 'review_needed')
+        row['Matched Farmer ID'] = str(self.farmer.id)
+        row['approved'] = True
+
+        result = commit_system_export_review_batch(batch, [row], actor='Officer')
+
+        self.assertTrue(result['success'])
+        self.farmer.refresh_from_db()
+        self.assertEqual(self.farmer.system_branch, 'Embu')

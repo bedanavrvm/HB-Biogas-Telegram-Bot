@@ -1,12 +1,12 @@
 """Customer identity and repeat-unit rules for the Jawabu master pipeline."""
 from __future__ import annotations
 
-import re
-
 from django.db import transaction
 from django.db.models import Q, Max
 
 from core.models import JawabuCustomer, JawabuFarmerMaster, JawabuPipelineEvent
+from core.services.identifiers import normalize_kenyan_phone, normalize_national_id
+from core.services.jawabu_customer_quality import record_customer_phone
 
 
 class JawabuIdentityConflict(ValueError):
@@ -14,16 +14,11 @@ class JawabuIdentityConflict(ValueError):
 
 
 def normalize_identifier(value) -> str:
-    return re.sub(r'\D', '', str(value or '').strip())
+    return normalize_national_id(value)
 
 
 def normalize_primary_phone(value) -> str:
-    digits = normalize_identifier(value)
-    if digits.startswith('0') and len(digits) == 10:
-        digits = f'254{digits[1:]}'
-    elif len(digits) == 9 and digits.startswith('7'):
-        digits = f'254{digits}'
-    return digits
+    return normalize_kenyan_phone(value)
 
 
 def _identity_query(national_id: str, primary_phone: str, customer_no: str = '') -> Q:
@@ -31,7 +26,7 @@ def _identity_query(national_id: str, primary_phone: str, customer_no: str = '')
     if national_id:
         query |= Q(national_id=national_id)
     if primary_phone:
-        query |= Q(primary_phone=primary_phone)
+        query |= Q(primary_phone=primary_phone) | Q(phone_history__phone=primary_phone)
     if customer_no:
         query |= Q(customer_no=customer_no)
     return query
@@ -44,7 +39,7 @@ def resolve_application_identity(cleaned: dict, *, action: str = 'update_existin
     primary_phone = normalize_primary_phone(cleaned.get('primary_phone'))
     customer_no = normalize_identifier(cleaned.get('customer_no'))
     query = _identity_query(national_id, primary_phone, customer_no)
-    matches = list(JawabuCustomer.objects.select_for_update().filter(query)) if query.children else []
+    matches = list(JawabuCustomer.objects.select_for_update().filter(query).distinct()) if query.children else []
     customer_ids = {item.id for item in matches}
     if len(customer_ids) > 1:
         raise JawabuIdentityConflict(
@@ -68,6 +63,7 @@ def resolve_application_identity(cleaned: dict, *, action: str = 'update_existin
             customer_no=customer_no,
             identity_enforced=True,
         )
+    record_customer_phone(customer, primary_phone, source='farmup')
 
     applications = JawabuFarmerMaster.objects.select_for_update().filter(customer=customer)
     if action == 'create_additional_unit':

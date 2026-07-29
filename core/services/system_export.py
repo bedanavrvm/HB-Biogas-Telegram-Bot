@@ -20,6 +20,12 @@ from django.utils import timezone
 
 from core.models import JawabuCustomer, JawabuFarmerMaster, JawabuFarmerUploadBatch
 from core.services.jawabu import is_valid_phone, normalise_phone
+from core.services.jawabu_customer_quality import (
+    product_quality_message,
+    record_customer_phone,
+    record_field_provenance,
+    resolve_farmer_match,
+)
 from core.services.jawabu_master import clean_text, row_fingerprint
 
 logger = logging.getLogger(__name__)
@@ -73,14 +79,17 @@ def _normalise_system_row(raw: dict[str, Any], source_row: int) -> dict[str, Any
     notes = []
     if not national_id:
         notes.append('Missing ID NO')
-    elif not re.fullmatch(r'\d{5,12}', national_id):
-        notes.append('ID NO must contain 5-12 digits')
+    elif not re.fullmatch(r'\d{7,9}', national_id):
+        notes.append('ID NO should contain 7-9 digits; confirm this exception before commit')
     if phone_raw and not is_valid_phone(phone):
         notes.append('Mobile No could not be normalized to a valid 254 phone')
     if not customer_no:
         notes.append('Missing Customer ID')
     if not name:
         notes.append('Missing Name')
+    product_note = product_quality_message(product)
+    if product_note:
+        notes.append(product_note)
     lgf_balance = None
     if lgf_raw:
         try:
@@ -175,55 +184,26 @@ def _candidate_snapshot(farmer: JawabuFarmerMaster) -> dict[str, str]:
     }
 
 
-def _name_candidates(name: str) -> list[JawabuFarmerMaster]:
-    key = _normalise_name(name)
-    if not key:
-        return []
-    candidates = []
-    for farmer in JawabuFarmerMaster.objects.only('id', 'customer_name', 'imab_customer_name', 'customer_no', 'national_id', 'primary_phone'):
-        if _normalise_name(farmer.customer_name) == key or _normalise_name(farmer.imab_customer_name) == key:
-            candidates.append(farmer)
-            if len(candidates) >= 10:
-                break
-    return candidates
-
-
 def resolve_system_export_row(row: dict[str, Any]) -> dict[str, Any]:
     national_id = str(row.get('ID NO') or '').strip()
     customer_no = str(row.get('Customer ID') or '').strip()
     phone = str(row.get('Mobile No') or '').strip()
-    matches_by_basis = {}
-    if national_id:
-        matches_by_basis['national_id'] = list(JawabuFarmerMaster.objects.filter(national_id=national_id))
-    if customer_no:
-        matches_by_basis['customer_no'] = list(JawabuFarmerMaster.objects.filter(customer_no=customer_no))
-    if phone:
-        matches_by_basis['primary_phone'] = list(JawabuFarmerMaster.objects.filter(primary_phone=phone))
-    identity_sets = [set(item.id for item in matches) for matches in matches_by_basis.values() if matches]
-    candidate_ids = set().union(*identity_sets) if identity_sets else set()
-    conflicts = []
-    for basis, matches in matches_by_basis.items():
-        if len(matches) > 1:
-            conflicts.append(f'{basis} matched multiple cases')
-    if len(candidate_ids) > 1:
-        conflicts.append('National ID, Customer ID, and Mobile No identify different cases')
-    candidates = []
-    basis = ''
-    farmer = None
-    if not conflicts and len(candidate_ids) == 1:
-        farmer_id = next(iter(candidate_ids))
-        farmer = JawabuFarmerMaster.objects.get(pk=farmer_id)
-        basis = next((name for name in ('national_id', 'customer_no', 'primary_phone') if matches_by_basis.get(name)), '')
-        candidates = [_candidate_snapshot(farmer)]
-    elif not candidate_ids:
-        name_candidates = _name_candidates(row.get('Name', ''))
-        candidates = [_candidate_snapshot(item) for item in name_candidates]
-        if candidates:
-            conflicts.append('Name candidate requires manual confirmation')
-    if conflicts:
+    match = resolve_farmer_match(
+        national_id=national_id,
+        customer_no=customer_no,
+        primary_phone=phone,
+        name=row.get('Name', ''),
+    )
+    candidate_ids = list(match.farmer_ids or match.name_candidates)
+    candidates = [
+        _candidate_snapshot(farmer)
+        for farmer in JawabuFarmerMaster.objects.filter(pk__in=candidate_ids)
+    ]
+    farmer = JawabuFarmerMaster.objects.filter(pk=match.exact_farmer_id).first() if match.exact_farmer_id else None
+    if match.conflicts:
         row['Import Status'] = 'review_needed'
         row['approved'] = False
-        row['Cleaning Notes'] = '; '.join(filter(None, [row.get('Cleaning Notes', ''), *conflicts]))
+        row['Cleaning Notes'] = '; '.join(filter(None, [row.get('Cleaning Notes', ''), *match.conflicts]))
     elif farmer:
         row['Matched Farmer ID'] = str(farmer.id)
         row['Matched Customer'] = farmer.customer_name
@@ -237,7 +217,7 @@ def resolve_system_export_row(row: dict[str, Any]) -> dict[str, Any]:
         row['Import Status'] = 'review_needed'
         row['approved'] = False
         row['Cleaning Notes'] = '; '.join(filter(None, [row.get('Cleaning Notes', ''), 'No exact identity match found']))
-    row['Match Basis'] = basis or ('name_candidate' if candidates else '')
+    row['Match Basis'] = match.match_basis
     row['Match Candidates'] = candidates
     return row
 
@@ -297,14 +277,19 @@ def _commit_values(row: dict[str, Any]) -> tuple[dict[str, str | Decimal], list[
     errors = []
     if not national_id:
         errors.append('Missing ID NO')
-    elif not re.fullmatch(r'\d{5,12}', national_id):
-        errors.append('ID NO must contain 5-12 digits')
+    # A numeric historical/exceptional ID is review-only.  A staff member
+    # must make the row approved in the staged review before it reaches this
+    # method; preserving it lets the canonical data-quality queue retain the
+    # exception instead of encouraging a made-up replacement ID.
     if phone and not is_valid_phone(phone):
         errors.append('Mobile No could not be normalized to a valid 254 phone')
     if not customer_no:
         errors.append('Missing Customer ID')
     if not name:
         errors.append('Missing Name')
+    product_error = product_quality_message(product)
+    if product_error:
+        errors.append(product_error)
     lgf: Decimal | str = ''
     if lgf_raw:
         try:
@@ -353,6 +338,24 @@ def _bind_customer_identity(farmer: JawabuFarmerMaster, *, national_id: str, pho
     if customer_no:
         customer.customer_no = customer_no
     customer.save(update_fields=['national_id', 'primary_phone', 'customer_no', 'updated_at'])
+    record_customer_phone(customer, phone, source='system_export')
+
+
+def _identifier_belongs_to_a_different_customer(
+    farmer: JawabuFarmerMaster, *, field_name: str, value: str,
+) -> bool:
+    """Reject cross-customer collisions while allowing a customer's extra unit.
+
+    One canonical JawabuCustomer may legitimately have several applications.
+    A staff member must still select the intended application for a reviewed
+    `/sysup` row, but that selection must not be blocked by its sibling unit.
+    """
+    if not value:
+        return False
+    matches = JawabuFarmerMaster.objects.filter(**{field_name: value}).exclude(pk=farmer.pk)
+    if farmer.customer_id:
+        matches = matches.exclude(customer_id=farmer.customer_id)
+    return matches.exists()
 
 
 @transaction.atomic
@@ -393,12 +396,17 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
             existing = str(getattr(farmer, field) or '').strip()
             if value and existing and value != existing:
                 conflicts.append(f'{label} differs from the selected customer')
-        duplicate_qs = JawabuFarmerMaster.objects.filter(customer_no=customer_no).exclude(pk=farmer.pk) if customer_no else JawabuFarmerMaster.objects.none()
-        if customer_no and duplicate_qs.exists():
+        if _identifier_belongs_to_a_different_customer(
+            farmer, field_name='customer_no', value=customer_no,
+        ):
             conflicts.append('Customer ID already belongs to another case')
-        if national_id and JawabuFarmerMaster.objects.filter(national_id=national_id).exclude(pk=farmer.pk).exists():
+        if _identifier_belongs_to_a_different_customer(
+            farmer, field_name='national_id', value=national_id,
+        ):
             conflicts.append('ID NO already belongs to another case')
-        if phone and JawabuFarmerMaster.objects.filter(primary_phone=phone).exclude(pk=farmer.pk).exists():
+        if _identifier_belongs_to_a_different_customer(
+            farmer, field_name='primary_phone', value=phone,
+        ):
             conflicts.append('Mobile No already belongs to another case')
         customer_scope = JawabuCustomer.objects.exclude(pk=farmer.customer_id) if farmer.customer_id else JawabuCustomer.objects.all()
         if customer_no and customer_scope.filter(customer_no=customer_no).exists():
@@ -423,6 +431,8 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
             remaining.append(row)
             continue
         old_values = {
+            'national_id': farmer.national_id,
+            'primary_phone': farmer.primary_phone,
             'customer_no': farmer.customer_no,
             'imab_customer_name': farmer.imab_customer_name,
             'system_branch': farmer.system_branch,
@@ -459,8 +469,12 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
         if values['lgf'] != '':
             farmer.system_deposit_paid_jbl = values['lgf']
         farmer.save()
+        from core.services.jawabu_validation import refresh_data_quality_issues
+        refresh_data_quality_issues(farmer)
         from core.services.jawabu_case360 import record_pipeline_event
         new_values = {
+            'national_id': farmer.national_id,
+            'primary_phone': farmer.primary_phone,
             'customer_no': farmer.customer_no,
             'imab_customer_name': farmer.imab_customer_name,
             'system_branch': farmer.system_branch,
@@ -478,6 +492,15 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
             metadata={'source_filename': batch.source_filename, 'source_row': row.get('Source Row'), 'match_basis': row.get('Match Basis', '')},
             old_values=old_values,
             new_values=new_values,
+        )
+        record_field_provenance(
+            farmer,
+            old_values=old_values,
+            new_values=new_values,
+            source='system_export',
+            source_reference=batch.source_filename,
+            source_row_number=int(row.get('Source Row') or 0) or None,
+            actor=actor,
         )
         # The system export is a Django-owned correction/update path. Publish
         # the committed identity and JBL financial values to any configured

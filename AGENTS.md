@@ -103,6 +103,8 @@ Key modules:
 - `group_reset.py` — controlled group data resets
 - `invoice_parser.py` — invoice extraction and parsing
 - `jawabu.py` — Jawabu message processing
+- `jawabu_customer_quality.py` — canonical customer matching, phone history, product checks, and field provenance
+- `jawabu_data_quality.py` — read-only active-case and staged `/sysup` reconciliation reports
 - `jawabu_master.py` — master farmer-record operations
 - `jawabu_pipeline.py` — pipeline state and transition logic
 - `live_sheet_records.py` — sheet-originated record-change handling
@@ -540,6 +542,7 @@ Use this table to locate the likely change surface for a given workflow, and wha
 | **Complaint Cases Mini App** | `core/api/complaint_case_views.py`, `services/complaint_cases.py`, `templates/complaint_cases/`, `static/miniapp/complaint_cases.*`, `core/tests_complaint_cases.py` | Verified Telegram identity plus named group staff roles, group-scoped reads/writes, append-only case/evidence records, idempotent updates, and Drive failure metadata |
 | **Group/workflow configuration** | `services/group_config.py`, `services/workflow_presets.py`, `services/workflow_capabilities.py`, `services/access_control.py`, `services/telegram_command_menu.py`, `core/models.py`, `core/admin.py`, `core/tests_pipeline.py`, `core/tests_workflow_capabilities.py` | Database-managed group configuration and Mini App role capability policy; permanent access changes require independent approval and audit evidence |
 | **Jawabu/FCA pipeline** | `services/jawabu.py`, `services/jawabu_master.py`, `services/jawabu_pipeline.py`, `services/fca.py`, `core/api/views.py`, `core/api/portal_views.py`, `templates/jawabu_farmers/`, `templates/fca_review/`, `templates/portal/`, `static/miniapp/portal.*`, `core/tests_pipeline.py` | Controlled state transitions, decision history, actor/timestamp metadata |
+| **Jawabu customer data quality** | `services/jawabu_customer_quality.py`, `services/jawabu_data_quality.py`, `services/jawabu_validation.py`, `services/system_export.py`, `core/tests_system_export.py`, `core/tests_jawabu_data_quality.py` | Exact identifier matching only, review-only name candidates, append-only provenance, controlled branches/counties/products, and no Sheet-originated overwrite |
 | **Requisitions and invoices** | `services/requisition.py`, `services/invoice_parser.py`, `core/api/portal_views.py`, `core/models.py`, requisition templates/workbooks, `core/tests_pipeline.py` | Money handling, order numbers, filenames, generated workbook contents, download authorization, idempotency |
 | **Order approval** | `services/order_approval.py`, `core/api/views.py`, `templates/order_approval/`, `services/storage.py`, `core/models.py`, `core/tests_order_approval.py`, `order_approval_apps_script.gs` | Telegram authentication, lookup/suggestion APIs, attachment limits, duplicate submissions, media storage failures, sheet sync |
 | **SPIN credit** | `services/spin_credit.py`, `core/api/views.py`, `templates/spin/`, `static/miniapp/spin_form.*`, `core/models.py`, `core/tests_spin_credit.py` | Analyst authorization, request-type requirements, phone/ID/amount normalization, attachment handling, completion audit fields |
@@ -640,6 +643,7 @@ python manage.py test core.tests_pipeline
 python manage.py test core.tests_sheets_validation
 python manage.py test core.tests_group_reset
 python manage.py test core.tests_data_quality
+python manage.py test core.tests_system_export core.tests_jawabu_data_quality
 ```
 
 Run a class or method when iterating:
@@ -650,6 +654,17 @@ python manage.py test core.tests_tat_tracker.TatTrackerApiTests.test_name
 ```
 
 Use the actual class/method name from the test file.
+
+### Read-only Jawabu data-quality audit
+
+```bash
+python manage.py audit_jawabu_data_quality
+python manage.py audit_jawabu_data_quality --batch <batch-uuid>
+python manage.py audit_jawabu_data_quality --strict
+```
+
+This command reports active-case or staged `/sysup` exceptions only. It never
+merges customers, edits Django records, or writes to Sheets/Drive.
 
 ### Full suite
 

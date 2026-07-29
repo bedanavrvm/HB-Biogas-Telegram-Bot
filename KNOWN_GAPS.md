@@ -2,6 +2,16 @@
 
 Last reviewed: 29-July-2026
 
+## Cross-workflow customer data cleanup
+
+The governed customer-resolution rollout currently covers active Jawabu cases
+and staged `/sysup` system exports. Complaint Cases, TAT, and SPIN retain
+their present records and validations until a separately approved migration
+maps their identity fields into the same customer-resolution service. Run
+`python manage.py audit_jawabu_data_quality --strict` before a controlled
+Jawabu cleanup; the command is read-only and must not be mistaken for a merge
+or backfill tool.
+
 ## Telegram WebView printing
 
 Telegram's mobile WebView does not provide a dependable browser print stack;

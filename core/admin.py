@@ -17,6 +17,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import DatabaseError, connections, transaction
 from django.urls import path, reverse
 from django.utils.html import format_html
+from django.utils import timezone
 from unfold.admin import ModelAdmin, StackedInline, TabularInline
 from urllib.parse import urlencode
 
@@ -46,14 +47,18 @@ from .models import (
     GroupSheetConfiguration,
     JawabuFarmerMaster,
     JawabuCustomer,
+    JawabuCustomerPhoneHistory,
+    JawabuCustomerFieldProvenance,
     JawabuPipelineEvent,
     WorkflowSlaEscalation,
     JawabuDataQualityIssue,
+    JawabuDataQualityResolution,
     JawabuFarmerUploadBatch,
     JawabuVisitRecord,
     LiveSheetRecordChange,
     MediaAttachment,
     OperationalLocation,
+    OperationalProduct,
     OrderApprovalUpdate,
     InvoiceUploadBatch,
     ParsedInvoice,
@@ -116,12 +121,36 @@ class OperationalLocationAdmin(CompactModelAdmin):
     )
 
 
+@admin.register(OperationalProduct)
+class OperationalProductAdmin(CompactModelAdmin):
+    """Controlled product names accepted from system exports."""
+
+    list_display = ('name', 'code', 'active', 'sort_order', 'updated_at')
+    list_filter = ('active',)
+    search_fields = ('name', 'code')
+    list_editable = ('active', 'sort_order')
+    ordering = ('sort_order', 'name')
+    readonly_fields = ('created_at', 'updated_at')
+    fieldsets = (
+        ('Product', {'fields': (('name', 'code'), ('active', 'sort_order'))}),
+        ('Audit', {'fields': (('created_at', 'updated_at'),), 'classes': ('collapse',)}),
+    )
+
+
+class JawabuCustomerPhoneHistoryInline(TabularInline):
+    model = JawabuCustomerPhoneHistory
+    extra = 0
+    fields = ('phone', 'source', 'is_current', 'first_seen_at', 'last_seen_at')
+    readonly_fields = ('first_seen_at', 'last_seen_at')
+
+
 @admin.register(JawabuCustomer)
 class JawabuCustomerAdmin(CompactModelAdmin):
     list_display = ('national_id', 'primary_phone', 'customer_no', 'identity_enforced', 'updated_at')
     list_filter = ('identity_enforced',)
     search_fields = ('national_id', 'primary_phone', 'customer_no')
     readonly_fields = ('created_at', 'updated_at')
+    inlines = (JawabuCustomerPhoneHistoryInline,)
     fieldsets = (
         ('Customer identity', {
             'fields': (
@@ -154,10 +183,47 @@ class WorkflowSlaEscalationAdmin(CompactModelAdmin):
 
 @admin.register(JawabuDataQualityIssue)
 class JawabuDataQualityIssueAdmin(CompactModelAdmin):
-    list_display = ('farmer', 'field_name', 'severity', 'active', 'detected_at', 'resolved_at')
-    list_filter = ('active', 'severity', 'field_name')
+    list_display = ('farmer', 'field_name', 'code', 'severity', 'active', 'detected_at', 'resolved_at')
+    list_filter = ('active', 'severity', 'field_name', 'code')
     search_fields = ('farmer__customer_name', 'farmer__national_id', 'message')
-    readonly_fields = ('detected_at', 'resolved_at')
+    readonly_fields = ('farmer', 'field_name', 'code', 'severity', 'message', 'active', 'detected_at', 'resolved_at')
+
+    def save_formset(self, request, form, formset, change):
+        """Resolution evidence is append-only and always records the staff actor."""
+        instances = formset.save(commit=False)
+        for instance in instances:
+            if isinstance(instance, JawabuDataQualityResolution):
+                if not instance.pk:
+                    instance.actor = request.user.get_username()
+                instance.save()
+                issue = instance.issue
+                if issue.active:
+                    issue.active = False
+                    issue.resolved_at = timezone.now()
+                    issue.save(update_fields=['active', 'resolved_at'])
+        formset.save_m2m()
+
+
+class JawabuDataQualityResolutionInline(TabularInline):
+    model = JawabuDataQualityResolution
+    extra = 0
+    fields = ('action', 'note', 'actor', 'before_value', 'after_value', 'created_at')
+    readonly_fields = ('actor', 'created_at')
+    can_delete = False
+
+
+JawabuDataQualityIssueAdmin.inlines = (JawabuDataQualityResolutionInline,)
+
+
+@admin.register(JawabuCustomerFieldProvenance)
+class JawabuCustomerFieldProvenanceAdmin(CompactModelAdmin):
+    list_display = ('farmer', 'field_name', 'source', 'source_reference', 'source_row_number', 'actor', 'occurred_at')
+    list_filter = ('source', 'field_name', 'occurred_at')
+    search_fields = ('farmer__customer_name', 'farmer__national_id', 'source_reference', 'actor')
+    readonly_fields = (
+        'farmer', 'field_name', 'old_value', 'new_value', 'source', 'source_reference',
+        'source_row_number', 'actor', 'occurred_at',
+    )
 
 
 def _tat_target_field_name(product_key: str, target_key: str) -> str:
@@ -1076,6 +1142,17 @@ class JawabuFarmerMasterAdmin(ModelAdmin):
             'classes': ('collapse',),
         }),
     )
+
+    def save_model(self, request, obj, form, change):
+        # Manual Admin edits are another data boundary: normalize before save
+        # and refresh the review queue afterwards instead of leaving stale flags.
+        from core.services.jawabu_validation import canonicalize_farmer, refresh_data_quality_issues
+
+        canonicalize_farmer(obj, strict=False)
+        super().save_model(request, obj, form, change)
+        refresh_data_quality_issues(obj)
+
+
 @admin.register(FcaImportRecord)
 class FcaImportRecordAdmin(ReadOnlyAuditAdmin):
     list_display = [
@@ -2182,6 +2259,7 @@ class RequisitionTemplateAdmin(ModelAdmin):
         'drive_file_id', 'drive_url', 'drive_uploaded_at', 'drive_upload_error',
         'created_at', 'updated_at',
     )
+
     search_fields = ('name', 'original_filename', 'drive_file_id', 'drive_url')
 
     @admin.display(description='Version')

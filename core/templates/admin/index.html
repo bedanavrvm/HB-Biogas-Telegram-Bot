@@ -42,6 +42,12 @@
                             <span>Branches and counties</span>
                         </a>
                     {% endif %}
+                    {% if perms.core.view_operationalproduct %}
+                        <a class="admin-ops-action" href="{% url 'admin:core_operationalproduct_changelist' %}">
+                            <span class="material-symbols-outlined" aria-hidden="true">category</span>
+                            <span>Operational products</span>
+                        </a>
+                    {% endif %}
                     {% if perms.core.view_groupsheetconfiguration %}
                         <a class="admin-ops-action" href="{% url 'admin:core_groupsheetconfiguration_changelist' %}">
                             <span class="material-symbols-outlined" aria-hidden="true">hub</span>
@@ -96,6 +102,25 @@
                             <span class="admin-ops-card-label">{{ card.title }}</span>
                             <strong class="admin-ops-card-value">{{ card.value }}</strong>
                             <span class="admin-ops-card-detail">{{ card.detail }}</span>
+                            <span class="admin-ops-card-link">Open records <span aria-hidden="true">&rarr;</span></span>
+                        </a>
+                    {% endfor %}
+                </div>
+            </section>
+
+            <section aria-labelledby="admin-ops-quality-title">
+                <div class="admin-ops-section-heading">
+                    <div>
+                        <h2 id="admin-ops-quality-title">Jawabu data quality</h2>
+                        <p>Coverage and exceptions for active customer records. Resolve exceptions from the review queue.</p>
+                    </div>
+                </div>
+                <div class="admin-ops-card-grid">
+                    {% for metric in ops_dashboard.data_quality_metrics %}
+                        <a class="admin-ops-card" href="{{ metric.url }}">
+                            <span class="admin-ops-card-label">{{ metric.label }}</span>
+                            <strong class="admin-ops-card-value">{{ metric.value }}</strong>
+                            <span class="admin-ops-card-detail">{{ metric.detail }}</span>
                             <span class="admin-ops-card-link">Open records <span aria-hidden="true">&rarr;</span></span>
                         </a>
                     {% endfor %}

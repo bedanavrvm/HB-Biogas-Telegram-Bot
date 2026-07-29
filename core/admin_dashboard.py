@@ -26,6 +26,7 @@ from core.models import (
     TatTrackerEvent,
     UserProfile,
 )
+from core.services.jawabu_data_quality import active_jawabu_quality_report
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,16 @@ def dashboard_callback(request, context: dict[str, Any]) -> dict[str, Any]:
     pending_uploads = JawabuFarmerUploadBatch.objects.filter(status='pending_review')
     open_orders = RequisitionBatch.objects.exclude(status='completed')
     active_quality_issues = JawabuDataQualityIssue.objects.filter(active=True)
+    jawabu_quality = active_jawabu_quality_report(limit=0)
+    quality_codes = jawabu_quality['by_code']
+    identity_issue_count = sum(
+        quality_codes.get(code, 0)
+        for code in ('review_required', 'duplicate_active_identity', 'duplicate_active_customer_no')
+    )
+    reference_issue_count = sum(
+        quality_codes.get(code, 0)
+        for code in ('unknown_branch', 'unknown_county', 'unknown_product')
+    )
 
     context['ops_dashboard'] = {
         'generated_at': timezone.localtime(now),
@@ -127,6 +138,39 @@ def dashboard_callback(request, context: dict[str, Any]) -> dict[str, Any]:
             {
                 'title': 'Payment Documents',
                 'items': _status_counts(PaymentDocument.objects.all(), 'status'),
+            },
+            {
+                'title': 'Jawabu Data Quality',
+                'items': [
+                    StatusGroup(label=code.replace('_', ' ').title(), count=count, tone='warning')
+                    for code, count in quality_codes.items()
+                ],
+            },
+        ],
+        'data_quality_metrics': [
+            {
+                'label': 'Active cases with valid ID',
+                'value': f"{jawabu_quality['valid_national_ids']}/{jawabu_quality['active_cases']}",
+                'detail': 'Seven to nine digit IDs; exceptions remain reviewable.',
+                'url': reverse('admin:core_jawabufarmermaster_changelist'),
+            },
+            {
+                'label': 'Normalized primary phones',
+                'value': f"{jawabu_quality['normalized_primary_phones']}/{jawabu_quality['active_cases']}",
+                'detail': 'Stored in canonical 254XXXXXXXXX form.',
+                'url': reverse('admin:core_jawabufarmermaster_changelist'),
+            },
+            {
+                'label': 'Identity exceptions',
+                'value': identity_issue_count,
+                'detail': 'Duplicate or non-standard identifiers requiring review.',
+                'url': reverse('admin:core_jawabudataqualityissue_changelist') + '?active__exact=1',
+            },
+            {
+                'label': 'Reference-data exceptions',
+                'value': reference_issue_count,
+                'detail': 'Branch, county, or product not in the controlled lists.',
+                'url': reverse('admin:core_jawabudataqualityissue_changelist') + '?active__exact=1',
             },
         ],
         'alerts': [
