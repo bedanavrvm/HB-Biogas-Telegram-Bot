@@ -121,7 +121,10 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(product_by_key('micro_asset').min_amount, Decimal('10000'))
 
     def test_overdue_tat_stage_records_one_pending_follow_up_per_day(self):
-        now = timezone.now()
+        # SLA time is measured only during the official Nairobi business
+        # calendar.  Keep this test inside a weekday business window rather
+        # than coupling it to the wall-clock time at which the test runs.
+        now = timezone.datetime(2026, 7, 27, 10, 0, tzinfo=timezone.get_current_timezone())
         self.config.workflow['tat_targets_minutes'] = {
             'business': {'stages': {'mpesa_to_admin': 1}},
         }

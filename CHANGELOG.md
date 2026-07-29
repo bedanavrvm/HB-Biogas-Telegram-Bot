@@ -6,6 +6,27 @@ approved action.
 
 ## Unreleased — 29-July-2026
 
+- Customer History and TAT: Portal and TAT now present a single internal
+  chronological history for each case, including operational events, customer
+  provenance, documents, decisions, corrections/redactions, accountable
+  actors, and related customer units. Official SLA status now uses the shared
+  Nairobi business calendar while retaining wall-clock time as context.
+  Overdue work gains idempotent in-app escalation tiers and a dry-run daily
+  trend snapshot command; no Telegram notifications or automated transitions
+  are introduced.
+
+Migrations `core.0078_businesscalendarholiday_and_more` and
+`core.0079_remove_workflowtatdailymetric_unique_workflow_tat_daily_metric_and_more`
+add the managed holiday calendar, append-only timeline annotations,
+escalation accountability, and daily TAT projections with branch/role and
+known-staff attribution. They have **not** been applied to production by this
+change. To undo after an approved migration, preserve any required audit
+evidence, then run:
+
+```powershell
+python manage.py migrate core 0077_seed_operational_products
+```
+
 - Jawabu data quality: `/sysup` and FarmUp now share governed customer identity
   normalization, retain historical phone observations, flag 7-9 digit ID
   exceptions for review, preserve system-export field provenance, and validate

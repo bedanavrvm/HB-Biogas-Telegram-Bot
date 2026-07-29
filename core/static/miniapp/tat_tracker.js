@@ -622,6 +622,7 @@
 
   function renderDetail(detail) {
     const summary = detail.summary;
+    const escalation = detail.escalation || null;
     const correctionButton = $('correctCaseDetailsBtn');
     if (correctionButton) {
       correctionButton.classList.toggle('hidden', !detail.can_correct_details);
@@ -659,8 +660,9 @@
           <span>${escapeHtml(summary.next_stage || 'No pending action')}</span>
         </div>
         <div class="fact">
-          <small>Total TAT</small>
-          <span class="tat-badge ${escapeHtml(summary.sla_status || '')}">${escapeHtml(formatMinutes(summary.tat_minutes) || 'Not started')}</span>
+          <small>Official SLA TAT</small>
+          <span class="tat-badge ${escapeHtml(summary.sla_status || '')}">${escapeHtml(formatMinutes(summary.sla_minutes || summary.tat_minutes) || 'Not started')}</span>
+          <small>Wall clock: ${escapeHtml(formatMinutes(summary.wall_clock_minutes || summary.tat_minutes) || '-')}</small>
         </div>
         <div class="fact fact-activity">
           <small>Activity</small>
@@ -669,7 +671,8 @@
             <div><small>Updated</small><span>${escapeHtml(utils.formatDateTime ? utils.formatDateTime(summary.updated_at) : (summary.updated_at || ''))}</span></div>
           </div>
         </div>
-      </div>`;
+      </div>
+      ${escalation ? `<div class="tat-escalation level-${escapeHtml(escalation.escalation_level)}"><strong>SLA escalation: ${escapeHtml(escalation.routing_role)}</strong><span>${escapeHtml(formatMinutes(escalation.overdue_minutes))} overdue at ${escapeHtml(escalation.threshold_percent)}% threshold</span></div>` : ''}`;
 
     $('remarksInput').value = detail.remarks || '';
     const fields = $('stageFields');
@@ -689,7 +692,8 @@
       }
 
       const valueText = field.value || (field.locked_reason ? 'Pending previous stages' : 'Not started');
-      const tatText = formatMinutes(field.tat_minutes);
+      const tatText = formatMinutes(field.sla_minutes || field.tat_minutes);
+      const wallClockText = formatMinutes(field.wall_clock_minutes || field.tat_minutes);
       const targetText = formatMinutes(field.target_minutes);
       const slaText = slaLabel(field.sla_status);
       const tatMeta = tatText ? `
@@ -697,6 +701,7 @@
           <span class="tat-badge ${escapeHtml(field.sla_status || '')}">${escapeHtml(tatText)}</span>
           ${targetText ? `<span class="tat-target">Target ${escapeHtml(targetText)}</span>` : ''}
           ${slaText ? `<span class="tat-target">${escapeHtml(slaText)}</span>` : ''}
+          ${wallClockText && wallClockText !== tatText ? `<span class="tat-target">Wall clock ${escapeHtml(wallClockText)}</span>` : ''}
         </div>
       ` : '';
       const certificateMeta = field.certificate_status ? `<div class="stage-tat-row"><span class="tat-target">Certificate: ${escapeHtml(field.certificate_status.replace(/_/g, ' '))}</span></div>` : '';
@@ -762,20 +767,26 @@
 
     const events = $('eventList');
     events.innerHTML = '';
-    if (!detail.events || !detail.events.length) {
+    const timelineEvents = detail.timeline || detail.events || [];
+    if (!timelineEvents.length) {
       events.appendChild(renderEmpty('No audit events yet', 'Updates will appear here after the case starts moving.'));
     } else {
-      detail.events.forEach((event) => {
+      timelineEvents.forEach((event) => {
+        const eventTitle = event.title || event.stage || 'Case event';
+        const eventValue = event.detail || event.value || '';
+        const eventActor = [event.actor, event.authority && `Authority: ${event.authority}`, event.origin || event.source].filter(Boolean).join(' · ');
+        const eventAt = event.occurred_at ? (utils.formatDateTime ? utils.formatDateTime(event.occurred_at) : event.occurred_at) : event.at;
         const row = document.createElement('div');
         row.className = 'event-item';
         row.innerHTML = `
           <div class="event-dot"></div>
           <div class="event-body">
             <div class="event-header">
-              <strong class="event-stage">${escapeHtml(event.stage)}</strong>
-              <span class="event-value-badge">${escapeHtml(event.value)}</span>
+              <strong class="event-stage">${escapeHtml(eventTitle)}</strong>
+              ${eventValue ? `<span class="event-value-badge">${escapeHtml(eventValue)}</span>` : ''}
             </div>
-            <div class="event-meta">${escapeHtml(event.actor)} &middot; ${escapeHtml(event.at)}</div>
+            <div class="event-meta">${escapeHtml(eventActor || 'System')} &middot; ${escapeHtml(eventAt || '')}</div>
+            ${event.artifact?.url ? `<a class="event-artifact-link" href="${escapeHtml(event.artifact.url)}" target="_blank" rel="noopener">${escapeHtml(event.artifact.name || 'Open linked document')} ↗</a>` : ''}
           </div>
         `;
         events.appendChild(row);

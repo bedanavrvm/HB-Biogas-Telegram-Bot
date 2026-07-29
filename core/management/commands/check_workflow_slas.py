@@ -41,5 +41,6 @@ class Command(BaseCommand):
         for item in payload:
             self.stdout.write(
                 f"{item['workflow']} {item['subject_id']} {item['stage_key']}: "
-                f"{item['overdue_minutes']} minutes overdue"
+                f"{item['overdue_minutes']} minutes overdue "
+                f"({item['threshold_percent']}% -> {item['routing_role']})"
             )

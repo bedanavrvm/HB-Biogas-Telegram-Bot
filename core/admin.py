@@ -50,7 +50,10 @@ from .models import (
     JawabuCustomerPhoneHistory,
     JawabuCustomerFieldProvenance,
     JawabuPipelineEvent,
+    BusinessCalendarHoliday,
     WorkflowSlaEscalation,
+    WorkflowTatDailyMetric,
+    WorkflowTimelineAnnotation,
     JawabuDataQualityIssue,
     JawabuDataQualityResolution,
     JawabuFarmerUploadBatch,
@@ -165,6 +168,20 @@ class JawabuCustomerAdmin(CompactModelAdmin):
     )
 
 
+@admin.register(BusinessCalendarHoliday)
+class BusinessCalendarHolidayAdmin(CompactModelAdmin):
+    list_display = ('date', 'name', 'active', 'updated_at')
+    list_filter = ('active',)
+    search_fields = ('name',)
+    list_editable = ('active',)
+    ordering = ('date',)
+    readonly_fields = ('created_at', 'updated_at')
+    fieldsets = (
+        ('Holiday', {'fields': (('date', 'name'), 'active')}),
+        ('Audit', {'fields': (('created_at', 'updated_at'),), 'classes': ('collapse',)}),
+    )
+
+
 @admin.register(JawabuPipelineEvent)
 class JawabuPipelineEventAdmin(CompactModelAdmin):
     list_display = ('farmer', 'action', 'transition_code', 'from_state', 'to_state', 'actor', 'occurred_at')
@@ -175,10 +192,28 @@ class JawabuPipelineEventAdmin(CompactModelAdmin):
 
 @admin.register(WorkflowSlaEscalation)
 class WorkflowSlaEscalationAdmin(CompactModelAdmin):
-    list_display = ('workflow', 'subject_id', 'group_id', 'stage_key', 'overdue_minutes', 'status', 'escalation_date')
-    list_filter = ('workflow', 'status', 'stage_key', 'escalation_date')
-    search_fields = ('subject_id', 'group_id', 'stage_key')
-    readonly_fields = ('workflow', 'subject_id', 'group_id', 'stage_key', 'target_minutes', 'overdue_minutes', 'escalation_date', 'created_at')
+    list_display = ('workflow', 'subject_id', 'branch', 'stage_key', 'responsible_role', 'responsible_actor', 'escalation_level', 'overdue_minutes', 'status', 'escalation_date')
+    list_filter = ('workflow', 'status', 'escalation_level', 'stage_key', 'branch', 'escalation_date')
+    search_fields = ('subject_id', 'group_id', 'branch', 'stage_key', 'responsible_role', 'responsible_actor')
+    readonly_fields = ('workflow', 'subject_id', 'group_id', 'stage_key', 'branch', 'responsible_role', 'responsible_actor', 'target_minutes', 'overdue_minutes', 'escalation_level', 'threshold_percent', 'escalation_date', 'created_at', 'acknowledged_at', 'resolved_at')
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj and obj.status == 'resolved':
+            return [field.name for field in self.model._meta.fields]
+        return self.readonly_fields
+
+    def save_model(self, request, obj, form, change):
+        # Escalation rows are daily, idempotent operational records.  Record
+        # the human acknowledgement/resolution rather than leaving a status
+        # flip with no accountable actor or timestamp.
+        now = timezone.now()
+        if obj.status == 'acknowledged' and not obj.acknowledged_at:
+            obj.acknowledged_by = request.user
+            obj.acknowledged_at = now
+        elif obj.status == 'resolved' and not obj.resolved_at:
+            obj.resolved_by = request.user
+            obj.resolved_at = now
+        super().save_model(request, obj, form, change)
 
 
 @admin.register(JawabuDataQualityIssue)
@@ -2514,6 +2549,37 @@ class AccessGrantInline(StackedInline):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(WorkflowTatDailyMetric)
+class WorkflowTatDailyMetricAdmin(ReadOnlyAuditAdmin):
+    list_display = ('metric_date', 'workflow', 'branch', 'product_key', 'stage_key', 'responsible_role', 'responsible_actor', 'active_count', 'completed_count', 'overdue_count', 'median_sla_minutes')
+    list_filter = ('metric_date', 'workflow', 'branch', 'product_key', 'stage_key')
+    search_fields = ('group_id', 'branch', 'product_key', 'stage_key', 'responsible_role', 'responsible_actor')
+
+
+@admin.register(WorkflowTimelineAnnotation)
+class WorkflowTimelineAnnotationAdmin(CompactModelAdmin):
+    """Allow authorised append-only history annotations, never event edits."""
+
+    list_display = ('workflow', 'subject_id', 'source_event_id', 'kind', 'actor', 'created_at')
+    list_filter = ('workflow', 'kind', 'created_at')
+    search_fields = ('subject_id', 'source_event_id', 'note', 'artifact_name')
+    readonly_fields = ('actor', 'authority_user', 'created_at')
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj:
+            return [field.name for field in self.model._meta.fields]
+        return self.readonly_fields
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.actor = request.user
+            obj.authority_user = request.user
+        super().save_model(request, obj, form, change)
 
 
 @admin.register(WorkflowRoleCapability)

@@ -1247,6 +1247,81 @@ class JawabuPipelineEvent(models.Model):
         ]
 
 
+class BusinessCalendarHoliday(models.Model):
+    """Admin-managed public holiday excluded from the official JBL SLA clock."""
+
+    date = models.DateField(unique=True, db_index=True)
+    name = models.CharField(max_length=160)
+    active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['date']
+        verbose_name = 'business calendar holiday'
+        verbose_name_plural = 'business calendar holidays'
+
+    def __str__(self):
+        return f'{self.date:%d-%b-%Y}: {self.name}'
+
+
+class WorkflowTimelineAnnotation(models.Model):
+    """Append-only correction/redaction evidence for a projected timeline entry.
+
+    Original workflow events remain immutable.  This record carries the
+    relationship to the original entry and, when authorised, masks sensitive
+    display content without destroying the event shell required for audit.
+    """
+
+    WORKFLOW_CHOICES = [
+        ('jawabu_pipeline', 'Jawabu Pipeline'),
+        ('tat_tracker', 'TAT Tracker'),
+    ]
+    KIND_CHOICES = [
+        ('correction', 'Correction'),
+        ('redaction', 'Redaction'),
+        ('artifact_link', 'Artifact link'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workflow = models.CharField(max_length=40, choices=WORKFLOW_CHOICES, db_index=True)
+    subject_id = models.CharField(max_length=64, db_index=True)
+    source_event_id = models.CharField(max_length=64, db_index=True)
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES, db_index=True)
+    supersedes_event_id = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    note = models.TextField(blank=True, default='')
+    artifact_name = models.CharField(max_length=255, blank=True, default='')
+    artifact_url = models.URLField(max_length=1000, blank=True, default='')
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='workflow_timeline_annotations',
+    )
+    authority_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='workflow_timeline_annotation_authorizations',
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['workflow', 'subject_id', 'created_at']),
+            models.Index(fields=['workflow', 'source_event_id', 'kind']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['workflow', 'subject_id', 'source_event_id', 'kind'],
+                condition=models.Q(kind='redaction'),
+                name='unique_workflow_timeline_redaction',
+            ),
+        ]
+        verbose_name = 'workflow timeline annotation'
+        verbose_name_plural = 'workflow timeline annotations'
+
+    def __str__(self):
+        return f'{self.workflow} {self.kind} {self.source_event_id}'
+
+
 class WorkflowSlaEscalation(models.Model):
     """Idempotent overdue-stage record for supervised operational follow-up."""
 
@@ -1265,10 +1340,24 @@ class WorkflowSlaEscalation(models.Model):
     subject_id = models.CharField(max_length=64, db_index=True)
     group_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
     stage_key = models.CharField(max_length=120, db_index=True)
+    branch = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    responsible_role = models.CharField(max_length=80, blank=True, default='', db_index=True)
+    responsible_actor = models.CharField(max_length=160, blank=True, default='', db_index=True)
     target_minutes = models.PositiveIntegerField()
     overdue_minutes = models.PositiveIntegerField()
+    escalation_level = models.PositiveSmallIntegerField(default=1, db_index=True)
+    threshold_percent = models.PositiveSmallIntegerField(default=100)
     escalation_date = models.DateField(db_index=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', db_index=True)
+    acknowledged_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='acknowledged_workflow_sla_escalations',
+    )
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='resolved_workflow_sla_escalations',
+    )
+    follow_up_note = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     acknowledged_at = models.DateTimeField(null=True, blank=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
@@ -1287,6 +1376,49 @@ class WorkflowSlaEscalation(models.Model):
         ]
         verbose_name = 'workflow SLA escalation'
         verbose_name_plural = 'workflow SLA escalations'
+
+
+class WorkflowTatDailyMetric(models.Model):
+    """Idempotent daily operational TAT trend snapshot.
+
+    This is a reporting projection only.  It never replaces workflow events or
+    changes a case's current state.
+    """
+
+    WORKFLOW_CHOICES = WorkflowSlaEscalation.WORKFLOW_CHOICES
+
+    metric_date = models.DateField(db_index=True)
+    workflow = models.CharField(max_length=40, choices=WORKFLOW_CHOICES, db_index=True)
+    group_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
+    branch = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    product_key = models.CharField(max_length=80, blank=True, default='', db_index=True)
+    stage_key = models.CharField(max_length=120, db_index=True)
+    responsible_role = models.CharField(max_length=80, blank=True, default='', db_index=True)
+    responsible_actor = models.CharField(max_length=160, blank=True, default='', db_index=True)
+    active_count = models.PositiveIntegerField(default=0)
+    completed_count = models.PositiveIntegerField(default=0)
+    overdue_count = models.PositiveIntegerField(default=0)
+    sample_count = models.PositiveIntegerField(default=0)
+    median_sla_minutes = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    p90_sla_minutes = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    median_wall_clock_minutes = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-metric_date', 'workflow', 'stage_key']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['metric_date', 'workflow', 'group_id', 'branch', 'product_key', 'stage_key', 'responsible_role', 'responsible_actor'],
+                name='unique_workflow_tat_daily_metric',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['workflow', 'metric_date', 'branch']),
+            models.Index(fields=['group_id', 'metric_date', 'stage_key']),
+        ]
+        verbose_name = 'workflow TAT daily metric'
+        verbose_name_plural = 'workflow TAT daily metrics'
 
 
 class JawabuDataQualityIssue(models.Model):

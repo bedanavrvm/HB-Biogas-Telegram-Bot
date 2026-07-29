@@ -17,7 +17,10 @@ from core.models import (
     PaymentDocument,
     RequisitionBatch,
 )
+from core.services.business_calendar import business_minutes_between, wall_clock_minutes_between
 from core.services.jawabu_validation import parse_business_date, parse_money, validation_warnings
+from core.services.workflow_escalations import latest_escalation
+from core.services.workflow_timeline import jawabu_case_timeline
 
 
 MILESTONES = (
@@ -198,8 +201,9 @@ def _tat_targets() -> dict[str, Any]:
     return {}
 
 
-def _excluded_deferral_seconds(events, start, end) -> Decimal:
-    seconds = Decimal('0')
+def _deferral_intervals(events, start, end) -> list[tuple[datetime, datetime]]:
+    """Return only the formally approved deferred/reappraisal exclusions."""
+    intervals: list[tuple[datetime, datetime]] = []
     deferred_at = None
     for event in events:
         at = event.occurred_at
@@ -208,11 +212,18 @@ def _excluded_deferral_seconds(events, start, end) -> Decimal:
         elif event.action in {'deferral_ended', 'reappraisal_restarted'} and deferred_at:
             overlap_end = min(at, end)
             if overlap_end > deferred_at:
-                seconds += Decimal(str((overlap_end - deferred_at).total_seconds()))
+                intervals.append((deferred_at, overlap_end))
             deferred_at = None
     if deferred_at and end > deferred_at:
-        seconds += Decimal(str((end - deferred_at).total_seconds()))
-    return seconds
+        intervals.append((deferred_at, end))
+    return intervals
+
+
+def _excluded_deferral_seconds(events, start, end) -> Decimal:
+    return sum(
+        (Decimal(str((interval_end - interval_start).total_seconds())) for interval_start, interval_end in _deferral_intervals(events, start, end)),
+        Decimal('0'),
+    )
 
 
 def _sla_status(minutes: Decimal | None, target: Any) -> str:
@@ -259,6 +270,8 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None) -> dict[str, Any
 
     stages = []
     total_minutes = Decimal('0')
+    total_business_minutes = Decimal('0')
+    total_sla_minutes = Decimal('0')
     complete_stage_count = 0
     for index in range(len(MILESTONES) - 1):
         start_action, start_label = MILESTONES[index]
@@ -272,18 +285,34 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None) -> dict[str, Any
                 stages.append({
                     'key': f'{start_action}_to_{end_action}', 'label': f'{start_label} to {end_label}',
                     'started_at': start_event.occurred_at.isoformat(), 'completed_at': None,
-                    'minutes': None, 'excluded_deferred_minutes': '0',
+                    'minutes': None, 'wall_clock_minutes': None,
+                    'business_minutes': None, 'sla_minutes': None,
+                    'excluded_deferred_minutes': '0', 'excluded_business_minutes': '0',
                     'target_minutes': None, 'status': '',
                 })
                 continue
             end_at = end_event.occurred_at if end_event else (terminal_at or now)
+            intervals = _deferral_intervals(current_events, start_event.occurred_at, end_at)
             excluded_seconds = _excluded_deferral_seconds(current_events, start_event.occurred_at, end_at)
-            elapsed_seconds = max(Decimal('0'), Decimal(str((end_at - start_event.occurred_at).total_seconds())) - excluded_seconds)
-            minutes = (elapsed_seconds / Decimal('60')).quantize(Decimal('0.01'))
+            raw_wall_clock_minutes = wall_clock_minutes_between(start_event.occurred_at, end_at) or Decimal('0')
+            raw_business_minutes = business_minutes_between(start_event.occurred_at, end_at) or Decimal('0')
+            excluded_business_minutes = sum(
+                (business_minutes_between(interval_start, interval_end) or Decimal('0') for interval_start, interval_end in intervals),
+                Decimal('0'),
+            )
+            minutes = max(Decimal('0'), raw_wall_clock_minutes - (excluded_seconds / Decimal('60'))).quantize(Decimal('0.01'))
+            business_minutes = raw_business_minutes.quantize(Decimal('0.01'))
+            sla_minutes = max(Decimal('0'), business_minutes - excluded_business_minutes).quantize(Decimal('0.01'))
             excluded = (excluded_seconds / Decimal('60')).quantize(Decimal('0.01'))
             total_minutes += minutes
+            total_business_minutes += business_minutes
+            total_sla_minutes += sla_minutes
             if end_event:
                 complete_stage_count += 1
+        else:
+            business_minutes = None
+            sla_minutes = None
+            excluded_business_minutes = Decimal('0')
         stage_key = f'{start_action}_to_{end_action}'
         target = (targets.get('stages') or {}).get(stage_key)
         stages.append({
@@ -291,10 +320,16 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None) -> dict[str, Any
             'label': f'{start_label} to {end_label}',
             'started_at': start_event.occurred_at.isoformat() if start_event else None,
             'completed_at': end_event.occurred_at.isoformat() if end_event else None,
+            # ``minutes`` is the historical wall-clock-compatible value.
+            # New consumers must use ``sla_minutes`` for official status.
             'minutes': str(minutes) if minutes is not None else None,
+            'wall_clock_minutes': str(minutes) if minutes is not None else None,
+            'business_minutes': str(business_minutes) if business_minutes is not None else None,
+            'sla_minutes': str(sla_minutes) if sla_minutes is not None else None,
             'excluded_deferred_minutes': str(excluded),
+            'excluded_business_minutes': str(excluded_business_minutes),
             'target_minutes': str(target) if target not in (None, '') else None,
-            'status': _sla_status(minutes, target),
+            'status': _sla_status(sla_minutes, target),
         })
     overall_target = targets.get('overall')
     return {
@@ -303,9 +338,13 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None) -> dict[str, Any
         'previous_cycle_count': max(0, len(application_events) - 1),
         'historical_timestamps_available': bool(milestone_events.get('application_imported')),
         'total_minutes': str(total_minutes) if milestone_events else None,
+        'wall_clock_minutes': str(total_minutes) if milestone_events else None,
+        'business_minutes': str(total_business_minutes) if milestone_events else None,
+        'sla_minutes': str(total_sla_minutes) if milestone_events else None,
         'excluded_deferred_minutes': str(sum(Decimal(stage['excluded_deferred_minutes']) for stage in stages)),
+        'excluded_business_minutes': str(sum(Decimal(stage['excluded_business_minutes']) for stage in stages)),
         'target_minutes': str(overall_target) if overall_target not in (None, '') else None,
-        'status': _sla_status(total_minutes if milestone_events else None, overall_target),
+        'status': _sla_status(total_sla_minutes if milestone_events else None, overall_target),
         'completed_stage_count': complete_stage_count,
         'stages': stages,
     }
@@ -313,7 +352,7 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None) -> dict[str, Any
 
 def serialize_case360(farmer: JawabuFarmerMaster) -> dict[str, Any]:
     validation = validation_warnings(farmer)
-    events = farmer.pipeline_events.order_by('occurred_at', 'created_at')
+    timeline_projection = jawabu_case_timeline(farmer)
     invoice = ParsedInvoice.objects.filter(matched_farmer=farmer, status='matched').order_by('-updated_at').first()
     requisition = (
         RequisitionBatch.objects.filter(order_number=farmer.order_number)
@@ -338,13 +377,10 @@ def serialize_case360(farmer: JawabuFarmerMaster) -> dict[str, Any]:
             'order': {'order_number': farmer.order_number, 'requisition_date': _case_date(farmer.requisition_date), 'payment_product': farmer.payment_product},
             'invoice': {'number': farmer.invoice_number, 'date': _case_date(farmer.invoice_date), 'amount': _case_amount(farmer.invoice_amount), 'discount': _case_amount(farmer.discount), 'payment': _case_amount(farmer.payment), 'balance_due': _case_amount(farmer.balance_due)},
         },
-        'timeline': [{
-            'id': str(event.id), 'action': event.action, 'stage': event.stage_key,
-            'actor': event.actor, 'source': event.source,
-            'old_values': event.old_values, 'new_values': event.new_values,
-            'metadata': event.metadata, 'occurred_at': event.occurred_at.isoformat(),
-        } for event in events],
+        'timeline': timeline_projection['entries'],
+        'related_cases': timeline_projection['related_cases'],
         'tat': calculate_case_tat(farmer),
+        'escalation': latest_escalation('jawabu_pipeline', str(farmer.pk)),
         'validation': validation,
         'documents': {
             'visit_media': [url.strip() for url in farmer.jbl_media_urls.splitlines() if url.strip()],

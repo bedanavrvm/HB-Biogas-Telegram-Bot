@@ -107,9 +107,11 @@
     const sections = data.sections || {};
     const timeline = data.timeline || [];
     const tat = data.tat || {};
+    const escalation = data.escalation || null;
+    const relatedCases = data.related_cases || [];
     const documents = data.documents || {};
     const validation = data.validation || [];
-    const stageRows = (tat.stages || []).map((stage, index) => `<article class="case360-tat-row"><span class="case360-stage-number">${index + 1}</span><div><strong>${deps.escapeHtml(stage.label)}</strong><small>${stage.completed_at ? 'Completed' : stage.started_at ? 'In progress' : 'Not tracked'}</small></div><div><strong>${stage.minutes == null ? '-' : deps.escapeHtml(formatTatMinutes(stage.minutes))}</strong><span class="case360-sla ${deps.escapeHtml(stage.status || '')}">${deps.escapeHtml(humanLabel(stage.status || ''))}</span></div></article>`).join('');
+    const stageRows = (tat.stages || []).map((stage, index) => `<article class="case360-tat-row"><span class="case360-stage-number">${index + 1}</span><div><strong>${deps.escapeHtml(stage.label)}</strong><small>${stage.completed_at ? 'Completed' : stage.started_at ? 'In progress' : 'Not tracked'}${stage.wall_clock_minutes != null ? ` · Wall clock ${deps.escapeHtml(formatTatMinutes(stage.wall_clock_minutes))}` : ''}</small></div><div><strong>${stage.sla_minutes == null ? '-' : deps.escapeHtml(formatTatMinutes(stage.sla_minutes))}</strong><span class="case360-sla ${deps.escapeHtml(stage.status || '')}">${deps.escapeHtml(humanLabel(stage.status || ''))}</span></div></article>`).join('');
     const docLinks = [
       ...(documents.visit_media || []).map((url, index) => ({ name: `Visit media ${index + 1}`, url })),
       documents.requisition,
@@ -127,20 +129,22 @@
       const meta = CASE_SECTION_META[name] || [humanLabel(name), ''];
       return `<details class="case360-section"><summary><div><h3>${deps.escapeHtml(meta[0])}</h3><p>${deps.escapeHtml(meta[1])}</p></div><span class="case360-chevron" aria-hidden="true"></span></summary>${renderBusinessSection(values, name)}</details>`;
     }).join('');
+    const relatedCaseCards = relatedCases.length ? `<details class="case360-section"><summary><div><h3>Other Units</h3><p>Prior or repeat-customer applications</p></div><span class="case360-chevron" aria-hidden="true"></span></summary><div class="case360-related-cases">${relatedCases.map(item => `<button type="button" class="case360-related-case" data-related-farmer="${deps.escapeHtml(item.id)}"><strong>Unit ${deps.escapeHtml(item.unit_number)}</strong><span>${deps.escapeHtml(item.customer_name || 'Customer')} · ${deps.escapeHtml(humanLabel(item.status || ''))}</span></button>`).join('')}</div></details>` : '';
+    const escalationAlert = escalation ? `<div class="case360-escalation level-${deps.escapeHtml(escalation.escalation_level)}"><strong>SLA escalation: ${deps.escapeHtml(escalation.routing_role)}</strong><span>${deps.escapeHtml(formatTatMinutes(escalation.overdue_minutes))} overdue at ${deps.escapeHtml(escalation.threshold_percent)}% threshold</span></div>` : '';
     root.innerHTML = `
       ${caseHeader(sections)}
       <div class="case360-tabs" role="tablist">
         ${tabs.map(([key, label, count], index) => `<button type="button" role="tab" aria-selected="${index ? 'false' : 'true'}" data-case360-tab="${key}" class="${index ? '' : 'active'}"><span>${label}</span>${count !== '' ? `<b>${count}</b>` : ''}</button>`).join('')}
       </div>
-      <section class="case360-panel" role="tabpanel" data-case360-panel="overview"><div class="case360-sections">${sectionCards}</div></section>
+      <section class="case360-panel" role="tabpanel" data-case360-panel="overview">${escalationAlert}<div class="case360-sections">${sectionCards}${relatedCaseCards}</div></section>
       <section class="case360-panel" role="tabpanel" data-case360-panel="timeline" hidden>
         <div class="case360-panel-heading"><div><h3>Case Timeline</h3><p>Recorded actions in chronological order</p></div><strong>${timeline.length} events</strong></div>
-        ${timeline.length ? `<div class="case360-timeline">${timeline.map(event => `<article><time>${deps.escapeHtml(deps.fmtDate(event.occurred_at))}</time><div><strong>${deps.escapeHtml(humanLabel(event.action))}</strong><small>${deps.escapeHtml([event.actor, event.stage].filter(Boolean).join(' - ') || 'System')}</small></div></article>`).join('')}</div>` : '<div class="empty-state">No exact events recorded yet.</div>'}
+        ${timeline.length ? `<div class="case360-timeline">${timeline.map(event => `<article class="${event.redacted ? 'redacted' : ''}"><time>${deps.escapeHtml(deps.fmtDate(event.occurred_at))}</time><div><strong>${deps.escapeHtml(event.title || humanLabel(event.action))}</strong><small>${deps.escapeHtml([event.actor, event.authority && `Authority: ${event.authority}`, event.stage, humanLabel(event.origin || event.source)].filter(Boolean).join(' · ') || 'System')}</small>${event.detail ? `<p>${deps.escapeHtml(event.detail)}</p>` : ''}${event.artifact?.url ? `<a class="case360-link" href="${deps.escapeHtml(event.artifact.url)}" target="_blank" rel="noopener">${deps.escapeHtml(event.artifact.name || 'Open linked document')} ↗</a>` : ''}</div></article>`).join('')}</div>` : '<div class="empty-state">No exact events recorded yet.</div>'}
       </section>
       <section class="case360-panel" role="tabpanel" data-case360-panel="tat" hidden>
         <div class="case360-panel-heading"><div><h3>Turnaround Time</h3><p>Time spent at each tracked workflow stage</p></div></div>
         ${tat.historical_timestamps_available ? '' : '<div class="batch-warning">Historical stage timestamps were not inferred. TAT begins with exact events recorded after tracking was enabled.</div>'}
-        <div class="case360-tat-total"><div><span>Total tracked TAT</span><strong>${tat.total_minutes == null ? '-' : deps.escapeHtml(formatTatMinutes(tat.total_minutes))}</strong></div><span class="case360-sla ${deps.escapeHtml(tat.status || '')}">${deps.escapeHtml(humanLabel(tat.status || ''))}</span></div><div class="case360-tat-list">${stageRows}</div>
+        <div class="case360-tat-total"><div><span>Official SLA TAT (business hours)</span><strong>${tat.sla_minutes == null ? '-' : deps.escapeHtml(formatTatMinutes(tat.sla_minutes))}</strong><small>Wall clock: ${tat.wall_clock_minutes == null ? '-' : deps.escapeHtml(formatTatMinutes(tat.wall_clock_minutes))}</small></div><span class="case360-sla ${deps.escapeHtml(tat.status || '')}">${deps.escapeHtml(humanLabel(tat.status || ''))}</span></div><div class="case360-tat-list">${stageRows}</div>
       </section>
       <section class="case360-panel" role="tabpanel" data-case360-panel="documents" hidden><div class="case360-panel-heading"><div><h3>Case Documents</h3><p>Files connected to this customer and order</p></div></div><div class="case360-documents">${docLinks.length ? docLinks.map(doc => `<a class="case360-document" href="${deps.escapeHtml(doc.url)}" target="_blank" rel="noopener"><span>DOC</span><strong>${deps.escapeHtml(doc.name || 'Document')}</strong><b>Open</b></a>`).join('') : '<div class="empty-state">No linked documents.</div>'}</div></section>
       <section class="case360-panel" role="tabpanel" data-case360-panel="quality" hidden><div class="case360-panel-heading"><div><h3>Data Quality</h3><p>Validation checks requiring staff attention</p></div></div>${validation.length ? `<div class="case360-quality-list">${validation.map(issue => `<article><span>!</span><div><strong>${deps.escapeHtml(humanLabel(issue.field))}</strong><p>${deps.escapeHtml(issue.message)}</p></div></article>`).join('')}</div>` : '<div class="case360-valid"><strong>All checks passed</strong><span>All monitored business fields are valid.</span></div>'}</section>`;
@@ -151,6 +155,9 @@
         item.setAttribute('aria-selected', String(item === button));
       });
       root.querySelectorAll('[data-case360-panel]').forEach(panel => { panel.hidden = panel.dataset.case360Panel !== button.dataset.case360Tab; });
+    }));
+    root.querySelectorAll('[data-related-farmer]').forEach(button => button.addEventListener('click', () => {
+      window.location.assign('/portal/cases/' + encodeURIComponent(button.dataset.relatedFarmer) + '/');
     }));
   }
 

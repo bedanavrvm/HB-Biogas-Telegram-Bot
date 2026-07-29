@@ -56,6 +56,20 @@ handling, and an explicitly approved Render schedule. Until that operating
 change is approved, run the command in dry-run mode and use the resulting
 pending escalation records for supervised follow-up.
 
+## Business-calendar and TAT trend operations
+
+Official TAT/SLA time now excludes only dates entered and kept active in Django
+Admin under **Business calendar holidays**. The platform deliberately does not
+download Kenya public holidays from an external source, so an authorised
+operator must confirm the year’s dates before relying on SLA reporting. Run
+`python manage.py snapshot_workflow_tat --json` to review the current
+projection; `--apply` is an internal, idempotent database write and still
+needs an explicitly approved scheduler before it becomes a routine job.
+Individual trend rows are emitted only where a workflow has recorded a named
+responsible actor. They must be interpreted with the recorded branch, role,
+product and paused/deferred-time context; absent attribution stays
+role/branch-level rather than being guessed.
+
 ## Backup and recovery evidence
 
 The production runbook requires Render daily PostgreSQL backups and quarterly

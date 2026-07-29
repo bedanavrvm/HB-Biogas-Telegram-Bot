@@ -124,6 +124,9 @@ Key modules:
 - `workflow_presets.py` — workflow definitions/presets
 - `workflow_transitions.py` — shared revision validation and transition-conflict responses
 - `workflow_sla.py` — read-only SLA evaluation and idempotent pending follow-up records
+- `business_calendar.py` — official Nairobi business-hours and admin-managed public-holiday calculations
+- `workflow_timeline.py` — read-only, append-only-event timeline projections for Portal and TAT case history
+- `workflow_escalations.py` — scoped read models for current in-app escalation context
 - `workflow_capabilities.py` — centrally defined Mini App capabilities and role policy resolution
 - `access_control.py` — maker-checker access changes, emergency grants, notifications, and policy versioning
 - `access_control_reporting.py` — access-control evidence exports, parity, and least-privilege diagnostics
@@ -546,7 +549,7 @@ Use this table to locate the likely change surface for a given workflow, and wha
 | **Requisitions and invoices** | `services/requisition.py`, `services/invoice_parser.py`, `core/api/portal_views.py`, `core/models.py`, requisition templates/workbooks, `core/tests_pipeline.py` | Money handling, order numbers, filenames, generated workbook contents, download authorization, idempotency |
 | **Order approval** | `services/order_approval.py`, `core/api/views.py`, `templates/order_approval/`, `services/storage.py`, `core/models.py`, `core/tests_order_approval.py`, `order_approval_apps_script.gs` | Telegram authentication, lookup/suggestion APIs, attachment limits, duplicate submissions, media storage failures, sheet sync |
 | **SPIN credit** | `services/spin_credit.py`, `core/api/views.py`, `templates/spin/`, `static/miniapp/spin_form.*`, `core/models.py`, `core/tests_spin_credit.py` | Analyst authorization, request-type requirements, phone/ID/amount normalization, attachment handling, completion audit fields |
-| **TAT tracker** | `services/tat_tracker.py`, `core/api/views.py`, `templates/tat_tracker/`, `static/miniapp/tat_tracker.*`, `tat_tracker_apps_script.gs`, `core/models.py`, `core/tests_tat_tracker.py` | Role restrictions, branch/product scope, stage prerequisites, duplicate create requests, timestamp calculations, event history |
+| **TAT tracker** | `services/tat_tracker.py`, `services/business_calendar.py`, `services/workflow_sla.py`, `services/workflow_timeline.py`, `core/api/views.py`, `templates/tat_tracker/`, `static/miniapp/tat_tracker.*`, `tat_tracker_apps_script.gs`, `core/models.py`, `core/tests_tat_tracker.py` | Role restrictions, branch/product scope, stage prerequisites, duplicate create requests, official business-hour SLA calculations, append-only event history, and idempotent escalation snapshots |
 | **Google Sheets/Drive integrations** | `services/sheets.py`, `services/sheet_sync.py`, `services/sheet_schema.py`, `services/sheet_analyzer.py`, `services/live_sheet_records.py`, `services/storage.py`, `core/tests_sheets_validation.py` | Mock external APIs in tests; test retries, missing headers, formula columns, reordered columns, partial failures, duplicate rows |
 
 ---

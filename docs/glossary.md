@@ -66,6 +66,11 @@ request can be approved.
 | Workflow transition | A validated movement between responsible workflow states. It records source, target, actor, authority, reason where required, and before/after revisions. |
 | Workflow correction | A restricted, append-only correction of completed-stage or base-case data. It is not a normal stage transition. |
 | SLA escalation | A pending operational alert created after a configured stage target is exceeded. It never automatically approves, rejects, or moves a case. |
+| Official SLA time | Mon–Fri, 08:00–17:00 Africa/Nairobi, excluding active Admin-managed `BusinessCalendarHoliday` dates. It is the measure used for SLA status and escalation. |
+| Wall-clock time | Actual elapsed time between two timestamps. It remains visible as supporting context and does not replace official SLA time. |
+| Responsible actor | The explicitly recorded staff member responsible for a stage when the source workflow has that information. Blank attribution means a metric remains role/branch-level and must not be read as an individual performance score. |
+| Unified timeline | A read-only case-history projection joining immutable events, field provenance, decisions, documents, and append-only annotations in chronological order. |
+| Timeline annotation | An append-only authorised correction, artifact link, or redaction record. It never edits or deletes the source event. |
 | Customer identity resolution | Matching a Jawabu case to a canonical customer using one exact national ID, customer number, or current/historical phone. Name similarity only produces a review candidate. |
 | Data-quality issue | An active warning about a canonical Jawabu value or controlled reference value. It is resolved through an append-only staff resolution record. |
 | Field provenance | The append-only source, timestamp, actor, and before/after values for a cross-system customer field update. |
