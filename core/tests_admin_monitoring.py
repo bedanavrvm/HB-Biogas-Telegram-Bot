@@ -8,7 +8,14 @@ from unfold.admin import ModelAdmin
 
 from core.admin_dashboard import dashboard_callback
 from core.admin import GroupSheetConfigurationAdmin
-from core.models import GroupSheetConfiguration, ParsedMessage, SpinCreditRequest, TatTrackerCase, TatTrackerEvent
+from core.models import (
+    GroupSheetConfiguration,
+    JawabuFarmerMaster,
+    ParsedMessage,
+    SpinCreditRequest,
+    TatTrackerCase,
+    TatTrackerEvent,
+)
 
 
 @override_settings(ROOT_URLCONF='config.urls')
@@ -87,7 +94,7 @@ class AdminMonitoringTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Operations dashboard')
         self.assertContains(response, '/static/admin/css/compact_unfold.css')
-        self.assertContains(response, 'compact_unfold.css?v=2')
+        self.assertContains(response, 'compact_unfold.css?v=3')
 
     def test_admin_index_uses_curated_sidebar_and_global_search(self):
         user = get_user_model().objects.create_superuser(
@@ -156,6 +163,28 @@ class AdminMonitoringTests(TestCase):
         self.assertTrue(GroupSheetConfigurationAdmin.compressed_fields)
         self.assertTrue(GroupSheetConfigurationAdmin.list_filter_submit)
         self.assertTrue(GroupSheetConfigurationAdmin.list_fullwidth)
+
+    def test_jawabu_master_change_form_groups_operational_fields_compactly(self):
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Test Customer',
+            national_id='12345678',
+        )
+        user = get_user_model().objects.create_superuser(
+            username='jawabu-admin',
+            email='jawabu-admin@example.test',
+            password='password',
+        )
+        client = Client()
+        client.force_login(user)
+
+        response = client.get(f'/admin/core/jawabufarmermaster/{farmer.pk}/change/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'System Export / Payment')
+        self.assertContains(response, 'Final Review / Decision')
+        self.assertContains(response, 'field-imab_customer_name')
+        self.assertContains(response, 'field-jbl_media_urls')
+        self.assertContains(response, 'lg:grid-cols-2')
 
     def test_custom_group_configuration_pages_use_shared_admin_shell(self):
         group = GroupSheetConfiguration.objects.create(

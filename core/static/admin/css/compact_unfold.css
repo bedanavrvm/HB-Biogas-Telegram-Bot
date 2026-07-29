@@ -1196,3 +1196,193 @@ body[class*='app-'] a.cancel-link {
         width: 100%;
     }
 }
+
+/* -------------------------------------------------------------------------
+ * Model-page density pass
+ *
+ * Unfold's defaults intentionally favour generous whitespace.  That is
+ * pleasant for a small settings form, but it makes operational records (and
+ * users with several access grants) unnecessarily tall.  Keep the existing
+ * responsive layout and only tighten the repeated rows, labels, inlines and
+ * changelist cells.  The larger touch targets in the mobile pass above remain
+ * the source of truth on narrow screens.
+ * ------------------------------------------------------------------------- */
+body.change-form #content-main {
+    min-width: 0;
+}
+
+body.change-form #content-main > .module,
+body.change-form #content-main > form > .module,
+body.change-form #content-main > form > fieldset.module {
+    margin-bottom: .85rem !important;
+}
+
+body.change-form fieldset.module > .aligned {
+    border-radius: 0 0 .5rem .5rem;
+}
+
+body.change-form fieldset.module > .aligned > .form-row {
+    min-height: 0;
+}
+
+body.change-form fieldset.module .field-line {
+    min-width: 0;
+    padding-bottom: .45rem !important;
+    padding-top: .45rem !important;
+}
+
+body.change-form fieldset.module .field-line > div:first-child {
+    flex: 0 0 9.5rem;
+    min-width: 9.5rem;
+}
+
+body.change-form fieldset.module .field-line > div:last-child {
+    min-width: 0;
+}
+
+body.change-form fieldset.module label {
+    font-size: .75rem;
+    font-weight: 600;
+    line-height: 1.15rem;
+}
+
+body.change-form fieldset.module .help,
+body.change-form fieldset.module .helptext,
+body.change-form fieldset.module .text-sm {
+    font-size: .7rem !important;
+    line-height: 1.05rem !important;
+}
+
+body.change-form fieldset.module input:not([type='checkbox']):not([type='radio']),
+body.change-form fieldset.module select {
+    min-height: 2rem !important;
+    padding-bottom: .3rem !important;
+    padding-top: .3rem !important;
+}
+
+body.change-form fieldset.module textarea {
+    min-height: 4.5rem;
+}
+
+body.change-form fieldset.module .form-row.grid {
+    gap: 0 !important;
+}
+
+body.change-form fieldset.module .form-row.grid > .field-line {
+    border-bottom: 1px dashed rgb(var(--color-base-200));
+}
+
+body.change-form fieldset.module .form-row.grid > .field-line:last-child {
+    border-bottom: 0;
+}
+
+body.change-form .submit-row {
+    gap: .4rem !important;
+    margin-bottom: .75rem !important;
+    margin-top: .75rem !important;
+    padding: .65rem .75rem !important;
+}
+
+/* Inline formsets are the main source of vertical waste on User pages. */
+body.change-form .inline-group {
+    margin-bottom: .75rem !important;
+}
+
+body.change-form .inline-group > h2 {
+    font-size: .78rem !important;
+    letter-spacing: .02em;
+    margin-bottom: 0 !important;
+    padding: .55rem .75rem !important;
+}
+
+body.change-form .inline-group .inline-related {
+    margin: 0 !important;
+    padding: .35rem .5rem !important;
+}
+
+body.change-form .inline-group .inline-related h3 {
+    font-size: .72rem !important;
+    margin-bottom: .25rem !important;
+    padding: .25rem .4rem !important;
+}
+
+body.change-form .inline-group .inline-related .field-line {
+    padding-bottom: .3rem !important;
+    padding-top: .3rem !important;
+}
+
+body.change-form .inline-group .add-row,
+body.change-form .inline-group .delete-row {
+    font-size: .72rem !important;
+    padding: .35rem .5rem !important;
+}
+
+body.change-form .inline-group .tabular {
+    -webkit-overflow-scrolling: touch;
+    overflow-x: auto;
+}
+
+body.change-form .inline-group .tabular table {
+    min-width: 44rem;
+}
+
+body.change-form .inline-group .tabular th,
+body.change-form .inline-group .tabular td {
+    padding: .35rem .45rem !important;
+    vertical-align: middle;
+}
+
+body.change-form .inline-group .tabular label {
+    font-size: .7rem !important;
+}
+
+/* Changelists should scan like a work queue, not read like a report. */
+body.change-list #result_list th,
+body.change-list #result_list td {
+    font-size: .75rem;
+    line-height: 1.2;
+    padding-bottom: .4rem !important;
+    padding-top: .4rem !important;
+    white-space: nowrap;
+}
+
+body.change-list #result_list td:first-child,
+body.change-list #result_list th:first-child {
+    padding-left: .6rem !important;
+}
+
+body.change-list #changelist-filter a,
+body.change-list #changelist-filter h3,
+body.change-list #changelist-filter li {
+    font-size: .75rem;
+    line-height: 1.2rem;
+}
+
+@media (min-width: 768px) {
+    body.change-form fieldset.module > h2 {
+        font-size: .82rem !important;
+        margin-bottom: .35rem !important;
+        padding-bottom: .55rem !important;
+        padding-top: .55rem !important;
+    }
+
+    body.change-form fieldset.module > .aligned {
+        display: flow-root;
+    }
+}
+
+@media (max-width: 767px) {
+    body.change-form fieldset.module .field-line > div:first-child {
+        flex-basis: auto;
+        min-width: 0;
+    }
+
+    body.change-form fieldset.module .field-line {
+        padding-bottom: .55rem !important;
+        padding-top: .55rem !important;
+    }
+
+    body.change-form .inline-group .tabular table {
+        min-width: 38rem;
+    }
+}

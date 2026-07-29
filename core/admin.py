@@ -932,48 +932,85 @@ class JawabuFarmerMasterAdmin(ModelAdmin):
     fieldsets = (
         ('Customer', {
             'fields': (
-                'customer_name', 'national_id', 'primary_phone',
-                'secondary_phone', 'external_id', 'status',
+                ('customer_name', 'national_id'),
+                ('primary_phone', 'secondary_phone'),
+                ('external_id', 'unit_number'),
+                'status',
             ),
         }),
         ('Location', {
             'fields': (
-                'county', 'sub_county', 'ward', 'village', 'landmark',
-                'branch', 'gps_link', 'latitude', 'longitude',
+                ('county', 'sub_county'),
+                ('ward', 'village'),
+                'landmark',
+                'branch',
+                'gps_link',
+                ('latitude', 'longitude'),
+                ('latitude_value', 'longitude_value'),
             ),
         }),
         ('Farmers Source Fields', {
             'fields': (
-                'hbg_contract_name', 'lead_source', 'contract_type',
-                'installation_status', 'actual_receipts_currency',
-                'actual_receipts', 'hb_sales_person', 'sign_date',
-                'created_date', 'comments',
+                ('hbg_contract_name', 'lead_source'),
+                ('contract_type', 'installation_status'),
+                ('actual_receipts_currency', 'actual_receipts'),
+                ('deposit_paid_hbg', 'hb_sales_person'),
+                ('hbg_visit_date', 'sign_date'),
+                'created_date',
+                'comments',
             ),
         }),
         ('Stage 2 — JBL Visit', {
             'fields': (
-                'jbl_visit_date', 'jbl_officer',
-                'jbl_visit_status', 'jbl_visit_comment',
+                ('jbl_visit_date', 'jbl_officer'),
+                'jbl_visit_status',
+                'jbl_visit_comment',
+                'jbl_media_urls',
             ),
             'description': 'Logged by the JBL BRO after visiting the farmer.',
         }),
         ('Stage 3 — Credit Decision', {
             'fields': (
-                'credit_decision', 'credit_decided_by', 'credit_decided_at',
+                ('credit_decision', 'credit_decided_by'),
+                'credit_decided_at',
             ),
             'description': (
                 'Set by the credit analyst. Only when Credit Decision = Approved '
                 'can a requisition date and order number be assigned.'
             ),
         }),
+        ('System Export / Payment', {
+            'fields': (
+                ('imab_created', 'customer_no'),
+                ('imab_customer_name', 'system_branch'),
+                ('system_loan_officer', 'system_deposit_paid_jbl'),
+                ('repayment_date', 'repayment_day'),
+                ('repayment_tenor', 'repayment_tenor_months'),
+                'payment_product',
+            ),
+            'description': 'Values imported from the system export and used for payment generation.',
+            'classes': ('compact-section',),
+        }),
+        ('Final Review / Decision', {
+            'fields': (
+                ('final_decision', 'final_decided_by'),
+                'final_decision_comment',
+                'final_decided_at',
+                ('deferred_stage', 'deferred_until'),
+                'deferred_at',
+            ),
+            'description': 'Head of Rural decision and deferred-case tracking.',
+            'classes': ('compact-section',),
+        }),
         ('Stage 4 — Requisition', {
-            'fields': ('requisition_date', 'order_number'),
+            'fields': (('requisition_date', 'order_number'),),
             'description': 'Filled by admin once credit is approved. Gate enforced by the portal.',
         }),
         ('Stage 7 — Invoice', {
             'fields': (
-                'invoice_number', 'invoice_date',
-                'invoice_amount', 'discount', 'payment', 'balance_due',
+                ('invoice_number', 'invoice_date'),
+                ('invoice_amount', 'discount'),
+                ('payment', 'balance_due'),
             ),
             'description': (
                 'Populated automatically when a combined invoice PDF is uploaded '
@@ -983,8 +1020,9 @@ class JawabuFarmerMasterAdmin(ModelAdmin):
         ('Import / Cleaning', {
             'fields': (
                 'cleaning_notes', 'duplicate_key', 'source', 'source_name',
-                'source_row_number', 'source_fingerprint', 'last_imported_at',
-                'raw_data', 'created_at', 'updated_at',
+                ('source_row_number', 'source_fingerprint'),
+                'last_imported_at',
+                'raw_data', ('created_at', 'updated_at'),
             ),
             'classes': ('collapse',),
         }),
