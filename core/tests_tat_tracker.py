@@ -1,4 +1,5 @@
 from unittest.mock import MagicMock, patch
+from datetime import timedelta
 from decimal import Decimal
 from io import BytesIO, StringIO
 import hashlib
@@ -16,7 +17,7 @@ from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import AccessGrant, GroupSheetConfiguration, TatRepairJob, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, UserProfile
+from core.models import AccessGrant, GroupSheetConfiguration, TatRepairJob, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, UserProfile, WorkflowSlaEscalation
 from core.api.views import _dispatch_tat_approval_certificate, _process_telegram_message
 from core.services.group_config import GroupRegistry
 from core.services.tat_tracker import (
@@ -62,6 +63,8 @@ from core.services.tat_tracker import (
     update_case,
     workflow_branches,
 )
+from core.services.workflow_transitions import WorkflowRevisionConflict
+from core.services.workflow_sla import collect_sla_candidates, record_sla_candidates
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
@@ -116,6 +119,36 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(product_by_key('mjengo').min_amount, Decimal('10000'))
         self.assertEqual(product_by_key('mjengo').max_amount, Decimal('500000'))
         self.assertEqual(product_by_key('micro_asset').min_amount, Decimal('10000'))
+
+    def test_overdue_tat_stage_records_one_pending_follow_up_per_day(self):
+        now = timezone.now()
+        self.config.workflow['tat_targets_minutes'] = {
+            'business': {'stages': {'mpesa_to_admin': 1}},
+        }
+        self.config.save(update_fields=['workflow', 'updated_at'])
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            case_id='JBL-BS-2026-SLA',
+            product_key='business',
+            product_label='Business',
+            client_name='SLA Client',
+            branch='Nakuru',
+            status='Active',
+            stage_values={'created': (now - timedelta(minutes=5)).isoformat()},
+        )
+
+        candidates = collect_sla_candidates(workflow='tat_tracker', now=now)
+        candidate = next(item for item in candidates if item.subject_id == str(case.pk))
+        self.assertEqual(candidate.stage_key, 'mpesa_to_admin')
+        self.assertGreater(candidate.overdue_minutes, 0)
+
+        records, created = record_sla_candidates(candidates, today=timezone.localdate(now))
+        _, repeated_created = record_sla_candidates(candidates, today=timezone.localdate(now))
+
+        self.assertEqual(created, 1)
+        self.assertEqual(repeated_created, 0)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(WorkflowSlaEscalation.objects.filter(subject_id=str(case.pk)).count(), 1)
 
     def test_home_lists_paginate_independently(self):
         for index in range(12):
@@ -1859,6 +1892,59 @@ class TatTrackerWorkflowTest(TestCase):
         update_case(self.config, bro, case_id, [{'field': 'mpesa_to_admin', 'value': 'STAMP'}])
         updated = update_case(self.config, admin, case_id, [{'field': 'mpesa_verified', 'value': 'STAMP'}])
         self.assertEqual(updated['summary']['next_stage_key'], 'ca_analysis_sent')
+
+    @patch('core.services.tat_tracker.sync_case_to_sheet')
+    def test_tat_update_uses_revision_receipts_for_conflicts_and_retries(self, sync_mock):
+        sync_mock.side_effect = self.mark_case_synced
+        bro = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+        detail = create_case(self.config, bro, {
+            'product_key': 'business',
+            'branch': 'Nakuru',
+            'client_name': 'Revision Client',
+            'national_id': '12345678',
+            'primary_phone': '0712345678',
+            'bro_name': 'BRO User',
+            'amount': '10000',
+        })
+        case = TatTrackerCase.objects.get(case_id=detail['summary']['case_id'])
+        expected_revision = case.workflow_revision
+
+        update_case(
+            self.config,
+            bro,
+            case.case_id,
+            [{'field': 'mpesa_to_admin', 'value': 'STAMP'}],
+            expected_revision=expected_revision,
+            request_id='tat-revision-1',
+        )
+        case.refresh_from_db()
+        receipt = case.events.get(request_id='tat-revision-1')
+        self.assertEqual(case.workflow_revision, expected_revision + 1)
+        self.assertEqual(receipt.actor_user, self.bro_user)
+        self.assertEqual(receipt.authority_user, self.bro_user)
+        self.assertEqual(receipt.revision_before, expected_revision)
+        self.assertEqual(receipt.revision_after, expected_revision + 1)
+
+        replay = update_case(
+            self.config,
+            bro,
+            case.case_id,
+            [{'field': 'mpesa_to_admin', 'value': 'STAMP'}],
+            expected_revision=expected_revision,
+            request_id='tat-revision-1',
+        )
+        self.assertEqual(replay['summary']['workflow_revision'], expected_revision + 1)
+        self.assertEqual(case.events.filter(request_id='tat-revision-1').count(), 1)
+
+        with self.assertRaises(WorkflowRevisionConflict):
+            update_case(
+                self.config,
+                bro,
+                case.case_id,
+                [{'field': 'mpesa_to_admin', 'value': 'STAMP'}],
+                expected_revision=expected_revision,
+                request_id='tat-revision-stale',
+            )
 
     @patch('core.services.tat_tracker.sync_case_to_sheet')
     def test_admin_case_detail_correction_is_normalized_and_audited(self, sync_mock):

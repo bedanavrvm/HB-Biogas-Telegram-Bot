@@ -454,11 +454,34 @@ def tat_tracker_update(request):
     if capability_error:
         return capability_error
     from core.services.tat_tracker import update_case
+    from core.services.workflow_transitions import (
+        WorkflowRevisionConflict,
+        WorkflowRevisionRequired,
+        parse_expected_revision,
+    )
     try:
-        data = update_case(group_config, user, payload.get('case_id', ''), payload.get('updates') or [])
+        expected_revision = parse_expected_revision(payload.get('workflow_revision', payload.get('revision')))
+        data = update_case(
+            group_config,
+            user,
+            payload.get('case_id', ''),
+            payload.get('updates') or [],
+            expected_revision=expected_revision,
+            request_id=str(payload.get('request_id') or request.headers.get('X-Request-ID') or ''),
+        )
         _dispatch_tat_approval_certificate(payload.get('case_id', ''), user)
         _send_tat_next_role_alert(group_config, data)
         return JsonResponse({'ok': True, 'data': data})
+    except WorkflowRevisionConflict as exc:
+        return JsonResponse({
+            'ok': False,
+            'error': str(exc),
+            'code': exc.code,
+            'expected_revision': exc.expected,
+            'actual_revision': exc.actual,
+        }, status=409)
+    except WorkflowRevisionRequired as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'code': exc.code}, status=428)
     except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     except Exception:

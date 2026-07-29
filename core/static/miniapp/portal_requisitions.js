@@ -377,6 +377,9 @@
     const order_number = orderNoInput.value.trim();
     const requisition_date = reqDateInput.value.trim();
     const farmer_ids = Array.from(state().selectedRequisitions);
+    const workflow_revisions = Object.fromEntries(
+      farmer_ids.map(id => [id, Number(state().selectedRequisitionRevisions.get(id) || 0)])
+    );
     if (!order_number) {
       alert('Please enter an Order Number / Batch Ref.');
       return null;
@@ -389,7 +392,7 @@
       alert('No farmers selected.');
       return null;
     }
-    return { farmer_ids, order_number, requisition_date, return_url: true };
+    return { farmer_ids, workflow_revisions, order_number, requisition_date, return_url: true };
   }
 
   function openInvoiceOverlay(orderNumber) {
@@ -525,6 +528,9 @@
     const reqDate = batch.requisition_date || new Date().toISOString().split('T')[0];
     const payload = {
       farmer_ids: farmerIds,
+      workflow_revisions: Object.fromEntries(
+        farmers.map(farmer => [String(farmer.id), Number(farmer.workflow_revision || 0)])
+      ),
       order_number: batch.order_number,
       requisition_date: reqDate,
       return_url: true,
@@ -696,6 +702,7 @@
       deps.openPortalLink(result.drive_url || result.download_url);
       deps.showToast('Requisition generated and saved to Batches.', 'success');
       state().selectedRequisitions.clear();
+      state().selectedRequisitionRevisions.clear();
       state().pendingRequisitionPayload = null;
       el('batch-order-num').value = '';
       el('batch-req-date').value = '';

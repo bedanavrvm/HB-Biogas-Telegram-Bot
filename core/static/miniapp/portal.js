@@ -44,6 +44,7 @@
       reviewStage: String(restoredPortalUi.reviewStage || 'decision'),
     },
     selectedRequisitions: new Set(),
+    selectedRequisitionRevisions: new Map(),
     pendingRequisitionPayload: null
   };
   let historyKind = 'orders';
@@ -274,6 +275,7 @@
 
     if (page !== 'requisition') {
       state.selectedRequisitions.clear();
+      state.selectedRequisitionRevisions.clear();
       updateBatchPanel();
     }
 
@@ -516,8 +518,13 @@
         }
         event.stopPropagation();
         const id = event.target.dataset.id;
-        if (event.target.checked) state.selectedRequisitions.add(id);
-        else state.selectedRequisitions.delete(id);
+        if (event.target.checked) {
+          state.selectedRequisitions.add(id);
+          state.selectedRequisitionRevisions.set(id, Number(event.target.dataset.revision || 1));
+        } else {
+          state.selectedRequisitions.delete(id);
+          state.selectedRequisitionRevisions.delete(id);
+        }
         updateBatchPanel();
       });
       card.addEventListener('click', async () => {
@@ -784,7 +791,7 @@
     listEl.innerHTML = farmers.map((f, i) => `
       <div class="farmer-card${qKey === 'requisition' ? ' requisition-card' : ''}" data-qkey="${qKey}" data-farmer-id="${escapeHtml(f.id || '')}" data-idx="${i}" id="fc-${qKey}-${i}">
         ${qKey === 'requisition' ? `
-          <input type="checkbox" class="farmer-card-checkbox" data-id="${escapeHtml(f.id || '')}" ${state.selectedRequisitions.has(f.id) ? 'checked' : ''} onclick="event.stopPropagation();">
+          <input type="checkbox" class="farmer-card-checkbox" data-id="${escapeHtml(f.id || '')}" data-revision="${escapeHtml(String(f.workflow_revision || 1))}" ${state.selectedRequisitions.has(f.id) ? 'checked' : ''} onclick="event.stopPropagation();">
         ` : ''}
         <div style="flex: 1;">
           <div class="fc-name">${escapeHtml(f.customer_name || f.national_id || f.primary_phone || 'Unknown')}</div>
@@ -825,8 +832,10 @@
           const id = cb.dataset.id;
           if (cb.checked) {
             state.selectedRequisitions.add(id);
+            state.selectedRequisitionRevisions.set(id, Number(cb.dataset.revision || 1));
           } else {
             state.selectedRequisitions.delete(id);
+            state.selectedRequisitionRevisions.delete(id);
           }
           updateBatchPanel();
         });

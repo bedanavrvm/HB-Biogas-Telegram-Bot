@@ -23,6 +23,7 @@ from django.db import transaction
 from django.db.models import F, Q
 
 from core.models import JawabuFarmerMaster, JawabuPipelineEvent
+from core.services.workflow_transitions import next_workflow_revision, validate_workflow_revision
 
 JBL_MEDIA_CATEGORIES = {
     'LAF': 'LAF document',
@@ -41,6 +42,103 @@ CREDIT_APPROVED = 'Approved'
 CREDIT_TERMINAL = frozenset({'Approved', 'Rejected', 'Deferred', 'Exemption Approved'})
 FINAL_DECISION_APPROVED = 'Approved'
 FINAL_DECISION_TERMINAL = frozenset({'Approved', 'Rejected', 'Deferred'})
+
+
+class JawabuWorkflowState:
+    """Canonical owner of the next operational step for an application."""
+
+    JBL_VISIT = 'jbl_visit'
+    CREDIT = 'credit'
+    FINAL_REVIEW = 'final_review'
+    ORDER = 'order'
+    ORDERED = 'ordered'
+    DEFERRED = 'deferred'
+    REJECTED = 'rejected'
+    WITHDRAWN = 'withdrawn'
+
+
+JAWABU_TERMINAL_STATES = frozenset({
+    JawabuWorkflowState.REJECTED,
+    JawabuWorkflowState.WITHDRAWN,
+    JawabuWorkflowState.ORDERED,
+})
+
+
+def infer_workflow_state(farmer: JawabuFarmerMaster) -> str:
+    """Derive a safe initial state for pre-integrity historical records."""
+    if farmer.deferred_until:
+        return JawabuWorkflowState.DEFERRED
+    if farmer.order_number:
+        return JawabuWorkflowState.ORDERED
+    if farmer.final_decision == 'Approved':
+        return JawabuWorkflowState.ORDER
+    if farmer.final_decision == 'Rejected':
+        return JawabuWorkflowState.REJECTED
+    if farmer.final_decision == 'Deferred':
+        return JawabuWorkflowState.DEFERRED
+    if farmer.credit_decision == 'Rejected':
+        return JawabuWorkflowState.REJECTED
+    if farmer.credit_decision == 'Deferred':
+        return JawabuWorkflowState.DEFERRED
+    if farmer.credit_decision in {'Approved', 'Exemption Approved'}:
+        return JawabuWorkflowState.FINAL_REVIEW
+    if farmer.jbl_visit_status in {'Rejected by JBL'}:
+        return JawabuWorkflowState.REJECTED
+    if farmer.jbl_visit_status in {'Opted for Cash', 'Opted for other Partner'}:
+        return JawabuWorkflowState.WITHDRAWN
+    if farmer.jbl_visit_date:
+        return JawabuWorkflowState.CREDIT
+    return JawabuWorkflowState.JBL_VISIT
+
+
+def current_workflow_state(farmer: JawabuFarmerMaster) -> str:
+    return str(farmer.workflow_state or infer_workflow_state(farmer))
+
+
+def _advance_state(
+    farmer: JawabuFarmerMaster,
+    state: str,
+    *,
+    before_state: str | None = None,
+) -> tuple[str, int, int]:
+    """Set state entry time only when responsibility actually changes.
+
+    Callers snapshot ``before_state`` before changing decision fields. Those
+    fields can themselves influence historical-state inference, so inferring
+    after mutation would corrupt the transition audit trail.
+    """
+    before_state = before_state or current_workflow_state(farmer)
+    revision_before, revision_after = next_workflow_revision(farmer)
+    farmer.workflow_state = state
+    if state != before_state or farmer.workflow_state_entered_at is None:
+        farmer.workflow_state_entered_at = timezone.now()
+    return before_state, revision_before, revision_after
+
+
+def _is_actionable_at_stage(
+    farmer: JawabuFarmerMaster,
+    state: str,
+    *,
+    deferred_stage: str,
+) -> bool:
+    """Allow a stage owner to resume only its own non-expired deferral.
+
+    The comparison deliberately uses the canonical persisted state rather than
+    the fields being submitted. This prevents a direct API request from
+    skipping a team merely by supplying a plausible downstream decision.
+    """
+    current_state = current_workflow_state(farmer)
+    return current_state == state or (
+        current_state == JawabuWorkflowState.DEFERRED
+        and farmer.deferred_stage == deferred_stage
+    )
+
+
+def _wrong_stage_message(farmer: JawabuFarmerMaster, expected_state: str) -> str:
+    return (
+        f"This case is currently with {current_workflow_state(farmer).replace('_', ' ')}. "
+        f"It must be at {expected_state.replace('_', ' ')} before this action can be recorded."
+    )
 
 
 def is_reappraisal_required(farmer: JawabuFarmerMaster, *, today=None) -> bool:
@@ -222,6 +320,8 @@ def log_jbl_visit(
     sub_county: str | None = None,
     village: str | None = None,
     request_id: str = '',
+    expected_revision: int | None = None,
+    actor_user=None,
 ) -> tuple[bool, str]:
     """
     Record that a JBL officer has visited the farmer (Stage 2 advance).
@@ -229,11 +329,18 @@ def log_jbl_visit(
     Returns (success, error_message).
     """
     from core.services.jawabu_case360 import event_request_already_processed
-    if event_request_already_processed(farmer, request_id):
+    # A retry is safe even when a newer action has subsequently changed the
+    # record; it must return the prior success rather than masquerade as a
+    # stale update conflict.
+    source_farmer = farmer
+    locked = JawabuFarmerMaster.objects.select_for_update().get(pk=farmer.pk)
+    if event_request_already_processed(locked, request_id):
+        source_farmer.refresh_from_db()
         return True, ''
-    # Serialize concurrent assignments for the selected farmer and any rows
-    # already carrying this order number before evaluating the batch invariant.
-    JawabuFarmerMaster.objects.select_for_update().filter(pk=farmer.pk).exists()
+    validate_workflow_revision(locked, expected_revision)
+    farmer = locked
+    if not _is_actionable_at_stage(farmer, JawabuWorkflowState.JBL_VISIT, deferred_stage='jbl_visit'):
+        return False, _wrong_stage_message(farmer, JawabuWorkflowState.JBL_VISIT)
     # Validate status value
     valid_statuses = {choice[0] for choice in JawabuFarmerMaster.JBL_VISIT_STATUS_CHOICES}
     if visit_status and visit_status not in valid_statuses:
@@ -251,6 +358,7 @@ def log_jbl_visit(
         return False, 'A valid JBL visit date is required.'
     visit_date = jbl_visit_date
 
+    prior_state = current_workflow_state(farmer)
     farmer.jbl_visit_date = visit_date
     farmer.jbl_officer = str(officer or sender or '').strip()
     farmer.jbl_visit_status = visit_status
@@ -258,13 +366,30 @@ def log_jbl_visit(
 
     if visit_status == 'Deferred / On Hold':
         _set_deferral(farmer, 'jbl_visit', sender or officer, request_id)
+        next_state = JawabuWorkflowState.DEFERRED
     elif farmer.deferred_stage == 'jbl_visit':
         _clear_deferral(farmer, sender or officer, request_id)
+        next_state = JawabuWorkflowState.CREDIT if visit_status in JBL_FORWARD_STATUSES else JawabuWorkflowState.JBL_VISIT
+    elif visit_status == 'Rejected by JBL':
+        next_state = JawabuWorkflowState.REJECTED
+    elif visit_status in {'Opted for Cash', 'Opted for other Partner'}:
+        next_state = JawabuWorkflowState.WITHDRAWN
+    elif visit_status in JBL_FORWARD_STATUSES:
+        next_state = JawabuWorkflowState.CREDIT
+    else:
+        next_state = JawabuWorkflowState.JBL_VISIT
+
+    from_state, revision_before, revision_after = _advance_state(
+        farmer,
+        next_state,
+        before_state=prior_state,
+    )
 
     update_fields = [
         'jbl_visit_date', 'jbl_officer', 'jbl_visit_status',
         'jbl_visit_comment', 'updated_at',
         'deferred_at', 'deferred_stage', 'deferred_until',
+        'workflow_state', 'workflow_state_entered_at', 'workflow_revision',
     ]
 
     if county is not None:
@@ -300,6 +425,12 @@ def log_jbl_visit(
             'status': visit_status,
             'comment': str(comment or '').strip(),
         },
+        actor_user=actor_user,
+        transition_code='jawabu.jbl_visit.record',
+        from_state=from_state,
+        to_state=next_state,
+        revision_before=revision_before,
+        revision_after=revision_after,
     )
     logger.info(
         'JBL visit logged for farmer %s by %s: %s (coordinates: %s, %s)',
@@ -308,6 +439,7 @@ def log_jbl_visit(
     # Sync change to master Google Sheet
     sync_farmer_to_master_sheet(farmer)
     sync_farmer_to_internal_order_sheet(farmer)
+    source_farmer.refresh_from_db()
     return True, ''
 
 
@@ -320,6 +452,8 @@ def set_credit_decision(
     customer_no: str = '',
     sender: str = '',
     request_id: str = '',
+    expected_revision: int | None = None,
+    actor_user=None,
 ) -> tuple[bool, str]:
     """
     Record the credit analyst's decision (Stage 3 advance).
@@ -327,10 +461,17 @@ def set_credit_decision(
     Returns (success, error_message).
     """
     from core.services.jawabu_case360 import event_request_already_processed
+    source_farmer = farmer
+    farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=farmer.pk)
     if event_request_already_processed(farmer, request_id):
+        source_farmer.refresh_from_db()
         return True, ''
+    validate_workflow_revision(farmer, expected_revision)
+    if not _is_actionable_at_stage(farmer, JawabuWorkflowState.CREDIT, deferred_stage='credit'):
+        return False, _wrong_stage_message(farmer, JawabuWorkflowState.CREDIT)
     if is_reappraisal_required(farmer):
         return False, 'This deferral has expired. Fresh preappraisal and visit records are required.'
+    prior_state = current_workflow_state(farmer)
     valid_decisions = {choice[0] for choice in JawabuFarmerMaster.CREDIT_DECISION_CHOICES}
     if decision not in valid_decisions:
         return False, f"Invalid credit decision: '{decision}'. Must be one of: {', '.join(sorted(valid_decisions))}"
@@ -360,18 +501,36 @@ def set_credit_decision(
     farmer.credit_decided_at = timezone.now()
     if decision == 'Deferred':
         _set_deferral(farmer, 'credit', sender, request_id)
+        next_state = JawabuWorkflowState.DEFERRED
     elif farmer.deferred_stage == 'credit':
         _clear_deferral(farmer, sender, request_id)
+        next_state = JawabuWorkflowState.FINAL_REVIEW if decision in {'Approved', 'Exemption Approved'} else JawabuWorkflowState.REJECTED
+    elif decision in {'Approved', 'Exemption Approved'}:
+        next_state = JawabuWorkflowState.FINAL_REVIEW
+    else:
+        next_state = JawabuWorkflowState.REJECTED
+    from_state, revision_before, revision_after = _advance_state(
+        farmer,
+        next_state,
+        before_state=prior_state,
+    )
     farmer.save(update_fields=[
         'credit_decision', 'imab_created', 'customer_no',
         'credit_decided_by', 'credit_decided_at', 'updated_at',
         'deferred_at', 'deferred_stage', 'deferred_until',
+        'workflow_state', 'workflow_state_entered_at', 'workflow_revision',
     ])
     from core.services.jawabu_case360 import record_pipeline_event
     record_pipeline_event(
         farmer, action='credit_decision_recorded', stage_key='credit', actor=sender,
         request_id=request_id,
         new_values={'decision': decision, 'imab_created': imab_created, 'customer_no': customer_no},
+        actor_user=actor_user,
+        transition_code='jawabu.credit.record_decision',
+        from_state=from_state,
+        to_state=next_state,
+        revision_before=revision_before,
+        revision_after=revision_after,
     )
     logger.info(
         'Credit decision %s set for farmer %s by %s',
@@ -381,6 +540,7 @@ def set_credit_decision(
     sync_farmer_to_master_sheet(farmer)
     sync_farmer_to_internal_order_sheet(farmer)
 
+    source_farmer.refresh_from_db()
     return True, ''
 
 
@@ -395,6 +555,8 @@ def set_final_decision(
     repayment_tenor: str | None = None,
     sender: str = '',
     request_id: str = '',
+    expected_revision: int | None = None,
+    actor_user=None,
 ) -> tuple[bool, str]:
     """
     Record Head of Rural final decision. Approved records enter the order queue.
@@ -402,10 +564,17 @@ def set_final_decision(
     Returns (success, error_message).
     """
     from core.services.jawabu_case360 import event_request_already_processed
+    source_farmer = farmer
+    farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=farmer.pk)
     if event_request_already_processed(farmer, request_id):
+        source_farmer.refresh_from_db()
         return True, ''
+    validate_workflow_revision(farmer, expected_revision)
+    if not _is_actionable_at_stage(farmer, JawabuWorkflowState.FINAL_REVIEW, deferred_stage='final'):
+        return False, _wrong_stage_message(farmer, JawabuWorkflowState.FINAL_REVIEW)
     if is_reappraisal_required(farmer):
         return False, 'This deferral has expired. Fresh preappraisal and visit records are required.'
+    prior_state = current_workflow_state(farmer)
     valid_decisions = {choice[0] for choice in JawabuFarmerMaster.FINAL_DECISION_CHOICES}
     if final_decision not in valid_decisions:
         return False, f"Invalid final decision: '{final_decision}'. Must be one of: {', '.join(sorted(valid_decisions))}"
@@ -432,13 +601,27 @@ def set_final_decision(
     farmer.final_decided_at = timezone.now()
     if final_decision == 'Deferred':
         _set_deferral(farmer, 'final', sender, request_id)
+        next_state = JawabuWorkflowState.DEFERRED
     elif farmer.deferred_stage == 'final':
         _clear_deferral(farmer, sender, request_id)
+        next_state = JawabuWorkflowState.ORDER if final_decision == FINAL_DECISION_APPROVED else (JawabuWorkflowState.REJECTED if final_decision == 'Rejected' else JawabuWorkflowState.FINAL_REVIEW)
+    elif final_decision == FINAL_DECISION_APPROVED:
+        next_state = JawabuWorkflowState.ORDER
+    elif final_decision == 'Rejected':
+        next_state = JawabuWorkflowState.REJECTED
+    else:
+        next_state = JawabuWorkflowState.FINAL_REVIEW
+    from_state, revision_before, revision_after = _advance_state(
+        farmer,
+        next_state,
+        before_state=prior_state,
+    )
 
     update_fields = [
         'final_decision', 'final_decision_comment', 'final_decided_by',
         'final_decided_at', 'updated_at',
         'deferred_at', 'deferred_stage', 'deferred_until',
+        'workflow_state', 'workflow_state_entered_at', 'workflow_revision',
     ]
     if repayment_date is not None:
         farmer.repayment_date = str(repayment_date or '').strip()
@@ -455,6 +638,12 @@ def set_final_decision(
         farmer, action='final_decision_recorded', stage_key='final_review', actor=sender,
         request_id=request_id,
         old_values={'decision': old_decision}, new_values={'decision': final_decision},
+        actor_user=actor_user,
+        transition_code='jawabu.final_review.record_decision',
+        from_state=from_state,
+        to_state=next_state,
+        revision_before=revision_before,
+        revision_after=revision_after,
     )
     logger.info(
         'Final decision %s set for farmer %s by %s',
@@ -466,6 +655,104 @@ def set_final_decision(
     if final_decision == FINAL_DECISION_APPROVED and old_decision != FINAL_DECISION_APPROVED:
         _notify_final_approved(farmer)
 
+    source_farmer.refresh_from_db()
+    return True, ''
+
+
+
+@transaction.atomic
+def return_for_rework(
+    farmer: JawabuFarmerMaster,
+    *,
+    target_state: str,
+    reason: str,
+    sender: str = '',
+    request_id: str = '',
+    expected_revision: int | None = None,
+    actor_user=None,
+) -> tuple[bool, str]:
+    """Return a live case to an earlier accountable team with an audit reason.
+
+    Rework is intentionally narrow. It cannot silently reopen an ordered case
+    or bypass the decision records that establish the downstream workflow.
+    """
+    from core.services.jawabu_case360 import event_request_already_processed, record_pipeline_event
+
+    source_farmer = farmer
+    farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=farmer.pk)
+    if event_request_already_processed(farmer, request_id):
+        source_farmer.refresh_from_db()
+        return True, ''
+    validate_workflow_revision(farmer, expected_revision)
+    reason = str(reason or '').strip()
+    if not reason:
+        return False, 'Explain why this case is being returned for rework.'
+    if farmer.order_number:
+        return False, 'An ordered case cannot be returned for rework. Use the controlled correction process instead.'
+
+    from_state = current_workflow_state(farmer)
+    target_state = str(target_state or '').strip()
+    update_fields = ['workflow_state', 'workflow_state_entered_at', 'workflow_revision', 'updated_at']
+    old_values: dict[str, str] = {}
+    new_values: dict[str, str] = {}
+    if from_state == JawabuWorkflowState.CREDIT and target_state == JawabuWorkflowState.JBL_VISIT:
+        old_values = {'credit_decision': farmer.credit_decision}
+        farmer.credit_decision = 'Pending'
+        farmer.credit_decided_by = ''
+        farmer.credit_decided_at = None
+        farmer.final_decision = ''
+        farmer.final_decision_comment = ''
+        farmer.final_decided_by = ''
+        farmer.final_decided_at = None
+        update_fields.extend([
+            'credit_decision', 'credit_decided_by', 'credit_decided_at',
+            'final_decision', 'final_decision_comment', 'final_decided_by', 'final_decided_at',
+        ])
+        transition_code = 'jawabu.credit.return_to_jbl_visit'
+        stage_key = 'credit'
+    elif from_state == JawabuWorkflowState.FINAL_REVIEW and target_state == JawabuWorkflowState.CREDIT:
+        old_values = {'final_decision': farmer.final_decision}
+        farmer.final_decision = ''
+        farmer.final_decision_comment = ''
+        farmer.final_decided_by = ''
+        farmer.final_decided_at = None
+        update_fields.extend(['final_decision', 'final_decision_comment', 'final_decided_by', 'final_decided_at'])
+        transition_code = 'jawabu.final_review.return_to_credit'
+        stage_key = 'final_review'
+    else:
+        return False, 'This return route is not permitted from the case’s current workflow state.'
+
+    # An explicit rework request takes ownership away from a paused decision;
+    # any future deferral must be recorded by the receiving stage again.
+    if farmer.deferred_stage:
+        _clear_deferral(farmer, sender, request_id)
+        update_fields.extend(['deferred_at', 'deferred_stage', 'deferred_until'])
+    prior_state, revision_before, revision_after = _advance_state(
+        farmer,
+        target_state,
+        before_state=from_state,
+    )
+    new_values = {'returned_to': target_state}
+    farmer.save(update_fields=list(dict.fromkeys(update_fields)))
+    record_pipeline_event(
+        farmer,
+        action='returned_for_rework',
+        stage_key=stage_key,
+        actor=sender,
+        request_id=request_id,
+        old_values=old_values,
+        new_values=new_values,
+        actor_user=actor_user,
+        transition_code=transition_code,
+        from_state=prior_state,
+        to_state=target_state,
+        reason=reason,
+        revision_before=revision_before,
+        revision_after=revision_after,
+    )
+    sync_farmer_to_master_sheet(farmer)
+    sync_farmer_to_internal_order_sheet(farmer)
+    source_farmer.refresh_from_db()
     return True, ''
 
 
@@ -632,6 +919,8 @@ def assign_order(
     payment_product: str | None = None,
     sender: str = '',
     request_id: str = '',
+    expected_revision: int | None = None,
+    actor_user=None,
 ) -> tuple[bool, str]:
     """
     Assign an order number and requisition date.
@@ -639,14 +928,21 @@ def assign_order(
     GATE: Final Decision must be Approved. Returns (success, error_message).
     """
     from core.services.jawabu_case360 import event_request_already_processed
+    source_farmer = farmer
+    farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=farmer.pk)
     if event_request_already_processed(farmer, request_id):
+        source_farmer.refresh_from_db()
         return True, ''
+    validate_workflow_revision(farmer, expected_revision)
     if farmer.final_decision != FINAL_DECISION_APPROVED:
         return (
             False,
             f"Cannot assign order - Final Decision is '{farmer.final_decision or 'not set'}', "
             f"not Approved. Complete Head of Rural final review first."
         )
+    if not _is_actionable_at_stage(farmer, JawabuWorkflowState.ORDER, deferred_stage='order'):
+        return False, _wrong_stage_message(farmer, JawabuWorkflowState.ORDER)
+    prior_state = current_workflow_state(farmer)
 
     order_number = str(order_number or '').strip()
     if not order_number:
@@ -686,7 +982,15 @@ def assign_order(
 
     farmer.order_number = order_number
     farmer.requisition_date = requested_requisition_date
-    update_fields = ['order_number', 'requisition_date', 'updated_at']
+    from_state, revision_before, revision_after = _advance_state(
+        farmer,
+        JawabuWorkflowState.ORDERED,
+        before_state=prior_state,
+    )
+    update_fields = [
+        'order_number', 'requisition_date', 'updated_at',
+        'workflow_state', 'workflow_state_entered_at', 'workflow_revision',
+    ]
     if repayment_date is not None:
         farmer.repayment_date = str(repayment_date or '').strip()
         farmer.repayment_day = repayment_day
@@ -704,6 +1008,12 @@ def assign_order(
         farmer, action='order_assigned', stage_key='order', actor=sender,
         request_id=request_id,
         new_values={'order_number': order_number, 'requisition_date': farmer.requisition_date.isoformat()},
+        actor_user=actor_user,
+        transition_code='jawabu.order.assign',
+        from_state=from_state,
+        to_state=JawabuWorkflowState.ORDERED,
+        revision_before=revision_before,
+        revision_after=revision_after,
     )
     logger.info(
         'Order %s assigned to farmer %s by %s',
@@ -711,6 +1021,7 @@ def assign_order(
     )
     sync_farmer_to_master_sheet(farmer)
     sync_farmer_to_internal_order_sheet(farmer)
+    source_farmer.refresh_from_db()
     return True, ''
 
 def farmer_to_card(farmer: JawabuFarmerMaster) -> dict[str, Any]:
@@ -723,6 +1034,8 @@ def farmer_to_card(farmer: JawabuFarmerMaster) -> dict[str, Any]:
         hbg_visit_date = parse_business_date(farmer.sign_date)
     return {
         'id': str(farmer.id),
+        'workflow_state': current_workflow_state(farmer),
+        'workflow_revision': int(farmer.workflow_revision or 1),
         'customer_id': str(farmer.customer_id or ''),
         'unit_number': farmer.unit_number,
         'customer_name': farmer.customer_name,

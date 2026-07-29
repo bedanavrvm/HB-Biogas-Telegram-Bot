@@ -615,7 +615,7 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
         status='Active', current_stage=(product.stages[0].key if product.stages else ''),
         created_by=user.get('name', ''), created_by_telegram_id=user.get('telegram_id', ''), last_updated_by=user.get('name', ''),
     )
-    TatTrackerEvent.objects.create(case=case, group_id=case.group_id, actor_name=user.get('name', ''), actor_telegram_id=user.get('telegram_id', ''), actor_role=','.join(user.get('roles') or []), stage_key='created', stage_label='Case Created', new_value=format_datetime(now), source='mini_app', sheet_name=case.sheet_name)
+    TatTrackerEvent.objects.create(case=case, group_id=case.group_id, actor_name=user.get('name', ''), actor_telegram_id=user.get('telegram_id', ''), actor_role=','.join(user.get('roles') or []), actor_user_id=user.get('user_id') or None, authority_user_id=user.get('user_id') or None, stage_key='created', stage_label='Case Created', new_value=format_datetime(now), source='mini_app', sheet_name=case.sheet_name)
     if payload.get('_defer_sheet_sync'):
         return serialize_case_detail(case, user, workflow=workflow)
     sync_case_to_sheet(group_config, case)
@@ -1018,17 +1018,58 @@ def append_tat_batch_rows(sheet, rows: list[list[Any]]) -> Any:
 
 
 @transaction.atomic
-def update_case(group_config, user: dict, case_id: str, updates: list[dict]) -> dict:
+def update_case(
+    group_config,
+    user: dict,
+    case_id: str,
+    updates: list[dict],
+    *,
+    expected_revision: int | None = None,
+    request_id: str = '',
+) -> dict:
+    """Apply one atomic, revision-checked TAT case mutation.
+
+    Individual field events remain useful evidence, while the receipt event
+    below provides one idempotency key and explicit before/after stage state
+    for the entire Mini App submission.
+    """
+    from core.services.workflow_transitions import next_workflow_revision, validate_workflow_revision
+
     workflow = getattr(group_config, 'workflow', None) or {}
     case = TatTrackerCase.objects.select_for_update().get(group_id=str(group_config.group_id), case_id=str(case_id), is_deleted=False)
+    if request_id and case.events.filter(request_id=str(request_id), source='workflow_transition').exists():
+        return serialize_case_detail(case, user, workflow=workflow)
+    validate_workflow_revision(case, expected_revision)
     if not updates:
         raise ValueError('No updates were submitted.')
+    from_state = str(case.current_stage or '')
+    revision_before, revision_after = next_workflow_revision(case)
     for item in updates:
         apply_update(case, user, item, workflow=workflow)
     next_stage = next_action(case)
     case.current_stage = next_stage.key if next_stage else ''
     case.last_updated_by = user.get('name', '')
-    case.save()
+    case.save(update_fields=['stage_values', 'status', 'remarks', 'current_stage', 'last_updated_by', 'workflow_revision', 'updated_at', 'client_name', 'national_id', 'primary_phone', 'branch', 'bro_name', 'amount'])
+    TatTrackerEvent.objects.create(
+        case=case,
+        group_id=case.group_id,
+        actor_name=user.get('name', ''),
+        actor_telegram_id=user.get('telegram_id', ''),
+        actor_role=','.join(user.get('roles') or []),
+        actor_user_id=user.get('user_id') or None,
+        authority_user_id=user.get('user_id') or None,
+        stage_key='workflow_transition',
+        stage_label='Workflow transition' if from_state != case.current_stage else 'Workflow update',
+        source='workflow_transition',
+        request_id=str(request_id or ''),
+        transition_code='tat.stage.advance' if from_state != case.current_stage else 'tat.case.update',
+        from_state=from_state,
+        to_state=str(case.current_stage or ''),
+        revision_before=revision_before,
+        revision_after=revision_after,
+        sheet_name=case.sheet_name,
+        row_number=case.row_number,
+    )
     sync_case_to_sheet(group_config, case)
     return serialize_case_detail(case, user, workflow=workflow)
 
@@ -1078,6 +1119,8 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
             actor_name=user.get('name', ''),
             actor_telegram_id=user.get('telegram_id', ''),
             actor_role=','.join(user.get('roles') or []),
+            actor_user_id=user.get('user_id') or None,
+            authority_user_id=user.get('user_id') or None,
             stage_key=stage_key,
             stage_label=event_label,
             old_value=str(old or ''),
@@ -1135,7 +1178,7 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
         apply_side_effects(case, product, stage, value)
         stage_key = stage.key
         event_label = stage.label
-    event = TatTrackerEvent.objects.create(case=case, group_id=case.group_id, actor_name=user.get('name', ''), actor_telegram_id=user.get('telegram_id', ''), actor_role=','.join(user.get('roles') or []), stage_key=stage_key, stage_label=(f'{event_label} (Correction)' if correction else event_label), old_value=str(old or ''), new_value=str(new or ''), source=('admin_correction' if correction else 'mini_app'), sheet_name=case.sheet_name, row_number=case.row_number)
+    event = TatTrackerEvent.objects.create(case=case, group_id=case.group_id, actor_name=user.get('name', ''), actor_telegram_id=user.get('telegram_id', ''), actor_role=','.join(user.get('roles') or []), actor_user_id=user.get('user_id') or None, authority_user_id=user.get('user_id') or None, stage_key=stage_key, stage_label=(f'{event_label} (Correction)' if correction else event_label), old_value=str(old or ''), new_value=str(new or ''), source=('admin_correction' if correction else 'mini_app'), sheet_name=case.sheet_name, row_number=case.row_number)
     if signatures_enabled() and field != 'remarks' and stage.requires_signature_certificate:
         create_approval_certificate(case, event, user, stage)
 
@@ -2032,7 +2075,7 @@ def serialize_case_summary(case: TatTrackerCase, user: dict | None = None, next_
     tat_days = calculated_tat_days(case) if tat_minutes is not None else None
     total_target = total_target_minutes(workflow, product)
     certificates = {certificate.stage_key: certificate.status for certificate in case.approval_certificates.all()}
-    return {'case_id': case.case_id, 'product': case.product_label or product.label, 'product_key': case.product_key, 'client_name': case.client_name, 'national_id': case.national_id, 'primary_phone': case.primary_phone, 'branch': case.branch, 'bro_name': case.bro_name, 'amount': str(case.amount or ''), 'status': case.status, 'current_stage': case.current_stage, 'next_stage': next_stage.label if next_stage else '', 'next_stage_key': next_stage.key if next_stage else '', 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'tat_hours': str(tat_hours) if tat_hours is not None else '', 'tat_days': str(tat_days) if tat_days is not None else '', 'target_minutes': str(total_target) if total_target is not None else '', 'sla_status': sla_status(tat_minutes, total_target), 'certificate_statuses': certificates, 'updated_at': format_datetime(case.updated_at), 'created_at': format_datetime(case.created_at)}
+    return {'case_id': case.case_id, 'product': case.product_label or product.label, 'product_key': case.product_key, 'client_name': case.client_name, 'national_id': case.national_id, 'primary_phone': case.primary_phone, 'branch': case.branch, 'bro_name': case.bro_name, 'amount': str(case.amount or ''), 'status': case.status, 'current_stage': case.current_stage, 'workflow_revision': int(case.workflow_revision or 1), 'next_stage': next_stage.label if next_stage else '', 'next_stage_key': next_stage.key if next_stage else '', 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'tat_hours': str(tat_hours) if tat_hours is not None else '', 'tat_days': str(tat_days) if tat_days is not None else '', 'target_minutes': str(total_target) if total_target is not None else '', 'sla_status': sla_status(tat_minutes, total_target), 'certificate_statuses': certificates, 'updated_at': format_datetime(case.updated_at), 'created_at': format_datetime(case.created_at)}
 
 
 def serialize_case_detail(case: TatTrackerCase, user: dict, workflow: dict | None = None) -> dict:

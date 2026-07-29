@@ -37,6 +37,15 @@ Do not copy that local-storage pattern into another Mini App. A follow-up must
 reuse the `MiniAppDraft` service only after it has a capability/scoped-token
 authorization test and confirms attachments stay out of the draft.
 
+## Workflow SLA delivery
+
+The workflow-integrity command records or previews overdue-stage escalations
+without sending Telegram messages by default. This is intentional: automatic
+notification delivery needs approved recipient routing, rate-limit/backoff
+handling, and an explicitly approved Render schedule. Until that operating
+change is approved, run the command in dry-run mode and use the resulting
+pending escalation records for supervised follow-up.
+
 ## Backup and recovery evidence
 
 The production runbook requires Render daily PostgreSQL backups and quarterly

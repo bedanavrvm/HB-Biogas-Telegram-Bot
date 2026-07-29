@@ -47,6 +47,7 @@ from .models import (
     JawabuFarmerMaster,
     JawabuCustomer,
     JawabuPipelineEvent,
+    WorkflowSlaEscalation,
     JawabuDataQualityIssue,
     JawabuFarmerUploadBatch,
     JawabuVisitRecord,
@@ -137,10 +138,18 @@ class JawabuCustomerAdmin(CompactModelAdmin):
 
 @admin.register(JawabuPipelineEvent)
 class JawabuPipelineEventAdmin(CompactModelAdmin):
-    list_display = ('farmer', 'action', 'stage_key', 'actor', 'occurred_at')
-    list_filter = ('action', 'stage_key', 'source', 'occurred_at')
+    list_display = ('farmer', 'action', 'transition_code', 'from_state', 'to_state', 'actor', 'occurred_at')
+    list_filter = ('action', 'stage_key', 'transition_code', 'source', 'occurred_at')
     search_fields = ('farmer__national_id', 'farmer__primary_phone', 'actor')
-    readonly_fields = ('farmer', 'action', 'stage_key', 'actor', 'actor_telegram_id', 'source', 'request_id', 'old_values', 'new_values', 'metadata', 'occurred_at', 'created_at')
+    readonly_fields = ('farmer', 'action', 'stage_key', 'actor', 'actor_telegram_id', 'actor_user', 'authority_user', 'source', 'request_id', 'transition_code', 'from_state', 'to_state', 'reason', 'revision_before', 'revision_after', 'old_values', 'new_values', 'metadata', 'occurred_at', 'created_at')
+
+
+@admin.register(WorkflowSlaEscalation)
+class WorkflowSlaEscalationAdmin(CompactModelAdmin):
+    list_display = ('workflow', 'subject_id', 'group_id', 'stage_key', 'overdue_minutes', 'status', 'escalation_date')
+    list_filter = ('workflow', 'status', 'stage_key', 'escalation_date')
+    search_fields = ('subject_id', 'group_id', 'stage_key')
+    readonly_fields = ('workflow', 'subject_id', 'group_id', 'stage_key', 'target_minutes', 'overdue_minutes', 'escalation_date', 'created_at')
 
 
 @admin.register(JawabuDataQualityIssue)
@@ -786,8 +795,8 @@ class TatTrackerCaseAdmin(TestDataDeleteAdmin):
 
 @admin.register(TatTrackerEvent)
 class TatTrackerEventAdmin(ReadOnlyAuditAdmin):
-    list_display = ['case', 'stage_label', 'actor_name', 'source', 'synced_to_sheet', 'created_at']
-    list_filter = ['group_id', 'source', 'stage_key', 'synced_to_sheet', 'created_at']
+    list_display = ['case', 'stage_label', 'transition_code', 'from_state', 'to_state', 'actor_name', 'source', 'synced_to_sheet', 'created_at']
+    list_filter = ['group_id', 'source', 'stage_key', 'transition_code', 'synced_to_sheet', 'created_at']
     search_fields = ['case__case_id', 'case__client_name', 'actor_name', 'stage_label']
 
 

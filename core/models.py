@@ -642,6 +642,7 @@ class TatTrackerCase(models.Model):
     status = models.CharField(max_length=40, choices=STATUS_CHOICES, default='Active', db_index=True)
     remarks = models.TextField(blank=True, default='')
     current_stage = models.CharField(max_length=120, blank=True, default='', db_index=True)
+    workflow_revision = models.PositiveIntegerField(default=1)
 
     created_by = models.CharField(max_length=255, blank=True, default='')
     created_by_telegram_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
@@ -690,6 +691,7 @@ class TatTrackerEvent(models.Model):
         ('telegram', 'Telegram'),
         ('sheet_sync', 'Sheet Sync'),
         ('admin_correction', 'Admin Correction'),
+        ('workflow_transition', 'Workflow Transition'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -702,11 +704,26 @@ class TatTrackerEvent(models.Model):
     actor_name = models.CharField(max_length=255, blank=True, default='')
     actor_telegram_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
     actor_role = models.CharField(max_length=80, blank=True, default='')
+    actor_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='tat_tracker_actions',
+    )
+    authority_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='tat_tracker_authorized_actions',
+    )
     stage_key = models.CharField(max_length=120, blank=True, default='', db_index=True)
     stage_label = models.CharField(max_length=160, blank=True, default='')
     old_value = models.TextField(blank=True, default='')
     new_value = models.TextField(blank=True, default='')
     source = models.CharField(max_length=40, choices=SOURCE_CHOICES, default='mini_app', db_index=True)
+    request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    transition_code = models.CharField(max_length=120, blank=True, default='', db_index=True)
+    from_state = models.CharField(max_length=120, blank=True, default='', db_index=True)
+    to_state = models.CharField(max_length=120, blank=True, default='', db_index=True)
+    reason = models.TextField(blank=True, default='')
+    revision_before = models.PositiveIntegerField(null=True, blank=True)
+    revision_after = models.PositiveIntegerField(null=True, blank=True)
     sheet_name = models.CharField(max_length=255, blank=True, default='')
     row_number = models.PositiveIntegerField(null=True, blank=True)
     sync_error = models.TextField(blank=True, default='')
@@ -716,6 +733,13 @@ class TatTrackerEvent(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['case', 'request_id'],
+                condition=~models.Q(request_id=''),
+                name='unique_tat_event_request_per_case',
+            ),
+        ]
         indexes = [
             models.Index(fields=['group_id', 'created_at']),
             models.Index(fields=['group_id', 'stage_key']),
@@ -1077,6 +1101,9 @@ class JawabuFarmerMaster(models.Model):
     deferred_at = models.DateTimeField(null=True, blank=True, db_index=True)
     deferred_stage = models.CharField(max_length=32, blank=True, default='', db_index=True)
     deferred_until = models.DateField(null=True, blank=True, db_index=True)
+    workflow_state = models.CharField(max_length=40, blank=True, default='', db_index=True)
+    workflow_state_entered_at = models.DateTimeField(null=True, blank=True)
+    workflow_revision = models.PositiveIntegerField(default=1)
 
     jbl_media_urls = models.TextField(
         blank=True, default='',
@@ -1153,8 +1180,22 @@ class JawabuPipelineEvent(models.Model):
     stage_key = models.CharField(max_length=40, blank=True, default='', db_index=True)
     actor = models.CharField(max_length=255, blank=True, default='')
     actor_telegram_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
+    actor_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='jawabu_pipeline_actions',
+    )
+    authority_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='jawabu_pipeline_authorized_actions',
+    )
     source = models.CharField(max_length=40, blank=True, default='system', db_index=True)
     request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    transition_code = models.CharField(max_length=120, blank=True, default='', db_index=True)
+    from_state = models.CharField(max_length=120, blank=True, default='', db_index=True)
+    to_state = models.CharField(max_length=120, blank=True, default='', db_index=True)
+    reason = models.TextField(blank=True, default='')
+    revision_before = models.PositiveIntegerField(null=True, blank=True)
+    revision_after = models.PositiveIntegerField(null=True, blank=True)
     old_values = models.JSONField(blank=True, default=dict)
     new_values = models.JSONField(blank=True, default=dict)
     metadata = models.JSONField(blank=True, default=dict)
@@ -1174,6 +1215,48 @@ class JawabuPipelineEvent(models.Model):
                 name='jawabu_unique_event_request',
             ),
         ]
+
+
+class WorkflowSlaEscalation(models.Model):
+    """Idempotent overdue-stage record for supervised operational follow-up."""
+
+    WORKFLOW_CHOICES = [
+        ('jawabu_pipeline', 'Jawabu Pipeline'),
+        ('tat_tracker', 'TAT Tracker'),
+    ]
+    STATUS_CHOICES = [
+        ('pending', 'Pending follow-up'),
+        ('acknowledged', 'Acknowledged'),
+        ('resolved', 'Resolved'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workflow = models.CharField(max_length=40, choices=WORKFLOW_CHOICES, db_index=True)
+    subject_id = models.CharField(max_length=64, db_index=True)
+    group_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
+    stage_key = models.CharField(max_length=120, db_index=True)
+    target_minutes = models.PositiveIntegerField()
+    overdue_minutes = models.PositiveIntegerField()
+    escalation_date = models.DateField(db_index=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['workflow', 'subject_id', 'stage_key', 'escalation_date'],
+                name='unique_workflow_sla_escalation_day',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['workflow', 'status', 'created_at']),
+            models.Index(fields=['group_id', 'stage_key', 'status']),
+        ]
+        verbose_name = 'workflow SLA escalation'
+        verbose_name_plural = 'workflow SLA escalations'
 
 
 class JawabuDataQualityIssue(models.Model):

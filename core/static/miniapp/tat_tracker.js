@@ -865,7 +865,12 @@
   async function submitUpdate(updates) {
     if (!state.detail) return;
     setStatus('Saving update...', 'busy');
-    const result = await api('/api/tat-tracker/update/', { case_id: state.detail.summary.case_id, updates });
+    const result = await api('/api/tat-tracker/update/', {
+      case_id: state.detail.summary.case_id,
+      workflow_revision: Number(state.detail.summary.workflow_revision || 1),
+      request_id: newRequestId(),
+      updates,
+    });
     state.detail = result.data;
     renderDetail(result.data);
     setStatus('Saved.', 'ok');

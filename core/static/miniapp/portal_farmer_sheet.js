@@ -587,6 +587,7 @@
       method: 'POST',
       body: JSON.stringify({
         request_id: requestId(),
+        workflow_revision: Number(farmer.workflow_revision || 1),
         visit_date: el('jbl-date')?.value || '',
         visit_status: visitStatus,
         officer: el('jbl-officer')?.value || '',
@@ -660,7 +661,7 @@
     deps.setButtonLoading(btn, true, 'Saving...');
     const { ok, data } = await deps.apiFetch('/credit-queue/' + farmer.id + '/', {
       method: 'POST',
-      body: JSON.stringify({ request_id: requestId(), decision, imab_created: imabCreated, customer_no: customerNo }),
+      body: JSON.stringify({ request_id: requestId(), workflow_revision: Number(farmer.workflow_revision || 1), decision, imab_created: imabCreated, customer_no: customerNo }),
     });
     deps.setButtonLoading(btn, false);
     if (!ok) return deps.showToast(data.error || 'Save failed', 'error');
@@ -685,6 +686,7 @@
       method: 'POST',
       body: JSON.stringify({
         request_id: requestId(),
+        workflow_revision: Number(farmer.workflow_revision || 1),
         final_decision: finalDecision,
         decision_comment: decisionComment,
         repayment_date: repaymentDate,
@@ -717,6 +719,7 @@
       method: 'POST',
       body: JSON.stringify({
         request_id: requestId(),
+        workflow_revision: Number(farmer.workflow_revision || 1),
         order_number: orderNumber,
         requisition_date: reqDate,
         repayment_date: repaymentDate,

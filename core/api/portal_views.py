@@ -138,6 +138,31 @@ def _portal_request_id(request, body: dict | None = None) -> str:
     return value
 
 
+def _portal_workflow_revision(body: dict) -> int:
+    """Require the version displayed to the staff member before a write."""
+    from core.services.workflow_transitions import parse_expected_revision
+
+    raw = body.get('workflow_revision', body.get('revision'))
+    return parse_expected_revision(raw)
+
+
+def _portal_workflow_error(exc):
+    """Map integrity failures to safe, actionable Mini App responses."""
+    from core.services.workflow_transitions import WorkflowRevisionConflict, WorkflowRevisionRequired
+
+    if isinstance(exc, WorkflowRevisionConflict):
+        return JsonResponse({
+            'ok': False,
+            'error': str(exc),
+            'code': exc.code,
+            'expected_revision': exc.expected,
+            'actual_revision': exc.actual,
+        }, status=409)
+    if isinstance(exc, WorkflowRevisionRequired):
+        return JsonResponse({'ok': False, 'error': str(exc), 'code': exc.code}, status=428)
+    return None
+
+
 def _finish_portal_response(request, response, started_at: float):
     """Attach a correlation id to every authenticated portal response.
 
@@ -708,6 +733,7 @@ def _serialize_batch(batch, farmers, request, include_farmers: bool = True) -> d
                 'invoice_amount': str(farmer.invoice_amount) if farmer.invoice_amount is not None else None,
                 'balance_due': str(farmer.balance_due) if farmer.balance_due is not None else None,
                 'invoiced': bool(farmer.invoice_number),
+                'workflow_revision': farmer.workflow_revision,
             })
     return {
         'id': str(batch.id),
@@ -878,6 +904,27 @@ def _parse_requisition_workbook_payload(request, *, allow_blocked: bool = False)
         'blocked': blocked,
         'warnings': warnings,
     }, None
+
+
+def _requisition_assignment_revisions(body: dict, farmers, order_number: str, requisition_date):
+    """Return the displayed revisions for cases that this request will order.
+
+    Regenerating an already assigned batch does not change a case, so it does
+    not need a revision. Assigning an order does; accepting a batch without
+    those per-case revisions would otherwise reintroduce lost updates through
+    the multi-select path.
+    """
+    from core.services.workflow_transitions import parse_expected_revision
+
+    supplied = body.get('workflow_revisions') or {}
+    if not isinstance(supplied, dict):
+        raise ValueError('workflow_revisions must identify each selected case by ID.')
+    expected: dict[str, int] = {}
+    for farmer in farmers:
+        if farmer.order_number == order_number and farmer.requisition_date == requisition_date:
+            continue
+        expected[str(farmer.id)] = parse_expected_revision(supplied.get(str(farmer.id)))
+    return expected
 
 
 def _portal_requisition_batches_payload(request) -> tuple[list[dict], dict]:
@@ -1191,6 +1238,11 @@ def portal_log_jbl_visit(request, farmer_id: str):
         body = json.loads(request.body)
     except (json.JSONDecodeError, ValueError):
         return JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
+    try:
+        expected_revision = _portal_workflow_revision(body)
+    except ValueError as exc:
+        response = _portal_workflow_error(exc)
+        return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 
     visit_date_raw = str(body.get('visit_date') or '').strip()
     if not visit_date_raw:
@@ -1220,22 +1272,29 @@ def portal_log_jbl_visit(request, farmer_id: str):
     except (ValueError, TypeError):
         return JsonResponse({'ok': False, 'error': 'Invalid coordinates format.'}, status=400)
 
-    ok, error = log_jbl_visit(
-        farmer,
-        visit_date=visit_date,
-        officer=officer or sender,
-        visit_status=visit_status,
-        comment=comment,
-        sender=sender,
-        latitude=latitude,
-        longitude=longitude,
-        county=county,
-        sub_county=sub_county,
-        village=village,
-        request_id=_portal_request_id(request, body),
-    )
+    try:
+        ok, error = log_jbl_visit(
+            farmer,
+            visit_date=visit_date,
+            officer=officer or sender,
+            visit_status=visit_status,
+            comment=comment,
+            sender=sender,
+            latitude=latitude,
+            longitude=longitude,
+            county=county,
+            sub_county=sub_county,
+            village=village,
+            request_id=_portal_request_id(request, body),
+            expected_revision=expected_revision,
+            actor_user=getattr(request, 'portal_user', None),
+        )
+    except ValueError as exc:
+        response = _portal_workflow_error(exc)
+        return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     if not ok:
         return JsonResponse({'ok': False, 'error': error}, status=400)
+    farmer.refresh_from_db()
     return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer)})
 
 
@@ -1382,6 +1441,11 @@ def portal_set_credit_decision(request, farmer_id: str):
         body = json.loads(request.body)
     except (json.JSONDecodeError, ValueError):
         return JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
+    try:
+        expected_revision = _portal_workflow_revision(body)
+    except ValueError as exc:
+        response = _portal_workflow_error(exc)
+        return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 
     decision = str(body.get('decision') or '').strip()
     imab_created = str(body.get('imab_created') or '').strip()
@@ -1390,16 +1454,23 @@ def portal_set_credit_decision(request, farmer_id: str):
         return JsonResponse({'ok': False, 'error': 'decision is required.'}, status=400)
 
     sender = _portal_sender_from_request(request)
-    ok, error = set_credit_decision(
-        farmer,
-        decision=decision,
-        imab_created=imab_created,
-        customer_no=customer_no,
-        sender=sender,
-        request_id=_portal_request_id(request, body),
-    )
+    try:
+        ok, error = set_credit_decision(
+            farmer,
+            decision=decision,
+            imab_created=imab_created,
+            customer_no=customer_no,
+            sender=sender,
+            request_id=_portal_request_id(request, body),
+            expected_revision=expected_revision,
+            actor_user=getattr(request, 'portal_user', None),
+        )
+    except ValueError as exc:
+        response = _portal_workflow_error(exc)
+        return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     if not ok:
         return JsonResponse({'ok': False, 'error': error}, status=400)
+    farmer.refresh_from_db()
     return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer)})
 
 
@@ -1464,6 +1535,11 @@ def portal_set_final_decision(request, farmer_id: str):
         body = json.loads(request.body)
     except (json.JSONDecodeError, ValueError):
         return JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
+    try:
+        expected_revision = _portal_workflow_revision(body)
+    except ValueError as exc:
+        response = _portal_workflow_error(exc)
+        return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 
     final_decision = str(body.get('final_decision') or '').strip()
     decision_comment = str(body.get('decision_comment') or '').strip()
@@ -1473,17 +1549,74 @@ def portal_set_final_decision(request, farmer_id: str):
         return JsonResponse({'ok': False, 'error': 'final_decision is required.'}, status=400)
 
     sender = _portal_sender_from_request(request)
-    ok, error = set_final_decision(
-        farmer,
-        final_decision=final_decision,
-        decision_comment=decision_comment,
-        repayment_date=repayment_date,
-        repayment_tenor=repayment_tenor,
-        sender=sender,
-        request_id=_portal_request_id(request, body),
-    )
+    try:
+        ok, error = set_final_decision(
+            farmer,
+            final_decision=final_decision,
+            decision_comment=decision_comment,
+            repayment_date=repayment_date,
+            repayment_tenor=repayment_tenor,
+            sender=sender,
+            request_id=_portal_request_id(request, body),
+            expected_revision=expected_revision,
+            actor_user=getattr(request, 'portal_user', None),
+        )
+    except ValueError as exc:
+        response = _portal_workflow_error(exc)
+        return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     if not ok:
         return JsonResponse({'ok': False, 'error': error}, status=400)
+    farmer.refresh_from_db()
+    return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_return_for_rework(request, farmer_id: str):
+    """Return an eligible Jawabu case to the preceding accountable stage."""
+    from core.models import JawabuFarmerMaster
+    from core.services.jawabu_pipeline import JawabuWorkflowState, farmer_to_card, return_for_rework
+
+    try:
+        farmer = JawabuFarmerMaster.objects.get(pk=farmer_id)
+    except JawabuFarmerMaster.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
+    try:
+        body = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
+    try:
+        expected_revision = _portal_workflow_revision(body)
+    except ValueError as exc:
+        response = _portal_workflow_error(exc)
+        return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+
+    target_state = str(body.get('target_state') or '').strip()
+    capability_action = {
+        JawabuWorkflowState.JBL_VISIT: 'credit.write',
+        JawabuWorkflowState.CREDIT: 'final_review.write',
+    }.get(target_state)
+    if not capability_action:
+        return JsonResponse({'ok': False, 'error': 'Select a valid return stage.'}, status=400)
+    role_error = _portal_role_error(request, capability_action, farmer)
+    if role_error:
+        return role_error
+    try:
+        ok, error = return_for_rework(
+            farmer,
+            target_state=target_state,
+            reason=str(body.get('reason') or ''),
+            sender=_portal_sender_from_request(request),
+            request_id=_portal_request_id(request, body),
+            expected_revision=expected_revision,
+            actor_user=getattr(request, 'portal_user', None),
+        )
+    except ValueError as exc:
+        response = _portal_workflow_error(exc)
+        return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    if not ok:
+        return JsonResponse({'ok': False, 'error': error}, status=400)
+    farmer.refresh_from_db()
     return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer)})
 
 # ── Stage 4: Requisition / Order queue ───────────────────────────────────────
@@ -1532,6 +1665,11 @@ def portal_assign_order(request, farmer_id: str):
         body = json.loads(request.body)
     except (json.JSONDecodeError, ValueError):
         return JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
+    try:
+        expected_revision = _portal_workflow_revision(body)
+    except ValueError as exc:
+        response = _portal_workflow_error(exc)
+        return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 
     order_number = str(body.get('order_number') or '').strip()
     requisition_date_raw = str(body.get('requisition_date') or '').strip()
@@ -1565,20 +1703,27 @@ def portal_assign_order(request, farmer_id: str):
             return JsonResponse({'ok': False, 'error': date_error, 'code': 'requisition_date_conflict'}, status=409)
 
     sender = _portal_sender_from_request(request)
-    ok, error = assign_order(
-        farmer,
-        order_number=order_number,
-        requisition_date=requisition_date,
-        repayment_date=body.get('repayment_date'),
-        repayment_tenor=body.get('repayment_tenor'),
-        payment_product=body.get('payment_product'),
-        sender=sender,
-        request_id=_portal_request_id(request, body),
-    )
+    try:
+        ok, error = assign_order(
+            farmer,
+            order_number=order_number,
+            requisition_date=requisition_date,
+            repayment_date=body.get('repayment_date'),
+            repayment_tenor=body.get('repayment_tenor'),
+            payment_product=body.get('payment_product'),
+            sender=sender,
+            request_id=_portal_request_id(request, body),
+            expected_revision=expected_revision,
+            actor_user=getattr(request, 'portal_user', None),
+        )
+    except ValueError as exc:
+        response = _portal_workflow_error(exc)
+        return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     if not ok:
         # Gate failure → 403 Forbidden
         status_code = 403 if 'Final Decision' in error or 'final review' in error.lower() else 400
         return JsonResponse({'ok': False, 'error': error}, status=status_code)
+    farmer.refresh_from_db()
     return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer)})
 
 
@@ -1833,6 +1978,16 @@ def portal_requisition_generate(request):
     access_error = _portal_capability_error(request, 'portal.requisition.write') or _portal_farmers_scope_error(request, farmers)
     if access_error:
         return access_error
+    try:
+        expected_revisions = _requisition_assignment_revisions(
+            body,
+            farmers,
+            order_number,
+            requisition_date,
+        )
+    except ValueError as exc:
+        response = _portal_workflow_error(exc)
+        return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 
     try:
         xlsx_bytes = generate_requisition_excel(farmers, order_number, requisition_date)
@@ -1846,19 +2001,41 @@ def portal_requisition_generate(request):
         }, status=400)
 
     # Assign order details only after the Excel has been generated successfully.
+    # Lock and validate the whole write set before assigning any individual
+    # case; a stale case therefore cannot leave a half-assigned local batch.
     sender = _portal_sender_from_request(request)
     batch_request_id = _portal_request_id(request, body)
-    for farmer in farmers:
-        if farmer.order_number != order_number or farmer.requisition_date != requisition_date:
-            assign_order(
-                farmer,
-                order_number=order_number,
-                requisition_date=requisition_date,
-                sender=sender,
-                request_id=f'{batch_request_id}:{farmer.id}' if batch_request_id else '',
-            )
-
     from django.db import transaction
+    from core.models import JawabuFarmerMaster
+    from core.services.workflow_transitions import validate_workflow_revision
+
+    try:
+        with transaction.atomic():
+            locked_farmers = {
+                str(farmer.id): farmer
+                for farmer in JawabuFarmerMaster.objects.select_for_update()
+                .filter(id__in=[farmer.id for farmer in farmers])
+                .order_by('id')
+            }
+            for farmer_id, expected_revision in expected_revisions.items():
+                validate_workflow_revision(locked_farmers[farmer_id], expected_revision)
+            for farmer in farmers:
+                locked = locked_farmers[str(farmer.id)]
+                if locked.order_number != order_number or locked.requisition_date != requisition_date:
+                    ok, assignment_error = assign_order(
+                        locked,
+                        order_number=order_number,
+                        requisition_date=requisition_date,
+                        sender=sender,
+                        request_id=f'{batch_request_id}:{locked.id}' if batch_request_id else '',
+                        expected_revision=expected_revisions[str(locked.id)],
+                        actor_user=getattr(request, 'portal_user', None),
+                    )
+                    if not ok:
+                        raise ValueError(assignment_error)
+    except ValueError as exc:
+        response = _portal_workflow_error(exc)
+        return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 
     # Reserve a monotonic version before contacting Drive.  The batch row is
     # the latest pointer, while each generated workbook remains identifiable

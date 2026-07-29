@@ -120,6 +120,8 @@ Key modules:
 - `tat_tracker.py` — TAT workflow configuration and transitions
 - `telegram_command_menu.py` — Telegram command registration
 - `workflow_presets.py` — workflow definitions/presets
+- `workflow_transitions.py` — shared revision validation and transition-conflict responses
+- `workflow_sla.py` — read-only SLA evaluation and idempotent pending follow-up records
 - `workflow_capabilities.py` — centrally defined Mini App capabilities and role policy resolution
 - `access_control.py` — maker-checker access changes, emergency grants, notifications, and policy versioning
 - `access_control_reporting.py` — access-control evidence exports, parity, and least-privilege diagnostics

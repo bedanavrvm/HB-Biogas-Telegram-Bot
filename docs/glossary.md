@@ -62,6 +62,10 @@ request can be approved.
 | Invoice | Supplier/customer invoice parsing, review, matching, and confirmation. |
 | Payment review/final | Per-case Head of Rural payment call-up review followed by a generated payment schedule. |
 | Deferred | A paused case. A deferred application must be reappraised after the configured maximum deferral period. |
+| Workflow revision | Monotonic case version returned to a Mini App. A write must include the version it read; a newer stored version causes a refresh-and-review conflict instead of a lost update. |
+| Workflow transition | A validated movement between responsible workflow states. It records source, target, actor, authority, reason where required, and before/after revisions. |
+| Workflow correction | A restricted, append-only correction of completed-stage or base-case data. It is not a normal stage transition. |
+| SLA escalation | A pending operational alert created after a configured stage target is exceeded. It never automatically approves, rejects, or moves a case. |
 
 Use `Pending` for work not yet decided. Do not substitute an ambiguous visual
 label such as “in review” for a server-side state.

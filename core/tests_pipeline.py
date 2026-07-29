@@ -25,10 +25,12 @@ from core.services.jawabu_pipeline import (
     log_jbl_visit,
     pipeline_counts,
     requisition_queue,
+    return_for_rework,
     set_credit_decision,
     set_final_decision,
     sync_farmer_to_master_sheet,
 )
+from core.services.workflow_transitions import WorkflowRevisionConflict
 
 
 class JblPipelineServiceTestCase(TestCase):
@@ -388,6 +390,74 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertIn('already has requisition date', error)
         candidate.refresh_from_db()
         self.assertEqual(candidate.order_number, '')
+
+    @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
+    @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
+    def test_credit_transition_rejects_stale_revision_after_a_successful_write(self, mock_sync, mock_order_sync):
+        expected_revision = self.farmer_stage2.workflow_revision
+
+        ok, error = set_credit_decision(
+            self.farmer_stage2,
+            decision='Approved',
+            imab_created='Yes',
+            customer_no='15121',
+            sender='analyst_1',
+            request_id='credit-revision-1',
+            expected_revision=expected_revision,
+        )
+
+        self.assertTrue(ok, error)
+        self.assertEqual(self.farmer_stage2.workflow_revision, expected_revision + 1)
+        event = self.farmer_stage2.pipeline_events.get(request_id='credit-revision-1')
+        self.assertEqual(event.from_state, 'credit')
+        self.assertEqual(event.to_state, 'final_review')
+        self.assertEqual(event.revision_before, expected_revision)
+        self.assertEqual(event.revision_after, expected_revision + 1)
+
+        with self.assertRaises(WorkflowRevisionConflict):
+            set_credit_decision(
+                self.farmer_stage2,
+                decision='Approved',
+                imab_created='Yes',
+                customer_no='15121',
+                sender='analyst_1',
+                request_id='credit-revision-stale',
+                expected_revision=expected_revision,
+            )
+        self.assertEqual(mock_sync.call_count, 1)
+        self.assertEqual(mock_order_sync.call_count, 1)
+
+    @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
+    @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
+    def test_final_review_can_return_a_case_to_credit_with_a_reason(self, mock_sync, mock_order_sync):
+        ok, error = return_for_rework(
+            self.farmer_stage_review,
+            target_state='credit',
+            reason='Recheck affordability against the corrected income evidence.',
+            sender='head_rural',
+            request_id='return-credit-1',
+            expected_revision=self.farmer_stage_review.workflow_revision,
+        )
+
+        self.assertTrue(ok, error)
+        self.assertEqual(self.farmer_stage_review.workflow_state, 'credit')
+        self.assertEqual(self.farmer_stage_review.final_decision, '')
+        event = self.farmer_stage_review.pipeline_events.get(request_id='return-credit-1')
+        self.assertEqual(event.transition_code, 'jawabu.final_review.return_to_credit')
+        self.assertEqual(event.reason, 'Recheck affordability against the corrected income evidence.')
+        self.assertEqual(mock_sync.call_count, 1)
+        self.assertEqual(mock_order_sync.call_count, 1)
+
+    def test_rework_route_cannot_skip_credit_back_to_jbl_visit(self):
+        ok, error = return_for_rework(
+            self.farmer_stage_review,
+            target_state='jbl_visit',
+            reason='This route must not be allowed.',
+            expected_revision=self.farmer_stage_review.workflow_revision,
+        )
+
+        self.assertFalse(ok)
+        self.assertIn('return route is not permitted', error)
 
 
 class PortalMiniAppAuthTestCase(TestCase):
@@ -847,6 +917,7 @@ class JblPipelineApiTestCase(TestCase):
     def test_log_jbl_visit_api(self):
         """Verify API POST /api/portal/jbl-queue/<id>/ logs visit and advances pipeline."""
         payload = {
+            'workflow_revision': self.farmer.workflow_revision,
             'visit_date': '2026-07-01',
             'visit_status': 'Awaiting Analysis',
             'officer': 'JBL Officer Alpha',
@@ -871,6 +942,20 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(self.farmer.latitude, '-1.2921')
         self.assertEqual(self.farmer.longitude, '36.8219')
         self.assertEqual(self.farmer.gps_link, 'https://maps.google.com/?q=-1.2921,36.8219')
+
+    def test_portal_workflow_write_requires_the_case_revision(self):
+        response = self.client.post(
+            reverse('portal_log_jbl_visit', args=[self.farmer.id]),
+            json.dumps({
+                'visit_date': '2026-07-01',
+                'visit_status': 'Awaiting Analysis',
+                'officer': 'JBL Officer Alpha',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 428)
+        self.assertEqual(response.json()['code'], 'workflow_revision_required')
 
 
     @patch('core.services.jawabu_pipeline.append_jbl_media_links')
@@ -978,7 +1063,7 @@ class JblPipelineApiTestCase(TestCase):
         self.farmer.jbl_visit_status = 'Approved'
         self.farmer.save()
 
-        payload = {'decision': 'Approved', 'imab_created': 'Yes', 'customer_no': '15122'}
+        payload = {'workflow_revision': self.farmer.workflow_revision, 'decision': 'Approved', 'imab_created': 'Yes', 'customer_no': '15122'}
         url = reverse('portal_set_credit_decision', args=[self.farmer.id])
         response = self.client.post(url, json.dumps(payload), content_type='application/json')
         self.assertEqual(response.status_code, 200)
@@ -994,7 +1079,7 @@ class JblPipelineApiTestCase(TestCase):
         self.farmer.jbl_visit_status = 'Approved'
         self.farmer.save()
 
-        payload = {'decision': 'Approved', 'imab_created': 'No', 'customer_no': '15122'}
+        payload = {'workflow_revision': self.farmer.workflow_revision, 'decision': 'Approved', 'imab_created': 'No', 'customer_no': '15122'}
         url = reverse('portal_set_credit_decision', args=[self.farmer.id])
         response = self.client.post(url, json.dumps(payload), content_type='application/json')
         self.assertEqual(response.status_code, 400)
@@ -1036,6 +1121,7 @@ class JblPipelineApiTestCase(TestCase):
         self.farmer.save()
 
         payload = {
+            'workflow_revision': self.farmer.workflow_revision,
             'final_decision': 'Approved',
             'decision_comment': 'Called client; ready for order.',
             'repayment_date': '15TH',
@@ -1054,7 +1140,7 @@ class JblPipelineApiTestCase(TestCase):
     def test_assign_order_gate_fails_on_unapproved(self):
         """Verify requisition posting fails with 403 on credit not approved."""
         # Farmer is Stage 1 (not finally approved)
-        payload = {'order_number': 'JBL-2026-X1', 'requisition_date': '2026-07-02'}
+        payload = {'workflow_revision': self.farmer.workflow_revision, 'order_number': 'JBL-2026-X1', 'requisition_date': '2026-07-02'}
         url = reverse('portal_assign_order', args=[self.farmer.id])
         response = self.client.post(url, json.dumps(payload), content_type='application/json')
         self.assertEqual(response.status_code, 403)
@@ -1065,7 +1151,7 @@ class JblPipelineApiTestCase(TestCase):
         self.farmer.final_decision = 'Approved'
         self.farmer.save()
 
-        payload = {'order_number': 'JBL-2026-X1', 'requisition_date': '2026-07-02'}
+        payload = {'workflow_revision': self.farmer.workflow_revision, 'order_number': 'JBL-2026-X1', 'requisition_date': '2026-07-02'}
         url = reverse('portal_assign_order', args=[self.farmer.id])
         response = self.client.post(url, json.dumps(payload), content_type='application/json')
         self.assertEqual(response.status_code, 200)
@@ -1420,7 +1506,7 @@ class JblPipelineApiTestCase(TestCase):
 
         response = self.client.post(
             reverse('portal_assign_order', args=[new_farmer.id]),
-            json.dumps({'order_number': '001', 'requisition_date': '2026-07-25'}),
+            json.dumps({'workflow_revision': new_farmer.workflow_revision, 'order_number': '001', 'requisition_date': '2026-07-25'}),
             content_type='application/json',
         )
 
@@ -1446,7 +1532,7 @@ class JblPipelineApiTestCase(TestCase):
 
         response = self.client.post(
             reverse('portal_assign_order', args=[new_farmer.id]),
-            json.dumps({'order_number': '001', 'requisition_date': '2026-07-24'}),
+            json.dumps({'workflow_revision': new_farmer.workflow_revision, 'order_number': '001', 'requisition_date': '2026-07-24'}),
             content_type='application/json',
         )
 
@@ -1477,6 +1563,7 @@ class JblPipelineApiTestCase(TestCase):
 
         payload = {
             'farmer_ids': [str(self.farmer.id)],
+            'workflow_revisions': {str(self.farmer.id): self.farmer.workflow_revision},
             'order_number': 'REQ-BATCH-99',
             'requisition_date': '2026-07-06',
             'return_url': True,
@@ -1582,6 +1669,7 @@ class JblPipelineApiTestCase(TestCase):
             reverse('portal_requisition_generate'),
             json.dumps({
                 'farmer_ids': [str(self.farmer.id)],
+                'workflow_revisions': {str(self.farmer.id): self.farmer.workflow_revision},
                 'order_number': 'REQ-RETRY-1',
                 'requisition_date': '2026-07-06',
                 'return_url': True,
@@ -1658,6 +1746,7 @@ class JblPipelineApiTestCase(TestCase):
         self.mark_requisition_location_ready()
         payload = {
             'farmer_ids': [str(self.farmer.id)],
+            'workflow_revisions': {str(self.farmer.id): self.farmer.workflow_revision},
             'order_number': 'REQ-BATCH-99',
             'requisition_date': '2026-07-06'
         }
@@ -1687,6 +1776,32 @@ class JblPipelineApiTestCase(TestCase):
         response = self.client.post(url, json.dumps(payload), content_type='application/json')
         self.assertEqual(response.status_code, 403)
         self.assertIn('not ready for requisition', response.json()['error'])
+
+    def test_portal_requisition_generate_requires_a_revision_for_each_new_assignment(self):
+        self.farmer.jbl_visit_date = date(2026, 7, 1)
+        self.farmer.jbl_visit_status = 'Approved'
+        self.farmer.credit_decision = 'Approved'
+        self.farmer.imab_created = 'Yes'
+        self.farmer.customer_no = '15124'
+        self.farmer.final_decision = 'Approved'
+        self.farmer.save()
+        self.mark_requisition_location_ready()
+
+        response = self.client.post(
+            reverse('portal_requisition_generate'),
+            json.dumps({
+                'farmer_ids': [str(self.farmer.id)],
+                'order_number': 'REQ-REVISION-REQUIRED',
+                'requisition_date': '2026-07-06',
+                'return_url': True,
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 428)
+        self.assertEqual(response.json()['code'], 'workflow_revision_required')
+        self.farmer.refresh_from_db()
+        self.assertEqual(self.farmer.order_number, '')
 
     def test_portal_requisition_batches(self):
         """Verify that the requisition batches view correctly lists unique batches."""

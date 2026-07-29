@@ -145,6 +145,14 @@ def record_pipeline_event(
     new_values: dict | None = None,
     metadata: dict | None = None,
     occurred_at=None,
+    actor_user=None,
+    authority_user=None,
+    transition_code: str = '',
+    from_state: str = '',
+    to_state: str = '',
+    reason: str = '',
+    revision_before: int | None = None,
+    revision_after: int | None = None,
 ) -> JawabuPipelineEvent:
     values = {
         'action': action,
@@ -157,6 +165,17 @@ def record_pipeline_event(
         'new_values': new_values or {},
         'metadata': metadata or {},
         'occurred_at': occurred_at or timezone.now(),
+        'actor_user': actor_user,
+        # Delegation is intentionally not enabled yet. Keeping a separate
+        # authority field means the audit shape is ready without pretending a
+        # clicker and accountable decision-maker are always interchangeable.
+        'authority_user': authority_user or actor_user,
+        'transition_code': str(transition_code or ''),
+        'from_state': str(from_state or ''),
+        'to_state': str(to_state or ''),
+        'reason': str(reason or ''),
+        'revision_before': revision_before,
+        'revision_after': revision_after,
     }
     if values['request_id']:
         try:
