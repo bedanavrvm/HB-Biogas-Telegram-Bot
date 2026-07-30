@@ -10,9 +10,12 @@
   screen for saved workflow defaults, compact cards, and non-critical alert
   intent. Settings are user-owned and do not change workflow access.
 - TAT additionally has a role-aware Settings screen: IT proposes target,
-  future holiday, and branch/role escalation changes; a different Admin
+  future holiday, and branch/role escalation changes; a different Business Admin
   approves or rejects them. Stage target values are frozen at entry so
   approved future changes do not rewrite an in-flight SLA.
+- TAT Settings now resolves the runtime Telegram group configuration to its
+  database row before reading pending proposals or escalation rules, avoiding
+  a settings-page server error for configured groups.
 - TAT corrections are now explicitly update-only and retain one retry key for
   a failed/resubmitted correction. The new-loan form clearly distinguishes a
   separate loan from an existing case and shows exact National ID/phone loan

@@ -142,6 +142,23 @@ def _request_user(actor: dict):
     return user
 
 
+def _tat_database_configuration(config) -> GroupSheetConfiguration:
+    """Resolve the runtime registry object before using database relations.
+
+    TAT request handling deliberately receives a lightweight ``GroupConfig``
+    from ``GroupRegistry`` so case processing does not depend on a live ORM
+    object.  Settings proposals, pending requests, and escalation rules are
+    database-owned, however, so they must always use the matching
+    ``GroupSheetConfiguration`` row rather than the runtime object.
+    """
+    from core.services.telegram_identity import database_group_configuration
+
+    database_config = database_group_configuration(config)
+    if database_config is None:
+        raise ValueError('The TAT group configuration is unavailable. Ask an administrator to configure this group.')
+    return database_config
+
+
 def _holiday_snapshot() -> dict[str, Any]:
     return {'holidays': [
         {'date': holiday.date.isoformat(), 'name': holiday.name, 'active': holiday.active}
@@ -234,6 +251,7 @@ def _normalise_escalation(payload: Any) -> dict[str, Any]:
 
 def tat_settings_payload(config, actor: dict) -> dict[str, Any]:
     from core.services.tat_tracker import tat_target_settings
+    config = _tat_database_configuration(config)
     pending = WorkflowConfigurationChangeRequest.objects.filter(
         workflow='tat_tracker', group_configuration=config, status=WorkflowConfigurationChangeRequest.STATUS_PENDING,
     ).order_by('-requested_at')
@@ -262,6 +280,7 @@ def tat_settings_payload(config, actor: dict) -> dict[str, Any]:
 def create_tat_configuration_request(config, actor: dict, *, setting_key: str, proposed: Any, reason: str, request_id: str = ''):
     if setting_key not in SETTING_CAPABILITIES or not _capable(actor, SETTING_CAPABILITIES[setting_key][0]):
         raise PermissionError('Your role cannot propose this setting change.')
+    config = _tat_database_configuration(config)
     reason = ' '.join(str(reason or '').split())
     if len(reason) < 8:
         raise ValueError('Provide a short reason for this configuration change.')

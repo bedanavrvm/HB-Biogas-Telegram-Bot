@@ -18,7 +18,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.models import AccessGrant, BusinessCalendarHoliday, GroupSheetConfiguration, LiveSheetRecordChange, SheetRegisterContract, SheetSyncAuditSnapshot, TatEscalationRule, TatRepairJob, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, UserMiniAppPreference, UserProfile, WorkflowConfigurationChangeRequest, WorkflowSlaEscalation
-from core.api.views import _dispatch_tat_approval_certificate, _process_telegram_message, tat_tracker_identity_context
+from core.api.views import _dispatch_tat_approval_certificate, _process_telegram_message, tat_tracker_identity_context, tat_tracker_settings
 from core.services.group_config import GroupConfig, GroupRegistry
 from core.services.tat_tracker import (
     _TAT_HEADER_CACHE,
@@ -364,6 +364,26 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertFalse(can_manage_tat_targets(user))
         with self.assertRaisesRegex(ValueError, 'Only IT'):
             update_tat_target_settings(self.config, user, {})
+
+    @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token')
+    def test_settings_endpoint_resolves_runtime_group_config_to_database_row(self):
+        """The registry object is not a ForeignKey value for settings rows."""
+        request = RequestFactory().post(
+            reverse('tat_tracker_settings'),
+            data=json.dumps({
+                'group_id': self.config.group_id,
+                'init_data': self.signed_init_data(),
+            }),
+            content_type='application/json',
+        )
+
+        response = tat_tracker_settings(request)
+
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        payload = json.loads(response.content)
+        self.assertTrue(payload['ok'])
+        self.assertIn('configuration', payload['data'])
+        self.assertEqual(payload['data']['configuration']['settings_version'], 1)
 
     def test_preference_and_tat_target_proposal_require_independent_approval(self):
         it_actor = staff_user_for_payload(self.config, {'id': 444, 'username': 'it_user'})

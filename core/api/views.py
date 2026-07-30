@@ -484,10 +484,13 @@ def tat_tracker_settings(request):
     actor = get_user_model().objects.filter(pk=user.get('user_id')).first()
     if not actor:
         return JsonResponse({'ok': False, 'error': 'Your staff account could not be resolved.'}, status=403)
-    return JsonResponse({'ok': True, 'data': {
-        'personal': preference_payload(actor, 'tat_tracker'),
-        'configuration': tat_settings_payload(group_config, user),
-    }})
+    try:
+        return JsonResponse({'ok': True, 'data': {
+            'personal': preference_payload(actor, 'tat_tracker'),
+            'configuration': tat_settings_payload(group_config, user),
+        }})
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=409)
 
 
 @csrf_exempt
