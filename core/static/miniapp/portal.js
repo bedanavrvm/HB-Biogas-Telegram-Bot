@@ -37,6 +37,8 @@
     metaBranches: [],
     metaCounties: [],
     personalPreference: null,
+    portalSettings: null,
+    portalDelegationOptions: null,
     capabilities: new Set(),
     accessPolicyVersion: null,
     selectedFarmer: null,
@@ -1118,7 +1120,7 @@
     else if (page === 'history') loadHistory();
     else if (page === 'case_history') loadCaseHistory();
     else if (page === 'payments' && portalPayments.load) portalPayments.load();
-    else if (page === 'settings') loadPortalSettings();
+    else if (page === 'settings') loadPortalSettings(true);
     else if (queueConfig[page]) loadQueue(page, 1);
   }
 
@@ -1139,15 +1141,151 @@
     select.value = selected || '';
   }
 
-  async function loadPortalSettings() {
+  function populatePortalSettingSelect(id, items, selected, emptyLabel) {
+    const select = el(id);
+    if (!select) return;
+    select.replaceChildren();
+    const empty = document.createElement('option');
+    empty.value = '';
+    empty.textContent = emptyLabel;
+    select.appendChild(empty);
+    (items || []).forEach((item) => {
+      const option = document.createElement('option');
+      option.value = item.value ?? item.key ?? item;
+      option.textContent = item.label ?? item.value ?? item;
+      select.appendChild(option);
+    });
+    select.value = selected || '';
+  }
+
+  function delegationDateTimeValue(hoursFromNow = 8) {
+    const date = new Date(Date.now() + hoursFromNow * 60 * 60 * 1000);
+    date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+    return date.toISOString().slice(0, 16);
+  }
+
+  function delegationMarkup(item, history = false) {
+    const scope = [item.branch || 'All branches', item.product || 'All products'].join(' · ');
+    const activity = history
+      ? (item.revoked_at ? `Revoked ${fmtDateTime(item.revoked_at)}` : `Expired ${fmtDateTime(item.expires_at)}`)
+      : `Ends ${fmtDateTime(item.expires_at)}`;
+    const revokeForm = history ? '' : `<form class="portal-delegation-revoke-form" data-delegation-id="${escapeHtml(item.id)}">
+      <label class="sr-only" for="delegation-revoke-${escapeHtml(item.id)}">Reason for revoking delegation</label>
+      <input id="delegation-revoke-${escapeHtml(item.id)}" name="reason" maxlength="2000" required placeholder="Reason for revoking">
+      <button class="btn btn-secondary" type="submit">Revoke</button>
+    </form>`;
+    return `<article class="portal-delegation-row${history ? ' is-history' : ''}">
+      <div><strong>${escapeHtml(item.delegate)} · ${escapeHtml(item.gate_label)}</strong>
+        <span>${escapeHtml(scope)} · ${escapeHtml(activity)}</span>
+        <span>Granted by ${escapeHtml(item.authorized_by)}: ${escapeHtml(item.reason || 'No reason recorded.')}</span>
+        ${item.revocation_reason ? `<span>Revocation: ${escapeHtml(item.revocation_reason)}</span>` : ''}
+      </div>${revokeForm}
+    </article>`;
+  }
+
+  function renderPortalHealth(target, health) {
+    const labels = {
+      database: 'Database',
+      requisition_template: 'Requisition template',
+      payment_template: 'Payment template',
+      order_storage: 'Order storage',
+      payment_storage: 'Payment storage',
+    };
+    const checks = Object.entries(health.checks || {}).map(([key, value]) => `<div class="portal-health-check${value === 'ok' ? '' : ' is-degraded'}"><strong>${escapeHtml(labels[key] || key)}</strong><span>${escapeHtml(value === 'ok' ? 'Ready' : value === 'missing' ? 'Needs configuration' : 'Retry needed')}</span></div>`).join('');
+    const retryCount = Number(health.due_order_retries || 0) + Number(health.due_payment_retries || 0);
+    target.innerHTML = `<h2>System readiness</h2><p>${health.status === 'healthy' ? 'Templates and document storage are ready.' : `Some document operations need attention${retryCount ? ` (${retryCount} retry${retryCount === 1 ? '' : 'ies'} due)` : ''}.`}</p><div class="portal-health-grid">${checks}</div>`;
+  }
+
+  function renderPortalDelegations(target, payload) {
+    const delegates = payload.delegates || [];
+    const gates = payload.gates || [];
+    state.portalDelegationOptions = payload;
+    target.innerHTML = `<h2>Temporary approval delegation</h2><p>Business Admins can cover one approval gate temporarily. A reason, exact scope, and expiry are mandatory.</p>
+      <form id="portal-delegation-form" class="portal-delegation-form">
+        <label>Delegate<select id="portal-delegation-delegate" required><option value="">Choose staff member</option>${delegates.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.label)}</option>`).join('')}</select></label>
+        <label>Approval gate<select id="portal-delegation-gate" required><option value="">Choose approval gate</option>${gates.map(item => `<option value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</option>`).join('')}</select></label>
+        <label>Branch<select id="portal-delegation-branch" disabled><option value="">Choose delegate first</option></select></label>
+        <label>Expires at<input id="portal-delegation-expiry" type="datetime-local" required value="${delegationDateTimeValue()}" max="${delegationDateTimeValue(14 * 24)}"></label>
+        <label class="delegation-reason">Reason<textarea id="portal-delegation-reason" maxlength="2000" required placeholder="For example: annual leave cover"></textarea></label>
+        <div class="form-actions"><button id="portal-create-delegation" class="btn btn-primary" type="submit">Grant temporary authority</button></div>
+      </form>
+      <div class="portal-delegation-list"><h3>Active delegations</h3>${payload.active?.length ? payload.active.map(item => delegationMarkup(item)).join('') : '<p class="portal-delegation-empty">No active temporary delegations.</p>'}</div>
+      ${payload.history?.length ? `<details class="history-previous-versions"><summary>Recent expired or revoked delegations</summary><div class="portal-delegation-list">${payload.history.map(item => delegationMarkup(item, true)).join('')}</div></details>` : ''}
+    `;
+  }
+
+  function populateDelegationBranchChoices() {
+    const delegateSelect = el('portal-delegation-delegate');
+    const branchSelect = el('portal-delegation-branch');
+    if (!delegateSelect || !branchSelect) return;
+    const candidate = (state.portalDelegationOptions?.delegates || []).find(item => String(item.id) === String(delegateSelect.value));
+    branchSelect.replaceChildren();
+    if (!candidate) {
+      branchSelect.disabled = true;
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = 'Choose delegate first';
+      branchSelect.appendChild(option);
+      return;
+    }
+    branchSelect.disabled = false;
+    if (candidate.all_branches) {
+      const allOption = document.createElement('option');
+      allOption.value = '';
+      allOption.textContent = 'All branches';
+      branchSelect.appendChild(allOption);
+    }
+    (candidate.branches || []).forEach((branch) => {
+      const option = document.createElement('option');
+      option.value = branch;
+      option.textContent = branch;
+      branchSelect.appendChild(option);
+    });
+    if (!candidate.all_branches && candidate.branches?.length === 1) branchSelect.value = candidate.branches[0];
+  }
+
+  async function renderPortalOperations(operations) {
+    const target = el('portal-settings-operations');
+    if (!target) return;
+    target.replaceChildren();
+    const tasks = [];
+    if (operations?.health) {
+      const healthTarget = document.createElement('div');
+      healthTarget.className = 'portal-operation-card';
+      healthTarget.innerHTML = '<h2>System readiness</h2><p>Checking templates and document storage…</p>';
+      target.appendChild(healthTarget);
+      tasks.push(apiFetch('/health/').then(({ ok, data }) => {
+        if (!ok || !data.ok) throw new Error(data.error || 'System readiness could not be loaded.');
+        renderPortalHealth(healthTarget, data);
+      }).catch(error => { healthTarget.innerHTML = `<h2>System readiness</h2><p>${escapeHtml(error.message)}</p>`; }));
+    }
+    if (operations?.delegation) {
+      const delegationTarget = document.createElement('div');
+      delegationTarget.className = 'portal-operation-card';
+      delegationTarget.innerHTML = '<h2>Temporary approval delegation</h2><p>Loading current temporary authority…</p>';
+      target.appendChild(delegationTarget);
+      tasks.push(apiFetch('/settings/delegations/').then(({ ok, data }) => {
+        if (!ok || !data.ok) throw new Error(data.error || 'Delegations could not be loaded.');
+        renderPortalDelegations(delegationTarget, data.data || {});
+      }).catch(error => { delegationTarget.innerHTML = `<h2>Temporary approval delegation</h2><p>${escapeHtml(error.message)}</p>`; }));
+    }
+    await Promise.all(tasks);
+  }
+
+  async function loadPortalSettings(loadOperations = false) {
     const { ok, data } = await apiFetch('/settings/');
     if (!ok || !data.ok) throw new Error(data.error || 'Portal settings could not be loaded.');
     const personal = data.data?.personal || {};
     state.personalPreference = personal;
+    state.portalSettings = data.data || {};
     populatePortalSettingScreens(data.data?.screens || [], personal.default_screen);
+    populatePortalSettingSelect('portal-preference-default-queue', data.data?.queues || [], personal.default_filters?.queue, 'Use landing screen');
+    populatePortalSettingSelect('portal-preference-default-branch', data.data?.branches || [], personal.default_filters?.branch, 'All permitted branches');
+    populatePortalSettingSelect('portal-preference-review-status', data.data?.review_statuses || [], personal.default_filters?.status, 'Final decisions');
     if (el('portal-preference-alert-mode')) el('portal-preference-alert-mode').value = personal.alert_mode || 'immediate';
     if (el('portal-preference-compact-cards')) el('portal-preference-compact-cards').checked = Boolean(personal.compact_cards);
     document.body.classList.toggle('portal-compact-cards', Boolean(personal.compact_cards));
+    if (loadOperations) await renderPortalOperations(data.data?.operations || {});
     return personal;
   }
   // Bootstrap
@@ -1158,9 +1296,20 @@
     window.setInterval(loadMeta, 60000);
     const shellScreen = document.getElementById('portal-screen')?.dataset.screen || 'dashboard';
     const isRootLanding = /\/portal\/?$/.test(window.location.pathname);
-    const requestedPage = isRootLanding && state.personalPreference?.default_screen
-      ? state.personalPreference.default_screen
-      : (shellScreen === 'dashboard' && restoredPortalUi.activePage ? restoredPortalUi.activePage : shellScreen);
+    const savedFilters = state.personalPreference?.default_filters || {};
+    const hasRestoredBranch = Object.prototype.hasOwnProperty.call(restoredPortalUi, 'branch');
+    const hasRestoredReviewStage = Object.prototype.hasOwnProperty.call(restoredPortalUi, 'reviewStage');
+    if (isRootLanding && !hasRestoredBranch && savedFilters.branch) state.filters.branch = savedFilters.branch;
+    if (isRootLanding && !hasRestoredReviewStage && ['decision', 'payment'].includes(savedFilters.status)) {
+      state.filters.reviewStage = savedFilters.status;
+    }
+    if (el('final-review-stage')) el('final-review-stage').value = state.filters.reviewStage;
+    const savedQueue = isRootLanding ? String(savedFilters.queue || '') : '';
+    const requestedPage = savedQueue && hasCapability(PAGE_CAPABILITIES[savedQueue])
+      ? savedQueue
+      : (isRootLanding && state.personalPreference?.default_screen
+        ? state.personalPreference.default_screen
+        : (shellScreen === 'dashboard' && restoredPortalUi.activePage ? restoredPortalUi.activePage : shellScreen));
     const initialPage = hasCapability(PAGE_CAPABILITIES[requestedPage]) ? requestedPage : firstPermittedPage();
     if (!initialPage) {
       document.getElementById('portal-screen').innerHTML = '<section class="shell-error" role="alert"><h2>Access not configured</h2><p>Ask an administrator to assign a Portal role and capability.</p></section>';
@@ -1301,6 +1450,34 @@
     if (event.target.matches('#final-review-stage, #filter-county, #filter-branch')) {
       window.setTimeout(rememberPortalUi, 0);
     }
+    if (event.target.matches('#portal-preference-compact-cards')) {
+      document.body.classList.toggle('portal-compact-cards', Boolean(event.target.checked));
+    }
+    if (event.target.matches('#portal-delegation-delegate')) {
+      populateDelegationBranchChoices();
+    }
+  });
+
+  document.addEventListener('click', event => {
+    if (!event.target.matches('#portal-clear-personal-settings')) return;
+    event.preventDefault();
+    const button = event.target;
+    setButtonLoading(button, true, 'Clearing');
+    portalApi.postJson('/settings/', {
+      preferences: {
+        default_screen: '',
+        default_filters: {},
+        compact_cards: false,
+        alert_mode: 'immediate',
+      },
+    }, tg).then((result) => {
+      if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not clear Portal defaults.');
+      state.personalPreference = result.data.data || null;
+      document.body.classList.remove('portal-compact-cards');
+      return loadPortalSettings(true);
+    }).then(() => showToast('Your Portal defaults were cleared.', 'success'))
+      .catch((error) => showToast(error.message, 'error'))
+      .finally(() => setButtonLoading(button, false));
   });
 
   document.addEventListener('submit', event => {
@@ -1311,6 +1488,11 @@
       portalApi.postJson('/settings/', {
         preferences: {
           default_screen: el('portal-preference-default-screen')?.value || '',
+          default_filters: {
+            queue: el('portal-preference-default-queue')?.value || '',
+            branch: el('portal-preference-default-branch')?.value || '',
+            status: el('portal-preference-review-status')?.value || '',
+          },
           compact_cards: Boolean(el('portal-preference-compact-cards')?.checked),
           alert_mode: el('portal-preference-alert-mode')?.value || 'immediate',
         },
@@ -1320,6 +1502,38 @@
         document.body.classList.toggle('portal-compact-cards', Boolean(state.personalPreference?.compact_cards));
         showToast('Your Portal settings were saved.', 'success');
       }).catch((error) => showToast(error.message, 'error')).finally(() => setButtonLoading(button, false));
+      return;
+    }
+    if (event.target.matches('#portal-delegation-form')) {
+      event.preventDefault();
+      const button = el('portal-create-delegation');
+      setButtonLoading(button, true, 'Granting');
+      portalApi.postJson('/settings/delegations/', {
+        delegate_id: el('portal-delegation-delegate')?.value || '',
+        gate: el('portal-delegation-gate')?.value || '',
+        branch: el('portal-delegation-branch')?.value || '',
+        expires_at: el('portal-delegation-expiry')?.value || '',
+        reason: el('portal-delegation-reason')?.value || '',
+      }, tg).then((result) => {
+        if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not grant temporary authority.');
+        return loadPortalSettings(true);
+      }).then(() => showToast('Temporary approval authority was granted and audit-logged.', 'success'))
+        .catch((error) => showToast(error.message, 'error'))
+        .finally(() => setButtonLoading(button, false));
+      return;
+    }
+    if (event.target.matches('.portal-delegation-revoke-form')) {
+      event.preventDefault();
+      const form = event.target;
+      const button = form.querySelector('button[type="submit"]');
+      const reason = form.querySelector('[name="reason"]')?.value || '';
+      setButtonLoading(button, true, 'Revoking');
+      portalApi.postJson(`/settings/delegations/${encodeURIComponent(form.dataset.delegationId || '')}/revoke/`, { reason }, tg).then((result) => {
+        if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not revoke temporary authority.');
+        return loadPortalSettings(true);
+      }).then(() => showToast('Temporary approval authority was revoked and audit-logged.', 'success'))
+        .catch((error) => showToast(error.message, 'error'))
+        .finally(() => setButtonLoading(button, false));
       return;
     }
     if (!event.target.matches('#case-history-search-form')) return;

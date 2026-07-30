@@ -1167,11 +1167,43 @@ def portal_settings(request):
         return JsonResponse({'ok': False, 'error': 'Your Portal staff account could not be resolved.'}, status=403)
     from core.services.miniapp_settings import preference_payload, update_preference
 
-    if request.method == 'GET':
+    def setting_options():
+        """Return only defaults and operations the active staff member may use."""
+        from core.services.branches import global_branch_choices
         from core.services.portal_navigation import get_portal_nav_items
+        from core.services.workflow_capabilities import has_capability
+
+        access = getattr(request, 'portal_access', None)
+        screens = [
+            item for item in get_portal_nav_items(actor, access=access)
+            if item['key'] != 'settings'
+        ]
+        staff_branches = {
+            str(value).strip().casefold()
+            for value in (access or {}).get('branches', [])
+            if str(value).strip()
+        }
+        branches = global_branch_choices()
+        if staff_branches:
+            branches = [branch for branch in branches if branch.casefold() in staff_branches]
+        return {
+            'screens': screens,
+            'queues': [item for item in screens if item['key'] in PORTAL_QUEUE_FRAGMENT_CONFIG],
+            'branches': branches,
+            'review_statuses': [
+                {'value': 'decision', 'label': 'Final decisions'},
+                {'value': 'payment', 'label': 'Payment batches awaiting review'},
+            ],
+            'operations': {
+                'health': has_capability(actor, 'jawabu_portal', 'portal.health.read', access=access),
+                'delegation': has_capability(actor, 'jawabu_portal', 'portal.approval.delegation.authorize', access=access),
+            },
+        }
+
+    if request.method == 'GET':
         return JsonResponse({'ok': True, 'data': {
             'personal': preference_payload(actor, 'jawabu_portal'),
-            'screens': [item for item in get_portal_nav_items(actor, access=getattr(request, 'portal_access', None)) if item['key'] != 'settings'],
+            **setting_options(),
         }})
     try:
         payload = json.loads(request.body.decode('utf-8') or '{}')
@@ -1180,9 +1212,203 @@ def portal_settings(request):
     if not isinstance(payload, dict):
         return JsonResponse({'ok': False, 'error': 'Settings request must be a JSON object.'}, status=400)
     try:
-        return JsonResponse({'ok': True, 'data': update_preference(actor, 'jawabu_portal', payload.get('preferences') or {})})
+        preferences = payload.get('preferences') or {}
+        if not isinstance(preferences, dict):
+            raise ValueError('Preferences must be a JSON object.')
+        options = setting_options()
+        allowed_screens = {item['key'] for item in options['screens']}
+        allowed_queues = {item['key'] for item in options['queues']}
+        allowed_branches = {str(value).strip().casefold(): str(value).strip() for value in options['branches']}
+        default_screen = str(preferences.get('default_screen') or '').strip()
+        filters = preferences.get('default_filters') or {}
+        if default_screen and default_screen not in allowed_screens:
+            raise ValueError('Choose a landing screen available to your Portal access.')
+        if not isinstance(filters, dict):
+            raise ValueError('Saved filters must be a JSON object.')
+        queue = str(filters.get('queue') or '').strip()
+        branch = str(filters.get('branch') or '').strip()
+        review_status = str(filters.get('status') or '').strip()
+        if queue and queue not in allowed_queues:
+            raise ValueError('Choose a work queue available to your Portal access.')
+        if branch and branch.casefold() not in allowed_branches:
+            raise ValueError('Choose a branch within your Portal access scope.')
+        if review_status and review_status not in {'decision', 'payment'}:
+            raise ValueError('Choose a valid default review list.')
+        if branch:
+            preferences = {
+                **preferences,
+                'default_filters': {**filters, 'branch': allowed_branches[branch.casefold()]},
+            }
+        return JsonResponse({'ok': True, 'data': update_preference(actor, 'jawabu_portal', preferences)})
     except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+
+
+def _portal_delegation_payload(delegation) -> dict:
+    """Serialize a staff-only delegation record without exposing profile metadata."""
+    return {
+        'id': str(delegation.pk),
+        'delegate': delegation.delegate.get_full_name() or delegation.delegate.get_username(),
+        'gate': delegation.gate,
+        'gate_label': delegation.get_gate_display(),
+        'branch': delegation.branch,
+        'product': delegation.product,
+        'reason': delegation.reason,
+        'authorized_by': delegation.authorized_by.get_full_name() or delegation.authorized_by.get_username(),
+        'starts_at': delegation.starts_at.isoformat(),
+        'expires_at': delegation.expires_at.isoformat(),
+        'active': delegation.active,
+        'revoked_at': delegation.revoked_at.isoformat() if delegation.revoked_at else '',
+        'revocation_reason': delegation.revocation_reason,
+    }
+
+
+def _portal_delegation_candidates(access, actor) -> list[dict]:
+    """Return staff candidates with only the branch scopes the issuer may grant."""
+    from django.contrib.auth import get_user_model
+    from core.services.branches import global_branch_choices
+    from core.services.telegram_identity import user_access
+
+    def scope_values(snapshot) -> set[str]:
+        return {
+            str(value).strip().casefold()
+            for value in (snapshot or {}).get('branches', [])
+            if str(value).strip()
+        }
+
+    def has_global_scope(snapshot) -> bool:
+        return any(not str(getattr(grant, 'branch', '') or '').strip() for grant in (snapshot or {}).get('grants', []))
+
+    configured = [str(value).strip() for value in global_branch_choices() if str(value).strip()]
+    issuer_branches = scope_values(access)
+    issuer_global = has_global_scope(access)
+    candidates = []
+    users = get_user_model().objects.filter(
+        is_active=True,
+        access_grants__workflow='jawabu_portal',
+        access_grants__active=True,
+    ).distinct().order_by('first_name', 'last_name', 'username')
+    for user in users:
+        if user.pk == actor.pk:
+            continue
+        delegate_access = user_access(user, 'jawabu_portal')
+        delegate_branches = scope_values(delegate_access)
+        delegate_global = has_global_scope(delegate_access)
+        permitted_branches = [
+            branch for branch in configured
+            if (issuer_global or branch.casefold() in issuer_branches)
+            and (delegate_global or branch.casefold() in delegate_branches)
+        ]
+        if not permitted_branches and not (issuer_global and delegate_global):
+            continue
+        candidates.append({
+            'id': str(user.pk),
+            'label': user.get_full_name() or user.get_username(),
+            'branches': permitted_branches,
+            'all_branches': issuer_global and delegate_global,
+        })
+    return candidates
+
+
+def _portal_visible_delegations(queryset, access) -> list:
+    """Prevent a branch-scoped Business Admin seeing another branch's authority."""
+    from core.services.jawabu_approvals import delegation_is_within_authorization_scope
+
+    return [item for item in queryset if delegation_is_within_authorization_scope(item, access)]
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["GET", "POST"])
+def portal_approval_delegations(request):
+    """List or create the existing time-boxed Portal approval delegations."""
+    access_error = _portal_capability_error(request, 'portal.approval.delegation.authorize')
+    if access_error:
+        return access_error
+    from core.models import JawabuApprovalDelegation
+    from core.services.jawabu_approvals import create_delegation
+
+    actor = request.portal_user
+    access = request.portal_access
+    if request.method == 'GET':
+        active = _portal_visible_delegations(JawabuApprovalDelegation.objects.select_related('delegate', 'authorized_by').filter(
+            revoked_at__isnull=True, expires_at__gt=timezone.now(),
+        ).order_by('expires_at'), access)
+        history = _portal_visible_delegations(
+            JawabuApprovalDelegation.objects.select_related('delegate', 'authorized_by').exclude(
+                pk__in=[item.pk for item in active],
+            ).order_by('-starts_at')[:50],
+            access,
+        )[:10]
+        return JsonResponse({'ok': True, 'data': {
+            'delegates': _portal_delegation_candidates(access, actor),
+            'gates': [
+                {'value': value, 'label': label}
+                for value, label in JawabuApprovalDelegation.GATE_CHOICES
+            ],
+            'active': [_portal_delegation_payload(item) for item in active],
+            'history': [_portal_delegation_payload(item) for item in history],
+        }})
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except (UnicodeDecodeError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'Delegation request must be valid JSON.'}, status=400)
+    if not isinstance(payload, dict):
+        return JsonResponse({'ok': False, 'error': 'Delegation request must be a JSON object.'}, status=400)
+    from django.contrib.auth import get_user_model
+    try:
+        delegate = get_user_model().objects.filter(pk=str(payload.get('delegate_id') or '')).first()
+    except (TypeError, ValueError):
+        delegate = None
+    expiry = parse_datetime(str(payload.get('expires_at') or '').strip())
+    if expiry is None:
+        return JsonResponse({'ok': False, 'error': 'Choose a valid delegation expiry date and time.'}, status=400)
+    if timezone.is_naive(expiry):
+        expiry = timezone.make_aware(expiry, timezone.get_current_timezone())
+    try:
+        delegation = create_delegation(
+            delegate=delegate,
+            gate=str(payload.get('gate') or '').strip(),
+            authorized_by=actor,
+            authorization_access=access,
+            branch=str(payload.get('branch') or '').strip(),
+            expires_at=expiry,
+            reason=str(payload.get('reason') or '').strip(),
+        )
+    except ValidationError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({'ok': True, 'data': _portal_delegation_payload(delegation)}, status=201)
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["POST"])
+def portal_approval_delegation_revoke(request, delegation_id: str):
+    """Revoke one active temporary approval delegation with an audit reason."""
+    access_error = _portal_capability_error(request, 'portal.approval.delegation.authorize')
+    if access_error:
+        return access_error
+    from core.models import JawabuApprovalDelegation
+    from core.services.jawabu_approvals import revoke_delegation
+
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except (UnicodeDecodeError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'Revocation request must be valid JSON.'}, status=400)
+    if not isinstance(payload, dict):
+        return JsonResponse({'ok': False, 'error': 'Revocation request must be a JSON object.'}, status=400)
+    if not JawabuApprovalDelegation.objects.filter(pk=delegation_id).exists():
+        return JsonResponse({'ok': False, 'error': 'Delegation not found.'}, status=404)
+    try:
+        delegation = revoke_delegation(
+            delegation_id=delegation_id,
+            actor=request.portal_user,
+            access=request.portal_access,
+            reason=str(payload.get('reason') or '').strip(),
+        )
+    except ValidationError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({'ok': True, 'data': _portal_delegation_payload(delegation)})
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────

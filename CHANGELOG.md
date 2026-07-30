@@ -31,6 +31,10 @@
   staff-facing interface. Workflow stages remain visible for operations;
   the append-only audit history remains available to authorized audit and
   administration views.
+- Portal Settings now saves a staff member's landing screen, first work queue,
+  branch lens, review list, compact-card preference, and non-critical alert
+  intent. Business Admins additionally see safe document readiness and can
+  issue or revoke audited, branch-scoped approval delegation for up to 14 days.
 
 ## Reliability hardening - 30-July-2026
 

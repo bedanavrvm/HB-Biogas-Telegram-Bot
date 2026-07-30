@@ -353,13 +353,20 @@
   </section>
 
   <section id="page-settings" class="page{% if active_screen == 'settings' %} active{% endif %}">
-    <header><h1>My Portal Settings</h1><p class="meta">These choices apply only to your Portal workspace. Mandatory security, assignment, approval, and overdue alerts remain on.</p></header>
+    <header><h1>Portal Settings</h1><p class="meta">Personal workspace choices are private to you. Mandatory security, assignment, approval, and overdue alerts remain on.</p></header>
     <form id="portal-personal-settings-form" class="portal-settings-card">
-      <label>Start on<select id="portal-preference-default-screen"></select></label>
-      <label>Non-critical Telegram alerts<select id="portal-preference-alert-mode"><option value="immediate">Immediate</option><option value="daily_digest">Daily digest at 08:00</option><option value="quiet">Quiet</option></select></label>
-      <label class="portal-settings-check"><input id="portal-preference-compact-cards" type="checkbox"> Use compact case cards</label>
-      <div class="form-actions"><button id="portal-save-personal-settings" class="btn btn-primary" type="submit">Save my settings</button></div>
+      <div class="portal-settings-heading"><h2>My workspace</h2><p>Set the Portal view that helps you begin work fastest.</p></div>
+      <div class="portal-settings-grid">
+        <label>Start on<select id="portal-preference-default-screen"></select></label>
+        <label>Open work queue first<select id="portal-preference-default-queue"></select><span class="field-help">When selected, this queue opens instead of the landing screen.</span></label>
+        <label>Default branch<select id="portal-preference-default-branch"></select></label>
+        <label>Review list<select id="portal-preference-review-status"></select><span class="field-help">Used when the Review queue opens.</span></label>
+        <label>Non-critical Telegram alerts<select id="portal-preference-alert-mode"><option value="immediate">Immediate</option><option value="daily_digest">Daily digest at 08:00</option><option value="quiet">Quiet</option></select></label>
+        <label class="portal-settings-check"><input id="portal-preference-compact-cards" type="checkbox"> Use compact case cards</label>
+      </div>
+      <div class="form-actions"><button id="portal-save-personal-settings" class="btn btn-primary" type="submit">Save my settings</button><button id="portal-clear-personal-settings" class="btn btn-secondary" type="button">Clear defaults</button></div>
     </form>
+    <div id="portal-settings-operations" class="portal-settings-operations" aria-live="polite"></div>
   </section>
 
 <!-- Farmer detail sheet -->

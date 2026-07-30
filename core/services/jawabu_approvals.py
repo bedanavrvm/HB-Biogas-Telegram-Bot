@@ -134,6 +134,63 @@ def can_authorize_delegation(*, user, access: dict | None) -> bool:
     ))
 
 
+def _has_global_branch_scope(access: dict | None) -> bool:
+    """Return whether an access snapshot contains an all-branch grant."""
+    return any(not str(getattr(grant, 'branch', '') or '').strip() for grant in (access or {}).get('grants', []))
+
+
+def _branch_scope_values(access: dict | None) -> set[str]:
+    return {
+        str(value).strip().casefold()
+        for value in (access or {}).get('branches', [])
+        if str(value).strip()
+    }
+
+
+def delegation_is_within_authorization_scope(delegation: JawabuApprovalDelegation, access: dict | None) -> bool:
+    """Return whether an issuer may inspect or revoke this delegation scope."""
+    if _has_global_branch_scope(access):
+        return True
+    branch = str(delegation.branch or '').strip().casefold()
+    return bool(branch and branch in _branch_scope_values(access))
+
+
+def _validate_delegation_branch_scope(*, delegate, authorized_by, authorization_access: dict | None, branch: str) -> str:
+    """Keep temporary authority within both staff members' existing Portal scope.
+
+    A delegation must not turn a branch-scoped Business Admin or delegate into
+    an all-branch approver.  Keeping this in the service protects the Django
+    Admin surface as well as the Mini App API.
+    """
+    from core.services.telegram_identity import user_access
+
+    issuer_branches = _branch_scope_values(authorization_access)
+    issuer_global = _has_global_branch_scope(authorization_access)
+    delegate_access = user_access(delegate, 'jawabu_portal')
+    delegate_branches = _branch_scope_values(delegate_access)
+    delegate_global = _has_global_branch_scope(delegate_access)
+    normalized_branch = str(branch or '').strip().casefold()
+
+    if not normalized_branch:
+        if not issuer_global:
+            raise JawabuApprovalError('Choose a branch because your Portal authority is branch-scoped.')
+        if not delegate_global:
+            raise JawabuApprovalError('Choose a branch because the delegate has branch-scoped Portal access.')
+        return ''
+    from core.services.branches import global_branch_choices
+    configured_branches = {
+        str(value).strip().casefold(): str(value).strip()
+        for value in global_branch_choices() if str(value).strip()
+    }
+    if normalized_branch not in configured_branches:
+        raise JawabuApprovalError('Choose a configured branch for this temporary delegation.')
+    if not issuer_global and normalized_branch not in issuer_branches:
+        raise JawabuApprovalError('The selected branch is outside your Portal authority.')
+    if not delegate_global and normalized_branch not in delegate_branches:
+        raise JawabuApprovalError('The delegate does not have Portal access to the selected branch.')
+    return configured_branches[normalized_branch]
+
+
 @transaction.atomic
 def create_delegation(*, delegate, gate: str, authorized_by, authorization_access: dict | None,
                       reason: str, branch: str = '', product: str = '', expires_at=None) -> JawabuApprovalDelegation:
@@ -147,6 +204,12 @@ def create_delegation(*, delegate, gate: str, authorized_by, authorization_acces
         raise JawabuApprovalError('The delegate must be an active staff user.')
     if not AccessGrant.objects.filter(user=delegate, workflow='jawabu_portal', active=True).exists():
         raise JawabuApprovalError('The delegate must have an active, scoped Portal access grant.')
+    branch = _validate_delegation_branch_scope(
+        delegate=delegate,
+        authorized_by=authorized_by,
+        authorization_access=authorization_access,
+        branch=branch,
+    )
     reason = str(reason or '').strip()
     if not reason:
         raise JawabuApprovalError('Give a reason for this temporary delegation.')
@@ -178,6 +241,8 @@ def revoke_delegation(*, delegation_id, actor, access: dict | None, reason: str)
     delegation = JawabuApprovalDelegation.objects.select_for_update().get(pk=delegation_id)
     if not can_authorize_delegation(user=actor, access=access):
         raise JawabuApprovalError('Your Portal role cannot revoke approval delegations.')
+    if not delegation_is_within_authorization_scope(delegation, access):
+        raise JawabuApprovalError('This delegation is outside your Portal branch authority.')
     reason = str(reason or '').strip()
     if not reason:
         raise JawabuApprovalError('Give a reason before revoking this delegation.')

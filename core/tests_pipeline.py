@@ -472,6 +472,7 @@ class PortalMiniAppAuthTestCase(TestCase):
             user=user, workflow='jawabu_portal', role=role,
             branch=(branches or [''])[0],
         )
+        return user
 
     def _signed_init_data(self, token='test-token'):
         import hashlib
@@ -582,6 +583,78 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertContains(response, 'JBL Queue')
         self.assertNotContains(response, 'Credit')
         self.assertNotContains(response, 'Invoices')
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
+    def test_portal_settings_persist_only_permitted_workspace_defaults(self):
+        self.grant_portal_access(role='BUSINESS_ADMIN', branches=['EMBU'])
+        headers = {'HTTP_X_TELEGRAM_INIT_DATA': self._signed_init_data()}
+
+        settings_response = self.client.get(reverse('portal_settings'), **headers)
+
+        self.assertEqual(settings_response.status_code, 200)
+        settings_data = settings_response.json()['data']
+        self.assertTrue(settings_data['operations']['health'])
+        self.assertTrue(settings_data['operations']['delegation'])
+        self.assertEqual(settings_data['branches'], ['Embu'])
+        self.assertIn('jbl', {item['key'] for item in settings_data['queues']})
+
+        response = self.client.post(
+            reverse('portal_settings'),
+            data=json.dumps({'preferences': {
+                'default_screen': 'dashboard',
+                'default_filters': {'queue': 'jbl', 'branch': 'EMBU', 'status': 'decision'},
+                'compact_cards': True,
+                'alert_mode': 'quiet',
+            }}),
+            content_type='application/json',
+            HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
+            HTTP_X_REQUEST_ID='portal-settings-test-001',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        personal = response.json()['data']
+        self.assertEqual(personal['default_filters']['queue'], 'jbl')
+        self.assertEqual(personal['default_filters']['branch'], 'Embu')
+        self.assertTrue(personal['compact_cards'])
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
+    def test_portal_delegation_api_is_business_admin_only_and_audited(self):
+        self.grant_portal_access(role='BUSINESS_ADMIN', branches=['EMBU'])
+        delegate = get_user_model().objects.create_user(username='portal-cover', is_active=True)
+        AccessGrant.objects.create(
+            user=delegate, workflow='jawabu_portal', role='JBL_OFFICER', branch='EMBU',
+        )
+        payload = {
+            'delegate_id': str(delegate.pk),
+            'gate': 'credit',
+            'branch': 'EMBU',
+            'expires_at': (timezone.now() + timedelta(days=1)).isoformat(),
+            'reason': 'Annual leave cover.',
+        }
+        response = self.client.post(
+            reverse('portal_approval_delegations'), data=json.dumps(payload), content_type='application/json',
+            HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(), HTTP_X_REQUEST_ID='portal-delegation-test-001',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        delegation = response.json()['data']
+        self.assertTrue(delegation['active'])
+        self.assertEqual(delegation['branch'], 'Embu')
+        self.assertEqual(delegation['delegate'], 'portal-cover')
+
+        revoke = self.client.post(
+            reverse('portal_approval_delegation_revoke', args=[delegation['id']]),
+            data=json.dumps({'reason': 'Primary approver returned.'}), content_type='application/json',
+            HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(), HTTP_X_REQUEST_ID='portal-delegation-test-002',
+        )
+        self.assertEqual(revoke.status_code, 200)
+        self.assertFalse(revoke.json()['data']['active'])
+
+        AccessGrant.objects.filter(user__staff_profile__telegram_id='12345').update(role='JBL_OFFICER')
+        denied = self.client.get(
+            reverse('portal_approval_delegations'), HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
+        )
+        self.assertEqual(denied.status_code, 403)
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_matrix_change_hides_a_portal_module_and_blocks_its_endpoint(self):

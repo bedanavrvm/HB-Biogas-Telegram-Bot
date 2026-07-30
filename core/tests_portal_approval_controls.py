@@ -15,6 +15,7 @@ from core.services.jawabu_approvals import (
     create_delegation,
     invalidate_material_approvals,
     record_approval,
+    revoke_delegation,
     require_effective_approval,
     visit_media_orphan_report,
 )
@@ -106,12 +107,30 @@ class PortalApprovalControlsTests(TestCase):
                 authorization_access=admin_access, reason='Too long',
                 expires_at=timezone.now() + timedelta(days=15),
             )
+        with self.assertRaisesRegex(ValidationError, 'Choose a branch'):
+            create_delegation(
+                delegate=self.delegate, gate='credit', authorized_by=self.admin,
+                authorization_access=admin_access, reason='Invalid all-branch hand-off',
+                expires_at=timezone.now() + timedelta(days=2),
+            )
         delegation = create_delegation(
             delegate=self.delegate, gate='credit', authorized_by=self.admin,
             authorization_access=admin_access, reason='Annual leave cover', branch='EMBU',
             expires_at=timezone.now() + timedelta(days=2),
         )
         self.assertTrue(delegation.active)
+
+        other_admin = get_user_model().objects.create_user(username='other-approval-admin', is_active=True)
+        AccessGrant.objects.create(
+            user=other_admin, workflow='jawabu_portal', role='BUSINESS_ADMIN', branch='NAKURU', active=True,
+        )
+        with self.assertRaisesRegex(ValidationError, 'outside your Portal branch authority'):
+            revoke_delegation(
+                delegation_id=delegation.pk,
+                actor=other_admin,
+                access=user_access(other_admin, 'jawabu_portal'),
+                reason='Not my branch.',
+            )
 
     @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
