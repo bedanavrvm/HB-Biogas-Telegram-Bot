@@ -10,6 +10,10 @@
   created. Additional-unit imports bypass the normal duplicate-key update
   fallback, allocate the next linked unit number, and record the reason in
   the case timeline.
+- The TAT case screen now keeps technical audit/update rows out of the
+  staff-facing interface. Workflow stages remain visible for operations;
+  the append-only audit history remains available to authorized audit and
+  administration views.
 
 ## Reliability hardening - 30-July-2026
 

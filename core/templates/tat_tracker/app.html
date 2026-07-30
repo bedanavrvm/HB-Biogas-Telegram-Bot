@@ -196,7 +196,7 @@
           <div class="section-head compact">
             <div>
               <h2>Correct case details</h2>
-              <p>Use only for erroneous data entry. Every change is recorded in the audit trail and synced to the tracker sheet.</p>
+              <p>Use only for erroneous data entry. Every change is retained in the internal audit history and synced to the tracker sheet.</p>
             </div>
             <button id="cancelCaseCorrectionBtn" type="button" class="ghost-btn">Cancel</button>
           </div>
@@ -228,15 +228,6 @@
             <label class="remarks-box">Remarks / Delays<textarea id="remarksInput" placeholder="Add context for delays, missing documents, or follow-up notes."></textarea></label>
             <button id="saveRemarksBtn" type="button" class="secondary full-width">Save Remarks</button>
 
-            <section class="audit-box">
-              <div class="section-head compact">
-                <div>
-                  <h2>Audit Trail</h2>
-                  <p>Latest updates.</p>
-                </div>
-              </div>
-              <div id="eventList" class="event-list"></div>
-            </section>
           </aside>
         </div>
       </section>
@@ -256,6 +247,6 @@
   <script src="{% static 'miniapp/telegram.js' %}?v=2"></script>
   <script src="{% static 'miniapp/utils.js' %}?v=3"></script>
   <script src="{% static 'miniapp/tat_api.js' %}?v=1"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=30"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=31"></script>
 </body>
 </html>

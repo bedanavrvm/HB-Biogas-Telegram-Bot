@@ -771,7 +771,12 @@
       fields.appendChild(row);
     });
 
+    // Raw audit events deliberately stay out of the staff-facing case screen.
+    // They remain available to authorized administrators through the immutable
+    // server-side audit/timeline records; workflow stages above are the useful
+    // operational summary for an officer handling this case.
     const events = $('eventList');
+    if (!events) return;
     events.innerHTML = '';
     const timelineEvents = detail.timeline || detail.events || [];
     if (!timelineEvents.length) {
