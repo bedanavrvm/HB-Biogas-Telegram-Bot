@@ -1,0 +1,12 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+  <div class="module aligned">
+    <h1>{{ title }}</h1>
+    <p>Revoke {{ delegation.delegate }}'s {{ delegation.get_gate_display }} delegation now. This cannot be undone; create a new delegation if cover is needed later.</p>
+    <form method="post">{% csrf_token %}
+      <div class="form-row"><label for="id_reason">Reason</label><textarea id="id_reason" name="reason" rows="3" required></textarea></div>
+      <div class="submit-row"><input type="submit" value="Revoke authority" class="default"></div>
+    </form>
+  </div>
+{% endblock %}

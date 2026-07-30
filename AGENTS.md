@@ -131,6 +131,7 @@ Key modules:
 - `access_control.py` — maker-checker access changes, emergency grants, notifications, and policy versioning
 - `access_control_reporting.py` — access-control evidence exports, parity, and least-privilege diagnostics
 - `document_signoffs.py` — immutable source/workbook binding and physically signed/stamped scan retention for requisitions and payments
+- `jawabu_approvals.py` — append-only Portal approval gates, conditions, expiry, invalidation, and scoped temporary delegation
 
 ### Frontend Mini Apps
 
@@ -161,6 +162,7 @@ The Mini Apps use Django templates and mostly vanilla JavaScript. Preserve Teleg
 - `core/tests_sheets_validation.py`
 - `core/tests_data_quality.py`
 - `core/test_data_quality_simple.py`
+- `core/tests_portal_approval_controls.py`
 
 ### Operational integrations and examples
 

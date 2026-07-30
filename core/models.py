@@ -435,6 +435,17 @@ class MediaAttachment(models.Model):
     upload_error = models.TextField(blank=True, default='')
     business_key_type = models.CharField(max_length=100, blank=True, default='')
     business_key_value = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    # New Jawabu Portal uploads bind directly to the case rather than relying
+    # only on a mutable national-ID business key. Existing workflow uploads
+    # remain supported with this relation empty.
+    jawabu_farmer = models.ForeignKey(
+        'JawabuFarmerMaster', null=True, blank=True,
+        on_delete=models.PROTECT, related_name='media_attachments',
+    )
+    captured_at = models.DateTimeField(null=True, blank=True)
+    capture_latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    capture_longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    capture_location_unavailable_reason = models.CharField(max_length=255, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -443,6 +454,7 @@ class MediaAttachment(models.Model):
             models.Index(fields=['group_id', 'created_at']),
             models.Index(fields=['business_key_type', 'business_key_value']),
             models.Index(fields=['telegram_file_id']),
+            models.Index(fields=['jawabu_farmer', 'file_type', 'upload_status']),
         ]
 
     def __str__(self):
@@ -984,6 +996,7 @@ class JawabuFarmerMaster(models.Model):
     # Stage 3 Ã¢â‚¬â€ Credit Decision values (master data dropdown)
     CREDIT_DECISION_CHOICES = [
         ('Approved', 'Approved'),
+        ('Approved with Conditions', 'Approved with Conditions'),
         ('Rejected', 'Rejected'),
         ('Deferred', 'Deferred'),
         ('Exemption Approved', 'Exemption Approved'),
@@ -992,6 +1005,7 @@ class JawabuFarmerMaster(models.Model):
 
     FINAL_DECISION_CHOICES = [
         ('Approved', 'Approved'),
+        ('Approved with Conditions', 'Approved with Conditions'),
         ('Rejected', 'Rejected'),
         ('Deferred', 'Deferred'),
         ('Under Review', 'Under Review'),
@@ -1199,6 +1213,189 @@ class JawabuFarmerMaster(models.Model):
     def __str__(self):
         label = self.customer_name or self.national_id or self.primary_phone or 'unknown farmer'
         return f"{label} ({self.status})"
+
+
+class JawabuApprovalDelegation(models.Model):
+    """Time-boxed authority to approve one Portal gate for another staff user."""
+
+    GATE_CREDIT = 'credit'
+    GATE_FINAL_REVIEW = 'final_review'
+    GATE_PAYMENT_REVIEW = 'payment_review'
+    GATE_CHOICES = [
+        (GATE_CREDIT, 'Credit analysis'),
+        (GATE_FINAL_REVIEW, 'Head of Rural final review'),
+        (GATE_PAYMENT_REVIEW, 'Head of Rural payment review'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    delegate = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='jawabu_approval_delegations',
+    )
+    gate = models.CharField(max_length=32, choices=GATE_CHOICES, db_index=True)
+    source_role = models.CharField(max_length=80, default='ADMIN')
+    branch = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    product = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    reason = models.TextField()
+    authorized_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='authorized_jawabu_approval_delegations',
+    )
+    starts_at = models.DateTimeField(default=timezone.now, db_index=True)
+    expires_at = models.DateTimeField(db_index=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    revoked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='revoked_jawabu_approval_delegations',
+    )
+    revocation_reason = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-starts_at']
+        indexes = [models.Index(fields=['delegate', 'gate', 'expires_at'])]
+        verbose_name = 'Jawabu approval delegation'
+        verbose_name_plural = 'Jawabu approval delegations'
+
+    @property
+    def active(self):
+        current = timezone.now()
+        return self.revoked_at is None and self.starts_at <= current < self.expires_at
+
+    def __str__(self):
+        return f'{self.delegate} - {self.get_gate_display()} until {self.expires_at:%d-%b-%Y}'
+
+
+class JawabuApprovalDelegationEvent(models.Model):
+    """Append-only delegation lifecycle evidence."""
+
+    ACTION_CREATED = 'created'
+    ACTION_REVOKED = 'revoked'
+    ACTION_CHOICES = [(ACTION_CREATED, 'Created'), (ACTION_REVOKED, 'Revoked')]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    delegation = models.ForeignKey(JawabuApprovalDelegation, on_delete=models.CASCADE, related_name='events')
+    action = models.CharField(max_length=24, choices=ACTION_CHOICES)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    note = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Jawabu approval delegation event'
+        verbose_name_plural = 'Jawabu approval delegation events'
+
+
+class JawabuApprovalRecord(models.Model):
+    """Append-only effective/expired/inactivated approval evidence for one case."""
+
+    GATE_CREDIT = JawabuApprovalDelegation.GATE_CREDIT
+    GATE_FINAL_REVIEW = JawabuApprovalDelegation.GATE_FINAL_REVIEW
+    GATE_PAYMENT_REVIEW = JawabuApprovalDelegation.GATE_PAYMENT_REVIEW
+    GATE_CHOICES = JawabuApprovalDelegation.GATE_CHOICES
+    DECISION_APPROVED = 'approved'
+    DECISION_CONDITIONAL = 'approved_with_conditions'
+    DECISION_REJECTED = 'rejected'
+    DECISION_DEFERRED = 'deferred'
+    DECISION_RETURNED = 'returned_for_rework'
+    DECISION_CHOICES = [
+        (DECISION_APPROVED, 'Approved'),
+        (DECISION_CONDITIONAL, 'Approved with conditions'),
+        (DECISION_REJECTED, 'Rejected'),
+        (DECISION_DEFERRED, 'Deferred'),
+        (DECISION_RETURNED, 'Returned for rework'),
+    ]
+    STATUS_ACTIVE = 'active'
+    STATUS_CONDITIONS_PENDING = 'conditions_pending'
+    STATUS_INVALIDATED = 'invalidated'
+    STATUS_EXPIRED = 'expired'
+    STATUS_SUPERSEDED = 'superseded'
+    STATUS_LEGACY = 'legacy'
+    STATUS_CHOICES = [
+        (STATUS_ACTIVE, 'Active'),
+        (STATUS_CONDITIONS_PENDING, 'Conditions pending'),
+        (STATUS_INVALIDATED, 'Invalidated'),
+        (STATUS_EXPIRED, 'Expired'),
+        (STATUS_SUPERSEDED, 'Superseded'),
+        (STATUS_LEGACY, 'Legacy approval'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    farmer = models.ForeignKey(JawabuFarmerMaster, on_delete=models.PROTECT, related_name='approval_records')
+    payment_document = models.ForeignKey(
+        'PaymentDocument', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='case_approval_records',
+    )
+    gate = models.CharField(max_length=32, choices=GATE_CHOICES, db_index=True)
+    decision = models.CharField(max_length=40, choices=DECISION_CHOICES)
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default=STATUS_ACTIVE, db_index=True)
+    reason_code = models.CharField(max_length=64, blank=True, default='')
+    comment = models.TextField(blank=True, default='')
+    source_revision = models.PositiveIntegerField(default=1)
+    authority_role = models.CharField(max_length=80, blank=True, default='')
+    delegation = models.ForeignKey(
+        JawabuApprovalDelegation, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='approval_records',
+    )
+    decided_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    decided_by_label = models.CharField(max_length=255, blank=True, default='')
+    decided_at = models.DateTimeField(default=timezone.now, db_index=True)
+    expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    invalidated_at = models.DateTimeField(null=True, blank=True)
+    invalidated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    invalidation_reason = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-decided_at', '-created_at']
+        indexes = [
+            models.Index(fields=['farmer', 'gate', 'status']),
+            models.Index(fields=['payment_document', 'gate', 'status']),
+        ]
+        verbose_name = 'Jawabu approval record'
+        verbose_name_plural = 'Jawabu approval records'
+
+    def __str__(self):
+        return f'{self.farmer} {self.gate}: {self.get_decision_display()}'
+
+
+class JawabuApprovalCondition(models.Model):
+    """A condition that blocks a conditional approval until explicitly cleared."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    approval = models.ForeignKey(JawabuApprovalRecord, on_delete=models.CASCADE, related_name='conditions')
+    description = models.CharField(max_length=500)
+    satisfied_at = models.DateTimeField(null=True, blank=True)
+    satisfied_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    satisfaction_note = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+        verbose_name = 'Jawabu approval condition'
+        verbose_name_plural = 'Jawabu approval conditions'
+
+    @property
+    def satisfied(self):
+        return self.satisfied_at is not None
+
+
+class JawabuMediaAccessEvent(models.Model):
+    """Audit every Portal-mediated retrieval of sensitive JBL visit evidence."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    farmer = models.ForeignKey(JawabuFarmerMaster, on_delete=models.PROTECT, related_name='media_access_events')
+    attachment = models.ForeignKey(MediaAttachment, on_delete=models.PROTECT, related_name='access_events')
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    action = models.CharField(max_length=32, default='view')
+    request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['farmer', 'created_at'])]
+        verbose_name = 'Jawabu media access event'
+        verbose_name_plural = 'Jawabu media access events'
 
 
 class JawabuPipelineEvent(models.Model):

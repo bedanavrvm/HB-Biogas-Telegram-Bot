@@ -16,6 +16,11 @@
   function el(id) { return deps.el(id); }
   function state() { return deps.state; }
   function hasCapability(capability) { return !capability || state().capabilities?.has(capability); }
+  function canUpdateMode(mode, capability) {
+    if (hasCapability(capability)) return true;
+    const gateByMode = { credit: 'credit', final_review: 'final_review' };
+    return Boolean(gateByMode[mode] && state().approvalDelegationGates?.includes(gateByMode[mode]));
+  }
   function requestId() { return window.crypto?.randomUUID?.() || `portal-${Date.now()}-${Math.random().toString(16).slice(2)}`; }
 
   function humanLabel(value) {
@@ -233,7 +238,7 @@
     el('sheet-gate-warning').style.display = 'none';
 
     const writeCapability = MODE_WRITE_CAPABILITIES[mode];
-    if (writeCapability && !hasCapability(writeCapability)) {
+    if (writeCapability && !canUpdateMode(mode, writeCapability)) {
       formEl.innerHTML = '<div class="field-help">Your role can view this case but is not assigned to update this workflow stage.</div>';
     } else if (mode === 'jbl_visit') {
       formEl.innerHTML = buildJblForm(farmer);
@@ -262,6 +267,7 @@
         el('btn-submit-req').addEventListener('click', submitOrder);
       }
     }
+    wireApprovalConditionButtons();
 
     el('sheet-overlay').classList.add('open');
     const lat = parseFloat(farmer.latitude);
@@ -371,13 +377,13 @@
           <div class="media-upload-control">
             <div class="media-category-upload">
               <label for="jbl-laf-media">LAF document(s)</label>
-              <input type="file" id="jbl-laf-media" name="laf_files" multiple accept="application/pdf,.pdf,image/*,.doc,.docx,.xls,.xlsx">
-              <small>Stored in the LAF folder.</small>
+              <input type="file" id="jbl-laf-media" name="laf_files" multiple accept="application/pdf,.pdf,image/jpeg,image/png,.jpg,.jpeg,.png">
+              <small>PDF, JPG or PNG only. Required before forwarding.</small>
             </div>
             <div class="media-category-upload">
               <label for="jbl-visit-photo-media">JBL visit photo(s)</label>
-              <input type="file" id="jbl-visit-photo-media" name="jbl_visit_photo_files" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx">
-              <small>Stored in the JBL visit photo folder.</small>
+              <input type="file" id="jbl-visit-photo-media" name="jbl_visit_photo_files" multiple accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp">
+              <small>Image only. Required before forwarding.</small>
             </div>
             ${farmer.jbl_media_count ? `<small>${farmer.jbl_media_count} existing Drive link${farmer.jbl_media_count === 1 ? '' : 's'} on this record.</small>` : ''}
           </div>
@@ -397,6 +403,8 @@
           <div id="gps-coords" style="font-size: 11px; font-weight: 600; color: var(--text-muted); text-align: center; margin-top: 6px;">Not captured</div>
           <input type="hidden" id="jbl-lat" value="">
           <input type="hidden" id="jbl-lng" value="">
+          <label class="field-help" for="jbl-location-unavailable">If GPS is unavailable, explain why before forwarding.</label>
+          <input type="text" id="jbl-location-unavailable" maxlength="255" placeholder="e.g. phone location was disabled">
         </div>
       </div>
     `;
@@ -458,6 +466,46 @@
     }
   }
 
+  function buildApprovalReasonFields(prefix) {
+    const reasons = (state().metaApprovalReasons || []).map(item =>
+      `<option value="${deps.escapeHtml(item.value)}">${deps.escapeHtml(item.label)}</option>`
+    ).join('');
+    return `<div class="form-row approval-reason-fields">
+      <label>Decision reason <span class="label-help" aria-hidden="true">?</span></label>
+      <select id="${prefix}-reason-code"><option value="">Only required for conditional, rejected, or deferred decisions</option>${reasons}</select>
+      <textarea id="${prefix}-conditions" rows="2" placeholder="For an approval with conditions, enter one condition per line."></textarea>
+      <small class="field-help">Conditions block the next stage until they are explicitly cleared and audited.</small>
+    </div>`;
+  }
+
+  function renderApprovalConditions(farmer, gate) {
+    const approval = farmer.approvals?.[gate] || {};
+    const pending = (approval.conditions || []).filter(item => !item.satisfied_at);
+    if (!pending.length) return '';
+    return `<div class="approval-condition-list"><strong>Conditions still blocking this approval</strong>${pending.map(item =>
+      `<div><span>${deps.escapeHtml(item.description)}</span><button type="button" class="secondary" data-clear-approval-condition="${deps.escapeHtml(item.id)}">Mark met</button></div>`
+    ).join('')}</div>`;
+  }
+
+  function wireApprovalConditionButtons() {
+    el('sheet-form')?.querySelectorAll('[data-clear-approval-condition]').forEach(button => {
+      button.addEventListener('click', async () => {
+        const farmer = state().selectedFarmer;
+        if (!farmer) return;
+        deps.setButtonLoading(button, true, 'Saving...');
+        const { ok, data } = await deps.apiFetch('/approval-conditions/' + encodeURIComponent(button.dataset.clearApprovalCondition) + '/clear/', {
+          method: 'POST', body: JSON.stringify({ note: 'Condition evidenced in Portal.' }),
+        });
+        deps.setButtonLoading(button, false);
+        if (!ok) return deps.showToast(data.error || 'Could not clear the condition.', 'error');
+        deps.showToast('Approval condition cleared and audit recorded.', 'success');
+        closeSheet();
+        deps.reloadCurrentQueue();
+        deps.loadDashboard();
+      });
+    });
+  }
+
   function buildCreditForm(farmer) {
     const currentDecision = farmer.credit_decision || 'Pending';
     const decisionOptions = state().metaDecisions.filter(decision => decision !== 'Pending').map(decision =>
@@ -483,6 +531,8 @@
           <input type="text" id="credit-customer-no" inputmode="numeric" pattern="[0-9]*" placeholder="IMAB customer number" value="${deps.escapeHtml(customerNoDisabled ? '' : (farmer.customer_no || ''))}"${customerNoDisabled ? ' disabled' : ''}>
           <small id="credit-imab-help" class="field-help">${customerNoDisabled ? 'Select Yes after IMAB creation before entering a customer number.' : 'Required before this case can move to Head of Rural review.'}</small>
         </div>
+        ${buildApprovalReasonFields('credit')}
+        ${renderApprovalConditions(farmer, 'credit')}
       </div>
       ${farmer.jbl_visit_comment ? `<div class="info-row"><span class="ir-label">JBL Comment</span><span class="ir-value">${deps.escapeHtml(farmer.jbl_visit_comment)}</span></div>` : ''}
     `;
@@ -508,7 +558,7 @@
   }
 
   function buildFinalReviewForm(farmer) {
-    const decisionOptions = state().metaFinalDecisions.map(decision =>
+    const decisionOptions = state().metaFinalDecisions.filter(decision => decision !== 'Under Review').map(decision =>
       `<option value="${deps.escapeHtml(decision)}"${farmer.final_decision === decision ? ' selected' : ''}>${deps.escapeHtml(decision)}</option>`
     ).join('');
     const phone = String(farmer.primary_phone || '').replace(/[^0-9+]/g, '');
@@ -522,6 +572,8 @@
           </div>
         </div>
         <div class="form-row"><label>Final Decision</label><select id="final-decision"><option value="">- Select -</option>${decisionOptions}</select></div>
+        ${buildApprovalReasonFields('final')}
+        ${renderApprovalConditions(farmer, 'final_review')}
         ${hasCapability('portal.jbl_media.view') ? `<div class="form-row">
           <label>LAF document</label>
           <button type="button" class="secondary" id="btn-view-laf">View LAF document(s)</button>
@@ -549,6 +601,7 @@
         target.innerHTML = `<span class="field-help">${deps.escapeHtml(result.data?.error || 'Could not load LAF documents.')}</span>`;
         return;
       }
+      media.forEach(item => { item.url = item.view_url || item.url; });
       target.innerHTML = media.length
         ? media.map((item, index) => `<a class="media-link" href="${deps.escapeHtml(item.url)}" target="_blank" rel="noopener">${deps.escapeHtml(item.name || `LAF document ${index + 1}`)} <span aria-hidden="true">↗</span></a>`).join('')
         : '<span class="field-help">No LAF document has been uploaded for this client.</span>';
@@ -589,7 +642,14 @@
     }
 
     const btn = el('btn-submit-jbl');
-    deps.setButtonLoading(btn, true, 'Saving...');
+    deps.setButtonLoading(btn, true, 'Uploading evidence...');
+    const mediaResult = await uploadJblMediaIfSelected(farmer.id);
+    if (!mediaResult.ok) {
+      deps.setButtonLoading(btn, false);
+      deps.showToast(mediaResult.error || 'Visit evidence upload failed. The visit was not logged.', 'error');
+      return;
+    }
+    deps.setButtonLoading(btn, true, 'Logging visit...');
     const { ok, data } = await deps.apiFetch('/jbl-queue/' + farmer.id + '/', {
       method: 'POST',
       body: JSON.stringify({
@@ -604,16 +664,12 @@
         comment: el('jbl-comment')?.value || '',
         latitude: el('jbl-lat')?.value || '',
         longitude: el('jbl-lng')?.value || '',
+        location_unavailable_reason: el('jbl-location-unavailable')?.value || '',
       }),
     });
     deps.setButtonLoading(btn, false);
     if (!ok) {
       deps.showToast(data.error || 'Save failed', 'error');
-      return;
-    }
-    const mediaResult = await uploadJblMediaIfSelected(farmer.id);
-    if (!mediaResult.ok) {
-      deps.showToast('JBL visit logged, but media upload failed. Retry the media upload from this record.', 'error');
       return;
     }
     const uploaded = mediaResult.storedCount;
@@ -636,6 +692,10 @@
     const formData = new FormData();
     lafFiles.forEach(file => formData.append('laf_files', file));
     visitPhotoFiles.forEach(file => formData.append('jbl_visit_photo_files', file));
+    formData.append('captured_at', new Date().toISOString());
+    formData.append('capture_latitude', el('jbl-lat')?.value || '');
+    formData.append('capture_longitude', el('jbl-lng')?.value || '');
+    formData.append('location_unavailable_reason', el('jbl-location-unavailable')?.value || '');
     try {
       const result = await deps.portalApi.postForm('/jbl-queue/' + farmerId + '/media/', formData, deps.tg, { 'X-CSRFToken': deps.getCookie('csrftoken') || '' });
       const data = result.data || {};
@@ -660,7 +720,11 @@
     const decision = el('credit-decision')?.value || '';
     const imabCreated = el('credit-imab')?.value || '';
     const customerNo = (el('credit-customer-no')?.value || '').replace(/[^0-9]/g, '');
+    const reasonCode = el('credit-reason-code')?.value || '';
+    const conditions = (el('credit-conditions')?.value || '').split('\n').map(value => value.trim()).filter(Boolean);
     if (!decision) return deps.showToast('Please select a decision', 'error');
+    if (['Approved with Conditions', 'Rejected', 'Deferred'].includes(decision) && !reasonCode) return deps.showToast('Choose a decision reason', 'error');
+    if (decision === 'Approved with Conditions' && !conditions.length) return deps.showToast('Add at least one approval condition', 'error');
     if (imabCreated !== 'Yes') return deps.showToast('Create the customer in IMAB before sending this case to Head of Rural review.', 'error');
     if (!customerNo) return deps.showToast('Enter the IMAB Customer No before sending this case to Head of Rural review.', 'error');
 
@@ -668,7 +732,7 @@
     deps.setButtonLoading(btn, true, 'Saving...');
     const { ok, data } = await deps.apiFetch('/credit-queue/' + farmer.id + '/', {
       method: 'POST',
-      body: JSON.stringify({ request_id: requestId(), workflow_revision: Number(farmer.workflow_revision || 1), decision, imab_created: imabCreated, customer_no: customerNo }),
+      body: JSON.stringify({ request_id: requestId(), workflow_revision: Number(farmer.workflow_revision || 1), decision, imab_created: imabCreated, customer_no: customerNo, reason_code: reasonCode, conditions }),
     });
     deps.setButtonLoading(btn, false);
     if (!ok) return deps.showToast(data.error || 'Save failed', 'error');
@@ -685,7 +749,11 @@
     const decisionComment = el('final-comment')?.value || '';
     const repaymentDate = el('final-repayment-date')?.value || '';
     const repaymentTenor = el('final-repayment-tenor')?.value || '';
+    const reasonCode = el('final-reason-code')?.value || '';
+    const conditions = (el('final-conditions')?.value || '').split('\n').map(value => value.trim()).filter(Boolean);
     if (!finalDecision) return deps.showToast('Please select a final decision', 'error');
+    if (['Approved with Conditions', 'Rejected', 'Deferred'].includes(finalDecision) && !reasonCode) return deps.showToast('Choose a decision reason', 'error');
+    if (finalDecision === 'Approved with Conditions' && !conditions.length) return deps.showToast('Add at least one approval condition', 'error');
 
     const btn = el('btn-submit-final');
     deps.setButtonLoading(btn, true, 'Saving...');
@@ -698,6 +766,8 @@
         decision_comment: decisionComment,
         repayment_date: repaymentDate,
         repayment_tenor: repaymentTenor,
+        reason_code: reasonCode,
+        conditions,
       }),
     });
     deps.setButtonLoading(btn, false);

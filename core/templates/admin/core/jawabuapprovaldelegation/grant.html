@@ -1,0 +1,20 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+  <div class="module aligned">
+    <h1>{{ title }}</h1>
+    <p>Use only for documented temporary cover. The delegate must already have active Portal access; this does not grant permanent role access.</p>
+    <form method="post" novalidate>{% csrf_token %}
+      {{ form.non_field_errors }}
+      {% for field in form %}
+        <div class="form-row">
+          {{ field.errors }}
+          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% if field.help_text %}<p class="help">{{ field.help_text }}</p>{% endif %}
+        </div>
+      {% endfor %}
+      <div class="submit-row"><input type="submit" value="Grant temporary authority" class="default"></div>
+    </form>
+  </div>
+{% endblock %}

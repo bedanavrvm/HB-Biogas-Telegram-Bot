@@ -20,8 +20,11 @@ from urllib.parse import parse_qsl, quote
 
 from django.conf import settings
 from django.contrib.auth import login
+from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature, TimestampSigner
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
+from django.utils.dateparse import parse_datetime
+from django.utils import timezone
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -144,6 +147,19 @@ def _portal_workflow_revision(body: dict) -> int:
 
     raw = body.get('workflow_revision', body.get('revision'))
     return parse_expected_revision(raw)
+
+
+def _approval_conditions_from_body(body: dict) -> list[str]:
+    """Normalize a compact client payload without accepting arbitrary JSON."""
+    raw = body.get('conditions') or []
+    if isinstance(raw, str):
+        raw = raw.splitlines()
+    if not isinstance(raw, list):
+        raise ValueError('conditions must be a list of short condition statements.')
+    values = [str(value or '').strip() for value in raw if str(value or '').strip()]
+    if any(len(value) > 500 for value in values):
+        raise ValueError('Each approval condition must be 500 characters or fewer.')
+    return values
 
 
 def _portal_workflow_error(exc):
@@ -323,9 +339,27 @@ def _portal_role_error(request, allowed_roles: set[str] | str, farmer=None):
     return _portal_capability_error(request, 'portal.case.read', farmer)
 
 
+def _portal_approval_authority_error(request, farmer, gate: str):
+    """Apply normal scope checks, then accept a valid temporary delegation."""
+    access = getattr(request, 'portal_access', None)
+    if access is None:
+        return None
+    from core.services.jawabu_approvals import approval_authority
+
+    allowed, _role, _delegation = approval_authority(
+        user=getattr(request, 'portal_user', None),
+        access=access,
+        gate=gate,
+        farmer=farmer,
+    )
+    if not allowed:
+        return JsonResponse({'ok': False, 'error': 'You are not authorized for this Portal approval gate.'}, status=403)
+    return _portal_branch_scope_error(request, farmer)
+
+
 def _portal_order_scope_error(request, order_number: str):
     """Check that every application in an order is inside the actor scope."""
-    from core.models import JawabuFarmerMaster
+    from core.models import JawabuApprovalDelegation, JawabuFarmerMaster
 
     farmers = JawabuFarmerMaster.objects.filter(order_number=order_number).only('branch')
     for farmer in farmers:
@@ -423,7 +457,7 @@ def _pending_payment_review_map(request=None):
 
 def _payment_review_queryset(request):
     """Return active farmers and their pending payment-review metadata."""
-    from core.models import JawabuFarmerMaster
+    from core.models import JawabuApprovalDelegation, JawabuFarmerMaster
 
     review_map = _pending_payment_review_map(request)
     if not review_map:
@@ -1089,10 +1123,11 @@ def portal_meta(request):
     if access_error:
         return access_error
     """GET /api/portal/meta/ — lookup lists for Mini App dropdowns."""
-    from core.models import JawabuFarmerMaster
+    from core.models import JawabuApprovalDelegation, JawabuFarmerMaster
     from core.services.branches import global_branch_choices
     from core.services.locations import global_county_choices
     from core.services.access_control import policy_version
+    from core.services.jawabu_approvals import REASON_CODES
     branches = global_branch_choices()
     staff_branches = {
         str(value).strip().casefold()
@@ -1101,6 +1136,13 @@ def portal_meta(request):
     }
     if staff_branches:
         branches = [branch for branch in branches if branch.casefold() in staff_branches]
+    delegation_gates = []
+    portal_user = getattr(request, 'portal_user', None)
+    if portal_user:
+        delegation_gates = list(JawabuApprovalDelegation.objects.filter(
+            delegate=portal_user, starts_at__lte=timezone.now(),
+            expires_at__gt=timezone.now(), revoked_at__isnull=True,
+        ).values_list('gate', flat=True).distinct())
     return JsonResponse({
         'ok': True,
         'branches': branches,
@@ -1109,6 +1151,8 @@ def portal_meta(request):
         'credit_decisions': [c[0] for c in JawabuFarmerMaster.CREDIT_DECISION_CHOICES],
         'imab_created_options': ['Yes', 'No', 'Pending'],
         'final_decisions': [c[0] for c in JawabuFarmerMaster.FINAL_DECISION_CHOICES],
+        'approval_reason_codes': [{'value': value, 'label': label} for value, label in REASON_CODES],
+        'approval_delegation_gates': delegation_gates,
         'capabilities': _portal_capabilities(request),
         'access_policy_version': policy_version(),
     })
@@ -1263,6 +1307,7 @@ def portal_log_jbl_visit(request, farmer_id: str):
     county = str(body.get('county') or '').strip() if 'county' in body else None
     sub_county = str(body.get('sub_county') or '').strip() if 'sub_county' in body else None
     village = str(body.get('village') or '').strip() if 'village' in body else None
+    location_unavailable_reason = str(body.get('location_unavailable_reason') or '').strip()
 
     latitude = body.get('latitude')
     longitude = body.get('longitude')
@@ -1282,6 +1327,8 @@ def portal_log_jbl_visit(request, farmer_id: str):
             sender=sender,
             latitude=latitude,
             longitude=longitude,
+            location_unavailable_reason=location_unavailable_reason,
+            require_visit_evidence=True,
             county=county,
             sub_county=sub_county,
             village=village,
@@ -1321,6 +1368,20 @@ def portal_upload_jbl_media(request, farmer_id: str):
         return role_error
 
     sender = _portal_sender_from_request(request)
+    capture_latitude = request.POST.get('capture_latitude') or request.POST.get('latitude') or None
+    capture_longitude = request.POST.get('capture_longitude') or request.POST.get('longitude') or None
+    try:
+        capture_latitude = float(capture_latitude) if capture_latitude not in (None, '') else None
+        capture_longitude = float(capture_longitude) if capture_longitude not in (None, '') else None
+    except (ValueError, TypeError):
+        return JsonResponse({'ok': False, 'error': 'Capture coordinates are invalid.'}, status=400)
+    capture_time_raw = str(request.POST.get('captured_at') or '').strip()
+    captured_at = parse_datetime(capture_time_raw) if capture_time_raw else timezone.now()
+    if capture_time_raw and captured_at is None:
+        return JsonResponse({'ok': False, 'error': 'Capture timestamp is invalid.'}, status=400)
+    if captured_at and timezone.is_naive(captured_at):
+        captured_at = timezone.make_aware(captured_at, timezone.get_current_timezone())
+    location_unavailable_reason = str(request.POST.get('location_unavailable_reason') or '').strip()
 
     # New visit forms submit each media category under its own field so a
     # single update can route LAF documents and JBL visit photos independently.
@@ -1335,6 +1396,11 @@ def portal_upload_jbl_media(request, farmer_id: str):
             farmer,
             categorized_files=categorized_files,
             sender=sender,
+            actor_user=getattr(request, 'portal_user', None),
+            captured_at=captured_at,
+            capture_latitude=capture_latitude,
+            capture_longitude=capture_longitude,
+            location_unavailable_reason=location_unavailable_reason,
         )
         if not ok:
             return JsonResponse({'ok': False, 'error': error, **(result or {})}, status=400)
@@ -1354,6 +1420,11 @@ def portal_upload_jbl_media(request, farmer_id: str):
         uploaded_files=files,
         sender=sender,
         media_category=media_category,
+        actor_user=getattr(request, 'portal_user', None),
+        captured_at=captured_at,
+        capture_latitude=capture_latitude,
+        capture_longitude=capture_longitude,
+        location_unavailable_reason=location_unavailable_reason,
     )
     if not ok:
         return JsonResponse({'ok': False, 'error': error, **result}, status=400)
@@ -1363,7 +1434,8 @@ def portal_upload_jbl_media(request, farmer_id: str):
 @csrf_exempt
 @require_http_methods(["GET"])
 def portal_jbl_media(request, farmer_id: str):
-    """GET /api/portal/jbl-queue/<farmer_id>/media/ - current LAF links."""
+    """GET /api/portal/jbl-queue/<farmer_id>/media/ - controlled visit evidence."""
+    from django.db.models import Q
     from core.models import JawabuFarmerMaster, MediaAttachment
 
     try:
@@ -1377,28 +1449,130 @@ def portal_jbl_media(request, farmer_id: str):
 
     business_key = str(farmer.national_id or '').strip()
     attachments = MediaAttachment.objects.filter(
-        business_key_type='id_number',
-        business_key_value=business_key,
-        file_type='LAF',
-        upload_status='success',
+        upload_status='success', file_type__in=['LAF', 'JBL_VISIT_PHOTO'],
+    ).filter(
+        Q(jawabu_farmer=farmer) |
+        Q(jawabu_farmer__isnull=True, business_key_type='id_number', business_key_value=business_key)
     ).exclude(drive_url='').order_by('-created_at')
-    laf_media = [
+    media = [
         {
-            'url': item.drive_url,
-            'name': item.original_filename or 'LAF document',
+            'id': str(item.id),
+            'view_url': f'/api/portal/jbl-queue/{farmer.id}/media/{item.id}/open/',
+            'name': item.original_filename or dict({'LAF': 'LAF document', 'JBL_VISIT_PHOTO': 'JBL visit photo'}).get(item.file_type, 'Visit media'),
+            'category': item.file_type,
             'created_at': item.created_at.isoformat() if item.created_at else '',
+            'captured_at': item.captured_at.isoformat() if item.captured_at else '',
         }
         for item in attachments
     ]
     # Older uploads may predate categorized MediaAttachment rows. Keep them
     # viewable as a clearly labelled fallback rather than hiding the evidence.
-    if not laf_media:
-        laf_media = [
-            {'url': url.strip(), 'name': 'Legacy LAF/media link', 'created_at': ''}
-            for url in str(farmer.jbl_media_urls or '').splitlines()
-            if url.strip()
+    if not media:
+        legacy_links = [url.strip() for url in str(farmer.jbl_media_urls or '').splitlines() if url.strip()]
+        media = [
+            {
+                'id': f'legacy:{index}',
+                'view_url': f'/api/portal/jbl-queue/{farmer.id}/media/legacy/{index}/open/',
+                'name': 'Legacy LAF/media link',
+                'category': 'LEGACY',
+                'created_at': '',
+                'captured_at': '',
+            }
+            for index, _url in enumerate(legacy_links)
         ]
-    return JsonResponse({'ok': True, 'laf_media': laf_media})
+    return JsonResponse({'ok': True, 'media': media, 'laf_media': [item for item in media if item['category'] in {'LAF', 'LEGACY'}]})
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def portal_open_jbl_media(request, farmer_id: str, attachment_id: str):
+    """Audit a sensitive evidence read before redirecting to Drive."""
+    from core.models import JawabuFarmerMaster, JawabuMediaAccessEvent, MediaAttachment
+
+    farmer = JawabuFarmerMaster.objects.filter(pk=farmer_id).first()
+    if not farmer:
+        return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
+    from django.db.models import Q
+    attachment = MediaAttachment.objects.filter(
+        pk=attachment_id, upload_status='success',
+    ).filter(
+        Q(jawabu_farmer=farmer) |
+        Q(jawabu_farmer__isnull=True, business_key_type='id_number', business_key_value=str(farmer.national_id or '').strip())
+    ).exclude(drive_url='').first()
+    if not attachment:
+        return JsonResponse({'ok': False, 'error': 'Visit evidence was not found.'}, status=404)
+    access_error = _portal_read_access_error(request, farmer, capability='portal.jbl_media.view')
+    if access_error:
+        return access_error
+    JawabuMediaAccessEvent.objects.create(
+        farmer=farmer, attachment=attachment, actor=getattr(request, 'portal_user', None),
+        request_id=_portal_request_id(request),
+    )
+    return HttpResponseRedirect(attachment.drive_url)
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def portal_open_legacy_jbl_media(request, farmer_id: str, media_index: int):
+    """Audit a legacy stored link before redirecting without exposing it in JSON."""
+    from core.models import JawabuFarmerMaster
+    from core.services.jawabu_case360 import record_pipeline_event
+    from core.services.jawabu_pipeline import current_workflow_state
+
+    farmer = JawabuFarmerMaster.objects.filter(pk=farmer_id).first()
+    if not farmer:
+        return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
+    access_error = _portal_read_access_error(request, farmer, capability='portal.jbl_media.view')
+    if access_error:
+        return access_error
+    links = [url.strip() for url in str(farmer.jbl_media_urls or '').splitlines() if url.strip()]
+    if media_index < 0 or media_index >= len(links):
+        return JsonResponse({'ok': False, 'error': 'Legacy visit evidence was not found.'}, status=404)
+    record_pipeline_event(
+        farmer,
+        action='legacy_jbl_media_viewed',
+        stage_key='jbl_visit',
+        actor=_portal_sender_from_request(request),
+        request_id=_portal_request_id(request),
+        source='portal_media',
+        new_values={'legacy_media_index': media_index},
+        actor_user=getattr(request, 'portal_user', None),
+        transition_code='jawabu.jbl_visit.legacy_media_viewed',
+        from_state=current_workflow_state(farmer),
+        to_state=current_workflow_state(farmer),
+        revision_before=farmer.workflow_revision,
+        revision_after=farmer.workflow_revision,
+    )
+    return HttpResponseRedirect(links[media_index])
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_clear_approval_condition(request, condition_id: str):
+    """Clear one evidenced condition; the service advances only when all are met."""
+    from core.models import JawabuApprovalCondition
+    from core.services.jawabu_approvals import JawabuApprovalError, clear_condition
+    from core.services.jawabu_pipeline import farmer_to_card
+
+    condition = JawabuApprovalCondition.objects.select_related('approval__farmer').filter(pk=condition_id).first()
+    if not condition:
+        return JsonResponse({'ok': False, 'error': 'Approval condition not found.'}, status=404)
+    access_error = _portal_read_access_error(request, condition.approval.farmer, capability='portal.case.read')
+    if access_error:
+        return access_error
+    body = _json_body(request)
+    try:
+        clear_condition(
+            condition_id=condition_id,
+            actor=getattr(request, 'portal_user', None),
+            access=getattr(request, 'portal_access', None),
+            note=str(body.get('note') or '').strip(),
+        )
+    except (JawabuApprovalError, ValidationError) as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    farmer = condition.approval.farmer
+    farmer.refresh_from_db()
+    return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer)})
 
 @csrf_exempt
 @require_http_methods(["GET"])
@@ -1433,7 +1607,7 @@ def portal_set_credit_decision(request, farmer_id: str):
     except JawabuFarmerMaster.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
 
-    role_error = _portal_role_error(request, 'credit.write', farmer)
+    role_error = _portal_approval_authority_error(request, farmer, 'credit')
     if role_error:
         return role_error
 
@@ -1450,6 +1624,11 @@ def portal_set_credit_decision(request, farmer_id: str):
     decision = str(body.get('decision') or '').strip()
     imab_created = str(body.get('imab_created') or '').strip()
     customer_no = str(body.get('customer_no') or '').strip()
+    reason_code = str(body.get('reason_code') or '').strip()
+    try:
+        conditions = _approval_conditions_from_body(body)
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     if not decision:
         return JsonResponse({'ok': False, 'error': 'decision is required.'}, status=400)
 
@@ -1460,12 +1639,15 @@ def portal_set_credit_decision(request, farmer_id: str):
             decision=decision,
             imab_created=imab_created,
             customer_no=customer_no,
+            reason_code=reason_code,
+            conditions=conditions,
             sender=sender,
             request_id=_portal_request_id(request, body),
             expected_revision=expected_revision,
             actor_user=getattr(request, 'portal_user', None),
+            access=getattr(request, 'portal_access', None),
         )
-    except ValueError as exc:
+    except (ValueError, ValidationError) as exc:
         response = _portal_workflow_error(exc)
         return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     if not ok:
@@ -1527,7 +1709,7 @@ def portal_set_final_decision(request, farmer_id: str):
     except JawabuFarmerMaster.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
 
-    role_error = _portal_role_error(request, 'final_review.write', farmer)
+    role_error = _portal_approval_authority_error(request, farmer, 'final_review')
     if role_error:
         return role_error
 
@@ -1545,6 +1727,11 @@ def portal_set_final_decision(request, farmer_id: str):
     decision_comment = str(body.get('decision_comment') or '').strip()
     repayment_date = str(body.get('repayment_date') or '').strip() if 'repayment_date' in body else None
     repayment_tenor = str(body.get('repayment_tenor') or '').strip() if 'repayment_tenor' in body else None
+    reason_code = str(body.get('reason_code') or '').strip()
+    try:
+        conditions = _approval_conditions_from_body(body)
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     if not final_decision:
         return JsonResponse({'ok': False, 'error': 'final_decision is required.'}, status=400)
 
@@ -1554,14 +1741,17 @@ def portal_set_final_decision(request, farmer_id: str):
             farmer,
             final_decision=final_decision,
             decision_comment=decision_comment,
+            reason_code=reason_code,
+            conditions=conditions,
             repayment_date=repayment_date,
             repayment_tenor=repayment_tenor,
             sender=sender,
             request_id=_portal_request_id(request, body),
             expected_revision=expected_revision,
             actor_user=getattr(request, 'portal_user', None),
+            access=getattr(request, 'portal_access', None),
         )
-    except ValueError as exc:
+    except (ValueError, ValidationError) as exc:
         response = _portal_workflow_error(exc)
         return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     if not ok:
@@ -3375,11 +3565,8 @@ def portal_payment_document_approve(request, document_id: str):
     farmers = list(JawabuFarmerMaster.objects.filter(id__in=document.farmer_ids or []))
     if len(farmers) != len(set(document.farmer_ids or [])):
         return JsonResponse({'ok': False, 'error': 'The payment review references a missing case.'}, status=409)
-    role_error = _portal_role_error(request, 'payment.review')
-    if role_error:
-        return role_error
     for farmer in farmers:
-        role_error = _portal_role_error(request, 'payment.review', farmer)
+        role_error = _portal_approval_authority_error(request, farmer, 'payment_review')
         if role_error:
             return role_error
 
@@ -3396,6 +3583,8 @@ def portal_payment_document_approve(request, document_id: str):
         final_document = approve_payment_document(
             str(document.id),
             actor=_portal_sender_from_request(request),
+            actor_user=getattr(request, 'portal_user', None),
+            access=getattr(request, 'portal_access', None),
             call_up_comments=comment,
             case_call_up_comments={str(key): str(value or '').strip() for key, value in case_comments.items()},
         )

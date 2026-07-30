@@ -60,6 +60,11 @@ from .models import (
     JawabuVisitRecord,
     LiveSheetRecordChange,
     MediaAttachment,
+    JawabuApprovalDelegation,
+    JawabuApprovalDelegationEvent,
+    JawabuApprovalRecord,
+    JawabuApprovalCondition,
+    JawabuMediaAccessEvent,
     OperationalLocation,
     OperationalProduct,
     OrderApprovalUpdate,
@@ -968,17 +973,155 @@ class OrderApprovalUpdateAdmin(ReadOnlyAuditAdmin):
 @admin.register(MediaAttachment)
 class MediaAttachmentAdmin(ReadOnlyAuditAdmin):
     list_display = [
-        'business_key_value', 'group_id', 'file_type', 'original_filename',
-        'storage_provider', 'upload_status', 'created_at',
+        'jawabu_farmer', 'business_key_value', 'group_id', 'file_type', 'original_filename',
+        'storage_provider', 'upload_status', 'captured_at', 'created_at',
     ]
     list_filter = [
-        'group_id', 'file_type', 'storage_provider', 'upload_status', 'created_at',
+        'group_id', 'file_type', 'storage_provider', 'upload_status', 'jawabu_farmer', 'created_at',
     ]
     search_fields = [
         'business_key_value', 'telegram_file_id', 'original_filename',
         'drive_file_id', 'drive_url', 'content_hash',
     ]
-    readonly_fields = ['id', 'created_at']
+    readonly_fields = [field.name for field in MediaAttachment._meta.fields]
+
+
+class JawabuApprovalDelegationForm(forms.Form):
+    """Small, deliberate Admin surface for a temporary approval hand-off."""
+
+    delegate = forms.ModelChoiceField(queryset=get_user_model().objects.filter(is_active=True).order_by('username'))
+    gate = forms.ChoiceField(choices=JawabuApprovalDelegation.GATE_CHOICES)
+    branch = forms.ChoiceField(required=False, choices=())
+    product = forms.ChoiceField(required=False, choices=())
+    expires_at = forms.DateTimeField(
+        widget=forms.DateTimeInput(attrs={'type': 'datetime-local'}),
+        help_text='Maximum 14 days from now.',
+    )
+    reason = forms.CharField(widget=forms.Textarea(attrs={'rows': 3}), max_length=2000)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['branch'].choices = [('', 'All branches')] + [(value, value) for value in global_branch_choices()]
+        self.fields['product'].choices = [('', 'All products')] + [(value, value) for value in configured_products()]
+
+
+@admin.register(JawabuApprovalDelegation)
+class JawabuApprovalDelegationAdmin(ReadOnlyAuditAdmin):
+    """Delegations are created/revoked through services, never raw edits."""
+
+    list_display = ('delegate', 'gate', 'branch', 'product', 'authorized_by', 'starts_at', 'expires_at', 'active', 'revoke_action')
+    list_filter = ('gate', 'branch', 'product')
+    search_fields = ('delegate__username', 'authorized_by__username', 'reason')
+    readonly_fields = [field.name for field in JawabuApprovalDelegation._meta.fields]
+    change_list_template = 'admin/core/jawabuapprovaldelegation/change_list.html'
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_urls(self):
+        return [
+            path('grant/', self.admin_site.admin_view(self.grant_view), name='core_jawabuapprovaldelegation_grant'),
+            path('<path:delegation_id>/revoke/', self.admin_site.admin_view(self.revoke_view), name='core_jawabuapprovaldelegation_revoke'),
+        ] + super().get_urls()
+
+    @admin.display(description='Action')
+    def revoke_action(self, obj):
+        if not obj.active:
+            return '-'
+        return format_html(
+            '<a href="{}">Revoke</a>',
+            reverse('admin:core_jawabuapprovaldelegation_revoke', args=[obj.pk]),
+        )
+
+    def grant_view(self, request):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        form = JawabuApprovalDelegationForm(request.POST or None)
+        if request.method == 'POST' and form.is_valid():
+            from core.services.jawabu_approvals import JawabuApprovalError, create_delegation
+            from core.services.telegram_identity import user_access
+            expiry = form.cleaned_data['expires_at']
+            if timezone.is_naive(expiry):
+                expiry = timezone.make_aware(expiry, timezone.get_current_timezone())
+            try:
+                delegation = create_delegation(
+                    delegate=form.cleaned_data['delegate'], gate=form.cleaned_data['gate'],
+                    authorized_by=request.user,
+                    authorization_access=user_access(request.user, 'jawabu_portal'),
+                    branch=form.cleaned_data['branch'], product=form.cleaned_data['product'],
+                    expires_at=expiry, reason=form.cleaned_data['reason'],
+                )
+            except ValidationError as exc:
+                form.add_error(None, '; '.join(exc.messages))
+            else:
+                messages.success(request, f'Temporary approval delegation created until {delegation.expires_at:%d-%b-%Y %H:%M}.')
+                return HttpResponseRedirect(reverse('admin:core_jawabuapprovaldelegation_changelist'))
+        return TemplateResponse(request, 'admin/core/jawabuapprovaldelegation/grant.html', {
+            **self.admin_site.each_context(request), 'opts': self.model._meta,
+            'title': 'Grant temporary Portal approval authority', 'form': form,
+        })
+
+    def revoke_view(self, request, delegation_id):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        delegation = self.get_queryset(request).filter(pk=delegation_id).first()
+        if not delegation:
+            raise PermissionDenied
+        if request.method == 'POST':
+            from core.services.jawabu_approvals import revoke_delegation
+            from core.services.telegram_identity import user_access
+            try:
+                revoke_delegation(
+                    delegation_id=delegation.pk, actor=request.user,
+                    access=user_access(request.user, 'jawabu_portal'),
+                    reason=str(request.POST.get('reason') or ''),
+                )
+            except ValidationError as exc:
+                messages.error(request, '; '.join(exc.messages))
+            else:
+                messages.success(request, 'Temporary approval delegation revoked.')
+                return HttpResponseRedirect(reverse('admin:core_jawabuapprovaldelegation_changelist'))
+        return TemplateResponse(request, 'admin/core/jawabuapprovaldelegation/revoke.html', {
+            **self.admin_site.each_context(request), 'opts': self.model._meta,
+            'title': 'Revoke temporary approval authority', 'delegation': delegation,
+        })
+
+
+@admin.register(JawabuApprovalRecord)
+class JawabuApprovalRecordAdmin(ReadOnlyAuditAdmin):
+    list_display = ('farmer', 'gate', 'decision', 'status', 'reason_code', 'authority_role', 'decided_at', 'expires_at')
+    list_filter = ('gate', 'decision', 'status', 'reason_code')
+    search_fields = ('farmer__customer_name', 'farmer__national_id', 'decided_by_label', 'comment')
+    readonly_fields = [field.name for field in JawabuApprovalRecord._meta.fields]
+
+
+@admin.register(JawabuApprovalCondition)
+class JawabuApprovalConditionAdmin(ReadOnlyAuditAdmin):
+    list_display = ('approval', 'description', 'satisfied_at', 'satisfied_by')
+    list_filter = ('approval__gate',)
+    search_fields = ('approval__farmer__customer_name', 'description')
+    readonly_fields = [field.name for field in JawabuApprovalCondition._meta.fields]
+
+
+@admin.register(JawabuApprovalDelegationEvent)
+class JawabuApprovalDelegationEventAdmin(ReadOnlyAuditAdmin):
+    list_display = ('delegation', 'action', 'actor', 'created_at')
+    list_filter = ('action', 'created_at')
+    readonly_fields = [field.name for field in JawabuApprovalDelegationEvent._meta.fields]
+
+
+@admin.register(JawabuMediaAccessEvent)
+class JawabuMediaAccessEventAdmin(ReadOnlyAuditAdmin):
+    list_display = ('farmer', 'attachment', 'actor', 'action', 'created_at')
+    list_filter = ('action', 'created_at')
+    search_fields = ('farmer__customer_name', 'farmer__national_id', 'attachment__original_filename', 'actor__username')
+    readonly_fields = [field.name for field in JawabuMediaAccessEvent._meta.fields]
 
 
 @admin.register(ComplaintCaseEvidence)

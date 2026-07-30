@@ -1,6 +1,23 @@
 # Known Gaps and Verified Workarounds
 
-Last reviewed: 29-July-2026
+Last reviewed: 30-July-2026
+
+## Portal approval controls and visit evidence
+
+`core.0081_jawabuapprovalcondition_jawabuapprovaldelegation_and_more` is
+committed but is not authorised for production application. Approval records,
+conditions, temporary delegation, direct case-media links, and retrieval audit
+are live only after the approved migration. Legacy farmer decisions and media
+remain visible through compatibility reads; they are not retrospectively
+asserted to meet the new evidence or authority controls.
+
+The release deliberately does not delete Drive media. Run
+`python manage.py audit_jawabu_visit_media --strict` to report unlinked
+controlled evidence; it never changes attachments or Drive. Candidate review
+and a separately approved retention/deletion policy are still required.
+In-app SLA escalation remains an operational signal;
+automatic Telegram/SMS/email delivery requires approved recipients, retry
+handling, and a scheduled production job.
 
 ## Cross-workflow customer data cleanup
 

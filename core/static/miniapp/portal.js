@@ -32,6 +32,8 @@
     metaDecisions: [],
     metaImabOptions: [],
     metaFinalDecisions: [],
+    metaApprovalReasons: [],
+    approvalDelegationGates: [],
     metaBranches: [],
     metaCounties: [],
     capabilities: new Set(),
@@ -919,6 +921,8 @@
     state.metaDecisions = data.credit_decisions || [];
     state.metaImabOptions = data.imab_created_options || [];
     state.metaFinalDecisions = data.final_decisions || [];
+    state.metaApprovalReasons = data.approval_reason_codes || [];
+    state.approvalDelegationGates = data.approval_delegation_gates || [];
     state.metaBranches = data.branches || [];
     state.metaCounties = data.counties || [];
     const nextPolicyVersion = data.access_policy_version || null;

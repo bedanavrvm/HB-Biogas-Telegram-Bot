@@ -483,6 +483,17 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
             'payment_product': farmer.payment_product,
             'system_deposit_paid_jbl': str(farmer.system_deposit_paid_jbl) if farmer.system_deposit_paid_jbl is not None else '',
         }
+        material_changes = {
+            field for field, old_value in old_values.items()
+            if str(new_values.get(field, '')) != str(old_value or '')
+        }
+        if material_changes:
+            from core.services.jawabu_approvals import invalidate_material_approvals
+            invalidate_material_approvals(
+                farmer=farmer,
+                changed_fields=material_changes,
+                reason='A controlled system export changed material customer, branch, product, or financial data.',
+            )
         record_pipeline_event(
             farmer,
             action='system_export_updated',

@@ -19,6 +19,11 @@ respective service modules.
 | Effective access | The intersection of an active user's scoped grants/emergency grants and the approved role-capability policy. |
 | Emergency access | A separately audited, reason-required grant that expires automatically. It is not a substitute for a permanent AccessGrant. |
 | Physical document sign-off | An authorised Portal role's attested upload of a scan of a paper-signed and stamped generated workbook. It is not an e-signature or handwriting-verification service. |
+| Approval gate | A distinct credit, final-review, or payment-review decision record. It is not inferred solely from the current text shown on a farmer card. |
+| Conditional approval | A forward decision that remains ineffective until every separately recorded condition is cleared by an authorised staff member. |
+| Approval invalidation | An append-only change of an approval record when a material controlled field changes after the decision. The case requires re-review rather than silently retaining the old decision. |
+| Approval delegation | A Portal-Admin-authorised, non-self-granted temporary authority limited to one approval gate, optional branch/product scope, and at most 14 days. |
+| Controlled visit evidence | The only Portal forward-visit media categories: LAF and JBL visit photo. New records bind directly to a case and carry a case-reference storage key, content hash, capture context, and retrieval audit. |
 
 ## Workflow keys and role codes
 

@@ -40,6 +40,7 @@ JBL_FORWARD_STATUSES = frozenset({
 
 CREDIT_APPROVED = 'Approved'
 CREDIT_TERMINAL = frozenset({'Approved', 'Rejected', 'Deferred', 'Exemption Approved'})
+CREDIT_RECORDED_DECISIONS = CREDIT_TERMINAL | frozenset({'Approved with Conditions'})
 FINAL_DECISION_APPROVED = 'Approved'
 FINAL_DECISION_TERMINAL = frozenset({'Approved', 'Rejected', 'Deferred'})
 
@@ -316,6 +317,8 @@ def log_jbl_visit(
     sender: str = '',
     latitude: float | None = None,
     longitude: float | None = None,
+    location_unavailable_reason: str = '',
+    require_visit_evidence: bool = False,
     county: str | None = None,
     sub_county: str | None = None,
     village: str | None = None,
@@ -357,6 +360,19 @@ def log_jbl_visit(
     if jbl_visit_date is None:
         return False, 'A valid JBL visit date is required.'
     visit_date = jbl_visit_date
+
+    # A forward visit is only meaningful when the required evidence exists.
+    # The upload endpoint is idempotent, so callers can safely upload first
+    # and retry this transition without creating duplicate files.
+    if require_visit_evidence and visit_status in JBL_FORWARD_STATUSES:
+        from core.services.jawabu_approvals import JawabuApprovalError, require_visit_evidence
+        try:
+            require_visit_evidence(farmer)
+        except JawabuApprovalError as exc:
+            return False, str(exc)
+        has_location = latitude is not None and longitude is not None
+        if not has_location and not str(location_unavailable_reason or '').strip():
+            return False, 'Capture the visit location or explain why location was unavailable before forwarding the case.'
 
     prior_state = current_workflow_state(farmer)
     farmer.jbl_visit_date = visit_date
@@ -416,6 +432,14 @@ def log_jbl_visit(
         update_fields.extend(['latitude', 'longitude', 'latitude_value', 'longitude_value', 'gps_link'])
 
     farmer.save(update_fields=update_fields)
+    if visit_status in JBL_FORWARD_STATUSES:
+        from core.services.jawabu_approvals import invalidate_material_approvals
+        invalidate_material_approvals(
+            farmer=farmer,
+            changed_fields={'jbl_visit_date', 'jbl_visit_status'},
+            actor=actor_user,
+            reason='JBL visit evidence or visit details were updated after approval.',
+        )
     from core.services.jawabu_case360 import record_pipeline_event
     record_pipeline_event(
         farmer, action='jbl_visit_completed', stage_key='jbl_visit', actor=sender or officer,
@@ -450,10 +474,13 @@ def set_credit_decision(
     decision: str,
     imab_created: str = '',
     customer_no: str = '',
+    reason_code: str = '',
+    conditions: list[str] | None = None,
     sender: str = '',
     request_id: str = '',
     expected_revision: int | None = None,
     actor_user=None,
+    access: dict | None = None,
 ) -> tuple[bool, str]:
     """
     Record the credit analyst's decision (Stage 3 advance).
@@ -482,7 +509,7 @@ def set_credit_decision(
     customer_no = str(customer_no or '').strip()
     if customer_no and not customer_no.isdigit():
         return False, 'CUSTOMER NO must contain digits only.'
-    if decision in CREDIT_TERMINAL:
+    if decision in CREDIT_RECORDED_DECISIONS:
         if imab_created != 'Yes':
             return False, 'Customer must be created in IMAB before the case can reach Head of Rural review.'
         if not customer_no:
@@ -504,9 +531,16 @@ def set_credit_decision(
         next_state = JawabuWorkflowState.DEFERRED
     elif farmer.deferred_stage == 'credit':
         _clear_deferral(farmer, sender, request_id)
-        next_state = JawabuWorkflowState.FINAL_REVIEW if decision in {'Approved', 'Exemption Approved'} else JawabuWorkflowState.REJECTED
+        if decision in {'Approved', 'Exemption Approved'}:
+            next_state = JawabuWorkflowState.FINAL_REVIEW
+        elif decision == 'Approved with Conditions':
+            next_state = JawabuWorkflowState.CREDIT
+        else:
+            next_state = JawabuWorkflowState.REJECTED
     elif decision in {'Approved', 'Exemption Approved'}:
         next_state = JawabuWorkflowState.FINAL_REVIEW
+    elif decision == 'Approved with Conditions':
+        next_state = JawabuWorkflowState.CREDIT
     else:
         next_state = JawabuWorkflowState.REJECTED
     from_state, revision_before, revision_after = _advance_state(
@@ -520,11 +554,26 @@ def set_credit_decision(
         'deferred_at', 'deferred_stage', 'deferred_until',
         'workflow_state', 'workflow_state_entered_at', 'workflow_revision',
     ])
+    from core.services.jawabu_approvals import JawabuApprovalError, record_approval
+    try:
+        record_approval(
+            farmer=farmer,
+            gate='credit',
+            decision=decision,
+            reason_code=reason_code,
+            conditions=conditions,
+            actor=actor_user,
+            actor_label=sender,
+            access=access,
+        )
+    except JawabuApprovalError as exc:
+        transaction.set_rollback(True)
+        return False, str(exc)
     from core.services.jawabu_case360 import record_pipeline_event
     record_pipeline_event(
         farmer, action='credit_decision_recorded', stage_key='credit', actor=sender,
         request_id=request_id,
-        new_values={'decision': decision, 'imab_created': imab_created, 'customer_no': customer_no},
+        new_values={'decision': decision, 'imab_created': imab_created, 'customer_no': customer_no, 'reason_code': reason_code},
         actor_user=actor_user,
         transition_code='jawabu.credit.record_decision',
         from_state=from_state,
@@ -551,12 +600,15 @@ def set_final_decision(
     *,
     final_decision: str,
     decision_comment: str = '',
+    reason_code: str = '',
+    conditions: list[str] | None = None,
     repayment_date: str | None = None,
     repayment_tenor: str | None = None,
     sender: str = '',
     request_id: str = '',
     expected_revision: int | None = None,
     actor_user=None,
+    access: dict | None = None,
 ) -> tuple[bool, str]:
     """
     Record Head of Rural final decision. Approved records enter the order queue.
@@ -578,6 +630,8 @@ def set_final_decision(
     valid_decisions = {choice[0] for choice in JawabuFarmerMaster.FINAL_DECISION_CHOICES}
     if final_decision not in valid_decisions:
         return False, f"Invalid final decision: '{final_decision}'. Must be one of: {', '.join(sorted(valid_decisions))}"
+    if final_decision == 'Under Review':
+        return False, 'Under Review is the initial state and cannot be selected as a final decision.'
 
     if not farmer.jbl_visit_date:
         return False, 'Cannot set final decision before the JBL/BRO visit is logged.'
@@ -585,6 +639,11 @@ def set_final_decision(
         return False, 'Cannot set final decision before Credit Analysis is completed.'
     if not farmer.imab_created or not farmer.customer_no:
         return False, 'Cannot set final decision before IS CUSTOMER CREATED ON IMAB and CUSTOMER NO are completed in the credit stage.'
+    from core.services.jawabu_approvals import JawabuApprovalError, require_effective_approval
+    try:
+        require_effective_approval(farmer, 'credit')
+    except JawabuApprovalError as exc:
+        return False, str(exc)
 
     from core.services.jawabu_validation import parse_repayment_day, parse_tenor_months
     repayment_day = parse_repayment_day(repayment_date) if repayment_date is not None else farmer.repayment_day
@@ -607,6 +666,8 @@ def set_final_decision(
         next_state = JawabuWorkflowState.ORDER if final_decision == FINAL_DECISION_APPROVED else (JawabuWorkflowState.REJECTED if final_decision == 'Rejected' else JawabuWorkflowState.FINAL_REVIEW)
     elif final_decision == FINAL_DECISION_APPROVED:
         next_state = JawabuWorkflowState.ORDER
+    elif final_decision == 'Approved with Conditions':
+        next_state = JawabuWorkflowState.FINAL_REVIEW
     elif final_decision == 'Rejected':
         next_state = JawabuWorkflowState.REJECTED
     else:
@@ -633,11 +694,27 @@ def set_final_decision(
         update_fields.extend(['repayment_tenor', 'repayment_tenor_months'])
 
     farmer.save(update_fields=update_fields)
+    from core.services.jawabu_approvals import record_approval
+    try:
+        record_approval(
+            farmer=farmer,
+            gate='final_review',
+            decision=final_decision,
+            reason_code=reason_code,
+            comment=decision_comment,
+            conditions=conditions,
+            actor=actor_user,
+            actor_label=sender,
+            access=access,
+        )
+    except JawabuApprovalError as exc:
+        transaction.set_rollback(True)
+        return False, str(exc)
     from core.services.jawabu_case360 import record_pipeline_event
     record_pipeline_event(
         farmer, action='final_decision_recorded', stage_key='final_review', actor=sender,
         request_id=request_id,
-        old_values={'decision': old_decision}, new_values={'decision': final_decision},
+        old_values={'decision': old_decision}, new_values={'decision': final_decision, 'reason_code': reason_code},
         actor_user=actor_user,
         transition_code='jawabu.final_review.record_decision',
         from_state=from_state,
@@ -757,12 +834,36 @@ def return_for_rework(
 
 
 
+def _validate_jbl_media_files(uploaded_files: list, media_category: str) -> str:
+    """Apply the narrow Portal evidence taxonomy before Drive is called."""
+    allowed_laf = {'.pdf', '.jpg', '.jpeg', '.png'}
+    allowed_photo = {'.jpg', '.jpeg', '.png', '.webp'}
+    allowed = allowed_laf if media_category == 'LAF' else allowed_photo
+    minimum_bytes = 4 * 1024
+    for file_obj in uploaded_files or []:
+        filename = str(getattr(file_obj, 'name', '') or '').strip()
+        chunks = filename.lower().rsplit('.', 1)
+        extension = f'.{chunks[-1]}' if len(chunks) == 2 else ''
+        if extension not in allowed:
+            label = 'a PDF or image' if media_category == 'LAF' else 'an image'
+            return f'{JBL_MEDIA_CATEGORIES[media_category]} must be {label}.'
+        size = getattr(file_obj, 'size', None)
+        if size is not None and int(size) < minimum_bytes:
+            return f'{filename or JBL_MEDIA_CATEGORIES[media_category]} is too small to be reliable visit evidence.'
+    return ''
+
+
 def append_jbl_media_links(
     farmer: JawabuFarmerMaster,
     *,
     uploaded_files: list,
     sender: str = '',
     media_category: str = 'LAF',
+    actor_user=None,
+    captured_at=None,
+    capture_latitude=None,
+    capture_longitude=None,
+    location_unavailable_reason: str = '',
 ) -> tuple[bool, str, dict[str, Any]]:
     """Upload JBL visit media to Drive, append links to farmer/order sheet, and audit uploads."""
     if not uploaded_files:
@@ -772,43 +873,100 @@ def append_jbl_media_links(
         return False, 'Choose a valid visit media category.', {
             'categories': [{'value': key, 'label': label} for key, label in JBL_MEDIA_CATEGORIES.items()],
         }
-    business_key = str(farmer.national_id or '').strip()
-    if not business_key:
-        return False, 'National ID is required before uploading JBL visit media.', {}
+    validation_error = _validate_jbl_media_files(uploaded_files, media_category)
+    if validation_error:
+        return False, validation_error, {}
+    # Keep generated Drive object names and their generic storage key free of
+    # customer identifiers.  The direct FK on ``MediaAttachment`` is the
+    # authoritative case linkage for all new Portal evidence; older rows are
+    # still readable through the legacy-ID fallback in the media view.
+    storage_key = f'case-{farmer.pk}'
 
     group_config = _jawabu_group_config()
     if not group_config:
         return False, 'Jawabu workflow group configuration was not found.', {}
 
-    from core.services.order_approval import store_uploaded_files_for_order
+    from core.services.order_approval import hash_uploaded_file, store_uploaded_files_for_order
+
+    # Hashes are calculated before storage for a category-local duplicate
+    # check.  The generic uploader then reuses an existing Drive object where
+    # possible, while these Portal rows preserve the case linkage/audit trail.
+    content_hashes = {hash_uploaded_file(file_obj)[0] for file_obj in uploaded_files}
+    existing_hashes = set(
+        farmer.media_attachments.filter(
+            file_type=media_category,
+            upload_status='success',
+            content_hash__in=content_hashes,
+        ).values_list('content_hash', flat=True)
+    )
 
     uploaded = store_uploaded_files_for_order(
         group_config=group_config,
         uploaded_files=uploaded_files,
         sender=sender,
         received_at=timezone.now(),
-        business_key_value=business_key,
+        business_key_value=storage_key,
         order_update=None,
         media_category=media_category,
         workflow_key='Jawabu/JBL Visits',
         record_type=media_category,
-        record_key=business_key,
+        record_key=f'Case_{farmer.pk}',
+        business_key_type='case_reference',
     )
     if uploaded.links:
+        from core.models import MediaAttachment
+        linked_rows = MediaAttachment.objects.filter(
+            jawabu_farmer__isnull=True,
+            business_key_type='id_number',
+            business_key_value=storage_key,
+            file_type=media_category,
+            upload_status='success',
+            content_hash__in=content_hashes,
+        )
+        linked_rows.update(
+            jawabu_farmer=farmer,
+            captured_at=captured_at,
+            capture_latitude=capture_latitude,
+            capture_longitude=capture_longitude,
+            capture_location_unavailable_reason=str(location_unavailable_reason or '').strip(),
+        )
         existing = [line.strip() for line in str(farmer.jbl_media_urls or '').splitlines() if line.strip()]
         for link in uploaded.links:
             if link and link not in existing:
                 existing.append(link)
         farmer.jbl_media_urls = '\n'.join(existing)
         farmer.save(update_fields=['jbl_media_urls', 'updated_at'])
+        from core.services.jawabu_approvals import invalidate_material_approvals
+        invalidate_material_approvals(
+            farmer=farmer,
+            changed_fields={'jbl_media'},
+            reason=f'{JBL_MEDIA_CATEGORIES[media_category]} was uploaded or linked after approval.',
+        )
+        from core.services.jawabu_case360 import record_pipeline_event
+        record_pipeline_event(
+            farmer,
+            action='jbl_media_uploaded',
+            stage_key='jbl_visit',
+            actor=sender,
+            new_values={
+                'category': media_category,
+                'stored_count': uploaded.stored_count,
+                'duplicate_hashes_reused': len(existing_hashes),
+            },
+            actor_user=actor_user,
+            transition_code='jawabu.jbl_visit.media_uploaded',
+            from_state=current_workflow_state(farmer),
+            to_state=current_workflow_state(farmer),
+            revision_before=farmer.workflow_revision,
+            revision_after=farmer.workflow_revision,
+        )
         sync_farmer_to_master_sheet(farmer)
         sync_farmer_to_internal_order_sheet(farmer)
 
     from core.models import MediaAttachment
     category_rows = (
         MediaAttachment.objects.filter(
-            business_key_type='id_number',
-            business_key_value=business_key,
+            jawabu_farmer=farmer,
             upload_status='success',
         )
         .values_list('file_type', flat=True)
@@ -833,6 +991,7 @@ def append_jbl_media_links(
         'media_count': len([line for line in str(farmer.jbl_media_urls or '').splitlines() if line.strip()]),
         'media_category': media_category,
         'media_categories': category_counts,
+        'duplicate_hashes_reused': len(existing_hashes),
     }
 
 
@@ -841,6 +1000,11 @@ def append_jbl_media_uploads(
     *,
     categorized_files: dict[str, list],
     sender: str = '',
+    actor_user=None,
+    captured_at=None,
+    capture_latitude=None,
+    capture_longitude=None,
+    location_unavailable_reason: str = '',
 ) -> tuple[bool, str, dict[str, Any]]:
     """Store LAF and JBL-visit media categories in one visit-form update.
 
@@ -871,6 +1035,11 @@ def append_jbl_media_uploads(
             uploaded_files=files,
             sender=sender,
             media_category=category,
+            actor_user=actor_user,
+            captured_at=captured_at,
+            capture_latitude=capture_latitude,
+            capture_longitude=capture_longitude,
+            location_unavailable_reason=location_unavailable_reason,
         )
         result = result or {}
         category_results[category] = {
@@ -940,6 +1109,11 @@ def assign_order(
             f"Cannot assign order - Final Decision is '{farmer.final_decision or 'not set'}', "
             f"not Approved. Complete Head of Rural final review first."
         )
+    from core.services.jawabu_approvals import JawabuApprovalError, require_effective_approval
+    try:
+        require_effective_approval(farmer, 'final_review')
+    except JawabuApprovalError as exc:
+        return False, str(exc)
     if not _is_actionable_at_stage(farmer, JawabuWorkflowState.ORDER, deferred_stage='order'):
         return False, _wrong_stage_message(farmer, JawabuWorkflowState.ORDER)
     prior_state = current_workflow_state(farmer)
@@ -1032,6 +1206,8 @@ def farmer_to_card(farmer: JawabuFarmerMaster) -> dict[str, Any]:
     if hbg_visit_date is None and farmer.sign_date:
         from core.services.jawabu_validation import parse_business_date
         hbg_visit_date = parse_business_date(farmer.sign_date)
+    from core.services.jawabu_approvals import approval_payload, visit_evidence_status
+
     return {
         'id': str(farmer.id),
         'workflow_state': current_workflow_state(farmer),
@@ -1098,6 +1274,8 @@ def farmer_to_card(farmer: JawabuFarmerMaster) -> dict[str, Any]:
         'longitude': farmer.longitude,
         'jbl_media_urls': farmer.jbl_media_urls,
         'jbl_media_count': len([line for line in str(farmer.jbl_media_urls or '').splitlines() if line.strip()]),
+        'visit_evidence': visit_evidence_status(farmer),
+        'approvals': approval_payload(farmer),
     }
 
 

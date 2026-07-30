@@ -824,6 +824,26 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
   line-height: 1.35;
 }
 
+.approval-condition-list {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 10px;
+  border: 1px solid var(--tg-theme-hint-color, #d7a74d);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--tg-theme-secondary-bg-color, #f8f4ea) 88%, #e7b453 12%);
+}
+
+.approval-condition-list > div {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.approval-condition-list span { font-size: 13px; }
+.approval-condition-list button { min-height: 36px; flex: 0 0 auto; }
+
 
 .batch-summary-grid {
   display: grid;

@@ -4,6 +4,28 @@ This file records notable, user-visible and operational changes. Entries are
 added while work is performed; deployment remains a separate, explicitly
 approved action.
 
+## Unreleased — 30-July-2026
+
+- Portal approval and media integrity: credit, final-review, and payment-review
+  decisions are now append-only, reason-coded approval records with 90-day
+  validity, condition clearing, material-change invalidation, scoped temporary
+  delegation, and a separate per-case payment review. A forward JBL visit now
+  needs a LAF, a JBL visit photo, and captured location or a stated
+  unavailability reason. New visit media uses a non-PII case storage reference
+  and retrievals are auditable. `audit_jawabu_visit_media` reports orphan
+  candidates without deleting or relinking Drive files.
+
+Migration `core.0081_jawabuapprovalcondition_jawabuapprovaldelegation_and_more`
+adds the approval/delegation/media-audit schema and seeds only
+`portal.approval.delegation.authorize` for the current Portal `ADMIN` role. It
+has **not** been applied to production by this change. To undo after an
+approved migration, first export required approval/delegation/media audit
+evidence, then run:
+
+```powershell
+python manage.py migrate core 0080_physical_document_signoffs
+```
+
 ## Unreleased — 29-July-2026
 
 - Documents & finance: generated requisitions and final payment workbooks can

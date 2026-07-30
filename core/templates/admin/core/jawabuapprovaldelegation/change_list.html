@@ -1,0 +1,11 @@
+{% extends "admin/change_list.html" %}
+
+{% block object-tools-items %}
+  <li><a href="{% url 'admin:core_jawabuapprovaldelegation_grant' %}" class="addlink">Grant temporary approval authority</a></li>
+  {{ block.super }}
+{% endblock %}
+
+{% block content_title %}
+  <h1>Temporary Portal approval delegations</h1>
+  <p class="help">A delegation is scoped, audited, cannot be self-granted, and expires within 14 days. It does not change a role or the capability matrix.</p>
+{% endblock %}

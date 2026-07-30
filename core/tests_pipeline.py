@@ -13,7 +13,7 @@ from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import AccessGrant, GroupSheetConfiguration, InvoiceUploadBatch, JawabuFarmerMaster, LiveSheetRecordChange, MediaAttachment, ParsedInvoice, PaymentDocument, RequisitionBatch, UserProfile, WorkflowRoleCapability
+from core.models import AccessGrant, GroupSheetConfiguration, InvoiceUploadBatch, JawabuFarmerMaster, JawabuMediaAccessEvent, JawabuPipelineEvent, LiveSheetRecordChange, MediaAttachment, ParsedInvoice, PaymentDocument, RequisitionBatch, UserProfile, WorkflowRoleCapability
 from core.services.jawabu_pipeline import (
     assign_order,
     all_cases,
@@ -916,6 +916,13 @@ class JblPipelineApiTestCase(TestCase):
 
     def test_log_jbl_visit_api(self):
         """Verify API POST /api/portal/jbl-queue/<id>/ logs visit and advances pipeline."""
+        # The forward transition now requires both controlled evidence types.
+        for category in ('LAF', 'JBL_VISIT_PHOTO'):
+            MediaAttachment.objects.create(
+                group_id='portal-test', jawabu_farmer=self.farmer,
+                file_type=category, original_filename=f'{category}.jpg',
+                upload_status='success', drive_url=f'https://drive.example/{category}',
+            )
         payload = {
             'workflow_revision': self.farmer.workflow_revision,
             'visit_date': '2026-07-01',
@@ -1054,8 +1061,42 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         media = response.json()['laf_media']
         self.assertEqual(len(media), 1)
-        self.assertEqual(media[0]['url'], 'https://drive.example/laf')
+        self.assertIn(str(self.farmer.id), media[0]['view_url'])
+        self.assertIn(str(media[0]['id']), media[0]['view_url'])
         self.assertEqual(media[0]['name'], 'laf.pdf')
+
+    def test_open_jbl_media_redirects_and_records_an_access_event(self):
+        attachment = MediaAttachment.objects.create(
+            group_id='portal-test', jawabu_farmer=self.farmer,
+            business_key_type='case_reference', business_key_value=f'case-{self.farmer.pk}',
+            file_type='LAF', original_filename='laf.pdf',
+            drive_url='https://drive.example/laf', upload_status='success',
+        )
+
+        response = self.client.get(reverse(
+            'portal_open_jbl_media', args=[self.farmer.id, attachment.id],
+        ))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response['Location'], attachment.drive_url)
+        self.assertTrue(JawabuMediaAccessEvent.objects.filter(
+            farmer=self.farmer, attachment=attachment, action='view',
+        ).exists())
+
+    def test_legacy_jbl_media_is_opened_through_an_audited_internal_redirect(self):
+        self.farmer.jbl_media_urls = 'https://drive.example/legacy-laf'
+        self.farmer.save(update_fields=['jbl_media_urls'])
+
+        listing = self.client.get(reverse('portal_jbl_media', args=[self.farmer.id])).json()
+        self.assertTrue(listing['laf_media'][0]['view_url'].endswith('/media/legacy/0/open/'))
+        self.assertNotIn('drive.example', listing['laf_media'][0]['view_url'])
+        response = self.client.get(reverse('portal_open_legacy_jbl_media', args=[self.farmer.id, 0]))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response['Location'], 'https://drive.example/legacy-laf')
+        self.assertTrue(JawabuPipelineEvent.objects.filter(
+            farmer=self.farmer, action='legacy_jbl_media_viewed',
+        ).exists())
 
     def test_set_credit_decision_api(self):
         """Verify Stage 3 credit decision posting."""

@@ -1760,6 +1760,7 @@ def store_uploaded_files_for_order(
     workflow_key: str = '',
     record_type: str = 'Customer',
     record_key: str = '',
+    business_key_type: str = 'id_number',
 ) -> UploadedMedia:
     links: list[str] = []
     warnings: list[str] = []
@@ -1786,7 +1787,7 @@ def store_uploaded_files_for_order(
             mime_type=mime_type,
             size=size,
             storage_provider=getattr(settings, 'MEDIA_STORAGE_PROVIDER', 'google_drive'),
-            business_key_type='id_number',
+            business_key_type=business_key_type,
             business_key_value=business_key_value,
         )
 

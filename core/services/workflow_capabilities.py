@@ -49,6 +49,7 @@ _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     CapabilityDefinition('portal.payment.view', 'jawabu_portal', 'View payment workspace', 'Payments', _roles('HB_STAFF', 'ADMIN')),
     CapabilityDefinition('portal.payment.prepare', 'jawabu_portal', 'Prepare payment batch', 'Payments', _roles('HB_STAFF', 'ADMIN'), ('portal.payment.view',)),
     CapabilityDefinition('portal.payment.review', 'jawabu_portal', 'Approve payment review', 'Payments', _roles('ADMIN'), ('portal.payment.view',)),
+    CapabilityDefinition('portal.approval.delegation.authorize', 'jawabu_portal', 'Authorize temporary approval delegation', 'Review controls', _roles('ADMIN'), ('portal.case.read',)),
     CapabilityDefinition('portal.documents.view', 'jawabu_portal', 'View generated documents', 'Documents', _roles('HB_STAFF', 'ADMIN')),
     CapabilityDefinition('portal.documents.regenerate', 'jawabu_portal', 'Regenerate generated documents', 'Documents', _roles('HB_STAFF', 'ADMIN'), ('portal.documents.view',)),
     CapabilityDefinition('portal.documents.sign', 'jawabu_portal', 'Upload and attest physically signed documents', 'Documents', _roles('ADMIN'), ('portal.documents.view',)),

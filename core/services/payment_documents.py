@@ -310,6 +310,11 @@ def _row_payload(
         missing.append('Repayment Dates')
     if not farmer.repayment_tenor:
         missing.append('Tenor')
+    from core.services.jawabu_approvals import JawabuApprovalError, require_effective_approval
+    try:
+        require_effective_approval(farmer, 'final_review')
+    except JawabuApprovalError:
+        missing.append('Current final approval')
 
     from core.services.requisition import requisition_deposit_values
 
@@ -676,6 +681,8 @@ def approve_payment_document(
     document_id: str,
     *,
     actor: str = '',
+    actor_user=None,
+    access: dict | None = None,
     call_up_comments: str = '',
     case_call_up_comments: dict[str, str] | None = None,
 ) -> PaymentDocument:
@@ -824,6 +831,17 @@ def approve_payment_document(
                 'validation_summary', 'updated_at',
             ])
             for farmer in JawabuFarmerMaster.objects.filter(id__in=farmer_ids):
+                from core.services.jawabu_approvals import record_approval
+                record_approval(
+                    farmer=farmer,
+                    gate='payment_review',
+                    decision='Approved',
+                    comment=comments.get(str(farmer.id), comment),
+                    actor=actor_user,
+                    actor_label=actor,
+                    access=access,
+                    payment_document=final,
+                )
                 record_pipeline_event(
                     farmer,
                     action='payment_finalized',
