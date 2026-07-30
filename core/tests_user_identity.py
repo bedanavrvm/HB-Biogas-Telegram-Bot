@@ -40,7 +40,7 @@ class CanonicalStaffAdminTests(TestCase):
 
         self.assertIn('read', PORTAL_ACTION_ROLES)
         self.assertIn('payment.review', PORTAL_ACTION_ROLES)
-        self.assertIn('ADMIN', portal_action_roles('payment.review'))
+        self.assertIn('BUSINESS_ADMIN', portal_action_roles('payment.review'))
         self.assertEqual(portal_action_roles('unrecognised.action'), frozenset())
 
     def test_user_admin_is_the_only_staff_management_surface(self):
@@ -142,7 +142,7 @@ class CanonicalStaffAdminTests(TestCase):
             'login_method': 'django', 'display_name': 'Portal Administrator',
             'telegram_username': '', 'django_username': 'portal-admin',
             'email': 'portal-admin@example.test', 'password': 'secure-test-password',
-            'workflow': 'jawabu_portal', 'role': 'ADMIN',
+            'workflow': 'jawabu_portal', 'role': 'BUSINESS_ADMIN',
             'branch': '', 'product': '', 'group_configuration': '',
         })
 
@@ -150,9 +150,9 @@ class CanonicalStaffAdminTests(TestCase):
         user = get_user_model().objects.get(username='portal-admin')
         self.assertTrue(user.is_staff)
         self.assertTrue(user.check_password('secure-test-password'))
-        self.assertFalse(AccessGrant.objects.filter(user=user, workflow='jawabu_portal', role='ADMIN').exists())
+        self.assertFalse(AccessGrant.objects.filter(user=user, workflow='jawabu_portal', role='BUSINESS_ADMIN').exists())
         self.assertTrue(AccessControlChangeRequest.objects.filter(
-            target_user=user, workflow='jawabu_portal', role='ADMIN', status='pending',
+            target_user=user, workflow='jawabu_portal', role='BUSINESS_ADMIN', status='pending',
         ).exists())
 
         # The redirect target must render the canonical User form, including
@@ -372,13 +372,18 @@ class TelegramUserAuthenticationTests(TestCase):
         self.assertEqual(active_roles, {'BRO', 'FINANCE'})
         self.assertEqual(user_access(self.user, 'tat_tracker')['roles'], ['BRO', 'FINANCE'])
 
-    def test_superuser_receives_workflow_admin_roles_without_explicit_grants(self):
+    def test_superuser_requires_explicit_miniapp_grant(self):
         from core.services.telegram_identity import user_access
 
         superuser = get_user_model().objects.create_superuser(
             username='global-superuser', email='super@example.test', password='test-password',
         )
 
-        self.assertIn('ADMIN', user_access(superuser, 'jawabu_portal')['roles'])
-        self.assertIn('MANAGER', user_access(superuser, 'complaint_cases')['roles'])
-        self.assertIn('ADMIN', user_access(superuser, 'tat_tracker')['roles'])
+        self.assertFalse(user_access(superuser, 'jawabu_portal')['authorized'])
+        self.assertEqual(user_access(superuser, 'jawabu_portal')['roles'], [])
+        AccessGrant.objects.create(
+            user=superuser, workflow='jawabu_portal', role='BUSINESS_ADMIN', branch='EMBU',
+        )
+        access = user_access(superuser, 'jawabu_portal')
+        self.assertTrue(access['authorized'])
+        self.assertEqual(access['roles'], ['BUSINESS_ADMIN'])

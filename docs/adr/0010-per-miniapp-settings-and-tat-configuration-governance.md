@@ -1,6 +1,6 @@
 # ADR 0010: Per-Mini-App settings and governed TAT configuration
 
-**Status:** Accepted for the pending 30-July-2026 release
+**Status:** Accepted for code merge and local/staging validation; production migration requires separate deployment approval
 
 ## Context
 
@@ -26,7 +26,9 @@ to explain historical SLA calculations.
   overdue-breach alerts are never suppressible through this preference.
 - TAT exposes operational configuration only through code-defined capabilities:
   IT may propose target, future-calendar, and escalation-rule changes; a
-  different authorised Admin must approve or reject each proposal.
+  different authorised Business Admin must approve or reject each proposal.
+  Business Admin is an explicit workflow AccessGrant and is not Django
+  `is_superuser`/Django Admin access.
 - TAT configuration proposals preserve before/proposed snapshots, requester,
   reviewer, reason, and application timestamps. Approval writes an append-only
   compliance event.
@@ -35,7 +37,8 @@ to explain historical SLA calculations.
   recalculated from a later setting.
 - The Mini App may edit only future business-calendar holidays. Historic
   holiday records remain immutable evidence. Business hours remain fixed at
-  Monday–Friday, 08:00–17:00, Africa/Nairobi in this release.
+  Monday–Friday, 08:00–17:00, Africa/Nairobi in this release. A dedicated ADR
+  is required before introducing per-branch calendars or business hours.
 - The current shared Telegram-group alerts are unchanged. Personal
   immediate/daily-digest/quiet choices are persisted as preferences only until
   an approved recipient-level delivery ledger and digest scheduler exist.
@@ -67,8 +70,12 @@ non-critical preferences and retain a delivery audit trail.
 This ADR is implemented by
 `core.0085_tattrackercase_stage_target_snapshots_and_more`,
 `core.0086_seed_tat_target_snapshots`, and
-`core.0087_repair_tat_stage_target_snapshot_backfill`. Neither migration is
-authorised for production application by this ADR.
+`core.0087_repair_tat_stage_target_snapshot_backfill`. Migration 0086 seeded
+open-stage targets using live service code; 0087 fills only snapshots still
+missing through a fixed historical stage map, so future catalogue changes do
+not change migration results. Acceptance authorises code merge and
+local/staging validation only; production migration application needs separate
+deployment approval.
 
 Before rollback, export approved `WorkflowConfigurationChangeRequest` records
 and retain their compliance-audit evidence. To undo the schema after an

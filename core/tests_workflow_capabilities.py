@@ -5,12 +5,15 @@ import json
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.exceptions import PermissionDenied
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test.client import RequestFactory
 from django.test import TestCase
 
 from core.api.portal_views import portal_meta
 from core.models import AccessControlChangeRequest, AccessGrant, EmergencyAccessGrant, WorkflowRoleCapability, WorkflowRoleCapabilityAuditEvent
 from core.services.access_control import APPROVER_GROUP_NAME, approve_request, create_capability_request, create_emergency_grant
+from core.services.business_admin import legacy_business_admin_cutover_issues
 from core.services.telegram_identity import user_access
 from core.services.workflow_capabilities import (
     capabilities_for_workflow,
@@ -31,6 +34,38 @@ class WorkflowCapabilityPolicyTests(TestCase):
         access = user_access(self.user, 'jawabu_portal')
         self.assertEqual(access['roles'], ['JBL_OFFICER'])
         self.assertTrue(access['authorized'])
+
+    def test_django_superuser_has_no_miniapp_bypass_but_business_admin_grant_is_effective(self):
+        superuser = get_user_model().objects.create_superuser(
+            username='technical-only', email='technical@example.test', password='password',
+        )
+        no_grant_access = user_access(superuser, 'jawabu_portal')
+        self.assertFalse(no_grant_access['authorized'])
+        self.assertEqual(
+            effective_capability_keys(superuser, 'jawabu_portal', access=no_grant_access),
+            set(),
+        )
+
+        AccessGrant.objects.create(
+            user=superuser, workflow='jawabu_portal', role='BUSINESS_ADMIN', branch='EMBU',
+        )
+        business_access = user_access(superuser, 'jawabu_portal')
+        self.assertIn('BUSINESS_ADMIN', business_access['roles'])
+        self.assertIn(
+            'portal.payment.review',
+            effective_capability_keys(superuser, 'jawabu_portal', access=business_access),
+        )
+
+    def test_business_admin_cutover_preflight_flags_pending_legacy_request(self):
+        AccessControlChangeRequest.objects.create(
+            change_type=AccessControlChangeRequest.TYPE_GRANT,
+            workflow='tat_tracker', role='ADMIN', reason='Legacy request awaiting approval.',
+            status=AccessControlChangeRequest.STATUS_PENDING, requested_by=self.user,
+        )
+        issue_codes = {issue.code for issue in legacy_business_admin_cutover_issues()}
+        self.assertIn('pending-legacy-policy-request', issue_codes)
+        with self.assertRaises(CommandError):
+            call_command('check_business_admin_cutover', '--strict')
 
     def test_seeded_policy_preserves_existing_jbl_officer_capabilities(self):
         access = user_access(self.user, 'jawabu_portal')

@@ -5,12 +5,23 @@ from django.core.exceptions import ValidationError
 from core.services.branches import global_branch_choices
 
 
+# ``is_superuser`` is a Django technical-administration flag.  It must never
+# be used as a Mini App business role or as a shortcut around AccessGrant.
+BUSINESS_ADMIN_ROLE = 'BUSINESS_ADMIN'
+LEGACY_BUSINESS_ADMIN_ROLE = 'ADMIN'
+BUSINESS_ADMIN_WORKFLOWS = frozenset({
+    'jawabu_portal',
+    'tat_tracker',
+    'spin_credit_analysis',
+})
+
+
 WORKFLOW_ROLES = {
     'jawabu_portal': (
         ('JBL_OFFICER', 'JBL Officer'),
         ('CREDIT_ANALYST', 'Credit Analyst'),
         ('HB_STAFF', 'HomeBiogas / Operations Staff'),
-        ('ADMIN', 'Portal Administrator'),
+        (BUSINESS_ADMIN_ROLE, 'Business Administrator'),
     ),
     'complaint_cases': (
         ('OFFICER', 'Complaint Case Officer'),
@@ -18,7 +29,7 @@ WORKFLOW_ROLES = {
     ),
     'tat_tracker': (
         ('BRO', 'Branch Relationship Officer'),
-        ('ADMIN', 'TAT Administrator'),
+        (BUSINESS_ADMIN_ROLE, 'Business Administrator'),
         ('CA', 'Credit Analyst'),
         ('BM', 'Branch Manager'),
         ('SECRETARY', 'HOCC Secretary'),
@@ -30,20 +41,26 @@ WORKFLOW_ROLES = {
     ),
     'spin_credit_analysis': (
         ('CREDIT_ANALYST', 'Credit Analyst'),
-        ('ADMIN', 'SPIN Administrator'),
+        (BUSINESS_ADMIN_ROLE, 'Business Administrator'),
     ),
 }
 
 ROLE_ALIASES = {
     'jawabu_portal': {
-        'admin': 'ADMIN', 'jbl_officer': 'JBL_OFFICER',
+        'admin': BUSINESS_ADMIN_ROLE, 'business_admin': BUSINESS_ADMIN_ROLE,
+        'jbl_officer': 'JBL_OFFICER',
         'credit_analyst': 'CREDIT_ANALYST', 'operations': 'HB_STAFF',
-        'hb_staff': 'HB_STAFF', 'head_rural': 'ADMIN',
+        'hb_staff': 'HB_STAFF', 'head_rural': BUSINESS_ADMIN_ROLE,
+    },
+    'tat_tracker': {
+        'admin': BUSINESS_ADMIN_ROLE,
+        'business_admin': BUSINESS_ADMIN_ROLE,
     },
     'spin_credit_analysis': {
         'analyst': 'CREDIT_ANALYST',
         'credit_analyst': 'CREDIT_ANALYST',
-        'admin': 'ADMIN',
+        'admin': BUSINESS_ADMIN_ROLE,
+        'business_admin': BUSINESS_ADMIN_ROLE,
     },
 }
 

@@ -1007,7 +1007,7 @@ class TatTrackerCaseAdmin(TestDataDeleteAdmin):
         deleted = soft_delete_tat_case(
             obj,
             actor_name=request.user.get_username(),
-            actor_role='ADMIN',
+            actor_role='DJANGO_ADMIN',
             reason='Deleted from Django admin.',
         )
         if deleted:
@@ -1022,7 +1022,7 @@ class TatTrackerCaseAdmin(TestDataDeleteAdmin):
                 if soft_delete_tat_case(
                     case,
                     actor_name=request.user.get_username(),
-                    actor_role='ADMIN',
+                    actor_role='DJANGO_ADMIN',
                     reason='Bulk deleted from Django admin.',
                 ):
                     deleted_count += 1

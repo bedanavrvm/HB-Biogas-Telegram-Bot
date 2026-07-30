@@ -20,6 +20,7 @@ from core.models import (
     UserMiniAppPreference,
     WorkflowConfigurationChangeRequest,
 )
+from core.services.access_policies import BUSINESS_ADMIN_ROLE
 from core.services.compliance_audit import record_event
 
 
@@ -40,6 +41,26 @@ SETTING_CAPABILITIES = {
     WorkflowConfigurationChangeRequest.SETTING_HOLIDAYS: ('tat.settings.calendar.propose', 'tat.settings.calendar.approve'),
     WorkflowConfigurationChangeRequest.SETTING_ESCALATION: ('tat.settings.escalation.propose', 'tat.settings.escalation.approve'),
 }
+
+# This catalogue is intentionally code-owned.  A future recipient-level
+# delivery worker must use it rather than re-deciding which notification can
+# be quieted in a separate Mini App or task module.  Unknown alert types fail
+# closed as mandatory until they are explicitly classified here.
+MANDATORY_ALERT_TYPES = frozenset({
+    'security.access',
+    'workflow.assignment',
+    'approval.decision',
+    'sla.overdue_breach',
+})
+PREFERENCE_CONTROLLED_ALERT_TYPES = frozenset({
+    'workflow.informational',
+    'workflow.digest_eligible',
+})
+
+
+def alert_preference_applies(alert_type: str) -> bool:
+    """Return whether a future delivery worker may apply a personal choice."""
+    return str(alert_type or '').strip() in PREFERENCE_CONTROLLED_ALERT_TYPES
 
 
 def preference_payload(user, workflow: str) -> dict[str, Any]:
@@ -269,11 +290,12 @@ def create_tat_configuration_request(config, actor: dict, *, setting_key: str, p
 def review_tat_configuration_request(request_id: str, actor: dict, *, approve: bool, review_comment: str = ''):
     request = WorkflowConfigurationChangeRequest.objects.select_for_update().select_related('group_configuration', 'requested_by').get(pk=request_id)
     approve_capability = SETTING_CAPABILITIES[request.setting_key][1]
-    if not _capable(actor, approve_capability):
-        raise PermissionError('Your role cannot approve this setting change.')
+    actor_roles = {str(role or '').strip().upper() for role in (actor.get('roles') or [])}
+    if BUSINESS_ADMIN_ROLE not in actor_roles or not _capable(actor, approve_capability):
+        raise PermissionError('Only an authorised Business Admin can approve this setting change.')
     reviewer = _request_user(actor)
     if reviewer.pk == request.requested_by_id:
-        raise PermissionError('A different authorised Admin must review this change.')
+        raise PermissionError('A different authorised Business Admin must review this change.')
     if request.status != WorkflowConfigurationChangeRequest.STATUS_PENDING:
         raise ValueError('This setting proposal has already been reviewed.')
     request.reviewed_by = reviewer

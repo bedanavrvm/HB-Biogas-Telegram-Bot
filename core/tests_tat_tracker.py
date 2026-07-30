@@ -109,7 +109,7 @@ class TatTrackerWorkflowTest(TestCase):
         self.admin_user.save(update_fields=['password'])
         UserProfile.objects.create(user=self.admin_user, telegram_id='222', telegram_username='admin_user')
         AccessGrant.objects.create(
-            user=self.admin_user, workflow='tat_tracker', role='ADMIN',
+            user=self.admin_user, workflow='tat_tracker', role='BUSINESS_ADMIN',
             branch='Nakuru', product='business', group_configuration=self.config,
         )
 
@@ -304,7 +304,7 @@ class TatTrackerWorkflowTest(TestCase):
         changed = soft_delete_tat_case(
             deleted_case,
             actor_name='Admin User',
-            actor_role='ADMIN',
+            actor_role='BUSINESS_ADMIN',
             reason='Duplicate test data cleanup.',
         )
 
@@ -383,8 +383,9 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(proposal.status, WorkflowConfigurationChangeRequest.STATUS_PENDING)
         self.assertNotIn('tat_targets_minutes', self.config.workflow)
         self_approver = dict(it_actor)
+        self_approver['roles'] = list(self_approver.get('roles') or []) + ['BUSINESS_ADMIN']
         self_approver['capabilities'] = list(self_approver.get('capabilities') or []) + ['tat.settings.targets.approve']
-        with self.assertRaisesRegex(PermissionError, 'different authorised Admin'):
+        with self.assertRaisesRegex(PermissionError, 'different authorised Business Admin'):
             review_tat_configuration_request(str(proposal.pk), self_approver, approve=True)
 
         reviewed = review_tat_configuration_request(str(proposal.pk), admin_actor, approve=True)

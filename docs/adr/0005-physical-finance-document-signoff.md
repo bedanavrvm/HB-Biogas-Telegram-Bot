@@ -21,7 +21,8 @@ SHA-256 hashes.
 
 The sign-off record is append-only and Drive-backed with local retry metadata.
 It becomes approved only after its Drive upload succeeds. The initial
-responsible role is Portal `ADMIN` (the current Head-of-Rural authority), but
+responsible role is Portal `BUSINESS_ADMIN` (the current Head-of-Rural
+authority), but
 the requisition and payment role policies are changed only through the existing
 maker-checker access-control request flow. A new workbook version never erases
 an earlier approved scan.

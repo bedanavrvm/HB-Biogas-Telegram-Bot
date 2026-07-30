@@ -2,6 +2,10 @@
 
 ## Workflow integrity - 30-July-2026
 
+- Workflow `ADMIN` has been renamed to `BUSINESS_ADMIN` across Portal, TAT,
+  and SPIN. Django technical superusers now require an explicit scoped Mini
+  App grant like every other staff member; legacy evidence remains unchanged.
+
 - Portal, Complaint Cases, TAT, and SPIN now each have a personal Settings
   screen for saved workflow defaults, compact cards, and non-critical alert
   intent. Settings are user-owned and do not change workflow access.

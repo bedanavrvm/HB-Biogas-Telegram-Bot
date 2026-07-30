@@ -33,6 +33,11 @@ class PortalApprovalControlsTests(TestCase):
         self.admin = get_user_model().objects.create_superuser(
             username='approval-admin', email='approval@example.test', password='test-password',
         )
+        # Django superuser status grants administration of the technical site,
+        # not business approval authority inside the Portal.
+        AccessGrant.objects.create(
+            user=self.admin, workflow='jawabu_portal', role='BUSINESS_ADMIN', branch='EMBU', active=True,
+        )
         self.delegate = get_user_model().objects.create_user(username='approval-delegate', is_active=True)
         AccessGrant.objects.create(
             user=self.delegate, workflow='jawabu_portal', role='JBL_OFFICER', branch='EMBU', active=True,

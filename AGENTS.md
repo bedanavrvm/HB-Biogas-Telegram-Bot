@@ -56,6 +56,7 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **Mini App** | A Telegram Web App (mobile-first web UI launched inside Telegram) backed by Django templates/static assets under `core/templates/*` and `core/static/miniapp/`. |
 | **`initData`** | Telegram's signed payload proving a Mini App session belongs to a specific Telegram user; must be HMAC-verified server-side before trust. |
 | **Portal** | The aggregated staff-facing view across pipeline/workflow data, served by `core/api/portal_views.py`. |
+| **Business Admin** | A scoped Mini App role (`BUSINESS_ADMIN`) for operational approval/configuration authority. It is distinct from Django `is_staff`/`is_superuser`, which do not grant Mini App access. |
 
 If new domain terms are introduced by a change, add them here rather than only in a service docstring — this table is the first place agents and new contributors look.
 
@@ -126,6 +127,7 @@ Key modules:
 - `workflow_transitions.py` — shared revision validation and transition-conflict responses
 - `workflow_sla.py` — read-only SLA evaluation and idempotent pending follow-up records
 - `business_calendar.py` — official Nairobi business-hours and admin-managed public-holiday calculations
+- `business_admin.py` — read-only legacy-role cutover validation for the `BUSINESS_ADMIN` operational role
 - `workflow_timeline.py` — read-only, append-only-event timeline projections for Portal and TAT case history
 - `workflow_escalations.py` — scoped read models for current in-app escalation context
 - `workflow_capabilities.py` — centrally defined Mini App capabilities and role policy resolution

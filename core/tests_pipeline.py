@@ -504,7 +504,7 @@ class PortalMiniAppAuthTestCase(TestCase):
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_portal_api_accepts_valid_telegram_init_data(self):
-        self.grant_portal_access(role='ADMIN')
+        self.grant_portal_access(role='BUSINESS_ADMIN')
         response = self.client.get(
             reverse('portal_dashboard'),
             HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
@@ -517,7 +517,7 @@ class PortalMiniAppAuthTestCase(TestCase):
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_portal_api_generates_request_id_when_client_does_not_supply_one(self):
-        self.grant_portal_access(role='ADMIN')
+        self.grant_portal_access(role='BUSINESS_ADMIN')
         response = self.client.get(
             reverse('portal_dashboard'),
             HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),

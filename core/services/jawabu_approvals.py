@@ -121,7 +121,7 @@ def approval_authority(*, user, access: dict | None, gate: str, farmer) -> tuple
     capability = GATE_CAPABILITIES[gate]
     if has_capability(user, 'jawabu_portal', capability, access=access):
         roles = list((access or {}).get('roles') or [])
-        return True, (roles[0] if roles else 'ADMIN'), None
+        return True, (roles[0] if roles else 'BUSINESS_ADMIN'), None
     delegation = active_delegation(user=user, gate=gate, farmer=farmer)
     if delegation:
         return True, delegation.source_role, delegation

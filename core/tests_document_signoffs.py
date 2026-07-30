@@ -40,7 +40,7 @@ class PhysicalDocumentSignoffTests(TestCase):
             username='document-officer', is_active=True,
         )
         AccessGrant.objects.create(
-            user=self.admin_user, workflow='jawabu_portal', role='ADMIN', branch='EMBU',
+            user=self.admin_user, workflow='jawabu_portal', role='BUSINESS_ADMIN', branch='EMBU',
         )
         AccessGrant.objects.create(
             user=self.officer, workflow='jawabu_portal', role='JBL_OFFICER', branch='EMBU',
@@ -139,7 +139,7 @@ class PhysicalDocumentSignoffTests(TestCase):
         request = create_document_signoff_policy_request(
             requester=maker,
             document_type='payment',
-            approval_role='ADMIN',
+            approval_role='BUSINESS_ADMIN',
             reason='Confirm the initial payment sign-off authority.',
         )
 
@@ -147,7 +147,7 @@ class PhysicalDocumentSignoffTests(TestCase):
             approve_request(request_id=request.pk, approver=maker)
         approve_request(request_id=request.pk, approver=checker)
 
-        self.assertEqual(DocumentSignoffPolicy.objects.get(document_type='payment').approval_role, 'ADMIN')
+        self.assertEqual(DocumentSignoffPolicy.objects.get(document_type='payment').approval_role, 'BUSINESS_ADMIN')
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_drive_failure_keeps_scan_for_retry(self, storage):

@@ -25,6 +25,7 @@ from django.utils import timezone
 import openpyxl
 
 from core.models import TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent
+from core.services.access_policies import BUSINESS_ADMIN_ROLE
 from core.services.branches import DEFAULT_WORKFLOW_BRANCHES, global_branch_choices, workflow_branches as configured_workflow_branches
 from core.services.business_calendar import business_minutes_between
 from core.services.identifiers import normalize_kenyan_phone, normalize_national_id
@@ -68,7 +69,7 @@ DEFAULT_TAT_TARGETS_MINUTES = {
 }
 NEAR_SLA_RATIO = Decimal('0.8')
 TAT_TARGET_MANAGER_ROLES = frozenset({'IT'})
-TAT_CASE_CORRECTION_ROLES = frozenset({'IT', 'ADMIN'})
+TAT_CASE_CORRECTION_ROLES = frozenset({'IT', BUSINESS_ADMIN_ROLE})
 TAT_HOME_PAGE_SIZE = 10
 TAT_CREATE_INTENT_NEW_LOAN = 'new_loan'
 
@@ -109,7 +110,7 @@ class StageTatColumn:
 
 BASE_STAGES_OTHER = (
     StageConfig('mpesa_to_admin', 'MPESA sent to Admin', 9, 'BRO'),
-    StageConfig('mpesa_verified', 'MPESA verified and sent to CA', 10, 'ADMIN'),
+    StageConfig('mpesa_verified', 'MPESA verified by Business Admin and sent to CA', 10, BUSINESS_ADMIN_ROLE),
     StageConfig('ca_analysis_sent', 'Credit analysis sent', 11, 'CA'),
     StageConfig('bro_response', 'BRO response to CA', 12, 'BRO'),
     StageConfig('bm_tat_request', 'BM TAT request sent', 13, 'BM'),
@@ -119,14 +120,14 @@ BASE_STAGES_OTHER = (
     StageConfig('minutes_shared', 'Minutes shared', 18, 'SECRETARY', 'dropdown', tuple(MINUTES_SHARED_OPTIONS), 'minutes_shared_ts'),
     StageConfig('sanctions', 'Sanctions', 19, 'LOAN_APPROVER', 'dropdown', tuple(SANCTIONS_OPTIONS), 'sanctions_ts'),
     StageConfig('bro_applied', 'BRO applied on system', 21, 'BRO', 'dropdown', tuple(BRO_APPLIED_OPTIONS), 'bro_applied_ts'),
-    StageConfig('disbursement_register', 'Disbursement register', 22, 'ADMIN', 'dropdown', tuple(REGISTER_OPTIONS), 'register_ts'),
+    StageConfig('disbursement_register', 'Business Admin disbursement register', 22, BUSINESS_ADMIN_ROLE, 'dropdown', tuple(REGISTER_OPTIONS), 'register_ts'),
     StageConfig('register_approved', 'Register approved', 24, 'LOAN_APPROVER', 'dropdown', tuple(REGISTER_APPROVED_OPTIONS), 'register_approved_ts'),
     StageConfig('disbursement', 'Finance disbursement', 25, 'FINANCE'),
 )
 
 BASE_STAGES_LOGBOOK = (
     StageConfig('mpesa_to_admin', 'MPESA sent to Admin', 9, 'BRO'),
-    StageConfig('mpesa_verified', 'MPESA verified and sent to CA', 10, 'ADMIN'),
+    StageConfig('mpesa_verified', 'MPESA verified by Business Admin and sent to CA', 10, BUSINESS_ADMIN_ROLE),
     StageConfig('ca_analysis_sent', 'Credit analysis sent', 11, 'CA'),
     StageConfig('bro_response', 'BRO response to CA', 12, 'BRO'),
     StageConfig('valuation_ready', 'Valuation ready', 13, 'BM'),
@@ -137,19 +138,19 @@ BASE_STAGES_LOGBOOK = (
     StageConfig('minutes_shared', 'Minutes shared', 19, 'SECRETARY', 'dropdown', tuple(MINUTES_SHARED_OPTIONS), 'minutes_shared_ts'),
     StageConfig('sanctions', 'Sanctions', 20, 'LOAN_APPROVER', 'dropdown', tuple(SANCTIONS_OPTIONS), 'sanctions_ts'),
     StageConfig('bro_applied', 'BRO applied on system', 22, 'BRO', 'dropdown', tuple(BRO_APPLIED_OPTIONS), 'bro_applied_ts'),
-    StageConfig('disbursement_register', 'Disbursement register', 23, 'ADMIN', 'dropdown', tuple(REGISTER_OPTIONS), 'register_ts'),
+    StageConfig('disbursement_register', 'Business Admin disbursement register', 23, BUSINESS_ADMIN_ROLE, 'dropdown', tuple(REGISTER_OPTIONS), 'register_ts'),
     StageConfig('register_approved', 'Register approved', 25, 'LOAN_APPROVER', 'dropdown', tuple(REGISTER_APPROVED_OPTIONS), 'register_approved_ts'),
     StageConfig('disbursement', 'Finance disbursement', 26, 'FINANCE'),
 )
 
 BASE_STAGES_BUSINESS = (
     StageConfig('mpesa_to_admin', 'MPESA sent to Admin', 9, 'BRO'),
-    StageConfig('mpesa_verified', 'MPESA verified and sent to CA', 10, 'ADMIN'),
+    StageConfig('mpesa_verified', 'MPESA verified by Business Admin and sent to CA', 10, BUSINESS_ADMIN_ROLE),
     StageConfig('ca_analysis_sent', 'Credit analysis sent', 11, 'CA'),
     StageConfig('bro_response', 'BRO response to CA', 12, 'BRO'),
     StageConfig('bm_response', 'BM response to CA', 13, 'BM', requires_signature_certificate=True),
     StageConfig('bro_applied', 'BRO applied loan on system', 14, 'BRO'),
-    StageConfig('disbursement_register', 'Disbursement register', 15, 'ADMIN', 'dropdown', tuple(REGISTER_OPTIONS), 'register_ts'),
+    StageConfig('disbursement_register', 'Business Admin disbursement register', 15, BUSINESS_ADMIN_ROLE, 'dropdown', tuple(REGISTER_OPTIONS), 'register_ts'),
     StageConfig('register_approved', 'Register approved', 17, 'LOAN_APPROVER', 'dropdown', tuple(REGISTER_APPROVED_OPTIONS), 'register_approved_ts'),
     StageConfig('disbursement', 'Finance disbursement', 18, 'FINANCE'),
 )
@@ -424,7 +425,7 @@ def bootstrap(group_config, user_payload: dict) -> dict:
     bro_users = configured_bro_users(
         workflow,
         group_config,
-        include_all_scopes=bool(set(user.get('roles') or []) & {'ADMIN', 'IT', 'MANAGEMENT'}),
+        include_all_scopes=bool(set(user.get('roles') or []) & {BUSINESS_ADMIN_ROLE, 'IT', 'MANAGEMENT'}),
     )
     return {
         'authorized': True,
@@ -610,7 +611,7 @@ def soft_delete_tat_case(
         group_id=case.group_id,
         actor_name=case.deleted_by,
         actor_telegram_id=str(actor_telegram_id or ''),
-        actor_role=str(actor_role or 'ADMIN'),
+        actor_role=str(actor_role or 'DJANGO_ADMIN'),
         stage_key='deleted',
         stage_label='Case Deleted',
         old_value='Active backend record',
@@ -2417,7 +2418,7 @@ def next_role_alert(group_config, case_data: dict | None) -> dict[str, str]:
 def role_display_name(role: str) -> str:
     labels = {
         'BRO': 'BRO',
-        'ADMIN': 'Admin',
+        BUSINESS_ADMIN_ROLE: 'Business Admin',
         'CA': 'Credit Analyst',
         'BM': 'Branch Manager',
         'SECRETARY': 'Secretary',

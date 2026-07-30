@@ -1,5 +1,18 @@
 # Known Gaps and Verified Workarounds
 
+## Business Administrator role cutover
+
+`core.0088_business_admin_role_cutover` is pending explicit production
+approval. It renames effective Portal/TAT/SPIN workflow access from legacy
+`ADMIN` to `BUSINESS_ADMIN`, without rewriting historical audit evidence. Run
+`python manage.py check_business_admin_cutover --strict` before the production
+migration; it blocks unresolved pending legacy access-policy requests or
+duplicate effective grant scopes. Capability seed-row overlaps are merged by
+preserving the existing allow/deny policy. To undo after a controlled release, run
+`python manage.py migrate core 0087_repair_tat_stage_target_snapshot_backfill`;
+the reverse migration stops if a legacy-role collision would make rollback
+ambiguous.
+
 ## TAT Settings migration
 
 `core.0085_tattrackercase_stage_target_snapshots_and_more`,

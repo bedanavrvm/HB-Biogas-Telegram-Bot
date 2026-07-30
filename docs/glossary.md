@@ -29,22 +29,24 @@ respective service modules.
 | Mini App retry key | A client-generated request identity sent in `Idempotency-Key`/`X-Request-ID` and the payload. It makes a mobile retry traceable; legacy clients are marked until strict mode is approved. |
 | Integration operation | A redacted local record of a Sheets, Drive, or Telegram side effect, its bounded attempts, outcome, and retry/dead-letter state. It is not an automatic background job. |
 | Integration circuit | A persisted dependency safety state. It opens after repeated transient failures and blocks further calls during a short cooldown before one recovery probe. |
-| Mini App preference | A user-owned, validated setting for one Mini App (landing screen, saved filters, compact cards, and non-critical alert intent). It never grants workflow access or suppresses mandatory alerts. |
-| TAT configuration proposal | A reasoned, snapshot-based maker-checker request for TAT targets, future holidays, or escalation rules. IT proposes; a different authorised Admin reviews it. |
+| Mini App preference | A user-owned, validated setting for one Mini App (landing screen, saved filters, compact cards, and non-critical alert intent). It never grants workflow access. Preferences apply only to catalogue-listed informational/digest alerts, never to security/access, assignment, approval/rejection, or SLA-overdue-breach alerts. |
+| Business Admin | A scoped operational role (`BUSINESS_ADMIN`) used for high-impact workflow authority. It is distinct from Django `is_staff` and `is_superuser`; neither technical flag grants Mini App access. |
+| TAT configuration proposal | A reasoned, snapshot-based maker-checker request for TAT targets, future holidays, or escalation rules. IT proposes; a different authorised TAT Business Admin reviews it. |
 | Stage target snapshot | The TAT target captured when a case enters a stage. It protects an in-flight SLA calculation from later target changes. |
 
 ## Workflow keys and role codes
 
 | Workflow key | Mini App | Canonical role codes |
 |---|---|---|
-| `jawabu_portal` | JBL/Jawabu Pipeline Portal | `JBL_OFFICER`, `CREDIT_ANALYST`, `HB_STAFF`, `ADMIN` |
+| `jawabu_portal` | JBL/Jawabu Pipeline Portal | `JBL_OFFICER`, `CREDIT_ANALYST`, `HB_STAFF`, `BUSINESS_ADMIN` |
 | `complaint_cases` | Complaint Case Mini App | `OFFICER`, `MANAGER` |
-| `tat_tracker` | TAT Tracker | `BRO`, `ADMIN`, `CA`, `BM`, `SECRETARY`, `CHAIR`, `LOAN_APPROVER`, `FINANCE`, `IT`, `MANAGEMENT` |
-| `spin_credit_analysis` | SPIN / Credit Analysis | `CREDIT_ANALYST`, `ADMIN` |
+| `tat_tracker` | TAT Tracker | `BRO`, `BUSINESS_ADMIN`, `CA`, `BM`, `SECRETARY`, `CHAIR`, `LOAN_APPROVER`, `FINANCE`, `IT`, `MANAGEMENT` |
+| `spin_credit_analysis` | SPIN / Credit Analysis | `CREDIT_ANALYST`, `BUSINESS_ADMIN` |
 
-Role codes are workflow-scoped. For example, `ADMIN` in the Portal is not a
-blanket Django-superuser permission and must not be assumed to grant access to
-another workflow.
+Role codes are workflow-scoped. `BUSINESS_ADMIN` is a business authority,
+never a blanket Django-superuser permission, and must be explicitly granted
+for each workflow/scope. Historical evidence may display legacy `ADMIN` where
+that was the original recorded code.
 
 ## Capability naming
 

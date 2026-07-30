@@ -141,16 +141,13 @@ def user_access(user, workflow: str, *, group_configuration=None) -> dict:
         for grant in [*grants, *emergency_grants]
         if grant.role
     }
+    # Django ``is_superuser`` is deliberately not a Mini App authorization
+    # shortcut.  Technical administration and operational authority are
+    # separate: every Mini App role must originate from a scoped permanent or
+    # time-boxed emergency grant.
     roles = grant_roles
-    if user.is_superuser:
-        roles.add({
-            'jawabu_portal': 'ADMIN',
-            'complaint_cases': 'MANAGER',
-            'tat_tracker': 'ADMIN',
-            'spin_credit_analysis': 'ADMIN',
-        }.get(workflow, 'ADMIN'))
     return {
-        'authorized': bool(user.is_superuser or grants or emergency_grants),
+        'authorized': bool(grants or emergency_grants),
         'roles': sorted(roles),
         'branches': sorted({grant.branch for grant in [*grants, *emergency_grants] if grant.branch}),
         'products': sorted({grant.product for grant in [*grants, *emergency_grants] if grant.product}),

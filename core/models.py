@@ -1236,7 +1236,7 @@ class JawabuApprovalDelegation(models.Model):
         related_name='jawabu_approval_delegations',
     )
     gate = models.CharField(max_length=32, choices=GATE_CHOICES, db_index=True)
-    source_role = models.CharField(max_length=80, default='ADMIN')
+    source_role = models.CharField(max_length=80, default='BUSINESS_ADMIN')
     branch = models.CharField(max_length=128, blank=True, default='', db_index=True)
     product = models.CharField(max_length=128, blank=True, default='', db_index=True)
     reason = models.TextField()
