@@ -6,6 +6,11 @@ approved action.
 
 ## Unreleased — 30-July-2026
 
+- Render build reliability: the application build no longer runs `apt-get` in
+  Render's read-only native build environment. The existing WeasyPrint PDF
+  preflight remains, so a base-image library problem still fails clearly
+  before deployment.
+
 - Sheets/Drive integration governance: Admin-managed publication contracts now
   define per-register header/field ownership, while explicit read-only audits
   record schema drift, row-pointer/value divergence, and media-root sharing

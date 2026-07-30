@@ -5,13 +5,9 @@
 set -e  # Exit on any error
 
 echo "Installing dependencies..."
-# WeasyPrint renders the access-control evidence PDF. Render's Debian image
-# normally supplies these libraries, but install them explicitly so a clean
-# deploy fails neither silently nor only when an auditor requests a report.
-if command -v apt-get >/dev/null 2>&1; then
-  apt-get update -qq
-  apt-get install -y -qq libcairo2 libglib2.0-0 libharfbuzz0b libpango-1.0-0 libgdk-pixbuf-2.0-0 libffi-dev shared-mime-info
-fi
+# Render's native build environment may expose apt but mounts its package-list
+# directory read-only. Do not mutate OS packages during an application build;
+# the PDF preflight below verifies that the base image can render WeasyPrint.
 pip install -r requirements.txt
 python -c "from weasyprint import HTML; assert HTML(string='<p>PDF preflight</p>').write_pdf().startswith(b'%PDF')"
 
