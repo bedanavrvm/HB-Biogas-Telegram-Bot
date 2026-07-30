@@ -19,7 +19,7 @@ from django.utils import timezone
 
 from core.models import AccessGrant, GroupSheetConfiguration, LiveSheetRecordChange, SheetRegisterContract, SheetSyncAuditSnapshot, TatRepairJob, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, UserProfile, WorkflowSlaEscalation
 from core.api.views import _dispatch_tat_approval_certificate, _process_telegram_message
-from core.services.group_config import GroupRegistry
+from core.services.group_config import GroupConfig, GroupRegistry
 from core.services.tat_tracker import (
     _TAT_HEADER_CACHE,
     bootstrap,
@@ -65,7 +65,7 @@ from core.services.tat_tracker import (
 )
 from core.services.workflow_transitions import WorkflowRevisionConflict
 from core.services.workflow_sla import collect_sla_candidates, record_sla_candidates
-from core.services.sync_governance import audit_sheet_register
+from core.services.sync_governance import assert_registered_schema_before_publish, audit_sheet_register
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
@@ -1626,6 +1626,36 @@ class TatTrackerWorkflowTest(TestCase):
                     sync_case_to_sheet(self.config, case)
         case.refresh_from_db()
         self.assertIn('blocks publication', case.sync_error)
+
+    def test_registered_schema_accepts_runtime_group_config_for_the_same_group(self):
+        """Mini App sync passes GroupConfig, not the admin model instance."""
+        SheetRegisterContract.objects.create(
+            group_configuration=self.config,
+            register_key='tat_business_runtime_config',
+            sheet_name='TRACKER-Business',
+            subject_type=SheetRegisterContract.SUBJECT_TAT_CASE,
+            header_row=2,
+            data_start_row=5,
+            row_key_header='Case ID',
+            expected_headers=['Case ID', 'ID NUMBER'],
+            field_ownership={
+                'Case ID': {'owner': 'immutable', 'model_field': 'case_id'},
+                'ID NUMBER': {'owner': 'immutable', 'model_field': 'national_id'},
+            },
+        )
+
+        runtime_config = GroupConfig(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name=self.config.sheet_name,
+            workflow=self.config.workflow,
+        )
+
+        assert_registered_schema_before_publish(
+            runtime_config,
+            'TRACKER-Business',
+            ['Case ID', 'ID NUMBER'],
+        )
 
     def test_sync_tat_batch_created_cases_appends_same_product_in_one_sheet_write(self):
         class FakeSheet:

@@ -23,6 +23,9 @@ approved action.
   proves the surviving immutable Case ID after deletion and re-publishes the
   canonical case before it reports success; failed verification or re-publish
   is retained as failed local audit evidence.
+  TAT publication contracts now resolve the runtime configuration by immutable
+  Telegram group ID, so Mini App updates are not blocked by the in-memory
+  `GroupConfig`/database foreign-key boundary.
 
 Migration `core.0082_sheet_register_governance` adds the local contract and
 audit evidence schema only. It has **not** been applied to production by this

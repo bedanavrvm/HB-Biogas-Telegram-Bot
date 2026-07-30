@@ -149,8 +149,14 @@ def assert_registered_schema_before_publish(group_configuration, sheet_name: str
     reviews and adds their contract. Once a contract is enabled, schema safety
     is enforced at the write boundary rather than being merely a report.
     """
+    # Runtime sync receives GroupConfig, while Admin contracts hold a foreign
+    # key to GroupSheetConfiguration. Match their shared immutable Telegram
+    # group ID instead of passing the in-memory config to a model foreign key.
+    group_id = str(getattr(group_configuration, 'group_id', '') or '').strip()
+    if not group_id:
+        return
     contracts = SheetRegisterContract.objects.filter(
-        group_configuration=group_configuration,
+        group_configuration__group_id=group_id,
         sheet_name=str(sheet_name or '').strip(),
         enabled=True,
     )
