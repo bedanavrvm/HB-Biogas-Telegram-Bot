@@ -715,6 +715,7 @@
 
   function applyPersonalPreference(preference) {
     const personal = preference || {};
+    state.personalPreference = personal;
     document.body.classList.toggle('compact-cards', Boolean(personal.compact_cards));
     const savedFilters = personal.default_filters || {};
     const hasOption = (select, value) => Array.from(select.options).some((option) => option.value === String(value));
@@ -1369,20 +1370,34 @@
     const button = $('savePersonalSettingsBtn');
     try {
       setButtonLoading(button, true, 'Saving');
-      await api('/api/tat-tracker/settings/personal/', {
+      const result = await api('/api/tat-tracker/settings/personal/', {
         preferences: {
           default_screen: $('preferenceDefaultScreen').value,
           compact_cards: $('preferenceCompactCards').checked,
           alert_mode: $('preferenceAlertMode').value,
         },
       });
-      document.body.classList.toggle('compact-cards', $('preferenceCompactCards').checked);
-      setStatus('Your TAT settings were saved.', 'ok');
+      applyPersonalPreference(result.data || {
+        compact_cards: $('preferenceCompactCards').checked,
+        default_screen: $('preferenceDefaultScreen').value,
+        alert_mode: $('preferenceAlertMode').value,
+      });
+      setStatus($('preferenceCompactCards').checked
+        ? 'Compact cards saved. Queue cards now hide identifiers and timestamps; open a case for full detail.'
+        : 'Standard case cards restored.', 'ok');
     } catch (error) {
       setStatus(error.message, 'error');
     } finally {
       setButtonLoading(button, false);
     }
+  });
+
+  $('preferenceCompactCards').addEventListener('change', () => {
+    const enabled = $('preferenceCompactCards').checked;
+    document.body.classList.toggle('compact-cards', enabled);
+    setStatus(enabled
+      ? 'Compact queue preview on. Save my settings to keep it.'
+      : 'Standard queue preview on. Save my settings to keep it.', 'ok');
   });
 
   ['national_id', 'primary_phone'].forEach((fieldName) => {

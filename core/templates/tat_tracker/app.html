@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=5">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=19">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=20">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -173,7 +173,7 @@
         <div class="form-grid">
           <label>Start on<select id="preferenceDefaultScreen"><option value="home">Queue</option><option value="new">Create case</option></select></label>
           <label>Non-critical Telegram alerts<select id="preferenceAlertMode"><option value="immediate">Immediate</option><option value="daily_digest">Daily digest at 08:00</option><option value="quiet">Quiet</option></select><small>Saved for future individual delivery controls. Current shared group alerts are unchanged; assignment, approval, security, and overdue-breach alerts will remain mandatory.</small></label>
-          <label class="check-label"><input id="preferenceCompactCards" type="checkbox"> Use compact case cards</label>
+          <label class="check-label"><input id="preferenceCompactCards" type="checkbox"><span>Use compact case cards<small>Queue cards show the client, amount, product, branch, and next action only. Open a case for identifiers and timestamps.</small></span></label>
         </div>
         <div class="form-actions"><button id="savePersonalSettingsBtn" type="submit" class="secondary">Save my settings</button></div>
       </form>
@@ -282,6 +282,6 @@
   <script src="{% static 'miniapp/telegram.js' %}?v=2"></script>
   <script src="{% static 'miniapp/utils.js' %}?v=3"></script>
   <script src="{% static 'miniapp/tat_api.js' %}?v=1"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=33"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=34"></script>
 </body>
 </html>

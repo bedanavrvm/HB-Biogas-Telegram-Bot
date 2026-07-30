@@ -16,6 +16,9 @@
 - TAT Settings now resolves the runtime Telegram group configuration to its
   database row before reading pending proposals or escalation rules, avoiding
   a settings-page server error for configured groups.
+- TAT compact case cards now visibly hide secondary identifiers and timestamps
+  in queues, provide an immediate preview before save, and preserve full
+  details inside the opened case.
 - TAT corrections are now explicitly update-only and retain one retry key for
   a failed/resubmitted correction. The new-loan form clearly distinguishes a
   separate loan from an existing case and shows exact National ID/phone loan

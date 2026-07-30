@@ -339,6 +339,17 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertIn("api('/api/tat-tracker/home/', homePayload(payload))", source)
         self.assertIn('utils.fetchJson(path', source)
 
+    def test_compact_cards_have_a_distinct_queue_hierarchy(self):
+        source = Path('core/static/miniapp/tat_tracker.js').read_text(encoding='utf-8')
+        stylesheet = Path('core/static/miniapp/tat_tracker.css').read_text(encoding='utf-8')
+        template = Path('core/templates/tat_tracker/app.html').read_text(encoding='utf-8')
+
+        self.assertIn('Compact queue preview on. Save my settings to keep it.', source)
+        self.assertIn('applyPersonalPreference(result.data', source)
+        self.assertIn('body.compact-cards .case-identifiers', stylesheet)
+        self.assertIn('body.compact-cards .case-time', stylesheet)
+        self.assertIn('Open a case for identifiers and timestamps.', template)
+
     @patch('core.services.tat_tracker.sync_tat_target_settings_to_sheet', return_value={'status': 'unavailable'})
     def test_it_can_save_stage_targets_in_minutes(self, sync_targets):
         user = {'roles': ['IT'], 'name': 'IT User'}
