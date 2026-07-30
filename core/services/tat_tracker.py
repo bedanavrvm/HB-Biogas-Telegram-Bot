@@ -531,6 +531,51 @@ def get_case_detail(group_config, user: dict, case_id: str) -> dict:
     return serialize_case_detail(case, user, workflow=getattr(group_config, 'workflow', None) or {})
 
 
+def record_tat_event(**values) -> TatTrackerEvent:
+    """Create one native TAT event and its idempotent compliance projection."""
+    event = TatTrackerEvent.objects.create(**values)
+    from core.services.compliance_audit import record_event
+
+    source = str(event.source or '')
+    record_event(
+        workflow='tat_tracker',
+        action=f'tat.{event.transition_code or event.stage_key or "case.update"}',
+        category='workflow_transition' if event.transition_code else 'workflow',
+        origin='external_sync' if source == 'sheet_sync' else ('system' if source == 'workflow_transition' and not event.actor_user_id else 'human'),
+        subject_type='tat_case',
+        subject_id=str(event.case_id),
+        customer_reference=str(event.case.case_id),
+        actor=event.actor_user,
+        authority_user=event.authority_user,
+        actor_label=event.actor_name,
+        authority_label=_user_label(event.authority_user),
+        request_id=event.request_id,
+        source_model='TatTrackerEvent',
+        source_event_id=str(event.pk),
+        deduplication_key=f'tat:TatTrackerEvent:{event.pk}',
+        before_values={'value': event.old_value} if event.old_value else {},
+        after_values={'value': event.new_value} if event.new_value else {},
+        metadata={
+            'stage_key': event.stage_key,
+            'stage_label': event.stage_label,
+            'source': source,
+            'transition_code': event.transition_code,
+            'from_state': event.from_state,
+            'to_state': event.to_state,
+            'reason': event.reason,
+            'revision_before': event.revision_before,
+            'revision_after': event.revision_after,
+        },
+        sensitive=bool(event.old_value or event.new_value),
+        occurred_at=event.created_at,
+    )
+    return event
+
+
+def _user_label(user) -> str:
+    return str(user.get_full_name() or user.get_username() or '').strip() if user else ''
+
+
 def soft_delete_tat_case(
     case: TatTrackerCase,
     *,
@@ -559,7 +604,7 @@ def soft_delete_tat_case(
         'sync_error',
         'updated_at',
     ])
-    TatTrackerEvent.objects.create(
+    record_tat_event(
         case=case,
         group_id=case.group_id,
         actor_name=case.deleted_by,
@@ -618,7 +663,7 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
         status='Active', current_stage=(product.stages[0].key if product.stages else ''),
         created_by=user.get('name', ''), created_by_telegram_id=user.get('telegram_id', ''), last_updated_by=user.get('name', ''),
     )
-    TatTrackerEvent.objects.create(case=case, group_id=case.group_id, actor_name=user.get('name', ''), actor_telegram_id=user.get('telegram_id', ''), actor_role=','.join(user.get('roles') or []), actor_user_id=user.get('user_id') or None, authority_user_id=user.get('user_id') or None, stage_key='created', stage_label='Case Created', new_value=format_datetime(now), source='mini_app', sheet_name=case.sheet_name)
+    record_tat_event(case=case, group_id=case.group_id, actor_name=user.get('name', ''), actor_telegram_id=user.get('telegram_id', ''), actor_role=','.join(user.get('roles') or []), actor_user_id=user.get('user_id') or None, authority_user_id=user.get('user_id') or None, stage_key='created', stage_label='Case Created', new_value=format_datetime(now), source='mini_app', sheet_name=case.sheet_name)
     if payload.get('_defer_sheet_sync'):
         return serialize_case_detail(case, user, workflow=workflow)
     sync_case_to_sheet(group_config, case)
@@ -1053,7 +1098,7 @@ def update_case(
     case.current_stage = next_stage.key if next_stage else ''
     case.last_updated_by = user.get('name', '')
     case.save(update_fields=['stage_values', 'status', 'remarks', 'current_stage', 'last_updated_by', 'workflow_revision', 'updated_at', 'client_name', 'national_id', 'primary_phone', 'branch', 'bro_name', 'amount'])
-    TatTrackerEvent.objects.create(
+    record_tat_event(
         case=case,
         group_id=case.group_id,
         actor_name=user.get('name', ''),
@@ -1116,7 +1161,7 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
         setattr(case, field, new_value)
         stage_key = 'case_details'
         event_label = f'Corrected {field.replace("_", " ").title()}'
-        TatTrackerEvent.objects.create(
+        record_tat_event(
             case=case,
             group_id=case.group_id,
             actor_name=user.get('name', ''),
@@ -1181,7 +1226,7 @@ def apply_update(case: TatTrackerCase, user: dict, item: dict, *, workflow: dict
         apply_side_effects(case, product, stage, value)
         stage_key = stage.key
         event_label = stage.label
-    event = TatTrackerEvent.objects.create(case=case, group_id=case.group_id, actor_name=user.get('name', ''), actor_telegram_id=user.get('telegram_id', ''), actor_role=','.join(user.get('roles') or []), actor_user_id=user.get('user_id') or None, authority_user_id=user.get('user_id') or None, stage_key=stage_key, stage_label=(f'{event_label} (Correction)' if correction else event_label), old_value=str(old or ''), new_value=str(new or ''), source=('admin_correction' if correction else 'mini_app'), sheet_name=case.sheet_name, row_number=case.row_number)
+    event = record_tat_event(case=case, group_id=case.group_id, actor_name=user.get('name', ''), actor_telegram_id=user.get('telegram_id', ''), actor_role=','.join(user.get('roles') or []), actor_user_id=user.get('user_id') or None, authority_user_id=user.get('user_id') or None, stage_key=stage_key, stage_label=(f'{event_label} (Correction)' if correction else event_label), old_value=str(old or ''), new_value=str(new or ''), source=('admin_correction' if correction else 'mini_app'), sheet_name=case.sheet_name, row_number=case.row_number)
     if signatures_enabled() and field != 'remarks' and stage.requires_signature_certificate:
         create_approval_certificate(case, event, user, stage)
 

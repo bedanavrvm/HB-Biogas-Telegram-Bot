@@ -132,6 +132,7 @@ Key modules:
 - `access_control.py` — maker-checker access changes, emergency grants, notifications, and policy versioning
 - `access_control_reporting.py` — access-control evidence exports, parity, and least-privilege diagnostics
 - `document_signoffs.py` — immutable source/workbook binding and physically signed/stamped scan retention for requisitions and payments
+- `compliance_audit.py` — cross-workflow immutable audit ledger, integrity verification, evidence exports, and supervised checkpoints
 - `jawabu_approvals.py` — append-only Portal approval gates, conditions, expiry, invalidation, and scoped temporary delegation
 
 ### Frontend Mini Apps
@@ -190,6 +191,8 @@ This is a template of variables this class of system typically needs. Treat it a
 | Sheet/Drive IDs (e.g. `*_SHEET_ID`, `*_FOLDER_ID`) | Identify target spreadsheets/folders per workflow | Treat as sensitive unless confirmed non-sensitive |
 | `TAT_TRACKER_SIGNATURES_ENABLED` | Enables external TAT e-signature dispatch and stage gating | No |
 | `DOCUMENT_SIGNOFF_MAX_FILE_SIZE_MB` | Maximum accepted PDF/JPG/PNG physical sign-off scan; real scan files remain in approved Drive storage | No |
+| `COMPLIANCE_AUDIT_CHECKPOINT_DELIVERY_ENABLED` | Enables explicitly requested daily checkpoint delivery; defaults to disabled | No |
+| `COMPLIANCE_AUDIT_CHECKPOINT_RECIPIENT` | Controlled compliance mailbox for approved checkpoint delivery | Treat as sensitive operational contact data |
 | `TAT_REPAIR_RETRY_BASE_SECONDS` | Base delay for bounded Google Sheets quota backoff during Admin TAT repair retries | No |
 | `TAT_REPAIR_CASE_DELAY_SECONDS` | Delay between Admin TAT repair case writes to stay below Google Sheets per-minute quotas | No |
 | `COMPLAINT_CASES_MINI_APP_SHORT_NAME` | Telegram Mini App short name for complaint cases | No |

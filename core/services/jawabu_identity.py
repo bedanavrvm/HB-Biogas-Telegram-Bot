@@ -4,7 +4,7 @@ from __future__ import annotations
 from django.db import transaction
 from django.db.models import Q, Max
 
-from core.models import JawabuCustomer, JawabuFarmerMaster, JawabuPipelineEvent
+from core.models import JawabuCustomer, JawabuFarmerMaster
 from core.services.identifiers import normalize_kenyan_phone, normalize_national_id
 from core.services.jawabu_customer_quality import record_customer_phone
 
@@ -100,10 +100,15 @@ def set_customer_number(farmer: JawabuFarmerMaster, customer_no: str) -> None:
 
 
 def record_additional_unit(farmer: JawabuFarmerMaster, actor: str = '') -> None:
-    JawabuPipelineEvent.objects.create(
-        farmer=farmer,
+    # Use the shared native-event helper so identity-driven changes are visible
+    # in both the operational timeline and the compliance ledger.
+    from core.services.jawabu_case360 import record_pipeline_event
+
+    record_pipeline_event(
+        farmer,
         action='additional_unit_created',
         actor=actor,
+        source='system',
         metadata={'customer_id': str(farmer.customer_id), 'unit_number': farmer.unit_number},
     )
 
@@ -131,7 +136,14 @@ def restart_expired_reappraisal(farmer: JawabuFarmerMaster, *, fresh_sign_date: 
         'deferred_at': None, 'deferred_stage': '', 'deferred_until': None,
     }.items():
         setattr(farmer, field, value)
-    JawabuPipelineEvent.objects.create(
-        farmer=farmer, action='reappraisal_restarted', actor=actor, metadata={'previous_state': snapshot},
+    from core.services.jawabu_case360 import record_pipeline_event
+
+    record_pipeline_event(
+        farmer,
+        action='reappraisal_restarted',
+        actor=actor,
+        source='system',
+        old_values=snapshot,
+        metadata={'previous_state': snapshot},
     )
     return True

@@ -24,6 +24,8 @@ respective service modules.
 | Approval invalidation | An append-only change of an approval record when a material controlled field changes after the decision. The case requires re-review rather than silently retaining the old decision. |
 | Approval delegation | A Portal-Admin-authorised, non-self-granted temporary authority limited to one approval gate, optional branch/product scope, and at most 14 days. |
 | Controlled visit evidence | The only Portal forward-visit media categories: LAF and JBL visit photo. New records bind directly to a case and carry a case-reference storage key, content hash, capture context, and retrieval audit. |
+| Compliance audit event | Immutable, hash-chained cross-workflow evidence used for investigation. It supplements rather than replaces the detailed event history of Portal, Complaint Cases, TAT, SPIN, and access control. |
+| Compliance checkpoint | A daily record of the compliance-audit chain position and hash. Mailbox delivery is disabled unless an authorised operator explicitly enables and runs it. |
 
 ## Workflow keys and role codes
 

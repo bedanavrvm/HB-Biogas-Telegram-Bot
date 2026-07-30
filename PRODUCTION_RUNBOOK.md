@@ -58,6 +58,32 @@ Rotate a suspected credential immediately at its provider and update Render. Rem
 
 ## Evidence cadence and emergency access
 
+### Compliance audit evidence
+
+The cross-workflow compliance ledger is append-only evidence, separate from
+Sentry and ordinary application logs. Before every production release that
+changes Portal, Complaint Cases, TAT, SPIN, documents, or access policy, run:
+
+```powershell
+python manage.py verify_compliance_audit --strict
+python manage.py sample_compliance_audit --strict
+```
+
+Create a local daily checkpoint only through the supervised operation below;
+it does not send email:
+
+```powershell
+python manage.py checkpoint_compliance_audit --apply
+```
+
+Do not use `--deliver` until an approved controlled compliance mailbox,
+Render mail configuration, recipient owner, retry response, and staging test
+are recorded. The PostgreSQL trigger prevents application-role modification of
+ledger entries, but a database owner can still alter database objects. Keep the
+independent checkpoint and integrity-verification evidence with the release
+record. Do not create any automatic audit-retention purge until JBL has an
+approved, legally validated retention schedule.
+
 ### Backup targets and restore drills
 
 The operational targets below are not evidence of a successful restoration.

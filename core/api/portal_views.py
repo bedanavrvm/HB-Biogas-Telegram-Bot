@@ -1508,6 +1508,16 @@ def portal_open_jbl_media(request, farmer_id: str, attachment_id: str):
         farmer=farmer, attachment=attachment, actor=getattr(request, 'portal_user', None),
         request_id=_portal_request_id(request),
     )
+    from core.services.compliance_audit import record_sensitive_access
+    record_sensitive_access(
+        workflow='portal',
+        action='portal.jbl_media.view',
+        subject_type='media_attachment',
+        subject_id=str(attachment.pk),
+        actor=getattr(request, 'portal_user', None),
+        request_id=_portal_request_id(request),
+        metadata={'farmer_id': str(farmer.pk), 'media_category': attachment.file_type},
+    )
     return HttpResponseRedirect(attachment.drive_url)
 
 
@@ -2395,6 +2405,17 @@ def portal_requisition_batch_download(request, order_number: str):
         access_error = _portal_read_access_error(request, farmer, capability='portal.batches.view')
         if access_error:
             return access_error
+    from core.services.compliance_audit import record_sensitive_access
+    record_sensitive_access(
+        workflow='portal',
+        action='portal.requisition.workbook.download',
+        subject_type='requisition_batch',
+        subject_id=str(batch.pk),
+        actor=getattr(request, 'portal_user', None),
+        actor_label=_portal_sender_from_request(request),
+        request_id=_portal_request_id(request),
+        metadata={'order_number': batch.order_number, 'version': getattr(batch, 'version', 0) or 0},
+    )
     filename = batch.filename or f'JBL_Requisition_Form_{batch.order_number}.xlsx'
     response = HttpResponse(
         b'' if request.method == 'HEAD' else batch.file_content,
@@ -3757,6 +3778,17 @@ def portal_document_history(request):
         return access_error
 
     kind = request.GET.get('kind', 'orders')
+    from core.services.compliance_audit import record_sensitive_access
+    record_sensitive_access(
+        workflow='portal',
+        action='portal.document_history.view',
+        subject_type='document_history',
+        subject_id=str(kind),
+        actor=getattr(request, 'portal_user', None),
+        actor_label=_portal_sender_from_request(request),
+        request_id=_portal_request_id(request),
+        metadata={'kind': kind},
+    )
     can_sign_requisition = can_approve_physical_signoff(
         getattr(request, 'portal_user', None),
         getattr(request, 'portal_access', None),
@@ -3945,6 +3977,17 @@ def portal_payment_document_detail(request, document_id: str):
     )
     if _portal_capability_error(request, 'portal.documents.view') or not _portal_saved_document_in_scope(request, doc.order_number, doc.farmer_ids):
         return JsonResponse({'ok': False, 'error': 'You do not have access to this payment document.'}, status=403)
+    from core.services.compliance_audit import record_sensitive_access
+    record_sensitive_access(
+        workflow='portal',
+        action='portal.payment_document.view',
+        subject_type='payment_document',
+        subject_id=str(doc.pk),
+        actor=getattr(request, 'portal_user', None),
+        actor_label=_portal_sender_from_request(request),
+        request_id=_portal_request_id(request),
+        metadata={'order_number': doc.order_number, 'payment_number': doc.payment_number, 'version': doc.version},
+    )
     summary = doc.validation_summary or {}
     rows = summary.get('preview_rows')
     if rows is None:  # Compatibility for final documents generated before snapshots existed.

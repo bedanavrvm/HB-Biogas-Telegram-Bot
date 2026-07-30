@@ -2,6 +2,24 @@
 
 Last reviewed: 30-July-2026
 
+## Compliance audit evidence
+
+`core.0083_complianceauditchainstate_complianceauditcheckpoint_and_more` is
+included in the pending release worktree but is not authorised for production
+application. It adds an
+append-only cross-workflow ledger, a PostgreSQL application-role immutability
+trigger, read-only Admin investigation/export tools, and explicitly generated
+daily checkpoint records. PostgreSQL database owners can still alter database
+objects, so the ledger is tamper-evident rather than an absolute guarantee.
+
+No automated retention deletion is implemented: every new compliance event is
+on legal hold until JBL approves a legally validated retention schedule. No
+mailbox delivery, scheduler, or scheduled sampling is enabled. Before enabling
+those operations, approve a controlled recipient and mail configuration, test
+the PostgreSQL trigger in staging, name an evidence owner, and record a tested
+response path for failed delivery. Use `verify_compliance_audit --strict` and
+`sample_compliance_audit --strict` only as supervised read-only checks.
+
 ## Sheet/Drive publication governance
 
 `core.0082_sheet_register_governance` is committed but is not authorised for

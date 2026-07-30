@@ -187,10 +187,47 @@ def record_pipeline_event(
                 request_id=values['request_id'],
                 defaults=values,
             )
-            return event
         except IntegrityError:
-            return JawabuPipelineEvent.objects.get(farmer=farmer, request_id=values['request_id'])
-    return JawabuPipelineEvent.objects.create(farmer=farmer, **values)
+            event = JawabuPipelineEvent.objects.get(farmer=farmer, request_id=values['request_id'])
+    else:
+        event = JawabuPipelineEvent.objects.create(farmer=farmer, **values)
+
+    # Project the existing operational event into the shared, hash-chained
+    # compliance ledger. The source-event key keeps Telegram retries idempotent.
+    from core.services.compliance_audit import record_event
+
+    record_event(
+        workflow='portal',
+        action=f'portal.{event.action}',
+        category='workflow_transition' if event.transition_code else 'workflow',
+        origin='system' if event.source in {'system', 'farmup', 'sheet_sync'} else 'human',
+        subject_type='jawabu_farmer',
+        subject_id=str(farmer.pk),
+        customer_reference=str(getattr(farmer, 'customer_no', '') or ''),
+        actor=event.actor_user,
+        authority_user=event.authority_user,
+        actor_label=event.actor,
+        request_id=event.request_id,
+        source_model='JawabuPipelineEvent',
+        source_event_id=str(event.pk),
+        deduplication_key=f'portal:JawabuPipelineEvent:{event.pk}',
+        before_values=event.old_values,
+        after_values=event.new_values,
+        metadata={
+            **(event.metadata or {}),
+            'stage_key': event.stage_key,
+            'transition_code': event.transition_code,
+            'from_state': event.from_state,
+            'to_state': event.to_state,
+            'reason': event.reason,
+            'revision_before': event.revision_before,
+            'revision_after': event.revision_after,
+            'source': event.source,
+        },
+        sensitive=bool(event.old_values or event.new_values),
+        occurred_at=event.occurred_at,
+    )
+    return event
 
 
 def _tat_targets() -> dict[str, Any]:

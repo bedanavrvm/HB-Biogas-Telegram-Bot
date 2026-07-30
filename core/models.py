@@ -3124,3 +3124,146 @@ class DocumentPhysicalSignoffEvent(models.Model):
         indexes = [models.Index(fields=['signoff', 'created_at'])]
         verbose_name = 'physical document sign-off event'
         verbose_name_plural = 'physical document sign-off events'
+
+
+class ComplianceAuditChainState(models.Model):
+    """Single locked cursor used to serialize the compliance-evidence chain."""
+
+    singleton = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    last_position = models.PositiveBigIntegerField(default=0)
+    last_hash = models.CharField(max_length=64, blank=True, default='')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'compliance audit chain state'
+        verbose_name_plural = 'compliance audit chain state'
+
+
+class ComplianceAuditEvent(models.Model):
+    """Cross-workflow, append-only evidence for investigations and audits.
+
+    Workflow-native event tables remain the detailed operational history. This
+    ledger is the shared compliance projection with a stable taxonomy,
+    actor/authority attribution, before/after data, and a hash-chain position.
+    PostgreSQL additionally rejects UPDATE/DELETE at the database boundary.
+    """
+
+    WORKFLOW_PORTAL = 'portal'
+    WORKFLOW_COMPLAINTS = 'complaint_cases'
+    WORKFLOW_TAT = 'tat_tracker'
+    WORKFLOW_SPIN = 'spin'
+    WORKFLOW_ACCESS_CONTROL = 'access_control'
+    WORKFLOW_CHOICES = [
+        (WORKFLOW_PORTAL, 'Portal'),
+        (WORKFLOW_COMPLAINTS, 'Complaint Cases'),
+        (WORKFLOW_TAT, 'TAT Tracker'),
+        (WORKFLOW_SPIN, 'SPIN / CRB'),
+        (WORKFLOW_ACCESS_CONTROL, 'Access control'),
+    ]
+
+    ORIGIN_HUMAN = 'human'
+    ORIGIN_SYSTEM = 'system'
+    ORIGIN_EXTERNAL_SYNC = 'external_sync'
+    ORIGIN_CHOICES = [
+        (ORIGIN_HUMAN, 'Human action'),
+        (ORIGIN_SYSTEM, 'System automation'),
+        (ORIGIN_EXTERNAL_SYNC, 'External synchronization'),
+    ]
+
+    RETENTION_LEGAL_HOLD = 'legal_hold'
+    RETENTION_CHOICES = [(RETENTION_LEGAL_HOLD, 'Legal hold - no automatic purge')]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workflow = models.CharField(max_length=40, choices=WORKFLOW_CHOICES, db_index=True)
+    action = models.CharField(max_length=120, db_index=True)
+    category = models.CharField(max_length=40, default='workflow', db_index=True)
+    origin = models.CharField(max_length=24, choices=ORIGIN_CHOICES, default=ORIGIN_HUMAN, db_index=True)
+    subject_type = models.CharField(max_length=80, db_index=True)
+    subject_id = models.CharField(max_length=128, db_index=True)
+    customer_reference = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='compliance_audit_actions',
+    )
+    authority_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='compliance_audit_authorizations',
+    )
+    actor_label = models.CharField(max_length=255, blank=True, default='')
+    authority_label = models.CharField(max_length=255, blank=True, default='')
+    request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    source_model = models.CharField(max_length=120, blank=True, default='')
+    source_event_id = models.CharField(max_length=160, blank=True, default='')
+    deduplication_key = models.CharField(max_length=255, unique=True, db_index=True)
+    before_values = models.JSONField(blank=True, default=dict)
+    after_values = models.JSONField(blank=True, default=dict)
+    metadata = models.JSONField(blank=True, default=dict)
+    sensitive = models.BooleanField(default=False, db_index=True)
+    retention_class = models.CharField(
+        max_length=32, choices=RETENTION_CHOICES, default=RETENTION_LEGAL_HOLD, db_index=True,
+    )
+    occurred_at = models.DateTimeField(default=timezone.now, db_index=True)
+    recorded_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    chain_position = models.PositiveBigIntegerField(unique=True, editable=False)
+    previous_hash = models.CharField(max_length=64, blank=True, default='', editable=False)
+    payload_hash = models.CharField(max_length=64, editable=False)
+    integrity_hash = models.CharField(max_length=64, unique=True, editable=False)
+
+    class Meta:
+        ordering = ['-chain_position']
+        indexes = [
+            models.Index(fields=['workflow', 'occurred_at']),
+            models.Index(fields=['subject_type', 'subject_id', 'occurred_at']),
+            models.Index(fields=['actor', 'occurred_at']),
+            models.Index(fields=['action', 'occurred_at']),
+            models.Index(fields=['sensitive', 'occurred_at']),
+        ]
+        permissions = [
+            ('export_complianceauditevent', 'Can export compliance audit evidence'),
+            ('verify_complianceauditevent', 'Can verify compliance audit integrity'),
+        ]
+        verbose_name = 'compliance audit event'
+        verbose_name_plural = 'compliance audit events'
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError('Compliance audit events are append-only and cannot be changed.')
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Compliance audit events are append-only and cannot be deleted.')
+
+    def __str__(self):
+        return f'#{self.chain_position} {self.workflow}.{self.action}'
+
+
+class ComplianceAuditCheckpoint(models.Model):
+    """Daily hash-chain checkpoint; outbound delivery is deliberately opt-in."""
+
+    STATUS_DISABLED = 'disabled'
+    STATUS_PENDING = 'pending'
+    STATUS_SENT = 'sent'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = [
+        (STATUS_DISABLED, 'Delivery disabled'),
+        (STATUS_PENDING, 'Ready to deliver'),
+        (STATUS_SENT, 'Delivered'),
+        (STATUS_FAILED, 'Delivery failed'),
+    ]
+
+    checkpoint_date = models.DateField(unique=True, db_index=True)
+    chain_position = models.PositiveBigIntegerField(default=0)
+    chain_hash = models.CharField(max_length=64, blank=True, default='')
+    event_count = models.PositiveBigIntegerField(default=0)
+    recipient_fingerprint = models.CharField(max_length=64, blank=True, default='')
+    status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_DISABLED, db_index=True)
+    delivery_attempts = models.PositiveIntegerField(default=0)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    delivery_error = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-checkpoint_date']
+        verbose_name = 'compliance audit checkpoint'
+        verbose_name_plural = 'compliance audit checkpoints'

@@ -156,6 +156,16 @@ TIME_ZONE = 'Africa/Nairobi'
 USE_I18N = True
 USE_TZ = True
 
+# Compliance-audit checkpoints are generated locally by a supervised command.
+# Outbound delivery remains disabled until an approved controlled mailbox is
+# configured in Render; no Mini App request can send an evidence email.
+COMPLIANCE_AUDIT_CHECKPOINT_DELIVERY_ENABLED = config(
+    'COMPLIANCE_AUDIT_CHECKPOINT_DELIVERY_ENABLED', default=False, cast=bool,
+)
+COMPLIANCE_AUDIT_CHECKPOINT_RECIPIENT = config(
+    'COMPLIANCE_AUDIT_CHECKPOINT_RECIPIENT', default='',
+)
+
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'

@@ -235,6 +235,7 @@ def create_complaint_case(
                         longitude=values['longitude'],
                         sync_status='success',
                     )
+                    record_complaint_update(create_update, case, actor, action='complaint.case.created')
                     created = True
         except IntegrityError:
             case = ParsedMessage.objects.filter(
@@ -422,7 +423,44 @@ def apply_case_update(group_config, case: ParsedMessage, actor: ComplaintCaseAct
             sync_status='success',
         )
         update_case_fields(case, values, resolution_details, resolved_at)
+        record_complaint_update(update, case, actor, action='complaint.case.updated')
     return update
+
+
+def record_complaint_update(update: CaseUpdate, case: ParsedMessage, actor: ComplaintCaseActor, *, action: str) -> None:
+    """Project a complaint-case write into the shared, immutable audit ledger."""
+    from core.services.compliance_audit import record_event
+
+    record_event(
+        workflow='complaint_cases',
+        action=action,
+        category='workflow_transition' if update.old_status != update.new_status else 'workflow',
+        origin='human' if update.source.startswith('mini_app') else 'external_sync',
+        subject_type='complaint_case',
+        subject_id=str(case.pk),
+        customer_reference=str(case.message_id),
+        actor=actor.user,
+        authority_user=actor.user,
+        actor_label=actor.name,
+        authority_label=actor.name,
+        request_id=update.client_request_id,
+        source_model='CaseUpdate',
+        source_event_id=str(update.pk),
+        deduplication_key=f'complaint:CaseUpdate:{update.pk}',
+        before_values={'status': update.old_status} if update.old_status else {},
+        after_values={
+            'status': update.new_status,
+            'risk_level': update.risk_level,
+            'loan_at_risk': update.loan_at_risk,
+        },
+        metadata={
+            'source': update.source,
+            'has_resolution_note': bool(update.resolution_text),
+            'has_location': bool(update.gps_link),
+        },
+        sensitive=True,
+        occurred_at=update.created_at,
+    )
 
 
 def update_case_fields(case: ParsedMessage, values: dict[str, Any], resolution_details: str, resolved_at) -> None:
@@ -516,6 +554,7 @@ def store_evidence_file(group_config, case, update, actor, file_obj, index: int)
         evidence.upload_status = 'success'
         evidence.upload_error = 'Reused existing evidence upload.'
         evidence.save(update_fields=['drive_file_id', 'drive_url', 'upload_status', 'upload_error'])
+        record_complaint_evidence(evidence, case, actor, action='complaint.evidence.reused')
         return
     try:
         file_id, file_url = GoogleDriveMediaStorage().upload(
@@ -533,11 +572,50 @@ def store_evidence_file(group_config, case, update, actor, file_obj, index: int)
         evidence.upload_status = 'failed'
         evidence.upload_error = 'Evidence upload failed. Upload the file again to retry.'
         evidence.save(update_fields=['upload_status', 'upload_error'])
+        record_complaint_evidence(evidence, case, actor, action='complaint.evidence.upload_failed')
         return
     evidence.drive_file_id = file_id
     evidence.drive_url = file_url
     evidence.upload_status = 'success'
     evidence.save(update_fields=['drive_file_id', 'drive_url', 'upload_status'])
+    record_complaint_evidence(evidence, case, actor, action='complaint.evidence.uploaded')
+
+
+def record_complaint_evidence(
+    evidence: ComplaintCaseEvidence,
+    case: ParsedMessage,
+    actor: ComplaintCaseActor,
+    *,
+    action: str,
+) -> None:
+    """Log evidence handling without copying document names or document bytes."""
+    from core.services.compliance_audit import record_event
+
+    record_event(
+        workflow='complaint_cases',
+        action=action,
+        category='document',
+        origin='human',
+        subject_type='complaint_case',
+        subject_id=str(case.pk),
+        customer_reference=str(case.message_id),
+        actor=actor.user,
+        authority_user=actor.user,
+        actor_label=actor.name,
+        authority_label=actor.name,
+        source_model='ComplaintCaseEvidence',
+        source_event_id=str(evidence.pk),
+        deduplication_key=f'complaint:ComplaintCaseEvidence:{evidence.pk}',
+        after_values={'upload_status': evidence.upload_status},
+        metadata={
+            'content_hash': evidence.content_hash,
+            'mime_type': evidence.mime_type,
+            'size': evidence.size,
+            'case_update_id': str(evidence.case_update_id),
+        },
+        sensitive=True,
+        occurred_at=evidence.created_at,
+    )
 
 
 def evidence_filename(case: ParsedMessage, original_filename: str, index: int) -> str:

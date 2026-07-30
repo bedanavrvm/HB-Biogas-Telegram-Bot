@@ -162,12 +162,37 @@ def _existing_equivalent_signoff(source: SourceArtifact, scan_checksum: str, use
 
 
 def _record_event(signoff, action: str, *, actor=None, note: str = '', metadata: dict | None = None) -> None:
-    DocumentPhysicalSignoffEvent.objects.create(
+    event = DocumentPhysicalSignoffEvent.objects.create(
         signoff=signoff,
         action=action,
         actor=actor,
         note=str(note or ''),
         metadata=metadata or {},
+    )
+    from core.services.compliance_audit import record_event
+
+    record_event(
+        workflow='portal',
+        action=f'portal.document_signoff.{action}',
+        category='approval',
+        origin='human' if actor else 'system',
+        subject_type=f'{signoff.document_type}_document',
+        subject_id=str(signoff.requisition_batch_id or signoff.payment_document_id),
+        actor=actor,
+        authority_user=actor,
+        request_id=signoff.request_id,
+        source_model='DocumentPhysicalSignoffEvent',
+        source_event_id=str(event.pk),
+        deduplication_key=f'portal:DocumentPhysicalSignoffEvent:{event.pk}',
+        after_values={'status': signoff.status, 'source_version': signoff.source_version},
+        metadata={
+            **(metadata or {}),
+            'source_checksum': signoff.source_checksum,
+            'scan_checksum': signoff.scan_checksum,
+            'attested_complete': signoff.attested_complete,
+        },
+        sensitive=True,
+        occurred_at=event.created_at,
     )
 
 

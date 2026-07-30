@@ -66,6 +66,59 @@ def _policy_snapshot() -> dict:
     }
 
 
+def _record_access_control_request(request: AccessControlChangeRequest) -> None:
+    """Capture proposal evidence before it can affect effective access."""
+    from core.services.compliance_audit import record_event
+
+    record_event(
+        workflow='access_control',
+        action='access_control.change.requested',
+        category='authorization',
+        subject_type=request.change_type,
+        subject_id=str(request.pk),
+        actor=request.requested_by,
+        authority_user=request.requested_by,
+        request_id=str(request.pk),
+        source_model='AccessControlChangeRequest',
+        source_event_id=str(request.pk),
+        deduplication_key=f'access:AccessControlChangeRequest:{request.pk}:requested',
+        before_values=request.before_snapshot or {},
+        after_values=request.proposed_snapshot or {},
+        metadata={'workflow': request.workflow, 'role': request.role, 'impact': request.impact or {}, 'reason': request.reason},
+        sensitive=True,
+        occurred_at=request.requested_at,
+    )
+
+
+def _record_access_control_decision(request: AccessControlChangeRequest, *, action: str) -> None:
+    from core.services.compliance_audit import record_event
+
+    record_event(
+        workflow='access_control',
+        action=action,
+        category='authorization',
+        subject_type=request.change_type,
+        subject_id=str(request.pk),
+        actor=request.reviewed_by,
+        authority_user=request.reviewed_by,
+        request_id=str(request.pk),
+        source_model='AccessControlChangeRequest',
+        source_event_id=f'{request.pk}:{request.status}',
+        deduplication_key=f'access:AccessControlChangeRequest:{request.pk}:{request.status}',
+        before_values=request.before_snapshot or {},
+        after_values=request.proposed_snapshot or {},
+        metadata={
+            'status': request.status,
+            'workflow': request.workflow,
+            'role': request.role,
+            'impact': request.impact or {},
+            'review_comment': request.review_comment,
+        },
+        sensitive=True,
+        occurred_at=request.reviewed_at or timezone.now(),
+    )
+
+
 def capability_impact(workflow: str, role: str) -> dict:
     grants = AccessGrant.objects.filter(workflow=workflow, role=role, active=True)
     return {
@@ -94,6 +147,7 @@ def create_capability_request(*, requester, workflow: str, role: str, capability
         reason=reason.strip(), status=AccessControlChangeRequest.STATUS_PENDING,
         policy_version=state.version, requested_by=requester, source_request=source_request,
     )
+    _record_access_control_request(request)
     transaction.on_commit(lambda: notify_approvers(request, 'pending'))
     return request
 
@@ -120,6 +174,7 @@ def create_grant_request(*, requester, user, workflow, role, reason, branch='', 
         reason=reason.strip(), status=AccessControlChangeRequest.STATUS_PENDING,
         policy_version=AccessControlPolicyState.current().version, requested_by=requester, source_request=source_request,
     )
+    _record_access_control_request(request)
     transaction.on_commit(lambda: notify_approvers(request, 'pending'))
     return request
 
@@ -169,6 +224,7 @@ def create_document_signoff_policy_request(*, requester, document_type: str, app
         policy_version=AccessControlPolicyState.current().version,
         requested_by=requester, source_request=source_request,
     )
+    _record_access_control_request(request)
     transaction.on_commit(lambda: notify_approvers(request, 'pending'))
     return request
 
@@ -199,9 +255,29 @@ def _apply_capability_request(request: AccessControlChangeRequest) -> None:
             defaults={'effect': effect, 'enabled': effect == WorkflowRoleCapability.EFFECT_ALLOW},
         )
     diff = request_diff(request)
-    WorkflowRoleCapabilityAuditEvent.objects.create(
+    audit_event = WorkflowRoleCapabilityAuditEvent.objects.create(
         workflow=request.workflow, role=request.role, actor=request.reviewed_by,
         source='approved_change_request', changes={**diff, 'request_id': str(request.pk)},
+    )
+    from core.services.compliance_audit import record_event
+
+    record_event(
+        workflow='access_control',
+        action='access_control.capability.applied',
+        category='authorization',
+        subject_type='workflow_role_capability',
+        subject_id=f'{request.workflow}:{request.role}',
+        actor=request.reviewed_by,
+        authority_user=request.reviewed_by,
+        request_id=str(request.pk),
+        source_model='WorkflowRoleCapabilityAuditEvent',
+        source_event_id=str(audit_event.pk),
+        deduplication_key=f'access:WorkflowRoleCapabilityAuditEvent:{audit_event.pk}',
+        before_values=(request.before_snapshot or {}).get('capabilities') or {},
+        after_values=(request.proposed_snapshot or {}).get('capabilities') or {},
+        metadata={'impact': request.impact or {}, 'reason': request.reason},
+        sensitive=True,
+        occurred_at=audit_event.created_at,
     )
 
 
@@ -256,6 +332,7 @@ def approve_request(*, request_id, approver, review_comment='') -> AccessControl
             request.reviewed_at = timezone.now()
             request.review_comment = 'Policy changed after this request was proposed; create a new request from the current state.'
             request.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'review_comment'])
+            _record_access_control_decision(request, action='access_control.change.stale')
             return request
         request.reviewed_by = approver
         request.reviewed_at = timezone.now()
@@ -275,6 +352,7 @@ def approve_request(*, request_id, approver, review_comment='') -> AccessControl
         request.status = request.STATUS_APPLIED
         request.applied_at = timezone.now()
         request.save(update_fields=['reviewed_by', 'reviewed_at', 'review_comment', 'status', 'applied_at'])
+        _record_access_control_decision(request, action='access_control.change.applied')
     notify_approvers(request, 'applied')
     return request
 
@@ -295,6 +373,7 @@ def reject_request(*, request_id, approver, review_comment) -> AccessControlChan
         request.reviewed_at = timezone.now()
         request.review_comment = review_comment.strip()
         request.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'review_comment'])
+        _record_access_control_decision(request, action='access_control.change.rejected')
     notify_approvers(request, 'rejected')
     return request
 

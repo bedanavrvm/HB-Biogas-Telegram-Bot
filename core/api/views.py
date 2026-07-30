@@ -1156,6 +1156,7 @@ def spin_form_submit(request):
         received_at=timezone.now(),
         uploaded_files=uploaded_files,
         client_request_id=payload.get('client_request_id') or fields.get('client_request_id', ''),
+        actor=_spin_canonical_user(auth_payload),
     )
     if not result.get('idempotent_replay'):
         _send_spin_webapp_chat_reply(group_id, result)
@@ -1215,6 +1216,19 @@ def spin_form_requests(request):
     from core.models import SpinCreditRequest
     queryset = SpinCreditRequest.objects.filter(group_id=group_id)
     queryset = queryset.order_by('-request_datetime', '-created_at')
+    # This response contains CRB/SPIN report links for the authorised analyst.
+    # Keep a sensitive-read event without copying report URLs into the ledger.
+    from core.services.compliance_audit import record_sensitive_access
+    record_sensitive_access(
+        workflow='spin',
+        action='spin.request.queue.view',
+        subject_type='spin_request_queue',
+        subject_id=str(group_id),
+        actor=_spin_canonical_user(auth_payload),
+        actor_label=_sender_from_webapp_auth(auth_payload),
+        request_id=str(request.headers.get('X-Request-ID') or ''),
+        metadata={'request_count': queryset.count(), 'includes_report_links': True},
+    )
     data = []
     for r in queryset:
         parsed_f = r.parsed_fields or {}
@@ -1297,7 +1311,7 @@ def spin_form_complete(request):
     if not spin_report and not crb_report and not credit_analysis:
         return JsonResponse({'success': False, 'message': 'At least one report file must be uploaded.'}, status=400)
     sender_name = _sender_from_webapp_auth(auth_payload) or 'Credit Analyst'
-    from core.services.spin_credit import upload_report, update_spin_request_in_sheet, spin_request_id
+    from core.services.spin_credit import record_spin_event, upload_report, update_spin_request_in_sheet, spin_request_id
     spin_url = upload_report(group_config, spin_report, 'spin_report', sender_name, record.national_id) if spin_report else None
     crb_url = upload_report(group_config, crb_report, 'crb_report', sender_name, record.national_id) if crb_report else None
     analysis_url = upload_report(group_config, credit_analysis, 'credit_analysis_report', sender_name, record.national_id) if credit_analysis else None
@@ -1314,6 +1328,16 @@ def spin_form_complete(request):
     record.parsed_fields['credit_analyst_name'] = sender_name
     record.import_status = 'completed'
     record.save(update_fields=['parsed_fields', 'import_status', 'updated_at'])
+    record_spin_event(
+        record,
+        action='spin.request.completed',
+        actor=_spin_canonical_user(auth_payload),
+        actor_label=sender_name,
+        request_id=str(payload.get('client_request_id') or ''),
+        source_event_id=f'{record.pk}:completed:{record.updated_at.isoformat()}',
+        after_values={'import_status': record.import_status, 'reports_uploaded': len([item for item in (spin_url, crb_url, analysis_url) if item])},
+        metadata={'report_types': [name for name, url in (('spin', spin_url), ('crb', crb_url), ('credit_analysis', analysis_url)) if url]},
+    )
     sheet_updates = {
         'analysis_status': 'Completed',
         'credit_analyst_name': sender_name,
@@ -1392,6 +1416,9 @@ def spin_form_review_update(request):
         group_config=group_config,
         record=record,
         fields=payload.get('fields') or payload,
+        actor=_spin_canonical_user(auth_payload),
+        actor_label=_sender_from_webapp_auth(auth_payload),
+        request_id=str(payload.get('client_request_id') or ''),
     )
     status = 200 if result.get('success') else 400
     if result.get('status') == 'not_found':
@@ -1450,6 +1477,16 @@ def _spin_user_payload(auth_payload: dict) -> dict:
     except (TypeError, ValueError, json.JSONDecodeError):
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def _spin_canonical_user(auth_payload: dict):
+    """Resolve the verified Telegram identity already used for SPIN access."""
+    user_payload = _spin_user_payload(auth_payload)
+    if not user_payload:
+        return None
+    from core.services.telegram_identity import identity_from_user_payload, resolve_or_bind_telegram_user
+
+    return resolve_or_bind_telegram_user(identity_from_user_payload(user_payload))
 
 
 def _spin_user_capabilities(auth_payload: dict, *, group_config=None) -> set[str]:

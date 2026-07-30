@@ -6,6 +6,24 @@ approved action.
 
 ## Unreleased — 30-July-2026
 
+- Audit & compliance: Portal, Complaint Cases, TAT, SPIN, document sign-off,
+  and access-policy actions now project evidence into one append-only,
+  hash-chained compliance ledger. Django Admin supports investigation filters,
+  controlled CSV/PDF exports, and integrity verification; sensitive media and
+  audit-log access/export events are recorded. Daily checkpoints are retained
+  locally by an explicit command, while compliance-mailbox delivery remains
+  disabled by default. No automatic retention deletion, external email, or
+  production deployment is included.
+
+Migration `core.0083_complianceauditchainstate_complianceauditcheckpoint_and_more`
+adds the ledger, chain cursor, checkpoints, permissions, and a PostgreSQL
+append-only trigger. It has **not** been applied to production by this change.
+To undo after an approved migration, export required evidence, then run:
+
+```powershell
+python manage.py migrate core 0082_sheet_register_governance
+```
+
 - Render build reliability: the application build no longer runs `apt-get` in
   Render's read-only native build environment. The existing WeasyPrint PDF
   preflight remains, so a base-image library problem still fails clearly

@@ -955,7 +955,16 @@ def parsed_fields(parsed: ParsedSpinRequest) -> dict[str, Any]:
     }
 
 
-def save_spin_request(group_config, parsed: ParsedSpinRequest, telegram_message_id: str, import_status: str) -> SpinCreditRequest:
+def save_spin_request(
+    group_config,
+    parsed: ParsedSpinRequest,
+    telegram_message_id: str,
+    import_status: str,
+    *,
+    actor=None,
+    request_id: str = '',
+    origin: str = 'system',
+) -> SpinCreditRequest:
     request_dt = parsed.request_datetime or timezone.now()
     year = timezone.localtime(request_dt).year if timezone.is_aware(request_dt) else request_dt.year
     parsed_fields_value = dict(parsed.parsed_fields or {})
@@ -969,7 +978,7 @@ def save_spin_request(group_config, parsed: ParsedSpinRequest, telegram_message_
         number = sequence.next_number
         sequence.next_number = number + 1
         sequence.save(update_fields=['next_number', 'updated_at'])
-        return SpinCreditRequest.objects.create(
+        record = SpinCreditRequest.objects.create(
             group_id=group_config.group_id,
             sheet_id=getattr(group_config, 'sheet_id', '') or '',
             sheet_name=getattr(group_config, 'sheet_name', '') or '',
@@ -1000,6 +1009,62 @@ def save_spin_request(group_config, parsed: ParsedSpinRequest, telegram_message_
             missing_fields=parsed.missing_fields,
             import_status=import_status,
         )
+        record_spin_event(
+            record,
+            action='spin.request.created',
+            actor=actor,
+            actor_label=parsed.requested_by,
+            request_id=request_id,
+            origin=origin,
+            source_event_id=f'{record.pk}:created',
+            after_values={
+                'import_status': record.import_status,
+                'request_type': record.request_type,
+                'branch': parsed_fields_value.get('branch', ''),
+            },
+        )
+        return record
+
+
+def record_spin_event(
+    record: SpinCreditRequest,
+    *,
+    action: str,
+    actor=None,
+    actor_label: str = '',
+    request_id: str = '',
+    origin: str = 'human',
+    source_event_id: str = '',
+    before_values: dict | None = None,
+    after_values: dict | None = None,
+    metadata: dict | None = None,
+) -> None:
+    """Project a SPIN state change without storing report contents or URLs."""
+    from core.services.compliance_audit import record_event
+
+    source_event_id = source_event_id or f'{record.pk}:{action}:{record.updated_at.isoformat()}'
+    record_event(
+        workflow='spin',
+        action=action,
+        category='workflow_transition' if action.endswith(('completed', 'reviewed')) else 'workflow',
+        origin=origin,
+        subject_type='spin_request',
+        subject_id=str(record.pk),
+        customer_reference=spin_request_id(record),
+        actor=actor,
+        authority_user=actor,
+        actor_label=actor_label,
+        authority_label=actor_label,
+        request_id=request_id,
+        source_model='SpinCreditRequest',
+        source_event_id=source_event_id,
+        deduplication_key=f'spin:SpinCreditRequest:{source_event_id}',
+        before_values=before_values or {},
+        after_values=after_values or {},
+        metadata=metadata or {},
+        sensitive=True,
+        occurred_at=record.updated_at or record.created_at or timezone.now(),
+    )
 
 
 def append_spin_requests_to_sheet(group_config, records: list[SpinCreditRequest], sheet_name: str | None = None) -> dict[str, Any]:
@@ -1502,6 +1567,7 @@ def process_spin_form_submission(
     received_at=None,
     uploaded_files: list | None = None,
     client_request_id: str = '',
+    actor=None,
 ) -> dict[str, Any]:
     cleaned, errors = validate_spin_form_fields(fields)
     if not errors:
@@ -1601,6 +1667,9 @@ def process_spin_form_submission(
             parsed=parsed,
             telegram_message_id='miniapp',
             import_status='imported' if parsed.is_complete else 'review_needed',
+            actor=actor,
+            request_id=client_request_id,
+            origin='human',
         )
     except IntegrityError:
         if request_hash:
@@ -1735,7 +1804,15 @@ def normalize_spin_review_fields(group_config, record: SpinCreditRequest, fields
     }, errors
 
 
-def update_spin_review_request(group_config, record: SpinCreditRequest, fields: dict[str, Any]) -> dict[str, Any]:
+def update_spin_review_request(
+    group_config,
+    record: SpinCreditRequest,
+    fields: dict[str, Any],
+    *,
+    actor=None,
+    actor_label: str = '',
+    request_id: str = '',
+) -> dict[str, Any]:
     if str(record.group_id) != str(group_config.group_id):
         return {'success': False, 'status': 'not_found', 'message': 'Request not found.'}
     if record.import_status == 'completed':
@@ -1754,6 +1831,8 @@ def update_spin_review_request(group_config, record: SpinCreditRequest, fields: 
             'errors': errors,
         }
 
+    before_values = spin_review_fields_for(record)
+    before_values['import_status'] = record.import_status
     parsed = ParsedSpinRequest(
         request_type=cleaned['request_type'],
         customer_name=cleaned['customer_name'],
@@ -1822,6 +1901,17 @@ def update_spin_review_request(group_config, record: SpinCreditRequest, fields: 
         'sync_error',
         'updated_at',
     ])
+    record_spin_event(
+        record,
+        action='spin.request.reviewed',
+        actor=actor,
+        actor_label=actor_label,
+        request_id=request_id,
+        origin='human',
+        source_event_id=f'{record.pk}:review:{request_id or record.updated_at.isoformat()}',
+        before_values=before_values,
+        after_values={**spin_review_fields_for(record), 'import_status': record.import_status},
+    )
 
     sheet_synced = False
     if record.row_number:

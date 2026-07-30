@@ -97,6 +97,9 @@ from .models import (
     DocumentSignoffPolicy,
     DocumentPhysicalSignoff,
     DocumentPhysicalSignoffEvent,
+    ComplianceAuditChainState,
+    ComplianceAuditCheckpoint,
+    ComplianceAuditEvent,
 )
 
 logger = logging.getLogger(__name__)
@@ -2702,6 +2705,121 @@ class DocumentPhysicalSignoffEventAdmin(ReadOnlyAuditAdmin):
     list_filter = ('action', 'created_at')
     search_fields = ('signoff__scan_filename', 'actor__username', 'note')
     readonly_fields = [field.name for field in DocumentPhysicalSignoffEvent._meta.fields]
+
+
+@admin.register(ComplianceAuditEvent)
+class ComplianceAuditEventAdmin(ReadOnlyAuditAdmin):
+    """Investigator-facing read/export interface for immutable evidence."""
+
+    list_display = (
+        'chain_position', 'occurred_at', 'workflow', 'action', 'origin',
+        'subject_type', 'subject_id', 'actor_label', 'sensitive',
+    )
+    list_filter = ('workflow', 'category', 'origin', 'sensitive', 'retention_class', 'occurred_at')
+    search_fields = ('subject_id', 'customer_reference', 'actor_label', 'authority_label', 'request_id', 'action')
+    readonly_fields = [field.name for field in ComplianceAuditEvent._meta.fields]
+    list_select_related = ('actor', 'authority_user')
+    date_hierarchy = 'occurred_at'
+
+    def has_change_permission(self, request, obj=None):
+        # Read-only fields are useful for legacy audit models, but this ledger
+        # must not expose a save route at all. PostgreSQL also enforces this.
+        return False
+
+    def get_urls(self):
+        return [
+            path('export/csv/', self.admin_site.admin_view(self.export_csv), name='core_complianceauditevent_export_csv'),
+            path('export/pdf/', self.admin_site.admin_view(self.export_pdf), name='core_complianceauditevent_export_pdf'),
+            path('verify/', self.admin_site.admin_view(self.verify), name='core_complianceauditevent_verify'),
+        ] + super().get_urls()
+
+    def _can_export(self, request):
+        return bool(request.user.is_superuser or request.user.has_perm('core.export_complianceauditevent'))
+
+    def _record_access(self, request, action: str):
+        from core.services.compliance_audit import record_sensitive_access
+
+        record_sensitive_access(
+            workflow='access_control',
+            action=action,
+            subject_type='compliance_audit_ledger',
+            subject_id='global',
+            actor=request.user,
+            request_id=str(request.headers.get('X-Request-ID') or uuid.uuid4()),
+            metadata={'filters_used': bool(request.GET), 'method': request.method},
+        )
+
+    def changelist_view(self, request, extra_context=None):
+        if self.has_view_permission(request):
+            self._record_access(request, 'audit.ledger.searched')
+        return super().changelist_view(request, extra_context=extra_context)
+
+    def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
+        if object_id and self.has_view_permission(request):
+            self._record_access(request, 'audit.ledger.viewed')
+        return super().changeform_view(request, object_id, form_url, extra_context)
+
+    def _events_for_request(self, request):
+        from core.services.compliance_audit import filtered_events
+
+        return filtered_events(filters=request.GET).order_by('-chain_position')[:10000]
+
+    def export_csv(self, request):
+        if not self._can_export(request):
+            raise PermissionDenied
+        from core.services.compliance_audit import evidence_csv
+
+        self._record_access(request, 'audit.ledger.exported_csv')
+        response = HttpResponse(evidence_csv(self._events_for_request(request)), content_type='text/csv; charset=utf-8')
+        response['Content-Disposition'] = 'attachment; filename="jbl-compliance-audit-evidence.csv"'
+        return response
+
+    def export_pdf(self, request):
+        if not self._can_export(request):
+            raise PermissionDenied
+        from core.services.compliance_audit import evidence_pdf
+
+        self._record_access(request, 'audit.ledger.exported_pdf')
+        try:
+            payload = evidence_pdf(self._events_for_request(request))
+        except Exception as exc:
+            messages.error(request, f'Could not create the compliance evidence PDF: {exc}')
+            return HttpResponseRedirect(reverse('admin:core_complianceauditevent_changelist'))
+        response = HttpResponse(payload, content_type='application/pdf')
+        response['Content-Disposition'] = 'attachment; filename="jbl-compliance-audit-evidence.pdf"'
+        return response
+
+    def verify(self, request):
+        if not (request.user.is_superuser or request.user.has_perm('core.verify_complianceauditevent')):
+            raise PermissionDenied
+        from core.services.compliance_audit import verify_integrity
+
+        self._record_access(request, 'audit.ledger.integrity_verified')
+        result = verify_integrity()
+        if result.ok:
+            messages.success(request, f'Integrity verified across {result.checked} compliance audit events.')
+        else:
+            messages.error(request, f'Integrity failed at position {result.first_error_position}: {result.first_error}')
+        return HttpResponseRedirect(reverse('admin:core_complianceauditevent_changelist'))
+
+
+@admin.register(ComplianceAuditChainState)
+class ComplianceAuditChainStateAdmin(ReadOnlyAuditAdmin):
+    list_display = ('singleton', 'last_position', 'last_hash', 'updated_at')
+    readonly_fields = [field.name for field in ComplianceAuditChainState._meta.fields]
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ComplianceAuditCheckpoint)
+class ComplianceAuditCheckpointAdmin(ReadOnlyAuditAdmin):
+    list_display = ('checkpoint_date', 'chain_position', 'event_count', 'status', 'delivery_attempts', 'delivered_at')
+    list_filter = ('status', 'checkpoint_date')
+    readonly_fields = [field.name for field in ComplianceAuditCheckpoint._meta.fields]
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
 @admin.register(SpinCreditRequest)
 class SpinCreditRequestAdmin(TestDataDeleteAdmin):

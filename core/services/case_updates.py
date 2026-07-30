@@ -211,6 +211,7 @@ def apply_case_update(
         update_record.sync_status = 'failed'
         update_record.sync_error = 'Google Sheets update failed'
         update_record.save(update_fields=['sync_status', 'sync_error'])
+        record_command_case_update(update_record, parsed_message, action='complaint.case.update_sync_failed')
         return {
             'status': 'command',
             'reply_text': (
@@ -237,6 +238,7 @@ def apply_case_update(
 
     update_record.sync_status = 'success'
     update_record.save(update_fields=['sync_status'])
+    record_command_case_update(update_record, parsed_message, action='complaint.case.updated')
 
     return {
         'status': 'command',
@@ -246,6 +248,41 @@ def apply_case_update(
             date_resolved,
         ),
     }
+
+
+def record_command_case_update(update_record: CaseUpdate, parsed_message: ParsedMessage, *, action: str) -> None:
+    """Project a Telegram command update without retaining its raw content twice."""
+    from core.services.compliance_audit import record_event
+
+    record_event(
+        workflow='complaint_cases',
+        action=action,
+        category='workflow_transition' if update_record.old_status != update_record.new_status else 'workflow',
+        origin='human',
+        subject_type='complaint_case',
+        subject_id=str(parsed_message.pk),
+        customer_reference=str(parsed_message.message_id),
+        actor_label=update_record.updated_by,
+        request_id=update_record.client_request_id or update_record.telegram_message_id,
+        source_model='CaseUpdate',
+        source_event_id=str(update_record.pk),
+        deduplication_key=f'complaint:CaseUpdate:{update_record.pk}',
+        before_values={'status': update_record.old_status} if update_record.old_status else {},
+        after_values={
+            'status': update_record.new_status,
+            'risk_level': update_record.risk_level,
+            'loan_at_risk': update_record.loan_at_risk,
+            'sync_status': update_record.sync_status,
+        },
+        metadata={
+            'source': update_record.source,
+            'has_resolution_note': bool(update_record.resolution_text),
+            'has_location': bool(update_record.gps_link),
+            'has_sync_error': bool(update_record.sync_error),
+        },
+        sensitive=True,
+        occurred_at=update_record.created_at,
+    )
 
 
 def _update_sheet(
