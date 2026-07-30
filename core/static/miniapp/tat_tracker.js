@@ -19,6 +19,9 @@
     lastSuccessfulHome: null,
     homeRequestNumber: 0,
     loadingHomePage: { action_required: false, recent: false },
+    identityContextRequestNumber: 0,
+    identityContextTimer: null,
+    pendingCorrection: null,
   };
 
   const $ = (id) => document.getElementById(id);
@@ -614,6 +617,9 @@
   async function openCase(caseId) {
     setStatus('Opening case...', 'busy');
     const result = await api('/api/tat-tracker/detail/', { case_id: caseId });
+    if (state.pendingCorrection && state.pendingCorrection.caseId !== caseId) {
+      state.pendingCorrection = null;
+    }
     state.detail = result.data;
     renderDetail(result.data);
     show('detail');
@@ -807,6 +813,65 @@
     });
   }
 
+  function renderExistingLoanContext(context) {
+    const container = $('existingLoanContext');
+    if (!container) return;
+    const matches = context && Array.isArray(context.matches) ? context.matches : [];
+    if (!matches.length) {
+      container.classList.add('hidden');
+      container.innerHTML = '';
+      return;
+    }
+    const matchedOn = (context.matched_on || []).join(' and ') || 'the supplied details';
+    const caseLabel = matches.length === 1 ? 'case' : 'cases';
+    container.innerHTML = `
+      <strong>${matches.length} existing loan ${caseLabel} found by ${escapeHtml(matchedOn)}</strong>
+      <p>Creating this form still makes a separate loan case. Open an existing case if you meant to correct it.</p>
+      <div class="identity-context-list">
+        ${matches.map((item) => `
+          <button type="button" class="identity-context-case" data-existing-tat-case="${escapeHtml(item.case_id)}">
+            <span>${escapeHtml(item.case_id)} · ${escapeHtml(item.product || 'Loan')}</span>
+            <strong>${escapeHtml(item.client_name || 'Existing client')}</strong>
+          </button>
+        `).join('')}
+      </div>
+    `;
+    container.classList.remove('hidden');
+    container.querySelectorAll('[data-existing-tat-case]').forEach((button) => {
+      button.addEventListener('click', () => openCase(button.dataset.existingTatCase));
+    });
+  }
+
+  function scheduleExistingLoanContext() {
+    window.clearTimeout(state.identityContextTimer);
+    state.identityContextTimer = window.setTimeout(loadExistingLoanContext, 280);
+  }
+
+  async function loadExistingLoanContext() {
+    const form = $('newCaseForm');
+    if (!form) return;
+    const nationalId = String(form.elements.national_id?.value || '').trim();
+    const phone = String(form.elements.primary_phone?.value || '').trim();
+    const digits = phone.replace(/\D/g, '');
+    if (nationalId.length < 7 && digits.length < 9) {
+      renderExistingLoanContext(null);
+      return;
+    }
+    const requestNumber = state.identityContextRequestNumber + 1;
+    state.identityContextRequestNumber = requestNumber;
+    try {
+      const result = await api('/api/tat-tracker/identity-context/', {
+        national_id: nationalId,
+        primary_phone: phone,
+      });
+      if (requestNumber === state.identityContextRequestNumber) renderExistingLoanContext(result.data);
+    } catch (error) {
+      // Context is advisory only; a slow lookup must never block a valid new
+      // loan submission or replace the form with a noisy transient error.
+      if (requestNumber === state.identityContextRequestNumber) renderExistingLoanContext(null);
+    }
+  }
+
   function openStageCorrection(actionWrap, field) {
     const current = field.raw_value || '';
     const input = document.createElement('input');
@@ -862,29 +927,50 @@
       return;
     }
     const button = $('saveCaseCorrectionBtn');
+    const caseId = state.detail.summary.case_id;
+    const workflowRevision = Number(state.detail.summary.workflow_revision || 1);
+    const fingerprint = JSON.stringify(updates.map((item) => [item.field, item.value]));
+    if (!state.pendingCorrection
+      || state.pendingCorrection.caseId !== caseId
+      || state.pendingCorrection.workflowRevision !== workflowRevision
+      || state.pendingCorrection.fingerprint !== fingerprint) {
+      state.pendingCorrection = {
+        caseId,
+        workflowRevision,
+        fingerprint,
+        requestId: newRequestId(),
+      };
+    }
     setButtonLoading(button, true, 'Saving');
     try {
-      await submitUpdate(updates);
+      await submitUpdate(updates, {
+        caseId,
+        workflowRevision,
+        requestId: state.pendingCorrection.requestId,
+      });
+      state.pendingCorrection = null;
       $('caseCorrectionPanel').classList.add('hidden');
     } catch (error) {
-      setStatus(error.message, 'error');
+      setStatus(`${error.message} Retry will safely check the same correction.`, 'error');
     } finally {
       setButtonLoading(button, false);
     }
   }
 
-  async function submitUpdate(updates) {
+  async function submitUpdate(updates, options) {
     if (!state.detail) return;
+    const settings = options || {};
     setStatus('Saving update...', 'busy');
     const result = await api('/api/tat-tracker/update/', {
-      case_id: state.detail.summary.case_id,
-      workflow_revision: Number(state.detail.summary.workflow_revision || 1),
-      request_id: newRequestId(),
+      case_id: settings.caseId || state.detail.summary.case_id,
+      workflow_revision: settings.workflowRevision || Number(state.detail.summary.workflow_revision || 1),
+      request_id: settings.requestId || newRequestId(),
       updates,
     });
     state.detail = result.data;
     renderDetail(result.data);
     setStatus('Saved.', 'ok');
+    return result.data;
   }
 
   async function loadMoreHome(kind) {
@@ -1025,6 +1111,7 @@
       setStatus('Creating case...', 'busy');
       const form = new FormData(formElement);
       const payload = Object.fromEntries(form.entries());
+      payload.creation_intent = 'new_loan';
       state.pendingCreateRequestId = state.pendingCreateRequestId || newRequestId();
       writePendingCreateRequestId(state.pendingCreateRequestId);
       payload.client_request_id = state.pendingCreateRequestId;
@@ -1036,6 +1123,7 @@
       state.pendingCreateRequestId = '';
       writePendingCreateRequestId('');
       if (formElement && typeof formElement.reset === 'function') formElement.reset();
+      renderExistingLoanContext(null);
       const broInput = document.querySelector('[name="bro_name"]');
       if (broInput) broInput.value = payload.bro_name || '';
       setStatus('Case created. Continue from the highlighted stage.', 'ok');
@@ -1046,6 +1134,12 @@
       state.creatingCase = false;
       setButtonLoading(submitButton, false);
     }
+  });
+
+  ['national_id', 'primary_phone'].forEach((fieldName) => {
+    const input = $('newCaseForm')?.elements[fieldName];
+    input?.addEventListener('input', scheduleExistingLoanContext);
+    input?.addEventListener('blur', scheduleExistingLoanContext);
   });
 
   configureHtmx();

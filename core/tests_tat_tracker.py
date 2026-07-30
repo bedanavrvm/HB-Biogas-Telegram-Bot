@@ -18,7 +18,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from core.models import AccessGrant, GroupSheetConfiguration, LiveSheetRecordChange, SheetRegisterContract, SheetSyncAuditSnapshot, TatRepairJob, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, UserProfile, WorkflowSlaEscalation
-from core.api.views import _dispatch_tat_approval_certificate, _process_telegram_message
+from core.api.views import _dispatch_tat_approval_certificate, _process_telegram_message, tat_tracker_identity_context
 from core.services.group_config import GroupConfig, GroupRegistry
 from core.services.tat_tracker import (
     _TAT_HEADER_CACHE,
@@ -59,6 +59,7 @@ from core.services.tat_tracker import (
     soft_delete_tat_case,
     sync_tat_target_settings_to_sheet,
     tat_batch_format_message,
+    tat_case_identity_context,
     validate_tracker_identity_headers,
     update_case,
     workflow_branches,
@@ -2183,6 +2184,9 @@ class TatTrackerWorkflowTest(TestCase):
             'bro_name': 'BRO User',
             'amount': '10000',
         })
+        original_case = TatTrackerCase.objects.get(case_id=detail['summary']['case_id'])
+        original_pk = original_case.pk
+        case_count_before_correction = TatTrackerCase.objects.filter(group_id=self.config.group_id, is_deleted=False).count()
 
         updated = update_case(self.config, admin, detail['summary']['case_id'], [
             {'field': 'client_name', 'value': 'Corrected Client', 'correction': True},
@@ -2191,11 +2195,69 @@ class TatTrackerWorkflowTest(TestCase):
         ])
 
         case = TatTrackerCase.objects.get(case_id=detail['summary']['case_id'])
+        self.assertEqual(case.pk, original_pk)
+        self.assertEqual(
+            TatTrackerCase.objects.filter(group_id=self.config.group_id, is_deleted=False).count(),
+            case_count_before_correction,
+        )
         self.assertEqual(case.client_name, 'CORRECTED CLIENT')
         self.assertEqual(case.national_id, '87654321')
         self.assertEqual(case.primary_phone, '254712345679')
         self.assertEqual(updated['summary']['client_name'], 'CORRECTED CLIENT')
         self.assertEqual(case.events.filter(stage_key='case_details', source='admin_correction').count(), 3)
+
+    def test_create_case_rejects_correction_shaped_payload(self):
+        bro = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+
+        with self.assertRaisesMessage(ValueError, 'Case corrections must use the existing case update action'):
+            create_case(self.config, bro, {
+                'case_id': 'JBL-BS-2026-001',
+                'workflow_revision': 1,
+                'updates': [{'field': 'client_name', 'value': 'Incorrect route'}],
+                'creation_intent': 'new_loan',
+            })
+
+    def test_identity_context_lists_prior_loans_without_treating_them_as_duplicates(self):
+        first = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            case_id='JBL-BS-2026-IDENTITY-1',
+            product_key='business', product_label='Business',
+            client_name='Repeat Client', national_id='12345678', primary_phone='254712345678',
+            branch='Nakuru', status='Active',
+        )
+        second = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            case_id='JBL-BS-2026-IDENTITY-2',
+            product_key='logbook', product_label='Logbook',
+            client_name='Repeat Client', national_id='12345678', primary_phone='254712345678',
+            branch='Nakuru', status='Active',
+        )
+
+        context = tat_case_identity_context(self.config, '12345678', '0712345678')
+
+        self.assertEqual({item['case_id'] for item in context['matches']}, {first.case_id, second.case_id})
+        self.assertEqual(context['matched_on'], ['National ID', 'primary phone'])
+
+    def test_identity_context_endpoint_allows_case_creators_and_denies_others(self):
+        request = RequestFactory().post(
+            '/api/tat-tracker/identity-context/',
+            data=json.dumps({'national_id': '12345678'}),
+            content_type='application/json',
+        )
+        allowed_user = {'authorized': True, 'capabilities': ['tat.case.create']}
+        with patch('core.api.views._tat_context', return_value=(self.config.group_id, self.config, {}, allowed_user, None)):
+            allowed = tat_tracker_identity_context(request)
+        self.assertEqual(allowed.status_code, 200)
+
+        denied_request = RequestFactory().post(
+            '/api/tat-tracker/identity-context/',
+            data=json.dumps({'national_id': '12345678'}),
+            content_type='application/json',
+        )
+        denied_user = {'authorized': True, 'capabilities': []}
+        with patch('core.api.views._tat_context', return_value=(self.config.group_id, self.config, {}, denied_user, None)):
+            denied = tat_tracker_identity_context(denied_request)
+        self.assertEqual(denied.status_code, 403)
 
     @patch('core.services.tat_tracker.sync_case_to_sheet')
     def test_completed_timestamp_correction_preserves_audit_history(self, sync_mock):

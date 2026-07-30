@@ -1098,6 +1098,7 @@ def cleaned_master_row_from_review(
         'raw_data': raw_data,
         'last_imported_at': imported_at,
         'application_action': str(row.get('Application Action') or 'update_existing').strip(),
+        'additional_unit_reason': clean_text(row.get('Additional Unit Reason', '')),
     }
 
 
@@ -1118,6 +1119,18 @@ def farmup_review_validation_notes(row: dict, cleaned: dict) -> list[str]:
     for label, field in required:
         if not cleaned.get(field):
             notes.append(f'Missing {label}')
+    from core.services.jawabu_identity import (
+        APPLICATION_ACTION_CREATE_ADDITIONAL_UNIT,
+        JawabuIdentityConflict,
+        normalize_application_action,
+    )
+    try:
+        action = normalize_application_action(cleaned.get('application_action'))
+    except JawabuIdentityConflict as exc:
+        notes.append(str(exc))
+    else:
+        if action == APPLICATION_ACTION_CREATE_ADDITIONAL_UNIT and not cleaned.get('additional_unit_reason'):
+            notes.append('Additional Unit Reason is required when creating another unit')
     return notes
 
 
@@ -1392,6 +1405,7 @@ def master_preview_row(cleaned: dict, source_name: str, source_row_number: int) 
         # default to updating the first/existing unit; staff only change it
         # when the same customer is explicitly applying for another unit.
         'Application Action': 'update_existing',
+        'Additional Unit Reason': '',
         'County': cleaned.get('county', ''),
         'Constituency': cleaned.get('sub_county', ''),
         'Village': cleaned.get('village') or cleaned.get('landmark', ''),
@@ -1531,12 +1545,27 @@ def row_fingerprint(row: dict) -> str:
 
 @transaction.atomic
 def upsert_farmer(cleaned: dict) -> tuple[bool, str]:
-    from core.services.jawabu_identity import resolve_application_identity, record_additional_unit, restart_expired_reappraisal
+    from core.services.jawabu_identity import (
+        APPLICATION_ACTION_CREATE_ADDITIONAL_UNIT,
+        normalize_application_action,
+        record_additional_unit,
+        resolve_application_identity,
+        restart_expired_reappraisal,
+    )
 
-    action = str(cleaned.pop('application_action', '') or 'update_existing').strip()
+    action = normalize_application_action(cleaned.pop('application_action', ''))
+    additional_unit_reason = clean_text(cleaned.pop('additional_unit_reason', ''))
+    if action == APPLICATION_ACTION_CREATE_ADDITIONAL_UNIT and not additional_unit_reason:
+        raise ValueError('Additional Unit Reason is required when creating another unit.')
     customer, unit_number, identity_existing = resolve_application_identity(cleaned, action=action)
     lookup = farmer_lookup(cleaned)
-    existing = identity_existing or JawabuFarmerMaster.objects.filter(**lookup).order_by('-updated_at').first()
+    # A repeat unit deliberately shares customer identifiers and therefore
+    # often shares the ordinary duplicate key. Only the explicit
+    # update-existing action may use that generic lookup; otherwise Unit 2/3
+    # would silently overwrite Unit 1 instead of becoming a linked case.
+    existing = identity_existing
+    if existing is None and action != APPLICATION_ACTION_CREATE_ADDITIONAL_UNIT:
+        existing = JawabuFarmerMaster.objects.filter(**lookup).order_by('-updated_at').first()
     defaults = model_fields(cleaned)
     defaults['customer'] = customer
     defaults['unit_number'] = unit_number
@@ -1598,8 +1627,8 @@ def upsert_farmer(cleaned: dict) -> tuple[bool, str]:
     )
     from core.services.jawabu_case360 import record_pipeline_event
     record_pipeline_event(farmer, action='application_imported', stage_key='intake', source='farmup')
-    if action == 'create_additional_unit':
-        record_additional_unit(farmer)
+    if action == APPLICATION_ACTION_CREATE_ADDITIONAL_UNIT:
+        record_additional_unit(farmer, reason=additional_unit_reason)
     return True, defaults['status']
 
 

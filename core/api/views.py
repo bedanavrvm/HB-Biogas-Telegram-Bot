@@ -484,6 +484,39 @@ def tat_tracker_create(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+def tat_tracker_identity_context(request):
+    """Show exact prior-loan context before a deliberate TAT create.
+
+    This is intentionally a read-only, create-authorized lookup: a matching
+    customer is normal in TAT and must not be treated as a duplicate or a
+    reason to merge loan cases.
+    """
+    payload = _tat_json_body(request)
+    group_id, group_config, user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    capability_error = _tat_capability_error(user, 'tat.case.create')
+    if capability_error:
+        return capability_error
+    from core.services.tat_tracker import tat_case_identity_context
+    try:
+        return JsonResponse({
+            'ok': True,
+            'data': tat_case_identity_context(
+                group_config,
+                payload.get('national_id', ''),
+                payload.get('primary_phone', ''),
+            ),
+        })
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    except Exception:
+        logger.exception('TAT Tracker identity context failed for group %s.', group_id)
+        return JsonResponse({'ok': False, 'error': 'Existing loan context could not be loaded. Continue only if you are creating a new loan.'}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
 def tat_tracker_detail(request):
     payload = _tat_json_body(request)
     group_id, group_config, user_payload, user, error = _tat_context(payload)

@@ -982,6 +982,26 @@ h2 { font-size: 13px; font-weight: 750; }
   font-size: 9.5px;
   color: var(--tat-muted);
 }
+
+.identity-context {
+  display: grid;
+  gap: 7px;
+  margin: 10px 0 0;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--tat-info) 36%, var(--tat-line));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--tat-info-soft) 72%, var(--tat-surface));
+}
+.identity-context strong { font-size: 12px; }
+.identity-context p { margin: 0; color: var(--tat-muted); font-size: 11px; }
+.identity-context-list { display: grid; gap: 5px; }
+.identity-context-case {
+  justify-content: flex-start;
+  min-height: 38px;
+  padding: 6px 8px;
+  text-align: left;
+}
+.identity-context-case span { color: var(--tat-muted); font-size: 10px; }
 .event-artifact-link {
   display: inline-block;
   margin-top: 4px;

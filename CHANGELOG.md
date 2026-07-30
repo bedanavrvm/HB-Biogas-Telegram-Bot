@@ -1,5 +1,16 @@
 # Changelog
 
+## Workflow integrity - 30-July-2026
+
+- TAT corrections are now explicitly update-only and retain one retry key for
+  a failed/resubmitted correction. The new-loan form clearly distinguishes a
+  separate loan from an existing case and shows exact National ID/phone loan
+  context without blocking legitimate repeat loans.
+- FarmUp review now requires a reason before an explicit additional unit is
+  created. Additional-unit imports bypass the normal duplicate-key update
+  fallback, allocate the next linked unit number, and record the reason in
+  the case timeline.
+
 ## Reliability hardening - 30-July-2026
 
 - Portal, Complaint Cases, TAT, and SPIN Mini App writes now accept a shared

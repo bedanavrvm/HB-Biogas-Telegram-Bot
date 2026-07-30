@@ -9,6 +9,14 @@ from core.services.identifiers import normalize_kenyan_phone, normalize_national
 from core.services.jawabu_customer_quality import record_customer_phone
 
 
+APPLICATION_ACTION_UPDATE_EXISTING = 'update_existing'
+APPLICATION_ACTION_CREATE_ADDITIONAL_UNIT = 'create_additional_unit'
+VALID_APPLICATION_ACTIONS = frozenset({
+    APPLICATION_ACTION_UPDATE_EXISTING,
+    APPLICATION_ACTION_CREATE_ADDITIONAL_UNIT,
+})
+
+
 class JawabuIdentityConflict(ValueError):
     pass
 
@@ -19,6 +27,13 @@ def normalize_identifier(value) -> str:
 
 def normalize_primary_phone(value) -> str:
     return normalize_kenyan_phone(value)
+
+
+def normalize_application_action(value) -> str:
+    action = str(value or APPLICATION_ACTION_UPDATE_EXISTING).strip().lower()
+    if action not in VALID_APPLICATION_ACTIONS:
+        raise JawabuIdentityConflict('Application action must be Update existing unit or Create additional unit.')
+    return action
 
 
 def _identity_query(national_id: str, primary_phone: str, customer_no: str = '') -> Q:
@@ -35,6 +50,7 @@ def _identity_query(national_id: str, primary_phone: str, customer_no: str = '')
 @transaction.atomic
 def resolve_application_identity(cleaned: dict, *, action: str = 'update_existing'):
     """Return (customer, unit_number, existing_application) without guessing duplicates."""
+    action = normalize_application_action(action)
     national_id = normalize_identifier(cleaned.get('national_id'))
     primary_phone = normalize_primary_phone(cleaned.get('primary_phone'))
     customer_no = normalize_identifier(cleaned.get('customer_no'))
@@ -66,7 +82,7 @@ def resolve_application_identity(cleaned: dict, *, action: str = 'update_existin
     record_customer_phone(customer, primary_phone, source='farmup')
 
     applications = JawabuFarmerMaster.objects.select_for_update().filter(customer=customer)
-    if action == 'create_additional_unit':
+    if action == APPLICATION_ACTION_CREATE_ADDITIONAL_UNIT:
         unit_number = (applications.aggregate(value=Max('unit_number'))['value'] or 0) + 1
         return customer, unit_number, None
 
@@ -99,7 +115,7 @@ def set_customer_number(farmer: JawabuFarmerMaster, customer_no: str) -> None:
         customer.save(update_fields=['customer_no', 'updated_at'])
 
 
-def record_additional_unit(farmer: JawabuFarmerMaster, actor: str = '') -> None:
+def record_additional_unit(farmer: JawabuFarmerMaster, actor: str = '', reason: str = '') -> None:
     # Use the shared native-event helper so identity-driven changes are visible
     # in both the operational timeline and the compliance ledger.
     from core.services.jawabu_case360 import record_pipeline_event
@@ -109,7 +125,11 @@ def record_additional_unit(farmer: JawabuFarmerMaster, actor: str = '') -> None:
         action='additional_unit_created',
         actor=actor,
         source='system',
-        metadata={'customer_id': str(farmer.customer_id), 'unit_number': farmer.unit_number},
+        metadata={
+            'customer_id': str(farmer.customer_id),
+            'unit_number': farmer.unit_number,
+            'reason': str(reason or ''),
+        },
     )
 
 

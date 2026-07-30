@@ -70,6 +70,7 @@ NEAR_SLA_RATIO = Decimal('0.8')
 TAT_TARGET_MANAGER_ROLES = frozenset({'IT'})
 TAT_CASE_CORRECTION_ROLES = frozenset({'IT', 'ADMIN'})
 TAT_HOME_PAGE_SIZE = 10
+TAT_CREATE_INTENT_NEW_LOAN = 'new_loan'
 
 
 @dataclass(frozen=True)
@@ -623,6 +624,7 @@ def soft_delete_tat_case(
 
 @transaction.atomic
 def create_case(group_config, user: dict, payload: dict) -> dict:
+    _validate_tat_create_payload(payload)
     product = product_by_key(str(payload.get('product_key') or payload.get('product') or ''))
     workflow = getattr(group_config, 'workflow', None) or {}
     if product not in _allowed_products(workflow, user):
@@ -670,6 +672,64 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
     if not case.row_number:
         raise RuntimeError('TAT tracker sheet sync did not return a row number. Case was not saved.')
     return serialize_case_detail(case, user, workflow=workflow)
+
+
+def _validate_tat_create_payload(payload: dict) -> None:
+    """Reject update-shaped submissions before a new loan case can be made.
+
+    A client can legitimately open more than one TAT loan for the same person,
+    so national ID and phone are context signals rather than create blockers.
+    The one invariant we can enforce without blocking valid repeat loans is
+    that a correction must never be accepted by the create endpoint.
+    """
+    if any(str(payload.get(key) or '').strip() for key in ('case_id', 'workflow_revision', 'revision')):
+        raise ValueError('Case corrections must use the existing case update action, not Create new loan case.')
+    if payload.get('updates'):
+        raise ValueError('Case corrections must use the existing case update action, not Create new loan case.')
+    intent = str(payload.get('creation_intent') or TAT_CREATE_INTENT_NEW_LOAN).strip().lower()
+    if intent != TAT_CREATE_INTENT_NEW_LOAN:
+        raise ValueError('Only an explicit new-loan submission may create a TAT case.')
+
+
+def tat_case_identity_context(group_config, national_id: object = '', primary_phone: object = '') -> dict[str, Any]:
+    """Return exact same-customer TAT context without treating it as a duplicate.
+
+    TAT tracks loans, not a single lifetime customer application. These exact
+    matches help a user choose an existing case for a correction while still
+    allowing a deliberate additional loan to be created.
+    """
+    normalized_id = normalize_national_id(national_id)
+    normalized_phone = normalize_kenyan_phone(primary_phone)
+    query = Q()
+    matched_on: list[str] = []
+    if normalized_id:
+        query |= Q(national_id=normalized_id)
+        matched_on.append('National ID')
+    if normalized_phone:
+        query |= Q(primary_phone=normalized_phone)
+        matched_on.append('primary phone')
+    if not query.children:
+        return {'matches': [], 'matched_on': []}
+
+    cases = (
+        TatTrackerCase.objects.filter(group_id=str(group_config.group_id), is_deleted=False)
+        .filter(query)
+        .order_by('-updated_at')[:5]
+    )
+    return {
+        'matched_on': matched_on,
+        'matches': [
+            {
+                'case_id': case.case_id,
+                'client_name': case.client_name,
+                'product': case.product_label or case.product_key,
+                'status': case.status,
+                'current_stage': case.current_stage,
+                'updated_at': format_datetime(case.updated_at),
+            }
+            for case in cases
+        ],
+    }
 
 
 def tat_batch_format_message() -> str:

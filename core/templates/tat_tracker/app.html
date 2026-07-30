@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=5">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=17">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=18">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -116,11 +116,11 @@
       </section>
     </section>
 
-    <section id="newView" class="view" aria-label="Create case">
+    <section id="newView" class="view" aria-label="Create new loan case">
       <form id="newCaseForm" class="form-card">
         <div class="form-heading">
-          <h2>Create Case</h2>
-          <p>Capture the base record, then continue the case from the detail screen.</p>
+          <h2>Create new loan case</h2>
+          <p>This creates a new TAT loan. To correct an existing case, open it from Queue or Find.</p>
         </div>
         <div class="form-grid">
           <label>Product<select name="product_key" required></select></label>
@@ -131,12 +131,13 @@
           <label>BRO Name<select name="bro_name" required></select></label>
           <label class="amount-field">Amount (KES)<input class="tat-paste-field" name="amount" type="number" inputmode="decimal" autocomplete="off" data-paste-normalize="amount" min="0" step="1" required placeholder="0"></label>
         </div>
+        <section id="existingLoanContext" class="identity-context hidden" aria-live="polite"></section>
         <div class="form-actions">
           <button type="submit" class="primary">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
               <path d="M5 12h14M12 5l7 7-7 7"/>
             </svg>
-            <span>Create Case</span>
+            <span>Create new loan case</span>
           </button>
         </div>
       </form>
@@ -255,6 +256,6 @@
   <script src="{% static 'miniapp/telegram.js' %}?v=2"></script>
   <script src="{% static 'miniapp/utils.js' %}?v=3"></script>
   <script src="{% static 'miniapp/tat_api.js' %}?v=1"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=29"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=30"></script>
 </body>
 </html>

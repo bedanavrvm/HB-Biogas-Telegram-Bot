@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% if batch.import_kind == 'system_export' %}Review System Export{% else %}Review Farmers Upload{% endif %}</title>
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=5">
-  <link rel="stylesheet" href="{% static 'miniapp/farmup_review.css' %}?v=2">
+  <link rel="stylesheet" href="{% static 'miniapp/farmup_review.css' %}?v=3">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=14">
 </head>
@@ -50,7 +50,7 @@
           {% if batch.import_kind == 'system_export' %}
           <th class="id-col">Customer ID</th><th class="name">Name</th><th class="phone">Mobile No</th><th class="id-col">ID NO</th><th class="hub-col">Branch</th><th class="staff-col">Loan Officer</th><th class="staff-col">Product Name</th><th class="deposit-col">LGF Balance</th><th class="staff-col">Match</th><th class="notes">Notes</th>
           {% else %}
-          <th class="name">Customer Name</th><th class="id-col">National ID</th><th class="phone">Primary Phone</th><th class="phone">Secondary Phone</th><th class="staff-col">Application</th><th class="hub-col">County</th><th class="date">HBG Visit Date</th><th class="deposit-col">Deposit Paid to HB</th><th class="staff-col">HB Sales Person</th><th class="notes">Notes</th>
+          <th class="name">Customer Name</th><th class="id-col">National ID</th><th class="phone">Primary Phone</th><th class="phone">Secondary Phone</th><th class="staff-col">Application</th><th class="notes">Additional-unit reason</th><th class="hub-col">County</th><th class="date">HBG Visit Date</th><th class="deposit-col">Deposit Paid to HB</th><th class="staff-col">HB Sales Person</th><th class="notes">Notes</th>
           {% endif %}
         </tr>
       </thead>
@@ -64,7 +64,7 @@
 {% if batch.import_kind == 'system_export' %}
 <script src="{% static 'miniapp/system_export_review.js' %}?v=3"></script>
 {% else %}
-<script src="{% static 'miniapp/farmup_review.js' %}?v=9"></script>
+<script src="{% static 'miniapp/farmup_review.js' %}?v=10"></script>
 {% endif %}
 </body>
 </html>

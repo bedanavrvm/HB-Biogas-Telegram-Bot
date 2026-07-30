@@ -105,6 +105,16 @@ def portal_auth_required(view_func):
                 bind_miniapp_request_identity(request, _portal_payload_for_request_identity(request))
             except ValueError as exc:
                 return _finish_portal_response(request, idempotency_error_response(exc), started_at)
+        else:
+            # Read-only navigation is not an idempotent write, but preserve a
+            # valid client correlation ID so browser/Telegram traces remain
+            # continuous. Invalid optional read IDs never turn a safe screen
+            # load into an error response.
+            from core.services.miniapp_requests import validate_request_key
+            try:
+                request.portal_request_id = validate_request_key(request.headers.get('X-Request-ID', ''))
+            except ValueError:
+                request.portal_request_id = ''
         try:
             response = view_func(request, *args, **kwargs)
         except Exception:

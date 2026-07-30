@@ -2430,6 +2430,42 @@ class JawabuIntegrityRulesTests(TestCase):
         self.assertIsNone(second_existing)
         self.assertEqual(first.unit_number, 1)
 
+    def test_additional_unit_requires_reason_and_does_not_overwrite_first_unit(self):
+        from core.services.jawabu_master import upsert_farmer
+
+        base = {
+            'source': 'test',
+            'source_name': 'test.csv',
+            'source_row_number': 1,
+            'source_fingerprint': 'repeat-unit-source',
+            'customer_name': 'Repeat Client',
+            'national_id': '12345678',
+            'primary_phone': '254712345678',
+            'duplicate_key': 'repeat-client-key',
+            'status': 'active',
+        }
+        first_created, _ = upsert_farmer({**base, 'application_action': 'update_existing'})
+        self.assertTrue(first_created)
+
+        with self.assertRaisesMessage(ValueError, 'Additional Unit Reason is required'):
+            upsert_farmer({
+                **base,
+                'source_row_number': 2,
+                'source_fingerprint': 'repeat-unit-source-2',
+                'application_action': 'create_additional_unit',
+            })
+
+        second_created, _ = upsert_farmer({
+            **base,
+            'source_row_number': 2,
+            'source_fingerprint': 'repeat-unit-source-2',
+            'application_action': 'create_additional_unit',
+            'additional_unit_reason': 'Customer requested a second installation.',
+        })
+        units = list(JawabuFarmerMaster.objects.order_by('unit_number').values_list('unit_number', flat=True))
+        self.assertTrue(second_created)
+        self.assertEqual(units, [1, 2])
+
     def test_reappraisal_starts_at_beginning_of_day_91(self):
         from core.services.jawabu_pipeline import is_reappraisal_required
 

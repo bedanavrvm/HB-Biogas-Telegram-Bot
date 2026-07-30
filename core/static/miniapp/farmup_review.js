@@ -12,7 +12,7 @@
   const batchId = payload.batch_id;
   const token = payload.token;
   const initData = tg ? tg.initData : '';
-  const fields = ['Customer Name', 'National ID', 'Primary Phone', 'Secondary Phone', 'Application Action', 'County', 'HBG Visit Date', 'Deposit Paid to HB', 'HB Sales Person', 'Cleaning Notes'];
+  const fields = ['Customer Name', 'National ID', 'Primary Phone', 'Secondary Phone', 'Application Action', 'Additional Unit Reason', 'County', 'HBG Visit Date', 'Deposit Paid to HB', 'HB Sales Person', 'Cleaning Notes'];
   const body = document.getElementById('rowsBody');
   const statusEl = document.getElementById('status');
   const rowSearch = document.getElementById('rowSearch');
@@ -39,8 +39,8 @@
 
   function isReview(row) {
     return row['Import Status'] === 'review_needed' || fields.some((fieldName) => (
-      !['Cleaning Notes', 'Application Action'].includes(fieldName) && isBlank(row[fieldName])
-    ));
+      !['Cleaning Notes', 'Application Action', 'Additional Unit Reason'].includes(fieldName) && isBlank(row[fieldName])
+    )) || (row['Application Action'] === 'create_additional_unit' && isBlank(row['Additional Unit Reason']));
   }
 
   function rowNotes(row) {
@@ -50,7 +50,13 @@
   function fieldHasProblem(row, fieldName) {
     // Application Action has a safe default and Cleaning Notes is purely
     // informational. Neither field should receive validation highlighting.
-    if (['Application Action', 'Cleaning Notes'].includes(fieldName)) return false;
+    if (fieldName === 'Application Action') {
+      return !['update_existing', 'create_additional_unit'].includes(row[fieldName] || 'update_existing');
+    }
+    if (fieldName === 'Additional Unit Reason') {
+      return row['Application Action'] === 'create_additional_unit' && isBlank(row[fieldName]);
+    }
+    if (fieldName === 'Cleaning Notes') return false;
     if (fieldName !== 'Cleaning Notes' && isBlank(row[fieldName])) return true;
     if (!isReview(row)) return false;
     const notes = rowNotes(row);
@@ -136,7 +142,21 @@
           input.setAttribute('aria-invalid', 'true');
         }
         input.value = row[name] || (name === 'Application Action' ? 'update_existing' : '');
+        if (name === 'Additional Unit Reason') {
+          input.placeholder = row['Application Action'] === 'create_additional_unit'
+            ? 'Why is this another unit?'
+            : 'Required only for another unit';
+          input.disabled = row['Application Action'] !== 'create_additional_unit';
+        }
         input.addEventListener('input', () => { row[name] = input.value; saveDraft(); });
+        if (name === 'Application Action') {
+          input.addEventListener('change', () => {
+            row[name] = input.value;
+            if (input.value !== 'create_additional_unit') row['Additional Unit Reason'] = '';
+            saveDraft();
+            render();
+          });
+        }
         td.appendChild(input);
         tr.appendChild(td);
       });
