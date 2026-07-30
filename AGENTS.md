@@ -130,6 +130,7 @@ Key modules:
 - `workflow_escalations.py` — scoped read models for current in-app escalation context
 - `workflow_capabilities.py` — centrally defined Mini App capabilities and role policy resolution
 - `miniapp_requests.py` — shared Mini App retry-key compatibility and strict-mode policy
+- `miniapp_settings.py` — typed personal preferences and maker-checker TAT configuration proposals
 - `external_resilience.py` — bounded synchronous retry, durable external-operation register, and circuit state
 - `access_control.py` — maker-checker access changes, emergency grants, notifications, and policy versioning
 - `access_control_reporting.py` — access-control evidence exports, parity, and least-privilege diagnostics

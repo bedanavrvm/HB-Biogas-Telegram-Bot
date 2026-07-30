@@ -352,6 +352,16 @@
     <div id="history-list" class="farmer-list"><div class="empty-state"><div class="spinner-inline"></div></div></div>
   </section>
 
+  <section id="page-settings" class="page{% if active_screen == 'settings' %} active{% endif %}">
+    <header><h1>My Portal Settings</h1><p class="meta">These choices apply only to your Portal workspace. Mandatory security, assignment, approval, and overdue alerts remain on.</p></header>
+    <form id="portal-personal-settings-form" class="portal-settings-card">
+      <label>Start on<select id="portal-preference-default-screen"></select></label>
+      <label>Non-critical Telegram alerts<select id="portal-preference-alert-mode"><option value="immediate">Immediate</option><option value="daily_digest">Daily digest at 08:00</option><option value="quiet">Quiet</option></select></label>
+      <label class="portal-settings-check"><input id="portal-preference-compact-cards" type="checkbox"> Use compact case cards</label>
+      <div class="form-actions"><button id="portal-save-personal-settings" class="btn btn-primary" type="submit">Save my settings</button></div>
+    </form>
+  </section>
+
 <!-- Farmer detail sheet -->
 <div class="sheet-overlay" id="sheet-overlay" role="dialog" aria-modal="true">
   <div class="sheet-panel">

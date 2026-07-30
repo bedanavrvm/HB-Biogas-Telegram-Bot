@@ -12,7 +12,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=5">
-  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=5">
+  <link rel="stylesheet" href="{% static 'miniapp/complaint_cases.css' %}?v=6">
 </head>
 <body class="complaint-cases-app" data-group-id="{{ group_id|escape }}">
   <main class="complaint-app" aria-label="Complaint Cases">
@@ -48,6 +48,7 @@
         <button type="button" data-view="queue" class="active"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg><span>Queue</span></button>
         <button type="button" data-view="create" data-required-capability="complaint.case.create"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Create</span></button>
         <button type="button" data-view="find"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><span>Find</span></button>
+        <button type="button" data-view="settings"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.12 2.12-.06-.06A1.7 1.7 0 0 0 15.74 18a1.7 1.7 0 0 0-1.02 1.56V20h-3v-.44A1.7 1.7 0 0 0 10.7 18a1.7 1.7 0 0 0-1.88.34l-.06.06-2.12-2.12.06-.06A1.7 1.7 0 0 0 7 14.34 1.7 1.7 0 0 0 5.44 13.3H5v-3h.44A1.7 1.7 0 0 0 7 9.28 1.7 1.7 0 0 0 6.66 7.4L6.6 7.34l2.12-2.12.06.06A1.7 1.7 0 0 0 10.66 5 1.7 1.7 0 0 0 11.7 3.44V3h3v.44A1.7 1.7 0 0 0 15.72 5a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.12 2.12-.06.06A1.7 1.7 0 0 0 19 8.66a1.7 1.7 0 0 0 1.56 1.04H21v3h-.44A1.7 1.7 0 0 0 19 13.72 1.7 1.7 0 0 0 19.4 15Z"/></svg><span>Settings</span></button>
       </nav>
 
       <section class="section-block" aria-label="Complaint queue">
@@ -85,6 +86,19 @@
       </form>
     </section>
 
+    <section id="settingsView" class="view" hidden aria-label="Complaint Case settings">
+      <form id="complaintSettingsForm" class="form-card">
+        <div class="form-heading"><h2>My Complaint Case settings</h2><p>Save your queue defaults and visual density. Mandatory assignment, security and overdue alerts remain on.</p></div>
+        <div class="form-grid">
+          <label>Default status<select id="complaintPreferenceStatus"><option value="active">Active</option><option value="Open">Open</option><option value="In Progress">In progress</option><option value="Closed">Closed</option></select></label>
+          <label>Default branch<select id="complaintPreferenceBranch"><option value="">All branches</option></select></label>
+          <label>Non-critical Telegram alerts<select id="complaintPreferenceAlert"><option value="immediate">Immediate</option><option value="daily_digest">Daily digest at 08:00</option><option value="quiet">Quiet</option></select></label>
+          <label class="settings-check"><input id="complaintPreferenceCompact" type="checkbox"> Use compact case cards</label>
+        </div>
+        <div class="form-actions"><button id="saveComplaintSettingsBtn" class="primary" type="submit">Save my settings</button></div>
+      </form>
+    </section>
+
     <section id="detailView" class="view detail-view" hidden>
       <div class="detail-toolbar"><button id="backBtn" class="ghost-btn" type="button">&larr; Back to queue</button></div>
       <article class="case-summary">
@@ -106,6 +120,6 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <script src="{% static 'miniapp/utils.js' %}?v=3"></script>
   <script src="{% static 'miniapp/complaint_cases_api.js' %}?v=1"></script>
-  <script src="{% static 'miniapp/complaint_cases.js' %}?v=9"></script>
+  <script src="{% static 'miniapp/complaint_cases.js' %}?v=10"></script>
 </body>
 </html>

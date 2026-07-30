@@ -32,7 +32,7 @@ from core.services.complaint_cases import (
     staff_actor_for_payload,
     update_case,
 )
-from core.services.group_config import GroupConfig
+from core.services.group_config import GroupConfig, GroupRegistry
 from core.services.telegram_auth import validate_telegram_init_data
 
 
@@ -116,6 +116,19 @@ class ComplaintCaseServiceTests(TestCase):
         self.assertTemplateUsed(response, 'complaint_cases/partials/case_list.html')
         self.assertContains(response, 'CASE-1')
         self.assertNotContains(response, 'CASE-3')
+
+    def test_registry_resolves_a_group_added_after_the_initial_cache(self):
+        GroupRegistry._instance = None
+        GroupRegistry.get_instance()
+        added = GroupSheetConfiguration.objects.create(
+            group_id='-100101', sheet_id='later-sheet', sheet_name='Later', workflow={'type': 'case'},
+        )
+
+        resolved = GroupRegistry.get_instance().get_group(added.group_id)
+
+        self.assertIsNotNone(resolved)
+        self.assertEqual(resolved.group_id, added.group_id)
+        self.assertEqual(resolved.sheet_id, 'later-sheet')
 
     def test_officer_can_progress_case_once_with_retry_idempotency(self):
         actor = self.actor('100')

@@ -67,7 +67,7 @@ h2 { font-size: 13px; font-weight: 800; }
 .metric-tile.priority { border-color: color-mix(in srgb, var(--complaint-accent) 36%, var(--complaint-line)); background: var(--complaint-accent-soft); }
 .metric-tile span { color: var(--complaint-accent); font-size: 18px; font-weight: 800; line-height: 1; }
 .metric-tile small { color: var(--complaint-muted); font-size: 9px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
-.tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin: 0 0 8px; padding: 4px; border: 1px solid var(--complaint-line); border-radius: var(--radius); background: var(--complaint-surface); }
+.tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; margin: 0 0 8px; padding: 4px; border: 1px solid var(--complaint-line); border-radius: var(--radius); background: var(--complaint-surface); }
 .tabs button { min-height: 34px; padding: 0 7px; border-color: transparent; background: transparent; color: var(--complaint-muted); font-size: 11px; }
 .tabs button.active { color: var(--complaint-accent); background: var(--complaint-accent-soft); }
 .section-block { margin: 0 0 12px; padding: 10px; border: 1px solid var(--complaint-line); border-radius: var(--radius); background: var(--complaint-surface); }
@@ -110,6 +110,10 @@ h2 { font-size: 13px; font-weight: 800; }
 .selected-evidence li, .evidence-row, .activity-row { padding: 8px 9px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--complaint-text) 4%, transparent); font-size: 11px; }
 .form-actions { display: flex; justify-content: flex-end; margin-top: 10px; }
 .form-actions .primary { min-width: 148px; }
+.settings-check { display: flex; align-items: center; gap: 8px; min-height: 36px; text-transform: none; }
+.settings-check input { width: 18px; min-height: 18px; height: 18px; margin: 0; }
+body.complaint-compact-cards .case-row { padding: 7px 8px; gap: 6px; }
+body.complaint-compact-cards .case-row p { font-size: 9px; }
 .case-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .case-heading h2 { margin-top: 2px; font-size: 17px; }
 .case-id { color: var(--complaint-accent); font-size: 10px; font-weight: 800; }

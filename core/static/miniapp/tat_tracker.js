@@ -472,7 +472,7 @@
 
   function isTargetManager() {
     const capabilities = ((state.data || {}).user || {}).capabilities || [];
-    return capabilities.includes('tat.targets.manage');
+    return capabilities.includes('tat.settings.targets.propose');
   }
 
   function appendTargetInput(container, label, productKey, stageKey, minutes) {
@@ -522,18 +522,210 @@
     return targets;
   }
 
-  async function loadTargetSettings() {
-    if (!isTargetManager()) return;
-    const result = await api('/api/tat-tracker/target-settings/', {});
-    renderTargetSettings(result.data.targets);
+  function canProposeSetting(configuration, settingKey) {
+    return Boolean(((configuration.cards || {})[settingKey] || {}).can_propose);
+  }
+
+  function settingsRow(className) {
+    const row = document.createElement('div');
+    row.className = `settings-row ${className}`;
+    return row;
+  }
+
+  function appendHolidaySetting(container, holiday) {
+    const row = settingsRow('settings-holiday-row');
+    const dateLabel = document.createElement('label');
+    dateLabel.textContent = 'Date';
+    const dateInput = document.createElement('input');
+    dateInput.type = 'date';
+    dateInput.value = holiday && holiday.date ? holiday.date : '';
+    dateInput.required = true;
+    dateLabel.appendChild(dateInput);
+    const nameLabel = document.createElement('label');
+    nameLabel.textContent = 'Holiday name';
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.maxLength = 160;
+    nameInput.value = holiday && holiday.name ? holiday.name : '';
+    nameInput.required = true;
+    nameLabel.appendChild(nameInput);
+    const activeLabel = document.createElement('label');
+    activeLabel.className = 'check-label';
+    const activeInput = document.createElement('input');
+    activeInput.type = 'checkbox';
+    activeInput.checked = !holiday || holiday.active !== false;
+    activeLabel.append(activeInput, document.createTextNode('Exclude from SLA'));
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'ghost-btn settings-remove-row';
+    remove.textContent = 'Remove';
+    remove.addEventListener('click', () => row.remove());
+    row.append(dateLabel, nameLabel, activeLabel, remove);
+    container.appendChild(row);
+  }
+
+  function renderHolidaySettings(holidays) {
+    const list = $('holidaySettingsList');
+    list.replaceChildren();
+    (holidays || []).forEach((holiday) => appendHolidaySetting(list, holiday));
+    if (!list.childElementCount) {
+      const empty = document.createElement('p');
+      empty.className = 'settings-empty-copy';
+      empty.textContent = 'No future holidays are configured.';
+      list.appendChild(empty);
+    }
+  }
+
+  function holidaySettingsPayload() {
+    return { holidays: [...document.querySelectorAll('#holidaySettingsList .settings-holiday-row')].map((row) => {
+      const inputs = row.querySelectorAll('input');
+      return { date: inputs[0].value, name: inputs[1].value.trim(), active: inputs[2].checked };
+    }) };
+  }
+
+  function appendEscalationSetting(container, rule) {
+    const row = settingsRow('settings-escalation-row');
+    const thresholdLabel = document.createElement('label');
+    thresholdLabel.textContent = 'Threshold %';
+    const thresholdInput = document.createElement('input');
+    thresholdInput.type = 'number';
+    thresholdInput.inputMode = 'numeric';
+    thresholdInput.min = '100';
+    thresholdInput.max = '1000';
+    thresholdInput.step = '1';
+    thresholdInput.required = true;
+    thresholdInput.value = rule && rule.threshold_percent ? String(rule.threshold_percent) : '';
+    thresholdLabel.appendChild(thresholdInput);
+    const recipientLabel = document.createElement('label');
+    recipientLabel.textContent = 'Recipient role';
+    const recipient = document.createElement('select');
+    [
+      ['RESPONSIBLE_ROLE', 'Responsible role'],
+      ['BRANCH_MANAGER', 'Branch manager'],
+      ['MANAGEMENT', 'Management'],
+    ].forEach(([value, label]) => {
+      const option = document.createElement('option');
+      option.value = value; option.textContent = label; recipient.appendChild(option);
+    });
+    recipient.value = rule && rule.routing_role ? rule.routing_role : 'RESPONSIBLE_ROLE';
+    recipientLabel.appendChild(recipient);
+    const branchLabel = document.createElement('label');
+    branchLabel.textContent = 'Branch scope';
+    const branch = document.createElement('select');
+    const all = document.createElement('option');
+    all.value = ''; all.textContent = 'All branches'; branch.appendChild(all);
+    ((state.data || {}).branches || []).forEach((name) => {
+      const option = document.createElement('option'); option.value = name; option.textContent = name; branch.appendChild(option);
+    });
+    branch.value = rule && rule.branch ? rule.branch : '';
+    branchLabel.appendChild(branch);
+    const remove = document.createElement('button');
+    remove.type = 'button'; remove.className = 'ghost-btn settings-remove-row'; remove.textContent = 'Remove';
+    remove.addEventListener('click', () => row.remove());
+    row.append(thresholdLabel, recipientLabel, branchLabel, remove);
+    container.appendChild(row);
+  }
+
+  function renderEscalationSettings(rules) {
+    const list = $('escalationSettingsList');
+    list.replaceChildren();
+    const defaults = [
+      { threshold_percent: 100, routing_role: 'RESPONSIBLE_ROLE', branch: '' },
+      { threshold_percent: 150, routing_role: 'BRANCH_MANAGER', branch: '' },
+      { threshold_percent: 200, routing_role: 'MANAGEMENT', branch: '' },
+    ];
+    (rules && rules.length ? rules : defaults).forEach((rule) => appendEscalationSetting(list, rule));
+  }
+
+  function escalationSettingsPayload() {
+    return { rules: [...document.querySelectorAll('#escalationSettingsList .settings-escalation-row')].map((row) => {
+      const inputs = row.querySelectorAll('input');
+      const selects = row.querySelectorAll('select');
+      return { threshold_percent: inputs[0].value, routing_role: selects[0].value, branch: selects[1].value };
+    }) };
+  }
+
+  function renderConfigurationReviews(configuration) {
+    const list = $('configurationReviewList');
+    const pending = configuration.pending || [];
+    const canApprove = Object.values(configuration.cards || {}).some((card) => card.can_approve);
+    if (!pending.length || !canApprove) {
+      list.classList.add('hidden');
+      list.innerHTML = '';
+      return;
+    }
+    list.innerHTML = `<div class="form-heading"><h2>Pending configuration reviews</h2><p>Approve only changes you did not propose.</p></div>${pending.map((item) => `
+      <article class="settings-review-item">
+        <strong>${escapeHtml(item.setting_key.replace(/_/g, ' '))}</strong>
+        <span>${escapeHtml(item.reason)}</span>
+        <small>${escapeHtml(item.requested_by)} · ${escapeHtml(item.requested_at)}</small>
+        <div class="form-actions"><button class="secondary" type="button" data-review-setting="${escapeHtml(item.id)}" data-review-approve="true">Approve</button><button class="ghost-btn" type="button" data-review-setting="${escapeHtml(item.id)}" data-review-approve="false">Reject</button></div>
+      </article>`).join('')}`;
+    list.classList.remove('hidden');
+    list.querySelectorAll('[data-review-setting]').forEach((button) => button.addEventListener('click', async () => {
+      try {
+        setButtonLoading(button, true, button.dataset.reviewApprove === 'true' ? 'Approving' : 'Rejecting');
+        await api('/api/tat-tracker/settings/proposals/review/', {
+          proposal_id: button.dataset.reviewSetting,
+          approve: button.dataset.reviewApprove,
+        });
+        setStatus('Configuration review recorded.', 'ok');
+        await loadSettings();
+      } catch (error) {
+        setStatus(error.message, 'error');
+      } finally {
+        setButtonLoading(button, false);
+      }
+    }));
+  }
+
+  async function loadSettings() {
+    const result = await api('/api/tat-tracker/settings/', {});
+    const personal = result.data.personal || {};
+    const configuration = result.data.configuration || {};
+    $('preferenceDefaultScreen').value = personal.default_screen || 'home';
+    $('preferenceAlertMode').value = personal.alert_mode || 'immediate';
+    $('preferenceCompactCards').checked = Boolean(personal.compact_cards);
+    const targetCard = (configuration.cards || {}).tat_targets || {};
+    $('targetSettingsForm').classList.toggle('hidden', !targetCard.can_propose);
+    if (targetCard.can_propose) renderTargetSettings(configuration.targets || []);
+    const holidayCard = (configuration.cards || {}).business_calendar || {};
+    $('holidaySettingsForm').classList.toggle('hidden', !holidayCard.can_propose);
+    if (holidayCard.can_propose) renderHolidaySettings((configuration.holidays || {}).holidays || []);
+    const escalationCard = (configuration.cards || {}).tat_escalation || {};
+    $('escalationSettingsForm').classList.toggle('hidden', !escalationCard.can_propose);
+    if (escalationCard.can_propose) renderEscalationSettings((configuration.escalation || {}).rules || []);
+    renderConfigurationReviews(configuration);
   }
 
   async function saveTargetSettings() {
-    const result = await api('/api/tat-tracker/target-settings/', { targets: targetSettingsPayload() });
-    renderTargetSettings(result.data.targets);
-    const savedMessage = result.data.changed ? 'TAT targets saved.' : 'No target changes to save.';
-    const sheetSync = (result.data.sheet_sync || {}).status;
-    setStatus(sheetSync === 'synced' ? savedMessage : savedMessage + ' Set up the TAT TARGETS support tab to update sheet colours.', sheetSync === 'synced' ? 'ok' : 'busy');
+    const result = await api('/api/tat-tracker/target-settings/', {
+      targets: targetSettingsPayload(), reason: $('targetSettingsReason').value.trim(),
+    });
+    $('targetSettingsReason').value = '';
+    setStatus(`Target change proposed (${result.data.proposal_id}). Awaiting a different Admin.`, 'ok');
+    await loadSettings();
+  }
+
+  async function saveConfigurationSettings(settingKey, proposed, reason) {
+    const result = await api('/api/tat-tracker/settings/proposals/', { setting_key: settingKey, proposed, reason });
+    setStatus(`Configuration change proposed (${result.data.proposal_id}). Awaiting a different Admin.`, 'ok');
+    await loadSettings();
+  }
+
+  function applyPersonalPreference(preference) {
+    const personal = preference || {};
+    document.body.classList.toggle('compact-cards', Boolean(personal.compact_cards));
+    const savedFilters = personal.default_filters || {};
+    const hasOption = (select, value) => Array.from(select.options).some((option) => option.value === String(value));
+    if (savedFilters.product_key && hasOption($('queueProductFilter'), savedFilters.product_key)) {
+      $('queueProductFilter').value = savedFilters.product_key;
+    }
+    if (savedFilters.branch && hasOption($('queueBranchFilter'), savedFilters.branch)) {
+      $('queueBranchFilter').value = savedFilters.branch;
+    }
+    const canCreate = (((state.data || {}).user || {}).capabilities || []).includes('tat.case.create');
+    return personal.default_screen === 'new' && canCreate ? 'new' : 'queue';
   }
 
   function bootstrap(data) {
@@ -566,10 +758,10 @@
     if ((data.bro_names || []).includes(currentUserName())) broInput.value = currentUserName();
     renderHome(data);
     state.lastSuccessfulHome = snapshotHome();
-    if (isTargetManager()) {
-      $('targetSettingsTab').classList.remove('hidden');
-      $('trackerTabs').classList.add('has-settings');
-    }
+    $('trackerTabs').classList.add('has-settings');
+    const initialView = applyPersonalPreference(data.personal || {});
+    show(initialView);
+    if (currentHomeFilters().product_key || currentHomeFilters().branch) refresh({ background: true }).catch(() => {});
     setStatus('Ready.', 'ok');
   }
 
@@ -1016,7 +1208,7 @@
 
   document.querySelectorAll('.tabs button').forEach((button) => button.addEventListener('click', () => {
     show(button.dataset.view);
-    if (button.dataset.view === 'settings') loadTargetSettings().catch((error) => setStatus(error.message, 'error'));
+    if (button.dataset.view === 'settings') loadSettings().catch((error) => setStatus(error.message, 'error'));
   }));
   $('refreshBtn').addEventListener('click', () => {
     if (state.refreshing) return;
@@ -1067,6 +1259,38 @@
     } finally {
       state.savingTargets = false;
       setButtonLoading($('saveTargetSettingsBtn'), false);
+    }
+  });
+  $('addHolidaySettingBtn').addEventListener('click', () => {
+    const list = $('holidaySettingsList');
+    list.querySelector('.settings-empty-copy')?.remove();
+    appendHolidaySetting(list, null);
+  });
+  $('holidaySettingsForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = $('saveHolidaySettingsBtn');
+    try {
+      setButtonLoading(button, true, 'Saving');
+      await saveConfigurationSettings('business_calendar', holidaySettingsPayload(), $('holidaySettingsReason').value.trim());
+      $('holidaySettingsReason').value = '';
+    } catch (error) {
+      setStatus(error.message, 'error');
+    } finally {
+      setButtonLoading(button, false);
+    }
+  });
+  $('addEscalationSettingBtn').addEventListener('click', () => appendEscalationSetting($('escalationSettingsList'), null));
+  $('escalationSettingsForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = $('saveEscalationSettingsBtn');
+    try {
+      setButtonLoading(button, true, 'Saving');
+      await saveConfigurationSettings('tat_escalation', escalationSettingsPayload(), $('escalationSettingsReason').value.trim());
+      $('escalationSettingsReason').value = '';
+    } catch (error) {
+      setStatus(error.message, 'error');
+    } finally {
+      setButtonLoading(button, false);
     }
   });
 
@@ -1138,6 +1362,26 @@
     } finally {
       state.creatingCase = false;
       setButtonLoading(submitButton, false);
+    }
+  });
+  $('personalSettingsForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = $('savePersonalSettingsBtn');
+    try {
+      setButtonLoading(button, true, 'Saving');
+      await api('/api/tat-tracker/settings/personal/', {
+        preferences: {
+          default_screen: $('preferenceDefaultScreen').value,
+          compact_cards: $('preferenceCompactCards').checked,
+          alert_mode: $('preferenceAlertMode').value,
+        },
+      });
+      document.body.classList.toggle('compact-cards', $('preferenceCompactCards').checked);
+      setStatus('Your TAT settings were saved.', 'ok');
+    } catch (error) {
+      setStatus(error.message, 'error');
+    } finally {
+      setButtonLoading(button, false);
     }
   });
 

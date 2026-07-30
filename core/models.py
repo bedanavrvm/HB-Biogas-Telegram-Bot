@@ -651,6 +651,9 @@ class TatTrackerCase(models.Model):
     amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
 
     stage_values = models.JSONField(blank=True, default=dict)
+    # Keep the SLA target that was active when each stage began. A later
+    # approved policy change must not retroactively alter an in-flight stage.
+    stage_target_snapshots = models.JSONField(blank=True, default=dict)
     status = models.CharField(max_length=40, choices=STATUS_CHOICES, default='Active', db_index=True)
     remarks = models.TextField(blank=True, default='')
     current_stage = models.CharField(max_length=120, blank=True, default='', db_index=True)
@@ -1575,6 +1578,43 @@ class WorkflowSlaEscalation(models.Model):
         verbose_name_plural = 'workflow SLA escalations'
 
 
+class TatEscalationRule(models.Model):
+    """Approved, branch-aware escalation routing for the TAT tracker."""
+
+    ROUTE_RESPONSIBLE = 'RESPONSIBLE_ROLE'
+    ROUTE_BRANCH_MANAGER = 'BRANCH_MANAGER'
+    ROUTE_MANAGEMENT = 'MANAGEMENT'
+    ROUTING_CHOICES = [
+        (ROUTE_RESPONSIBLE, 'Responsible role'),
+        (ROUTE_BRANCH_MANAGER, 'Branch manager'),
+        (ROUTE_MANAGEMENT, 'Management'),
+    ]
+
+    group_configuration = models.ForeignKey(
+        'GroupSheetConfiguration', on_delete=models.CASCADE, related_name='tat_escalation_rules',
+    )
+    threshold_percent = models.PositiveSmallIntegerField()
+    routing_role = models.CharField(max_length=80, choices=ROUTING_CHOICES)
+    branch = models.CharField(max_length=120, blank=True, default='', db_index=True)
+    active = models.BooleanField(default=True, db_index=True)
+    approved_at = models.DateTimeField(default=timezone.now, db_index=True)
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='approved_tat_escalation_rules',
+    )
+    retired_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['branch', 'threshold_percent', '-approved_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['group_configuration', 'branch', 'threshold_percent'],
+                condition=models.Q(active=True),
+                name='unique_active_tat_escalation_rule',
+            ),
+        ]
+
+
 class WorkflowTatDailyMetric(models.Model):
     """Idempotent daily operational TAT trend snapshot.
 
@@ -1760,6 +1800,38 @@ class UserProfile(models.Model):
 
     def __str__(self):
         return self.user.get_full_name() or self.user.get_username()
+
+
+class UserMiniAppPreference(models.Model):
+    """Validated, user-owned preferences kept separate from Telegram identity."""
+
+    WORKFLOW_CHOICES = [
+        ('jawabu_portal', 'Jawabu Portal'),
+        ('complaint_cases', 'Complaint Cases'),
+        ('tat_tracker', 'TAT Tracker'),
+        ('spin_credit_analysis', 'SPIN / Credit Analysis'),
+    ]
+    ALERT_IMMEDIATE = 'immediate'
+    ALERT_DAILY_DIGEST = 'daily_digest'
+    ALERT_QUIET = 'quiet'
+    ALERT_CHOICES = [
+        (ALERT_IMMEDIATE, 'Immediate'),
+        (ALERT_DAILY_DIGEST, 'Daily digest'),
+        (ALERT_QUIET, 'Quiet'),
+    ]
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='miniapp_preferences')
+    workflow = models.CharField(max_length=40, choices=WORKFLOW_CHOICES, db_index=True)
+    default_screen = models.CharField(max_length=80, blank=True, default='')
+    default_filters = models.JSONField(blank=True, default=dict)
+    compact_cards = models.BooleanField(default=False)
+    alert_mode = models.CharField(max_length=16, choices=ALERT_CHOICES, default=ALERT_IMMEDIATE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['user', 'workflow'], name='unique_user_miniapp_preference')]
+        ordering = ['workflow', 'user_id']
 
 
 class AccessGrant(models.Model):
@@ -1985,6 +2057,61 @@ class AccessControlChangeRequest(models.Model):
 
     def __str__(self):
         return f'{self.get_change_type_display()} {self.workflow}/{self.role} ({self.status})'
+
+
+class WorkflowConfigurationChangeRequest(models.Model):
+    """Maker-checker proposal for high-impact workflow configuration."""
+
+    WORKFLOW_TAT = 'tat_tracker'
+    WORKFLOW_CHOICES = [(WORKFLOW_TAT, 'TAT Tracker')]
+    SETTING_TARGETS = 'tat_targets'
+    SETTING_HOLIDAYS = 'business_calendar'
+    SETTING_ESCALATION = 'tat_escalation'
+    SETTING_CHOICES = [
+        (SETTING_TARGETS, 'TAT targets'),
+        (SETTING_HOLIDAYS, 'Business calendar'),
+        (SETTING_ESCALATION, 'TAT escalation rules'),
+    ]
+    STATUS_PENDING = 'pending'
+    STATUS_APPROVED = 'approved'
+    STATUS_REJECTED = 'rejected'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending approval'),
+        (STATUS_APPROVED, 'Approved'),
+        (STATUS_REJECTED, 'Rejected'),
+        (STATUS_CANCELLED, 'Cancelled'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workflow = models.CharField(max_length=40, choices=WORKFLOW_CHOICES, default=WORKFLOW_TAT, db_index=True)
+    setting_key = models.CharField(max_length=40, choices=SETTING_CHOICES, db_index=True)
+    group_configuration = models.ForeignKey(
+        'GroupSheetConfiguration', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='workflow_configuration_requests',
+    )
+    before_snapshot = models.JSONField(blank=True, default=dict)
+    proposed_snapshot = models.JSONField(blank=True, default=dict)
+    reason = models.TextField()
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='requested_workflow_configuration_changes')
+    requested_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name='reviewed_workflow_configuration_changes')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_comment = models.TextField(blank=True, default='')
+    request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    applied_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-requested_at']
+        indexes = [models.Index(fields=['workflow', 'setting_key', 'status', 'requested_at'])]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['requested_by', 'request_id'],
+                condition=~models.Q(request_id=''),
+                name='unique_workflow_config_request_id',
+            ),
+        ]
 
 
 class AccessControlPolicySnapshot(models.Model):

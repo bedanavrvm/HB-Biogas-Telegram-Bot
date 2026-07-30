@@ -85,6 +85,20 @@
   display: block;
   opacity: 1;
 }
+.portal-settings-card {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+.portal-settings-card label { display: grid; gap: 5px; color: var(--text-muted); font-size: 11px; font-weight: 700; }
+.portal-settings-check { grid-template-columns: auto minmax(0, 1fr); align-items: center; min-height: 42px; }
+.portal-settings-check input { width: 18px; height: 18px; margin: 0; }
+body.portal-compact-cards .farmer-card { padding: 9px; }
+body.portal-compact-cards .farmer-card .fc-sub { font-size: 10px; }
 
 /* ── Dashboard count cards ──────────────────────────────────────────────────── */
 .count-grid {

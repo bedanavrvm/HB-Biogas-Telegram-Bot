@@ -656,12 +656,23 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
             return serialize_case_detail(existing, user, workflow=workflow)
     case_id = next_case_id(group_config, product)
     now = timezone.now()
+    stage_target_snapshots = {}
+    if product.stages:
+        first_stage = product.stages[0]
+        target = stage_target_minutes(workflow, product, first_stage)
+        if target is not None:
+            stage_target_snapshots[first_stage.key] = {
+                'target_minutes': str(target),
+                'settings_version': int(workflow.get('settings_version') or 1),
+                'started_at': now.isoformat(),
+            }
     case = TatTrackerCase.objects.create(
         group_id=str(group_config.group_id), sheet_id=str(group_config.sheet_id or ''), sheet_name=product.sheet_name,
         create_request_id=create_request_id,
         case_id=case_id, product_key=product.key, product_label=product.label, client_name=client_name,
         national_id=national_id, primary_phone=primary_phone,
         branch=branch, bro_name=bro_name, amount=amount, stage_values={'created': now.isoformat()},
+        stage_target_snapshots=stage_target_snapshots,
         status='Active', current_stage=(product.stages[0].key if product.stages else ''),
         created_by=user.get('name', ''), created_by_telegram_id=user.get('telegram_id', ''), last_updated_by=user.get('name', ''),
     )
@@ -1156,8 +1167,10 @@ def update_case(
         apply_update(case, user, item, workflow=workflow)
     next_stage = next_action(case)
     case.current_stage = next_stage.key if next_stage else ''
+    if next_stage:
+        snapshot_stage_target(case, workflow, product_by_key(case.product_key), next_stage)
     case.last_updated_by = user.get('name', '')
-    case.save(update_fields=['stage_values', 'status', 'remarks', 'current_stage', 'last_updated_by', 'workflow_revision', 'updated_at', 'client_name', 'national_id', 'primary_phone', 'branch', 'bro_name', 'amount'])
+    case.save(update_fields=['stage_values', 'stage_target_snapshots', 'status', 'remarks', 'current_stage', 'last_updated_by', 'workflow_revision', 'updated_at', 'client_name', 'national_id', 'primary_phone', 'branch', 'bro_name', 'amount'])
     record_tat_event(
         case=case,
         group_id=case.group_id,
@@ -2000,6 +2013,33 @@ def stage_target_minutes(workflow: dict | None, product: ProductConfig, stage: S
         return None
 
 
+def snapshot_stage_target(case: TatTrackerCase, workflow: dict | None, product: ProductConfig, stage: StageConfig) -> None:
+    """Freeze the target for a stage at entry rather than revising history."""
+    snapshots = dict(case.stage_target_snapshots or {})
+    if stage.key in snapshots:
+        return
+    target = stage_target_minutes(workflow, product, stage)
+    if target is None:
+        return
+    snapshots[stage.key] = {
+        'target_minutes': str(target),
+        'settings_version': int((workflow or {}).get('settings_version') or 1),
+        'started_at': timezone.now().isoformat(),
+    }
+    case.stage_target_snapshots = snapshots
+
+
+def stage_target_minutes_for_case(case: TatTrackerCase, workflow: dict | None, product: ProductConfig, stage: StageConfig) -> Decimal | None:
+    snapshot = (case.stage_target_snapshots or {}).get(stage.key) or {}
+    value = snapshot.get('target_minutes')
+    if value not in (None, ''):
+        try:
+            return Decimal(str(value))
+        except (InvalidOperation, ValueError):
+            pass
+    return stage_target_minutes(workflow, product, stage)
+
+
 def total_target_minutes(workflow: dict | None, product: ProductConfig) -> Decimal | None:
     value = tat_targets_for_product(workflow, product).get('total')
     if value in (None, ''):
@@ -2315,7 +2355,7 @@ def serialize_case_detail(case: TatTrackerCase, user: dict, workflow: dict | Non
         editable = previous_stages_complete(case, stage) and can_user_edit_stage(user, case, stage) and (not value or stage.kind == 'dropdown')
         tat_minutes = stage_tat_minutes(case, stage)
         business_minutes = stage_business_tat_minutes(case, stage)
-        target = stage_target_minutes(workflow, product, stage)
+        target = stage_target_minutes_for_case(case, workflow, product, stage)
         certificate = case.approval_certificates.filter(stage_key=stage.key).first() if stage.requires_signature_certificate else None
         fields.append({'key': stage.key, 'label': stage.label, 'kind': stage.kind, 'value': display_stage_value(stage, value), 'raw_value': str(value or ''), 'editable': editable, 'can_correct': bool(value) and can_user_correct_stage(user, case, stage), 'options': list(stage.options), 'role': stage.role, 'locked_reason': '' if editable or (value and can_user_correct_stage(user, case, stage)) else lock_reason(case, user, stage), 'tat_minutes': str(tat_minutes) if tat_minutes is not None else '', 'wall_clock_minutes': str(tat_minutes) if tat_minutes is not None else '', 'business_minutes': str(business_minutes) if business_minutes is not None else '', 'sla_minutes': str(business_minutes) if business_minutes is not None else '', 'target_minutes': str(target) if target is not None else '', 'sla_status': sla_status(business_minutes, target), 'certificate_status': certificate.status if certificate else ''})
     timeline = tat_case_timeline(case)

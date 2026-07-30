@@ -21,6 +21,11 @@ PORTAL_NAV_ITEMS = (
     ('history', 'Documents', 'history', 'portal.documents.view'),
 )
 
+# Personal preferences are available to every already-authorized Portal user.
+# They deliberately have no capability code: this is not a second policy
+# surface, and a user may only read/write their own preference record.
+PORTAL_PERSONAL_NAV_ITEM = ('settings', 'Settings', 'settings')
+
 
 def get_portal_nav_items(user, *, access=None) -> list[dict]:
     """Return only screens the server says this scoped user may open."""
@@ -33,7 +38,7 @@ def get_portal_nav_items(user, *, access=None) -> list[dict]:
         from core.services.workflow_capabilities import effective_capability_keys
 
         permitted = effective_capability_keys(user, 'jawabu_portal', access=access)
-    return [
+    items = [
         {
             'key': key,
             'label': label,
@@ -44,6 +49,12 @@ def get_portal_nav_items(user, *, access=None) -> list[dict]:
         for key, label, icon, capability in PORTAL_NAV_ITEMS
         if capability in permitted
     ]
+    # `get_portal_nav_items` is reached only after Portal authentication in
+    # production.  In local shell rendering it is harmless and keeps the
+    # settings screen discoverable for manual UI checks.
+    key, label, icon = PORTAL_PERSONAL_NAV_ITEM
+    items.append({'key': key, 'label': label, 'icon': icon, 'url': reverse('portal_screen', kwargs={'screen': key}), 'capability': ''})
+    return items
 
 
 def portal_screen_allowed(user, screen: str, *, access=None) -> bool:

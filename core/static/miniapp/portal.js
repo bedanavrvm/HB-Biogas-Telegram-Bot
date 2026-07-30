@@ -36,6 +36,7 @@
     approvalDelegationGates: [],
     metaBranches: [],
     metaCounties: [],
+    personalPreference: null,
     capabilities: new Set(),
     accessPolicyVersion: null,
     selectedFarmer: null,
@@ -76,6 +77,7 @@
     invoices: 'portal.invoice.view',
     payments: 'portal.payment.view',
     history: 'portal.documents.view',
+    settings: null,
   };
 
   // Helpers
@@ -284,7 +286,7 @@
     // Show filter bar on farmer list views.
     const filterBar = el('portal-filter-bar');
     if (filterBar) {
-      if (page === 'dashboard' || page === 'batches' || page === 'invoices' || page === 'payments' || page === 'history' || page === 'case_history') {
+      if (page === 'dashboard' || page === 'batches' || page === 'invoices' || page === 'payments' || page === 'history' || page === 'case_history' || page === 'settings') {
         filterBar.style.display = 'none';
       } else {
         filterBar.style.display = 'flex';
@@ -1116,17 +1118,49 @@
     else if (page === 'history') loadHistory();
     else if (page === 'case_history') loadCaseHistory();
     else if (page === 'payments' && portalPayments.load) portalPayments.load();
+    else if (page === 'settings') loadPortalSettings();
     else if (queueConfig[page]) loadQueue(page, 1);
+  }
+
+  function populatePortalSettingScreens(screens, selected) {
+    const select = el('portal-preference-default-screen');
+    if (!select) return;
+    select.replaceChildren();
+    const defaultOption = document.createElement('option');
+    defaultOption.value = '';
+    defaultOption.textContent = 'Role default';
+    select.appendChild(defaultOption);
+    (screens || []).forEach((screen) => {
+      const option = document.createElement('option');
+      option.value = screen.key;
+      option.textContent = screen.label;
+      select.appendChild(option);
+    });
+    select.value = selected || '';
+  }
+
+  async function loadPortalSettings() {
+    const { ok, data } = await apiFetch('/settings/');
+    if (!ok || !data.ok) throw new Error(data.error || 'Portal settings could not be loaded.');
+    const personal = data.data?.personal || {};
+    state.personalPreference = personal;
+    populatePortalSettingScreens(data.data?.screens || [], personal.default_screen);
+    if (el('portal-preference-alert-mode')) el('portal-preference-alert-mode').value = personal.alert_mode || 'immediate';
+    if (el('portal-preference-compact-cards')) el('portal-preference-compact-cards').checked = Boolean(personal.compact_cards);
+    document.body.classList.toggle('portal-compact-cards', Boolean(personal.compact_cards));
+    return personal;
   }
   // Bootstrap
   async function init() {
     configureHtmx();
     await loadMeta();
+    try { await loadPortalSettings(); } catch (_) { /* Settings are non-critical to opening the workflow. */ }
     window.setInterval(loadMeta, 60000);
     const shellScreen = document.getElementById('portal-screen')?.dataset.screen || 'dashboard';
-    const requestedPage = shellScreen === 'dashboard' && restoredPortalUi.activePage
-      ? restoredPortalUi.activePage
-      : shellScreen;
+    const isRootLanding = /\/portal\/?$/.test(window.location.pathname);
+    const requestedPage = isRootLanding && state.personalPreference?.default_screen
+      ? state.personalPreference.default_screen
+      : (shellScreen === 'dashboard' && restoredPortalUi.activePage ? restoredPortalUi.activePage : shellScreen);
     const initialPage = hasCapability(PAGE_CAPABILITIES[requestedPage]) ? requestedPage : firstPermittedPage();
     if (!initialPage) {
       document.getElementById('portal-screen').innerHTML = '<section class="shell-error" role="alert"><h2>Access not configured</h2><p>Ask an administrator to assign a Portal role and capability.</p></section>';
@@ -1270,6 +1304,24 @@
   });
 
   document.addEventListener('submit', event => {
+    if (event.target.matches('#portal-personal-settings-form')) {
+      event.preventDefault();
+      const button = el('portal-save-personal-settings');
+      setButtonLoading(button, true, 'Saving');
+      portalApi.postJson('/settings/', {
+        preferences: {
+          default_screen: el('portal-preference-default-screen')?.value || '',
+          compact_cards: Boolean(el('portal-preference-compact-cards')?.checked),
+          alert_mode: el('portal-preference-alert-mode')?.value || 'immediate',
+        },
+      }, tg).then((result) => {
+        if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not save Portal settings.');
+        state.personalPreference = result.data.data || null;
+        document.body.classList.toggle('portal-compact-cards', Boolean(state.personalPreference?.compact_cards));
+        showToast('Your Portal settings were saved.', 'success');
+      }).catch((error) => showToast(error.message, 'error')).finally(() => setButtonLoading(button, false));
+      return;
+    }
     if (!event.target.matches('#case-history-search-form')) return;
     event.preventDefault();
     searchCaseHistory(el('case-history-search')?.value);

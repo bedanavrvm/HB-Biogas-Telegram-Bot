@@ -333,8 +333,13 @@ def tat_tracker_bootstrap(request):
         return capability_error
     from core.services.tat_tracker import bootstrap
     from core.services.access_control import policy_version
+    from django.contrib.auth import get_user_model
+    from core.services.miniapp_settings import preference_payload
     data = bootstrap(group_config, user_payload)
     data['access_policy_version'] = policy_version()
+    actor = get_user_model().objects.filter(pk=user.get('user_id')).first()
+    if actor:
+        data['personal'] = preference_payload(actor, 'tat_tracker')
     return JsonResponse({'ok': True, 'data': data})
 
 
@@ -447,15 +452,116 @@ def tat_tracker_target_settings(request):
     group_id, group_config, user_payload, user, error = _tat_context(payload)
     if error:
         return error
-    from core.services.tat_tracker import can_manage_tat_targets, tat_target_settings, update_tat_target_settings
-    if not can_manage_tat_targets(user):
-        return JsonResponse({'ok': False, 'error': 'Only IT staff can change SLA targets.'}, status=403)
+    from core.services.tat_tracker import tat_target_settings
+    from core.services.miniapp_settings import create_tat_configuration_request
+    capability_error = _tat_capability_error(user, 'tat.settings.targets.propose')
+    if capability_error:
+        return capability_error
     if 'targets' not in payload:
         return JsonResponse({'ok': True, 'data': {'targets': tat_target_settings(group_config.workflow)}})
     try:
-        return JsonResponse({'ok': True, 'data': update_tat_target_settings(group_config, user, payload.get('targets'))})
+        proposal = create_tat_configuration_request(
+            group_config, user, setting_key='tat_targets', proposed=payload.get('targets'),
+            reason=payload.get('reason', ''), request_id=str(getattr(request, 'miniapp_request_id', '') or ''),
+        )
+        return JsonResponse({'ok': True, 'data': {'proposal_id': str(proposal.pk), 'status': proposal.status}})
+    except (ValueError, PermissionError) as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def tat_tracker_settings(request):
+    payload = _tat_json_body(request)
+    group_id, group_config, user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    capability_error = _tat_capability_error(user, 'tat.home.view')
+    if capability_error:
+        return capability_error
+    from django.contrib.auth import get_user_model
+    from core.services.miniapp_settings import preference_payload, tat_settings_payload
+    actor = get_user_model().objects.filter(pk=user.get('user_id')).first()
+    if not actor:
+        return JsonResponse({'ok': False, 'error': 'Your staff account could not be resolved.'}, status=403)
+    return JsonResponse({'ok': True, 'data': {
+        'personal': preference_payload(actor, 'tat_tracker'),
+        'configuration': tat_settings_payload(group_config, user),
+    }})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+@miniapp_write_response
+def tat_tracker_settings_personal(request):
+    payload = _tat_json_body(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
+    group_id, group_config, user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    capability_error = _tat_capability_error(user, 'tat.home.view')
+    if capability_error:
+        return capability_error
+    from django.contrib.auth import get_user_model
+    from core.services.miniapp_settings import update_preference
+    actor = get_user_model().objects.filter(pk=user.get('user_id')).first()
+    try:
+        return JsonResponse({'ok': True, 'data': update_preference(actor, 'tat_tracker', payload.get('preferences') or {})})
     except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+@miniapp_write_response
+def tat_tracker_settings_request(request):
+    payload = _tat_json_body(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
+    group_id, group_config, user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    from core.services.miniapp_settings import create_tat_configuration_request
+    try:
+        proposal = create_tat_configuration_request(
+            group_config, user, setting_key=str(payload.get('setting_key') or ''),
+            proposed=payload.get('proposed') or {}, reason=payload.get('reason') or '',
+            request_id=str(getattr(request, 'miniapp_request_id', '') or ''),
+        )
+        return JsonResponse({'ok': True, 'data': {'proposal_id': str(proposal.pk), 'status': proposal.status}})
+    except PermissionError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=403)
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+@miniapp_write_response
+def tat_tracker_settings_review(request):
+    payload = _tat_json_body(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
+    group_id, group_config, user_payload, user, error = _tat_context(payload)
+    if error:
+        return error
+    from core.models import WorkflowConfigurationChangeRequest
+    from core.services.miniapp_settings import review_tat_configuration_request
+    try:
+        proposal = review_tat_configuration_request(
+            str(payload.get('proposal_id') or ''), user,
+            approve=str(payload.get('approve') or '').strip().lower() in {'1', 'true', 'yes', 'approve'},
+            review_comment=payload.get('review_comment') or '',
+        )
+        return JsonResponse({'ok': True, 'data': {'proposal_id': str(proposal.pk), 'status': proposal.status}})
+    except PermissionError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=403)
+    except (ValueError, WorkflowConfigurationChangeRequest.DoesNotExist) as exc:
+        return JsonResponse({'ok': False, 'error': str(exc) or 'Setting proposal was not found.'}, status=400)
 @csrf_exempt
 @require_http_methods(["POST"])
 @miniapp_write_response
@@ -1373,6 +1479,53 @@ def spin_form_requests(request):
         'requests': data,
         'batch_review_items': [batch_review_item_summary(item) for item in batch_review_items],
     })
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def spin_form_settings(request):
+    """Return settings for the verified SPIN staff member only."""
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'message': 'Invalid settings request.'}, status=400)
+    group_id, group_config, auth_payload, error_response = _spin_webapp_context(payload, allow_form_token=False)
+    if error_response:
+        return error_response
+    if not _spin_user_has_capability(auth_payload, 'spin.request.view', group_config=group_config):
+        return JsonResponse({'success': False, 'message': 'Your assigned SPIN role cannot open settings.'}, status=403)
+    actor = _spin_canonical_user(auth_payload)
+    if actor is None:
+        return JsonResponse({'success': False, 'message': 'Your SPIN staff account could not be resolved.'}, status=403)
+    from core.services.miniapp_settings import preference_payload
+    return JsonResponse({'success': True, 'data': preference_payload(actor, 'spin_credit_analysis')})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+@miniapp_write_response
+def spin_form_settings_personal(request):
+    """Persist only the verified user's SPIN preferences."""
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except json.JSONDecodeError:
+        return JsonResponse({'success': False, 'message': 'Invalid settings request.'}, status=400)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
+    group_id, group_config, auth_payload, error_response = _spin_webapp_context(payload, allow_form_token=False)
+    if error_response:
+        return error_response
+    if not _spin_user_has_capability(auth_payload, 'spin.request.view', group_config=group_config):
+        return JsonResponse({'success': False, 'message': 'Your assigned SPIN role cannot save settings.'}, status=403)
+    actor = _spin_canonical_user(auth_payload)
+    if actor is None:
+        return JsonResponse({'success': False, 'message': 'Your SPIN staff account could not be resolved.'}, status=403)
+    from core.services.miniapp_settings import update_preference
+    try:
+        return JsonResponse({'success': True, 'data': update_preference(actor, 'spin_credit_analysis', payload.get('preferences') or {})})
+    except ValueError as exc:
+        return JsonResponse({'success': False, 'message': str(exc)}, status=400)
 
 
 @csrf_exempt

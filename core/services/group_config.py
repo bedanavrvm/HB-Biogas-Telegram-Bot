@@ -223,6 +223,22 @@ class GroupRegistry:
         config = self._groups.get(group_id)
 
         if not config:
+            # A process may have built its registry before an administrator
+            # created a new group configuration. Resolve that exact database
+            # row before falling back to a wildcard or rejecting the request.
+            # This keeps group context strict while avoiding a stale-cache
+            # denial (and never substitutes another group's configuration).
+            try:
+                from core.models import GroupSheetConfiguration
+
+                admin_config = GroupSheetConfiguration.objects.filter(group_id=group_id).first()
+                if admin_config:
+                    config = GroupConfig(**admin_config.as_group_config_kwargs())
+                    self._groups[group_id] = config
+            except (OperationalError, ProgrammingError) as exc:
+                logger.debug('Could not resolve missing group %r from admin configuration: %s', group_id, exc)
+
+        if not config:
             # Try the wildcard default before giving up
             if self._default_config:
                 logger.info(

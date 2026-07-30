@@ -1128,8 +1128,8 @@ def portal_screen(request, screen: str):
     workflow overlays and client state span queues. The screen URL selects the
     active section while keeping that shared markup as the single source.
     """
-    from core.services.portal_navigation import PORTAL_NAV_ITEMS
-    known_screens = {item[0] for item in PORTAL_NAV_ITEMS}
+    from core.services.portal_navigation import PORTAL_NAV_ITEMS, PORTAL_PERSONAL_NAV_ITEM
+    known_screens = {item[0] for item in PORTAL_NAV_ITEMS} | {PORTAL_PERSONAL_NAV_ITEM[0]}
     if screen not in known_screens:
         return HttpResponse('Unknown portal screen.', status=404)
     if request.htmx:
@@ -1155,6 +1155,34 @@ def portal_navigation(request):
         'nav_items': get_portal_nav_items(getattr(request, 'portal_user', None), access=getattr(request, 'portal_access', None)),
         'active_screen': request.GET.get('active', 'dashboard'),
     })
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["GET", "POST"])
+def portal_settings(request):
+    """Read or save the authenticated user's Portal-only preferences."""
+    actor = getattr(request, 'portal_user', None)
+    if actor is None:
+        return JsonResponse({'ok': False, 'error': 'Your Portal staff account could not be resolved.'}, status=403)
+    from core.services.miniapp_settings import preference_payload, update_preference
+
+    if request.method == 'GET':
+        from core.services.portal_navigation import get_portal_nav_items
+        return JsonResponse({'ok': True, 'data': {
+            'personal': preference_payload(actor, 'jawabu_portal'),
+            'screens': [item for item in get_portal_nav_items(actor, access=getattr(request, 'portal_access', None)) if item['key'] != 'settings'],
+        }})
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except (UnicodeDecodeError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'Settings request must be valid JSON.'}, status=400)
+    if not isinstance(payload, dict):
+        return JsonResponse({'ok': False, 'error': 'Settings request must be a JSON object.'}, status=400)
+    try:
+        return JsonResponse({'ok': True, 'data': update_preference(actor, 'jawabu_portal', payload.get('preferences') or {})})
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────

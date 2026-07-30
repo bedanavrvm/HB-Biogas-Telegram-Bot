@@ -51,6 +51,7 @@ from .models import (
     JawabuCustomerFieldProvenance,
     JawabuPipelineEvent,
     BusinessCalendarHoliday,
+    TatEscalationRule,
     WorkflowSlaEscalation,
     WorkflowTatDailyMetric,
     WorkflowTimelineAnnotation,
@@ -86,10 +87,12 @@ from .models import (
     TatTrackerEvent,
     TatRepairJob,
     UserProfile,
+    UserMiniAppPreference,
     AccessGrant,
     WorkflowRoleCapability,
     WorkflowRoleCapabilityAuditEvent,
     AccessControlChangeRequest,
+    WorkflowConfigurationChangeRequest,
     AccessControlPolicySnapshot,
     EmergencyAccessGrant,
     AccessControlNotification,
@@ -268,18 +271,54 @@ class JawabuCustomerAdmin(CompactModelAdmin):
     )
 
 
+class GovernedConfigurationAuditAdmin(CompactModelAdmin):
+    """Show governed configuration evidence without a direct admin write path."""
+
+    def get_readonly_fields(self, request, obj=None):
+        return [field.name for field in self.model._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(BusinessCalendarHoliday)
-class BusinessCalendarHolidayAdmin(CompactModelAdmin):
+class BusinessCalendarHolidayAdmin(GovernedConfigurationAuditAdmin):
+    """Calendar evidence is inspected here; changes use the TAT reviewer flow."""
+
     list_display = ('date', 'name', 'active', 'updated_at')
     list_filter = ('active',)
     search_fields = ('name',)
-    list_editable = ('active',)
     ordering = ('date',)
-    readonly_fields = ('created_at', 'updated_at')
-    fieldsets = (
-        ('Holiday', {'fields': (('date', 'name'), 'active')}),
-        ('Audit', {'fields': (('created_at', 'updated_at'),), 'classes': ('collapse',)}),
-    )
+
+
+@admin.register(TatEscalationRule)
+class TatEscalationRuleAdmin(GovernedConfigurationAuditAdmin):
+    """Approved escalation rules are immutable evidence, not admin toggles."""
+
+    list_display = ('group_configuration', 'branch', 'threshold_percent', 'routing_role', 'active', 'approved_by', 'approved_at')
+    list_filter = ('active', 'routing_role', 'branch')
+    search_fields = ('group_configuration__display_name', 'group_configuration__group_id', 'branch')
+
+
+@admin.register(WorkflowConfigurationChangeRequest)
+class WorkflowConfigurationChangeRequestAdmin(GovernedConfigurationAuditAdmin):
+    list_display = ('setting_key', 'group_configuration', 'status', 'requested_by', 'requested_at', 'reviewed_by', 'reviewed_at')
+    list_filter = ('setting_key', 'status', 'workflow')
+    search_fields = ('reason', 'requested_by__username', 'reviewed_by__username', 'group_configuration__display_name')
+
+
+@admin.register(UserMiniAppPreference)
+class UserMiniAppPreferenceAdmin(CompactModelAdmin):
+    list_display = ('user', 'workflow', 'default_screen', 'compact_cards', 'alert_mode', 'updated_at')
+    list_filter = ('workflow', 'alert_mode', 'compact_cards')
+    search_fields = ('user__username', 'user__first_name', 'user__last_name')
+    readonly_fields = ('user', 'workflow', 'created_at', 'updated_at')
+
+    def has_add_permission(self, request):
+        return False
 
 
 @admin.register(JawabuPipelineEvent)

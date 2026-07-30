@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=5">
-  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=18">
+  <link rel="stylesheet" href="{% static 'miniapp/tat_tracker.css' %}?v=19">
 </head>
 <body data-group-id="{{ group_id|escape }}" data-token="{{ token|escape }}">
   <main class="tat-app" aria-label="TAT Tracker">
@@ -69,12 +69,12 @@
         </svg>
         <span>Create</span>
       </button>
-      <button id="targetSettingsTab" type="button" data-view="settings" class="hidden">
+      <button id="settingsTab" type="button" data-view="settings">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true">
           <circle cx="12" cy="12" r="3"/>
           <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.12 2.12-.06-.06A1.7 1.7 0 0 0 15.74 18a1.7 1.7 0 0 0-1.02 1.56V20h-3v-.44A1.7 1.7 0 0 0 10.7 18a1.7 1.7 0 0 0-1.88.34l-.06.06-2.12-2.12.06-.06A1.7 1.7 0 0 0 7 14.34 1.7 1.7 0 0 0 5.44 13.3H5v-3h.44A1.7 1.7 0 0 0 7 9.28 1.7 1.7 0 0 0 6.66 7.4L6.6 7.34l2.12-2.12.06.06A1.7 1.7 0 0 0 10.66 5 1.7 1.7 0 0 0 11.7 3.44V3h3v.44A1.7 1.7 0 0 0 15.72 5a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.12 2.12-.06.06A1.7 1.7 0 0 0 19 8.66a1.7 1.7 0 0 0 1.56 1.04H21v3h-.44A1.7 1.7 0 0 0 19 13.72 1.7 1.7 0 0 0 19.4 15Z"/>
         </svg>
-        <span>Targets</span>
+        <span>Settings</span>
       </button>
       <button type="button" data-view="search" data-required-capability="tat.case.search">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
@@ -164,17 +164,52 @@
       <div id="searchList" class="case-list"></div>
     </section>
 
-    <section id="settingsView" class="view" aria-label="TAT targets">
-      <form id="targetSettingsForm" class="form-card">
+    <section id="settingsView" class="view" aria-label="TAT settings">
+      <form id="personalSettingsForm" class="form-card">
+        <div class="form-heading">
+          <h2>My TAT settings</h2>
+          <p>These choices apply only to your own Mini App. Mandatory assignment, security and overdue alerts always remain on.</p>
+        </div>
+        <div class="form-grid">
+          <label>Start on<select id="preferenceDefaultScreen"><option value="home">Queue</option><option value="new">Create case</option></select></label>
+          <label>Non-critical Telegram alerts<select id="preferenceAlertMode"><option value="immediate">Immediate</option><option value="daily_digest">Daily digest at 08:00</option><option value="quiet">Quiet</option></select></label>
+          <label class="check-label"><input id="preferenceCompactCards" type="checkbox"> Use compact case cards</label>
+        </div>
+        <div class="form-actions"><button id="savePersonalSettingsBtn" type="submit" class="secondary">Save my settings</button></div>
+      </form>
+
+      <form id="targetSettingsForm" class="form-card hidden">
         <div class="form-heading">
           <h2>TAT Targets</h2>
-          <p>Set the overall and per-stage target in minutes. Green is within 80%, amber is near target, and red is overdue.</p>
+          <p>Propose the overall and per-stage target in minutes. A different Admin must approve it before it becomes active.</p>
         </div>
         <div id="targetSettingsList" class="target-settings-list" aria-live="polite"></div>
+        <label>Reason for change<textarea id="targetSettingsReason" required placeholder="Why is this target changing?"></textarea></label>
         <div class="form-actions">
-          <button id="saveTargetSettingsBtn" type="submit" class="primary">Save targets</button>
+          <button id="saveTargetSettingsBtn" type="submit" class="primary">Propose target change</button>
         </div>
       </form>
+      <form id="holidaySettingsForm" class="form-card hidden">
+        <div class="form-heading">
+          <h2>Business calendar</h2>
+          <p>JBL business hours are fixed at Monday–Friday, 08:00–17:00 Nairobi. Propose only future public-holiday changes; past dates remain audit evidence.</p>
+        </div>
+        <div id="holidaySettingsList" class="settings-row-list" aria-live="polite"></div>
+        <button id="addHolidaySettingBtn" type="button" class="secondary">Add future holiday</button>
+        <label>Reason for change<textarea id="holidaySettingsReason" required placeholder="Why is this calendar changing?"></textarea></label>
+        <div class="form-actions"><button id="saveHolidaySettingsBtn" type="submit" class="primary">Propose calendar change</button></div>
+      </form>
+      <form id="escalationSettingsForm" class="form-card hidden">
+        <div class="form-heading">
+          <h2>Overdue escalation</h2>
+          <p>Choose the recipient role at each threshold. A blank branch applies to every branch; a named branch adds a more specific route.</p>
+        </div>
+        <div id="escalationSettingsList" class="settings-row-list" aria-live="polite"></div>
+        <button id="addEscalationSettingBtn" type="button" class="secondary">Add escalation rule</button>
+        <label>Reason for change<textarea id="escalationSettingsReason" required placeholder="Why is this escalation route changing?"></textarea></label>
+        <div class="form-actions"><button id="saveEscalationSettingsBtn" type="submit" class="primary">Propose escalation change</button></div>
+      </form>
+      <section id="configurationReviewList" class="form-card hidden" aria-live="polite"></section>
     </section>
     <section id="detailView" class="view detail-view" aria-label="Case detail">
       <div class="detail-toolbar">
@@ -247,6 +282,6 @@
   <script src="{% static 'miniapp/telegram.js' %}?v=2"></script>
   <script src="{% static 'miniapp/utils.js' %}?v=3"></script>
   <script src="{% static 'miniapp/tat_api.js' %}?v=1"></script>
-  <script src="{% static 'miniapp/tat_tracker.js' %}?v=31"></script>
+  <script src="{% static 'miniapp/tat_tracker.js' %}?v=33"></script>
 </body>
 </html>

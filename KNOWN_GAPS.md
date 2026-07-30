@@ -1,5 +1,27 @@
 # Known Gaps and Verified Workarounds
 
+## TAT Settings migration
+
+`core.0085_tattrackercase_stage_target_snapshots_and_more`,
+`core.0086_seed_tat_target_snapshots`, and
+`core.0087_repair_tat_stage_target_snapshot_backfill` are local-only until an
+explicitly approved production release. They add user-owned Mini App
+preferences, maker-checker TAT setting proposals, escalation-rule storage, and
+target snapshots for active stages. Before any rollback, export approved
+configuration requests for audit evidence. To undo the schema locally or after
+an approved release, run `python manage.py migrate core 0084_integrationcircuitstate_integrationoperation`.
+
+## Mini App notification preferences
+
+TAT now stores an individual user's immediate/daily-digest/quiet preference
+for non-critical alerts. Existing TAT stage alerts are still posted to the
+configured shared Telegram group, not to individual recipients, so this
+preference does not suppress, digest, or reroute those group alerts yet. A
+recipient-level notification delivery ledger and scheduled business-day digest
+job must be approved and implemented before enabling that behavior. Mandatory
+assignment, security, approval, and overdue-breach alerts must remain outside
+personal suppression in that future design.
+
 ## Bounded integration reliability
 
 `core.0084_integrationcircuitstate_integrationoperation` is pending release

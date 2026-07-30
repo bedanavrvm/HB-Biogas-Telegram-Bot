@@ -2,6 +2,13 @@
 
 ## Workflow integrity - 30-July-2026
 
+- Portal, Complaint Cases, TAT, and SPIN now each have a personal Settings
+  screen for saved workflow defaults, compact cards, and non-critical alert
+  intent. Settings are user-owned and do not change workflow access.
+- TAT additionally has a role-aware Settings screen: IT proposes target,
+  future holiday, and branch/role escalation changes; a different Admin
+  approves or rejects them. Stage target values are frozen at entry so
+  approved future changes do not rewrite an in-flight SLA.
 - TAT corrections are now explicitly update-only and retain one retry key for
   a failed/resubmitted correction. The new-loan form clearly distinguishes a
   separate loan from an existing case and shows exact National ID/phone loan

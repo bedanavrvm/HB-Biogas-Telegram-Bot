@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=100">
-  <link rel="stylesheet" href="{% static 'miniapp/spin_form.css' %}?v=102">
+  <link rel="stylesheet" href="{% static 'miniapp/spin_form.css' %}?v=103">
   <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=14">
 </head>
 <body class="workflow-standard spin-app">
@@ -35,6 +35,10 @@
       <i data-lucide="list"></i>
       Dashboard
       <span class="tab-badge" id="dashboardTabBadge" style="display:none">0</span>
+    </button>
+    <button class="tab-btn" data-tab="settings" aria-selected="false" role="tab" id="tab-settings-btn">
+      <i data-lucide="settings"></i>
+      Settings
     </button>
   </nav>
 
@@ -211,6 +215,20 @@
     </div>
     <div id="requestsList" class="requests-list" style="display:none"></div>
   </div>
+
+  <div id="tab-settings" class="tab-page">
+    <form id="spinSettingsForm" class="spin-form">
+      <section class="form-section">
+        <h2>My SPIN settings</h2>
+        <p class="helper">These choices apply only to your SPIN workspace. Mandatory security, assignment, approval, and overdue alerts remain on.</p>
+        <label class="field"><span>Start on</span><select id="spinPreferenceDefaultScreen"><option value="requests">Requests dashboard</option><option value="new">New request</option></select></label>
+        <label class="field"><span>Default request status</span><select id="spinPreferenceStatus"><option value="">All statuses</option><option value="review_needed">Awaiting review</option><option value="batch_review">Batch candidates</option><option value="completed">Completed</option></select></label>
+        <label class="field"><span>Non-critical Telegram alerts</span><select id="spinPreferenceAlert"><option value="immediate">Immediate</option><option value="daily_digest">Daily digest at 08:00</option><option value="quiet">Quiet</option></select></label>
+        <label class="spin-settings-check"><input id="spinPreferenceCompact" type="checkbox"> Use compact request cards</label>
+      </section>
+      <div class="actions"><button id="saveSpinSettingsBtn" type="submit" class="primary">Save my settings</button></div>
+    </form>
+  </div>
 </main>
 
 <!-- Complete Request Modal (Analyst Only) -->
@@ -335,7 +353,7 @@
 <script src="{% static 'miniapp/telegram.js' %}"></script>
   <script src="{% static 'miniapp/utils.js' %}?v=3"></script>
   <script src="{% static 'miniapp/spin_api.js' %}?v=1"></script>
-  <script src="{% static 'miniapp/spin_form.js' %}?v=108"></script>
+  <script src="{% static 'miniapp/spin_form.js' %}?v=109"></script>
 </body>
 </html>
 

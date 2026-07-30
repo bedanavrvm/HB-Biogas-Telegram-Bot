@@ -15,6 +15,7 @@ from django.utils import timezone
 from core.models import (
     GroupSheetConfiguration,
     JawabuFarmerMaster,
+    TatEscalationRule,
     TatTrackerCase,
     WorkflowSlaEscalation,
     WorkflowTatDailyMetric,
@@ -26,6 +27,7 @@ from core.services.tat_tracker import (
     next_action,
     product_by_key,
     stage_target_minutes,
+    stage_target_minutes_for_case,
     stage_business_tat_minutes,
     stage_tat_minutes,
     stage_completed_at,
@@ -46,14 +48,32 @@ class WorkflowSlaCandidate:
 
     def payload(self) -> dict:
         payload = asdict(self)
-        payload.update(escalation_tier(self.target_minutes, self.overdue_minutes))
+        payload.update(escalation_tier(
+            self.target_minutes, self.overdue_minutes,
+            workflow=self.workflow, group_id=self.group_id, branch=self.branch,
+        ))
         return payload
 
 
-def escalation_tier(target_minutes: int, overdue_minutes: int) -> dict[str, int | str]:
+def escalation_tier(target_minutes: int, overdue_minutes: int, *, workflow: str = '', group_id: str = '', branch: str = '') -> dict[str, int | str]:
     """Return the current in-app owner; notification delivery remains separate."""
     target = Decimal(str(target_minutes or 0))
     elapsed = target + max(Decimal('0'), Decimal(str(overdue_minutes or 0)))
+    percent = int((elapsed * Decimal('100') / target)) if target > 0 else 0
+    if workflow == 'tat_tracker' and group_id:
+        config = GroupSheetConfiguration.objects.filter(group_id=str(group_id)).first()
+        if config:
+            rules = list(TatEscalationRule.objects.filter(
+                group_configuration=config, active=True, branch__in=['', str(branch or '')],
+                threshold_percent__lte=percent,
+            ).order_by('threshold_percent'))
+            if rules:
+                rule = rules[-1]
+                return {
+                    'escalation_level': len(rules),
+                    'threshold_percent': rule.threshold_percent,
+                    'routing_role': rule.routing_role,
+                }
     if target > 0 and elapsed * Decimal('100') >= target * Decimal('200'):
         return {'escalation_level': 3, 'threshold_percent': 200, 'routing_role': 'MANAGEMENT'}
     if target > 0 and elapsed * Decimal('100') >= target * Decimal('150'):
@@ -142,7 +162,7 @@ def tat_sla_candidates(*, now=None) -> list[WorkflowSlaCandidate]:
             if not stage:
                 continue
             product = product_by_key(case.product_key)
-            target = stage_target_minutes(workflow, product, stage)
+            target = stage_target_minutes_for_case(case, workflow, product, stage)
             elapsed = stage_business_tat_minutes(case, stage, now=now)
             target_value = _positive_minutes(target)
             elapsed_value = _positive_minutes(elapsed)
@@ -178,7 +198,10 @@ def record_sla_candidates(candidates: list[WorkflowSlaCandidate], *, today=None)
     records: list[WorkflowSlaEscalation] = []
     created_count = 0
     for item in candidates:
-        tier = escalation_tier(item.target_minutes, item.overdue_minutes)
+        tier = escalation_tier(
+            item.target_minutes, item.overdue_minutes,
+            workflow=item.workflow, group_id=item.group_id, branch=item.branch,
+        )
         record, created = WorkflowSlaEscalation.objects.get_or_create(
             workflow=item.workflow,
             subject_id=item.subject_id,
@@ -330,7 +353,7 @@ def collect_tat_daily_metrics(*, metric_date=None, now=None) -> list[dict]:
                         bucket['completed_count'] += 1
                 elif next_action(case) and next_action(case).key == stage.key:
                     bucket['active_count'] += 1
-                    target = stage_target_minutes(workflow, product, stage)
+                    target = stage_target_minutes_for_case(case, workflow, product, stage)
                     if target and sla_minutes > target:
                         bucket['overdue_count'] += 1
 

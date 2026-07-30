@@ -12,6 +12,7 @@
     status: String(restoredUi.status || 'active'), branch: String(restoredUi.branch || ''), query: String(restoredUi.query || ''), currentCase: null, map: null, marker: null,
     capturedLocation: null, createCapturedLocation: null, debounce: null,
     capabilities: new Set(),
+    personal: null,
     pendingCreateRequestId: '',
     pendingUpdateRequestId: '',
   };
@@ -88,7 +89,7 @@
 
   function setLoading(loading) {
     $('loadingState').hidden = !loading;
-    if (loading) { $('listView').hidden = true; $('createView').hidden = true; $('detailView').hidden = true; }
+    if (loading) { $('listView').hidden = true; $('createView').hidden = true; $('settingsView').hidden = true; $('detailView').hidden = true; }
   }
 
   function statusClass(status) { return `status-${String(status || 'Open').toLowerCase().replace(/\s+/g, '-')}`; }
@@ -184,7 +185,9 @@
       $('actorLine').textContent = `${data.actor && data.actor.name || 'Staff'} · ${data.actor && data.actor.is_manager ? 'Case manager' : 'Case officer'}`;
       renderCounts(data.counts || {});
       renderCreateOptions(data);
+      applyPersonalFilters(data.personal || {});
       renderBranchFilter(data.branches || []);
+      renderPersonalSettings(data);
       $('caseSearch').value = state.query;
       $('listView').hidden = false;
       await loadCases();
@@ -220,6 +223,26 @@
     const selected = state.branch;
     select.innerHTML = '<option value="">All branches</option>' + (branches || []).map((branch) => `<option value="${escapeHtml(branch)}">${escapeHtml(branch)}</option>`).join('');
     select.value = selected;
+  }
+
+  function renderPersonalSettings(data) {
+    const personal = data.personal || {};
+    state.personal = personal;
+    const branch = $('complaintPreferenceBranch');
+    branch.innerHTML = '<option value="">All branches</option>' + (data.branches || []).map((item) => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join('');
+    $('complaintPreferenceStatus').value = personal.default_filters?.status || 'active';
+    branch.value = personal.default_filters?.branch || '';
+    $('complaintPreferenceAlert').value = personal.alert_mode || 'immediate';
+    $('complaintPreferenceCompact').checked = Boolean(personal.compact_cards);
+    document.body.classList.toggle('complaint-compact-cards', Boolean(personal.compact_cards));
+  }
+
+  function applyPersonalFilters(personal) {
+    const filters = personal?.default_filters || {};
+    // An interrupted session is more important than a default for the next
+    // fresh launch, so only apply saved defaults when there is no local state.
+    if (!restoredUi.status && filters.status) state.status = String(filters.status);
+    if (!restoredUi.branch && filters.branch) state.branch = String(filters.branch);
   }
 
   function detailIdentifiersMarkup(caseItem) {
@@ -353,8 +376,10 @@
 
   function showComplaintView(view) {
     const showCreate = view === 'create';
-    $('listView').hidden = showCreate;
+    const showSettings = view === 'settings';
+    $('listView').hidden = !(view === 'queue' || view === 'find');
     $('createView').hidden = !showCreate;
+    $('settingsView').hidden = !showSettings;
     $('detailView').hidden = true;
     document.querySelectorAll('#complaintTabs [data-view]').forEach((button) => {
       button.classList.toggle('active', button.dataset.view === view);
@@ -386,6 +411,33 @@
   $('createEvidenceInput').addEventListener('change', selectedCreateFiles);
   $('updateForm').addEventListener('submit', submitUpdate);
   $('createCaseForm').addEventListener('submit', submitCreate);
+  $('complaintSettingsForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = $('saveComplaintSettingsBtn');
+    button.disabled = true;
+    button.textContent = 'Saving…';
+    try {
+      const result = await api('settings/personal/', {
+        preferences: {
+          default_screen: 'queue',
+          default_filters: {
+            status: $('complaintPreferenceStatus').value,
+            branch: $('complaintPreferenceBranch').value,
+          },
+          compact_cards: $('complaintPreferenceCompact').checked,
+          alert_mode: $('complaintPreferenceAlert').value,
+        },
+      });
+      state.personal = result.data || state.personal;
+      document.body.classList.toggle('complaint-compact-cards', $('complaintPreferenceCompact').checked);
+      notify('Your Complaint Case settings were saved.');
+    } catch (error) {
+      notify(error.message, true);
+    } finally {
+      button.disabled = false;
+      button.textContent = 'Save my settings';
+    }
+  });
   configureHtmx();
   bootstrap();
 }());

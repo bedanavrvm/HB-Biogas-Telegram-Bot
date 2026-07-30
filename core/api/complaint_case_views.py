@@ -114,9 +114,33 @@ def complaint_cases_bootstrap(request):
     if capability_error:
         return capability_error
     from core.services.access_control import policy_version
+    from core.services.miniapp_settings import preference_payload
     data = bootstrap_data(group_config, actor)
     data['access_policy_version'] = policy_version()
+    data['personal'] = preference_payload(actor.user, 'complaint_cases')
     return JsonResponse({'ok': True, 'data': data})
+
+
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(['POST'])
+@miniapp_write_response
+def complaint_cases_settings_personal(request):
+    """Persist only the authenticated officer's Complaint Case preferences."""
+    payload = _request_payload(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
+    group_config, actor, error = _context(request, payload)
+    if error:
+        return error
+    capability_error = _capability_error(actor, 'complaint.queue.view')
+    if capability_error:
+        return capability_error
+    from core.services.miniapp_settings import update_preference
+    try:
+        return JsonResponse({'ok': True, 'data': update_preference(actor.user, 'complaint_cases', payload.get('preferences') or {})})
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 
 
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.

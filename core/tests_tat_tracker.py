@@ -17,7 +17,7 @@ from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import AccessGrant, GroupSheetConfiguration, LiveSheetRecordChange, SheetRegisterContract, SheetSyncAuditSnapshot, TatRepairJob, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, UserProfile, WorkflowSlaEscalation
+from core.models import AccessGrant, BusinessCalendarHoliday, GroupSheetConfiguration, LiveSheetRecordChange, SheetRegisterContract, SheetSyncAuditSnapshot, TatEscalationRule, TatRepairJob, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, UserMiniAppPreference, UserProfile, WorkflowConfigurationChangeRequest, WorkflowSlaEscalation
 from core.api.views import _dispatch_tat_approval_certificate, _process_telegram_message, tat_tracker_identity_context
 from core.services.group_config import GroupConfig, GroupRegistry
 from core.services.tat_tracker import (
@@ -39,6 +39,7 @@ from core.services.tat_tracker import (
     previous_stages_complete,
     stage_by_key,
     stage_tat_minutes,
+    stage_target_minutes_for_case,
     tat_days_formula,
     can_manage_tat_targets,
     normalize_tat_target_settings,
@@ -66,6 +67,7 @@ from core.services.tat_tracker import (
 )
 from core.services.workflow_transitions import WorkflowRevisionConflict
 from core.services.workflow_sla import collect_sla_candidates, record_sla_candidates
+from core.services.miniapp_settings import create_tat_configuration_request, preference_payload, review_tat_configuration_request, update_preference
 from core.services.sync_governance import assert_registered_schema_before_publish, audit_sheet_register
 
 
@@ -92,6 +94,14 @@ class TatTrackerWorkflowTest(TestCase):
         UserProfile.objects.create(user=self.bro_user, telegram_id='111', telegram_username='bro_user')
         AccessGrant.objects.create(
             user=self.bro_user, workflow='tat_tracker', role='BRO',
+            branch='Nakuru', product='business', group_configuration=self.config,
+        )
+        self.it_user = User.objects.create_user(username='it-user', first_name='IT', last_name='User', is_active=True)
+        self.it_user.set_unusable_password()
+        self.it_user.save(update_fields=['password'])
+        UserProfile.objects.create(user=self.it_user, telegram_id='444', telegram_username='it_user')
+        AccessGrant.objects.create(
+            user=self.it_user, workflow='tat_tracker', role='IT',
             branch='Nakuru', product='business', group_configuration=self.config,
         )
         self.admin_user = User.objects.create_user(username='admin-user', first_name='Admin', last_name='User', is_active=True)
@@ -354,6 +364,118 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertFalse(can_manage_tat_targets(user))
         with self.assertRaisesRegex(ValueError, 'Only IT'):
             update_tat_target_settings(self.config, user, {})
+
+    def test_preference_and_tat_target_proposal_require_independent_approval(self):
+        it_actor = staff_user_for_payload(self.config, {'id': 444, 'username': 'it_user'})
+        admin_actor = staff_user_for_payload(self.config, {'id': 222, 'username': 'admin_user'})
+        preference = update_preference(self.it_user, 'tat_tracker', {
+            'default_screen': 'home', 'default_filters': {'branch': 'Nakuru'},
+            'compact_cards': True, 'alert_mode': 'quiet',
+        })
+        self.assertEqual(preference['alert_mode'], 'quiet')
+        self.assertTrue(UserMiniAppPreference.objects.filter(user=self.it_user, workflow='tat_tracker').exists())
+
+        proposal = create_tat_configuration_request(self.config, it_actor,
+            setting_key='tat_targets', reason='Align the stage SLA with the revised operating plan.',
+            proposed={'business': {'total_minutes': '1440', 'stages': {'mpesa_to_admin': '30'}}, 'logbook': {'total_minutes': '', 'stages': {}}},
+            request_id='tat-settings-proposal-1')
+        self.config.refresh_from_db()
+        self.assertEqual(proposal.status, WorkflowConfigurationChangeRequest.STATUS_PENDING)
+        self.assertNotIn('tat_targets_minutes', self.config.workflow)
+        self_approver = dict(it_actor)
+        self_approver['capabilities'] = list(self_approver.get('capabilities') or []) + ['tat.settings.targets.approve']
+        with self.assertRaisesRegex(PermissionError, 'different authorised Admin'):
+            review_tat_configuration_request(str(proposal.pk), self_approver, approve=True)
+
+        reviewed = review_tat_configuration_request(str(proposal.pk), admin_actor, approve=True)
+        self.config.refresh_from_db()
+        self.assertEqual(reviewed.status, WorkflowConfigurationChangeRequest.STATUS_APPROVED)
+        self.assertEqual(self.config.workflow['tat_targets_minutes']['business']['stages']['mpesa_to_admin'], 30)
+
+    def test_stage_target_is_frozen_when_case_enters_stage(self):
+        self.config.workflow['tat_targets_minutes'] = {'business': {'stages': {'mpesa_to_admin': 30}}}
+        self.config.save(update_fields=['workflow', 'updated_at'])
+        user = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+        detail = create_case(self.config, user, {
+            'product_key': 'business', 'client_name': 'Snapshot Client', 'national_id': '12345678',
+            'primary_phone': '0712345678', 'branch': 'Nakuru', 'bro_name': 'BRO User', 'amount': '10000',
+            'creation_intent': 'new_loan', '_defer_sheet_sync': True,
+        })
+        case = TatTrackerCase.objects.get(case_id=detail['summary']['case_id'])
+        self.config.workflow['tat_targets_minutes']['business']['stages']['mpesa_to_admin'] = 90
+        self.config.save(update_fields=['workflow', 'updated_at'])
+        stage = product_by_key('business').stages[0]
+        self.assertEqual(stage_target_minutes_for_case(case, self.config.workflow, product_by_key('business'), stage), Decimal('30'))
+
+    def test_tat_calendar_proposal_preserves_history_and_requires_authorised_review(self):
+        historic_date = timezone.localdate() - timedelta(days=1)
+        future_date = timezone.localdate() + timedelta(days=14)
+        BusinessCalendarHoliday.objects.create(date=historic_date, name='Previous operational holiday')
+        it_actor = staff_user_for_payload(self.config, {'id': 444, 'username': 'it_user'})
+        admin_actor = staff_user_for_payload(self.config, {'id': 222, 'username': 'admin_user'})
+        bro_actor = staff_user_for_payload(self.config, {'id': 111, 'username': 'bro_user'})
+
+        with self.assertRaisesRegex(PermissionError, 'cannot propose'):
+            create_tat_configuration_request(
+                self.config, bro_actor, setting_key='business_calendar',
+                reason='Add public holiday for the next review cycle.',
+                proposed={'holidays': []}, request_id='tat-calendar-denied',
+            )
+        with self.assertRaisesRegex(ValueError, 'Historical holidays cannot be changed'):
+            create_tat_configuration_request(
+                self.config, it_actor, setting_key='business_calendar',
+                reason='Attempt to alter a historical calendar result.',
+                proposed={'holidays': [{'date': historic_date.isoformat(), 'name': 'Changed history', 'active': True}]},
+                request_id='tat-calendar-history',
+            )
+
+        request = create_tat_configuration_request(
+            self.config, it_actor, setting_key='business_calendar',
+            reason='Add public holiday for the next review cycle.',
+            proposed={'holidays': [{'date': future_date.isoformat(), 'name': 'Future public holiday', 'active': True}]},
+            request_id='tat-calendar-allowed',
+        )
+        self.assertIn(historic_date.isoformat(), {item['date'] for item in request.proposed_snapshot['holidays']})
+        review_tat_configuration_request(str(request.pk), admin_actor, approve=True)
+        self.assertTrue(BusinessCalendarHoliday.objects.get(date=future_date).active)
+        self.assertEqual(BusinessCalendarHoliday.objects.get(date=historic_date).name, 'Previous operational holiday')
+
+    def test_tat_escalation_proposal_is_scope_validated_and_applied_once_approved(self):
+        it_actor = staff_user_for_payload(self.config, {'id': 444, 'username': 'it_user'})
+        admin_actor = staff_user_for_payload(self.config, {'id': 222, 'username': 'admin_user'})
+        with self.assertRaisesRegex(ValueError, 'configured branch'):
+            create_tat_configuration_request(
+                self.config, it_actor, setting_key='tat_escalation',
+                reason='Route overdue cases through a controlled escalation path.',
+                proposed={'rules': [{'threshold_percent': 100, 'routing_role': 'MANAGEMENT', 'branch': 'Unknown branch'}]},
+                request_id='tat-escalation-invalid-scope',
+            )
+
+        request = create_tat_configuration_request(
+            self.config, it_actor, setting_key='tat_escalation',
+            reason='Route overdue cases through a controlled escalation path.',
+            proposed={'rules': [
+                {'threshold_percent': 100, 'routing_role': 'RESPONSIBLE_ROLE', 'branch': ''},
+                {'threshold_percent': 150, 'routing_role': 'BRANCH_MANAGER', 'branch': 'Nakuru'},
+            ]},
+            request_id='tat-escalation-allowed',
+        )
+        review_tat_configuration_request(str(request.pk), admin_actor, approve=True)
+        rules = TatEscalationRule.objects.filter(group_configuration=self.config, active=True)
+        self.assertEqual(rules.count(), 2)
+        self.assertTrue(rules.filter(branch='Nakuru', routing_role='BRANCH_MANAGER').exists())
+
+    def test_personal_preference_rejects_ambiguous_boolean_text(self):
+        with self.assertRaisesRegex(ValueError, 'Compact cards'):
+            update_preference(self.it_user, 'tat_tracker', {
+                'default_screen': 'home', 'compact_cards': 'sometimes', 'alert_mode': 'immediate',
+            })
+
+    def test_reading_default_personal_preference_does_not_create_a_row(self):
+        payload = preference_payload(self.it_user, 'tat_tracker')
+
+        self.assertEqual(payload['default_screen'], '')
+        self.assertFalse(UserMiniAppPreference.objects.filter(user=self.it_user, workflow='tat_tracker').exists())
 
     def test_target_minutes_must_be_whole_number(self):
         with self.assertRaisesRegex(ValueError, 'whole minutes'):

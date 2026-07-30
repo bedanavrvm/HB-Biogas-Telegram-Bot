@@ -46,6 +46,8 @@
   const dashboardLoading = document.getElementById('dashboardLoading');
   const dashboardSearch = document.getElementById('dashboardSearch');
   const statusFilter = document.getElementById('statusFilter');
+  const spinSettingsForm = document.getElementById('spinSettingsForm');
+  const saveSpinSettingsBtn = document.getElementById('saveSpinSettingsBtn');
 
   const completeModal = document.getElementById('completeModal');
   const completeForm = document.getElementById('completeForm');
@@ -68,6 +70,7 @@
   let reviewTarget = null;
   let isAnalyst = false;
   let capabilities = new Set();
+  let personalPreference = null;
 
   document.getElementById('groupId').value = config.group_id || '';
   document.getElementById('formToken').value = config.form_token || '';
@@ -700,34 +703,59 @@
     }
   }
 
+  function spinSettingsContext() {
+    return {
+      group_id: config.group_id || '',
+      form_token: config.form_token || '',
+      init_data: tg ? tg.initData || '' : '',
+    };
+  }
+
+  function selectSpinTab(tabName) {
+    document.querySelectorAll('.spin-tab-bar .tab-btn').forEach((button) => {
+      const active = button.dataset.tab === tabName;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-selected', String(active));
+    });
+    document.querySelectorAll('.tab-page').forEach((page) => page.classList.remove('active'));
+    document.getElementById(`tab-${tabName}`)?.classList.add('active');
+    setBanner('', '');
+    if (tabName === 'dashboard') fetchRequests();
+    if (window.lucide) window.lucide.createIcons();
+  }
+
+  function applySpinPreference(personal, options) {
+    personalPreference = personal || {};
+    document.getElementById('spinPreferenceDefaultScreen').value = personalPreference.default_screen || 'requests';
+    document.getElementById('spinPreferenceStatus').value = personalPreference.default_filters?.status || '';
+    document.getElementById('spinPreferenceAlert').value = personalPreference.alert_mode || 'immediate';
+    document.getElementById('spinPreferenceCompact').checked = Boolean(personalPreference.compact_cards);
+    document.body.classList.toggle('spin-compact-cards', Boolean(personalPreference.compact_cards));
+    if (!options?.preserveSession && personalPreference.default_filters?.status) {
+      statusFilter.value = personalPreference.default_filters.status;
+      renderRequests();
+    }
+  }
+
+  async function loadSpinSettings(options) {
+    const response = spinApi.postJson
+      ? await spinApi.postJson('/api/spin/settings/', spinSettingsContext())
+      : await fetch('/api/spin/settings/', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(spinSettingsContext()),
+      }).then(async (res) => ({ ok: res.ok, data: await res.json().catch(() => ({})) }));
+    const result = response.data || {};
+    if (!response.ok || !result.success) throw new Error(result.message || 'Could not load SPIN settings.');
+    applySpinPreference(result.data || {}, options);
+    return result.data || {};
+  }
+
   // --- Tab Navigation Setup ---
 
   document.querySelectorAll('.spin-tab-bar .tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      // Toggle button active states
-      document.querySelectorAll('.spin-tab-bar .tab-btn').forEach(b => {
-        b.classList.remove('active');
-        b.setAttribute('aria-selected', 'false');
-      });
-      btn.classList.add('active');
-      btn.setAttribute('aria-selected', 'true');
-
-      // Toggle tab page visibility
       const tabName = btn.dataset.tab;
-      document.querySelectorAll('.tab-page').forEach(page => {
-        page.classList.remove('active');
-      });
-      document.getElementById(`tab-${tabName}`).classList.add('active');
-
-      // Clear any global banners
-      setBanner('', '');
-
-      // Trigger load if dashboard
-      if (tabName === 'dashboard') {
-        fetchRequests();
-      }
-      
-      if (window.lucide) window.lucide.createIcons();
+      selectSpinTab(tabName);
+      if (tabName === 'settings') loadSpinSettings({ preserveSession: true }).catch((error) => setBanner(error.message, 'error'));
     });
   });
 
@@ -1003,6 +1031,33 @@
   form.addEventListener('input', () => { updateSummary(); saveDraft(); });
   form.addEventListener('change', () => { updateSummary(); updateFileSummaries(); saveDraft(); });
   form.addEventListener('submit', submitForm);
+  spinSettingsForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    setButtonLoading(saveSpinSettingsBtn, true, 'Saving');
+    try {
+      const payload = Object.assign(spinSettingsContext(), {
+        preferences: {
+          default_screen: document.getElementById('spinPreferenceDefaultScreen').value,
+          default_filters: { status: document.getElementById('spinPreferenceStatus').value },
+          compact_cards: document.getElementById('spinPreferenceCompact').checked,
+          alert_mode: document.getElementById('spinPreferenceAlert').value,
+        },
+      });
+      const response = spinApi.postJson
+        ? await spinApi.postJson('/api/spin/settings/personal/', payload)
+        : await fetch('/api/spin/settings/personal/', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        }).then(async (res) => ({ ok: res.ok, data: await res.json().catch(() => ({})) }));
+      const result = response.data || {};
+      if (!response.ok || !result.success) throw new Error(result.message || 'Could not save SPIN settings.');
+      applySpinPreference(result.data || {}, { preserveSession: true });
+      setBanner('Your SPIN settings were saved.', 'success');
+    } catch (error) {
+      setBanner(error.message, 'error');
+    } finally {
+      setButtonLoading(saveSpinSettingsBtn, false);
+    }
+  });
   window.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden' && serverDraft) serverDraft.save(formValues()).catch(() => {});
   });
@@ -1015,7 +1070,15 @@
   // server remains authoritative, but this prevents a role without create
   // access from being presented with a misleading active form.
   if (submitBtn) submitBtn.disabled = true;
-  fetchRequests();
+  fetchRequests().then(async () => {
+    try {
+      const personal = await loadSpinSettings({ preserveSession: false });
+      if (personal.default_screen === 'requests') selectSpinTab('dashboard');
+    } catch (_) {
+      // A short-lived form token may open a request form before the staff
+      // account is enrolled. Settings stay unavailable until verified login.
+    }
+  });
   
   if (window.lucide) window.lucide.createIcons();
 }());

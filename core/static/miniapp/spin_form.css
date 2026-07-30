@@ -142,7 +142,7 @@ h2 { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacin
 /* Segmented Tab Controls */
 .spin-tab-bar {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 2px;
   margin-bottom: 8px;
   padding: 2px;
@@ -202,6 +202,10 @@ h2 { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacin
 
 .tab-page { display: none; }
 .tab-page.active { display: grid; gap: 8px; }
+.spin-settings-check { display: flex; align-items: center; gap: 8px; min-height: 38px; color: var(--spin-muted); font-size: 12px; font-weight: 700; }
+.spin-settings-check input { width: 18px; height: 18px; margin: 0; }
+body.spin-compact-cards .request-card { padding: 9px; }
+body.spin-compact-cards .request-card .request-meta { font-size: 10px; }
 
 /* Form Card Sections */
 .form-section, .review-section {
