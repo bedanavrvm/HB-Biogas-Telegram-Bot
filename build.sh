@@ -20,6 +20,9 @@ python manage.py makemigrations --check --dry-run
 # the pending-trigger/index failure seen during deployment.
 
 echo "Collecting static files..."
-python manage.py collectstatic --noinput
+# django-unfold intentionally overrides two stock Django Admin files. The
+# first-loaded copy is deterministic because Unfold precedes Django Admin in
+# INSTALLED_APPS; suppress that known collectstatic collision at build output.
+python manage.py collectstatic --noinput --verbosity 0
 
 echo "Build completed successfully!"

@@ -2784,6 +2784,25 @@ class GroupConfigurationAccessField(forms.ModelChoiceField):
         return f'[{workflow_type}] {label}'
 
 
+def _configure_access_scope_fields(form) -> None:
+    """Populate catalog-backed access choices only after Django has started."""
+    from core.services.access_policies import branch_choices, product_choices
+
+    branches = branch_choices()
+    products = product_choices()
+    form.fields['branch'].choices = branches
+    form.fields['product'].choices = products
+    form.fields['branch'].widget.workflow_map = {
+        '': {'jawabu_portal', 'complaint_cases', 'tat_tracker'},
+        **{value: {'jawabu_portal', 'tat_tracker'} for value, _ in branches if value},
+    }
+    form.fields['product'].widget.workflow_map = {
+        '': {'jawabu_portal', 'complaint_cases', 'tat_tracker'},
+        **{value: {'tat_tracker'} for value, _ in products if value},
+    }
+    form.fields['group_configuration'].queryset = GroupSheetConfiguration.objects.filter(enabled=True)
+
+
 class AccessGrantAdminForm(forms.ModelForm):
     from core.services.access_policies import (
         branch_choices, product_choices, role_choices, role_workflow_map,
@@ -2797,21 +2816,19 @@ class AccessGrantAdminForm(forms.ModelForm):
         widget=WorkflowScopedSelect(workflow_map=role_workflows),
     )
     branch = forms.ChoiceField(
-        choices=branch_choices(), required=False,
+        choices=(('', 'All branches'),), required=False,
         widget=WorkflowScopedSelect(workflow_map={
             '': {'jawabu_portal', 'complaint_cases', 'tat_tracker'},
-            **{value: {'jawabu_portal', 'tat_tracker'} for value, _ in branch_choices() if value},
         }),
     )
     product = forms.ChoiceField(
-        choices=product_choices(), required=False,
+        choices=(('', 'All products'),), required=False,
         widget=WorkflowScopedSelect(workflow_map={
             '': {'jawabu_portal', 'complaint_cases', 'tat_tracker'},
-            **{value: {'tat_tracker'} for value, _ in product_choices() if value},
         }),
     )
     group_configuration = GroupConfigurationAccessField(
-        queryset=GroupSheetConfiguration.objects.filter(enabled=True),
+        queryset=GroupSheetConfiguration.objects.none(),
         required=False,
         empty_label='All compatible groups',
         widget=GroupConfigurationAccessSelect,
@@ -2823,8 +2840,7 @@ class AccessGrantAdminForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        from core.services.access_policies import branch_choices
-        self.fields['branch'].choices = branch_choices()
+        _configure_access_scope_fields(self)
         self.fields['active'].help_text = 'Only active grants are used for authorization and TAT dropdowns.'
 
     def clean(self):
@@ -3201,28 +3217,25 @@ class StaffUserCreationForm(forms.Form):
         widget=WorkflowScopedSelect(workflow_map=role_workflows),
     )
     branch = forms.ChoiceField(
-        choices=branch_choices(), required=False,
+        choices=(('', 'All branches'),), required=False,
         widget=WorkflowScopedSelect(workflow_map={
             '': {'jawabu_portal', 'complaint_cases', 'tat_tracker'},
-            **{value: {'jawabu_portal', 'tat_tracker'} for value, _ in branch_choices() if value},
         }),
     )
     product = forms.ChoiceField(
-        choices=product_choices(), required=False,
+        choices=(('', 'All products'),), required=False,
         widget=WorkflowScopedSelect(workflow_map={
             '': {'jawabu_portal', 'complaint_cases', 'tat_tracker'},
-            **{value: {'tat_tracker'} for value, _ in product_choices() if value},
         }),
     )
     group_configuration = GroupConfigurationAccessField(
-        queryset=GroupSheetConfiguration.objects.filter(enabled=True), required=False,
+        queryset=GroupSheetConfiguration.objects.none(), required=False,
         empty_label='All compatible groups', widget=GroupConfigurationAccessSelect,
     )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        from core.services.access_policies import branch_choices
-        self.fields['branch'].choices = branch_choices()
+        _configure_access_scope_fields(self)
 
     def clean_telegram_username(self):
         username = self.cleaned_data.get('telegram_username', '').strip().lstrip('@').lower()

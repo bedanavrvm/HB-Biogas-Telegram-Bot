@@ -11,6 +11,11 @@ approved action.
   preflight remains, so a base-image library problem still fails clearly
   before deployment.
 
+- Django startup and static collection are now quiet in Render builds: access
+  catalog queries are deferred until their Admin forms are rendered, and the
+  intentional django-unfold overrides of stock Django Admin assets no longer
+  produce duplicate-file build noise.
+
 - Sheets/Drive integration governance: Admin-managed publication contracts now
   define per-register header/field ownership, while explicit read-only audits
   record schema drift, row-pointer/value divergence, and media-root sharing
