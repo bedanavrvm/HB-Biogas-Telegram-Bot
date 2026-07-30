@@ -26,6 +26,9 @@ respective service modules.
 | Controlled visit evidence | The only Portal forward-visit media categories: LAF and JBL visit photo. New records bind directly to a case and carry a case-reference storage key, content hash, capture context, and retrieval audit. |
 | Compliance audit event | Immutable, hash-chained cross-workflow evidence used for investigation. It supplements rather than replaces the detailed event history of Portal, Complaint Cases, TAT, SPIN, and access control. |
 | Compliance checkpoint | A daily record of the compliance-audit chain position and hash. Mailbox delivery is disabled unless an authorised operator explicitly enables and runs it. |
+| Mini App retry key | A client-generated request identity sent in `Idempotency-Key`/`X-Request-ID` and the payload. It makes a mobile retry traceable; legacy clients are marked until strict mode is approved. |
+| Integration operation | A redacted local record of a Sheets, Drive, or Telegram side effect, its bounded attempts, outcome, and retry/dead-letter state. It is not an automatic background job. |
+| Integration circuit | A persisted dependency safety state. It opens after repeated transient failures and blocks further calls during a short cooldown before one recovery probe. |
 
 ## Workflow keys and role codes
 

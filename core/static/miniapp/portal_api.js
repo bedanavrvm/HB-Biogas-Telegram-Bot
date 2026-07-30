@@ -14,7 +14,7 @@
 
   function requestId(options) {
     const headers = options && options.headers ? options.headers : {};
-    return headers['X-Request-ID'] || headers['x-request-id'] || options?.request_id || (
+    return headers['Idempotency-Key'] || headers['idempotency-key'] || headers['X-Request-ID'] || headers['x-request-id'] || options?.request_id || (
       window.crypto?.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`
     );
   }
@@ -37,17 +37,22 @@
   }
 
   async function postJson(path, payload, tg, extraHeaders) {
+    const body = payload || {};
+    const key = body.client_request_id || body.request_id || requestId({ headers: extraHeaders || {} });
+    if (!body.client_request_id) body.client_request_id = key;
     return apiFetch(path, {
       method: 'POST',
-      headers: extraHeaders || {},
-      body: JSON.stringify(payload || {}),
+      headers: { ...(extraHeaders || {}), 'X-Request-ID': key, 'Idempotency-Key': key },
+      body: JSON.stringify(body),
     }, tg);
   }
 
   async function postForm(path, formData, tg, extraHeaders) {
+    const key = formData.get('client_request_id') || requestId({headers: extraHeaders || {}});
+    if (!formData.get('client_request_id')) formData.set('client_request_id', key);
     const response = await fetch(apiBase() + path, {
       method: 'POST',
-      headers: { ...initDataHeader(tg), ...(extraHeaders || {}), 'X-Request-ID': requestId({headers: extraHeaders || {}}) },
+      headers: { ...initDataHeader(tg), ...(extraHeaders || {}), 'X-Request-ID': key, 'Idempotency-Key': key },
       body: formData,
     });
     const data = await response.json().catch(function () { return {}; });

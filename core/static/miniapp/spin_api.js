@@ -10,17 +10,36 @@
     return parseJson(await fetch(url));
   }
 
+  function requestId(payload) {
+    const body = payload || {};
+    const key = body.client_request_id || (window.MiniAppUtils && window.MiniAppUtils.ensureRequestId
+      ? window.MiniAppUtils.ensureRequestId(body, 'spin')
+      : `spin-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    if (!body.client_request_id) body.client_request_id = key;
+    return key;
+  }
+
   async function postJson(url, payload) {
+    const body = payload || {};
+    const key = requestId(body);
     return parseJson(await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      headers: { 'Content-Type': 'application/json', 'X-Request-ID': key, 'Idempotency-Key': key },
+      body: JSON.stringify(body),
     }));
   }
 
   async function postForm(url, formDataOrOptions) {
     if (formDataOrOptions instanceof FormData) {
-      return parseJson(await fetch(url, { method: 'POST', body: formDataOrOptions }));
+      const formData = formDataOrOptions;
+      const key = formData.get('client_request_id') || (window.MiniAppUtils && window.MiniAppUtils.createRequestId
+        ? window.MiniAppUtils.createRequestId('spin') : `spin-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+      if (!formData.get('client_request_id')) formData.set('client_request_id', key);
+      return parseJson(await fetch(url, {
+        method: 'POST',
+        headers: { 'X-Request-ID': key, 'Idempotency-Key': key },
+        body: formData,
+      }));
     }
     return parseJson(await fetch(url, formDataOrOptions));
   }

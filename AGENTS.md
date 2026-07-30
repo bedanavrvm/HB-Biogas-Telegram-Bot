@@ -129,6 +129,8 @@ Key modules:
 - `workflow_timeline.py` — read-only, append-only-event timeline projections for Portal and TAT case history
 - `workflow_escalations.py` — scoped read models for current in-app escalation context
 - `workflow_capabilities.py` — centrally defined Mini App capabilities and role policy resolution
+- `miniapp_requests.py` — shared Mini App retry-key compatibility and strict-mode policy
+- `external_resilience.py` — bounded synchronous retry, durable external-operation register, and circuit state
 - `access_control.py` — maker-checker access changes, emergency grants, notifications, and policy versioning
 - `access_control_reporting.py` — access-control evidence exports, parity, and least-privilege diagnostics
 - `document_signoffs.py` — immutable source/workbook binding and physically signed/stamped scan retention for requisitions and payments
@@ -164,6 +166,7 @@ The Mini Apps use Django templates and mostly vanilla JavaScript. Preserve Teleg
 - `core/tests_sheets_validation.py`
 - `core/tests_data_quality.py`
 - `core/test_data_quality_simple.py`
+- `core/tests_reliability.py`
 - `core/tests_portal_approval_controls.py`
 
 ### Operational integrations and examples
@@ -193,6 +196,8 @@ This is a template of variables this class of system typically needs. Treat it a
 | `DOCUMENT_SIGNOFF_MAX_FILE_SIZE_MB` | Maximum accepted PDF/JPG/PNG physical sign-off scan; real scan files remain in approved Drive storage | No |
 | `COMPLIANCE_AUDIT_CHECKPOINT_DELIVERY_ENABLED` | Enables explicitly requested daily checkpoint delivery; defaults to disabled | No |
 | `COMPLIANCE_AUDIT_CHECKPOINT_RECIPIENT` | Controlled compliance mailbox for approved checkpoint delivery | Treat as sensitive operational contact data |
+| `REQUIRE_MINIAPP_IDEMPOTENCY_KEY` | Enables strict rejection of Mini App writes without a retry key after cached-client verification | No |
+| `GOOGLE_SHEETS_MAX_RETRIES` | Maximum bounded synchronous Google Sheets write attempts (default 4) | No |
 | `TAT_REPAIR_RETRY_BASE_SECONDS` | Base delay for bounded Google Sheets quota backoff during Admin TAT repair retries | No |
 | `TAT_REPAIR_CASE_DELAY_SECONDS` | Delay between Admin TAT repair case writes to stay below Google Sheets per-minute quotas | No |
 | `COMPLAINT_CASES_MINI_APP_SHORT_NAME` | Telegram Mini App short name for complaint cases | No |

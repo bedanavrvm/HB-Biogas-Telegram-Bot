@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+from functools import wraps
 
 from django.conf import settings
 from django.http import JsonResponse
@@ -26,6 +27,26 @@ from core.services.telegram_auth import validate_telegram_init_data
 
 
 logger = logging.getLogger(__name__)
+
+
+def _bind_miniapp_write_request(request, payload: dict):
+    from core.services.miniapp_requests import (
+        bind_miniapp_request_identity,
+        idempotency_error_response,
+    )
+    try:
+        bind_miniapp_request_identity(request, payload)
+    except ValueError as exc:
+        return idempotency_error_response(exc)
+    return None
+
+
+def miniapp_write_response(view_func):
+    @wraps(view_func)
+    def wrapped(request, *args, **kwargs):
+        from core.services.miniapp_requests import attach_miniapp_request_metadata
+        return attach_miniapp_request_metadata(request, view_func(request, *args, **kwargs))
+    return wrapped
 
 
 @require_http_methods(['GET'])
@@ -142,8 +163,12 @@ def complaint_cases_list_fragment(request):
 
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
 @require_http_methods(['POST'])
+@miniapp_write_response
 def complaint_cases_create(request):
     payload = _request_payload(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
     group_config, actor, error = _context(request, payload)
     if error:
         return error
@@ -191,8 +216,12 @@ def complaint_cases_detail(request, case_id: str):
 
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
 @require_http_methods(['POST'])
+@miniapp_write_response
 def complaint_cases_update(request, case_id: str):
     payload = _request_payload(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
     group_config, actor, error = _context(request, payload)
     if error:
         return error

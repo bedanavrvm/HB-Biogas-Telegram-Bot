@@ -2,13 +2,19 @@
   'use strict';
 
   async function postJson(path, payload, initData, utils) {
+    const body = payload || {};
+    const requestId = utils && utils.ensureRequestId
+      ? utils.ensureRequestId(body, 'complaint')
+      : (body.client_request_id || `${Date.now()}-${Math.random().toString(16).slice(2)}`);
     const options = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-Telegram-Init-Data': initData || '',
+        'X-Request-ID': requestId,
+        'Idempotency-Key': requestId,
       },
-      body: JSON.stringify(payload || {}),
+      body: JSON.stringify(body),
     };
     if (utils && utils.fetchJson) return utils.fetchJson(`/api/complaints/${path}`, options);
     const response = await fetch(`/api/complaints/${path}`, options);
@@ -19,9 +25,16 @@
 
   async function postForm(path, formData, initData, groupId, utils) {
     formData.set('group_id', groupId || '');
+    const requestId = formData.get('client_request_id') || (utils && utils.createRequestId
+      ? utils.createRequestId('complaint') : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    if (!formData.get('client_request_id')) formData.set('client_request_id', requestId);
     const options = {
       method: 'POST',
-      headers: { 'X-Telegram-Init-Data': initData || '' },
+      headers: {
+        'X-Telegram-Init-Data': initData || '',
+        'X-Request-ID': requestId,
+        'Idempotency-Key': requestId,
+      },
       body: formData,
     };
     if (utils && utils.fetchJson) return utils.fetchJson(`/api/complaints/${path}`, options);

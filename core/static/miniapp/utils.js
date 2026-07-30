@@ -26,6 +26,24 @@
     return new URLSearchParams(payload || {}).toString();
   }
 
+  function createRequestId(prefix) {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+    return String(prefix || 'miniapp') + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
+  }
+
+  function ensureRequestId(payload, prefix) {
+    const target = payload && typeof payload === 'object' ? payload : {};
+    const existing = target.client_request_id || target.request_id || target.create_request_id;
+    const key = existing || createRequestId(prefix);
+    if (!target.client_request_id) target.client_request_id = key;
+    return key;
+  }
+
+  function idempotencyHeaders(requestId) {
+    const key = requestId || createRequestId();
+    return { 'X-Request-ID': key, 'Idempotency-Key': key };
+  }
+
   function parseDisplayDate(value) {
     if (!value) return null;
     const text = String(value).trim();
@@ -234,6 +252,9 @@
     skeletonCards: skeletonCards,
     createServerDraft: createServerDraft,
     createUiContext: createUiContext,
+    createRequestId: createRequestId,
+    ensureRequestId: ensureRequestId,
+    idempotencyHeaders: idempotencyHeaders,
     setButtonLoading: setButtonLoading,
     showToast: showToast,
   };

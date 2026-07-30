@@ -1,5 +1,23 @@
 # Known Gaps and Verified Workarounds
 
+## Bounded integration reliability
+
+`core.0084_integrationcircuitstate_integrationoperation` is pending release
+and is not authorised for production application. It records redacted external
+operation/circuit state only; it does not start Celery, Redis, a scheduler, or
+any automatic retry worker. Operators can run `probe_integrations` without
+side effects for a configuration dry-run. `--execute` makes real read-only
+metadata calls and must be an explicitly authorised maintenance action.
+
+The current release routes shared Google Sheets batch writes, Drive uploads,
+and Telegram launcher publishing through the durable register. Other legacy
+direct outbound calls remain outside it and are listed in `TECH_DEBT.md`; they
+must be migrated one bounded workflow at a time with replay tests. Strict Mini
+App retry-key enforcement remains disabled until all refreshed cached clients
+are verified in real Telegram clients. Do not set
+`REQUIRE_MINIAPP_IDEMPOTENCY_KEY=True` during a production release without
+that explicit verification and approval.
+
 Last reviewed: 30-July-2026
 
 ## Compliance audit evidence

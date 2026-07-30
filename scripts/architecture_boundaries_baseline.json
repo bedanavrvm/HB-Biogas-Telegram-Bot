@@ -1,0 +1,5 @@
+{
+  "findings": {
+    "core/api/portal_views.py|portal_open_jbl_media|create|JawabuMediaAccessEvent": 1
+  }
+}

@@ -2057,6 +2057,7 @@ class GoogleDriveMediaStorage:
         record_key: str = '',
     ) -> tuple[str, str]:
         from googleapiclient.http import MediaIoBaseUpload
+        from core.services.external_resilience import execute_operation, reserve_operation
 
         folder_id = (
             self.ensure_workflow_folder_path(workflow_key, record_type, record_key or id_number, received_at)
@@ -2073,16 +2074,49 @@ class GoogleDriveMediaStorage:
             resumable=False,
         )
         metadata = {'name': filename, 'parents': [folder_id]}
-        created = (
-            self.service.files()
-            .create(
-                body=metadata,
-                media_body=media,
-                fields='id, webViewLink',
-                supportsAllDrives=True,
-            )
-            .execute()
+        # Content hashes are already captured for persistent media records.
+        # This transport key also protects document uploads that have not yet
+        # reached their owning model from a WebView retry.
+        stream_position = None
+        try:
+            stream_position = stream.tell()
+            stream.seek(0)
+            content_fingerprint = hashlib.sha256(stream.read()).hexdigest()
+            stream.seek(stream_position)
+        except (AttributeError, OSError, TypeError):
+            content_fingerprint = hashlib.sha256(str(filename).encode('utf-8')).hexdigest()
+        operation, _ = reserve_operation(
+            integration='google_drive',
+            operation_type='file_upload',
+            deduplication_key=f'google-drive:file:{folder_id}:{filename}:{content_fingerprint}',
+            source_model=str(record_type or 'media'),
+            source_id=str(record_key or id_number)[:128],
+            operation_payload=(folder_id, filename, content_fingerprint),
+            metadata={'mime_type': str(mime_type)[:255], 'record_type': str(record_type)[:80]},
         )
+
+        created_holder = {}
+
+        def create_file():
+            try:
+                stream.seek(0)
+            except (AttributeError, OSError):
+                pass
+            created_holder['value'] = (
+                self.service.files()
+                .create(
+                    body=metadata,
+                    media_body=media,
+                    fields='id, webViewLink',
+                    supportsAllDrives=True,
+                )
+                .execute()
+            )
+            return created_holder['value']
+
+        created = execute_operation(operation, create_file)
+        if created is None:
+            raise ValueError('This upload was already accepted. Reload the record to use its saved document link.')
         file_id = created['id']
         return file_id, created.get('webViewLink') or drive_file_url(file_id)
 

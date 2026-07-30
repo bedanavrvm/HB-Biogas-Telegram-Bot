@@ -1,5 +1,24 @@
 # Changelog
 
+## Reliability hardening - 30-July-2026
+
+- Portal, Complaint Cases, TAT, and SPIN Mini App writes now accept a shared
+  retry key while cached legacy clients remain supported until strict mode is
+  explicitly enabled. Shared Google Sheets batch writes, Drive uploads, and
+  Telegram launcher publishing leave redacted durable operation records and
+  use bounded transient retry/circuit protection. Protected `/api/readiness/`
+  reads stored status only; `probe_integrations` is manual and configuration-
+  only unless an operator supplies `--execute`.
+
+Migration `core.0084_integrationcircuitstate_integrationoperation` has **not**
+been applied to production. It adds only local integration-operation/circuit
+tables. To undo after an approved migration, export needed operation evidence,
+then run:
+
+```powershell
+python manage.py migrate core 0083_complianceauditchainstate_complianceauditcheckpoint_and_more
+```
+
 This file records notable, user-visible and operational changes. Entries are
 added while work is performed; deployment remains a separate, explicitly
 approved action.

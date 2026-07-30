@@ -12,6 +12,8 @@
     status: String(restoredUi.status || 'active'), branch: String(restoredUi.branch || ''), query: String(restoredUi.query || ''), currentCase: null, map: null, marker: null,
     capturedLocation: null, createCapturedLocation: null, debounce: null,
     capabilities: new Set(),
+    pendingCreateRequestId: '',
+    pendingUpdateRequestId: '',
   };
   const $ = (id) => document.getElementById(id);
   const escapeHtml = utils.escapeHtml || ((value) => String(value == null ? '' : value).replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[character])));
@@ -307,12 +309,14 @@
     if (!state.currentCase) return;
     const button = $('saveBtn'); button.setAttribute('aria-busy', 'true'); button.querySelector('span').textContent = 'Saving…';
     const formData = new FormData();
-    formData.set('status', $('statusInput').value); formData.set('resolution_text', $('noteInput').value); formData.set('client_request_id', requestId());
+    state.pendingUpdateRequestId = state.pendingUpdateRequestId || requestId();
+    formData.set('status', $('statusInput').value); formData.set('resolution_text', $('noteInput').value); formData.set('client_request_id', state.pendingUpdateRequestId);
     if (state.capturedLocation) { formData.set('latitude', state.capturedLocation.latitude); formData.set('longitude', state.capturedLocation.longitude); }
     Array.from($('evidenceInput').files || []).forEach((file) => formData.append('evidence', file));
     try {
       const response = await api(`cases/${encodeURIComponent(state.currentCase.case_id)}/update/`, null, formData);
       renderDetail(response.case); $('noteInput').value = ''; $('evidenceInput').value = ''; $('selectedEvidence').innerHTML = ''; state.capturedLocation = null; $('captureState').textContent = 'No new location selected';
+      state.pendingUpdateRequestId = '';
       notify(response.message || 'Case update saved.'); await refreshCounts();
     } catch (error) { notify(error.message, true); }
     finally { button.removeAttribute('aria-busy'); button.querySelector('span').textContent = 'Save update'; }
@@ -324,7 +328,8 @@
     if (!form.reportValidity()) return;
     const button = $('createSaveBtn'); button.setAttribute('aria-busy', 'true'); button.querySelector('span').textContent = 'Creating…';
     const formData = new FormData(form);
-    formData.set('client_request_id', requestId());
+    state.pendingCreateRequestId = state.pendingCreateRequestId || requestId();
+    formData.set('client_request_id', state.pendingCreateRequestId);
     if (state.createCapturedLocation) {
       formData.set('latitude', state.createCapturedLocation.latitude);
       formData.set('longitude', state.createCapturedLocation.longitude);
@@ -332,6 +337,7 @@
     try {
       const response = await api('cases/create/', null, formData);
       renderDetail(response.case);
+      state.pendingCreateRequestId = '';
       form.reset(); $('createSelectedEvidence').innerHTML = ''; state.createCapturedLocation = null;
       $('createCaptureState').textContent = 'Location is optional';
       $('createView').hidden = true; $('detailView').hidden = false;

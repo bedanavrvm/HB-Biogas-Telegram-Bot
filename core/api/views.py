@@ -34,6 +34,7 @@ import json
 import re
 import requests
 import zipfile
+from functools import wraps
 
 from .validators import (
     validate_request_size,
@@ -79,6 +80,34 @@ def health_check(request):
     )
 
 
+@csrf_exempt
+@require_http_methods(["GET"])
+def readiness_check(request):
+    """Protected stored-state readiness; it never probes external services."""
+    if not _authorize_manual_request(request):
+        return error_response('Authentication is required.', 'AUTH_REQUIRED', status_code=403)
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT 1')
+        from django.db.migrations.executor import MigrationExecutor
+        migration_plan = MigrationExecutor(connection).migration_plan(
+            MigrationExecutor(connection).loader.graph.leaf_nodes(),
+        )
+        from core.services.external_resilience import integration_readiness
+        return success_response(
+            data={
+                'database': 'connected',
+                'migrations': 'current' if not migration_plan else 'pending',
+                'integration_operations': integration_readiness(),
+                'outbound_probes_performed': False,
+            },
+            message='Service readiness was evaluated from local state.',
+        )
+    except DatabaseError:
+        logger.exception('Readiness database probe failed')
+        return error_response('Service is unavailable.', 'DATABASE_UNAVAILABLE', status_code=503)
+
+
 
 @require_http_methods(["GET"])
 def tat_tracker_app(request):
@@ -101,6 +130,28 @@ def _tat_payload(request) -> dict:
     if request.content_type.startswith('application/x-www-form-urlencoded') or request.content_type.startswith('multipart/'):
         return request.POST.dict()
     return _tat_json_body(request)
+
+
+def _bind_miniapp_write_request(request, payload: dict):
+    """Apply the shared retry-key policy before a Mini App write service."""
+    from core.services.miniapp_requests import (
+        bind_miniapp_request_identity,
+        idempotency_error_response,
+    )
+    try:
+        bind_miniapp_request_identity(request, payload)
+    except ValueError as exc:
+        return idempotency_error_response(exc)
+    return None
+
+
+def miniapp_write_response(view_func):
+    """Return the shared keyed/legacy-client response marker for Mini Apps."""
+    @wraps(view_func)
+    def wrapped(request, *args, **kwargs):
+        from core.services.miniapp_requests import attach_miniapp_request_metadata
+        return attach_miniapp_request_metadata(request, view_func(request, *args, **kwargs))
+    return wrapped
 
 
 def _miniapp_draft_payload(request) -> dict:
@@ -387,8 +438,12 @@ def tat_tracker_search_fragment(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@miniapp_write_response
 def tat_tracker_target_settings(request):
     payload = _tat_json_body(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
     group_id, group_config, user_payload, user, error = _tat_context(payload)
     if error:
         return error
@@ -403,8 +458,12 @@ def tat_tracker_target_settings(request):
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 @csrf_exempt
 @require_http_methods(["POST"])
+@miniapp_write_response
 def tat_tracker_create(request):
     payload = _tat_json_body(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
     group_id, group_config, user_payload, user, error = _tat_context(payload)
     if error:
         return error
@@ -445,8 +504,12 @@ def tat_tracker_detail(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@miniapp_write_response
 def tat_tracker_update(request):
     payload = _tat_json_body(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
     group_id, group_config, user_payload, user, error = _tat_context(payload)
     if error:
         return error
@@ -1093,6 +1156,7 @@ def spin_form(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@miniapp_write_response
 def spin_form_submit(request):
     """Accept a SPIN/CRB Mini App form submission."""
     uploaded_files = []
@@ -1141,6 +1205,11 @@ def spin_form_submit(request):
             )
         uploaded_files = collect_spin_uploaded_files(files_map)
 
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
+    if isinstance(fields, dict) and payload.get('client_request_id'):
+        fields.setdefault('client_request_id', payload['client_request_id'])
     group_id, group_config, auth_payload, error_response_obj = _spin_webapp_context(payload)
     if error_response_obj:
         return error_response_obj
@@ -1275,9 +1344,13 @@ def spin_form_requests(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@miniapp_write_response
 def spin_form_complete(request):
     """Accept analyst completing a SPIN/CRB request and uploading reports."""
     payload = request.POST.dict()
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
     group_id, group_config, auth_payload, error_response = _spin_webapp_context(
         payload,
         allow_form_token=False,
@@ -1380,12 +1453,17 @@ def spin_form_complete(request):
 
 @csrf_exempt
 @require_http_methods(["POST", "PATCH"])
+@miniapp_write_response
 def spin_form_review_update(request):
     """Apply corrections for a SPIN/CRB request that needs import review."""
     try:
         payload = json.loads(request.body.decode('utf-8') or '{}')
     except json.JSONDecodeError:
         return JsonResponse({'success': False, 'message': 'Invalid request body.'}, status=400)
+
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
 
     group_id, group_config, auth_payload, error_response = _spin_webapp_context(
         payload,
@@ -1428,12 +1506,17 @@ def spin_form_review_update(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+@miniapp_write_response
 def spin_batch_review_resolve(request):
     """Resolve or reject an uncertain SPIN message retained from a WhatsApp batch."""
     try:
         payload = json.loads(request.body.decode('utf-8') or '{}')
     except json.JSONDecodeError:
         return JsonResponse({'success': False, 'message': 'Invalid request body.'}, status=400)
+
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
 
     group_id, group_config, auth_payload, error_response = _spin_webapp_context(
         payload,

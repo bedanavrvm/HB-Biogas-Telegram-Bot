@@ -6,6 +6,7 @@ from .auth_views import telegram_session_login
 from .views import (
     telegram_webhook,
     health_check,
+    readiness_check,
     jawabu_farmers_review,
     jawabu_farmers_review_commit,
     miniapp_draft,
@@ -111,6 +112,7 @@ from .complaint_case_views import (
 urlpatterns = [
     path('auth/telegram/', telegram_session_login, name='telegram_session_login'),
     path('health/', health_check, name='health_check'),
+    path('readiness/', readiness_check, name='readiness_check'),
     path('order-approval/', order_approval_form, name='order_approval_form'),
     path('jawabu-farmers/review/', jawabu_farmers_review, name='jawabu_farmers_review'),
     path('jawabu-farmers/review/commit/', jawabu_farmers_review_commit, name='jawabu_farmers_review_commit'),

@@ -50,6 +50,37 @@ application requires explicit approval for that release.
 - Never change a sheet in a way that makes the running Django version unable to read or write it. Use additive, backward-compatible changes and deploy code plus sheet changes as one planned release.
 - Google/Drive failures must leave the Django record and audit history intact. Retry through the approved operation, not by re-creating customer records.
 
+## Integration operations and readiness
+
+Keep `GET /api/health/` as the public liveness check. It performs a DB-only
+probe. `GET /api/readiness/` requires `API_AUTH_TOKEN` and reports local DB,
+migration, durable-operation, and circuit state without contacting Google,
+Drive, or Telegram.
+
+Before a supervised integration maintenance window, run the configuration-only
+check:
+
+```powershell
+python manage.py probe_integrations
+```
+
+Only after explicit approval for read-only external calls, run:
+
+```powershell
+python manage.py probe_integrations --execute
+```
+
+The retry/circuit tables are an operator-visible register, not a background
+queue. There is no Celery/Redis worker or scheduler. Review retryable/dead-
+letter records in Django Admin and retry through the owning workflow after the
+external dependency is healthy. Do not delete a local case/document or claim a
+sync succeeded because an external call failed.
+
+Before enabling `REQUIRE_MINIAPP_IDEMPOTENCY_KEY=True`, verify current Portal,
+Complaint Cases, TAT, and SPIN Mini Apps in real Telegram clients and obtain
+explicit approval. The setting blocks old cached clients that do not send a
+retry key.
+
 ## Recovery
 
 For an application fault, revert to the recorded Git commit and redeploy; verify health and a read-only workflow first. Do not blindly reverse database migrations. For a data incident, stop the affected write path, preserve logs/audit data, restore into staging, choose a forward corrective migration or controlled data repair, then review before production execution.

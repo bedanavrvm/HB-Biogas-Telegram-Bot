@@ -46,10 +46,19 @@ class TelegramLauncherError(Exception):
 
 
 class _TelegramApiError(TelegramLauncherError):
-    def __init__(self, method: str, description: str = '', migration_group_id: str = ''):
+    def __init__(
+        self,
+        method: str,
+        description: str = '',
+        migration_group_id: str = '',
+        status_code: int | None = None,
+        headers=None,
+    ):
         self.method = method
         self.description = description
         self.migration_group_id = migration_group_id
+        self.status_code = status_code
+        self.headers = headers or {}
         super().__init__(f'Telegram {method} could not complete.')
 
 
@@ -142,14 +151,37 @@ def publish_group_launcher(
     if not token:
         raise TelegramLauncherError('TELEGRAM_BOT_TOKEN is not configured.')
     timeout = int(timeout or getattr(settings, 'API_REQUEST_TIMEOUT', 10))
+    preview = preview_group_launcher(config)
+    from core.services.external_resilience import execute_operation, reserve_operation
 
-    try:
-        return _publish_once(config, token, timeout)
-    except _TelegramApiError as exc:
-        if not exc.migration_group_id:
-            raise _safe_api_error(exc) from exc
-        _apply_migrated_group_id(config, exc.migration_group_id)
-        return _publish_once(config, token, timeout)
+    operation, _ = reserve_operation(
+        integration='telegram',
+        operation_type='publish_group_launcher',
+        deduplication_key=f'telegram:launcher:{config.pk}:{preview["signature"]}',
+        source_model='GroupSheetConfiguration',
+        source_id=str(config.pk),
+        operation_payload=(config.group_id, preview['signature']),
+        metadata={'launcher_keys': preview['keys']},
+    )
+
+    def publish_once_with_migration():
+        try:
+            return _publish_once(config, token, timeout)
+        except _TelegramApiError as exc:
+            if not exc.migration_group_id:
+                raise _safe_api_error(exc) from exc
+            _apply_migrated_group_id(config, exc.migration_group_id)
+            return _publish_once(config, token, timeout)
+
+    result = execute_operation(operation, publish_once_with_migration)
+    if result is None:
+        state = dict((config.metadata or {}).get(_LAUNCHER_METADATA_KEY) or {})
+        return {
+            'action': 'unchanged',
+            'message_id': state.get('message_id'),
+            'keys': preview['keys'],
+        }
+    return result
 
 
 def _publish_once(config: 'GroupSheetConfiguration', token: str, timeout: int) -> dict:
@@ -239,7 +271,7 @@ def _telegram_call(token: str, method: str, payload: dict, timeout: int) -> dict
             timeout=timeout,
         )
     except requests.RequestException as exc:
-        raise _TelegramApiError(method) from exc
+        raise _TelegramApiError(method, str(exc)) from exc
     try:
         response_payload = response.json()
     except ValueError:
@@ -250,6 +282,8 @@ def _telegram_call(token: str, method: str, payload: dict, timeout: int) -> dict
             method,
             str(response_payload.get('description') or ''),
             str(parameters.get('migrate_to_chat_id') or ''),
+            status_code=response.status_code,
+            headers=response.headers,
         )
     return response_payload
 

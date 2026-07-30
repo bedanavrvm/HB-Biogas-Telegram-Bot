@@ -37,6 +37,7 @@ Thumbs.db
 # Credentials
 credentials.json
 *.json
+!scripts/architecture_boundaries_baseline.json
 
 # Local/customer data artifacts
 *.xlsx

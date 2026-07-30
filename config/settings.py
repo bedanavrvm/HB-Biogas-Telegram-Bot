@@ -166,6 +166,13 @@ COMPLIANCE_AUDIT_CHECKPOINT_RECIPIENT = config(
     'COMPLIANCE_AUDIT_CHECKPOINT_RECIPIENT', default='',
 )
 
+# Mini App writes accept existing cached clients during the migration window.
+# Enable only after the refreshed Portal, Complaint Cases, TAT and SPIN builds
+# have been verified in Telegram; strict mode rejects missing retry keys.
+REQUIRE_MINIAPP_IDEMPOTENCY_KEY = config(
+    'REQUIRE_MINIAPP_IDEMPOTENCY_KEY', default=False, cast=bool,
+)
+
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
@@ -444,6 +451,7 @@ DOCUMENT_SIGNOFF_MAX_FILE_SIZE_MB = config('DOCUMENT_SIGNOFF_MAX_FILE_SIZE_MB', 
 # API Configuration & Security
 API_REQUEST_SIZE_LIMIT = 1_000_000  # 1MB - Prevent DoS from large payloads
 API_REQUEST_TIMEOUT = 10  # seconds - Timeout for external API calls
+GOOGLE_SHEETS_MAX_RETRIES = config('GOOGLE_SHEETS_MAX_RETRIES', default=4, cast=int)
 MAX_SYNC_ATTEMPTS = 5  # Max retries before giving up on Google Sheets sync
 MIN_CONFIDENCE_THRESHOLD = 0.5  # Minimum confidence score to consider parse acceptable
 PARSING_BATCH_SIZE = 50  # Process up to 50 messages per batch request

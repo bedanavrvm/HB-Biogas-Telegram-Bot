@@ -2,17 +2,27 @@
   'use strict';
 
   async function postJson(path, payload, utils) {
+    const body = payload || {};
+    const requestId = utils && utils.ensureRequestId
+      ? utils.ensureRequestId(body, 'tat')
+      : (body.client_request_id || body.request_id || `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    if (!body.client_request_id) body.client_request_id = requestId;
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-Request-ID': requestId,
+      'Idempotency-Key': requestId,
+    };
     if (utils && utils.fetchJson) {
       return utils.fetchJson(path, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        headers,
+        body: JSON.stringify(body),
       });
     }
     const response = await fetch(path, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      headers,
+      body: JSON.stringify(body),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.ok) throw new Error(data.error || 'Request failed.');

@@ -30,6 +30,8 @@
   const summaryList = document.getElementById('summaryList');
   let bannerTimeout = null;
   let clientRequestId = '';
+  let completeRequestKey = '';
+  let reviewRequestKey = '';
 
   // Dashboard & Modal Elements
   const tabDashboardBtn = document.getElementById('tab-dashboard-btn');
@@ -732,6 +734,7 @@
   // --- Complete Modal Handlers ---
 
   function openCompleteModal(reqId) {
+    completeRequestKey = '';
     document.getElementById('completeRequestId').value = reqId;
     completeForm.reset();
     setBanner('', '', modalBanner);
@@ -747,6 +750,7 @@
     completeForm.reset();
     setBanner('', '', modalBanner);
     setButtonLoading(submitCompleteBtn, false);
+    completeRequestKey = '';
   }
 
   function reviewFormValues() {
@@ -828,6 +832,7 @@
     reviewTarget = null;
     if (rejectReviewBtn) rejectReviewBtn.hidden = true;
     setButtonLoading(submitReviewBtn, false);
+    reviewRequestKey = '';
   }
 
   async function submitReview(event) {
@@ -843,6 +848,8 @@
       init_data: tg ? tg.initData || '' : '',
       fields: reviewFormValues()
     };
+    reviewRequestKey = reviewRequestKey || (utils.createRequestId ? utils.createRequestId('spin-review') : `spin-review-${Date.now()}`);
+    payload.client_request_id = reviewRequestKey;
 
     try {
       const response = spinApi.postJson
@@ -858,6 +865,7 @@
         return;
       }
       closeReviewModal();
+      reviewRequestKey = '';
       setBanner(result.sheet_synced ? 'Review saved and sheet updated.' : 'Review saved. Sheet update needs retry.', result.sheet_synced ? 'success' : 'warning');
       fetchRequests();
       if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
@@ -923,6 +931,8 @@
     setButtonLoading(submitCompleteBtn, true, 'Uploading');
 
     const formData = new FormData(completeForm);
+    completeRequestKey = completeRequestKey || (utils.createRequestId ? utils.createRequestId('spin-complete') : `spin-complete-${Date.now()}`);
+    formData.set('client_request_id', completeRequestKey);
     formData.append('group_id', config.group_id || '');
     formData.append('form_token', config.form_token || '');
     formData.append('init_data', tg ? tg.initData || '' : '');
@@ -941,6 +951,7 @@
       }
 
       closeCompleteModal();
+      completeRequestKey = '';
       setBanner('Reports submitted and request marked completed.', 'success');
       fetchRequests();
       if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');

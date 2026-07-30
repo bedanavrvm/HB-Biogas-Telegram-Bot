@@ -3267,3 +3267,101 @@ class ComplianceAuditCheckpoint(models.Model):
         ordering = ['-checkpoint_date']
         verbose_name = 'compliance audit checkpoint'
         verbose_name_plural = 'compliance audit checkpoints'
+
+
+class IntegrationOperation(models.Model):
+    """Durable, redacted record of a manually retriable external operation.
+
+    This is an operations register, not a hidden task queue. No background
+    worker is enabled: the owning workflow may retry a dead-lettered operation
+    when its dependency is healthy. Raw payloads never belong here.
+    """
+
+    INTEGRATION_GOOGLE_SHEETS = 'google_sheets'
+    INTEGRATION_GOOGLE_DRIVE = 'google_drive'
+    INTEGRATION_TELEGRAM = 'telegram'
+    INTEGRATION_CHOICES = [
+        (INTEGRATION_GOOGLE_SHEETS, 'Google Sheets'),
+        (INTEGRATION_GOOGLE_DRIVE, 'Google Drive'),
+        (INTEGRATION_TELEGRAM, 'Telegram'),
+    ]
+    STATUS_PENDING = 'pending'
+    STATUS_RUNNING = 'running'
+    STATUS_SUCCEEDED = 'succeeded'
+    STATUS_RETRYABLE = 'retryable_failure'
+    STATUS_DEAD_LETTER = 'dead_letter'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_RUNNING, 'Running'),
+        (STATUS_SUCCEEDED, 'Succeeded'),
+        (STATUS_RETRYABLE, 'Retryable failure'),
+        (STATUS_DEAD_LETTER, 'Dead letter'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    integration = models.CharField(max_length=32, choices=INTEGRATION_CHOICES, db_index=True)
+    operation_type = models.CharField(max_length=80, db_index=True)
+    deduplication_key = models.CharField(max_length=255, unique=True, db_index=True)
+    source_model = models.CharField(max_length=120, blank=True, default='')
+    source_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='integration_operations',
+    )
+    requested_by_label = models.CharField(max_length=255, blank=True, default='')
+    payload_digest = models.CharField(max_length=64, blank=True, default='')
+    metadata = models.JSONField(blank=True, default=dict)
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    attempts = models.PositiveIntegerField(default=0)
+    max_attempts = models.PositiveSmallIntegerField(default=1)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    next_retry_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    last_error_code = models.CharField(max_length=80, blank=True, default='')
+    last_error = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['integration', 'status', 'updated_at']),
+            models.Index(fields=['source_model', 'source_id', 'created_at']),
+            models.Index(fields=['request_id', 'created_at']),
+        ]
+        verbose_name = 'integration operation'
+        verbose_name_plural = 'integration operations'
+
+    def __str__(self):
+        return f'{self.integration}.{self.operation_type} ({self.status})'
+
+
+class IntegrationCircuitState(models.Model):
+    """One persisted bounded circuit per outbound integration."""
+
+    STATUS_CLOSED = 'closed'
+    STATUS_OPEN = 'open'
+    STATUS_HALF_OPEN = 'half_open'
+    STATUS_CHOICES = [
+        (STATUS_CLOSED, 'Closed'),
+        (STATUS_OPEN, 'Open'),
+        (STATUS_HALF_OPEN, 'Half open'),
+    ]
+
+    integration = models.CharField(max_length=32, unique=True, db_index=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_CLOSED, db_index=True)
+    consecutive_failures = models.PositiveIntegerField(default=0)
+    failure_window_started_at = models.DateTimeField(null=True, blank=True)
+    opened_at = models.DateTimeField(null=True, blank=True)
+    next_probe_at = models.DateTimeField(null=True, blank=True)
+    last_failure_code = models.CharField(max_length=80, blank=True, default='')
+    last_success_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'integration circuit state'
+        verbose_name_plural = 'integration circuit states'
+
+    def __str__(self):
+        return f'{self.integration} ({self.status})'

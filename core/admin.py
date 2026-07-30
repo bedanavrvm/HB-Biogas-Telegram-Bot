@@ -100,6 +100,8 @@ from .models import (
     ComplianceAuditChainState,
     ComplianceAuditCheckpoint,
     ComplianceAuditEvent,
+    IntegrationCircuitState,
+    IntegrationOperation,
 )
 
 logger = logging.getLogger(__name__)
@@ -2817,6 +2819,21 @@ class ComplianceAuditCheckpointAdmin(ReadOnlyAuditAdmin):
     list_display = ('checkpoint_date', 'chain_position', 'event_count', 'status', 'delivery_attempts', 'delivered_at')
     list_filter = ('status', 'checkpoint_date')
     readonly_fields = [field.name for field in ComplianceAuditCheckpoint._meta.fields]
+
+
+@admin.register(IntegrationOperation)
+class IntegrationOperationAdmin(ReadOnlyAuditAdmin):
+    list_display = ('integration', 'operation_type', 'source_model', 'source_id', 'status', 'attempts', 'next_retry_at', 'updated_at')
+    list_filter = ('integration', 'operation_type', 'status')
+    search_fields = ('source_model', 'source_id', 'request_id', 'deduplication_key')
+    readonly_fields = [field.name for field in IntegrationOperation._meta.fields]
+
+
+@admin.register(IntegrationCircuitState)
+class IntegrationCircuitStateAdmin(ReadOnlyAuditAdmin):
+    list_display = ('integration', 'status', 'consecutive_failures', 'next_probe_at', 'last_success_at', 'updated_at')
+    list_filter = ('status',)
+    readonly_fields = [field.name for field in IntegrationCircuitState._meta.fields]
 
     def has_change_permission(self, request, obj=None):
         return False

@@ -41,7 +41,6 @@ Schema (FIXED — 21 columns):
   [20] Days Open (formula — DO NOT WRITE)
 """
 import logging
-import time
 from typing import Optional
 from django.conf import settings
 from core.services.sheet_schema import SheetSchema
@@ -935,30 +934,38 @@ class GoogleSheetsService:
             self._batch_update_with_retry(payload, input_option)
 
     def _batch_update_with_retry(self, payload: list[dict], value_input_option: str) -> None:
-        max_attempts = int(getattr(settings, 'GOOGLE_SHEETS_MAX_RETRIES', 4) or 4)
-        max_attempts = max(1, max_attempts)
-        for attempt in range(1, max_attempts + 1):
-            try:
-                self._sheet.batch_update(
-                    payload,
-                    value_input_option=value_input_option,
-                )
-                return
-            except Exception as exc:
-                if not self._is_google_quota_error(exc) or attempt >= max_attempts:
-                    raise
-                delay = min(60, 2 ** attempt)
-                logger.warning(
-                    "Google Sheets quota/rate limit while writing %s ranges to %s; "
-                    "retrying in %ss (%s/%s): %s",
-                    len(payload),
-                    self._sheet_id,
-                    delay,
-                    attempt,
-                    max_attempts,
-                    exc,
-                )
-                time.sleep(delay)
+        """Write a batch through the shared bounded retry/circuit policy.
+
+        The persisted operation key is derived from the target and exact
+        payload so a transport retry cannot append or update the same ranges
+        twice. Sheets remains a synchronized register; a failed operation is
+        recorded for the owning workflow instead of being silently discarded.
+        """
+        from core.services.external_resilience import (
+            execute_operation,
+            payload_digest,
+            reserve_operation,
+        )
+
+        digest = payload_digest((self._sheet_id, self._sheet_name, value_input_option, payload))
+        operation, _ = reserve_operation(
+            integration='google_sheets',
+            operation_type='batch_update',
+            deduplication_key=f'google-sheets:batch-update:{digest}',
+            source_model='GoogleSheetsService',
+            source_id=f'{self._sheet_id}:{self._sheet_name}',
+            operation_payload=(value_input_option, payload),
+            metadata={'range_count': len(payload), 'value_input_option': value_input_option},
+            max_attempts=int(getattr(settings, 'GOOGLE_SHEETS_MAX_RETRIES', 4) or 4),
+        )
+
+        def write_batch() -> None:
+            self._sheet.batch_update(
+                payload,
+                value_input_option=value_input_option,
+            )
+
+        execute_operation(operation, write_batch)
 
     def _next_case_row_from_values(self, headers: list, rows: list[list]) -> int:
         """Return next data row from already-read sheet values."""

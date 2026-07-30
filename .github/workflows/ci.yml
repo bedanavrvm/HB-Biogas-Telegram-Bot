@@ -42,6 +42,9 @@ jobs:
           python manage.py check
           python manage.py collectstatic --noinput
 
+      - name: Check architecture boundaries
+        run: python scripts/check_architecture_boundaries.py
+
       - name: Run Django tests
         env:
           DJANGO_SECRET_KEY: ci-secret-key-for-tests-only-change-in-production
