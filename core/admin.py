@@ -79,6 +79,9 @@ from .models import (
     RequisitionTemplate,
     SpinCreditRequest,
     SpinBatchReviewItem,
+    SheetRegisterContract,
+    SheetSyncAuditSnapshot,
+    SheetSyncDiscrepancy,
     TatTrackerCase,
     TatTrackerEvent,
     TatRepairJob,
@@ -105,6 +108,90 @@ class CompactModelAdmin(ModelAdmin):
     compressed_fields = True
     list_filter_submit = True
     list_fullwidth = True
+
+
+@admin.register(SheetRegisterContract)
+class SheetRegisterContractAdmin(CompactModelAdmin):
+    """Controlled, publication-only register contracts and manual audits."""
+
+    list_display = ('register_key', 'group_configuration', 'sheet_name', 'subject_type', 'publication_mode', 'enabled', 'updated_at')
+    list_filter = ('enabled', 'subject_type', 'publication_mode')
+    search_fields = ('register_key', 'sheet_name', 'group_configuration__group_id', 'group_configuration__display_name')
+    list_select_related = ('group_configuration',)
+    readonly_fields = ('created_at', 'updated_at')
+    actions = ('run_selected_register_audits',)
+    fieldsets = (
+        ('Register', {
+            'fields': (
+                ('group_configuration', 'register_key'),
+                ('sheet_name', 'subject_type'),
+                ('header_row', 'data_start_row', 'row_key_header'),
+                ('publication_mode', 'enabled'),
+            ),
+        }),
+        ('Schema and ownership', {
+            'description': (
+                'Google Sheets are view-only publication registers. List the expected headers in order and assign every header '
+                'one owner: backend_owned, formula_owned, derived, or immutable. Only backend_owned/immutable fields with a '
+                'model_field are compared during a TAT divergence audit.'
+            ),
+            'fields': ('expected_headers', 'field_ownership'),
+        }),
+        ('Audit', {'fields': (('created_at', 'updated_at'),), 'classes': ('collapse',)}),
+    )
+
+    @admin.action(description='Run selected register audits (read-only Sheets)')
+    def run_selected_register_audits(self, request, queryset):
+        from core.services.sync_governance import audit_sheet_register
+
+        outcomes = []
+        for contract in queryset.select_related('group_configuration'):
+            result = audit_sheet_register(contract, checked_by=request.user.get_username(), persist=True)
+            outcomes.append(f"{contract.register_key}: {result['status']}")
+        self.message_user(request, 'Register audit recorded — ' + '; '.join(outcomes), level=messages.INFO)
+
+
+@admin.register(SheetSyncAuditSnapshot)
+class SheetSyncAuditSnapshotAdmin(CompactModelAdmin):
+    """Append-only compliance evidence; source Sheet values are never shown."""
+
+    list_display = ('created_at', 'contract', 'status', 'rows_checked', 'discrepancy_count', 'checked_by', 'error_code')
+    list_filter = ('status', 'contract__subject_type', 'contract__group_configuration')
+    search_fields = ('contract__register_key', 'contract__group_configuration__group_id', 'checked_by', 'error_code')
+    list_select_related = ('contract', 'contract__group_configuration')
+    readonly_fields = (
+        'contract', 'status', 'expected_header_fingerprint', 'actual_header_fingerprint',
+        'missing_headers', 'duplicate_headers', 'reordered_headers', 'rows_checked',
+        'discrepancy_count', 'error_code', 'error', 'checked_by', 'created_at',
+    )
+    fields = readonly_fields
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return request.method in ('GET', 'HEAD') and super().has_change_permission(request, obj)
+
+
+@admin.register(SheetSyncDiscrepancy)
+class SheetSyncDiscrepancyAdmin(CompactModelAdmin):
+    """Privacy-preserving audit differences; values are represented by hashes."""
+
+    list_display = ('kind', 'record_key', 'field_name', 'snapshot', 'created_at')
+    list_filter = ('kind', 'snapshot__status', 'snapshot__contract__group_configuration')
+    search_fields = ('record_key', 'field_name', 'snapshot__contract__register_key')
+    list_select_related = ('snapshot', 'snapshot__contract', 'snapshot__contract__group_configuration')
+    readonly_fields = (
+        'snapshot', 'record_key', 'field_name', 'kind', 'expected_value_hash',
+        'actual_value_hash', 'detail', 'created_at',
+    )
+    fields = readonly_fields
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return request.method in ('GET', 'HEAD') and super().has_change_permission(request, obj)
 
 
 @admin.register(OperationalLocation)
@@ -1766,6 +1853,8 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                         reports = cleanup_tat_sheet_duplicate_case_ids(
                             service._sheet,
                             group_id=config.group_id,
+                            group_configuration=config,
+                            actor=request.user.get_username(),
                             apply=True,
                             include_unlinked=include_unlinked,
                         )
@@ -1780,7 +1869,23 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                             f"{item['label']}: cleanup failed; no success was recorded for this product."
                         )
                 request.session.pop('tat_duplicate_preview', None)
-                if clean_errors:
+                verification_failures = [
+                    report
+                    for _label, reports in cleaned
+                    for report in reports
+                    if not report.get('skipped_unlinked')
+                    and (
+                        report.get('verification_status') != 'verified'
+                        or (report.get('linked') and report.get('resync_status') != 'synced')
+                    )
+                ]
+                if clean_errors or verification_failures:
+                    if verification_failures:
+                        failed_cases = ', '.join(report['case_id'] for report in verification_failures[:5])
+                        clean_errors.append(
+                            f'Survivor verification or re-publication did not complete for: {failed_cases}. '
+                            'No successful cleanup was recorded for those cases; review Live sheet record changes and TAT sync errors.'
+                        )
                     context['confirmation_error'] = ' '.join(clean_errors)
                 else:
                     removed = sum(
@@ -1791,7 +1896,7 @@ class GroupSheetConfigurationAdmin(ModelAdmin):
                     )
                     self.message_user(
                         request,
-                        f'Cleanup completed. Removed {removed} duplicate Sheet row(s); canonical Django case IDs were preserved.',
+                        f'Cleanup completed. Removed {removed} duplicate Sheet row(s); each linked surviving row was verified by immutable case ID and re-published from Django.',
                         level=messages.SUCCESS,
                     )
                     return HttpResponseRedirect(request.path)

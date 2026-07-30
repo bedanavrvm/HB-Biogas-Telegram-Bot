@@ -8,6 +8,7 @@ migrations, tests, settings, and these operational documents take precedence.
 |---|---|
 | [Glossary](glossary.md) | Shared roles, capabilities, workflow language, and UI status semantics. |
 | [ADR 0001](adr/0001-server-owned-miniapp-recovery-drafts.md) | Decision and release safety record for server-owned Mini App recovery drafts. |
+| [ADR 0007](adr/0007-sheet-register-governance-and-verified-tat-repair.md) | Publication-only Sheet contracts, drift evidence, and verified TAT duplicate-row repair. |
 | [../CHANGELOG.md](../CHANGELOG.md) | Dated visible/operational changes. |
 | [../KNOWN_GAPS.md](../KNOWN_GAPS.md) | Diagnosed limitations, workarounds, and release verification still required. |
 | [../PRODUCTION_RUNBOOK.md](../PRODUCTION_RUNBOOK.md) | Release, rollback, recovery, credentials, backups, and emergency access. |

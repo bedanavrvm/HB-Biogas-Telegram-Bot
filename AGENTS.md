@@ -115,6 +115,7 @@ Key modules:
 - `requisition.py` — requisition generation and files
 - `sheet_analyzer.py` — spreadsheet inspection
 - `sheet_schema.py` — expected sheet structure and mappings
+- `sync_governance.py` — publication-only register contracts, drift audits, and Drive sharing inspection
 - `sheet_sync.py` — synchronization orchestration
 - `sheets.py` — low-level Google Sheets gateway
 - `spin_credit.py` — SPIN request parsing and workflow logic
@@ -554,7 +555,7 @@ Use this table to locate the likely change surface for a given workflow, and wha
 | **Order approval** | `services/order_approval.py`, `core/api/views.py`, `templates/order_approval/`, `services/storage.py`, `core/models.py`, `core/tests_order_approval.py`, `order_approval_apps_script.gs` | Telegram authentication, lookup/suggestion APIs, attachment limits, duplicate submissions, media storage failures, sheet sync |
 | **SPIN credit** | `services/spin_credit.py`, `core/api/views.py`, `templates/spin/`, `static/miniapp/spin_form.*`, `core/models.py`, `core/tests_spin_credit.py` | Analyst authorization, request-type requirements, phone/ID/amount normalization, attachment handling, completion audit fields |
 | **TAT tracker** | `services/tat_tracker.py`, `services/business_calendar.py`, `services/workflow_sla.py`, `services/workflow_timeline.py`, `core/api/views.py`, `templates/tat_tracker/`, `static/miniapp/tat_tracker.*`, `tat_tracker_apps_script.gs`, `core/models.py`, `core/tests_tat_tracker.py` | Role restrictions, branch/product scope, stage prerequisites, duplicate create requests, official business-hour SLA calculations, append-only event history, and idempotent escalation snapshots |
-| **Google Sheets/Drive integrations** | `services/sheets.py`, `services/sheet_sync.py`, `services/sheet_schema.py`, `services/sheet_analyzer.py`, `services/live_sheet_records.py`, `services/storage.py`, `core/tests_sheets_validation.py` | Mock external APIs in tests; test retries, missing headers, formula columns, reordered columns, partial failures, duplicate rows |
+| **Google Sheets/Drive integrations** | `services/sheets.py`, `services/sheet_sync.py`, `services/sheet_schema.py`, `services/sheet_analyzer.py`, `services/live_sheet_records.py`, `services/sync_governance.py`, `services/storage.py`, `core/tests_sheets_validation.py` | Sheets remain view-only; contracts declare per-field owner, audits are explicit read-only calls, duplicate-row deletion requires post-delete immutable-ID verification and canonical re-publication |
 
 ---
 

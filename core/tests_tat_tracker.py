@@ -17,7 +17,7 @@ from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import AccessGrant, GroupSheetConfiguration, TatRepairJob, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, UserProfile, WorkflowSlaEscalation
+from core.models import AccessGrant, GroupSheetConfiguration, LiveSheetRecordChange, SheetRegisterContract, SheetSyncAuditSnapshot, TatRepairJob, TatTrackerApprovalCertificate, TatTrackerCase, TatTrackerEvent, UserProfile, WorkflowSlaEscalation
 from core.api.views import _dispatch_tat_approval_certificate, _process_telegram_message
 from core.services.group_config import GroupRegistry
 from core.services.tat_tracker import (
@@ -65,6 +65,7 @@ from core.services.tat_tracker import (
 )
 from core.services.workflow_transitions import WorkflowRevisionConflict
 from core.services.workflow_sla import collect_sla_candidates, record_sla_candidates
+from core.services.sync_governance import audit_sheet_register
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
@@ -1380,9 +1381,7 @@ class TatTrackerWorkflowTest(TestCase):
         class FakeSheet:
             def __init__(self):
                 self.deleted = []
-
-            def get_all_values(self):
-                return [
+                self.rows = [
                     ['title'],
                     ['headers'],
                     [],
@@ -1394,8 +1393,12 @@ class TatTrackerWorkflowTest(TestCase):
                     ['JBL-BS-2026-008', 'client', 'id', 'phone'],
                 ]
 
+            def get_all_values(self):
+                return [list(row) for row in self.rows]
+
             def delete_rows(self, row):
                 self.deleted.append(row)
+                self.rows.pop(row - 1)
 
         sheet = FakeSheet()
         case = TatTrackerCase.objects.create(
@@ -1430,12 +1433,199 @@ class TatTrackerWorkflowTest(TestCase):
         self.assertEqual(report[1]['keep_row'], 9)
         self.assertEqual(report[1]['delete_rows'], [8])
 
-        cleanup_tat_sheet_duplicate_case_ids(sheet, group_id=self.config.group_id, apply=True)
+        repaired = cleanup_tat_sheet_duplicate_case_ids(sheet, group_id=self.config.group_id, apply=True)
         case.refresh_from_db()
         other_case.refresh_from_db()
         self.assertEqual(sheet.deleted, [8, 5])
         self.assertEqual(case.row_number, 5)
         self.assertEqual(other_case.row_number, 7)
+        self.assertEqual([item['verification_status'] for item in repaired], ['verified', 'verified'])
+        self.assertEqual(LiveSheetRecordChange.objects.filter(status='success').count(), 2)
+
+    def test_duplicate_cleanup_does_not_guess_a_row_when_post_delete_verification_fails(self):
+        class FakeSheet:
+            def get_all_values(self):
+                return [
+                    ['title'], ['headers'], [], [],
+                    ['JBL-BS-2026-VERIFY', 'sparse'],
+                    ['JBL-BS-2026-VERIFY', 'complete', 'id'],
+                ]
+
+            def delete_rows(self, row):
+                # Simulate a provider-side failure that accepted the API call
+                # but left the duplicate data present.
+                del row
+
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-Business',
+            row_number=5,
+            case_id='JBL-BS-2026-VERIFY',
+            product_key='business',
+            product_label='Business',
+            client_name='Verification Client',
+            stage_values={'created': timezone.now().isoformat()},
+            status='Active',
+        )
+
+        reports = cleanup_tat_sheet_duplicate_case_ids(FakeSheet(), group_id=self.config.group_id, apply=True)
+        case.refresh_from_db()
+        self.assertEqual(reports[0]['verification_status'], 'failed')
+        self.assertEqual(case.row_number, 5)
+        audit = LiveSheetRecordChange.objects.get(record_key=case.case_id)
+        self.assertEqual(audit.status, 'failed')
+
+    def test_duplicate_cleanup_republishes_only_after_immutable_id_verification(self):
+        class FakeSheet:
+            def __init__(self):
+                self.rows = [
+                    ['title'], ['headers'], [], [],
+                    ['JBL-BS-2026-REPUBLISH', 'sparse'],
+                    ['JBL-BS-2026-REPUBLISH', 'complete', 'id'],
+                ]
+
+            def get_all_values(self):
+                return [list(row) for row in self.rows]
+
+            def delete_rows(self, row):
+                self.rows.pop(row - 1)
+
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-Business',
+            row_number=5,
+            case_id='JBL-BS-2026-REPUBLISH',
+            product_key='business',
+            product_label='Business',
+            client_name='Republish Client',
+            stage_values={'created': timezone.now().isoformat()},
+            status='Active',
+        )
+
+        with patch('core.services.tat_tracker.sync_case_to_sheet') as republish:
+            reports = cleanup_tat_sheet_duplicate_case_ids(
+                FakeSheet(), group_id=self.config.group_id,
+                group_configuration=self.config, actor='test-admin', apply=True,
+            )
+        case.refresh_from_db()
+        self.assertEqual(reports[0]['verification_status'], 'verified')
+        self.assertEqual(reports[0]['resync_status'], 'synced')
+        self.assertEqual(case.row_number, 5)
+        republish.assert_called_once()
+        self.assertEqual(republish.call_args.args[1].row_number, 5)
+
+    def test_register_audit_flags_schema_and_row_divergence_without_customer_values(self):
+        class FakeSheet:
+            def row_values(self, row):
+                if row != 2:
+                    raise AssertionError(f'Unexpected header row {row}')
+                return ['Case ID', 'ID NUMBER', 'PHONE NUMBER']
+
+            def get_all_values(self):
+                return [
+                    ['title'],
+                    ['Case ID', 'ID NUMBER', 'PHONE NUMBER'],
+                    [], [],
+                    ['JBL-BS-2026-AUDIT', '87654321', '254712345678'],
+                ]
+
+        class FakeService:
+            _sheet = FakeSheet()
+
+            def is_available(self):
+                return True
+
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-Business',
+            row_number=5,
+            case_id='JBL-BS-2026-AUDIT',
+            product_key='business',
+            product_label='Business',
+            client_name='Audit Client',
+            national_id='87654321',
+            primary_phone='254712345678',
+            stage_values={'created': timezone.now().isoformat()},
+            status='Active',
+        )
+        contract = SheetRegisterContract.objects.create(
+            group_configuration=self.config,
+            register_key='tat_business',
+            sheet_name='TRACKER-Business',
+            subject_type=SheetRegisterContract.SUBJECT_TAT_CASE,
+            header_row=2,
+            data_start_row=5,
+            row_key_header='Case ID',
+            expected_headers=['Case ID', 'ID NUMBER', 'PHONE NUMBER'],
+            field_ownership={
+                'Case ID': {'owner': 'immutable', 'model_field': 'case_id'},
+                'ID NUMBER': {'owner': 'immutable', 'model_field': 'national_id', 'comparison': 'digits'},
+                'PHONE NUMBER': {'owner': 'immutable', 'model_field': 'primary_phone', 'comparison': 'digits'},
+            },
+        )
+
+        with patch('core.services.sync_governance.get_sheets_service', return_value=FakeService()):
+            healthy = audit_sheet_register(contract, checked_by='test-admin')
+        self.assertEqual(healthy['status'], 'healthy')
+        self.assertEqual(SheetSyncAuditSnapshot.objects.get().rows_checked, 1)
+
+        case.row_number = 7
+        case.save(update_fields=['row_number', 'updated_at'])
+        with patch('core.services.sync_governance.get_sheets_service', return_value=FakeService()):
+            divergent = audit_sheet_register(contract, checked_by='test-admin')
+        self.assertEqual(divergent['status'], 'divergence')
+        self.assertEqual(divergent['discrepancies'][0]['kind'], 'row_pointer_mismatch')
+        self.assertNotIn('87654321', str(divergent['discrepancies']))
+
+    def test_tat_sync_refuses_a_registered_sheet_schema_that_has_drifted(self):
+        class FakeSheet:
+            def row_values(self, row):
+                if row == 2:
+                    return ['Changed Case ID', '', 'ID NUMBER', 'PHONE NUMBER']
+                raise AssertionError('Schema guard should stop the sync before any case row is read.')
+
+        class FakeService:
+            _sheet = FakeSheet()
+
+            def is_available(self):
+                return True
+
+        case = TatTrackerCase.objects.create(
+            group_id=self.config.group_id,
+            sheet_id=self.config.sheet_id,
+            sheet_name='TRACKER-Business',
+            case_id='JBL-BS-2026-SCHEMA',
+            product_key='business',
+            product_label='Business',
+            client_name='Schema Client',
+            stage_values={'created': timezone.now().isoformat()},
+            status='Active',
+        )
+        SheetRegisterContract.objects.create(
+            group_configuration=self.config,
+            register_key='tat_business_schema',
+            sheet_name='TRACKER-Business',
+            subject_type=SheetRegisterContract.SUBJECT_TAT_CASE,
+            header_row=2,
+            data_start_row=5,
+            row_key_header='Case ID',
+            expected_headers=['Case ID', 'ID NUMBER', 'PHONE NUMBER'],
+            field_ownership={
+                'Case ID': {'owner': 'immutable', 'model_field': 'case_id'},
+                'ID NUMBER': {'owner': 'immutable', 'model_field': 'national_id'},
+                'PHONE NUMBER': {'owner': 'immutable', 'model_field': 'primary_phone'},
+            },
+        )
+
+        with patch('core.services.tat_tracker.get_sheets_service', return_value=FakeService()):
+            with self.assertLogs('core.services.tat_tracker', level='ERROR'):
+                with self.assertRaisesMessage(ValueError, 'blocks publication'):
+                    sync_case_to_sheet(self.config, case)
+        case.refresh_from_db()
+        self.assertIn('blocks publication', case.sync_error)
 
     def test_sync_tat_batch_created_cases_appends_same_product_in_one_sheet_write(self):
         class FakeSheet:
@@ -2489,15 +2679,28 @@ class TatTrackerRepairAdminTest(TestCase):
             branch='Nakuru',
         )
 
-        self.client.get(self.duplicates_url + '?product=business')
-        response = self.client.post(self.duplicates_url, {
-            'action': 'clean',
-            'product': 'business',
-            'confirm': 'CLEAN DUPLICATES',
-        })
+        preview = [{
+            'case_id': 'JBL-BS-DUPLICATE', 'rows': [], 'keep_row': 6,
+            'delete_rows': [5], 'canonical_row': 5, 'linked': True,
+        }]
+        repaired = [{
+            **preview[0], 'surviving_row': 5,
+            'verification_status': 'verified', 'resync_status': 'synced',
+        }]
+        with patch('core.admin.cleanup_tat_sheet_duplicate_case_ids') as cleanup:
+            # The Admin performs a new preview immediately before applying;
+            # model a separately verified/re-published cleanup result.
+            cleanup.side_effect = [preview, preview, repaired]
+            self.client.get(self.duplicates_url + '?product=business')
+            response = self.client.post(self.duplicates_url, {
+                'action': 'clean',
+                'product': 'business',
+                'confirm': 'CLEAN DUPLICATES',
+            })
 
         self.assertEqual(response.status_code, 302)
-        fake_sheet.delete_rows.assert_called_once_with(5)
+        self.assertEqual(cleanup.call_count, 3)
+        self.assertEqual(cleanup.call_args.kwargs['group_configuration'], self.config)
         case.refresh_from_db()
         self.assertEqual(case.row_number, 5)
 

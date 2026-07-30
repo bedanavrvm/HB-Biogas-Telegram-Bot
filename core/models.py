@@ -2337,6 +2337,175 @@ class GroupSheetConfiguration(models.Model):
         return f"{label} -> {self.sheet_name}"
 
 
+class SheetRegisterContract(models.Model):
+    """Admin-owned publication contract for one Sheets operational register.
+
+    Contracts make the field-level owner explicit even though the current
+    platform deliberately supports only Django-to-Sheets publication.  They
+    are never an authorization or inbound-import mechanism.
+    """
+
+    MODE_PUBLICATION_ONLY = 'publication_only'
+    MODE_CHOICES = [(MODE_PUBLICATION_ONLY, 'Django publication only')]
+    SUBJECT_NONE = 'none'
+    SUBJECT_TAT_CASE = 'tat_tracker_case'
+    SUBJECT_CHOICES = [
+        (SUBJECT_NONE, 'No row-level subject audit'),
+        (SUBJECT_TAT_CASE, 'TAT tracker case'),
+    ]
+    OWNER_BACKEND = 'backend_owned'
+    OWNER_FORMULA = 'formula_owned'
+    OWNER_DERIVED = 'derived'
+    OWNER_IMMUTABLE = 'immutable'
+    FIELD_OWNERS = {OWNER_BACKEND, OWNER_FORMULA, OWNER_DERIVED, OWNER_IMMUTABLE}
+
+    group_configuration = models.ForeignKey(
+        GroupSheetConfiguration, on_delete=models.CASCADE, related_name='sheet_register_contracts',
+    )
+    register_key = models.CharField(max_length=80)
+    sheet_name = models.CharField(max_length=255)
+    publication_mode = models.CharField(max_length=32, choices=MODE_CHOICES, default=MODE_PUBLICATION_ONLY)
+    subject_type = models.CharField(max_length=32, choices=SUBJECT_CHOICES, default=SUBJECT_NONE)
+    header_row = models.PositiveIntegerField(default=1)
+    data_start_row = models.PositiveIntegerField(default=2)
+    row_key_header = models.CharField(max_length=255, blank=True, default='')
+    expected_headers = models.JSONField(blank=True, default=list)
+    field_ownership = models.JSONField(blank=True, default=dict)
+    enabled = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['group_configuration__group_id', 'register_key']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['group_configuration', 'register_key'],
+                name='unique_sheet_register_contract_per_group',
+            ),
+        ]
+        indexes = [models.Index(fields=['enabled', 'subject_type'])]
+        verbose_name = 'Sheet register contract'
+        verbose_name_plural = 'Sheet register contracts'
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+
+        super().clean()
+        self.register_key = str(self.register_key or '').strip()
+        self.sheet_name = str(self.sheet_name or '').strip()
+        self.row_key_header = str(self.row_key_header or '').strip()
+        headers = self.expected_headers if isinstance(self.expected_headers, list) else []
+        normalized = [' '.join(str(value or '').strip().casefold().split()) for value in headers]
+        if not self.register_key:
+            raise ValidationError({'register_key': 'Enter a stable register key.'})
+        if not self.sheet_name:
+            raise ValidationError({'sheet_name': 'Enter the configured worksheet name.'})
+        if not headers or any(not value for value in normalized):
+            raise ValidationError({'expected_headers': 'Enter the expected non-empty headers in order.'})
+        if len(set(normalized)) != len(normalized):
+            raise ValidationError({'expected_headers': 'Expected headers must be unique.'})
+        ownership = self.field_ownership if isinstance(self.field_ownership, dict) else {}
+        missing = [header for header in headers if header not in ownership]
+        if missing:
+            raise ValidationError({'field_ownership': 'Define ownership for every expected header.'})
+        invalid = []
+        for header, spec in ownership.items():
+            if not isinstance(spec, dict) or str(spec.get('owner') or '') not in self.FIELD_OWNERS:
+                invalid.append(str(header))
+        if invalid:
+            raise ValidationError({'field_ownership': 'Each field needs one supported owner: backend_owned, formula_owned, derived, or immutable.'})
+        if self.subject_type == self.SUBJECT_TAT_CASE and not self.row_key_header:
+            raise ValidationError({'row_key_header': 'TAT case audits require the immutable Case ID header.'})
+        if self.data_start_row <= self.header_row:
+            raise ValidationError({'data_start_row': 'The first data row must be below the header row.'})
+
+    def __str__(self):
+        return f'{self.group_configuration} / {self.register_key}'
+
+
+class SheetSyncAuditSnapshot(models.Model):
+    """Append-only outcome of one read-only Sheet register audit."""
+
+    STATUS_HEALTHY = 'healthy'
+    STATUS_SCHEMA_DRIFT = 'schema_drift'
+    STATUS_DIVERGENCE = 'divergence'
+    STATUS_UNAVAILABLE = 'unavailable'
+    STATUS_CHOICES = [
+        (STATUS_HEALTHY, 'Healthy'),
+        (STATUS_SCHEMA_DRIFT, 'Schema drift'),
+        (STATUS_DIVERGENCE, 'Divergence found'),
+        (STATUS_UNAVAILABLE, 'Unavailable'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    contract = models.ForeignKey(
+        SheetRegisterContract, on_delete=models.PROTECT, related_name='audit_snapshots',
+    )
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, db_index=True)
+    expected_header_fingerprint = models.CharField(max_length=64, blank=True, default='')
+    actual_header_fingerprint = models.CharField(max_length=64, blank=True, default='')
+    missing_headers = models.JSONField(blank=True, default=list)
+    duplicate_headers = models.JSONField(blank=True, default=list)
+    reordered_headers = models.BooleanField(default=False)
+    rows_checked = models.PositiveIntegerField(default=0)
+    discrepancy_count = models.PositiveIntegerField(default=0)
+    error_code = models.CharField(max_length=80, blank=True, default='')
+    error = models.TextField(blank=True, default='')
+    checked_by = models.CharField(max_length=255, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['contract', 'created_at']),
+            models.Index(fields=['status', 'created_at']),
+        ]
+        verbose_name = 'Sheet sync audit snapshot'
+        verbose_name_plural = 'Sheet sync audit snapshots'
+
+    def __str__(self):
+        return f'{self.contract.register_key}: {self.status} ({self.created_at:%d-%b-%Y %H:%M})'
+
+
+class SheetSyncDiscrepancy(models.Model):
+    """One privacy-preserving difference found by a register audit."""
+
+    KIND_MISSING_ROW = 'missing_row'
+    KIND_ORPHAN_ROW = 'orphan_row'
+    KIND_DUPLICATE_ROW_KEY = 'duplicate_row_key'
+    KIND_ROW_POINTER = 'row_pointer_mismatch'
+    KIND_FIELD_VALUE = 'field_value_mismatch'
+    KIND_CHOICES = [
+        (KIND_MISSING_ROW, 'Django record missing from Sheet'),
+        (KIND_ORPHAN_ROW, 'Sheet row has no Django record'),
+        (KIND_DUPLICATE_ROW_KEY, 'Duplicate Sheet row key'),
+        (KIND_ROW_POINTER, 'Stored row pointer mismatch'),
+        (KIND_FIELD_VALUE, 'Backend-owned field differs'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    snapshot = models.ForeignKey(SheetSyncAuditSnapshot, on_delete=models.CASCADE, related_name='discrepancies')
+    record_key = models.CharField(max_length=255, blank=True, default='', db_index=True)
+    field_name = models.CharField(max_length=255, blank=True, default='')
+    kind = models.CharField(max_length=48, choices=KIND_CHOICES, db_index=True)
+    expected_value_hash = models.CharField(max_length=64, blank=True, default='')
+    actual_value_hash = models.CharField(max_length=64, blank=True, default='')
+    detail = models.CharField(max_length=500, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['kind', 'record_key', 'field_name']
+        indexes = [
+            models.Index(fields=['snapshot', 'kind']),
+            models.Index(fields=['record_key', 'kind']),
+        ]
+        verbose_name = 'Sheet sync discrepancy'
+        verbose_name_plural = 'Sheet sync discrepancies'
+
+    def __str__(self):
+        return f'{self.kind}: {self.record_key or "register"}'
+
+
 class TatTrackerApprovalCertificate(models.Model):
     """External e-signature evidence for a completed TAT approval stage."""
 

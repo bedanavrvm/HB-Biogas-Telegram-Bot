@@ -42,6 +42,8 @@ class Command(BaseCommand):
             reports = cleanup_tat_sheet_duplicate_case_ids(
                 service._sheet,
                 group_id=group_id,
+                group_configuration=config,
+                actor='management:repair_tat_sheet_duplicates',
                 apply=options['apply'],
                 include_unlinked=options['include_unlinked'],
             )
@@ -52,6 +54,27 @@ class Command(BaseCommand):
                     f"  {report['case_id']}: keep row {report.get('surviving_row', report['keep_row'])}; "
                     f"remove {report['delete_rows']}; linked={report['linked']}"
                     f"{'; skipped (unlinked)' if report.get('skipped_unlinked') else ''}"
+                    f"{'; verification=' + report.get('verification_status', '') if options['apply'] else ''}"
+                    f"{'; republish=' + report.get('resync_status', '') if options['apply'] else ''}"
                 )
+                if (
+                    options['apply']
+                    and not report.get('skipped_unlinked')
+                    and report.get('verification_status') != 'verified'
+                ):
+                    raise CommandError(
+                        f"{product.key} {report['case_id']}: deletion was attempted but the surviving row was not verified. "
+                        'Review the Live sheet record changes audit before retrying.'
+                    )
+                if (
+                    options['apply']
+                    and not report.get('skipped_unlinked')
+                    and report.get('linked')
+                    and report.get('resync_status') != 'synced'
+                ):
+                    raise CommandError(
+                        f"{product.key} {report['case_id']}: surviving row was verified but canonical case re-publication failed. "
+                        'Review the TAT case sync error before retrying.'
+                    )
         if not total:
             self.stdout.write(f'{mode}: no duplicate TAT case IDs found.')

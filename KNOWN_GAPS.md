@@ -2,6 +2,27 @@
 
 Last reviewed: 30-July-2026
 
+## Sheet/Drive publication governance
+
+`core.0082_sheet_register_governance` is committed but is not authorised for
+production application. It adds local, publication-only Sheet contracts and
+audit evidence; it does not alter Google Sheets/Drive or re-enable inbound
+Sheet imports. Before relying on strict audit results, an authorised operator
+must review each target tab and create contracts with
+`python manage.py seed_sheet_register_contracts` (dry run) followed by the
+explicit `--apply` only after the layout is confirmed. Run
+`python manage.py audit_sheet_registers --strict` and
+`python manage.py audit_drive_permissions --strict` as supervised read-only
+checks. No scheduled audit, alert routing, automatic Drive-permission repair,
+or periodic Sheets snapshot export is introduced; those need approved
+recipients, a durable scheduler, rate-limit handling, and a retention design.
+
+The TAT duplicate repair now verifies and re-publishes each linked survivor,
+but it still deletes rows from the chosen live Sheet when `--apply` is used.
+Use a copied Sheet first and keep the resulting `LiveSheetRecordChange` audit
+evidence. A failed post-delete verification must be investigated manually; do
+not rerun a destructive cleanup blindly.
+
 ## Portal approval controls and visit evidence
 
 `core.0081_jawabuapprovalcondition_jawabuapprovaldelegation_and_more` is

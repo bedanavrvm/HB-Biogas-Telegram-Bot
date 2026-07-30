@@ -1,6 +1,6 @@
 # JBL Workflow Platform Glossary
 
-Last reviewed: 29-July-2026
+Last reviewed: 30-July-2026
 
 This is the shared vocabulary for the Portal, Complaint Cases, TAT, and SPIN
 Mini Apps.  The code catalogues remain authoritative: role validation lives in
@@ -81,6 +81,9 @@ request can be approved.
 | Customer identity resolution | Matching a Jawabu case to a canonical customer using one exact national ID, customer number, or current/historical phone. Name similarity only produces a review candidate. |
 | Data-quality issue | An active warning about a canonical Jawabu value or controlled reference value. It is resolved through an append-only staff resolution record. |
 | Field provenance | The append-only source, timestamp, actor, and before/after values for a cross-system customer field update. |
+| Sheet register contract | An Admin-managed, publication-only description of a configured Sheet tab: expected headers, row key, and backend/formula/derived/immutable ownership. It is never an inbound import permission. |
+| Sheet sync audit | A deliberate read-only comparison of a register contract to the live Sheet. It records header fingerprints and privacy-preserving discrepancies, not raw customer values. |
+| Verified TAT duplicate repair | A confirmed, destructive cleanup that re-reads the live Sheet by immutable Case ID after deletion, then re-publishes the canonical survivor. It must not be confused with a dry-run duplicate report. |
 
 Use `Pending` for work not yet decided. Do not substitute an ambiguous visual
 label such as “in review” for a server-side state.

@@ -1295,6 +1295,13 @@ def sync_case_to_sheet(group_config, case: TatTrackerCase) -> None:
         # of sheet formulas avoids delayed spreadsheet recalculation.
         headers = cached_tat_sheet_headers(group_config, product, sheet)
         validate_tracker_identity_headers(headers)
+        # A configured register contract turns schema drift into a safe,
+        # retryable sync failure before a canonical case can be written into
+        # the wrong column layout. Legacy tabs remain unchanged until an
+        # operator explicitly creates and enables their contract.
+        from core.services.sync_governance import assert_registered_schema_before_publish
+
+        assert_registered_schema_before_publish(group_config, product.sheet_name, headers)
         # The persisted row number is only a hint: staff can sort or insert
         # rows in Sheets. Resolve the immutable case ID in column A before
         # writing so a stale row number cannot overwrite another customer.
@@ -1991,16 +1998,20 @@ def cleanup_tat_sheet_duplicate_case_ids(
     sheet,
     *,
     group_id: str = '',
+    group_configuration=None,
+    actor: str = '',
     apply: bool = False,
     include_unlinked: bool = False,
     data_start_row: int = 5,
 ) -> list[dict[str, Any]]:
-    """Optionally delete duplicate sheet rows and repair Django row links.
+    """Optionally delete duplicate sheet rows and verify/re-publish survivors.
 
     ``apply=False`` is deliberately the default because deleting rows in a
     shared Google Sheet is irreversible from Django's perspective. Deletions
-    are performed bottom-up so row numbers remain stable while the operation
-    runs; the linked Django case is then pointed at the surviving row.
+    are performed bottom-up, then the live Sheet is read again by immutable
+    case ID.  Django row pointers are never derived from assumed row shifts:
+    a successful repair must prove one surviving row and re-publish the
+    canonical case through the normal safe sync path.
     """
     reports = inspect_tat_sheet_duplicate_case_ids(
         sheet, group_id=group_id, data_start_row=data_start_row,
@@ -2027,14 +2038,104 @@ def cleanup_tat_sheet_duplicate_case_ids(
     for row_number in all_delete_rows:
         sheet.delete_rows(row_number)
 
+    if not hasattr(sheet, 'get_all_values'):
+        raise RuntimeError('The configured Google Sheet adapter cannot verify rows after duplicate deletion.')
+
+    verified_rows: dict[str, list[int]] = {}
+    try:
+        post_delete_values = sheet.get_all_values()
+        for row_number, row in enumerate(post_delete_values[data_start_row - 1:], start=data_start_row):
+            case_id = str((row or [''])[0] or '').strip()
+            if case_id:
+                verified_rows.setdefault(case_id, []).append(row_number)
+    except Exception as exc:
+        logger.exception('Could not re-read TAT Sheet after duplicate-row cleanup')
+        for report in actionable:
+            report['verification_status'] = 'failed'
+            report['cleanup_error'] = 'The Sheet could not be re-read after deleting duplicate rows.'
+        raise RuntimeError('Duplicate rows were deleted but the surviving Sheet rows could not be verified.') from exc
+
+    # Callers that operate a live configured register (Admin/management
+    # command) must pass the configuration so a verified survivor is
+    # immediately re-published. Keeping this explicit prevents a low-level
+    # helper from accidentally selecting an unrelated group configuration.
+    resolved_config = group_configuration
+
+    linked_cases: dict[str, TatTrackerCase] = {}
+    if group_id:
+        linked_cases = {
+            case.case_id: case
+            for case in TatTrackerCase.objects.filter(
+                group_id=str(group_id), is_deleted=False, case_id__in=[item['case_id'] for item in actionable],
+            )
+        }
+
     for report in actionable:
-        shift = sum(1 for row_number in all_delete_rows if row_number < report['keep_row'])
-        surviving_row = report['keep_row'] - shift
-        report['surviving_row'] = surviving_row
-        if group_id:
-            TatTrackerCase.objects.filter(
-                group_id=str(group_id), case_id=report['case_id'], is_deleted=False,
-            ).update(row_number=surviving_row, updated_at=timezone.now())
+        surviving_rows = verified_rows.get(report['case_id'], [])
+        if len(surviving_rows) != 1:
+            report['verification_status'] = 'failed'
+            report['cleanup_error'] = (
+                'Expected exactly one surviving row after cleanup; '
+                f'found {len(surviving_rows)}.'
+            )
+            report['resync_status'] = 'not_attempted'
+            continue
+        report['surviving_row'] = surviving_rows[0]
+        report['verification_status'] = 'verified'
+        report['resync_status'] = 'not_applicable'
+
+        case = linked_cases.get(report['case_id'])
+        if case is not None:
+            with transaction.atomic():
+                locked_case = TatTrackerCase.objects.select_for_update().get(pk=case.pk)
+                locked_case.row_number = surviving_rows[0]
+                locked_case.sync_error = ''
+                locked_case.save(update_fields=['row_number', 'sync_error', 'updated_at'])
+            case = TatTrackerCase.objects.get(pk=case.pk)
+            linked_cases[report['case_id']] = case
+            if resolved_config is None:
+                report['resync_status'] = 'not_requested'
+            else:
+                try:
+                    sync_case_to_sheet(resolved_config, case)
+                    report['resync_status'] = 'synced'
+                except Exception:
+                    logger.exception('Could not re-publish verified TAT case %s after duplicate cleanup', case.case_id)
+                    report['resync_status'] = 'failed'
+                    report['cleanup_error'] = 'The surviving row was verified, but re-publication failed. Check the case sync error and server logs.'
+
+    # Keep a local append-only record of an external destructive operation and
+    # its verification outcome.  This intentionally records case IDs/rows and
+    # status, never the spreadsheet row's customer values.
+    try:
+        from core.models import LiveSheetRecordChange
+
+        for report in actionable:
+            failure = report.get('verification_status') != 'verified' or report.get('resync_status') == 'failed'
+            case = linked_cases.get(report['case_id'])
+            LiveSheetRecordChange.objects.create(
+                group_configuration=resolved_config,
+                group_id=str(group_id),
+                sheet_id=str(getattr(resolved_config, 'sheet_id', '') or ''),
+                sheet_tab=str(getattr(case, 'sheet_name', '') or getattr(resolved_config, 'sheet_name', '') or ''),
+                row_number=int(report.get('surviving_row') or report.get('keep_row') or data_start_row),
+                record_key=report['case_id'],
+                action='delete',
+                changed_by=str(actor or ''),
+                changes={
+                    'operation': 'tat_duplicate_row_cleanup',
+                    'removed_rows': report['delete_rows'],
+                    'surviving_row': report.get('surviving_row'),
+                    'verification_status': report.get('verification_status', ''),
+                    'resync_status': report.get('resync_status', ''),
+                },
+                status='failed' if failure else 'success',
+                error=str(report.get('cleanup_error') or ''),
+            )
+    except Exception:
+        # A failed audit write must not incorrectly turn a verified external
+        # repair into a failed repair. It remains visible in server logs.
+        logger.exception('Could not write duplicate-row cleanup audit evidence')
     return reports
 
 

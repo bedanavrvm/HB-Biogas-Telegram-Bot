@@ -6,6 +6,23 @@ approved action.
 
 ## Unreleased — 30-July-2026
 
+- Sheets/Drive integration governance: Admin-managed publication contracts now
+  define per-register header/field ownership, while explicit read-only audits
+  record schema drift, row-pointer/value divergence, and media-root sharing
+  posture without copying raw customer values. TAT duplicate-row cleanup now
+  proves the surviving immutable Case ID after deletion and re-publishes the
+  canonical case before it reports success; failed verification or re-publish
+  is retained as failed local audit evidence.
+
+Migration `core.0082_sheet_register_governance` adds the local contract and
+audit evidence schema only. It has **not** been applied to production by this
+change. To undo after an approved migration, export required audit evidence,
+then run:
+
+```powershell
+python manage.py migrate core 0081_jawabuapprovalcondition_jawabuapprovaldelegation_and_more
+```
+
 - Portal approval and media integrity: credit, final-review, and payment-review
   decisions are now append-only, reason-coded approval records with 90-day
   validity, condition clearing, material-change invalidation, scoped temporary
