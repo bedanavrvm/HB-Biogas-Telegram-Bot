@@ -84,6 +84,12 @@
     settings: null,
   };
 
+  // Workspace shortcuts are deliberately dormant during the production Portal
+  // rollout.  This client-side gate also protects an already-open, cached
+  // Portal page after the template controls have been removed.  It is not an
+  // authorization decision: the retained API remains server-side IT-gated.
+  const PORTAL_WORKSPACE_UI_ENABLED = false;
+
   // Helpers
   function el(id) { return document.getElementById(id); }
 
@@ -91,11 +97,11 @@
     return !capability || state.capabilities.has(capability);
   }
 
-  // Private workspace shortcuts are intentionally paused for operational
-  // staff.  They remain available only to the scoped IT support role so the
-  // existing data can be inspected without widening the feature rollout.
+  // The workspace feature can only return through an approved rollout.  Keep
+  // its existing server-side capability check so re-enabling the UI never
+  // broadens access by accident.
   function canManagePortalWorkspace() {
-    return hasCapability('portal.workspace.manage');
+    return PORTAL_WORKSPACE_UI_ENABLED && hasCapability('portal.workspace.manage');
   }
 
   function applyWorkspaceVisibility() {
@@ -1516,6 +1522,16 @@
   }
 
   document.addEventListener('click', event => {
+    const dormantWorkspaceControl = event.target.closest(
+      '[data-portal-workspace], .workspace-manage, .workspace-clear-recents, '
+      + '.workspace-open-case, .workspace-toggle-pin, .workspace-open-view, '
+      + '.workspace-set-startup, .workspace-edit-view, .workspace-cancel-edit, '
+      + '.workspace-delete-view'
+    );
+    if (dormantWorkspaceControl && !PORTAL_WORKSPACE_UI_ENABLED) {
+      event.preventDefault();
+      return;
+    }
     const manageWorkspaceButton = event.target.closest('.workspace-manage');
     if (manageWorkspaceButton) {
       event.preventDefault();
@@ -1778,6 +1794,13 @@
   });
 
   document.addEventListener('submit', event => {
+    if (!PORTAL_WORKSPACE_UI_ENABLED && (
+      event.target.matches('.portal-workspace-edit-form')
+      || event.target.matches('#portal-workspace-save-view-form')
+    )) {
+      event.preventDefault();
+      return;
+    }
     if (event.target.matches('.portal-workspace-edit-form')) {
       event.preventDefault();
       const form = event.target;

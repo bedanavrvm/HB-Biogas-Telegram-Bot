@@ -88,19 +88,6 @@
       <span class="queue-card-action">Browse all <i data-lucide="arrow-up-right"></i></span>
     </button>
 
-    <section id="portal-workspace-dashboard" class="portal-workspace-dashboard" data-portal-workspace hidden aria-live="polite">
-      <div class="portal-workspace-heading">
-        <div><h2>My workspace</h2><p>Private shortcuts based on your current Portal access.</p></div>
-        <button type="button" class="btn btn-secondary workspace-manage">Manage</button>
-      </div>
-      <div id="portal-workspace-summary" class="portal-workspace-summary"></div>
-      <div class="portal-workspace-columns">
-        <section><h3>Pinned cases</h3><div id="portal-workspace-pins" class="portal-workspace-case-list"></div></section>
-        <section><div class="portal-workspace-subheading"><h3>Recently opened</h3><button type="button" class="workspace-clear-recents">Clear</button></div><div id="portal-workspace-recents" class="portal-workspace-case-list"></div></section>
-      </div>
-      <div id="portal-workspace-dashboard-views" class="portal-workspace-view-list"></div>
-    </section>
-
     <section class="portal-stage-summary" aria-labelledby="workflow-stages-title">
       <div class="stage-summary-heading">
         <h2 id="workflow-stages-title">Workflow path</h2>
@@ -379,15 +366,6 @@
       </div>
       <div class="form-actions"><button id="portal-save-personal-settings" class="btn btn-primary" type="submit">Save my settings</button><button id="portal-clear-personal-settings" class="btn btn-secondary" type="button">Clear defaults</button></div>
     </form>
-    <section class="portal-settings-card portal-workspace-settings" data-portal-workspace hidden>
-      <div class="portal-settings-heading"><h2>Saved views</h2><p>Save the queue, filters, and ordering currently on your screen. Views stay private to you.</p></div>
-      <form id="portal-workspace-save-view-form" class="portal-workspace-save-form">
-        <label for="portal-workspace-view-name">View name<input id="portal-workspace-view-name" maxlength="60" required placeholder="For example: Embu payment review"></label>
-        <label for="portal-workspace-view-order">Order<select id="portal-workspace-view-order"><option value="queue_default">Queue default</option><option value="newest">Newest first</option></select></label>
-        <button id="portal-workspace-save-view" class="btn btn-primary" type="submit">Save current view</button>
-      </form>
-      <div id="portal-workspace-saved-views" class="portal-workspace-view-list" aria-live="polite"></div>
-    </section>
     <div id="portal-settings-operations" class="portal-settings-operations" aria-live="polite"></div>
     <section class="portal-settings-card portal-settings-about">
       <div class="portal-settings-heading"><span class="settings-eyebrow">ABOUT &amp; SUPPORT</span><h2>Portal access</h2><p>Sign-in is verified through Telegram. Security, assignment, approval, and overdue alerts remain mandatory.</p></div>

@@ -10,14 +10,15 @@
   remain unaffected.
 - Portal health and temporary delegation, and TAT's maker-checker configuration
   cards, remain visible only to their existing authorised roles. Private Portal
-  workspace controls remain IT-only and paused for operational staff.
+  workspace controls remain dormant while the private-workspace rollout is on
+  hold.
 
 ## Portal workspace hold - 31-July-2026
 
 - Private Portal saved views, pins, recents, and automatic case-open tracking
-  are paused for operational staff. They remain available only to an explicit,
-  scoped Portal `IT` AccessGrant with the approved `portal.workspace.manage`
-  capability; direct API calls are denied for every other role.
+  are not rendered in the Portal Mini App for any role, including IT. Existing
+  backend records and IT-guarded endpoints remain dormant for a future
+  approved rollout; no workspace data was deleted.
 - `IT` is now a controlled role choice in Portal, Complaint Cases, TAT, and
   SPIN. Django `is_staff` and `is_superuser` remain unrelated to Mini App
   access, and no additional operational write access was granted.

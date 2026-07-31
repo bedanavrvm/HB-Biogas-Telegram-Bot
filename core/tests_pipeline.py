@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, timedelta
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
@@ -461,6 +462,16 @@ class JblPipelineServiceTestCase(TestCase):
 
 
 class PortalMiniAppAuthTestCase(TestCase):
+    def test_portal_workspace_controls_are_not_rendered_while_feature_is_on_hold(self):
+        template = Path(__file__).resolve().parent / 'templates' / 'portal' / 'portal.html'
+        source = template.read_text(encoding='utf-8')
+        script = (Path(__file__).resolve().parent / 'static' / 'miniapp' / 'portal.js').read_text(encoding='utf-8')
+
+        self.assertNotIn('portal-workspace-dashboard', source)
+        self.assertNotIn('portal-workspace-save-view-form', source)
+        self.assertNotIn('Saved views', source)
+        self.assertIn('const PORTAL_WORKSPACE_UI_ENABLED = false;', script)
+
     def grant_portal_access(self, role='JBL_OFFICER', branches=None):
         user = get_user_model().objects.create_user(
             username=f'portal-{role.lower()}', first_name='Portal', last_name='User', is_active=True,

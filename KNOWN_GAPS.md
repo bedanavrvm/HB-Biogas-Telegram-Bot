@@ -42,16 +42,17 @@ then run `python manage.py migrate core 0089_portalcaseworkspace_portalsavedview
 
 `core.0091_pause_portal_workspace_to_it` is accepted for code merge and
 local/staging validation only. It preserves existing private saved views, pins,
-and recents, but exposes them only to a user with an explicit scoped Portal
-`IT` AccessGrant and the `portal.workspace.manage` capability. It increments
-the policy version when it creates policy rows, forcing connected Mini Apps to
-refresh permissions on their next metadata poll. It does not alter customer
-cases, financial values, Drive/Sheets, or workspace records.
+and recents. The Portal Mini App does not render any workspace control for any
+role, including IT. The retained endpoint remains IT-gated only for controlled
+technical validation; it is not a staff-facing feature. The migration
+increments the policy version when it creates policy rows, forcing connected
+Mini Apps to refresh permissions on their next metadata poll. It does not
+alter customer cases, financial values, Drive/Sheets, or workspace records.
 
-Do not roll back application code to re-open this feature. To re-enable it for
-another role, submit a reasoned capability-matrix request and obtain its
-independent approval. The migration's reverse is intentionally a no-op so
-policy and compliance evidence remain retained.
+Do not roll back application code to re-open this feature. A future UI
+re-enable requires an explicitly approved rollout and the existing capability
+review; it must preserve the IT server-side gate. The migration's reverse is
+intentionally a no-op so policy and compliance evidence remain retained.
 
 ## Portal workspace migration and retention
 
