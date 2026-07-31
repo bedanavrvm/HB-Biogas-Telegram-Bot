@@ -65,8 +65,19 @@ def mark_drive_success(
     record.save(update_fields=sorted(fields))
 
 
-def retry_requisition_batch_upload(batch, *, actor: str = '') -> dict:
-    """Retry a stored requisition workbook without regenerating business data."""
+def retry_requisition_batch_upload(
+    batch,
+    *,
+    actor: str = '',
+    attempt_budget: int | None = None,
+    preserve_filename: bool = False,
+) -> dict:
+    """Publish a stored requisition workbook without regenerating business data.
+
+    ``preserve_filename`` is used for the first automatic publication attempt.
+    An explicit operator retry keeps the established versioned retry filename so
+    Drive history remains easy to audit.
+    """
     if not getattr(batch, 'file_content', b''):
         return {'ok': False, 'error': 'The requisition workbook is not available for retry.'}
 
@@ -75,7 +86,9 @@ def retry_requisition_batch_upload(batch, *, actor: str = '') -> dict:
     mark_drive_attempt(batch)
     attempt = int(getattr(batch, 'drive_sync_attempts', 0) or 0)
     original_name = str(getattr(batch, 'filename', '') or f'JBL_Requisition_Form_{batch.order_number}.xlsx')
-    if original_name.lower().endswith('.xlsx'):
+    if preserve_filename:
+        retry_filename = original_name
+    elif original_name.lower().endswith('.xlsx'):
         retry_filename = f'{original_name[:-5]}_retry{attempt}.xlsx'
     else:
         retry_filename = f'{original_name}_retry{attempt}.xlsx'
@@ -90,6 +103,7 @@ def retry_requisition_batch_upload(batch, *, actor: str = '') -> dict:
             workflow_key='Jawabu/Requisitions',
             record_type='Order',
             record_key=batch.order_number,
+            attempt_budget=attempt_budget,
         )
     except Exception as exc:
         mark_drive_failure(batch, 'Drive upload failed; retry required.', error_field='drive_upload_error')

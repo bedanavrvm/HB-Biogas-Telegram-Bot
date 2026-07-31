@@ -214,9 +214,8 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(card['sign_date'], '15-May-2026')
         self.assertEqual(card['hbg_visit_date'], '2026-05-15')
 
-    @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
-    @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
-    def test_log_jbl_visit(self, mock_order_sync, mock_sync):
+    @patch('core.services.portal_publication.reserve_farmer_publication')
+    def test_log_jbl_visit(self, mock_reserve_publication):
         """Verify Advance from Stage 1 to Stage 2."""
         ok, error = log_jbl_visit(
             self.farmer_stage1,
@@ -237,8 +236,7 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(self.farmer_stage1.county, 'Muranga')
         self.assertEqual(self.farmer_stage1.sub_county, 'Kandara')
         self.assertEqual(self.farmer_stage1.village, 'Gakira')
-        mock_sync.assert_called_once_with(self.farmer_stage1)
-        mock_order_sync.assert_called_once_with(self.farmer_stage1)
+        mock_reserve_publication.assert_called_once()
 
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
     @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
@@ -425,9 +423,8 @@ class JblPipelineServiceTestCase(TestCase):
         attachment.refresh_from_db()
         self.assertEqual(attachment.jawabu_farmer_id, self.farmer_stage1.id)
 
-    @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
-    @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
-    def test_set_credit_decision(self, mock_sync, mock_order_sync):
+    @patch('core.services.portal_publication.reserve_farmer_publication')
+    def test_set_credit_decision(self, mock_reserve_publication):
         """Verify credit decision update and notification trigger."""
         ok, error = set_credit_decision(
             self.farmer_stage2,
@@ -441,8 +438,7 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(self.farmer_stage2.imab_created, 'Yes')
         self.assertEqual(self.farmer_stage2.customer_no, '15121')
         self.assertEqual(self.farmer_stage2.credit_decided_by, 'analyst_1')
-        mock_sync.assert_called_once_with(self.farmer_stage2)
-        mock_order_sync.assert_called_once_with(self.farmer_stage2)
+        mock_reserve_publication.assert_called_once()
 
     @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
@@ -480,10 +476,9 @@ class JblPipelineServiceTestCase(TestCase):
         mock_sync.assert_not_called()
         mock_order_sync.assert_not_called()
 
-    @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
-    @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
     @patch('core.services.jawabu_pipeline._notify_final_approved')
-    def test_set_final_decision(self, mock_notify, mock_sync, mock_order_sync):
+    @patch('core.services.portal_publication.reserve_farmer_publication')
+    def test_set_final_decision(self, mock_reserve_publication, mock_notify):
         """Verify Head of Rural final decision update and notification trigger."""
         ok, error = set_final_decision(
             self.farmer_stage_review,
@@ -500,8 +495,7 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(self.farmer_stage_review.repayment_date, '10TH')
         self.assertEqual(self.farmer_stage_review.repayment_tenor, '6 months')
         self.assertEqual(self.farmer_stage_review.final_decided_by, 'head_rural')
-        mock_sync.assert_called_once_with(self.farmer_stage_review)
-        mock_order_sync.assert_called_once_with(self.farmer_stage_review)
+        mock_reserve_publication.assert_called_once()
         mock_notify.assert_called_once_with(self.farmer_stage_review)
 
     def test_assign_order_gate_enforcement(self):
@@ -533,9 +527,8 @@ class JblPipelineServiceTestCase(TestCase):
         candidate.refresh_from_db()
         self.assertEqual(candidate.order_number, '')
 
-    @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
-    @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
-    def test_credit_transition_rejects_stale_revision_after_a_successful_write(self, mock_sync, mock_order_sync):
+    @patch('core.services.portal_publication.reserve_farmer_publication')
+    def test_credit_transition_rejects_stale_revision_after_a_successful_write(self, mock_reserve_publication):
         expected_revision = self.farmer_stage2.workflow_revision
 
         ok, error = set_credit_decision(
@@ -566,12 +559,10 @@ class JblPipelineServiceTestCase(TestCase):
                 request_id='credit-revision-stale',
                 expected_revision=expected_revision,
             )
-        self.assertEqual(mock_sync.call_count, 1)
-        self.assertEqual(mock_order_sync.call_count, 1)
+        self.assertEqual(mock_reserve_publication.call_count, 1)
 
-    @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
-    @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
-    def test_final_review_can_return_a_case_to_credit_with_a_reason(self, mock_sync, mock_order_sync):
+    @patch('core.services.portal_publication.reserve_farmer_publication')
+    def test_final_review_can_return_a_case_to_credit_with_a_reason(self, mock_reserve_publication):
         ok, error = return_for_rework(
             self.farmer_stage_review,
             target_state='credit',
@@ -587,8 +578,7 @@ class JblPipelineServiceTestCase(TestCase):
         event = self.farmer_stage_review.pipeline_events.get(request_id='return-credit-1')
         self.assertEqual(event.transition_code, 'jawabu.final_review.return_to_credit')
         self.assertEqual(event.reason, 'Recheck affordability against the corrected income evidence.')
-        self.assertEqual(mock_sync.call_count, 1)
-        self.assertEqual(mock_order_sync.call_count, 1)
+        self.assertEqual(mock_reserve_publication.call_count, 1)
 
     def test_rework_route_cannot_skip_credit_back_to_jbl_visit(self):
         ok, error = return_for_rework(
@@ -2043,11 +2033,9 @@ class JblPipelineApiTestCase(TestCase):
         self.assertIsNone(new_farmer.requisition_date)
 
     @patch('core.services.requisition.generate_requisition_excel', return_value=b'xlsx-bytes')
-    @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
-    @patch('core.services.order_approval.GoogleDriveMediaStorage')
-    def test_portal_requisition_generate_success(self, mock_storage, mock_sync, mock_generate):
-        """Verify requisition generation view succeeds and downloads Excel file."""
-        mock_storage.return_value.upload.return_value = ('drive-xlsx', 'https://drive.test/requisition')
+    @patch('core.services.portal_publication.reserve_farmer_publication', return_value=[])
+    def test_portal_requisition_generate_success(self, mock_reserve_publication, mock_generate):
+        """Generation commits locally; external publication is a later retry."""
         self.farmer.final_decision = 'Approved'
         self.farmer.imab_created = 'Yes'
         self.farmer.customer_no = '15124'
@@ -2068,6 +2056,7 @@ class JblPipelineApiTestCase(TestCase):
             'order_number': 'REQ-BATCH-99',
             'requisition_date': '2026-07-06',
             'return_url': True,
+            'client_request_id': 'requisition-generation-test-001',
         }
         url = reverse('portal_requisition_generate')
         response = self.client.post(url, json.dumps(payload), content_type='application/json')
@@ -2075,11 +2064,16 @@ class JblPipelineApiTestCase(TestCase):
         data = response.json()
         self.assertTrue(data['ok'])
         self.assertEqual(data['filename'], 'JBL_Requisition_Form_REQ-BATCH-99_v1.xlsx')
-        self.assertEqual(data['drive_url'], 'https://drive.test/requisition')
+        self.assertEqual(data['drive_url'], '')
+        self.assertTrue(data['drive_sync_pending'])
         self.assertEqual(data['batch']['invoice_summary']['last_invoice_upload_status'], 'success')
         self.assertEqual(data['batch']['invoice_summary']['invoice_batch_id'], 'upload-001')
         self.assertIn('/api/portal/requisition-download/', data['download_url'])
-        self.assertTrue(RequisitionBatch.objects.filter(order_number='REQ-BATCH-99', drive_file_id='drive-xlsx').exists())
+        self.assertTrue(RequisitionBatch.objects.filter(
+            order_number='REQ-BATCH-99',
+            generation_request_id='requisition-generation-test-001',
+            drive_upload_error='Drive synchronization pending.',
+        ).exists())
 
         download_response = self.client.get(data['download_url'])
         self.assertEqual(download_response.status_code, 200)
@@ -2092,15 +2086,16 @@ class JblPipelineApiTestCase(TestCase):
         second_response = self.client.post(url, json.dumps(payload), content_type='application/json')
         self.assertEqual(second_response.status_code, 200)
         second_data = second_response.json()
-        self.assertEqual(second_data['filename'], 'JBL_Requisition_Form_REQ-BATCH-99_v2.xlsx')
+        self.assertTrue(second_data['idempotent_replay'])
+        self.assertEqual(second_data['filename'], 'JBL_Requisition_Form_REQ-BATCH-99_v1.xlsx')
         latest_batch = RequisitionBatch.objects.get(order_number='REQ-BATCH-99')
-        self.assertEqual(latest_batch.version, 2)
+        self.assertEqual(latest_batch.version, 1)
 
         self.farmer.refresh_from_db()
         self.assertEqual(self.farmer.order_number, 'REQ-BATCH-99')
         self.assertEqual(self.farmer.requisition_date, date(2026, 7, 6))
-        mock_sync.assert_called_once_with(self.farmer)
-        self.assertEqual(mock_generate.call_count, 2)
+        mock_reserve_publication.assert_called_once()
+        self.assertEqual(mock_generate.call_count, 1)
 
     @patch('core.services.requisition.generate_requisition_excel', return_value=b'preview-xlsx')
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
@@ -2147,8 +2142,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(mock_generate.call_count, 2)
 
     @patch('core.services.requisition.generate_requisition_excel', return_value=b'new-xlsx')
-    @patch('core.services.order_approval.GoogleDriveMediaStorage')
-    def test_requisition_generation_failure_preserves_last_successful_drive_link(self, mock_storage, mock_generate):
+    def test_requisition_generation_keeps_local_workbook_when_drive_publication_is_pending(self, mock_generate):
         self.farmer.final_decision = 'Approved'
         self.farmer.imab_created = 'Yes'
         self.farmer.customer_no = '15124'
@@ -2164,8 +2158,6 @@ class JblPipelineApiTestCase(TestCase):
             farmer_ids=[str(self.farmer.id)],
             farmer_count=1,
         )
-        mock_storage.return_value.upload.side_effect = RuntimeError('Drive unavailable')
-
         response = self.client.post(
             reverse('portal_requisition_generate'),
             json.dumps({
@@ -2178,11 +2170,13 @@ class JblPipelineApiTestCase(TestCase):
             content_type='application/json',
         )
 
-        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['drive_sync_pending'])
         batch = RequisitionBatch.objects.get(order_number='REQ-RETRY-1')
         self.assertEqual(batch.drive_file_id, 'previous-drive-id')
         self.assertEqual(batch.drive_url, 'https://drive.test/previous-order')
-        self.assertEqual(batch.drive_upload_error, 'Drive upload failed; retry required.')
+        self.assertEqual(batch.file_content, b'new-xlsx')
+        self.assertEqual(batch.drive_upload_error, 'Drive synchronization pending.')
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_requisition_batch_retry_uploads_stored_workbook(self, mock_storage):
@@ -2478,8 +2472,8 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(batch.last_invoice_result['invoice_batch_status'], 'awaiting_confirmation')
 
     @patch('core.services.invoice_parser.PdfReader')
-    @patch('core.services.sheets.GoogleSheetsService.get_instance')
-    def test_invoice_matching_updates_farmer_and_syncs(self, mock_get_sheets, mock_pdf_reader):
+    @patch('core.services.invoice_parser.reserve_farmer_publication')
+    def test_invoice_matching_updates_farmer_and_reserves_register_publication(self, mock_reserve_publication, mock_pdf_reader):
         from decimal import Decimal
         from core.services.invoice_parser import match_and_update_invoices
         from core.tests import FakeMasterDataSheet, FakeJawabuService
@@ -2489,7 +2483,6 @@ class JblPipelineApiTestCase(TestCase):
         fake_sheet = FakeMasterDataSheet(headers, [
             '1', 'DAVID MUGAMBI', '23215888', '254712345678', '', '', '', '', '', ''
         ])
-        mock_get_sheets.return_value = FakeJawabuService(fake_sheet)
 
         # Create standard test config for GroupSheetConfiguration
         config = GroupSheetConfiguration.objects.create(
@@ -2570,14 +2563,9 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(farmer.deposit_paid_hbg, Decimal('10000.00'))
         self.assertEqual(farmer.balance_due, Decimal('74900.00'))
 
-        # Check Google Sheets updates
-        row = fake_sheet.values[4]
-        self.assertEqual(row[4], 'INV-2026-999')
-        self.assertEqual(row[5], '15-June-2026')
-        self.assertEqual(row[6], 89900)
-        self.assertEqual(row[7], 5000)
-        self.assertEqual(row[8], 10000)
-        self.assertEqual(row[9], 74900)
+        # The invoice transaction is canonical locally.  Google Sheets is a
+        # separately retried operational register publication.
+        mock_reserve_publication.assert_called_once()
 
     @patch('core.services.invoice_parser.PdfReader')
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
@@ -2736,7 +2724,8 @@ class JblPipelineApiTestCase(TestCase):
 
     @patch('core.services.invoice_parser.PdfReader')
     @patch('core.services.sheets.GoogleSheetsService.get_instance')
-    def test_invoice_sheet_sync_failure_fails_upload_and_rolls_back_db(self, mock_get_sheets, mock_pdf_reader):
+    def test_invoice_register_failure_does_not_roll_back_canonical_invoice(self, mock_get_sheets, mock_pdf_reader):
+        from decimal import Decimal
         from core.services.invoice_parser import match_and_update_invoices
         from core.tests import FakeMasterDataSheet, FakeJawabuService
 
@@ -2790,14 +2779,13 @@ class JblPipelineApiTestCase(TestCase):
 
         res = match_and_update_invoices('076', b'dummy')
 
-        self.assertFalse(res['ok'], msg=str(res))
-        self.assertEqual(res['matched_count'], 0)
-        self.assertEqual(res['results'][0]['status'], 'Sync failed')
-        self.assertIn('Google Sheet sync failed', res['error'])
+        self.assertTrue(res['ok'], msg=str(res))
+        self.assertEqual(res['matched_count'], 1)
+        self.assertEqual(res['results'][0]['status'], 'Matched')
         farmer.refresh_from_db()
-        self.assertEqual(farmer.invoice_number, '')
-        self.assertIsNone(farmer.invoice_date)
-        self.assertIsNone(farmer.invoice_amount)
+        self.assertEqual(farmer.invoice_number, '9505')
+        self.assertEqual(farmer.invoice_date, date(2026, 3, 16))
+        self.assertEqual(farmer.invoice_amount, Decimal('51000.00'))
 
     @patch('core.services.invoice_parser.PdfReader')
     def test_invoice_unmatched_reports_possible_match_outside_selected_order(self, mock_pdf_reader):
@@ -2966,8 +2954,8 @@ class JawabuIntegrityRulesTests(TestCase):
         self.assertFalse(is_reappraisal_required(farmer, today=timezone.localdate()))
         self.assertTrue(is_reappraisal_required(farmer, today=farmer.deferred_until))
 
-    @patch('core.services.invoice_parser.sync_farmer_to_master_sheet', return_value=True)
-    def test_invoice_batch_does_not_update_farmer_until_whole_batch_confirmed(self, _sync):
+    @patch('core.services.invoice_parser.reserve_farmer_publication', return_value=[])
+    def test_invoice_batch_does_not_update_farmer_until_whole_batch_confirmed(self, _publication):
         from core.services.invoice_parser import confirm_invoice_batch
 
         farmer = JawabuFarmerMaster.objects.create(
@@ -2995,7 +2983,7 @@ class JawabuIntegrityRulesTests(TestCase):
         batch.refresh_from_db()
         self.assertEqual(farmer.invoice_number, 'INV-1')
         self.assertEqual(batch.status, 'matched')
-        self.assertEqual(batch.sync_status, 'success')
+        self.assertEqual(batch.sync_status, 'pending')
 
 
 class JawabuCase360Tests(TestCase):

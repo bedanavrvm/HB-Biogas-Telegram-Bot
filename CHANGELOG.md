@@ -1,5 +1,21 @@
 # Changelog
 
+## Portal durable register publication - 31-July-2026
+
+- Portal case changes now commit to Django before any Google Sheet publication.
+  The Mini App makes one short, authenticated follow-up attempt per register;
+  pending or failed work remains durable and visible instead of holding the
+  free Render web worker through a full Sheets/Drive round trip.
+- Requisition generation now saves the workbook locally and returns its
+  protected download immediately. Drive publication is retried separately and
+  exposes pending/failed status on the batch, while the same retry key safely
+  replays the committed generation instead of creating a second version.
+
+  Migration note: `core.0093_requisition_publication_retry_key` is code/local
+  validation only until a separately approved production release. To undo it
+  before dependent production data exists: `python manage.py migrate core
+  0092_portal_maintenance_state`.
+
 ## Portal Mini App navigation safety - 31-July-2026
 
 - Telegram Back now stays within the Portal. A cold/direct case screen with no

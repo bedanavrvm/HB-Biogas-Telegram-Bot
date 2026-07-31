@@ -1,5 +1,15 @@
 # Known Gaps and Verified Workarounds
 
+## Free Render publication reliability
+
+The free Render service has no durable worker process. Portal writes therefore
+do not wait for Google Sheets or Drive before committing canonical Django
+state. A still-open Mini App performs one bounded follow-up publication
+attempt; pending work is retained in `IntegrationOperation` or the document
+sync fields and resumes on a later relevant Portal visit. This is durable but
+not a replacement for a dedicated worker: a Render background worker remains
+the recommended future upgrade for guaranteed scheduled retries and alerting.
+
 ## JBL visit evidence after a Telegram/WebView return
 
 Portal restores the current JBL visit's text, date, location and GPS-fallback

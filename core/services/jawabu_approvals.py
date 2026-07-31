@@ -429,12 +429,16 @@ def clear_condition(*, condition_id, actor, access: dict | None, note: str = '')
             revision_before=revision_before,
             revision_after=revision_after,
         )
-        from core.services.jawabu_pipeline import (
-            sync_farmer_to_internal_order_sheet,
-            sync_farmer_to_master_sheet,
+        # Approval clearance is committed with its audit event.  Publication
+        # is intentionally durable and request-assisted so a degraded Google
+        # register cannot hold this Portal transaction open.
+        from core.services.portal_publication import reserve_farmer_publication
+        reserve_farmer_publication(
+            farmer,
+            request_id=f'approval-conditions-cleared:{approval.id}:{farmer.id}',
+            requested_by=actor,
+            requested_by_label=getattr(actor, 'username', '') or str(actor or ''),
         )
-        sync_farmer_to_master_sheet(farmer)
-        sync_farmer_to_internal_order_sheet(farmer)
     return condition
 
 

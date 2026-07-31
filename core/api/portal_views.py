@@ -156,6 +156,17 @@ def _portal_payload_for_request_identity(request) -> dict:
     return {}
 
 
+def _portal_request_data(request) -> dict:
+    """Return one normalized Portal payload without mixing POST and body reads.
+
+    Cached Mini Apps still submit form data while current follow-up requests
+    submit JSON.  Reusing the identity parser keeps Django from raising
+    ``RawPostDataException`` when middleware/authentication already parsed a
+    form request before the view examines it.
+    """
+    return _portal_payload_for_request_identity(request)
+
+
 def _portal_sender_from_request(request) -> str:
     """Extract a human-readable sender label from validated Telegram initData."""
     payload = getattr(request, 'portal_auth_payload', None)
@@ -1862,6 +1873,7 @@ def portal_meta(request):
         'capabilities': _portal_capabilities(request),
         'access_policy_version': policy_version(),
         'jbl_visit_media_max_bytes': int(getattr(settings, 'MEDIA_MAX_FILE_SIZE_MB', 20) or 20) * 1024 * 1024,
+        'due_publication_operation_ids': _portal_due_publication_ids(request),
     })
 
 
@@ -2020,6 +2032,61 @@ def portal_set_maintenance(request):
     })
 
 
+def _portal_publication_payload(farmer) -> dict:
+    """Expose publication state without making a Google request while rendering."""
+    from core.services.portal_publication import publication_payload
+
+    return publication_payload(farmer)
+
+
+def _portal_publications_payload(farmers) -> list[dict]:
+    """Return current publication work for the bounded changed-case set."""
+    seen = set()
+    payloads = []
+    for farmer in farmers:
+        farmer_id = str(getattr(farmer, 'pk', '') or '')
+        if not farmer_id or farmer_id in seen:
+            continue
+        seen.add(farmer_id)
+        payloads.append(_portal_publication_payload(farmer))
+    return payloads
+
+
+def _portal_due_publication_ids(request, *, limit: int = 8) -> list[str]:
+    """Return only due register work the current actor may already view."""
+    from django.db.models import Q
+    from core.models import IntegrationOperation, JawabuFarmerMaster
+    from core.services.portal_publication import SOURCE_MODEL
+
+    candidate_operations = list(
+        IntegrationOperation.objects.filter(
+            source_model=SOURCE_MODEL,
+            status__in=[
+                IntegrationOperation.STATUS_PENDING,
+                IntegrationOperation.STATUS_RETRYABLE,
+            ],
+        ).filter(
+            Q(next_retry_at__isnull=True) | Q(next_retry_at__lte=timezone.now())
+        ).order_by('created_at')[: max(1, int(limit) * 4)]
+    )
+    if not candidate_operations:
+        return []
+    permitted_ids = {
+        str(value)
+        for value in _apply_county_branch_filters(
+            JawabuFarmerMaster.objects.filter(
+                pk__in=[operation.source_id for operation in candidate_operations],
+            ),
+            request,
+        ).values_list('pk', flat=True)
+    }
+    return [
+        str(operation.pk)
+        for operation in candidate_operations
+        if str(operation.source_id) in permitted_ids
+    ][:limit]
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def portal_log_jbl_visit(request, farmer_id: str):
@@ -2103,7 +2170,71 @@ def portal_complete_jbl_visit(request, farmer_id: str):
     if not ok:
         return JsonResponse({'ok': False, 'error': error, **result}, status=409 if result.get('evidence_saved') else 400)
     farmer.refresh_from_db()
-    return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer), **result})
+    return JsonResponse({
+        'ok': True,
+        'farmer': farmer_to_card(farmer),
+        'publication': _portal_publication_payload(farmer),
+        **result,
+    })
+
+
+# ── Durable external publication ────────────────────────────────────────────
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_publication_attempt(request):
+    """Run one bounded, authorized Google-register publication attempt.
+
+    This endpoint is called automatically by the Mini App after a local Portal
+    write.  It never changes the canonical case data and never retries inside
+    the same HTTP request, preventing degraded Google services from starving
+    Gunicorn workers on the free Render service.
+    """
+    from core.models import IntegrationOperation, JawabuFarmerMaster
+    from core.services.portal_publication import SOURCE_MODEL, attempt_publication, publication_payload
+
+    body = _portal_request_data(request)
+    operation_id = str((body or {}).get('operation_id') or '').strip()
+    if not operation_id:
+        return JsonResponse({'ok': False, 'error': 'operation_id is required.'}, status=400)
+    try:
+        operation = IntegrationOperation.objects.get(pk=operation_id, source_model=SOURCE_MODEL)
+    except (IntegrationOperation.DoesNotExist, ValueError):
+        return JsonResponse({'ok': False, 'error': 'Publication operation was not found.'}, status=404)
+    farmer = JawabuFarmerMaster.objects.filter(pk=operation.source_id).first()
+    if farmer is None:
+        return JsonResponse({'ok': False, 'error': 'The related case is no longer available.'}, status=404)
+    access_error = _portal_farmers_scope_error(request, [farmer])
+    if access_error:
+        return access_error
+    automatic = bool((body or {}).get('automatic'))
+    if automatic and operation.next_retry_at and operation.next_retry_at > timezone.now():
+        return JsonResponse({
+            'ok': True,
+            'operation_id': str(operation.pk),
+            'publication': publication_payload(farmer),
+            'retryable': True,
+        }, status=202)
+
+    try:
+        result = attempt_publication(operation)
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    operation.refresh_from_db()
+    farmer.refresh_from_db()
+    payload = publication_payload(farmer)
+    return JsonResponse({
+        'ok': True,
+        'operation_id': str(operation.pk),
+        'publication': payload,
+        'retryable': operation.status == IntegrationOperation.STATUS_RETRYABLE,
+        'needs_attention': operation.status == IntegrationOperation.STATUS_DEAD_LETTER,
+        'superseded': bool(result.get('superseded')),
+    }, status=202 if operation.status in {
+        IntegrationOperation.STATUS_PENDING,
+        IntegrationOperation.STATUS_RUNNING,
+        IntegrationOperation.STATUS_RETRYABLE,
+    } else 200)
 
 
 # ── Stage 3: Credit Decision queue ───────────────────────────────────────────
@@ -2485,7 +2616,11 @@ def portal_clear_approval_condition(request, condition_id: str):
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     farmer = condition.approval.farmer
     farmer.refresh_from_db()
-    return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer)})
+    return JsonResponse({
+        'ok': True,
+        'farmer': farmer_to_card(farmer),
+        'publication': _portal_publication_payload(farmer),
+    })
 
 @csrf_exempt
 @require_http_methods(["GET"])
@@ -2566,7 +2701,11 @@ def portal_set_credit_decision(request, farmer_id: str):
     if not ok:
         return JsonResponse({'ok': False, 'error': error}, status=400)
     farmer.refresh_from_db()
-    return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer)})
+    return JsonResponse({
+        'ok': True,
+        'farmer': farmer_to_card(farmer),
+        'publication': _portal_publication_payload(farmer),
+    })
 
 
 
@@ -2668,7 +2807,11 @@ def portal_set_final_decision(request, farmer_id: str):
     if not ok:
         return JsonResponse({'ok': False, 'error': error}, status=400)
     farmer.refresh_from_db()
-    return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer)})
+    return JsonResponse({
+        'ok': True,
+        'farmer': farmer_to_card(farmer),
+        'publication': _portal_publication_payload(farmer),
+    })
 
 
 @csrf_exempt
@@ -2718,7 +2861,11 @@ def portal_return_for_rework(request, farmer_id: str):
     if not ok:
         return JsonResponse({'ok': False, 'error': error}, status=400)
     farmer.refresh_from_db()
-    return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer)})
+    return JsonResponse({
+        'ok': True,
+        'farmer': farmer_to_card(farmer),
+        'publication': _portal_publication_payload(farmer),
+    })
 
 # ── Stage 4: Requisition / Order queue ───────────────────────────────────────
 
@@ -3038,7 +3185,7 @@ def portal_requisition_generate(request):
     Body: { farmer_ids: [...], order_number: "...", requisition_date: "..." }
     """
     from core.models import RequisitionBatch
-    from core.services.jawabu_pipeline import assign_order, sync_farmer_to_master_sheet
+    from core.services.jawabu_pipeline import assign_order
     from core.services.requisition import RequisitionTemplateError, generate_requisition_excel
 
     parsed, error_response = _parse_requisition_workbook_payload(request)
@@ -3051,6 +3198,30 @@ def portal_requisition_generate(request):
     access_error = _portal_capability_error(request, 'portal.requisition.write') or _portal_farmers_scope_error(request, farmers)
     if access_error:
         return access_error
+    # A Mini App can lose the response while the local transaction commits.
+    # Replay the already committed workbook for the same retry key instead of
+    # assigning the order or creating another version a second time.
+    batch_request_id = _portal_request_id(request, body)
+    if batch_request_id:
+        existing_batch = RequisitionBatch.objects.filter(generation_request_id=batch_request_id).first()
+        if existing_batch:
+            existing_farmers = _farmers_for_batch(existing_batch.order_number, existing_batch.farmer_ids or None)
+            existing_scope_error = _portal_farmers_scope_error(request, existing_farmers)
+            if existing_scope_error:
+                return existing_scope_error
+            payload = {
+                'ok': True,
+                'idempotent_replay': True,
+                'filename': existing_batch.filename,
+                'drive_url': getattr(existing_batch, 'drive_url', '') or '',
+                'download_url': _batch_download_url(request, existing_batch.order_number) if existing_batch.file_content else '',
+                'batch': _serialize_batch(existing_batch, existing_farmers, request),
+            }
+            if body.get('return_url'):
+                return JsonResponse(payload)
+            response = HttpResponse(existing_batch.file_content, content_type=existing_batch.content_type)
+            response['Content-Disposition'] = f'attachment; filename="{existing_batch.filename}"'
+            return response
     try:
         expected_revisions = _requisition_assignment_revisions(
             body,
@@ -3077,7 +3248,6 @@ def portal_requisition_generate(request):
     # Lock and validate the whole write set before assigning any individual
     # case; a stale case therefore cannot leave a half-assigned local batch.
     sender = _portal_sender_from_request(request)
-    batch_request_id = _portal_request_id(request, body)
     from django.db import transaction
     from core.models import JawabuFarmerMaster
     from core.services.workflow_transitions import validate_workflow_revision
@@ -3127,6 +3297,7 @@ def portal_requisition_generate(request):
         batch.generated_by = sender
         batch.filename = filename
         batch.file_content = xlsx_bytes
+        batch.generation_request_id = batch_request_id
         batch.drive_upload_error = 'Drive synchronization pending.'
         batch.farmer_ids = [str(farmer.id) for farmer in farmers]
         batch.farmer_count = len(farmers)
@@ -3134,23 +3305,6 @@ def portal_requisition_generate(request):
         summary = _invoice_summary_for_batch(farmers, batch.invoice_summary)
         batch.invoice_summary = summary
         batch.save()
-    from core.services.document_sync import mark_drive_attempt, mark_drive_failure, mark_drive_success
-    mark_drive_attempt(batch)
-    try:
-        drive_file_id, drive_url = _upload_generated_workbook_to_drive(xlsx_bytes, filename, order_number)
-    except Exception as exc:
-        logger.exception('Generated requisition workbook was not stored in Google Drive.')
-        mark_drive_failure(batch, 'Drive upload failed; retry required.', error_field='drive_upload_error')
-        batch.status = 'needs_review'
-        batch.save(update_fields=['status', 'updated_at'])
-        return JsonResponse({
-            'ok': False,
-            'error': 'Generated requisition workbook could not be stored. Check synchronization status and retry.',
-        }, status=502)
-
-    mark_drive_success(
-        batch, file_id=drive_file_id, url=drive_url, error_field='drive_upload_error',
-    )
     batch.status = summary.get('status') or 'generated'
     batch.save(update_fields=['status', 'updated_at'])
 
@@ -3158,9 +3312,14 @@ def portal_requisition_generate(request):
         return JsonResponse({
             'ok': True,
             'filename': filename,
-            'drive_url': drive_url,
+            # The workbook is already committed in Django. Drive publication
+            # is deliberately resumed by a short authenticated follow-up so
+            # the free Render web worker never waits on Google inside this
+            # financial workflow request.
+            'drive_url': '',
             'download_url': _batch_download_url(request, order_number),
             'batch': _serialize_batch(batch, farmers, request),
+            'drive_sync_pending': True,
         })
 
     response = HttpResponse(
@@ -3302,7 +3461,11 @@ def portal_requisition_batch_download(request, order_number: str):
 @csrf_exempt
 @require_http_methods(["POST"])
 def portal_requisition_batch_retry_sync(request, order_number: str):
-    """Retry Drive storage for the latest saved requisition workbook."""
+    """Publish the latest saved requisition workbook to Drive.
+
+    Automatic Mini App follow-ups get one bounded attempt; a staff-initiated
+    retry preserves the existing explicit-retry behaviour and message.
+    """
     from core.models import RequisitionBatch
     from core.services.document_sync import retry_requisition_batch_upload
 
@@ -3315,8 +3478,34 @@ def portal_requisition_batch_retry_sync(request, order_number: str):
     scope_error = _portal_order_scope_error(request, order_number)
     if scope_error:
         return scope_error
-    result = retry_requisition_batch_upload(batch, actor=_portal_sender_from_request(request))
+    # Cached form clients and the current JSON retry helper share this route.
+    # Use the normalized payload once: reading POST before request.body would
+    # otherwise raise RawPostDataException in Django.
+    body = _portal_request_data(request)
+    automatic = bool((body or {}).get('automatic'))
+    if automatic and batch.drive_next_retry_at and batch.drive_next_retry_at > timezone.now():
+        farmers = _farmers_for_batch(order_number, batch.farmer_ids or None)
+        return JsonResponse({
+            'ok': True,
+            'sync_pending': True,
+            'batch': _serialize_batch(batch, farmers, request),
+        }, status=202)
+    result = retry_requisition_batch_upload(
+        batch,
+        actor=_portal_sender_from_request(request),
+        attempt_budget=1 if automatic else None,
+        preserve_filename=automatic,
+    )
     if not result.get('ok'):
+        farmers = _farmers_for_batch(order_number, batch.farmer_ids or None)
+        if automatic:
+            # The local workbook remains available for download.  Persisted
+            # retry state—not a failing web request—drives the next attempt.
+            return JsonResponse({
+                'ok': True,
+                'sync_pending': True,
+                'batch': _serialize_batch(batch, farmers, request),
+            }, status=202)
         return JsonResponse({
             'ok': False,
             'error': 'Requisition workbook synchronization failed. Retry again after checking the storage status.',
@@ -3634,7 +3823,17 @@ def portal_invoice_batch_confirm(request, batch_id: str):
         return JsonResponse({'ok': False, 'error': 'Invoice batch not found.'}, status=404)
     except ValueError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
-    return JsonResponse({'ok': batch.sync_status == 'success', 'batch': _serialize_invoice_batch(batch)}, status=200 if batch.sync_status == 'success' else 202)
+    affected_farmers = [
+        invoice.matched_farmer
+        for invoice in batch.invoices.select_related('matched_farmer').all()
+        if invoice.matched_farmer_id
+    ]
+    return JsonResponse({
+        'ok': True,
+        'batch': _serialize_invoice_batch(batch),
+        'publications': _portal_publications_payload(affected_farmers),
+        'sync_pending': batch.sync_status == 'pending',
+    }, status=202 if batch.sync_status == 'pending' else 200)
 
 
 def _serialize_invoice_event(event) -> dict:
@@ -3997,7 +4196,7 @@ def _json_body(request) -> dict:
 def portal_invoice_match(request, invoice_id: str):
     """Manually link a parsed invoice to the correct farmer/order record."""
     from core.models import JawabuFarmerMaster, ParsedInvoice
-    from core.services.invoice_parser import InvoiceSheetSyncError, manually_match_invoice
+    from core.services.invoice_parser import manually_match_invoice
 
     body = _json_body(request)
     farmer_id = str(body.get('farmer_id') or '').strip()
@@ -4017,14 +4216,16 @@ def portal_invoice_match(request, invoice_id: str):
 
     try:
         invoice = manually_match_invoice(invoice, farmer, actor=_portal_sender_from_request(request), note=note)
-    except InvoiceSheetSyncError as exc:
-        logger.exception('Invoice Sheet synchronization failed during manual match.')
-        return JsonResponse({'ok': False, 'error': 'Invoice matched locally but could not be synchronized. Retry synchronization.'}, status=502)
     except Exception as exc:
         logger.exception("Manual invoice match failed")
         return JsonResponse({'ok': False, 'error': 'Manual invoice matching failed. Retry or contact an administrator.'}, status=500)
 
-    return JsonResponse({'ok': True, 'invoice': _serialize_parsed_invoice(invoice)})
+    farmer.refresh_from_db()
+    return JsonResponse({
+        'ok': True,
+        'invoice': _serialize_parsed_invoice(invoice),
+        'publication': _portal_publication_payload(farmer),
+    })
 
 
 @csrf_exempt
@@ -4032,7 +4233,7 @@ def portal_invoice_match(request, invoice_id: str):
 def portal_invoice_unmatch(request, invoice_id: str):
     """Remove a parsed invoice match and clear farmer invoice fields when appropriate."""
     from core.models import ParsedInvoice
-    from core.services.invoice_parser import InvoiceSheetSyncError, unmatch_invoice
+    from core.services.invoice_parser import unmatch_invoice
 
     body = _json_body(request)
     try:
@@ -4044,16 +4245,18 @@ def portal_invoice_unmatch(request, invoice_id: str):
     if role_error:
         return role_error
 
+    affected_farmer = invoice.matched_farmer
     try:
         invoice = unmatch_invoice(invoice, actor=_portal_sender_from_request(request), note=str(body.get('note') or '').strip())
-    except InvoiceSheetSyncError as exc:
-        logger.exception('Invoice Sheet synchronization failed during unmatch.')
-        return JsonResponse({'ok': False, 'error': 'Invoice was updated locally but could not be synchronized. Retry synchronization.'}, status=502)
     except Exception as exc:
         logger.exception("Manual invoice unmatch failed")
         return JsonResponse({'ok': False, 'error': 'Invoice unmatch failed. Retry or contact an administrator.'}, status=500)
 
-    return JsonResponse({'ok': True, 'invoice': _serialize_parsed_invoice(invoice)})
+    return JsonResponse({
+        'ok': True,
+        'invoice': _serialize_parsed_invoice(invoice),
+        'publication': _portal_publication_payload(affected_farmer) if affected_farmer else None,
+    })
 
 
 @csrf_exempt

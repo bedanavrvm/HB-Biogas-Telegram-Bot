@@ -16,6 +16,7 @@ import time
 from typing import Any, Callable, TypeVar
 
 from django.db import IntegrityError, transaction
+from django.conf import settings
 from django.utils import timezone
 
 from core.models import IntegrationCircuitState, IntegrationOperation
@@ -179,9 +180,17 @@ def _record_circuit_failure(integration: str, error: Exception, *, now) -> None:
         circuit.save()
 
 
-def _mark_attempt(operation_id, *, now) -> IntegrationOperation:
+def _mark_attempt(operation_id, *, now) -> IntegrationOperation | None:
     with transaction.atomic():
         operation = IntegrationOperation.objects.select_for_update().get(pk=operation_id)
+        # A web worker can be recycled while an outbound request is in flight.
+        # Do not let a second Mini App retry run the same operation at once;
+        # after the bounded lease, a later request may safely reclaim it.
+        if operation.status == IntegrationOperation.STATUS_RUNNING:
+            lease_seconds = max(30, int(getattr(settings, 'API_REQUEST_TIMEOUT', 10) or 10) * 3)
+            if operation.last_attempt_at and (timezone.now() - operation.last_attempt_at).total_seconds() < lease_seconds:
+                return None
+            operation.status = IntegrationOperation.STATUS_RETRYABLE
         operation.status = IntegrationOperation.STATUS_RUNNING
         operation.attempts += 1
         operation.last_attempt_at = now
@@ -234,6 +243,7 @@ def execute_operation(
     *,
     sleeper: Callable[[float], None] = time.sleep,
     random_value: Callable[[], float] = random.random,
+    attempt_budget: int | None = None,
 ) -> T | None:
     """Run a reserved operation with bounded retry and durable outcomes.
 
@@ -251,11 +261,18 @@ def execute_operation(
         operation.status = IntegrationOperation.STATUS_DEAD_LETTER
         operation.save(update_fields=['status', 'updated_at'])
         raise ExternalOperationError('This integration operation has exhausted its retry budget. Use the owning workflow\'s explicit retry action after review.')
+    attempts_this_call = remaining_attempts
+    if attempt_budget is not None:
+        attempts_this_call = max(1, min(remaining_attempts, int(attempt_budget)))
     last_error: Exception | None = None
-    for attempt in range(1, remaining_attempts + 1):
+    for attempt in range(1, attempts_this_call + 1):
         now = timezone.now()
         _claim_circuit(operation.integration, now=now)
         current = _mark_attempt(operation.pk, now=now)
+        if current is None:
+            # Another request has the short execution lease.  Treat this as a
+            # safe no-op rather than duplicating an external write.
+            return None
         try:
             result = action()
         except Exception as error:  # external SDK errors are intentionally normalized below
@@ -265,7 +282,7 @@ def execute_operation(
             saved = _mark_failure(operation.pk, error, now=timezone.now(), retryable=transient)
             if not transient or saved.status == IntegrationOperation.STATUS_DEAD_LETTER:
                 raise ExternalOperationError('The external integration could not complete. Retry from the workflow when it is available.') from error
-            if attempt < current.max_attempts:
+            if attempt < attempts_this_call:
                 sleeper(retry_after_seconds(error, attempt=attempt, random_value=random_value))
                 continue
             break

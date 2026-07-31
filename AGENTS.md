@@ -138,6 +138,7 @@ Key modules:
 - `miniapp_requests.py` — shared Mini App retry-key compatibility and strict-mode policy
 - `miniapp_settings.py` — typed personal preferences and maker-checker TAT configuration proposals
 - `external_resilience.py` — bounded synchronous retry, durable external-operation register, and circuit state
+- `portal_publication.py` — durable, request-assisted Portal register publication for free Render; local workflow commits never wait for Google Sheets
 - `access_control.py` — maker-checker access changes, emergency grants, notifications, and policy versioning
 - `access_control_reporting.py` — access-control evidence exports, parity, and least-privilege diagnostics
 - `document_signoffs.py` — immutable source/workbook binding and physically signed/stamped scan retention for requisitions and payments

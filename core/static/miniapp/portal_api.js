@@ -19,6 +19,61 @@
     );
   }
 
+  const pendingPublicationOperations = [];
+  const publicationOperationIds = new Set();
+  let publicationAttemptRunning = false;
+
+  function publishEvent(detail) {
+    window.dispatchEvent(new CustomEvent('portal:publication-updated', { detail }));
+  }
+
+  function schedulePublication(publication, tg) {
+    const ids = Array.isArray(publication?.pending_operation_ids)
+      ? publication.pending_operation_ids : [];
+    ids.forEach(id => {
+      const normalized = String(id || '').trim();
+      if (normalized && !publicationOperationIds.has(normalized)) {
+        publicationOperationIds.add(normalized);
+        pendingPublicationOperations.push(normalized);
+      }
+    });
+    if (!publicationAttemptRunning && pendingPublicationOperations.length) {
+      window.setTimeout(() => drainPublicationQueue(tg), 0);
+    }
+  }
+
+  async function drainPublicationQueue(tg) {
+    if (publicationAttemptRunning) return;
+    publicationAttemptRunning = true;
+    try {
+      while (pendingPublicationOperations.length) {
+        const operationId = pendingPublicationOperations.shift();
+        publicationOperationIds.delete(operationId);
+        const key = requestId({});
+        try {
+          const response = await fetch(apiBase() + '/publication/attempt/', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...initDataHeader(tg),
+              'X-Request-ID': key,
+              'Idempotency-Key': key,
+            },
+            body: JSON.stringify({ operation_id: operationId, automatic: true, client_request_id: key }),
+          });
+          const data = await response.json().catch(() => ({}));
+          publishEvent({ operationId, ok: response.ok && data.ok, publication: data.publication || null });
+        } catch (_) {
+          // The operation is durable and will be resumed after its persisted
+          // retry time on a later relevant Mini App visit.
+          publishEvent({ operationId, ok: false, publication: null });
+        }
+      }
+    } finally {
+      publicationAttemptRunning = false;
+    }
+  }
+
   async function apiFetch(path, opts, tg) {
     const options = opts || {};
     const headers = {
@@ -33,6 +88,13 @@
     }
     const response = await fetch(apiBase() + path, requestOptions);
     const data = await response.json().catch(function () { return {}; });
+    if (
+      data?.ok && path !== '/publication/attempt/'
+      && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(String(requestOptions.method || 'GET').toUpperCase())
+    ) {
+      if (data.publication) schedulePublication(data.publication, tg);
+      (Array.isArray(data.publications) ? data.publications : []).forEach(item => schedulePublication(item, tg));
+    }
     return { ok: response.ok, status: response.status, data, requestId: response.headers.get('X-Request-ID') || headers['X-Request-ID'] };
   }
 
@@ -56,6 +118,10 @@
       body: formData,
     });
     const data = await response.json().catch(function () { return {}; });
+    if (data?.ok) {
+      if (data.publication) schedulePublication(data.publication, tg);
+      (Array.isArray(data.publications) ? data.publications : []).forEach(item => schedulePublication(item, tg));
+    }
     return { ok: response.ok, status: response.status, data, requestId: response.headers.get('X-Request-ID') };
   }
 
@@ -85,6 +151,7 @@
     apiFetch,
     fetchHtml,
     initDataHeader,
+    schedulePublication,
     postForm,
     postJson,
   };

@@ -465,9 +465,13 @@ def log_jbl_visit(
         'JBL visit logged for farmer %s by %s: %s (coordinates: %s, %s)',
         farmer.id, sender or officer, visit_status, latitude, longitude,
     )
-    # Sync change to master Google Sheet
-    sync_farmer_to_master_sheet(farmer)
-    sync_farmer_to_internal_order_sheet(farmer)
+    # External register publication is reserved with this committed workflow
+    # change and attempted separately by the Mini App.
+    from core.services.portal_publication import reserve_farmer_publication
+    reserve_farmer_publication(
+        farmer, request_id=request_id, requested_by=actor_user,
+        requested_by_label=sender or officer,
+    )
     source_farmer.refresh_from_db()
     return True, ''
 
@@ -773,9 +777,11 @@ def set_credit_decision(
         'Credit decision %s set for farmer %s by %s',
         decision, farmer.id, sender,
     )
-    # Sync change to master Google Sheet and downstream internal order sheet.
-    sync_farmer_to_master_sheet(farmer)
-    sync_farmer_to_internal_order_sheet(farmer)
+    from core.services.portal_publication import reserve_farmer_publication
+    reserve_farmer_publication(
+        farmer, request_id=request_id, requested_by=actor_user,
+        requested_by_label=sender,
+    )
 
     source_farmer.refresh_from_db()
     return True, ''
@@ -914,8 +920,11 @@ def set_final_decision(
         'Final decision %s set for farmer %s by %s',
         final_decision, farmer.id, sender,
     )
-    sync_farmer_to_master_sheet(farmer)
-    sync_farmer_to_internal_order_sheet(farmer)
+    from core.services.portal_publication import reserve_farmer_publication
+    reserve_farmer_publication(
+        farmer, request_id=request_id, requested_by=actor_user,
+        requested_by_label=sender,
+    )
 
     if final_decision == FINAL_DECISION_APPROVED and old_decision != FINAL_DECISION_APPROVED:
         _notify_final_approved(farmer)
@@ -1015,8 +1024,11 @@ def return_for_rework(
         revision_before=revision_before,
         revision_after=revision_after,
     )
-    sync_farmer_to_master_sheet(farmer)
-    sync_farmer_to_internal_order_sheet(farmer)
+    from core.services.portal_publication import reserve_farmer_publication
+    reserve_farmer_publication(
+        farmer, request_id=request_id, requested_by=actor_user,
+        requested_by_label=sender,
+    )
     source_farmer.refresh_from_db()
     return True, ''
 
@@ -1157,8 +1169,12 @@ def append_jbl_media_links(
         for link in uploaded.links:
             if link and link not in existing:
                 existing.append(link)
+        # Evidence links are part of the published case representation.  Give
+        # them a new revision so a completed publication for an older revision
+        # cannot suppress the register update for newly attached media.
+        revision_before, revision_after = next_workflow_revision(farmer)
         farmer.jbl_media_urls = '\n'.join(existing)
-        farmer.save(update_fields=['jbl_media_urls', 'updated_at'])
+        farmer.save(update_fields=['jbl_media_urls', 'workflow_revision', 'updated_at'])
         from core.services.jawabu_approvals import invalidate_material_approvals
         invalidate_material_approvals(
             farmer=farmer,
@@ -1180,11 +1196,13 @@ def append_jbl_media_links(
             transition_code='jawabu.jbl_visit.media_uploaded',
             from_state=current_workflow_state(farmer),
             to_state=current_workflow_state(farmer),
-            revision_before=farmer.workflow_revision,
-            revision_after=farmer.workflow_revision,
+            revision_before=revision_before,
+            revision_after=revision_after,
         )
-        sync_farmer_to_master_sheet(farmer)
-        sync_farmer_to_internal_order_sheet(farmer)
+        from core.services.portal_publication import reserve_farmer_publication
+        reserve_farmer_publication(
+            farmer, requested_by=actor_user, requested_by_label=sender,
+        )
 
     from core.models import MediaAttachment
     category_rows = (
@@ -1412,8 +1430,11 @@ def assign_order(
         'Order %s assigned to farmer %s by %s',
         order_number, farmer.id, sender,
     )
-    sync_farmer_to_master_sheet(farmer)
-    sync_farmer_to_internal_order_sheet(farmer)
+    from core.services.portal_publication import reserve_farmer_publication
+    reserve_farmer_publication(
+        farmer, request_id=request_id, requested_by=actor_user,
+        requested_by_label=sender,
+    )
     source_farmer.refresh_from_db()
     return True, ''
 
@@ -1579,6 +1600,7 @@ def sync_farmer_to_master_sheet(
     from core.services.group_config import GroupRegistry
     from core.services.sheets import GoogleSheetsService
     from core.services.jawabu_master import (
+        add_master_index_row,
         header_lookup_from_headers,
         build_master_existing_index,
         find_master_row_number,
@@ -1641,21 +1663,58 @@ def sync_farmer_to_master_sheet(
 
         headers = list(sheet.row_values(header_row))
         header_lookup = header_lookup_from_headers(headers)
-        values = sheet.get_all_values()
-        existing = build_master_existing_index(values, header_lookup, data_start_row)
-
         cleaned = {
             'duplicate_key': farmer.duplicate_key,
             'national_id': farmer.national_id,
             'primary_phone': farmer.primary_phone,
         }
-        row_number = find_master_row_number(cleaned, existing)
+        # A successful publication already records the canonical sheet row.
+        # Reuse that immutable audit pointer (and verify its identifiers) so a
+        # routine case edit does not repeatedly download the entire register.
+        # The full-sheet lookup remains only as a safe fallback for legacy
+        # records that have never been published by Django.
+        candidate_rows = []
+        record_keys = [
+            str(value).strip() for value in (
+                farmer.duplicate_key, farmer.national_id, farmer.primary_phone,
+            ) if str(value or '').strip()
+        ]
+        if record_keys:
+            candidate_rows.extend(
+                LiveSheetRecordChange.objects.filter(
+                    sheet_id=sheet_id,
+                    sheet_tab=sheet_name,
+                    record_key__in=record_keys,
+                ).order_by('-created_at').values_list('row_number', flat=True)[:3]
+            )
+        if getattr(farmer, 'source_row_number', None):
+            candidate_rows.append(farmer.source_row_number)
+
+        row_number = 0
+        row_values = None
+        for candidate in dict.fromkeys(int(value) for value in candidate_rows if value):
+            if candidate < data_start_row:
+                continue
+            candidate_values = list(sheet.row_values(candidate))
+            candidate_index = {}
+            add_master_index_row(candidate_index, candidate, candidate_values, header_lookup)
+            if find_master_row_number(cleaned, candidate_index) == candidate:
+                row_number = candidate
+                row_values = candidate_values
+                break
+
+        values = None
+        if not row_number:
+            values = sheet.get_all_values()
+            existing = build_master_existing_index(values, header_lookup, data_start_row)
+            row_number = find_master_row_number(cleaned, existing)
         if not row_number:
             logger.warning("Farmer %s not found in master sheet rows", farmer.id)
             return False
 
         # Get row values and pad if needed
-        row_values = list(values[row_number - 1]) if row_number - 1 < len(values) else []
+        if row_values is None:
+            row_values = list(values[row_number - 1]) if row_number - 1 < len(values) else []
         if len(row_values) < len(headers):
             row_values.extend([''] * (len(headers) - len(row_values)))
 
@@ -1860,11 +1919,39 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
         sheet = service._sheet
         headers = list(sheet.row_values(header_row))
         header_lookup = header_lookup_from_headers(headers)
-        values = sheet.get_all_values()
-        row_number = _find_internal_order_row(values, header_lookup, data_start_row, farmer)
+        record_keys = [
+            str(value).strip() for value in (
+                farmer.duplicate_key, farmer.national_id, farmer.primary_phone,
+            ) if str(value or '').strip()
+        ]
+        candidate_rows = []
+        if record_keys:
+            candidate_rows = list(
+                LiveSheetRecordChange.objects.filter(
+                    sheet_id=sheet_id,
+                    sheet_tab=sheet_name,
+                    record_key__in=record_keys,
+                ).order_by('-created_at').values_list('row_number', flat=True)[:3]
+            )
+        row_number = 0
+        row_values = None
+        for candidate in dict.fromkeys(int(value) for value in candidate_rows if value):
+            if candidate < data_start_row:
+                continue
+            candidate_values = list(sheet.row_values(candidate))
+            if _internal_order_row_matches(candidate_values, header_lookup, farmer):
+                row_number = candidate
+                row_values = candidate_values
+                break
+
+        values = None
+        if not row_number:
+            values = sheet.get_all_values()
+            row_number = _find_internal_order_row(values, header_lookup, data_start_row, farmer)
         created = False
         if row_number:
-            row_values = list(values[row_number - 1]) if row_number - 1 < len(values) else []
+            if row_values is None:
+                row_values = list(values[row_number - 1]) if row_number - 1 < len(values) else []
         else:
             row_number = max(len(values) + 1, data_start_row)
             row_values = []
@@ -1874,7 +1961,11 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
             row_values.extend([''] * (len(headers) - len(row_values)))
 
         current_record_id = _first_value(row_values, header_lookup, ['ORDER RECORD ID', 'Record ID'])
-        record_id = current_record_id or _next_internal_order_record_id(values, header_lookup, workflow)
+        if not current_record_id and values is None:
+            # Older rows without their immutable record key need one safe
+            # fallback scan before a new key can be allocated.
+            values = sheet.get_all_values()
+        record_id = current_record_id or _next_internal_order_record_id(values or [], header_lookup, workflow)
         now_text = timezone.now().strftime('%d-%B-%Y %H:%M')
         changes = {}
 
@@ -1966,23 +2057,27 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
 
 
 def _find_internal_order_row(values: list[list[str]], header_lookup: dict[str, int], data_start_row: int, farmer: JawabuFarmerMaster) -> int:
+    for row_number in range(data_start_row, len(values) + 1):
+        row = values[row_number - 1]
+        if _internal_order_row_matches(row, header_lookup, farmer):
+            return row_number
+    return 0
+
+
+def _internal_order_row_matches(row: list[str], header_lookup: dict[str, int], farmer: JawabuFarmerMaster) -> bool:
+    """Match one controlled internal-order row without downloading the tab."""
     national_id = str(farmer.national_id or '').strip()
     primary_phone = str(farmer.primary_phone or '').strip()
     duplicate_key = str(farmer.duplicate_key or '').strip()
-    for row_number in range(data_start_row, len(values) + 1):
-        row = values[row_number - 1]
-        row_id = _first_value(row, header_lookup, ['ID NUMBER', 'National ID'])
-        row_phone = _first_value(row, header_lookup, ['CONTACTS / PRIMARY', 'Primary Phone', 'First Phone Number'])
-        row_duplicate = _first_value(row, header_lookup, ['Duplicate Key'])
-        if duplicate_key and row_duplicate == duplicate_key:
-            return row_number
-        if national_id and primary_phone and row_id == national_id and row_phone == primary_phone:
-            return row_number
-        if national_id and row_id == national_id:
-            return row_number
-        if primary_phone and row_phone == primary_phone:
-            return row_number
-    return 0
+    row_id = _first_value(row, header_lookup, ['ID NUMBER', 'National ID'])
+    row_phone = _first_value(row, header_lookup, ['CONTACTS / PRIMARY', 'Primary Phone', 'First Phone Number'])
+    row_duplicate = _first_value(row, header_lookup, ['Duplicate Key'])
+    return bool(
+        (duplicate_key and row_duplicate == duplicate_key)
+        or (national_id and primary_phone and row_id == national_id and row_phone == primary_phone)
+        or (national_id and row_id == national_id)
+        or (primary_phone and row_phone == primary_phone)
+    )
 
 
 def _first_value(row_values: list, header_lookup: dict[str, int], candidates: list[str]) -> str:

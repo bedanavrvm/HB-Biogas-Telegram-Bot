@@ -7,6 +7,7 @@ integration calls. They must never contact Telegram, Google Sheets, or Drive.
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.test import RequestFactory, TestCase, override_settings
@@ -17,7 +18,8 @@ from io import StringIO
 
 from core.api.complaint_case_views import complaint_cases_create
 from core.api.views import spin_form_submit, tat_tracker_create
-from core.models import IntegrationCircuitState, IntegrationOperation
+from core.models import IntegrationCircuitState, IntegrationOperation, JawabuFarmerMaster
+from core.api.portal_views import portal_publication_attempt
 from core.services.external_resilience import (
     ExternalCircuitOpen,
     ExternalOperationError,
@@ -27,6 +29,12 @@ from core.services.external_resilience import (
 from core.services.miniapp_requests import (
     IdempotencyKeyRequired,
     bind_miniapp_request_identity,
+)
+from core.services.portal_publication import (
+    INTERNAL_ORDER_OPERATION,
+    MASTER_OPERATION,
+    publication_payload,
+    reserve_farmer_publication,
 )
 from core.management.commands.probe_integrations import configuration_status
 
@@ -166,6 +174,27 @@ class ExternalResilienceTests(TestCase):
             execute_operation(operation, lambda: (calls.append(True), (_ for _ in ()).throw(PermanentFailure('invalid')))[1], sleeper=lambda _: None)
         self.assertEqual(len(calls), 1)
 
+    def test_attempt_budget_persists_retry_without_sleeping_in_the_web_request(self):
+        operation = self.operation('one-attempt-publication', attempts=3)
+        calls = []
+
+        def action():
+            calls.append(True)
+            raise TransientFailure('temporary')
+
+        with self.assertRaises(ExternalOperationError):
+            execute_operation(
+                operation,
+                action,
+                sleeper=lambda _: self.fail('A one-attempt web follow-up must not sleep/retry.'),
+                attempt_budget=1,
+            )
+        operation.refresh_from_db()
+        self.assertEqual(calls, [True])
+        self.assertEqual(operation.attempts, 1)
+        self.assertEqual(operation.status, IntegrationOperation.STATUS_RETRYABLE)
+        self.assertIsNotNone(operation.next_retry_at)
+
     def test_circuit_opens_and_blocks_calls(self):
         for index in range(5):
             operation = self.operation(f'circuit-{index}', attempts=1)
@@ -186,6 +215,69 @@ class ExternalResilienceTests(TestCase):
                 self.operation('rolled-back-operation')
                 raise RuntimeError('rollback local workflow write')
         self.assertFalse(IntegrationOperation.objects.filter(deduplication_key='rolled-back-operation').exists())
+
+
+class PortalPublicationReservationTests(TestCase):
+    @patch('core.services.portal_publication._targets_for_farmer', return_value=[MASTER_OPERATION, INTERNAL_ORDER_OPERATION])
+    def test_same_case_revision_reserves_one_durable_operation_per_register(self, _targets):
+        farmer = SimpleNamespace(pk='case-opaque-1', workflow_revision=7)
+
+        first = reserve_farmer_publication(farmer, request_id='portal-publication-test-001')
+        second = reserve_farmer_publication(farmer, request_id='portal-publication-test-001')
+
+        self.assertEqual(len(first), 2)
+        self.assertEqual({row.pk for row in first}, {row.pk for row in second})
+        self.assertEqual(IntegrationOperation.objects.count(), 2)
+        payload = publication_payload(farmer)
+        self.assertEqual(payload['status'], 'pending')
+        self.assertEqual(len(payload['pending_operation_ids']), 2)
+
+
+class PortalPublicationEndpointTests(TestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+        self.farmer = JawabuFarmerMaster.objects.create(customer_name='Publication Test Case')
+        self.operation = reserve_operation(
+            integration='google_sheets',
+            operation_type=MASTER_OPERATION,
+            deduplication_key=f'endpoint-publication:{self.farmer.pk}',
+            source_model='JawabuFarmerMaster',
+            source_id=str(self.farmer.pk),
+            operation_payload={'case': str(self.farmer.pk)},
+            metadata={'workflow_revision': self.farmer.workflow_revision},
+        )[0]
+
+    def _request(self):
+        request = self.factory.post(
+            '/api/portal/publication/attempt/',
+            data=json.dumps({'operation_id': str(self.operation.pk), 'automatic': True}),
+            content_type='application/json',
+        )
+        request.portal_access = {}
+        request.portal_user = None
+        return request
+
+    @patch('core.api.portal_views._portal_farmers_scope_error')
+    @patch('core.services.portal_publication.attempt_publication')
+    def test_publication_attempt_denies_out_of_scope_case_before_google_call(self, mocked_attempt, mocked_scope):
+        from django.http import JsonResponse
+
+        mocked_scope.return_value = JsonResponse({'ok': False, 'error': 'Forbidden.'}, status=403)
+        response = portal_publication_attempt(self._request())
+
+        self.assertEqual(response.status_code, 403)
+        mocked_attempt.assert_not_called()
+
+    @patch('core.services.portal_publication.attempt_publication')
+    @patch('core.services.portal_publication.publication_payload', return_value={'status': 'synced', 'pending_operation_ids': []})
+    @patch('core.api.portal_views._portal_farmers_scope_error', return_value=None)
+    def test_publication_attempt_runs_one_authorized_operation(self, _scope, _payload, mocked_attempt):
+        mocked_attempt.return_value = {'superseded': False}
+
+        response = portal_publication_attempt(self._request())
+
+        self.assertEqual(response.status_code, 202)
+        mocked_attempt.assert_called_once()
 
 
 class ReadinessTests(TestCase):

@@ -10,13 +10,10 @@ from django.db import transaction
 from django.db.models import Count, Q
 
 from core.models import InvoiceUploadBatch, JawabuFarmerMaster, ParsedInvoice, ParsedInvoiceEvent
-from core.services.jawabu_pipeline import sync_farmer_to_master_sheet
+from core.services.portal_publication import reserve_farmer_publication
+from core.services.workflow_transitions import next_workflow_revision
 
 logger = logging.getLogger(__name__)
-
-
-class InvoiceSheetSyncError(RuntimeError):
-    pass
 
 
 class InvoiceUploadStorageError(RuntimeError):
@@ -900,7 +897,9 @@ def confirm_invoice_batch(batch: InvoiceUploadBatch, *, actor: str = '') -> Invo
             # meaning on the canonical deposit field used by requisitions.
             farmer.deposit_paid_hbg = invoice.payment
             farmer.balance_due = invoice.balance_due
-            farmer.save(update_fields=['invoice_number', 'invoice_date', 'invoice_amount', 'discount', 'payment', 'deposit_paid_hbg', 'balance_due', 'updated_at'])
+            _revision_before, revision_after = next_workflow_revision(farmer)
+            farmer.workflow_revision = revision_after
+            farmer.save(update_fields=['invoice_number', 'invoice_date', 'invoice_amount', 'discount', 'payment', 'deposit_paid_hbg', 'balance_due', 'workflow_revision', 'updated_at'])
             from core.services.jawabu_case360 import record_pipeline_event
             record_pipeline_event(
                 farmer, action='invoice_confirmed', stage_key='invoice', actor=actor,
@@ -914,6 +913,11 @@ def confirm_invoice_batch(batch: InvoiceUploadBatch, *, actor: str = '') -> Invo
             invoice.save(update_fields=['status', 'matched_farmer', 'matched_order_number', 'updated_at'])
             record_invoice_event(invoice, 'matched', actor=actor, note='Confirmed from editable extraction review.')
             affected.append(farmer)
+            reserve_farmer_publication(
+                farmer,
+                request_id=f'invoice-batch:{batch.id}:{farmer.id}',
+                requested_by_label=actor,
+            )
         batch.matched_count = len(affected)
         batch.unmatched_count = 0
         batch.status = 'matched'
@@ -921,12 +925,10 @@ def confirm_invoice_batch(batch: InvoiceUploadBatch, *, actor: str = '') -> Invo
         batch.sync_error = ''
         batch.save(update_fields=['matched_count', 'unmatched_count', 'status', 'sync_status', 'sync_error', 'updated_at'])
 
-    errors = []
-    for farmer in affected:
-        if not sync_farmer_to_master_sheet(farmer):
-            errors.append(farmer.customer_name or str(farmer.id))
-    batch.sync_status = 'failed' if errors else 'success'
-    batch.sync_error = ('Master Data sync failed for: ' + ', '.join(errors)) if errors else ''
+    # The invoice confirmation and its publication reservation are canonical
+    # together. Google execution is intentionally deferred to the Mini App.
+    batch.sync_status = 'pending'
+    batch.sync_error = ''
     batch.save(update_fields=['sync_status', 'sync_error', 'updated_at'])
     _refresh_requisition_batch(batch.order_number, batch)
     return batch
@@ -940,14 +942,16 @@ def _apply_invoice_to_farmer(farmer: JawabuFarmerMaster, invoice: ParsedInvoice)
     farmer.payment = invoice.payment
     farmer.deposit_paid_hbg = invoice.payment
     farmer.balance_due = invoice.balance_due
+    _revision_before, revision_after = next_workflow_revision(farmer)
+    farmer.workflow_revision = revision_after
     farmer.save(update_fields=[
         'invoice_number', 'invoice_date', 'invoice_amount',
-        'discount', 'payment', 'deposit_paid_hbg', 'balance_due', 'updated_at',
+        'discount', 'payment', 'deposit_paid_hbg', 'balance_due', 'workflow_revision', 'updated_at',
     ])
-    if not sync_farmer_to_master_sheet(farmer):
-        raise InvoiceSheetSyncError(
-            "Google Sheet sync failed. The invoice was not committed to the database."
-        )
+    reserve_farmer_publication(
+        farmer,
+        request_id=f'invoice-match:{invoice.id}:{farmer.id}',
+    )
 
 
 def refresh_invoice_batch_counts(batch: InvoiceUploadBatch) -> InvoiceUploadBatch:
@@ -1017,14 +1021,17 @@ def unmatch_invoice(invoice: ParsedInvoice, *, actor: str = '', note: str = '') 
             if old_farmer.deposit_paid_hbg == invoice.payment:
                 old_farmer.deposit_paid_hbg = None
             old_farmer.balance_due = None
+            _revision_before, revision_after = next_workflow_revision(old_farmer)
+            old_farmer.workflow_revision = revision_after
             old_farmer.save(update_fields=[
                 'invoice_number', 'invoice_date', 'invoice_amount',
-                'discount', 'payment', 'deposit_paid_hbg', 'balance_due', 'updated_at',
+                'discount', 'payment', 'deposit_paid_hbg', 'balance_due', 'workflow_revision', 'updated_at',
             ])
-            if not sync_farmer_to_master_sheet(old_farmer):
-                raise InvoiceSheetSyncError(
-                    "Google Sheet sync failed while unmatching the invoice."
-                )
+            reserve_farmer_publication(
+                old_farmer,
+                request_id=f'invoice-unmatch:{invoice.id}:{old_farmer.id}',
+                requested_by_label=actor,
+            )
         note_text = str(note or '').strip()
         actor_text = str(actor or 'portal').strip()
         invoice.status = 'unmatched'
@@ -1116,26 +1123,33 @@ def match_and_update_invoices(order_number: str, pdf_bytes: bytes) -> dict:
                     matched_farmer.payment = clean_amount(inv["payment"])
                     matched_farmer.deposit_paid_hbg = matched_farmer.payment
                     matched_farmer.balance_due = clean_amount(inv["balance_due"])
-                    matched_farmer.save()
+                    _revision_before, revision_after = next_workflow_revision(matched_farmer)
+                    matched_farmer.workflow_revision = revision_after
+                    matched_farmer.save(update_fields=[
+                        'invoice_number', 'invoice_date', 'invoice_amount',
+                        'discount', 'payment', 'deposit_paid_hbg', 'balance_due',
+                        'workflow_revision', 'updated_at',
+                    ])
 
-                    if not sync_farmer_to_master_sheet(matched_farmer):
-                        raise InvoiceSheetSyncError(
-                            "Google Sheet sync failed. The invoice was not committed to the database."
-                        )
-            except InvoiceSheetSyncError as exc:
-                logger.error("Invoice upload failed during sheet sync: %s", exc)
+                    reserve_farmer_publication(
+                        matched_farmer,
+                        request_id=f'invoice-import:{order_number}:{matched_farmer.id}:{inv["invoice_no"]}',
+                    )
+
+            except Exception as exc:
+                logger.exception('Invoice import could not commit locally: order=%s invoice=%s', order_number, inv.get('invoice_no'))
                 results.append({
-                    "customer_name": matched_farmer.customer_name,
-                    "status": "Sync failed",
-                    "invoice_no": inv["invoice_no"],
-                    "reason": str(exc),
+                    'customer_name': matched_farmer.customer_name,
+                    'status': 'Could not save',
+                    'invoice_no': inv['invoice_no'],
+                    'reason': 'The invoice was not saved. Please retry the upload.',
                 })
                 return {
-                    "ok": False,
-                    "error": str(exc),
-                    "total_parsed": len(invoices),
-                    "matched_count": matched_count,
-                    "results": results,
+                    'ok': False,
+                    'error': 'The invoice could not be saved. Please retry the upload.',
+                    'total_parsed': len(invoices),
+                    'matched_count': matched_count,
+                    'results': results,
                 }
 
             # Do not put customer identifiers or names in production logs.

@@ -47,6 +47,20 @@ from core.services.sheet_schema import SheetSchema
 
 logger = logging.getLogger(__name__)
 
+
+def _set_google_client_timeout(client) -> None:
+    """Keep one degraded Google call below the free web-worker budget.
+
+    Publication retries are persisted and resumed by later authenticated Mini
+    App requests.  A client must therefore fail promptly rather than occupying
+    the only Render web worker until Gunicorn kills the request.
+    """
+    timeout = max(1, int(getattr(settings, 'API_REQUEST_TIMEOUT', 10) or 10))
+    try:
+        client.http_client.timeout = timeout
+    except (AttributeError, TypeError):
+        logger.debug('This gspread client does not expose an HTTP timeout.')
+
 _google_sheets_available = False
 _google_sheets_api_available = False
 try:
@@ -225,6 +239,7 @@ class GoogleSheetsService:
                 scopes=self.SCOPES,
             )
             self._client = gspread.authorize(creds)
+            _set_google_client_timeout(self._client)
 
             if self._sheet_name:
                 self._sheet = (
@@ -294,6 +309,7 @@ class GoogleSheetsService:
                 scopes=self.SCOPES,
             )
             client = gspread.authorize(creds)
+            _set_google_client_timeout(client)
             workbook = client.open_by_key(self._sheet_id)
             try:
                 worksheet = workbook.worksheet(title)

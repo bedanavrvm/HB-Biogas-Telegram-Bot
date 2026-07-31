@@ -2854,6 +2854,13 @@ class RequisitionBatch(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     order_number = models.CharField(max_length=128, unique=True, db_index=True)
+    generation_request_id = models.CharField(
+        max_length=128,
+        blank=True,
+        default='',
+        db_index=True,
+        help_text='Mini App retry key for the committed requisition generation.',
+    )
     version = models.PositiveIntegerField(
         default=0,
         db_index=True,
@@ -2900,6 +2907,13 @@ class RequisitionBatch(models.Model):
         indexes = [
             models.Index(fields=['order_number']),
             models.Index(fields=['status', 'updated_at']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['generation_request_id'],
+                condition=~models.Q(generation_request_id=''),
+                name='unique_requisition_batch_generation_request',
+            ),
         ]
         verbose_name = 'Requisition batch'
         verbose_name_plural = 'Requisition batches'

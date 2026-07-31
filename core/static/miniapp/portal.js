@@ -177,6 +177,17 @@
     _toastTimer = setTimeout(() => { t.classList.remove('show'); }, 3000);
   }
 
+  // A local case change is committed before Google publication on the free
+  // Render service.  Give staff a truthful outcome without blocking the case
+  // action behind a slow register call.
+  window.addEventListener('portal:publication-updated', event => {
+    const status = event.detail?.publication?.status;
+    if (status === 'synced') showToast('Case saved and registers updated.', 'success');
+    if (status === 'needs_attention') {
+      showToast('Case is saved, but register synchronization needs attention.', 'warning');
+    }
+  });
+
   function updateConnectionBanner() {
     const banner = el('portal-offline-banner');
     if (!banner) return;
@@ -957,6 +968,9 @@
     state.metaBranches = data.branches || [];
     state.metaCounties = data.counties || [];
     state.jblVisitMediaMaxBytes = Number(data.jbl_visit_media_max_bytes || state.jblVisitMediaMaxBytes);
+    if (portalApi.schedulePublication && Array.isArray(data.due_publication_operation_ids)) {
+      portalApi.schedulePublication({ pending_operation_ids: data.due_publication_operation_ids }, tg);
+    }
     const nextPolicyVersion = data.access_policy_version || null;
     if (state.accessPolicyVersion && nextPolicyVersion && state.accessPolicyVersion !== nextPolicyVersion) {
       window.location.reload();

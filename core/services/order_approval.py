@@ -2060,12 +2060,19 @@ class GoogleDriveMediaStorage:
         if self._service is None:
             from google.oauth2.service_account import Credentials
             from googleapiclient.discovery import build
+            from google_auth_httplib2 import AuthorizedHttp
+            import httplib2
 
             creds = Credentials.from_service_account_file(
                 getattr(settings, 'GOOGLE_SERVICE_ACCOUNT_FILE', 'credentials.json'),
                 scopes=self.SCOPES,
             )
-            self._service = build('drive', 'v3', credentials=creds)
+            timeout = max(1, int(getattr(settings, 'API_REQUEST_TIMEOUT', 10) or 10))
+            self._service = build(
+                'drive', 'v3',
+                http=AuthorizedHttp(creds, http=httplib2.Http(timeout=timeout)),
+                cache_discovery=False,
+            )
         return self._service
 
     def upload(
@@ -2079,6 +2086,7 @@ class GoogleDriveMediaStorage:
         workflow_key: str = '',
         record_type: str = '',
         record_key: str = '',
+        attempt_budget: int | None = None,
     ) -> tuple[str, str]:
         from googleapiclient.http import MediaIoBaseUpload
         from core.services.external_resilience import execute_operation, reserve_operation
@@ -2138,7 +2146,7 @@ class GoogleDriveMediaStorage:
             )
             return created_holder['value']
 
-        created = execute_operation(operation, create_file)
+        created = execute_operation(operation, create_file, attempt_budget=attempt_budget)
         if created is None:
             raise ValueError('This upload was already accepted. Reload the record to use its saved document link.')
         file_id = created['id']

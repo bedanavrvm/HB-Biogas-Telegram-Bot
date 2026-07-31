@@ -11,6 +11,28 @@
   function state() { return deps.state; }
   function csrfHeader() { return { 'X-CSRFToken': deps.getCookie('csrftoken') || '' }; }
 
+  function scheduleRequisitionDriveSync(batch) {
+    if (!batch?.order_number || !['pending', 'retryable_failure'].includes(batch.drive_sync_status)) return;
+    // Free Render has no persistent worker. Keep generation local-only, then
+    // make one small authenticated Drive attempt after the response is shown.
+    window.setTimeout(async () => {
+      try {
+        const response = await deps.portalApi.postJson(
+          `/requisition-batches/${encodeURIComponent(batch.order_number)}/retry-sync/`,
+          { automatic: true }, deps.tg, csrfHeader(),
+        );
+        const updated = response.data?.batch;
+        if (updated?.drive_sync_status === 'succeeded') {
+          deps.showToast('Workbook saved to the shared register.', 'success');
+        } else if (updated?.drive_sync_status === 'retryable_failure') {
+          deps.showToast('Workbook is saved here; shared-register sync will retry later.', 'warning');
+        }
+      } catch (_) {
+        // Local generation remains valid; persisted state is shown on Batches.
+      }
+    }, 0);
+  }
+
   function renderPrintableRequisition(data) {
     const farmers = data.farmers || [...(data.ready || []), ...(data.blocked || []).map(item => item.farmer)];
     const rows = farmers.map((farmer, index) => {
@@ -556,7 +578,10 @@
         deps.showToast(result.error || 'Could not generate the requisition form.', 'error');
         return;
       }
-      deps.showToast('Requisition form generated and stored.', 'success');
+      deps.showToast(result.drive_sync_pending
+        ? 'Requisition saved. Shared-register sync is starting.'
+        : 'Requisition form generated and stored.', 'success');
+      scheduleRequisitionDriveSync(result.batch);
       if (result.drive_url || result.download_url) {
         deps.openPortalLink(result.drive_url || result.download_url);
       }
@@ -621,6 +646,13 @@
       invoiceResult.innerHTML = `<span class="badge ${cls}">Last invoice upload: ${deps.escapeHtml(inv.last_invoice_upload_status)}</span>${inv.last_invoice_upload_error ? `<div class="batch-warning" style="margin-top:8px;">${deps.escapeHtml(inv.last_invoice_upload_error)}</div>` : ''}`;
     } else {
       invoiceResult.innerHTML = '<span class="badge badge-grey">No invoice upload recorded</span>';
+    }
+    if (batch.drive_sync_status === 'pending') {
+      invoiceResult.insertAdjacentHTML('beforeend', ' <span class="badge badge-orange">Shared-register sync pending</span>');
+      scheduleRequisitionDriveSync(batch);
+    } else if (batch.drive_sync_status === 'retryable_failure') {
+      invoiceResult.insertAdjacentHTML('beforeend', ' <span class="badge badge-red">Shared-register sync needs retry</span>');
+      scheduleRequisitionDriveSync(batch);
     }
     clients.innerHTML = deps.batchClientRows(batch.farmers || []);
   }
@@ -716,7 +748,10 @@
         return;
       }
       deps.openPortalLink(result.drive_url || result.download_url);
-      deps.showToast('Requisition generated and saved to Batches.', 'success');
+      deps.showToast(result.drive_sync_pending
+        ? 'Requisition saved. Shared-register sync is starting.'
+        : 'Requisition generated and saved to Batches.', 'success');
+      scheduleRequisitionDriveSync(result.batch);
       state().selectedRequisitions.clear();
       state().selectedRequisitionRevisions.clear();
       state().pendingRequisitionPayload = null;
