@@ -624,6 +624,27 @@ def _batch_download_url(request, order_number: str) -> str:
     )
 
 
+def _jbl_media_open_url(request, farmer_id: str, *, attachment_id: str = '', legacy_index: int | None = None) -> str:
+    """Issue a short-lived external-browser link after Mini App authorization.
+
+    Telegram's external browser cannot replay the Mini App ``initData`` header.
+    The signed payload is deliberately scoped to one authorised user, one case,
+    and one evidence item; it is not a replacement for the protected API route.
+    """
+    actor = getattr(request, 'portal_user', None)
+    payload = json.dumps({
+        'attachment_id': str(attachment_id or ''),
+        'farmer_id': str(farmer_id),
+        'legacy_index': legacy_index,
+        'request_id': _portal_request_id(request),
+        'user_id': str(getattr(actor, 'pk', '') or ''),
+    }, sort_keys=True, separators=(',', ':'))
+    token = TimestampSigner(salt='portal-jbl-media-open').sign(payload)
+    return request.build_absolute_uri(
+        f'/api/portal/jbl-media-open/{quote(token, safe="")}/'
+    )
+
+
 def _upload_generated_workbook_to_drive(data: bytes, filename: str, order_number: str) -> tuple[str, str]:
     """Store a generated workbook in the shared Google Drive media folder."""
     from django.utils import timezone
@@ -2047,6 +2068,10 @@ def portal_jbl_media(request, farmer_id: str):
         {
             'id': str(item.id),
             'view_url': f'/api/portal/jbl-queue/{farmer.id}/media/{item.id}/open/',
+            # ``view_url`` remains the protected API route for API callers.
+            # ``open_url`` is a short-lived link for Telegram's external
+            # browser, which cannot carry the Mini App authentication header.
+            'open_url': _jbl_media_open_url(request, str(farmer.id), attachment_id=str(item.id)),
             'name': item.original_filename or dict({'LAF': 'LAF document', 'JBL_VISIT_PHOTO': 'JBL visit photo'}).get(item.file_type, 'Visit media'),
             'category': item.file_type,
             'created_at': item.created_at.isoformat() if item.created_at else '',
@@ -2062,6 +2087,7 @@ def portal_jbl_media(request, farmer_id: str):
             {
                 'id': f'legacy:{index}',
                 'view_url': f'/api/portal/jbl-queue/{farmer.id}/media/legacy/{index}/open/',
+                'open_url': _jbl_media_open_url(request, str(farmer.id), legacy_index=index),
                 'name': 'Legacy LAF/media link',
                 'category': 'LEGACY',
                 'created_at': '',
@@ -2071,12 +2097,16 @@ def portal_jbl_media(request, farmer_id: str):
         ]
     laf_media = [item for item in media if item['category'] in {'LAF', 'LEGACY'}]
     jbl_visit_photo_media = [item for item in media if item['category'] == 'JBL_VISIT_PHOTO']
-    return JsonResponse({
+    response = JsonResponse({
         'ok': True,
         'media': media,
         'laf_media': laf_media,
         'jbl_visit_photo_media': jbl_visit_photo_media,
     })
+    # The response contains short-lived browser links to sensitive evidence.
+    # Do not allow an intermediary or WebView cache to retain those links.
+    response['Cache-Control'] = 'no-store'
+    return response
 
 
 @csrf_exempt
@@ -2115,6 +2145,93 @@ def portal_open_jbl_media(request, farmer_id: str, attachment_id: str):
         metadata={'farmer_id': str(farmer.pk), 'media_category': attachment.file_type},
     )
     return HttpResponseRedirect(attachment.drive_url)
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def portal_open_jbl_media_signed(request, token: str):
+    """Open one recently authorised evidence item in Telegram's system browser.
+
+    The link is issued only by ``portal_jbl_media`` after normal Telegram and
+    capability checks.  It expires quickly, is bound to a single evidence item
+    and still records the authorised user in the access audit trail.
+    """
+    try:
+        payload = json.loads(
+            TimestampSigner(salt='portal-jbl-media-open').unsign(token, max_age=120)
+        )
+        farmer_id = str(payload['farmer_id'])
+    except (BadSignature, KeyError, TypeError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'This client-media link is invalid or has expired. Return to the Portal and open it again.'}, status=404)
+
+    from core.models import JawabuFarmerMaster
+    farmer = JawabuFarmerMaster.objects.filter(pk=farmer_id).first()
+    if not farmer:
+        return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
+
+    actor = None
+    actor_id = str(payload.get('user_id') or '').strip()
+    if actor_id:
+        from django.contrib.auth import get_user_model
+        actor = get_user_model().objects.filter(pk=actor_id).first()
+
+    attachment_id = str(payload.get('attachment_id') or '').strip()
+    if attachment_id:
+        from django.db.models import Q
+        from core.models import JawabuMediaAccessEvent, MediaAttachment
+
+        attachment = MediaAttachment.objects.filter(
+            pk=attachment_id, upload_status='success',
+        ).filter(
+            Q(jawabu_farmer=farmer) |
+            Q(jawabu_farmer__isnull=True, business_key_type='id_number', business_key_value=str(farmer.national_id or '').strip())
+        ).exclude(drive_url='').first()
+        if not attachment:
+            return JsonResponse({'ok': False, 'error': 'Visit evidence was not found.'}, status=404)
+        request_id = str(payload.get('request_id') or '')
+        JawabuMediaAccessEvent.objects.create(
+            farmer=farmer, attachment=attachment, actor=actor, request_id=request_id,
+        )
+        from core.services.compliance_audit import record_sensitive_access
+        record_sensitive_access(
+            workflow='portal',
+            action='portal.jbl_media.view',
+            subject_type='media_attachment',
+            subject_id=str(attachment.pk),
+            actor=actor,
+            request_id=request_id,
+            metadata={
+                'access_route': 'short_lived_link',
+                'farmer_id': str(farmer.pk),
+                'media_category': attachment.file_type,
+            },
+        )
+        return HttpResponseRedirect(attachment.drive_url)
+
+    legacy_index = payload.get('legacy_index')
+    if not isinstance(legacy_index, int):
+        return JsonResponse({'ok': False, 'error': 'Visit evidence was not found.'}, status=404)
+    links = [url.strip() for url in str(farmer.jbl_media_urls or '').splitlines() if url.strip()]
+    if legacy_index < 0 or legacy_index >= len(links):
+        return JsonResponse({'ok': False, 'error': 'Legacy visit evidence was not found.'}, status=404)
+    from core.services.jawabu_case360 import record_pipeline_event
+    from core.services.jawabu_pipeline import current_workflow_state
+    record_pipeline_event(
+        farmer,
+        action='legacy_jbl_media_viewed',
+        stage_key='jbl_visit',
+        actor=actor.get_username() if actor else 'signed Portal media link',
+        request_id=str(payload.get('request_id') or ''),
+        source='portal_media',
+        new_values={'legacy_media_index': legacy_index, 'access_route': 'short_lived_link'},
+        actor_user=actor,
+        transition_code='jawabu.jbl_visit.legacy_media_viewed',
+        from_state=current_workflow_state(farmer),
+        to_state=current_workflow_state(farmer),
+        revision_before=farmer.workflow_revision,
+        revision_after=farmer.workflow_revision,
+    )
+    return HttpResponseRedirect(links[legacy_index])
 
 
 @csrf_exempt

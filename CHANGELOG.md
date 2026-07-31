@@ -1,5 +1,12 @@
 # Changelog
 
+## Authenticated client-media opening - 31-July-2026
+
+- Client-media links are now short-lived, case- and item-scoped links issued
+  only after the Portal authorizes the media list. They open correctly through
+  Telegram's external browser without dropping Mini App authentication, while
+  retaining the staff access event in the audit trail.
+
 ## Focused Final Review and client media - 31-July-2026
 
 - Final Review no longer shows unrequested decision-reason or approval-

@@ -10,6 +10,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+from urllib.parse import urlsplit
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
@@ -1438,9 +1439,12 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         media = payload['laf_media']
+        self.assertEqual(response['Cache-Control'], 'no-store')
         self.assertEqual(len(media), 1)
         self.assertIn(str(self.farmer.id), media[0]['view_url'])
         self.assertIn(str(media[0]['id']), media[0]['view_url'])
+        self.assertIn('/api/portal/jbl-media-open/', media[0]['open_url'])
+        self.assertNotIn('drive.example', media[0]['open_url'])
         self.assertEqual(media[0]['name'], 'laf.pdf')
         self.assertEqual([item['name'] for item in payload['jbl_visit_photo_media']], ['visit.jpg'])
         self.assertEqual({item['category'] for item in payload['media']}, {'LAF', 'JBL_VISIT_PHOTO'})
@@ -1462,6 +1466,40 @@ class JblPipelineApiTestCase(TestCase):
         self.assertTrue(JawabuMediaAccessEvent.objects.filter(
             farmer=self.farmer, attachment=attachment, action='view',
         ).exists())
+
+    def test_signed_jbl_media_link_opens_in_external_browser_and_is_audited(self):
+        attachment = MediaAttachment.objects.create(
+            group_id='portal-test', jawabu_farmer=self.farmer,
+            business_key_type='case_reference', business_key_value=f'case-{self.farmer.pk}',
+            file_type='JBL_VISIT_PHOTO', original_filename='visit.jpg',
+            drive_url='https://drive.example/visit', upload_status='success',
+        )
+
+        listing = self.client.get(reverse('portal_jbl_media', args=[self.farmer.id])).json()
+        open_url = listing['media'][0]['open_url']
+        response = self.client.get(urlsplit(open_url).path)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response['Location'], attachment.drive_url)
+        self.assertTrue(JawabuMediaAccessEvent.objects.filter(
+            farmer=self.farmer, attachment=attachment, action='view',
+        ).exists())
+
+    def test_signed_jbl_media_link_rejects_tampering(self):
+        response = self.client.get(reverse('portal_open_jbl_media_signed', args=['not-a-valid-token']))
+
+        self.assertEqual(response.status_code, 404)
+        self.assertIn('invalid or has expired', response.json()['error'])
+
+    def test_legacy_jbl_media_list_includes_a_short_lived_external_open_link(self):
+        self.farmer.jbl_media_urls = 'https://drive.example/legacy-laf'
+        self.farmer.save(update_fields=['jbl_media_urls'])
+
+        listing = self.client.get(reverse('portal_jbl_media', args=[self.farmer.id])).json()
+        response = self.client.get(urlsplit(listing['laf_media'][0]['open_url']).path)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response['Location'], 'https://drive.example/legacy-laf')
 
     def test_legacy_jbl_media_is_opened_through_an_audited_internal_redirect(self):
         self.farmer.jbl_media_urls = 'https://drive.example/legacy-laf'

@@ -638,13 +638,19 @@
         return;
       }
       media.forEach((item, index) => {
-        item.url = item.view_url || item.url;
+        item.url = item.open_url || item.view_url || item.url;
         const category = item.category === 'JBL_VISIT_PHOTO' ? 'JBL visit photo' : 'Signed LAF document';
         item.name = `${category} — ${item.name || `${category} ${index + 1}`}`;
       });
       target.innerHTML = media.length
         ? media.map((item, index) => `<a class="media-link" href="${deps.escapeHtml(item.url)}" target="_blank" rel="noopener">${deps.escapeHtml(item.name || `LAF document ${index + 1}`)} <span aria-hidden="true">↗</span></a>`).join('')
         : '<span class="field-help">No signed LAF document or JBL visit photo has been uploaded for this client.</span>';
+      target.querySelectorAll('.media-link').forEach(link => {
+        link.addEventListener('click', event => {
+          event.preventDefault();
+          deps.openPortalLink(link.href || '');
+        });
+      });
     } catch (error) {
       target.innerHTML = '<span class="field-help">Could not load client media. Check your connection and retry.</span>';
     } finally {

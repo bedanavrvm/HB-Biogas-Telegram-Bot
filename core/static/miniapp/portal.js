@@ -1979,6 +1979,7 @@
       loadDashboard,
       locationText,
       openAssignedOrder,
+      openPortalLink,
       portalApi,
       reloadCurrentQueue,
       setButtonLoading,
