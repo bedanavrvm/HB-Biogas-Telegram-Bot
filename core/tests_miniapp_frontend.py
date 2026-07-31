@@ -204,7 +204,10 @@ class MiniAppFrontendSmokeTests(TestCase):
             'Open map',
             'buildJblForm',
             'submitJblVisit',
-            'uploadJblMediaIfSelected',
+            '/complete-visit/',
+            'selectedJblFilesAreValid',
+            'slowUploadNotice',
+            'saveJblVisitDraft',
             'jbl-laf-media',
             'jbl-visit-photo-media',
             'laf_files',
@@ -358,5 +361,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         stylesheet = Path('core/static/miniapp/portal.css').read_text(encoding='utf-8')
         response = self.client.get(reverse('portal_home'))
 
-        self.assertContains(response, 'miniapp/portal.css?v=44')
+        # The cache-buster changes whenever Portal styles change; assert the
+        # stylesheet is present without tying a stacking-regression test to it.
+        self.assertContains(response, 'miniapp/portal.css?v=')
         self.assertIn('#requisition-preview-overlay { z-index: 240; }', stylesheet)

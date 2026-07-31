@@ -4,11 +4,13 @@ Unit tests for the JBL Pipeline Portal and its services.
 from __future__ import annotations
 
 import json
+from io import StringIO
 from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
@@ -243,6 +245,24 @@ class JblPipelineServiceTestCase(TestCase):
         )
         self.assertFalse(ok)
         self.assertIn('cannot be earlier than the HBG visit date', error)
+        mock_sync.assert_not_called()
+        mock_order_sync.assert_not_called()
+
+    @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
+    @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
+    def test_scheduling_handoff_is_not_a_loggable_jbl_visit_outcome(self, mock_sync, mock_order_sync):
+        """FarmUp may queue a visit, but only an officer may record its outcome."""
+        ok, error = log_jbl_visit(
+            self.farmer_stage1,
+            visit_date=date(2026, 6, 28),
+            officer='Officer Joe',
+            visit_status='JBL to Schedule Visit',
+        )
+
+        self.assertFalse(ok)
+        self.assertIn('outcome of the JBL visit', error)
+        self.farmer_stage1.refresh_from_db()
+        self.assertIsNone(self.farmer_stage1.jbl_visit_date)
         mock_sync.assert_not_called()
         mock_order_sync.assert_not_called()
 
@@ -553,7 +573,7 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertTrue(data['ok'])
-        self.assertIn(data['status'], {'healthy', 'degraded'})
+        self.assertIn(data['status'], {'live', 'maintenance', 'degraded', 'down'})
         self.assertIn('requisition_template', data['checks'])
         self.assertIn('payment_template', data['checks'])
         self.assertIn('due_order_retries', data)
@@ -580,6 +600,34 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertGreaterEqual(data['failed_payment_syncs'], 1)
         self.assertGreaterEqual(data['due_order_retries'], 1)
         self.assertGreaterEqual(data['due_payment_retries'], 1)
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, SECURE_SSL_REDIRECT=False)
+    def test_maintenance_mode_blocks_new_portal_writes_but_keeps_reads_available(self):
+        from core.services.portal_maintenance import maintenance_write_blocked, set_maintenance_state
+
+        state = set_maintenance_state(
+            actor=None,
+            mode='maintenance',
+            reason='Template maintenance',
+            request_id='maintenance-test-001',
+        )
+        self.assertEqual(state.mode, 'maintenance')
+        self.assertTrue(maintenance_write_blocked()[0])
+        self.assertEqual(self.client.get(reverse('portal_dashboard')).status_code, 200)
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Maintenance Test Farmer', national_id='77773333',
+            primary_phone='254777733333', sign_date='01-July-2026', status='active',
+        )
+        response = self.client.post(
+            reverse('portal_log_jbl_visit', args=[farmer.id]),
+            json.dumps({}),
+            content_type='application/json',
+            HTTP_X_REQUEST_ID='maintenance-write-001',
+        )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()['code'], 'portal_read_only_maintenance')
+        set_maintenance_state(actor=None, mode='live', reason='', request_id='maintenance-test-002')
+        self.assertFalse(maintenance_write_blocked()[0])
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_portal_api_rejects_valid_but_unregistered_telegram_user(self):
@@ -1042,6 +1090,20 @@ class JblPipelineApiTestCase(TestCase):
         self.assertContains(response, 'Kiambu | Kieni | Mweiga | Ruiru')
         self.assertContains(response, 'htmx-farmer-card')
         self.assertContains(response, 'HB visit: 24-June-2026')
+        self.assertContains(response, 'aria-label="Queue position 1"')
+
+    def test_portal_jbl_queue_exposes_ephemeral_page_relative_card_numbers(self):
+        for index in range(31):
+            JawabuFarmerMaster.objects.create(
+                customer_name=f'Queue position {index}', national_id=f'7111{index:04d}',
+                primary_phone=f'254700{index:06d}', sign_date='24-June-2026', status='active',
+            )
+
+        first_page = self.client.get(reverse('portal_jbl_queue'), {'page': 1}).json()
+        second_page = self.client.get(reverse('portal_jbl_queue'), {'page': 2}).json()
+
+        self.assertEqual(first_page['farmers'][0]['display_number'], 1)
+        self.assertEqual(second_page['farmers'][0]['display_number'], 31)
 
     def test_portal_farmer_detail_reads_latest_location_values(self):
         """A detail request must reflect location edits made after a queue load."""
@@ -1170,118 +1232,56 @@ class JblPipelineApiTestCase(TestCase):
         self.assertTrue(data['ok'])
         self.assertEqual(data['counts']['jbl_queue'], 1)
 
-    def test_log_jbl_visit_api(self):
-        """Verify API POST /api/portal/jbl-queue/<id>/ logs visit and advances pipeline."""
-        # The forward transition now requires both controlled evidence types.
-        for category in ('LAF', 'JBL_VISIT_PHOTO'):
-            MediaAttachment.objects.create(
-                group_id='portal-test', jawabu_farmer=self.farmer,
-                file_type=category, original_filename=f'{category}.jpg',
-                upload_status='success', drive_url=f'https://drive.example/{category}',
-            )
-        payload = {
-            'workflow_revision': self.farmer.workflow_revision,
-            'visit_date': '2026-07-01',
-            'visit_status': 'Awaiting Analysis',
-            'officer': 'JBL Officer Alpha',
-            'comment': 'Good soil conditions',
-            'county': 'Kiambu',
-            'sub_county': 'Ruiru',
-            'village': 'Kahawa Sukari',
-            'latitude': -1.2921,
-            'longitude': 36.8219,
-        }
+    def test_legacy_jbl_visit_write_route_requires_the_atomic_client(self):
+        """Cached two-step clients cannot create an evidence/visit split."""
         url = reverse('portal_log_jbl_visit', args=[self.farmer.id])
-        response = self.client.post(url, json.dumps(payload), content_type='application/json')
-        self.assertEqual(response.status_code, 200)
-        
-        self.farmer.refresh_from_db()
-        self.assertEqual(self.farmer.jbl_visit_status, 'Awaiting Analysis')
-        self.assertEqual(self.farmer.jbl_officer, 'JBL Officer Alpha')
-        self.assertEqual(self.farmer.jbl_visit_date, date(2026, 7, 1))
-        self.assertEqual(self.farmer.county, 'Kiambu')
-        self.assertEqual(self.farmer.sub_county, 'Ruiru')
-        self.assertEqual(self.farmer.village, 'Kahawa Sukari')
-        self.assertEqual(self.farmer.latitude, '-1.2921')
-        self.assertEqual(self.farmer.longitude, '36.8219')
-        self.assertEqual(self.farmer.gps_link, 'https://maps.google.com/?q=-1.2921,36.8219')
+        response = self.client.post(url, json.dumps({}), content_type='application/json')
+        self.assertEqual(response.status_code, 426)
+        self.assertEqual(response.json()['code'], 'jbl_visit_completion_upgrade_required')
 
-    def test_portal_workflow_write_requires_the_case_revision(self):
+    @patch('core.services.jawabu_pipeline.complete_jbl_visit')
+    def test_atomic_jbl_visit_completion_accepts_both_evidence_categories(self, mock_complete):
+        mock_complete.return_value = (True, '', {'stored_count': 2, 'evidence_saved': True})
+        laf = SimpleUploadedFile('laf.pdf', b'x' * 5000, content_type='application/pdf')
+        photo = SimpleUploadedFile('visit.jpg', b'x' * 5000, content_type='image/jpeg')
         response = self.client.post(
-            reverse('portal_log_jbl_visit', args=[self.farmer.id]),
-            json.dumps({
+            reverse('portal_complete_jbl_visit', args=[self.farmer.id]),
+            {
+                'client_request_id': 'atomic-visit-001',
+                'workflow_revision': self.farmer.workflow_revision,
                 'visit_date': '2026-07-01',
                 'visit_status': 'Awaiting Analysis',
                 'officer': 'JBL Officer Alpha',
-            }),
-            content_type='application/json',
+                'capture_latitude': '-1.2921',
+                'capture_longitude': '36.8219',
+                'laf_files': laf,
+                'jbl_visit_photo_files': photo,
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['ok'])
+        categorized = mock_complete.call_args.kwargs['categorized_files']
+        self.assertEqual(set(categorized), {'LAF', 'JBL_VISIT_PHOTO'})
+        self.assertEqual(len(categorized['LAF']), 1)
+        self.assertEqual(len(categorized['JBL_VISIT_PHOTO']), 1)
+
+    def test_portal_workflow_write_requires_the_case_revision(self):
+        response = self.client.post(
+            reverse('portal_complete_jbl_visit', args=[self.farmer.id]),
+            {
+                'visit_date': '2026-07-01',
+                'visit_status': 'Awaiting Analysis',
+                'officer': 'JBL Officer Alpha',
+            },
         )
 
         self.assertEqual(response.status_code, 428)
         self.assertEqual(response.json()['code'], 'workflow_revision_required')
 
-
-    @patch('core.services.jawabu_pipeline.append_jbl_media_links')
-    def test_upload_jbl_media_api(self, mock_upload):
-        """Verify JBL visit media upload endpoint accepts files and returns stored counts."""
-        mock_upload.return_value = (
-            True,
-            '',
-            {'stored_count': 1, 'skipped_count': 0, 'warnings': [], 'links': ['https://drive.example/file']},
-        )
-        upload = SimpleUploadedFile('visit.jpg', b'image-bytes', content_type='image/jpeg')
+    def test_legacy_jbl_media_route_requires_the_atomic_client(self):
         url = reverse('portal_upload_jbl_media', args=[self.farmer.id])
-        response = self.client.post(url, {'files': upload})
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertTrue(data['ok'])
-        self.assertEqual(data['stored_count'], 1)
-        mock_upload.assert_called_once()
-        self.assertEqual(mock_upload.call_args.kwargs['media_category'], 'LAF')
-
-    @patch('core.services.jawabu_pipeline.append_jbl_media_links')
-    def test_upload_jbl_media_api_passes_selected_category(self, mock_upload):
-        mock_upload.return_value = (True, '', {'stored_count': 1, 'skipped_count': 0, 'warnings': [], 'links': []})
-        upload = SimpleUploadedFile('visit.pdf', b'pdf-bytes', content_type='application/pdf')
-        url = reverse('portal_upload_jbl_media', args=[self.farmer.id])
-        response = self.client.post(url, {'files': upload, 'media_category': 'JBL_VISIT_PHOTO'})
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(mock_upload.call_args.kwargs['media_category'], 'JBL_VISIT_PHOTO')
-
-    @patch('core.services.jawabu_pipeline.append_jbl_media_uploads')
-    def test_upload_jbl_media_api_accepts_both_media_categories_in_one_update(self, mock_upload):
-        mock_upload.return_value = (
-            True,
-            '',
-            {
-                'stored_count': 2,
-                'skipped_count': 0,
-                'warnings': [],
-                'links': ['https://drive.example/laf', 'https://drive.example/photo'],
-                'media_categories': {'LAF': 1, 'JBL_VISIT_PHOTO': 1},
-                'partial': False,
-            },
-        )
-        laf = SimpleUploadedFile('laf.pdf', b'pdf-bytes', content_type='application/pdf')
-        photo = SimpleUploadedFile('visit.jpg', b'image-bytes', content_type='image/jpeg')
-        url = reverse('portal_upload_jbl_media', args=[self.farmer.id])
-        response = self.client.post(url, {'laf_files': laf, 'jbl_visit_photo_files': photo})
-
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertTrue(data['ok'])
-        self.assertEqual(data['stored_count'], 2)
-        categorized_files = mock_upload.call_args.kwargs['categorized_files']
-        self.assertEqual(set(categorized_files), {'LAF', 'JBL_VISIT_PHOTO'})
-        self.assertEqual(len(categorized_files['LAF']), 1)
-        self.assertEqual(len(categorized_files['JBL_VISIT_PHOTO']), 1)
-
-    def test_upload_jbl_media_api_rejects_unknown_category(self):
-        upload = SimpleUploadedFile('visit.pdf', b'pdf-bytes', content_type='application/pdf')
-        url = reverse('portal_upload_jbl_media', args=[self.farmer.id])
-        with patch('core.services.jawabu_pipeline.append_jbl_media_links', return_value=(False, 'Choose a valid visit media category.', {})):
-            response = self.client.post(url, {'files': upload, 'media_category': 'UNKNOWN'})
-        self.assertEqual(response.status_code, 400)
+        response = self.client.post(url, {'files': SimpleUploadedFile('visit.pdf', b'x' * 5000, content_type='application/pdf')})
+        self.assertEqual(response.status_code, 426)
 
     def test_laf_media_list_api_returns_only_successful_client_laf_documents(self):
         MediaAttachment.objects.create(
@@ -2697,11 +2697,15 @@ class JawabuIntegrityRulesTests(TestCase):
             'customer_name': 'Repeat Client',
             'national_id': '12345678',
             'primary_phone': '254712345678',
+            'sign_date': '24-June-2026',
             'duplicate_key': 'repeat-client-key',
             'status': 'active',
         }
         first_created, _ = upsert_farmer({**base, 'application_action': 'update_existing'})
         self.assertTrue(first_created)
+        first = JawabuFarmerMaster.objects.get(duplicate_key='repeat-client-key')
+        self.assertEqual(first.jbl_visit_status, 'JBL to Schedule Visit')
+        self.assertTrue(first.pipeline_events.filter(action='jbl_visit_scheduled').exists())
 
         with self.assertRaisesMessage(ValueError, 'Additional Unit Reason is required'):
             upsert_farmer({
@@ -2721,6 +2725,35 @@ class JawabuIntegrityRulesTests(TestCase):
         units = list(JawabuFarmerMaster.objects.order_by('unit_number').values_list('unit_number', flat=True))
         self.assertTrue(second_created)
         self.assertEqual(units, [1, 2])
+
+    def test_jbl_schedule_backfill_is_previewed_then_reverted_safely(self):
+        candidate = JawabuFarmerMaster.objects.create(
+            customer_name='Historical HBG Visit', national_id='12345679',
+            primary_phone='254712345679', sign_date='24-June-2026', status='active',
+        )
+        already_visited = JawabuFarmerMaster.objects.create(
+            customer_name='Already Visited', national_id='12345670',
+            primary_phone='254712345670', sign_date='24-June-2026',
+            jbl_visit_date=date(2026, 6, 25), jbl_visit_status='Approved', status='active',
+        )
+        preview = StringIO()
+        call_command('backfill_jbl_schedule_status', stdout=preview)
+        candidate.refresh_from_db()
+        self.assertEqual(candidate.jbl_visit_status, '')
+        self.assertIn('Dry run only', preview.getvalue())
+
+        call_command('backfill_jbl_schedule_status', '--apply', '--run-id', 'test-schedule-run')
+        candidate.refresh_from_db()
+        already_visited.refresh_from_db()
+        self.assertEqual(candidate.jbl_visit_status, 'JBL to Schedule Visit')
+        self.assertEqual(already_visited.jbl_visit_status, 'Approved')
+        self.assertTrue(candidate.pipeline_events.filter(
+            action='jbl_visit_schedule_backfilled', metadata__backfill_run='test-schedule-run',
+        ).exists())
+
+        call_command('backfill_jbl_schedule_status', '--apply', '--revert-run', 'test-schedule-run')
+        candidate.refresh_from_db()
+        self.assertEqual(candidate.jbl_visit_status, '')
 
     def test_reappraisal_starts_at_beginning_of_day_91(self):
         from core.services.jawabu_pipeline import is_reappraisal_required

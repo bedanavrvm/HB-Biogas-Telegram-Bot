@@ -18,6 +18,7 @@ import logging
 from datetime import date, timedelta
 from typing import Any
 
+from django.conf import settings
 from django.utils import timezone
 from django.db import transaction
 from django.db.models import F, Q
@@ -29,6 +30,7 @@ JBL_MEDIA_CATEGORIES = {
     'LAF': 'LAF document',
     'JBL_VISIT_PHOTO': 'JBL visit photo',
 }
+JBL_SCHEDULING_STATUS = 'JBL to Schedule Visit'
 
 logger = logging.getLogger(__name__)
 
@@ -348,6 +350,8 @@ def log_jbl_visit(
     valid_statuses = {choice[0] for choice in JawabuFarmerMaster.JBL_VISIT_STATUS_CHOICES}
     if visit_status and visit_status not in valid_statuses:
         return False, f"Invalid JBL visit status: '{visit_status}'"
+    if visit_status == JBL_SCHEDULING_STATUS:
+        return False, 'Choose the outcome of the JBL visit before logging it.'
 
     # HBG is always the first field visit in this workflow. Reject a JBL
     # visit dated before that hand-off instead of allowing the timeline to
@@ -465,6 +469,166 @@ def log_jbl_visit(
     sync_farmer_to_internal_order_sheet(farmer)
     source_farmer.refresh_from_db()
     return True, ''
+
+
+@transaction.atomic
+def preflight_jbl_visit_completion(
+    farmer: JawabuFarmerMaster,
+    *,
+    visit_date: date,
+    visit_status: str,
+    latitude: float | None = None,
+    longitude: float | None = None,
+    location_unavailable_reason: str = '',
+    expected_revision: int | None = None,
+    request_id: str = '',
+) -> tuple[bool, str, bool]:
+    """Validate a visit-completion payload before Drive receives any evidence.
+
+    Drive objects cannot participate in a database transaction.  This narrow
+    preflight therefore rejects invalid/stale submissions before external work,
+    while ``log_jbl_visit`` repeats the checks after upload to close races.
+    """
+    from core.services.jawabu_case360 import event_request_already_processed
+    from core.services.jawabu_validation import parse_business_date, parse_coordinate
+
+    locked = JawabuFarmerMaster.objects.select_for_update().get(pk=farmer.pk)
+    if event_request_already_processed(locked, request_id):
+        return True, '', True
+    validate_workflow_revision(locked, expected_revision)
+    if not _is_actionable_at_stage(locked, JawabuWorkflowState.JBL_VISIT, deferred_stage='jbl_visit'):
+        return False, _wrong_stage_message(locked, JawabuWorkflowState.JBL_VISIT), False
+    if visit_status not in {choice[0] for choice in JawabuFarmerMaster.JBL_VISIT_STATUS_CHOICES}:
+        return False, f"Invalid JBL visit status: '{visit_status}'", False
+    if visit_status == JBL_SCHEDULING_STATUS:
+        return False, 'Choose the outcome of the JBL visit before logging it.', False
+    hbg_visit_date = locked.hbg_visit_date or parse_business_date(locked.sign_date)
+    normalized_date = visit_date if isinstance(visit_date, date) else parse_business_date(visit_date)
+    if normalized_date is None:
+        return False, 'A valid JBL visit date is required.', False
+    if hbg_visit_date and normalized_date < hbg_visit_date:
+        return False, 'JBL visit date cannot be earlier than the HBG visit date.', False
+    if visit_status in JBL_FORWARD_STATUSES:
+        has_location = latitude is not None and longitude is not None
+        if not has_location and not str(location_unavailable_reason or '').strip():
+            return False, 'Capture the visit location or explain why location was unavailable before forwarding the case.', False
+        if has_location and (
+            parse_coordinate(latitude, latitude=True) is None
+            or parse_coordinate(longitude, latitude=False) is None
+        ):
+            return False, 'Coordinates are outside valid latitude/longitude ranges.', False
+    return True, '', False
+
+
+def complete_jbl_visit(
+    farmer: JawabuFarmerMaster,
+    *,
+    categorized_files: dict[str, list],
+    visit_date: date,
+    officer: str,
+    visit_status: str,
+    comment: str = '',
+    sender: str = '',
+    latitude: float | None = None,
+    longitude: float | None = None,
+    location_unavailable_reason: str = '',
+    county: str | None = None,
+    sub_county: str | None = None,
+    village: str | None = None,
+    request_id: str = '',
+    expected_revision: int | None = None,
+    actor_user=None,
+) -> tuple[bool, str, dict[str, Any]]:
+    """Safely complete a JBL visit from one validated multipart submission.
+
+    The request is retry-safe by the normal pipeline event request key.  If a
+    Drive upload succeeds but the final transition cannot be written, the
+    response explicitly says that evidence is retained and the visit was not
+    logged; a retry reuses stored content hashes instead of duplicating files.
+    """
+    categories = {
+        str(category or '').strip().upper(): list(files or [])
+        for category, files in (categorized_files or {}).items()
+        if files
+    }
+    for category, files in categories.items():
+        if category not in JBL_MEDIA_CATEGORIES:
+            return False, 'Choose a valid visit media category.', {'evidence_saved': False}
+        validation_error = _validate_jbl_media_files(files, category)
+        if validation_error:
+            return False, validation_error, {'evidence_saved': False}
+
+    ok, error, already_completed = preflight_jbl_visit_completion(
+        farmer,
+        visit_date=visit_date,
+        visit_status=visit_status,
+        latitude=latitude,
+        longitude=longitude,
+        location_unavailable_reason=location_unavailable_reason,
+        expected_revision=expected_revision,
+        request_id=request_id,
+    )
+    if not ok:
+        return False, error, {'evidence_saved': False}
+    if already_completed:
+        farmer.refresh_from_db()
+        return True, '', {'already_completed': True, 'evidence_saved': True, 'stored_count': 0}
+
+    if categories:
+        uploaded_ok, upload_error, upload_result = append_jbl_media_uploads(
+            farmer,
+            categorized_files=categories,
+            sender=sender,
+            actor_user=actor_user,
+            captured_at=timezone.now(),
+            capture_latitude=latitude,
+            capture_longitude=longitude,
+            location_unavailable_reason=location_unavailable_reason,
+        )
+        upload_result = upload_result or {}
+        if not uploaded_ok or upload_result.get('errors'):
+            return False, upload_error or 'Visit evidence upload is incomplete. The visit was not logged.', {
+                **upload_result,
+                'evidence_saved': bool(upload_result.get('stored_count')),
+                'visit_logged': False,
+            }
+    else:
+        upload_result = {'stored_count': 0, 'skipped_count': 0, 'warnings': [], 'errors': []}
+
+    try:
+        transition_ok, transition_error = log_jbl_visit(
+            farmer,
+            visit_date=visit_date,
+            officer=officer,
+            visit_status=visit_status,
+            comment=comment,
+            sender=sender,
+            latitude=latitude,
+            longitude=longitude,
+            location_unavailable_reason=location_unavailable_reason,
+            require_visit_evidence=True,
+            county=county,
+            sub_county=sub_county,
+            village=village,
+            request_id=request_id,
+            expected_revision=expected_revision,
+            actor_user=actor_user,
+        )
+    except ValueError as exc:
+        transition_ok, transition_error = False, str(exc)
+    if not transition_ok:
+        return False, transition_error or 'Visit could not be logged.', {
+            **upload_result,
+            'evidence_saved': bool(upload_result.get('stored_count')),
+            'visit_logged': False,
+        }
+    farmer.refresh_from_db()
+    return True, '', {
+        **upload_result,
+        'evidence_saved': True,
+        'visit_logged': True,
+        'already_completed': False,
+    }
 
 
 @transaction.atomic
@@ -840,6 +1004,7 @@ def _validate_jbl_media_files(uploaded_files: list, media_category: str) -> str:
     allowed_photo = {'.jpg', '.jpeg', '.png', '.webp'}
     allowed = allowed_laf if media_category == 'LAF' else allowed_photo
     minimum_bytes = 4 * 1024
+    maximum_bytes = max(1, int(getattr(settings, 'MEDIA_MAX_FILE_SIZE_MB', 20) or 20)) * 1024 * 1024
     for file_obj in uploaded_files or []:
         filename = str(getattr(file_obj, 'name', '') or '').strip()
         chunks = filename.lower().rsplit('.', 1)
@@ -850,6 +1015,9 @@ def _validate_jbl_media_files(uploaded_files: list, media_category: str) -> str:
         size = getattr(file_obj, 'size', None)
         if size is not None and int(size) < minimum_bytes:
             return f'{filename or JBL_MEDIA_CATEGORIES[media_category]} is too small to be reliable visit evidence.'
+        if size is not None and int(size) > maximum_bytes:
+            maximum_mb = maximum_bytes // (1024 * 1024)
+            return f'{filename or JBL_MEDIA_CATEGORIES[media_category]} is larger than the {maximum_mb} MB evidence limit.'
     return ''
 
 
@@ -891,7 +1059,8 @@ def append_jbl_media_links(
     # Hashes are calculated before storage for a category-local duplicate
     # check.  The generic uploader then reuses an existing Drive object where
     # possible, while these Portal rows preserve the case linkage/audit trail.
-    content_hashes = {hash_uploaded_file(file_obj)[0] for file_obj in uploaded_files}
+    file_hashes = [(file_obj, hash_uploaded_file(file_obj)[0]) for file_obj in uploaded_files]
+    content_hashes = {content_hash for _file_obj, content_hash in file_hashes}
     existing_hashes = set(
         farmer.media_attachments.filter(
             file_type=media_category,
@@ -899,10 +1068,29 @@ def append_jbl_media_links(
             content_hash__in=content_hashes,
         ).values_list('content_hash', flat=True)
     )
+    pending_files = [
+        file_obj for file_obj, content_hash in file_hashes
+        if content_hash not in existing_hashes
+    ]
+    if not pending_files:
+        category_count = farmer.media_attachments.filter(
+            file_type=media_category,
+            upload_status='success',
+        ).count()
+        return True, '', {
+            'stored_count': 0,
+            'skipped_count': len(uploaded_files),
+            'warnings': [],
+            'links': [],
+            'media_count': len([line for line in str(farmer.jbl_media_urls or '').splitlines() if line.strip()]),
+            'media_category': media_category,
+            'media_categories': {media_category: category_count},
+            'duplicate_hashes_reused': len(existing_hashes),
+        }
 
     uploaded = store_uploaded_files_for_order(
         group_config=group_config,
-        uploaded_files=uploaded_files,
+        uploaded_files=pending_files,
         sender=sender,
         received_at=timezone.now(),
         business_key_value=storage_key,

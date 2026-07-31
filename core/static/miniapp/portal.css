@@ -121,12 +121,29 @@
 .portal-operation-card { padding: 12px; border: 1px solid var(--border-color); border-radius: var(--radius-lg); background: var(--bg-surface); }
 .portal-operation-card h2 { margin: 0; color: var(--text-color); font-size: 16px; }
 .portal-operation-card > p { margin: 4px 0 10px; color: var(--text-muted); font-size: 12px; }
+.portal-readiness-heading { display: flex; align-items: flex-start; gap: 9px; margin-bottom: 10px; }
+.portal-readiness-heading h2 { margin: 0; }
+.portal-readiness-heading p { margin: 3px 0 0; color: var(--text-muted); font-size: 12px; line-height: 1.35; }
+.portal-status-pulse { width: 11px; height: 11px; margin-top: 4px; flex: 0 0 auto; border-radius: 50%; background: var(--color-success); box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-success) 52%, transparent); animation: portal-status-pulse 1.8s ease-out infinite; }
+.status-maintenance .portal-status-pulse, .status-degraded .portal-status-pulse { background: var(--color-warning); box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-warning) 52%, transparent); }
+.status-down .portal-status-pulse { background: var(--color-danger); box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-danger) 52%, transparent); }
+@keyframes portal-status-pulse { 70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+@media (prefers-reduced-motion: reduce) { .portal-status-pulse { animation: none; } }
 .portal-health-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .portal-health-check { min-height: 58px; padding: 8px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-color); }
 .portal-health-check strong, .portal-health-check span { display: block; }
 .portal-health-check strong { color: var(--text-color); font-size: 12px; }
 .portal-health-check span { margin-top: 3px; color: var(--text-muted); font-size: 11px; }
 .portal-health-check.is-degraded { border-color: color-mix(in srgb, var(--tg-theme-hint-color, #d78b00) 45%, var(--border-color)); background: color-mix(in srgb, var(--tg-theme-hint-color, #d78b00) 8%, var(--bg-color)); }
+.portal-maintenance-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--border-color); }
+.portal-maintenance-form h3, .portal-maintenance-form > p { grid-column: 1 / -1; margin: 0; }
+.portal-maintenance-form h3 { color: var(--text-color); font-size: 13px; }
+.portal-maintenance-form > p { color: var(--text-muted); font-size: 11px; line-height: 1.35; }
+.portal-maintenance-form label { display: grid; gap: 5px; color: var(--text-muted); font-size: 11px; font-weight: 700; }
+.portal-maintenance-form select, .portal-maintenance-form textarea { width: 100%; color: var(--text-color); background: var(--bg-color); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 8px; }
+.portal-maintenance-form textarea { min-height: 62px; resize: vertical; }
+.portal-maintenance-form .maintenance-reason { grid-column: 1 / -1; }
+.portal-maintenance-form button { width: fit-content; min-height: 40px; grid-column: 1 / -1; }
 .portal-delegation-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .portal-delegation-form label { display: grid; gap: 5px; color: var(--text-muted); font-size: 11px; font-weight: 700; }
 .portal-delegation-form .delegation-reason { grid-column: 1 / -1; }
@@ -334,6 +351,7 @@ body.portal-compact-cards .farmer-card .badge { padding: 2px 6px; font-size: 10p
   color: var(--text-primary);
   line-height: 1.2;
 }
+.farmer-card-number { display: inline-grid; width: 20px; height: 20px; margin-right: 6px; place-items: center; border-radius: 999px; background: var(--bg-muted); color: var(--text-muted); font-size: 10px; font-variant-numeric: tabular-nums; vertical-align: 1px; }
 .farmer-card .fc-sub {
   font-size: 12px;
   font-weight: 500;
@@ -525,27 +543,27 @@ body.portal-compact-cards .farmer-card .badge { padding: 2px 6px; font-size: 10p
 }
 
 /* ── Info rows inside sheet ──────────────────────────────────────────────────── */
-.info-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+.info-list { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--border-color); border-left: 1px solid var(--border-color); }
 
 .info-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 9px 0;
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px 9px;
+  border-right: 1px solid var(--border-color);
   border-bottom: 1px solid var(--border-color);
 }
-.info-row:last-child { border-bottom: none; }
 .info-row .ir-label {
-  flex: 0 0 120px;
-  font-size: 12px;
+  font-size: 9px;
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 .info-row .ir-value {
-  flex: 1;
-  font-size: 14px;
+  min-width: 0;
+  font-size: 13px;
   font-weight: 500;
   color: var(--text-primary);
   word-break: break-word;
@@ -588,6 +606,10 @@ body.portal-compact-cards .farmer-card .badge { padding: 2px 6px; font-size: 10p
 .form-row input:focus,
 .form-row select:focus,
 .form-row textarea:focus { outline: none; }
+.form-section.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--border-color); }
+.form-section.form-grid .form-row { min-width: 0; border-right: 1px solid var(--border-color); }
+.form-section.form-grid .form-row:nth-child(even) { border-right: 0; }
+.form-section.form-grid .form-row-wide { grid-column: 1 / -1; border-right: 0; }
 .field-help {
   color: var(--text-muted);
   font-size: 11px;
@@ -926,8 +948,8 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 
 .media-upload-control {
   width: 100%;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
 .review-stage-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 12px; padding:10px 12px; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-surface); }
@@ -975,11 +997,18 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
   border-radius: var(--radius-md);
   background: var(--bg-surface);
 }
-.media-category-upload > label {
+.media-file-tile { min-height: 92px; cursor: pointer; transition: border-color var(--transition-normal), background var(--transition-normal); }
+.media-file-tile:active { background: var(--bg-muted); }
+.media-file-tile > span,
+.media-file-tile > strong,
+.media-file-tile > small { min-width: 0; }
+.media-file-tile > span {
   color: var(--text-primary);
   font-size: 12px;
   font-weight: 700;
 }
+.media-file-tile > strong { color: var(--brand-primary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.media-upload-control input.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .media-upload-control input[type="file"] {
   width: 100%;
   min-height: 38px;
@@ -994,6 +1023,11 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
   color: var(--text-muted);
   font-size: 11px;
   line-height: 1.35;
+}
+
+@media (max-width: 360px) {
+  .info-list, .form-section.form-grid, .media-upload-control { grid-template-columns: 1fr; }
+  .form-section.form-grid .form-row { border-right: 0; }
 }
 
 .approval-condition-list {

@@ -1447,6 +1447,36 @@ class JawabuPipelineEvent(models.Model):
         ]
 
 
+class PortalMaintenanceState(models.Model):
+    """Singleton operational mode for safe, staff-visible Portal maintenance."""
+
+    MODE_LIVE = 'live'
+    MODE_MAINTENANCE = 'maintenance'
+    MODE_CHOICES = [
+        (MODE_LIVE, 'Live'),
+        (MODE_MAINTENANCE, 'Under maintenance'),
+    ]
+
+    singleton = models.PositiveSmallIntegerField(default=1, unique=True, editable=False)
+    mode = models.CharField(max_length=16, choices=MODE_CHOICES, default=MODE_LIVE, db_index=True)
+    reason = models.CharField(max_length=500, blank=True, default='')
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='+',
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(condition=models.Q(singleton=1), name='portal_maintenance_singleton_one'),
+        ]
+        verbose_name = 'Portal maintenance state'
+        verbose_name_plural = 'Portal maintenance state'
+
+    def __str__(self):
+        return self.get_mode_display()
+
+
 class BusinessCalendarHoliday(models.Model):
     """Admin-managed public holiday excluded from the official JBL SLA clock."""
 

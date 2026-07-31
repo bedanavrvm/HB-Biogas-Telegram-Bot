@@ -36,6 +36,7 @@
     approvalDelegationGates: [],
     metaBranches: [],
     metaCounties: [],
+    jblVisitMediaMaxBytes: 20 * 1024 * 1024,
     personalPreference: null,
     portalSettings: null,
     portalDelegationOptions: null,
@@ -820,7 +821,7 @@
           <input type="checkbox" class="farmer-card-checkbox" data-id="${escapeHtml(f.id || '')}" data-revision="${escapeHtml(String(f.workflow_revision || 1))}" ${state.selectedRequisitions.has(f.id) ? 'checked' : ''} onclick="event.stopPropagation();">
         ` : ''}
         <div style="flex: 1;">
-          <div class="fc-name">${escapeHtml(f.customer_name || f.national_id || f.primary_phone || 'Unknown')}</div>
+          <div class="fc-name">${f.display_number ? `<span class="farmer-card-number" aria-label="Queue position ${escapeHtml(String(f.display_number))}">${escapeHtml(String(f.display_number))}</span>` : ''}${escapeHtml(f.customer_name || f.national_id || f.primary_phone || 'Unknown')}</div>
           <div class="fc-sub">${escapeHtml(locationText(f))}</div>
           <div class="fc-sub">${escapeHtml(f.primary_phone || '')}</div>
           ${qKey === 'jbl' && f.sign_date ? `<div class="fc-sub fc-visit-date">HB visit: ${escapeHtml(fmtDate(f.sign_date))}</div>` : ''}
@@ -953,6 +954,7 @@
     state.approvalDelegationGates = data.approval_delegation_gates || [];
     state.metaBranches = data.branches || [];
     state.metaCounties = data.counties || [];
+    state.jblVisitMediaMaxBytes = Number(data.jbl_visit_media_max_bytes || state.jblVisitMediaMaxBytes);
     const nextPolicyVersion = data.access_policy_version || null;
     if (state.accessPolicyVersion && nextPolicyVersion && state.accessPolicyVersion !== nextPolicyVersion) {
       window.location.reload();
@@ -1211,7 +1213,7 @@
     </article>`;
   }
 
-  function renderPortalHealth(target, health) {
+  function renderPortalHealth(target, health, canManageMaintenance = false) {
     const labels = {
       database: 'Database',
       requisition_template: 'Requisition template',
@@ -1221,7 +1223,42 @@
     };
     const checks = Object.entries(health.checks || {}).map(([key, value]) => `<div class="portal-health-check${value === 'ok' ? '' : ' is-degraded'}"><strong>${escapeHtml(labels[key] || key)}</strong><span>${escapeHtml(value === 'ok' ? 'Ready' : value === 'missing' ? 'Needs configuration' : 'Retry needed')}</span></div>`).join('');
     const retryCount = Number(health.due_order_retries || 0) + Number(health.due_payment_retries || 0);
-    target.innerHTML = `<h2>System readiness</h2><p>${health.status === 'healthy' ? 'Templates and document storage are ready.' : `Some document operations need attention${retryCount ? ` (${retryCount} retry${retryCount === 1 ? '' : 'ies'} due)` : ''}.`}</p><div class="portal-health-grid">${checks}</div>`;
+    const status = String(health.status || 'down');
+    const statusCopy = {
+      live: 'Live — Portal is ready for normal work.',
+      maintenance: `Under maintenance — staff can view records but new changes are paused.${health.maintenance?.reason ? ` ${health.maintenance.reason}` : ''}`,
+      degraded: `Some document operations need attention${retryCount ? ` (${retryCount} retry${retryCount === 1 ? '' : 'ies'} due)` : ''}.`,
+      down: 'Portal readiness could not be confirmed. Do not submit a new change until it is checked.',
+    }[status] || 'System readiness could not be confirmed.';
+    const maintenanceControls = canManageMaintenance ? `<form class="portal-maintenance-form" data-portal-maintenance-form>
+      <h3>Maintenance mode</h3><p>Under maintenance keeps Portal readable and pauses new writes. Existing requests already in progress can finish.</p>
+      <label>Mode<select name="mode"><option value="live"${status !== 'maintenance' ? ' selected' : ''}>Live</option><option value="maintenance"${status === 'maintenance' ? ' selected' : ''}>Under maintenance</option></select></label>
+      <label class="maintenance-reason">Reason<textarea name="reason" maxlength="500" placeholder="Required when pausing new Portal changes">${escapeHtml(health.maintenance?.reason || '')}</textarea></label>
+      <button type="submit" class="btn btn-secondary">Save maintenance mode</button>
+    </form>` : '';
+    target.innerHTML = `<div class="portal-readiness-heading status-${escapeHtml(status)}"><span class="portal-status-pulse" aria-hidden="true"></span><div><h2>System readiness</h2><p>${escapeHtml(statusCopy)}</p></div></div><div class="portal-health-grid">${checks}</div>${maintenanceControls}`;
+    const form = target.querySelector('[data-portal-maintenance-form]');
+    form?.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const button = form.querySelector('button[type="submit"]');
+      const mode = form.elements.mode?.value || 'live';
+      const reason = String(form.elements.reason?.value || '').trim();
+      if (mode === 'maintenance' && !reason) {
+        showToast('Enter a reason before putting Portal into maintenance mode.', 'error');
+        return;
+      }
+      setButtonLoading(button, true, 'Saving');
+      try {
+        const result = await portalApi.postJson('/health/maintenance/', { mode, reason }, tg);
+        if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Maintenance mode could not be updated.');
+        showToast(mode === 'maintenance' ? 'Portal is now read-only for staff.' : 'Portal is live again.', 'success');
+        await renderPortalOperations({ health: true, maintenance: true });
+      } catch (error) {
+        showToast(error.message || 'Maintenance mode could not be updated.', 'error');
+      } finally {
+        setButtonLoading(button, false);
+      }
+    });
   }
 
   function renderPortalDelegations(target, payload) {
@@ -1284,8 +1321,8 @@
       target.appendChild(healthTarget);
       tasks.push(apiFetch('/health/').then(({ ok, data }) => {
         if (!ok || !data.ok) throw new Error(data.error || 'System readiness could not be loaded.');
-        renderPortalHealth(healthTarget, data);
-      }).catch(error => { healthTarget.innerHTML = `<h2>System readiness</h2><p>${escapeHtml(error.message)}</p>`; }));
+        renderPortalHealth(healthTarget, data, Boolean(operations?.maintenance));
+      }).catch(error => { healthTarget.innerHTML = `<div class="portal-readiness-heading status-down"><span class="portal-status-pulse" aria-hidden="true"></span><div><h2>System readiness</h2><p>${escapeHtml(error.message || 'Portal readiness could not be loaded.')}</p></div></div>`; }));
     }
     if (operations?.delegation) {
       const delegationTarget = document.createElement('div');

@@ -142,6 +142,7 @@ class WorkflowCapabilityPolicyTests(TestCase):
         expected_capabilities = {
             'jawabu_portal': {
                 'portal.dashboard.view', 'portal.case.read', 'portal.workspace.manage',
+                'portal.health.read', 'portal.health.maintenance.manage',
             },
             'complaint_cases': {'complaint.queue.view'},
             'tat_tracker': {'tat.home.view'},
@@ -156,6 +157,20 @@ class WorkflowCapabilityPolicyTests(TestCase):
                 effect=WorkflowRoleCapability.EFFECT_ALLOW,
             ).values_list('capability_key', flat=True))
             self.assertTrue(expected.issubset(enabled), workflow)
+
+    def test_only_it_gets_the_portal_maintenance_capability(self):
+        jbl_access = user_access(self.user, 'jawabu_portal')
+        self.assertNotIn(
+            'portal.health.maintenance.manage',
+            effective_capability_keys(self.user, 'jawabu_portal', access=jbl_access),
+        )
+        it_user = get_user_model().objects.create_user(username='portal-it', is_active=True)
+        AccessGrant.objects.create(user=it_user, workflow='jawabu_portal', role='IT')
+        it_access = user_access(it_user, 'jawabu_portal')
+        self.assertIn(
+            'portal.health.maintenance.manage',
+            effective_capability_keys(it_user, 'jawabu_portal', access=it_access),
+        )
 
     def test_maker_cannot_apply_own_policy_request_but_another_approver_can(self):
         maker = get_user_model().objects.create_superuser(username='maker', email='maker@example.test', password='password')

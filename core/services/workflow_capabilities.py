@@ -55,7 +55,8 @@ _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     CapabilityDefinition('portal.documents.view', 'jawabu_portal', 'View generated documents', 'Documents', _roles('HB_STAFF', BUSINESS_ADMIN_ROLE)),
     CapabilityDefinition('portal.documents.regenerate', 'jawabu_portal', 'Regenerate generated documents', 'Documents', _roles('HB_STAFF', BUSINESS_ADMIN_ROLE), ('portal.documents.view',)),
     CapabilityDefinition('portal.documents.sign', 'jawabu_portal', 'Upload and attest physically signed documents', 'Documents', _roles(BUSINESS_ADMIN_ROLE), ('portal.documents.view',)),
-    CapabilityDefinition('portal.health.read', 'jawabu_portal', 'View workflow health', 'Operations', _roles('HB_STAFF', BUSINESS_ADMIN_ROLE)),
+    CapabilityDefinition('portal.health.read', 'jawabu_portal', 'View workflow health', 'Operations', _roles('HB_STAFF', 'IT', BUSINESS_ADMIN_ROLE)),
+    CapabilityDefinition('portal.health.maintenance.manage', 'jawabu_portal', 'Set Portal maintenance mode', 'Operations', _roles('IT'), ('portal.health.read',)),
     CapabilityDefinition('portal.workspace.manage', 'jawabu_portal', 'Use private saved views, pins, and recents', 'IT support', _roles('IT'), ('portal.case.read',)),
     # Complaint cases.
     CapabilityDefinition('complaint.queue.view', 'complaint_cases', 'View complaint queue', 'Cases', _roles('OFFICER', 'MANAGER', 'IT')),

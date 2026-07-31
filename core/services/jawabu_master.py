@@ -1543,6 +1543,22 @@ def row_fingerprint(row: dict) -> str:
     return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
 
+def _set_pending_jbl_visit_status(farmer: JawabuFarmerMaster) -> bool:
+    """Set the explicit operational hand-off once an HBG visit is available.
+
+    Only a blank status is defaulted. A JBL officer's recorded outcome always
+    wins over a later FarmUp import, and a completed visit never re-enters the
+    scheduling queue.
+    """
+    from core.services.jawabu_validation import parse_business_date
+
+    has_hbg_visit = bool(farmer.hbg_visit_date or parse_business_date(farmer.sign_date))
+    if has_hbg_visit and not farmer.jbl_visit_date and not str(farmer.jbl_visit_status or '').strip():
+        farmer.jbl_visit_status = 'JBL to Schedule Visit'
+        return True
+    return False
+
+
 @transaction.atomic
 def upsert_farmer(cleaned: dict) -> tuple[bool, str]:
     from core.services.jawabu_identity import (
@@ -1581,6 +1597,7 @@ def upsert_farmer(cleaned: dict) -> tuple[bool, str]:
             setattr(existing, field, value)
         from core.services.jawabu_validation import canonicalize_farmer
         canonicalize_farmer(existing, strict=True)
+        scheduled_for_jbl_visit = _set_pending_jbl_visit_status(existing)
         existing.save()
         from core.services.jawabu_validation import refresh_data_quality_issues
         refresh_data_quality_issues(existing)
@@ -1603,14 +1620,24 @@ def upsert_farmer(cleaned: dict) -> tuple[bool, str]:
             source='farmup',
             metadata={'reappraisal_cycle': bool(restarted)},
         )
+        if scheduled_for_jbl_visit:
+            record_pipeline_event(
+                existing,
+                action='jbl_visit_scheduled',
+                stage_key='jbl_visit',
+                source='farmup',
+                new_values={'jbl_visit_status': existing.jbl_visit_status},
+                metadata={'reason': 'HBG visit imported; awaiting JBL officer action.'},
+            )
         return False, existing.status
     farmer = JawabuFarmerMaster.objects.create(**defaults)
     from core.services.jawabu_validation import canonicalize_farmer
     canonicalize_farmer(farmer, strict=True)
+    scheduled_for_jbl_visit = _set_pending_jbl_visit_status(farmer)
     farmer.save(update_fields=[
         'national_id', 'primary_phone', 'secondary_phone', 'hbg_visit_date',
         'deposit_paid_hbg', 'latitude_value', 'longitude_value',
-        'repayment_day', 'repayment_tenor_months', 'updated_at',
+        'repayment_day', 'repayment_tenor_months', 'jbl_visit_status', 'updated_at',
     ])
     from core.services.jawabu_validation import refresh_data_quality_issues
     refresh_data_quality_issues(farmer)
@@ -1627,6 +1654,15 @@ def upsert_farmer(cleaned: dict) -> tuple[bool, str]:
     )
     from core.services.jawabu_case360 import record_pipeline_event
     record_pipeline_event(farmer, action='application_imported', stage_key='intake', source='farmup')
+    if scheduled_for_jbl_visit:
+        record_pipeline_event(
+            farmer,
+            action='jbl_visit_scheduled',
+            stage_key='jbl_visit',
+            source='farmup',
+            new_values={'jbl_visit_status': farmer.jbl_visit_status},
+            metadata={'reason': 'HBG visit imported; awaiting JBL officer action.'},
+        )
     if action == APPLICATION_ACTION_CREATE_ADDITIONAL_UNIT:
         record_additional_unit(farmer, reason=additional_unit_reason)
     return True, defaults['status']

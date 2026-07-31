@@ -105,6 +105,19 @@ def portal_auth_required(view_func):
                 bind_miniapp_request_identity(request, _portal_payload_for_request_identity(request))
             except ValueError as exc:
                 return _finish_portal_response(request, idempotency_error_response(exc), started_at)
+            # Maintenance is a read-only safety mode. A request already inside
+            # a view remains allowed to finish; only newly admitted writes are
+            # rejected, preventing an IT toggle from splitting a live upload.
+            if view_func.__name__ != 'portal_set_maintenance':
+                from core.services.portal_maintenance import maintenance_write_blocked
+
+                blocked, message = maintenance_write_blocked()
+                if blocked:
+                    return _finish_portal_response(request, JsonResponse({
+                        'ok': False,
+                        'error': message,
+                        'code': 'portal_read_only_maintenance',
+                    }, status=503), started_at)
         else:
             # Read-only navigation is not an idempotent write, but preserve a
             # valid client correlation ID so browser/Telegram traces remain
@@ -294,6 +307,25 @@ def _paginate_qs(qs, request, page_size: int = 30):
     total = qs.count()
     start, end, pagination = _pagination_window(request, total, page_size)
     return list(qs[start:end]), pagination
+
+
+def _numbered_farmer_cards(items, pagination, *, review_map=None):
+    """Serialize one current page with ephemeral, human-facing positions.
+
+    Queue positions are calculated from the active filter/page. They are never
+    persisted or used as case, customer, order, or financial identifiers.
+    """
+    from core.services.jawabu_pipeline import farmer_to_card
+
+    first_position = (int(pagination['page']) - 1) * int(pagination['page_size'])
+    cards = []
+    for offset, farmer in enumerate(items, start=1):
+        card = farmer_to_card(farmer)
+        if review_map is not None:
+            card = _card_with_payment_review_metadata(farmer, card, review_map)
+        card['display_number'] = first_position + offset
+        cards.append(card)
+    return cards
 
 
 def _paginate_list(items: list, request, page_size: int = 30):
@@ -1194,6 +1226,7 @@ def _portal_setting_options(request, actor) -> dict:
         ],
         'operations': {
             'health': has_capability(actor, 'jawabu_portal', 'portal.health.read', access=access),
+            'maintenance': has_capability(actor, 'jawabu_portal', 'portal.health.maintenance.manage', access=access),
             'delegation': has_capability(actor, 'jawabu_portal', 'portal.approval.delegation.authorize', access=access),
         },
     }
@@ -1735,6 +1768,7 @@ def portal_meta(request):
         'approval_delegation_gates': delegation_gates,
         'capabilities': _portal_capabilities(request),
         'access_policy_version': policy_version(),
+        'jbl_visit_media_max_bytes': int(getattr(settings, 'MEDIA_MAX_FILE_SIZE_MB', 20) or 20) * 1024 * 1024,
     })
 
 
@@ -1756,9 +1790,9 @@ def portal_jbl_queue(request):
     return JsonResponse({
         'ok': True,
         'queue': 'jbl_visit',
-        'farmers': [farmer_to_card(f) for f in items],
+        'farmers': _numbered_farmer_cards(items, pagination),
         'pagination': pagination,
-})
+    })
 
 @csrf_exempt
 @require_http_methods(["GET"])
@@ -1790,10 +1824,7 @@ def portal_queue_fragment(request, queue_key: str):
         fragment_mode = 'requisition'
     elif queue_key == 'final' and review_stage == 'payment':
         fragment_mode = ''
-    farmer_cards = [
-        _card_with_payment_review_metadata(farmer, farmer_to_card(farmer), review_map)
-        for farmer in items
-    ]
+    farmer_cards = _numbered_farmer_cards(items, pagination, review_map=review_map)
     return render(request, 'portal/partials/farmer_list.html', {
         'farmers': farmer_cards,
         'pagination': pagination,
@@ -1820,6 +1851,7 @@ def portal_health(request):
     if role_error:
         return role_error
     from core.services.portal_health import portal_sync_health
+    from core.services.portal_maintenance import current_maintenance_state
 
     health = portal_sync_health()
     checks = {
@@ -1829,11 +1861,23 @@ def portal_health(request):
         'order_storage': 'degraded' if health['failed_order_syncs'] else 'ok',
         'payment_storage': 'degraded' if health['failed_payment_syncs'] else 'ok',
     }
+    state = current_maintenance_state()
+    critical_unavailable = checks['database'] != 'ok' or (
+        checks['requisition_template'] == 'missing' and checks['payment_template'] == 'missing'
+    )
     degraded = any(value != 'ok' for value in checks.values())
+    operational_status = 'down' if critical_unavailable else (
+        'maintenance' if state and state.mode == 'maintenance' else ('degraded' if degraded else 'live')
+    )
     return JsonResponse({
         'ok': True,
-        'status': 'degraded' if degraded else 'healthy',
+        'status': operational_status,
         'checks': checks,
+        'maintenance': {
+            'mode': state.mode if state else 'live',
+            'reason': state.reason if state else '',
+            'updated_at': state.updated_at.isoformat() if state and state.updated_at else None,
+        },
         'failed_order_syncs': health['failed_order_syncs'],
         'failed_payment_syncs': health['failed_payment_syncs'],
         'due_order_retries': health['due_order_retries'],
@@ -1841,80 +1885,121 @@ def portal_health(request):
     })
 
 
+def _legacy_jbl_visit_write_response():
+    """Stop cached two-step clients from creating evidence without a visit."""
+    return JsonResponse({
+        'ok': False,
+        'error': 'This Portal version is out of date. Reopen the Mini App, then submit the JBL visit again.',
+        'code': 'jbl_visit_completion_upgrade_required',
+    }, status=426)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_set_maintenance(request):
+    """IT-only Portal read-only maintenance switch with compliance evidence."""
+    role_error = _portal_capability_error(request, 'portal.health.maintenance.manage')
+    if role_error:
+        return role_error
+    try:
+        body = json.loads(request.body or '{}')
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
+    try:
+        request_id = _portal_request_id(request, body)
+        from core.services.portal_maintenance import set_maintenance_state
+
+        state = set_maintenance_state(
+            actor=getattr(request, 'portal_user', None),
+            mode=body.get('mode', ''),
+            reason=body.get('reason', ''),
+            request_id=request_id,
+        )
+    except ValidationError as exc:
+        return JsonResponse({'ok': False, 'error': '; '.join(exc.messages)}, status=400)
+    return JsonResponse({
+        'ok': True,
+        'maintenance': {
+            'mode': state.mode,
+            'reason': state.reason,
+            'updated_at': state.updated_at.isoformat(),
+        },
+    })
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def portal_log_jbl_visit(request, farmer_id: str):
-    """
-    POST /api/portal/jbl-queue/<farmer_id>/
-    Body: { visit_date, visit_status, officer, comment }
-    """
+    """Retired two-step completion route retained only for a safe upgrade response."""
+    return _legacy_jbl_visit_write_response()
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_complete_jbl_visit(request, farmer_id: str):
+    """Validate, upload, and transition a visit through one multipart request."""
     from datetime import date as _date
     from core.models import JawabuFarmerMaster
-    from core.services.jawabu_pipeline import log_jbl_visit, farmer_to_card
+    from core.services.jawabu_pipeline import (
+        JBL_FORWARD_STATUSES,
+        complete_jbl_visit,
+        farmer_to_card,
+    )
 
     try:
         farmer = JawabuFarmerMaster.objects.get(pk=farmer_id)
     except JawabuFarmerMaster.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
-
-    role_error = _portal_role_error(request, 'jbl_visit.write', farmer)
+    role_error = _portal_capability_error(request, 'portal.jbl_visit.write', farmer)
     if role_error:
         return role_error
-
-    try:
-        body = json.loads(request.body)
-    except (json.JSONDecodeError, ValueError):
-        return JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
+    body = request.POST.dict()
     try:
         expected_revision = _portal_workflow_revision(body)
     except ValueError as exc:
         response = _portal_workflow_error(exc)
         return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
-
     visit_date_raw = str(body.get('visit_date') or '').strip()
-    if not visit_date_raw:
-        visit_date = _date.today()
-    else:
-        try:
-            visit_date = _date.fromisoformat(visit_date_raw)
-        except ValueError:
-            return JsonResponse(
-                {'ok': False, 'error': f"Invalid visit_date '{visit_date_raw}'. Use YYYY-MM-DD."},
-                status=400,
-            )
-
-    visit_status = str(body.get('visit_status') or '').strip()
-    officer = str(body.get('officer') or '').strip()
-    comment = str(body.get('comment') or '').strip()
-    sender = _portal_sender_from_request(request) or officer
-    county = str(body.get('county') or '').strip() if 'county' in body else None
-    sub_county = str(body.get('sub_county') or '').strip() if 'sub_county' in body else None
-    village = str(body.get('village') or '').strip() if 'village' in body else None
-    location_unavailable_reason = str(body.get('location_unavailable_reason') or '').strip()
-
-    latitude = body.get('latitude')
-    longitude = body.get('longitude')
     try:
-        latitude = float(latitude) if latitude is not None and str(latitude).strip() != '' else None
-        longitude = float(longitude) if longitude is not None and str(longitude).strip() != '' else None
+        visit_date = _date.fromisoformat(visit_date_raw) if visit_date_raw else _date.today()
+    except ValueError:
+        return JsonResponse({'ok': False, 'error': 'Visit date must use YYYY-MM-DD.'}, status=400)
+    latitude = body.get('capture_latitude') or body.get('latitude')
+    longitude = body.get('capture_longitude') or body.get('longitude')
+    try:
+        latitude = float(latitude) if latitude is not None and str(latitude).strip() else None
+        longitude = float(longitude) if longitude is not None and str(longitude).strip() else None
     except (ValueError, TypeError):
         return JsonResponse({'ok': False, 'error': 'Invalid coordinates format.'}, status=400)
-
+    getlist = getattr(request.FILES, 'getlist', None)
+    categorized_files = {
+        'LAF': getlist('laf_files') if getlist else [],
+        'JBL_VISIT_PHOTO': getlist('jbl_visit_photo_files') if getlist else [],
+    }
+    visit_status = str(body.get('visit_status') or '').strip()
+    # A rejected or deferred visit can be recorded without evidence.  Require
+    # the separate media capability only when this request writes evidence, or
+    # when the selected outcome must carry evidence to move the case forward.
+    if any(categorized_files.values()) or visit_status in JBL_FORWARD_STATUSES:
+        media_error = _portal_capability_error(request, 'portal.jbl_media.write', farmer)
+        if media_error:
+            return media_error
+    sender = _portal_sender_from_request(request)
     try:
-        ok, error = log_jbl_visit(
+        ok, error, result = complete_jbl_visit(
             farmer,
+            categorized_files=categorized_files,
             visit_date=visit_date,
-            officer=officer or sender,
             visit_status=visit_status,
-            comment=comment,
+            officer=str(body.get('officer') or '').strip() or sender,
+            comment=str(body.get('comment') or '').strip(),
             sender=sender,
             latitude=latitude,
             longitude=longitude,
-            location_unavailable_reason=location_unavailable_reason,
-            require_visit_evidence=True,
-            county=county,
-            sub_county=sub_county,
-            village=village,
+            location_unavailable_reason=str(body.get('location_unavailable_reason') or '').strip(),
+            county=str(body.get('county') or '').strip() if 'county' in body else None,
+            sub_county=str(body.get('sub_county') or '').strip() if 'sub_county' in body else None,
+            village=str(body.get('village') or '').strip() if 'village' in body else None,
             request_id=_portal_request_id(request, body),
             expected_revision=expected_revision,
             actor_user=getattr(request, 'portal_user', None),
@@ -1923,9 +2008,9 @@ def portal_log_jbl_visit(request, farmer_id: str):
         response = _portal_workflow_error(exc)
         return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     if not ok:
-        return JsonResponse({'ok': False, 'error': error}, status=400)
+        return JsonResponse({'ok': False, 'error': error, **result}, status=409 if result.get('evidence_saved') else 400)
     farmer.refresh_from_db()
-    return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer)})
+    return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer), **result})
 
 
 # ── Stage 3: Credit Decision queue ───────────────────────────────────────────
@@ -1933,85 +2018,8 @@ def portal_log_jbl_visit(request, farmer_id: str):
 @csrf_exempt
 @require_http_methods(["POST"])
 def portal_upload_jbl_media(request, farmer_id: str):
-    """POST /api/portal/jbl-queue/<farmer_id>/media/ - upload visit media to Drive."""
-    from core.models import JawabuFarmerMaster
-    from core.services.jawabu_pipeline import (
-        append_jbl_media_links,
-        append_jbl_media_uploads,
-        farmer_to_card,
-    )
-
-    try:
-        farmer = JawabuFarmerMaster.objects.get(pk=farmer_id)
-    except JawabuFarmerMaster.DoesNotExist:
-        return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
-
-    role_error = _portal_capability_error(request, 'portal.jbl_media.write', farmer)
-    if role_error:
-        return role_error
-
-    sender = _portal_sender_from_request(request)
-    capture_latitude = request.POST.get('capture_latitude') or request.POST.get('latitude') or None
-    capture_longitude = request.POST.get('capture_longitude') or request.POST.get('longitude') or None
-    try:
-        capture_latitude = float(capture_latitude) if capture_latitude not in (None, '') else None
-        capture_longitude = float(capture_longitude) if capture_longitude not in (None, '') else None
-    except (ValueError, TypeError):
-        return JsonResponse({'ok': False, 'error': 'Capture coordinates are invalid.'}, status=400)
-    capture_time_raw = str(request.POST.get('captured_at') or '').strip()
-    captured_at = parse_datetime(capture_time_raw) if capture_time_raw else timezone.now()
-    if capture_time_raw and captured_at is None:
-        return JsonResponse({'ok': False, 'error': 'Capture timestamp is invalid.'}, status=400)
-    if captured_at and timezone.is_naive(captured_at):
-        captured_at = timezone.make_aware(captured_at, timezone.get_current_timezone())
-    location_unavailable_reason = str(request.POST.get('location_unavailable_reason') or '').strip()
-
-    # New visit forms submit each media category under its own field so a
-    # single update can route LAF documents and JBL visit photos independently.
-    getlist = getattr(request.FILES, 'getlist', None)
-    categorized_files = {
-        'LAF': getlist('laf_files') if getlist else [],
-        'JBL_VISIT_PHOTO': getlist('jbl_visit_photo_files') if getlist else [],
-    }
-    categorized_files = {category: files for category, files in categorized_files.items() if files}
-    if categorized_files:
-        ok, error, result = append_jbl_media_uploads(
-            farmer,
-            categorized_files=categorized_files,
-            sender=sender,
-            actor_user=getattr(request, 'portal_user', None),
-            captured_at=captured_at,
-            capture_latitude=capture_latitude,
-            capture_longitude=capture_longitude,
-            location_unavailable_reason=location_unavailable_reason,
-        )
-        if not ok:
-            return JsonResponse({'ok': False, 'error': error, **(result or {})}, status=400)
-        return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer), **(result or {})})
-
-    # Keep the original single-category contract for older clients and retry
-    # links that still submit `files` plus `media_category`.
-    files = getlist('files') if getlist else []
-    if not files:
-        files = list(request.FILES.values())
-    if not files:
-        return JsonResponse({'ok': False, 'error': 'Select at least one document or image to upload.'}, status=400)
-
-    media_category = request.POST.get('media_category', 'LAF')
-    ok, error, result = append_jbl_media_links(
-        farmer,
-        uploaded_files=files,
-        sender=sender,
-        media_category=media_category,
-        actor_user=getattr(request, 'portal_user', None),
-        captured_at=captured_at,
-        capture_latitude=capture_latitude,
-        capture_longitude=capture_longitude,
-        location_unavailable_reason=location_unavailable_reason,
-    )
-    if not ok:
-        return JsonResponse({'ok': False, 'error': error, **result}, status=400)
-    return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer), **result})
+    """Retired standalone evidence route; use atomic visit completion instead."""
+    return _legacy_jbl_visit_write_response()
 
 
 @csrf_exempt
@@ -2180,7 +2188,7 @@ def portal_credit_queue(request):
     return JsonResponse({
         'ok': True,
         'queue': 'credit',
-        'farmers': [farmer_to_card(f) for f in items],
+        'farmers': _numbered_farmer_cards(items, pagination),
         'pagination': pagination,
     })
 
@@ -2280,10 +2288,7 @@ def portal_final_review_queue(request):
         'ok': True,
         'queue': 'final_review',
         'review_stage': stage,
-        'farmers': [
-            _card_with_payment_review_metadata(f, farmer_to_card(f), review_map)
-            for f in items
-        ],
+        'farmers': _numbered_farmer_cards(items, pagination, review_map=review_map),
         'pagination': pagination,
     })
 
@@ -2418,7 +2423,7 @@ def portal_requisition_queue(request):
     return JsonResponse({
         'ok': True,
         'queue': 'requisition',
-        'farmers': [farmer_to_card(f) for f in items],
+        'farmers': _numbered_farmer_cards(items, pagination),
         'pagination': pagination,
     })
 
@@ -2532,7 +2537,7 @@ def portal_all_cases(request):
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
-        'farmers': [farmer_to_card(f) for f in items],
+        'farmers': _numbered_farmer_cards(items, pagination),
         'pagination': pagination,
     })
 
@@ -2553,7 +2558,7 @@ def portal_deferred(request):
     return JsonResponse({
         'ok': True,
         'queue': 'deferred',
-        'farmers': [farmer_to_card(f) for f in items],
+        'farmers': _numbered_farmer_cards(items, pagination),
         'pagination': pagination,
     })
 

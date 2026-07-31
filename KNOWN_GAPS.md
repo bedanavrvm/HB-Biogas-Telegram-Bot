@@ -1,5 +1,22 @@
 # Known Gaps and Verified Workarounds
 
+## JBL visit evidence after a Telegram/WebView return
+
+Portal restores the current JBL visit's text, date, location and GPS-fallback
+reason while the same browser session remains available. Telegram/mobile
+browsers do not permit selected `FileList` handles to be retained or restored,
+so an officer who temporarily opens the media selector or another screen may
+need to reselect the LAF and visit photo before completing the atomic request.
+The server validates both categories before it uploads either one; it never
+records a forwarded visit without the required evidence.
+
+## Pending JBL scheduling backfill
+
+`backfill_jbl_schedule_status` is intentionally dry-run by default. It may be
+reviewed locally/staging with `python manage.py backfill_jbl_schedule_status`.
+Its `--apply` and `--revert-run` paths change canonical Django status only and
+are not authorised for production use until a separate rollout approval.
+
 ## Personal notification delivery preferences
 
 `UserMiniAppPreference.alert_mode` remains stored for backward compatibility,

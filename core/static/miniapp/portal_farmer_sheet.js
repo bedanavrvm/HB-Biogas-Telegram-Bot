@@ -245,6 +245,8 @@
       footerEl.innerHTML = '<button class="primary" id="btn-submit-jbl">Log JBL Visit</button>';
       el('btn-submit-jbl').addEventListener('click', submitJblVisit);
       wireGpsButton();
+      wireJblVisitDraft(farmer);
+      sessionStorage.setItem(JBL_ACTIVE_DRAFT_KEY, farmer.id);
     } else if (mode === 'credit') {
       formEl.innerHTML = buildCreditForm(farmer);
       footerEl.innerHTML = '<button class="primary" id="btn-submit-credit">Set Credit Decision</button>';
@@ -365,42 +367,42 @@
     const today = new Date().toISOString().split('T')[0];
     const hbgVisitDate = farmer.hbg_visit_date || '';
     const defaultVisitDate = hbgVisitDate && hbgVisitDate > today ? hbgVisitDate : today;
-    const statusOptions = state().metaStatuses.map(status =>
+    const statusOptions = state().metaStatuses.filter(status => status !== 'JBL to Schedule Visit').map(status =>
       `<option value="${deps.escapeHtml(status)}"${farmer.jbl_visit_status === status ? ' selected' : ''}>${deps.escapeHtml(status)}</option>`
     ).join('');
     const countyOptions = (state().metaCounties || []).map(county =>
       `<option value="${deps.escapeHtml(county)}"></option>`
     ).join('');
     const mediaFields = hasCapability('portal.jbl_media.write') ? `
-        <div class="form-row media-upload-row">
+        <div class="form-row media-upload-row form-row-wide">
           <label>Visit Media</label>
           <div class="media-upload-control">
-            <div class="media-category-upload">
-              <label for="jbl-laf-media">LAF document(s)</label>
-              <input type="file" id="jbl-laf-media" name="laf_files" multiple accept="application/pdf,.pdf,image/jpeg,image/png,.jpg,.jpeg,.png">
-              <small>PDF, JPG or PNG only. Required before forwarding.</small>
-            </div>
-            <div class="media-category-upload">
-              <label for="jbl-visit-photo-media">JBL visit photo(s)</label>
-              <input type="file" id="jbl-visit-photo-media" name="jbl_visit_photo_files" multiple accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp">
+            <label class="media-category-upload media-file-tile" for="jbl-laf-media">
+              <span>LAF document(s)</span><strong id="jbl-laf-media-name">Tap to choose file(s)</strong>
+              <small>PDF, JPG or PNG. Required before forwarding.</small>
+              <input class="sr-only" type="file" id="jbl-laf-media" name="laf_files" multiple accept="application/pdf,.pdf,image/jpeg,image/png,.jpg,.jpeg,.png">
+            </label>
+            <label class="media-category-upload media-file-tile" for="jbl-visit-photo-media">
+              <span>JBL visit photo(s)</span><strong id="jbl-visit-photo-media-name">Tap to choose photo(s)</strong>
               <small>Image only. Required before forwarding.</small>
-            </div>
-            ${farmer.jbl_media_count ? `<small>${farmer.jbl_media_count} existing Drive link${farmer.jbl_media_count === 1 ? '' : 's'} on this record.</small>` : ''}
+              <input class="sr-only" type="file" id="jbl-visit-photo-media" name="jbl_visit_photo_files" multiple accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp">
+            </label>
+            ${farmer.jbl_media_count ? `<small class="form-row-wide">${farmer.jbl_media_count} existing Drive link${farmer.jbl_media_count === 1 ? '' : 's'} on this record.</small>` : ''}
           </div>
         </div>` : '';
     return `
-      <div class="form-section">
+      <div class="form-section form-grid">
         <div class="form-row"><label title="JBL visits follow the HBG visit and cannot be dated earlier.">Visit Date <span class="label-help" aria-hidden="true">?</span></label><input type="date" id="jbl-date" min="${deps.escapeHtml(hbgVisitDate)}" value="${deps.escapeHtml(farmer.jbl_visit_date || defaultVisitDate)}"></div>
         <div class="form-row"><label>Status / Outcome</label><select id="jbl-status"><option value="">- Select -</option>${statusOptions}</select></div>
         <div class="form-row"><label>Officer Name</label><input type="text" id="jbl-officer" placeholder="Your name" value="${deps.escapeHtml(farmer.jbl_officer || '')}"></div>
         <div class="form-row"><label>County</label><input type="text" id="jbl-county" list="jbl-county-options" placeholder="County" value="${deps.escapeHtml(farmer.county || '')}"><datalist id="jbl-county-options">${countyOptions}</datalist></div>
         <div class="form-row"><label>Constituency</label><input type="text" id="jbl-sub-county" placeholder="Constituency / sub-county" value="${deps.escapeHtml(farmer.sub_county || '')}"></div>
         <div class="form-row"><label>Village</label><input type="text" id="jbl-village" placeholder="Village / area" value="${deps.escapeHtml(farmer.village || '')}"></div>
-        <div class="form-row"><label>Comment (optional)</label><textarea id="jbl-comment" rows="2" placeholder="Additional notes...">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea></div>
+        <div class="form-row form-row-wide"><label>Comment (optional)</label><textarea id="jbl-comment" rows="2" placeholder="Additional notes...">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea></div>
         ${mediaFields}
-        <div class="form-row" style="border-bottom: none; background: transparent; padding: 12px 0 0;">
-          <button type="button" id="btn-gps" style="width: 100%; height: 38px; display: flex; align-items: center; justify-content: center; gap: 8px;">- Capture GPS Location</button>
-          <div id="gps-coords" style="font-size: 11px; font-weight: 600; color: var(--text-muted); text-align: center; margin-top: 6px;">Not captured</div>
+        <div class="form-row form-row-wide gps-capture-row">
+          <button type="button" id="btn-gps" class="secondary">Capture GPS Location</button>
+          <div id="gps-coords" class="field-help">Not captured</div>
           <input type="hidden" id="jbl-lat" value="">
           <input type="hidden" id="jbl-lng" value="">
           <label class="field-help" for="jbl-location-unavailable">If GPS is unavailable, explain why before forwarding.</label>
@@ -408,6 +410,83 @@
         </div>
       </div>
     `;
+  }
+
+  function jblDraftKey(farmerId) { return `portal:jbl-visit-draft:${farmerId}`; }
+  const JBL_ACTIVE_DRAFT_KEY = 'portal:jbl-visit-active';
+
+  function selectedFileLabel(files) {
+    if (!files?.length) return 'Tap to choose file(s)';
+    return files.length === 1 ? files[0].name : `${files.length} files selected`;
+  }
+
+  function updateJblFileLabel(inputId, labelId) {
+    const input = el(inputId);
+    const label = el(labelId);
+    if (label) label.textContent = selectedFileLabel(Array.from(input?.files || []));
+  }
+
+  function saveJblVisitDraft(farmer) {
+    if (!farmer?.id || !el('jbl-date')) return;
+    const values = {};
+    ['jbl-date', 'jbl-status', 'jbl-officer', 'jbl-county', 'jbl-sub-county', 'jbl-village', 'jbl-comment', 'jbl-lat', 'jbl-lng', 'jbl-location-unavailable'].forEach(id => {
+      values[id] = el(id)?.value || '';
+    });
+    sessionStorage.setItem(jblDraftKey(farmer.id), JSON.stringify({ farmer_id: farmer.id, values, saved_at: Date.now() }));
+  }
+
+  function restoreJblVisitDraft(farmer) {
+    try {
+      const raw = sessionStorage.getItem(jblDraftKey(farmer.id));
+      const draft = raw ? JSON.parse(raw) : null;
+      if (!draft?.values) return;
+      Object.entries(draft.values).forEach(([id, value]) => {
+        const field = el(id);
+        if (field) field.value = value;
+      });
+      const help = el('gps-coords');
+      if (help && draft.values['jbl-lat'] && draft.values['jbl-lng']) {
+        help.textContent = `Location restored: ${draft.values['jbl-lat']}, ${draft.values['jbl-lng']}`;
+      }
+      const notice = document.createElement('p');
+      notice.className = 'field-help jbl-draft-notice';
+      notice.textContent = 'Details restored after returning to Portal. Reselect evidence if Telegram cleared the file selection.';
+      el('sheet-form')?.prepend(notice);
+    } catch (_error) {
+      sessionStorage.removeItem(jblDraftKey(farmer.id));
+    }
+  }
+
+  function clearJblVisitDraft(farmer) {
+    if (farmer?.id) sessionStorage.removeItem(jblDraftKey(farmer.id));
+  }
+
+  function selectedJblFilesAreValid() {
+    const maxBytes = Number(state().jblVisitMediaMaxBytes || 20 * 1024 * 1024);
+    const files = [
+      ...Array.from(el('jbl-laf-media')?.files || []),
+      ...Array.from(el('jbl-visit-photo-media')?.files || []),
+    ];
+    const oversize = files.find(file => file.size > maxBytes);
+    if (oversize) {
+      const maxMb = Math.round(maxBytes / (1024 * 1024));
+      deps.showToast(`${oversize.name} is larger than the ${maxMb} MB evidence limit.`, 'error');
+      return false;
+    }
+    return true;
+  }
+
+  function wireJblVisitDraft(farmer) {
+    restoreJblVisitDraft(farmer);
+    ['jbl-laf-media', 'jbl-visit-photo-media'].forEach((id, index) => {
+      const labelId = index ? 'jbl-visit-photo-media-name' : 'jbl-laf-media-name';
+      el(id)?.addEventListener('change', () => {
+        updateJblFileLabel(id, labelId);
+        saveJblVisitDraft(farmer);
+      });
+    });
+    el('sheet-form')?.addEventListener('input', () => saveJblVisitDraft(farmer));
+    el('sheet-form')?.addEventListener('change', () => saveJblVisitDraft(farmer));
   }
 
   function wireGpsButton() {
@@ -626,6 +705,8 @@
   }
 
   function closeSheet() {
+    clearJblVisitDraft(state().selectedFarmer);
+    sessionStorage.removeItem(JBL_ACTIVE_DRAFT_KEY);
     el('sheet-overlay')?.classList.remove('open');
     state().selectedFarmer = null;
     state().activeMode = null;
@@ -641,77 +722,60 @@
       return;
     }
 
+    if (!selectedJblFilesAreValid()) return;
+    if (!navigator.onLine) {
+      deps.showToast('You are offline. Keep the form open and retry when connected.', 'error');
+      return;
+    }
     const btn = el('btn-submit-jbl');
-    deps.setButtonLoading(btn, true, 'Uploading evidence...');
-    const mediaResult = await uploadJblMediaIfSelected(farmer.id);
-    if (!mediaResult.ok) {
+    const formData = new FormData();
+    const key = requestId();
+    formData.set('client_request_id', key);
+    formData.set('workflow_revision', String(Number(farmer.workflow_revision || 1)));
+    formData.set('visit_date', el('jbl-date')?.value || '');
+    formData.set('visit_status', visitStatus);
+    formData.set('officer', el('jbl-officer')?.value || '');
+    formData.set('county', el('jbl-county')?.value || '');
+    formData.set('sub_county', el('jbl-sub-county')?.value || '');
+    formData.set('village', el('jbl-village')?.value || '');
+    formData.set('comment', el('jbl-comment')?.value || '');
+    formData.set('capture_latitude', el('jbl-lat')?.value || '');
+    formData.set('capture_longitude', el('jbl-lng')?.value || '');
+    formData.set('location_unavailable_reason', el('jbl-location-unavailable')?.value || '');
+    Array.from(el('jbl-laf-media')?.files || []).forEach(file => formData.append('laf_files', file));
+    Array.from(el('jbl-visit-photo-media')?.files || []).forEach(file => formData.append('jbl_visit_photo_files', file));
+    deps.setButtonLoading(btn, true, 'Saving visit and evidence…');
+    // Do not abort a slow multipart request: it may already be committing on
+    // the server. The stable request key makes an explicit retry safe instead.
+    const slowUploadNotice = window.setTimeout(() => {
+      deps.showToast('Upload is taking longer than usual. Keep this screen open until it confirms that the visit was saved.', 'info');
+    }, 12000);
+    let response;
+    try {
+      response = await deps.portalApi.postForm(
+        '/jbl-queue/' + farmer.id + '/complete-visit/',
+        formData,
+        deps.tg,
+        { 'X-CSRFToken': deps.getCookie('csrftoken') || '', 'X-Request-ID': key, 'Idempotency-Key': key },
+      );
+    } catch (error) {
+      deps.showToast(error.message || 'The upload could not be completed. Keep the form open and retry when connected.', 'error');
+      return;
+    } finally {
+      window.clearTimeout(slowUploadNotice);
       deps.setButtonLoading(btn, false);
-      deps.showToast(mediaResult.error || 'Visit evidence upload failed. The visit was not logged.', 'error');
-      return;
     }
-    deps.setButtonLoading(btn, true, 'Logging visit...');
-    const { ok, data } = await deps.apiFetch('/jbl-queue/' + farmer.id + '/', {
-      method: 'POST',
-      body: JSON.stringify({
-        request_id: requestId(),
-        workflow_revision: Number(farmer.workflow_revision || 1),
-        visit_date: el('jbl-date')?.value || '',
-        visit_status: visitStatus,
-        officer: el('jbl-officer')?.value || '',
-        county: el('jbl-county')?.value || '',
-        sub_county: el('jbl-sub-county')?.value || '',
-        village: el('jbl-village')?.value || '',
-        comment: el('jbl-comment')?.value || '',
-        latitude: el('jbl-lat')?.value || '',
-        longitude: el('jbl-lng')?.value || '',
-        location_unavailable_reason: el('jbl-location-unavailable')?.value || '',
-      }),
-    });
-    deps.setButtonLoading(btn, false);
+    const { ok, data } = response;
     if (!ok) {
-      deps.showToast(data.error || 'Save failed', 'error');
+      const recovered = data.evidence_saved ? ' Evidence was saved; retry to log the visit.' : '';
+      deps.showToast((data.error || 'Visit could not be saved.') + recovered, 'error');
       return;
     }
-    const uploaded = mediaResult.storedCount;
-    deps.showToast(
-      uploaded ? `JBL visit logged and ${uploaded} media file${uploaded === 1 ? '' : 's'} uploaded.` : 'JBL visit logged successfully.',
-      mediaResult.partial ? 'warning' : 'success',
-    );
+    const uploaded = Number(data.stored_count || 0);
+    deps.showToast(data.already_completed ? 'This visit was already saved.' : `JBL visit logged${uploaded ? ` with ${uploaded} new evidence file${uploaded === 1 ? '' : 's'}` : ''}.`, 'success');
     closeSheet();
     deps.reloadCurrentQueue();
     deps.loadDashboard();
-  }
-
-  async function uploadJblMediaIfSelected(farmerId) {
-    const lafFiles = Array.from(el('jbl-laf-media')?.files || []);
-    const visitPhotoFiles = Array.from(el('jbl-visit-photo-media')?.files || []);
-    if (!lafFiles.length && !visitPhotoFiles.length) return { ok: true, storedCount: 0, partial: false };
-    if (!navigator.onLine) {
-      return { ok: false, storedCount: 0, partial: false, error: 'Offline' };
-    }
-    const formData = new FormData();
-    lafFiles.forEach(file => formData.append('laf_files', file));
-    visitPhotoFiles.forEach(file => formData.append('jbl_visit_photo_files', file));
-    formData.append('captured_at', new Date().toISOString());
-    formData.append('capture_latitude', el('jbl-lat')?.value || '');
-    formData.append('capture_longitude', el('jbl-lng')?.value || '');
-    formData.append('location_unavailable_reason', el('jbl-location-unavailable')?.value || '');
-    try {
-      const result = await deps.portalApi.postForm('/jbl-queue/' + farmerId + '/media/', formData, deps.tg, { 'X-CSRFToken': deps.getCookie('csrftoken') || '' });
-      const data = result.data || {};
-      if (!result.ok || data.ok === false) {
-        return { ok: false, storedCount: Number(data.stored_count || 0), partial: false, error: data.error || 'Media upload failed' };
-      }
-      const warnings = Array.isArray(data.warnings) && data.warnings.length ? ' ' + data.warnings.join(' ') : '';
-      const errors = Array.isArray(data.errors) && data.errors.length
-        ? ' ' + data.errors.map(item => `${item.category}: ${item.error}`).join(' ')
-        : '';
-      const isPartial = Boolean(data.partial || data.errors?.length);
-      return { ok: !errors, storedCount: Number(data.stored_count || 0), partial: isPartial || Boolean(data.warnings?.length), error: errors || warnings };
-    } catch (err) {
-      console.error(err);
-      return { ok: false, storedCount: 0, partial: false, error: 'Media upload failed' };
-    }
   }
 
   async function submitCreditDecision() {
@@ -835,9 +899,28 @@
     });
   }
 
+  async function restoreJblVisitAfterWebViewReturn() {
+    const farmerId = sessionStorage.getItem(JBL_ACTIVE_DRAFT_KEY);
+    if (!farmerId || state().selectedFarmer) return;
+    try {
+      const { ok, data } = await deps.apiFetch(`/farmers/${encodeURIComponent(farmerId)}/`);
+      if (!ok || !data?.ok || !data.farmer) throw new Error('The draft case is no longer available.');
+      openFarmerSheet(data.farmer, 'jbl_visit');
+    } catch (_error) {
+      sessionStorage.removeItem(JBL_ACTIVE_DRAFT_KEY);
+    }
+  }
+
   function init(initialDeps) {
     deps = initialDeps;
     bindEvents();
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden' && state().activeMode === 'jbl_visit') {
+        saveJblVisitDraft(state().selectedFarmer);
+      }
+    });
+    window.addEventListener('pageshow', () => { restoreJblVisitAfterWebViewReturn(); });
+    window.setTimeout(restoreJblVisitAfterWebViewReturn, 0);
   }
 
   window.PortalMiniAppFarmerSheet = {

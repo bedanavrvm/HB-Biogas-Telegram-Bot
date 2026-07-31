@@ -1,5 +1,17 @@
 # Changelog
 
+## Atomic JBL visit completion - 31-July-2026
+
+- Portal JBL visits now validate the form, LAF document and JBL visit photo in
+  one retry-safe multipart completion request. Cached two-step upload/log
+  clients receive an upgrade message instead of creating orphaned evidence.
+- FarmUp imports can label an HBG-visited, unvisited case `JBL to Schedule
+  Visit`; the conservative backfill command defaults to a dry run and never
+  writes to Sheets or Drive.
+- Portal queues now show temporary per-filter card positions, while IT has an
+  audited read-only maintenance switch. The migration remains pending separate
+  production-release approval.
+
 ## Mini App settings hub - 31-July-2026
 
 - Portal, TAT, Complaint Cases, and SPIN now present settings as a compact,
