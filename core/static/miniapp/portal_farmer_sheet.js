@@ -5,6 +5,7 @@
   let mapInstance = null;
   let mapMarker = null;
   let currentMapLocation = null;
+  let activeMediaObjectUrl = '';
 
   const MODE_WRITE_CAPABILITIES = {
     jbl_visit: 'portal.jbl_visit.write',
@@ -641,23 +642,82 @@
         return;
       }
       media.forEach((item, index) => {
-        item.url = item.open_url || item.view_url || item.url;
         const category = item.category === 'JBL_VISIT_PHOTO' ? 'JBL visit photo' : 'Signed LAF document';
         item.name = `${category} — ${item.name || `${category} ${index + 1}`}`;
       });
-      target.innerHTML = media.length
-        ? media.map((item, index) => `<a class="media-link" href="${deps.escapeHtml(item.url)}" target="_blank" rel="noopener">${deps.escapeHtml(item.name || `LAF document ${index + 1}`)} <span aria-hidden="true">↗</span></a>`).join('')
-        : '<span class="field-help">No signed LAF document or JBL visit photo has been uploaded for this client.</span>';
-      target.querySelectorAll('.media-link').forEach(link => {
-        link.addEventListener('click', event => {
-          event.preventDefault();
-          deps.openPortalLink(link.href || '');
-        });
-      });
+      renderClientMediaLinks(media, target);
+      return;
     } catch (error) {
       target.innerHTML = '<span class="field-help">Could not load client media. Check your connection and retry.</span>';
     } finally {
       if (button) button.disabled = false;
+    }
+  }
+
+  function renderClientMediaLinks(media, target) {
+    target.innerHTML = media.length
+      ? media.map((item, index) => item.preview_url
+        ? `<button type="button" class="media-link media-preview-link" data-media-index="${index}">${deps.escapeHtml(item.name || `LAF document ${index + 1}`)} <span aria-hidden="true">View</span></button>`
+        : `<span class="media-link media-link-unavailable">${deps.escapeHtml(item.name || `Legacy media ${index + 1}`)} <span>In-app preview unavailable for this older upload</span></span>`
+      ).join('')
+      : '<span class="field-help">No signed LAF document or JBL visit photo has been uploaded for this client.</span>';
+    target.querySelectorAll('.media-preview-link').forEach(link => {
+      link.addEventListener('click', () => {
+        const item = media[Number(link.dataset.mediaIndex)];
+        if (item) openClientMediaPreview(item);
+      });
+    });
+  }
+
+  function closeMediaViewer() {
+    el('media-viewer-overlay')?.classList.remove('open');
+    const content = el('media-viewer-content');
+    if (content) content.replaceChildren();
+    if (activeMediaObjectUrl) {
+      URL.revokeObjectURL(activeMediaObjectUrl);
+      activeMediaObjectUrl = '';
+    }
+  }
+
+  function mediaPreviewHeaders() {
+    const fromPortalApi = deps.portalApi?.initDataHeader?.(deps.tg) || {};
+    if (Object.keys(fromPortalApi).length) return { ...fromPortalApi, 'X-Request-ID': requestId() };
+    return deps.tg?.initData
+      ? { 'X-Telegram-Init-Data': deps.tg.initData, 'X-Request-ID': requestId() }
+      : { 'X-Request-ID': requestId() };
+  }
+
+  async function openClientMediaPreview(item) {
+    const overlay = el('media-viewer-overlay');
+    const title = el('media-viewer-title');
+    const sub = el('media-viewer-sub');
+    const content = el('media-viewer-content');
+    if (!overlay || !content || !item?.preview_url) return;
+
+    closeMediaViewer();
+    if (title) title.textContent = item.category === 'JBL_VISIT_PHOTO' ? 'JBL Visit Photo' : 'Signed LAF Document';
+    if (sub) sub.textContent = item.name || 'Client media';
+    content.innerHTML = '<div class="media-viewer-loading" role="status"><span class="spinner-inline" aria-hidden="true"></span> Loading secure media…</div>';
+    overlay.classList.add('open');
+    try {
+      const response = await fetch(item.preview_url, {
+        headers: mediaPreviewHeaders(),
+        cache: 'no-store',
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || 'Could not open this client media.');
+      }
+      const blob = await response.blob();
+      if (!blob.size) throw new Error('The media file was empty.');
+      activeMediaObjectUrl = URL.createObjectURL(blob);
+      const mimeType = String(blob.type || item.mime_type || '').toLowerCase();
+      const safeName = deps.escapeHtml(item.name || 'Client media');
+      content.innerHTML = mimeType.startsWith('image/')
+        ? `<img class="media-viewer-image" src="${activeMediaObjectUrl}" alt="${safeName}">`
+        : `<iframe class="media-viewer-document" src="${activeMediaObjectUrl}" title="${safeName}"></iframe>`;
+    } catch (error) {
+      content.innerHTML = `<p class="media-viewer-error">${deps.escapeHtml(error.message || 'Could not open this client media.')} The Portal remains open; close this view and retry.</p>`;
     }
   }
 
@@ -850,12 +910,18 @@
         closeSheet();
         return;
       }
+      if (event.target.closest('#media-viewer-close')) {
+        closeMediaViewer();
+        return;
+      }
       if (event.target.closest('#sheet-map-refresh')) {
         refreshMap();
         return;
       }
       const overlay = event.target.closest('#sheet-overlay');
       if (overlay && event.target === overlay) closeSheet();
+      const mediaOverlay = event.target.closest('#media-viewer-overlay');
+      if (mediaOverlay && event.target === mediaOverlay) closeMediaViewer();
     });
   }
 

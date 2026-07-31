@@ -1419,6 +1419,7 @@ class JblPipelineApiTestCase(TestCase):
             business_key_value=self.farmer.national_id,
             file_type='LAF',
             original_filename='laf.pdf',
+            drive_file_id='drive-laf-1',
             drive_url='https://drive.example/laf',
             upload_status='success',
         )
@@ -1428,6 +1429,7 @@ class JblPipelineApiTestCase(TestCase):
             business_key_value=self.farmer.national_id,
             file_type='JBL_VISIT_PHOTO',
             original_filename='visit.jpg',
+            drive_file_id='drive-photo-1',
             drive_url='https://drive.example/visit',
             upload_status='success',
         )
@@ -1450,11 +1452,37 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(len(media), 1)
         self.assertIn(str(self.farmer.id), media[0]['view_url'])
         self.assertIn(str(media[0]['id']), media[0]['view_url'])
+        self.assertIn('/media/', media[0]['preview_url'])
+        self.assertTrue(media[0]['preview_url'].endswith('/preview/'))
         self.assertIn('/api/portal/jbl-media-open/', media[0]['open_url'])
         self.assertNotIn('drive.example', media[0]['open_url'])
         self.assertEqual(media[0]['name'], 'laf.pdf')
         self.assertEqual([item['name'] for item in payload['jbl_visit_photo_media']], ['visit.jpg'])
         self.assertEqual({item['category'] for item in payload['media']}, {'LAF', 'JBL_VISIT_PHOTO'})
+
+    @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='test-media-folder')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage.download', return_value=b'%PDF-test-media')
+    def test_preview_jbl_media_streams_authorized_drive_content_inside_portal(self, download):
+        attachment = MediaAttachment.objects.create(
+            group_id='portal-test', jawabu_farmer=self.farmer,
+            business_key_type='case_reference', business_key_value=f'case-{self.farmer.pk}',
+            file_type='LAF', original_filename='laf.pdf', mime_type='application/pdf',
+            drive_file_id='drive-laf-preview', drive_url='https://drive.example/laf', upload_status='success',
+        )
+
+        response = self.client.get(reverse(
+            'portal_preview_jbl_media', args=[self.farmer.id, attachment.id],
+        ))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b'%PDF-test-media')
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertIn('inline', response['Content-Disposition'])
+        self.assertEqual(response['Cache-Control'], 'private, no-store, max-age=0')
+        download.assert_called_once_with('drive-laf-preview')
+        self.assertTrue(JawabuMediaAccessEvent.objects.filter(
+            farmer=self.farmer, attachment=attachment, action='view',
+        ).exists())
 
     def test_open_jbl_media_redirects_and_records_an_access_event(self):
         attachment = MediaAttachment.objects.create(

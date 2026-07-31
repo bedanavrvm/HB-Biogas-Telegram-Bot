@@ -71,6 +71,7 @@ from .portal_views import (
     portal_complete_jbl_visit,
     portal_upload_jbl_media,
     portal_jbl_media,
+    portal_preview_jbl_media,
     portal_open_jbl_media,
     portal_open_jbl_media_signed,
     portal_open_legacy_jbl_media,
@@ -221,6 +222,7 @@ urlpatterns = [
     path('portal/jbl-queue/<str:farmer_id>/complete-visit/', portal_auth_required(portal_complete_jbl_visit), name='portal_complete_jbl_visit'),
     path('portal/jbl-queue/<str:farmer_id>/media/', portal_auth_required(portal_upload_jbl_media), name='portal_upload_jbl_media'),
     path('portal/jbl-queue/<str:farmer_id>/media/list/', portal_auth_required(portal_jbl_media), name='portal_jbl_media'),
+    path('portal/jbl-queue/<str:farmer_id>/media/<str:attachment_id>/preview/', portal_auth_required(portal_preview_jbl_media), name='portal_preview_jbl_media'),
     # Short-lived link issued by the authorised media-list API for Telegram's
     # external browser, where the Mini App initData header is unavailable.
     path('portal/jbl-media-open/<str:token>/', portal_open_jbl_media_signed, name='portal_open_jbl_media_signed'),

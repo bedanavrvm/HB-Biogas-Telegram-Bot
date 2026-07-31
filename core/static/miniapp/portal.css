@@ -637,6 +637,27 @@ body.portal-compact-cards .farmer-card .badge { padding: 2px 6px; font-size: 10p
   text-decoration: none;
 }
 .media-link:hover { background: var(--bg-surface-2, var(--bg-surface)); }
+.media-preview-link {
+  width: 100%;
+  min-height: 44px;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.media-preview-link span { flex: 0 0 auto; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+.media-link-unavailable { color: var(--text-muted); cursor: default; }
+.media-link-unavailable span { font-size: 10px; text-align: right; }
+
+/* Secure media is fetched from the protected Portal API and rendered here,
+   keeping the WebView and active case open instead of launching Chrome/Drive. */
+#media-viewer-overlay { z-index: 260; }
+.media-viewer-panel { max-width: 980px; }
+.media-viewer-body { display: grid; min-height: 0; padding: 0; place-items: center; background: var(--bg-soft); }
+.media-viewer-loading, .media-viewer-error { margin: 18px; color: var(--text-muted); font-size: 13px; text-align: center; }
+.media-viewer-error { color: var(--color-danger, #b42318); }
+.media-viewer-image { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
+.media-viewer-document { width: 100%; height: 100%; min-height: 70vh; border: 0; background: #fff; }
+@media (max-width: 760px) { .media-viewer-document { min-height: calc(100vh - 76px); } }
 .sheet-footer [hidden] { display: none !important; }
 /* This is an anchor so Android WebView's global link/theme colour must never
    be allowed to turn the phone glyph and label into blue-on-blue. */

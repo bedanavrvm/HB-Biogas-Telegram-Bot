@@ -2144,6 +2144,31 @@ class GoogleDriveMediaStorage:
         file_id = created['id']
         return file_id, created.get('webViewLink') or drive_file_url(file_id)
 
+    def download(self, file_id: str) -> bytes:
+        """Return an approved Drive media file for an already-authorized viewer.
+
+        This is intentionally a narrow storage primitive: callers remain
+        responsible for resolving the record, enforcing its workflow scope,
+        and recording the sensitive-data access before returning any bytes.
+        """
+        from googleapiclient.http import MediaIoBaseDownload
+
+        normalized_file_id = str(file_id or '').strip()
+        if not normalized_file_id:
+            raise ValueError('Drive media file ID is missing.')
+        stream = io.BytesIO()
+        downloader = MediaIoBaseDownload(
+            stream,
+            self.service.files().get_media(
+                fileId=normalized_file_id,
+                supportsAllDrives=True,
+            ),
+        )
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        return stream.getvalue()
+
     def ensure_workflow_folder_path(self, workflow_key: str, record_type: str, record_key: str, received_at: datetime) -> str:
         """Canonical workflow-first hierarchy for all new Drive artifacts."""
         local_time = timezone.localtime(received_at) if timezone.is_aware(received_at) else received_at

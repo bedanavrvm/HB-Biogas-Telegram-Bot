@@ -1,5 +1,13 @@
 # Changelog
 
+## Portal in-app client-media viewer - 31-July-2026
+
+- Signed LAF documents and JBL visit photos now open in a protected Portal
+  viewer instead of calling Android's external Chrome/Drive chooser. The
+  current Mini App and case remain open; every successful view remains
+  access-audited. Older URL-only evidence is clearly labelled as unavailable
+  for in-app preview rather than launching an uncontrolled external intent.
+
 ## Portal queue and final-review usability - 31-July-2026
 
 - Empty Portal queues now use a compact, consistent completion state rather

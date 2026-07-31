@@ -402,6 +402,22 @@
   </div>
 </div>
 
+<!-- Authorized visit evidence stays inside the Mini App: no Android app chooser. -->
+<div class="sheet-overlay media-viewer-overlay" id="media-viewer-overlay" role="dialog" aria-modal="true" aria-labelledby="media-viewer-title">
+  <div class="sheet-panel media-viewer-panel">
+    <div class="sheet-header">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;">
+        <div>
+          <h2 id="media-viewer-title">Client media</h2>
+          <p class="sheet-sub" id="media-viewer-sub"></p>
+        </div>
+        <button type="button" id="media-viewer-close" class="sheet-close-button" aria-label="Close client media">x</button>
+      </div>
+    </div>
+    <div class="sheet-body media-viewer-body" id="media-viewer-content" aria-live="polite"></div>
+  </div>
+</div>
+
 <!-- Invoice upload overlay -->
 
 <!-- Requisition preview overlay -->

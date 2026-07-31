@@ -2068,12 +2068,19 @@ def portal_jbl_media(request, farmer_id: str):
         {
             'id': str(item.id),
             'view_url': f'/api/portal/jbl-queue/{farmer.id}/media/{item.id}/open/',
-            # ``view_url`` remains the protected API route for API callers.
-            # ``open_url`` is a short-lived link for Telegram's external
-            # browser, which cannot carry the Mini App authentication header.
+            # This route streams the already-authorized file into the Mini App
+            # viewer.  It avoids Android's Chrome/Drive activity chooser and
+            # keeps staff in their current case instead of closing the app.
+            'preview_url': (
+                f'/api/portal/jbl-queue/{farmer.id}/media/{item.id}/preview/'
+                if item.drive_file_id else ''
+            ),
+            # ``view_url`` remains the protected redirect route for existing
+            # API callers. ``open_url`` is retained for old clients only.
             'open_url': _jbl_media_open_url(request, str(farmer.id), attachment_id=str(item.id)),
             'name': item.original_filename or dict({'LAF': 'LAF document', 'JBL_VISIT_PHOTO': 'JBL visit photo'}).get(item.file_type, 'Visit media'),
             'category': item.file_type,
+            'mime_type': item.mime_type,
             'created_at': item.created_at.isoformat() if item.created_at else '',
             'captured_at': item.captured_at.isoformat() if item.captured_at else '',
         }
@@ -2085,11 +2092,16 @@ def portal_jbl_media(request, farmer_id: str):
         legacy_links = [url.strip() for url in str(farmer.jbl_media_urls or '').splitlines() if url.strip()]
         media = [
             {
-                'id': f'legacy:{index}',
-                'view_url': f'/api/portal/jbl-queue/{farmer.id}/media/legacy/{index}/open/',
-                'open_url': _jbl_media_open_url(request, str(farmer.id), legacy_index=index),
-                'name': 'Legacy LAF/media link',
-                'category': 'LEGACY',
+            'id': f'legacy:{index}',
+            'view_url': f'/api/portal/jbl-queue/{farmer.id}/media/legacy/{index}/open/',
+            # Older URL-only evidence has no controlled Drive file ID to
+            # stream. It is labelled unavailable for the in-app viewer rather
+            # than silently sending staff to an Android activity chooser.
+            'preview_url': '',
+            'open_url': _jbl_media_open_url(request, str(farmer.id), legacy_index=index),
+            'name': 'Legacy LAF/media link',
+            'category': 'LEGACY',
+            'mime_type': '',
                 'created_at': '',
                 'captured_at': '',
             }
@@ -2106,6 +2118,91 @@ def portal_jbl_media(request, farmer_id: str):
     # The response contains short-lived browser links to sensitive evidence.
     # Do not allow an intermediary or WebView cache to retain those links.
     response['Cache-Control'] = 'no-store'
+    return response
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def portal_preview_jbl_media(request, farmer_id: str, attachment_id: str):
+    """Stream one authorized LAF/photo into the Portal's in-app viewer.
+
+    A normal ``Telegram.WebApp.openLink`` call is documented to use an
+    external browser. Streaming the controlled Drive file through this
+    protected endpoint prevents Android's Chrome/Drive chooser and preserves
+    the staff member's open Mini App and case context.
+    """
+    from django.db.models import Q
+    from django.utils.http import content_disposition_header
+    from core.models import JawabuFarmerMaster, JawabuMediaAccessEvent, MediaAttachment
+
+    farmer = JawabuFarmerMaster.objects.filter(pk=farmer_id).first()
+    if not farmer:
+        return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
+    access_error = _portal_read_access_error(request, farmer, capability='portal.jbl_media.view')
+    if access_error:
+        return access_error
+    attachment = MediaAttachment.objects.filter(
+        pk=attachment_id,
+        upload_status='success',
+    ).filter(
+        Q(jawabu_farmer=farmer) |
+        Q(jawabu_farmer__isnull=True, business_key_type='id_number', business_key_value=str(farmer.national_id or '').strip())
+    ).exclude(drive_file_id='').first()
+    if not attachment:
+        return JsonResponse({
+            'ok': False,
+            'error': 'This evidence is unavailable for in-app viewing. It may be an older Drive-only upload.',
+        }, status=404)
+
+    try:
+        from core.services.order_approval import GoogleDriveMediaStorage
+
+        content = GoogleDriveMediaStorage().download(attachment.drive_file_id)
+    except Exception:
+        logger.exception(
+            'Could not stream Portal visit evidence attachment_id=%s farmer_id=%s',
+            attachment.pk,
+            farmer.pk,
+        )
+        return JsonResponse({
+            'ok': False,
+            'error': 'The evidence could not be loaded from secure storage. Please retry shortly.',
+        }, status=503)
+
+    # The explicit fetch completed, so record the sensitive-data read once.
+    # No content, Drive URL, or customer data is copied into either audit log.
+    actor = getattr(request, 'portal_user', None)
+    request_id = _portal_request_id(request)
+    JawabuMediaAccessEvent.objects.create(
+        farmer=farmer,
+        attachment=attachment,
+        actor=actor,
+        request_id=request_id,
+    )
+    from core.services.compliance_audit import record_sensitive_access
+    record_sensitive_access(
+        workflow='portal',
+        action='portal.jbl_media.view',
+        subject_type='media_attachment',
+        subject_id=str(attachment.pk),
+        actor=actor,
+        request_id=request_id,
+        metadata={
+            'access_route': 'in_app_preview',
+            'farmer_id': str(farmer.pk),
+            'media_category': attachment.file_type,
+        },
+    )
+    mime_type = str(attachment.mime_type or '').strip() or (
+        'image/jpeg' if attachment.file_type == 'JBL_VISIT_PHOTO' else 'application/pdf'
+    )
+    response = HttpResponse(content, content_type=mime_type)
+    response['Content-Disposition'] = content_disposition_header(
+        False,
+        attachment.original_filename or f'{attachment.file_type or "visit-media"}',
+    )
+    response['Cache-Control'] = 'private, no-store, max-age=0'
+    response['X-Content-Type-Options'] = 'nosniff'
     return response
 
 
