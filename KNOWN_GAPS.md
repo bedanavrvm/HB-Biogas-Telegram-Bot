@@ -1,5 +1,15 @@
 # Known Gaps and Verified Workarounds
 
+## Sentry project activation
+
+The Django SDK is pinned, installed, initialized from `SENTRY_DSN`, and tested
+with a synthetic DSN. The external Sentry Django project, its release-owner
+alert, IP-address privacy setting, and real `SENTRY_DSN` in Render remain an
+operator setup step. `release.sh` intentionally refuses to run migrations
+until that configuration passes `check_production_readiness --strict`. Test
+the eventual staging integration only with a synthetic exception and confirm
+that the event contains no customer/staff payload.
+
 ## Business Administrator role cutover
 
 `core.0088_business_admin_role_cutover` is pending explicit production

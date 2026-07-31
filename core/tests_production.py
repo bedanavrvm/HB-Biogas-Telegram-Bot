@@ -9,6 +9,7 @@ from django.core.management import call_command
 from django.test import SimpleTestCase, override_settings
 
 from core.production import production_readiness_issues
+from core.sentry_monitoring import scrub_event, sentry_init_options
 
 
 class ProductionReadinessTests(SimpleTestCase):
@@ -92,3 +93,45 @@ class ProductionReadinessTests(SimpleTestCase):
     def test_management_command_fails_for_unsafe_configuration(self):
         with self.assertRaisesMessage(Exception, 'Production readiness checks failed.'):
             call_command('check_production_readiness', '--strict', stdout=StringIO())
+
+    def test_sentry_event_scrubbing_preserves_only_safe_request_context(self):
+        cleaned = scrub_event({
+            'request': {
+                'method': 'post',
+                'url': 'https://portal.example.test/api/portal/?national_id=12345678#ignored',
+                'headers': {'X-Telegram-Init-Data': 'signed-secret'},
+                'data': {'customer_name': 'Customer Name'},
+                'cookies': {'sessionid': 'secret'},
+            },
+            'user': {'id': 'telegram-user'},
+            'extra': {'invoice_amount': '50000'},
+            'breadcrumbs': {'values': [{'message': 'Customer Name'}]},
+            'message': 'National ID 12345678 failed validation',
+            'exception': {'values': [{'type': 'ValueError', 'value': 'Customer Name: 12345678'}]},
+        })
+
+        self.assertEqual(cleaned['request'], {
+            'method': 'POST',
+            'url': 'https://portal.example.test/api/portal/',
+        })
+        self.assertNotIn('user', cleaned)
+        self.assertNotIn('extra', cleaned)
+        self.assertNotIn('breadcrumbs', cleaned)
+        self.assertNotIn('message', cleaned)
+        self.assertEqual(cleaned['exception'], {'values': [{'type': 'ValueError'}]})
+
+    def test_sentry_options_keep_release_metadata_without_enabling_pii(self):
+        configured = self._settings(
+            '/tmp/service-account.json',
+            SENTRY_DSN='https://public@example.ingest.sentry.io/123',
+            SENTRY_ENVIRONMENT='production',
+            SENTRY_TRACES_SAMPLE_RATE=0.0,
+            APP_RELEASE='33df0bc',
+        )
+
+        options = sentry_init_options(configured)
+
+        self.assertEqual(options['release'], '33df0bc')
+        self.assertFalse(options['send_default_pii'])
+        self.assertEqual(options['traces_sample_rate'], 0.0)
+        self.assertIs(options['before_send'], scrub_event)

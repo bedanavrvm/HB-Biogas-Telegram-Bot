@@ -194,6 +194,8 @@ This is a template of variables this class of system typically needs. Treat it a
 | `TELEGRAM_BOT_TOKEN` | Bot API token used for sending messages / Bot API calls | Yes |
 | `TELEGRAM_WEBHOOK_SECRET` | Shared secret validated on incoming webhook requests | Yes |
 | `API_AUTH_TOKEN` | Token protecting manual/admin/script-facing endpoints | Yes |
+| `SENTRY_DSN` | Production error-monitoring endpoint; configure only in Render secrets | Yes |
+| `SENTRY_ENVIRONMENT` / `SENTRY_TRACES_SAMPLE_RATE` | Sentry environment label and approved performance-sampling rate | No |
 | `GOOGLE_SERVICE_ACCOUNT_JSON` / `GOOGLE_APPLICATION_CREDENTIALS` | Service-account credentials for Sheets/Drive API access | Yes |
 | Sheet/Drive IDs (e.g. `*_SHEET_ID`, `*_FOLDER_ID`) | Identify target spreadsheets/folders per workflow | Treat as sensitive unless confirmed non-sensitive |
 | `TAT_TRACKER_SIGNATURES_ENABLED` | Enables external TAT e-signature dispatch and stage gating | No |

@@ -1,5 +1,14 @@
 # Changelog
 
+## Release safeguards - 31-July-2026
+
+- Render's reviewed pre-deploy command now fails on any production-readiness
+  warning, and the runbook includes a current Portal release-record template
+  with explicit cumulative-migration and rollback guidance.
+- The existing Django Sentry integration is now privacy-filtered: no request
+  body, query string, headers, cookies, user identity, arbitrary context, or
+  exception message leaves the application with an error event.
+
 ## Workflow integrity - 30-July-2026
 
 - Workflow `ADMIN` has been renamed to `BUSINESS_ADMIN` across Portal, TAT,

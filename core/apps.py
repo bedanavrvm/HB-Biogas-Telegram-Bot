@@ -18,6 +18,7 @@ class CoreConfig(AppConfig):
         try:
             import sentry_sdk
             from sentry_sdk.integrations.django import DjangoIntegration
+            from core.sentry_monitoring import sentry_init_options
         except ImportError:
             # Production readiness checks surface a configured DSN without its
             # dependency.  Do not make local commands unusable because an
@@ -25,10 +26,6 @@ class CoreConfig(AppConfig):
             return
 
         sentry_sdk.init(
-            dsn=settings.SENTRY_DSN,
-            environment=settings.SENTRY_ENVIRONMENT,
-            release=settings.APP_RELEASE or None,
             integrations=[DjangoIntegration()],
-            traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
-            send_default_pii=False,
+            **sentry_init_options(settings),
         )

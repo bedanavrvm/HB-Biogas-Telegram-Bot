@@ -13,10 +13,23 @@ Protect `main`: use a feature branch and pull request for every change, require 
 1. Use Render PostgreSQL and enable automated daily backups. Perform a restore into staging before launch and at least quarterly thereafter.
 2. Put all secrets in Render environment variables or secret files. Configure the production values represented in `.env.example`; do not upload `.env` or a Google service-account JSON to Git. HSTS preload is enabled: use only an HTTPS-only domain whose subdomains are also safely served over HTTPS.
 3. Use Render's **pre-deploy command**: `bash release.sh`. Use the normal start command: `bash start.sh`.
-4. Set `APP_RELEASE` to the Git commit or Render deploy ID, configure `SENTRY_DSN`, and point external uptime monitoring at `GET /api/health/`.
+4. Create a Sentry **Django** project for the production service. In Sentry,
+   enable an alert for new unresolved errors to the release owner and enable
+   the project privacy option that prevents storing IP addresses. Set
+   `SENTRY_DSN` only in Render's secret environment configuration,
+   `SENTRY_ENVIRONMENT=production`, and `APP_RELEASE` to the Git commit or
+   Render deploy ID. Keep `SENTRY_TRACES_SAMPLE_RATE=0.0` until a separate
+   performance-monitoring and data-minimisation decision is approved. Point
+   external uptime monitoring at `GET /api/health/`.
 5. Configure the production Telegram webhook secret and service-account access only after the application has passed its readiness check.
 
 `release.sh` runs configuration validation, migrations, and the idempotent superuser setup. It deliberately does **not** contact Telegram. Run `python manage.py sync_telegram_commands` only as an explicit, reviewed operation after confirming the group configuration; use `--dry-run` first.
+
+The application strips request bodies, query strings, cookies, headers,
+user identity, and arbitrary extras before Sentry receives an error event.
+After adding the DSN in staging, generate one synthetic staging exception and
+confirm Sentry displays only the environment, release, exception, request
+method, and query-free path. Never test monitoring with customer data.
 
 ## Standard release
 
@@ -32,16 +45,27 @@ Protect `main`: use a feature branch and pull request for every change, require 
 
 Every schema migration must include its exact rollback command in the release
 record before it is applied. Confirm first whether a forward data repair is
-safer than destructive reversal. For the current Mini App draft migration,
-drafts are non-canonical and may be removed only after confirming they are not
-needed:
+safer than destructive reversal. Never apply a migration merely because it
+exists in the source tree; production application requires explicit approval
+for that release.
+
+For the current Portal release, record the actual production migration state
+first. If `core.0089_portalcaseworkspace_portalsavedview` is the only migration
+being reversed, its safe schema rollback is:
 
 ```powershell
-python manage.py migrate core 0071_accesscontrolpolicystate_and_more
+python manage.py migrate core 0088_business_admin_role_cutover
 ```
 
-Never apply a migration merely because it exists in the source tree; production
-application requires explicit approval for that release.
+Do not treat that command as a rollback for the earlier cumulative release
+migrations. In particular, run `python manage.py check_business_admin_cutover
+--strict` before applying or reversing the `0088` Business Administrator
+cutover. Approval, audit-ledger, and integration migrations require an
+incident-specific forward correction or a reviewed restore-to-staging plan.
+
+Use the current release record template in
+[`docs/production-release-record.md`](docs/production-release-record.md) to
+capture the baseline, approval, verification evidence, and rollback decision.
 
 ## Sheets, Drive, and Apps Script
 

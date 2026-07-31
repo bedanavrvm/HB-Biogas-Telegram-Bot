@@ -12,6 +12,7 @@ migrations, tests, settings, and these operational documents take precedence.
 | [../CHANGELOG.md](../CHANGELOG.md) | Dated visible/operational changes. |
 | [../KNOWN_GAPS.md](../KNOWN_GAPS.md) | Diagnosed limitations, workarounds, and release verification still required. |
 | [../PRODUCTION_RUNBOOK.md](../PRODUCTION_RUNBOOK.md) | Release, rollback, recovery, credentials, backups, and emergency access. |
+| [production-release-record.md](production-release-record.md) | Private evidence template for a controlled production deployment. |
 
 ## ADR convention
 
