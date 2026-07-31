@@ -1191,6 +1191,14 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(item['payment_review_document_id'], str(payment.id))
         self.assertEqual(item['payment_review_payment_number'], '12')
 
+        payment_fragment = self.client.get(
+            reverse('portal_queue_fragment', kwargs={'queue_key': 'final'}),
+            {'stage': 'payment'},
+        )
+        self.assertEqual(payment_fragment.status_code, 200)
+        self.assertContains(payment_fragment, 'Payment #12 awaiting HOR review')
+        self.assertContains(payment_fragment, f'data-payment-document-id="{payment.id}"')
+
     def test_portal_jbl_queue_fragment_renders_cards(self):
         """Verify the htmx JBL queue fragment renders useful farmer cards."""
         self.farmer.sub_county = 'Kieni'

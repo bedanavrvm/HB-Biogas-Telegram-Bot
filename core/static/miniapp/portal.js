@@ -512,6 +512,10 @@
     if (qKey === 'all' && state.search) params.set('search', state.search);
     if (state.filters.county) params.set('county', state.filters.county);
     if (state.filters.branch) params.set('branch', state.filters.branch);
+    // Keep the payment/decision lens in the legacy fragment fallback too.
+    // A stale or blocked queue helper must not silently revert HOR to the
+    // final-decision queue after the user has changed the selector.
+    if (qKey === 'final' && state.filters.reviewStage) params.set('stage', state.filters.reviewStage);
     try {
       const fragmentPath = cfg.fragmentEndpoint + '?' + params.toString();
       const html = portalApi.fetchHtml

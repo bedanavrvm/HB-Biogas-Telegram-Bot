@@ -27,10 +27,13 @@
     return entry ? entry[0] : null;
   }
 
-  function appendCommonFilters(params, state) {
+  function appendCommonFilters(params, state, queueKey) {
     if ((state.filters || {}).county) params.set('county', state.filters.county);
     if ((state.filters || {}).branch) params.set('branch', state.filters.branch);
-    if (state.activePage === 'final' && (state.filters || {}).reviewStage) {
+    // The selected Head of Rural lens belongs to the Final Review queue, not
+    // to whatever page the shell last considered active. This keeps a payment
+    // review selection intact across fragment swaps and direct navigation.
+    if (queueKey === 'final' && (state.filters || {}).reviewStage) {
       params.set('stage', state.filters.reviewStage);
     }
     if (state.workspaceOrdering === 'newest') params.set('ordering', 'newest');
@@ -42,7 +45,7 @@
     const params = new URLSearchParams({ page: String(page || 1) });
     if (queueKey === 'all' && state.search) params.set('search', state.search);
     if (queueKey === 'jbl' && state.jblSearch) params.set('search', state.jblSearch);
-    if (queueKey === 'all' || cfg.fragmentEndpoint) appendCommonFilters(params, state);
+    if (queueKey === 'all' || cfg.fragmentEndpoint) appendCommonFilters(params, state, queueKey);
     return cfg.endpoint + '?' + params.toString();
   }
 
@@ -52,7 +55,7 @@
     const params = new URLSearchParams({ page: String(page || 1) });
     if (queueKey === 'all' && state.search) params.set('search', state.search);
     if (queueKey === 'jbl' && state.jblSearch) params.set('search', state.jblSearch);
-    appendCommonFilters(params, state);
+    appendCommonFilters(params, state, queueKey);
     return cfg.fragmentEndpoint + '?' + params.toString();
   }
 

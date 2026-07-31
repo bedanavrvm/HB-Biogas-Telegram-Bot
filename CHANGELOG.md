@@ -1,5 +1,12 @@
 # Changelog
 
+## Reliable Head of Rural review switching - 31-July-2026
+
+- The Final Review selector now carries its chosen decision/payment lens
+  through the JSON request, htmx fragment fallback, and pagination links.
+  Selecting payment review can no longer silently render the final-decision
+  queue instead.
+
 ## Focused Credit decision form - 31-July-2026
 
 - The Portal Credit form now contains only the analyst's operational inputs:

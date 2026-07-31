@@ -45,6 +45,8 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertLess(html.index('miniapp/portal_requisitions.js'), html.index('miniapp/portal.js'))
         self.assertLess(html.index('miniapp/portal_requisitions.js'), html.index('miniapp/portal_payments.js'))
         self.assertLess(html.index('miniapp/portal_payments.js'), html.index('miniapp/portal.js'))
+        self.assertIn('miniapp/portal_queues.js?v=5', html)
+        self.assertIn('miniapp/portal.js?v=44', html)
 
         spin_response = self.client.get(reverse('spin_form') + '?group_id=-100spin&token=test-token')
         spin_html = spin_response.content.decode('utf-8')
@@ -203,6 +205,17 @@ class MiniAppFrontendSmokeTests(TestCase):
             'btn-clear-filters',
         ):
             self.assertIn(expected, source)
+
+    def test_final_review_queue_keeps_its_selected_lens_in_every_request_path(self):
+        queue_source = Path('core/static/miniapp/portal_queues.js').read_text(encoding='utf-8')
+        portal_source = Path('core/static/miniapp/portal.js').read_text(encoding='utf-8')
+        list_template = Path('core/templates/portal/partials/farmer_list.html').read_text(encoding='utf-8')
+
+        self.assertIn("queueKey === 'final'", queue_source)
+        self.assertNotIn("state.activePage === 'final'", queue_source)
+        self.assertIn("params.set('stage', state.filters.reviewStage)", queue_source)
+        self.assertIn("qKey === 'final' && state.filters.reviewStage", portal_source)
+        self.assertIn("&stage={{ review_stage|urlencode }}", list_template)
 
     def test_portal_farmer_sheet_exposes_detail_primitives(self):
         source = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')
