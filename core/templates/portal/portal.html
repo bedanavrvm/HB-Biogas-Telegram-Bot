@@ -88,7 +88,7 @@
       <span class="queue-card-action">Browse all <i data-lucide="arrow-up-right"></i></span>
     </button>
 
-    <section id="portal-workspace-dashboard" class="portal-workspace-dashboard" hidden aria-live="polite">
+    <section id="portal-workspace-dashboard" class="portal-workspace-dashboard" data-portal-workspace hidden aria-live="polite">
       <div class="portal-workspace-heading">
         <div><h2>My workspace</h2><p>Private shortcuts based on your current Portal access.</p></div>
         <button type="button" class="btn btn-secondary workspace-manage">Manage</button>
@@ -366,9 +366,9 @@
   </section>
 
   <section id="page-settings" class="page{% if active_screen == 'settings' %} active{% endif %}">
-    <header><h1>Portal Settings</h1><p class="meta">Personal workspace choices are private to you. Mandatory security, assignment, approval, and overdue alerts remain on.</p></header>
+    <header><h1>Portal Settings</h1><p class="meta">Personal display choices are private to you. Mandatory security, assignment, approval, and overdue alerts remain on.</p></header>
     <form id="portal-personal-settings-form" class="portal-settings-card">
-      <div class="portal-settings-heading"><h2>My workspace</h2><p>Set the Portal view that helps you begin work fastest.</p></div>
+      <div class="portal-settings-heading"><h2>My display defaults</h2><p>Set the Portal view that helps you begin work fastest.</p></div>
       <div class="portal-settings-grid">
         <label>Start on<select id="portal-preference-default-screen"></select></label>
         <label>Open work queue first<select id="portal-preference-default-queue"></select><span class="field-help">When selected, this queue opens instead of the landing screen.</span></label>
@@ -379,7 +379,7 @@
       </div>
       <div class="form-actions"><button id="portal-save-personal-settings" class="btn btn-primary" type="submit">Save my settings</button><button id="portal-clear-personal-settings" class="btn btn-secondary" type="button">Clear defaults</button></div>
     </form>
-    <section class="portal-settings-card portal-workspace-settings">
+    <section class="portal-settings-card portal-workspace-settings" data-portal-workspace hidden>
       <div class="portal-settings-heading"><h2>Saved views</h2><p>Save the queue, filters, and ordering currently on your screen. Views stay private to you.</p></div>
       <form id="portal-workspace-save-view-form" class="portal-workspace-save-form">
         <label for="portal-workspace-view-name">View name<input id="portal-workspace-view-name" maxlength="60" required placeholder="For example: Embu payment review"></label>

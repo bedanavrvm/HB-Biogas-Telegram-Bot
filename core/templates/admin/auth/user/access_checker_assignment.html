@@ -1,0 +1,20 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div id="content-main" class="max-w-3xl rounded border border-base-200 bg-white p-5 shadow-sm dark:border-base-800 dark:bg-base-900">
+  <h1 class="text-xl font-semibold">{{ title }}</h1>
+  {% if mode == 'appoint' %}
+    <p class="mt-2 text-sm text-font-subtle-light dark:text-font-subtle-dark">{{ target_user.get_username }} will be able to independently approve or reject Mini App access-policy requests. This does not grant Portal, TAT, SPIN, or payment workflow access.</p>
+  {% else %}
+    <p class="mt-2 text-sm text-font-subtle-light dark:text-font-subtle-dark">This removes {{ target_user.get_username }}'s checker authority immediately. Their Mini App workflow grants are unchanged.</p>
+  {% endif %}
+  <form method="post" class="mt-5">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <div class="mt-4 flex gap-3">
+      <button class="min-h-11 rounded {% if mode == 'appoint' %}bg-primary-600 text-white{% else %}border border-red-500 text-red-700{% endif %} px-5 font-medium">{% if mode == 'appoint' %}Appoint checker{% else %}Revoke checker{% endif %}</button>
+      <a class="inline-flex min-h-11 items-center rounded border px-4" href="{% url 'admin:auth_user_change' target_user.pk %}">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

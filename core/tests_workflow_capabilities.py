@@ -4,15 +4,33 @@ import json
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.urls import reverse
 from django.test.client import RequestFactory
 from django.test import TestCase
 
 from core.api.portal_views import portal_meta
-from core.models import AccessControlChangeRequest, AccessGrant, EmergencyAccessGrant, WorkflowRoleCapability, WorkflowRoleCapabilityAuditEvent
-from core.services.access_control import APPROVER_GROUP_NAME, approve_request, create_capability_request, create_emergency_grant
+from core.models import (
+    AccessControlChangeRequest,
+    AccessControlCheckerAssignment,
+    AccessGrant,
+    ComplianceAuditEvent,
+    EmergencyAccessGrant,
+    WorkflowRoleCapability,
+    WorkflowRoleCapabilityAuditEvent,
+)
+from core.services.access_control import (
+    APPROVER_GROUP_NAME,
+    appoint_access_control_checker,
+    approve_request,
+    can_approve_access_change,
+    create_capability_request,
+    create_emergency_grant,
+    revoke_access_control_checker,
+)
+from core.services.access_policies import WORKFLOW_ROLES
 from core.services.business_admin import legacy_business_admin_cutover_issues
 from core.services.telegram_identity import user_access
 from core.services.workflow_capabilities import (
@@ -34,6 +52,13 @@ class WorkflowCapabilityPolicyTests(TestCase):
         access = user_access(self.user, 'jawabu_portal')
         self.assertEqual(access['roles'], ['JBL_OFFICER'])
         self.assertTrue(access['authorized'])
+
+    def test_legacy_approver_group_membership_no_longer_grants_checker_authority(self):
+        self.user.is_staff = True
+        self.user.save(update_fields=['is_staff'])
+        self.user.groups.add(Group.objects.get_or_create(name=APPROVER_GROUP_NAME)[0])
+
+        self.assertFalse(can_approve_access_change(self.user))
 
     def test_django_superuser_has_no_miniapp_bypass_but_business_admin_grant_is_effective(self):
         superuser = get_user_model().objects.create_superuser(
@@ -113,10 +138,28 @@ class WorkflowCapabilityPolicyTests(TestCase):
             for item in capabilities_for_workflow('complaint_cases')
         ))
 
+    def test_it_role_exists_in_every_miniapp_workflow_with_minimum_seeded_access(self):
+        expected_capabilities = {
+            'jawabu_portal': {
+                'portal.dashboard.view', 'portal.case.read', 'portal.workspace.manage',
+            },
+            'complaint_cases': {'complaint.queue.view'},
+            'tat_tracker': {'tat.home.view'},
+            'spin_credit_analysis': {'spin.request.view'},
+        }
+
+        for workflow, expected in expected_capabilities.items():
+            self.assertIn('IT', {role for role, _label in WORKFLOW_ROLES[workflow]})
+            enabled = set(WorkflowRoleCapability.objects.filter(
+                workflow=workflow,
+                role='IT',
+                effect=WorkflowRoleCapability.EFFECT_ALLOW,
+            ).values_list('capability_key', flat=True))
+            self.assertTrue(expected.issubset(enabled), workflow)
+
     def test_maker_cannot_apply_own_policy_request_but_another_approver_can(self):
         maker = get_user_model().objects.create_superuser(username='maker', email='maker@example.test', password='password')
         approver = get_user_model().objects.create_superuser(username='checker', email='checker@example.test', password='password')
-        approver.groups.add(Group.objects.get_or_create(name=APPROVER_GROUP_NAME)[0])
         request = create_capability_request(
             requester=maker, workflow='jawabu_portal', role='JBL_OFFICER',
             capability_keys={'portal.jbl_queue.view'}, reason='Least privilege review',
@@ -130,6 +173,130 @@ class WorkflowCapabilityPolicyTests(TestCase):
         self.assertFalse(WorkflowRoleCapability.objects.get(
             workflow='jawabu_portal', role='JBL_OFFICER', capability_key='portal.jbl_visit.write',
         ).enabled)
+
+    def test_sole_superuser_bootstrap_override_requires_a_reason_then_is_audited(self):
+        root = get_user_model().objects.create_superuser(
+            username='sole-root', email='sole-root@example.test', password='password',
+        )
+        request = create_capability_request(
+            requester=root,
+            workflow='jawabu_portal',
+            role='JBL_OFFICER',
+            capability_keys={'portal.jbl_queue.view'},
+            reason='Establish initial least-privilege baseline.',
+        )
+
+        with self.assertRaises(ValidationError):
+            approve_request(request_id=request.pk, approver=root)
+        request.refresh_from_db()
+        self.assertEqual(request.status, AccessControlChangeRequest.STATUS_PENDING)
+
+        approve_request(
+            request_id=request.pk,
+            approver=root,
+            review_comment='Bootstrap override: no independent checker is active.',
+        )
+        request.refresh_from_db()
+        self.assertEqual(request.status, AccessControlChangeRequest.STATUS_APPLIED)
+        event = ComplianceAuditEvent.objects.get(source_event_id=f'{request.pk}:applied')
+        self.assertEqual(event.action, 'access_control.change.bootstrap_override_applied')
+        self.assertEqual(event.metadata['decision_mode'], 'bootstrap_override')
+
+    def test_superuser_can_appoint_and_revoke_an_independent_checker(self):
+        root = get_user_model().objects.create_superuser(
+            username='root-admin', email='root-admin@example.test', password='password',
+        )
+        checker = get_user_model().objects.create_user(
+            username='independent-checker',
+            is_active=True,
+            is_staff=True,
+        )
+
+        assignment, created = appoint_access_control_checker(
+            actor=root,
+            user=checker,
+            reason='Establish the first independent access-control checker.',
+        )
+
+        self.assertTrue(created)
+        self.assertEqual(assignment.source, AccessControlCheckerAssignment.SOURCE_BOOTSTRAP)
+        self.assertTrue(can_approve_access_change(checker))
+        self.assertTrue(ComplianceAuditEvent.objects.filter(
+            action='access_control.checker.appointed',
+            subject_id=str(assignment.pk),
+        ).exists())
+
+        request = create_capability_request(
+            requester=root,
+            workflow='jawabu_portal',
+            role='JBL_OFFICER',
+            capability_keys={'portal.jbl_queue.view'},
+            reason='Confirm independent approval is now required.',
+        )
+        with self.assertRaises(PermissionDenied):
+            approve_request(
+                request_id=request.pk,
+                approver=root,
+                review_comment='This must be denied because a checker is active.',
+            )
+        approve_request(request_id=request.pk, approver=checker)
+
+        assignment, changed = revoke_access_control_checker(
+            actor=root,
+            assignment=assignment,
+            reason='Checker role moved to another staff member.',
+        )
+        self.assertTrue(changed)
+        self.assertFalse(assignment.active)
+        self.assertFalse(can_approve_access_change(checker))
+        self.assertTrue(ComplianceAuditEvent.objects.filter(
+            action='access_control.checker.revoked',
+            subject_id=str(assignment.pk),
+        ).exists())
+
+    def test_checker_appointment_requires_deliberate_django_admin_access(self):
+        root = get_user_model().objects.create_superuser(
+            username='appointment-root', email='appointment-root@example.test', password='password',
+        )
+        telegram_only_user = get_user_model().objects.create_user(
+            username='telegram-only-checker',
+            is_active=True,
+            is_staff=False,
+        )
+
+        with self.assertRaises(ValidationError):
+            appoint_access_control_checker(
+                actor=root,
+                user=telegram_only_user,
+                reason='This should not create an unreachable admin reviewer.',
+            )
+        self.assertFalse(AccessControlCheckerAssignment.objects.filter(user=telegram_only_user).exists())
+
+    def test_appointed_checker_can_open_the_admin_review_queue_without_extra_model_permissions(self):
+        root = get_user_model().objects.create_superuser(
+            username='review-root', email='review-root@example.test', password='password',
+        )
+        checker = get_user_model().objects.create_user(
+            username='review-checker', is_active=True, is_staff=True,
+        )
+        appoint_access_control_checker(
+            actor=root,
+            user=checker,
+            reason='Provide the independent reviewer with the dedicated queue only.',
+        )
+        request = create_capability_request(
+            requester=self.user,
+            workflow='jawabu_portal',
+            role='JBL_OFFICER',
+            capability_keys={'portal.jbl_queue.view'},
+            reason='Review queue visibility test.',
+        )
+
+        self.client.force_login(checker)
+        response = self.client.get(reverse('admin:core_accesscontrolchangerequest_change', args=[request.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Approval decision')
 
     def test_emergency_grant_is_resolved_without_creating_a_permanent_grant(self):
         actor = get_user_model().objects.create_superuser(username='emergency-admin', email='emergency@example.test', password='password')
@@ -155,7 +322,6 @@ class WorkflowCapabilityMatrixAdminTests(TestCase):
         approver = get_user_model().objects.create_superuser(
             username='matrix-approver', email='approver@example.test', password='password',
         )
-        approver.groups.add(Group.objects.get_or_create(name=APPROVER_GROUP_NAME)[0])
         response = self.client.post('/admin/core/workflowrolecapability/matrix/', {
             'workflow': 'complaint_cases',
             'role': 'OFFICER',

@@ -2082,6 +2082,73 @@ class AccessControlPolicyState(models.Model):
         return cls.objects.get_or_create(singleton=1)[0]
 
 
+class AccessControlCheckerAssignment(models.Model):
+    """Auditable appointment of an independent Mini App access checker.
+
+    Django superusers are root technical approvers and therefore do not need an
+    assignment.  Non-superuser checkers are appointed only through the access
+    control service so the designation, its reason, and any later revocation
+    remain visible in the compliance ledger.
+    """
+
+    SOURCE_BOOTSTRAP = 'bootstrap_override'
+    SOURCE_SUPERUSER = 'superuser_appointment'
+    SOURCE_LEGACY = 'legacy_group_backfill'
+    SOURCE_CHOICES = [
+        (SOURCE_BOOTSTRAP, 'Bootstrap override'),
+        (SOURCE_SUPERUSER, 'Superuser appointment'),
+        (SOURCE_LEGACY, 'Legacy approver-group backfill'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='access_control_checker_assignments',
+    )
+    appointed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name='appointed_access_control_checkers',
+        help_text='Blank only for an evidence-preserving legacy group backfill.',
+    )
+    appointment_reason = models.TextField()
+    source = models.CharField(max_length=32, choices=SOURCE_CHOICES, default=SOURCE_SUPERUSER)
+    appointed_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    revoked_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    revoked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name='revoked_access_control_checkers',
+    )
+    revocation_reason = models.TextField(blank=True, default='')
+
+    class Meta:
+        ordering = ['-appointed_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user'],
+                condition=models.Q(revoked_at__isnull=True),
+                name='unique_active_access_control_checker',
+            ),
+        ]
+        indexes = [models.Index(fields=['user', 'revoked_at'])]
+        verbose_name = 'access control checker'
+        verbose_name_plural = 'access control checkers'
+
+    @property
+    def active(self):
+        return self.revoked_at is None and self.user.is_active
+
+    def __str__(self):
+        state = 'active' if self.active else 'revoked'
+        return f'{self.user} ({state})'
+
+
 class AccessControlChangeRequest(models.Model):
     """Maker-checker request for permanent Mini App access changes."""
 

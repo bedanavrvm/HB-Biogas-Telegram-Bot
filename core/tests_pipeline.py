@@ -474,6 +474,15 @@ class PortalMiniAppAuthTestCase(TestCase):
         )
         return user
 
+    def grant_portal_it_access(self, user, branches=None):
+        """Add the paused-workspace support role without replacing live work roles."""
+        return AccessGrant.objects.create(
+            user=user,
+            workflow='jawabu_portal',
+            role='IT',
+            branch=(branches or [''])[0],
+        )
+
     def _signed_init_data(self, token='test-token'):
         import hashlib
         import hmac
@@ -620,6 +629,7 @@ class PortalMiniAppAuthTestCase(TestCase):
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_portal_workspace_saved_views_are_private_validated_and_safe_after_access_drift(self):
         user = self.grant_portal_access(role='BUSINESS_ADMIN', branches=['EMBU'])
+        self.grant_portal_it_access(user, branches=['EMBU'])
         headers = {'HTTP_X_TELEGRAM_INIT_DATA': self._signed_init_data()}
         payload = {
             'name': 'Embu visit queue',
@@ -657,7 +667,9 @@ class PortalMiniAppAuthTestCase(TestCase):
             workflow='portal', action='portal.workspace.view.created', actor_id=user.pk,
         ).exists())
 
-        AccessGrant.objects.filter(user=user, workflow='jawabu_portal').update(role='CREDIT_ANALYST')
+        AccessGrant.objects.filter(
+            user=user, workflow='jawabu_portal', role='BUSINESS_ADMIN',
+        ).update(role='CREDIT_ANALYST')
         drifted = self.client.get(reverse('portal_workspace'), **headers)
         self.assertEqual(drifted.status_code, 200)
         data = drifted.json()['data']
@@ -687,6 +699,7 @@ class PortalMiniAppAuthTestCase(TestCase):
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_portal_workspace_case_open_is_idempotent_and_pins_hide_when_scope_changes(self):
         user = self.grant_portal_access(branches=['EMBU'])
+        self.grant_portal_it_access(user, branches=['EMBU'])
         farmer = JawabuFarmerMaster.objects.create(
             customer_name='Workspace farmer', national_id='10000234',
             primary_phone='254700000234', branch='Embu', status='active',
@@ -721,6 +734,32 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertEqual(workspace.json()['data']['pinned'], [])
         item = PortalCaseWorkspace.objects.get(user=user, farmer=farmer)
         self.assertIsNotNone(item.unavailable_since)
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
+    def test_portal_workspace_is_denied_and_does_not_track_case_opens_without_it_role(self):
+        user = self.grant_portal_access(branches=['EMBU'])
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Non IT workspace farmer', national_id='10000236',
+            primary_phone='254700000236', branch='Embu', status='active',
+        )
+        headers = {
+            'HTTP_X_TELEGRAM_INIT_DATA': self._signed_init_data(),
+            'HTTP_X_PORTAL_WORKSPACE_OPEN_KEY': 'non-it-open-key-001',
+        }
+
+        workspace = self.client.get(reverse('portal_workspace'), **headers)
+        self.assertEqual(workspace.status_code, 403)
+        self.assertIn('not authorized', workspace.json()['error'])
+
+        detail = self.client.get(reverse('portal_farmer_detail', args=[farmer.pk]), **headers)
+        self.assertEqual(detail.status_code, 200)
+        self.assertFalse(PortalCaseWorkspace.objects.filter(user=user, farmer=farmer).exists())
+
+        pin = self.client.post(
+            reverse('portal_workspace_case_pin', args=[farmer.pk]), data='{}',
+            content_type='application/json', HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
+        )
+        self.assertEqual(pin.status_code, 403)
 
     def test_portal_workspace_retention_releases_only_private_metadata(self):
         from core.services.portal_workspace import purge_expired_workspace_metadata

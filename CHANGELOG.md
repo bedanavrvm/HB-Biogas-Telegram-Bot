@@ -1,5 +1,25 @@
 # Changelog
 
+## Portal workspace hold - 31-July-2026
+
+- Private Portal saved views, pins, recents, and automatic case-open tracking
+  are paused for operational staff. They remain available only to an explicit,
+  scoped Portal `IT` AccessGrant with the approved `portal.workspace.manage`
+  capability; direct API calls are denied for every other role.
+- `IT` is now a controlled role choice in Portal, Complaint Cases, TAT, and
+  SPIN. Django `is_staff` and `is_superuser` remain unrelated to Mini App
+  access, and no additional operational write access was granted.
+
+## Access-control bootstrap - 31-July-2026
+
+- The Django Superuser is now the root technical access-policy approver and
+  can appoint/revoke independent Access Control Checkers from the user record.
+  Appointment/revocation require a reason and create immutable compliance
+  evidence; they do not grant Mini App workflow access.
+- A sole Superuser may use one explicitly reasoned, audit-labelled bootstrap
+  self-approval only while no independent checker or different Superuser
+  exists. Once a checker exists, normal maker-checker separation is enforced.
+
 ## Release safeguards - 31-July-2026
 
 - Render's reviewed pre-deploy command now fails on any production-readiness

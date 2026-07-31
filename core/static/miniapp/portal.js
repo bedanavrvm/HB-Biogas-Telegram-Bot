@@ -91,6 +91,21 @@
     return !capability || state.capabilities.has(capability);
   }
 
+  // Private workspace shortcuts are intentionally paused for operational
+  // staff.  They remain available only to the scoped IT support role so the
+  // existing data can be inspected without widening the feature rollout.
+  function canManagePortalWorkspace() {
+    return hasCapability('portal.workspace.manage');
+  }
+
+  function applyWorkspaceVisibility() {
+    const allowed = canManagePortalWorkspace();
+    document.querySelectorAll('[data-portal-workspace]').forEach(node => {
+      node.hidden = !allowed;
+    });
+    if (!allowed) state.workspace = null;
+  }
+
   function applyCapabilityVisibility() {
     document.querySelectorAll('[data-required-capability]').forEach(node => {
       node.hidden = !hasCapability(node.dataset.requiredCapability);
@@ -333,7 +348,9 @@
     loading.style.display = 'none';
     state.counts = data.counts || {};
     renderDashboard();
-    try { await loadPortalWorkspace({ includeSummary: true }); } catch (_) { /* Workspace shortcuts are non-critical to queue work. */ }
+    if (canManagePortalWorkspace()) {
+      try { await loadPortalWorkspace({ includeSummary: true }); } catch (_) { /* Workspace shortcuts are non-critical to queue work. */ }
+    }
   }
 
   function renderDashboard() {
@@ -881,9 +898,10 @@
   async function openCurrentFarmerSheet(farmer, mode) {
     if (!farmer || !farmer.id) return;
     try {
-      const { ok, data } = await apiFetch('/farmers/' + encodeURIComponent(farmer.id) + '/', {
-        headers: { 'X-Portal-Workspace-Open-Key': newWorkspaceOpenKey() },
-      });
+      const requestOptions = canManagePortalWorkspace()
+        ? { headers: { 'X-Portal-Workspace-Open-Key': newWorkspaceOpenKey() } }
+        : undefined;
+      const { ok, data } = await apiFetch('/farmers/' + encodeURIComponent(farmer.id) + '/', requestOptions);
       if (!ok || !data || !data.ok || !data.farmer) {
         showToast((data && data.error) || 'Could not load current farmer details.', 'error');
         return;
@@ -937,6 +955,7 @@
     state.accessPolicyVersion = nextPolicyVersion;
     state.capabilities = new Set(data.capabilities || []);
     applyCapabilityVisibility();
+    applyWorkspaceVisibility();
     portalFilters.updateFilterOptions(state.queues[state.activePage] || []);
   }
 
@@ -1075,9 +1094,10 @@
     selected.hidden = false;
     if (pushUrl) window.history.pushState({ screen: 'case_history', farmerId }, '', caseHistoryUrl(farmerId));
     content.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading complete case history...</div></div>';
-    const { ok, data } = await apiFetch('/farmers/' + encodeURIComponent(farmerId) + '/', {
-      headers: { 'X-Portal-Workspace-Open-Key': newWorkspaceOpenKey() },
-    });
+    const requestOptions = canManagePortalWorkspace()
+      ? { headers: { 'X-Portal-Workspace-Open-Key': newWorkspaceOpenKey() } }
+      : undefined;
+    const { ok, data } = await apiFetch('/farmers/' + encodeURIComponent(farmerId) + '/', requestOptions);
     if (!ok || !data?.ok) {
       content.innerHTML = `<div class="batch-warning">${escapeHtml(data?.error || 'Could not load case history.')}</div>`;
       return;
@@ -1287,6 +1307,7 @@
     if (el('portal-preference-alert-mode')) el('portal-preference-alert-mode').value = personal.alert_mode || 'immediate';
     if (el('portal-preference-compact-cards')) el('portal-preference-compact-cards').checked = Boolean(personal.compact_cards);
     document.body.classList.toggle('portal-compact-cards', Boolean(personal.compact_cards));
+    applyWorkspaceVisibility();
     if (loadOperations) await renderPortalOperations(data.data?.operations || {});
     return personal;
   }
@@ -1344,6 +1365,11 @@
   }
 
   function renderPortalWorkspace() {
+    if (!canManagePortalWorkspace()) {
+      const dashboard = el('portal-workspace-dashboard');
+      if (dashboard) dashboard.hidden = true;
+      return;
+    }
     const workspace = state.workspace;
     if (!workspace) return;
     const dashboard = el('portal-workspace-dashboard');
@@ -1381,6 +1407,10 @@
   }
 
   async function loadPortalWorkspace({ includeSummary = false } = {}) {
+    if (!canManagePortalWorkspace()) {
+      applyWorkspaceVisibility();
+      return null;
+    }
     const { ok, data } = await apiFetch(includeSummary ? '/workspace/?summary=1' : '/workspace/');
     if (!ok || !data?.ok) throw new Error(data?.error || 'Workspace could not be loaded.');
     state.workspace = data.data || {};
@@ -1423,6 +1453,7 @@
   }
 
   function appendWorkspacePinControl(farmer) {
+    if (!canManagePortalWorkspace()) return;
     const footer = el('sheet-footer');
     if (!footer || !farmer?.id) return;
     footer.querySelector('.workspace-toggle-pin')?.remove();
@@ -1439,7 +1470,9 @@
     configureHtmx();
     await loadMeta();
     try { await loadPortalSettings(); } catch (_) { /* Settings are non-critical to opening the workflow. */ }
-    try { await loadPortalWorkspace(); } catch (_) { /* Workspace is optional convenience data. */ }
+    if (canManagePortalWorkspace()) {
+      try { await loadPortalWorkspace(); } catch (_) { /* Workspace is optional convenience data. */ }
+    }
     window.setInterval(loadMeta, 60000);
     const shellScreen = document.getElementById('portal-screen')?.dataset.screen || 'dashboard';
     const isRootLanding = /\/portal\/?$/.test(window.location.pathname);
@@ -1485,6 +1518,7 @@
     const manageWorkspaceButton = event.target.closest('.workspace-manage');
     if (manageWorkspaceButton) {
       event.preventDefault();
+      if (!canManagePortalWorkspace()) return;
       switchPage('settings');
       loadPortalSettings(true).then(() => loadPortalWorkspace()).catch(error => showToast(error.message || 'Could not open workspace settings.', 'error'));
       return;

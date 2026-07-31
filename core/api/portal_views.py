@@ -1210,6 +1210,11 @@ def _portal_workspace_options(request, actor) -> dict:
     }
 
 
+def _portal_workspace_access_error(request):
+    """Keep paused personal-workspace data unavailable outside the IT role."""
+    return _portal_capability_error(request, 'portal.workspace.manage')
+
+
 @portal_auth_required
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
 @require_http_methods(["GET", "POST"])
@@ -1487,6 +1492,9 @@ def portal_workspace(request):
     actor = getattr(request, 'portal_user', None)
     if actor is None:
         return JsonResponse({'ok': False, 'error': 'Your Portal staff account could not be resolved.'}, status=403)
+    access_error = _portal_workspace_access_error(request)
+    if access_error:
+        return access_error
     include_summary = str(request.GET.get('summary') or '').strip().casefold() in {'1', 'true', 'yes'}
     return JsonResponse({
         'ok': True,
@@ -1500,6 +1508,9 @@ def portal_workspace(request):
 def portal_workspace_views(request):
     """Create one user-owned Portal view from the currently visible context."""
     actor = getattr(request, 'portal_user', None)
+    access_error = _portal_workspace_access_error(request)
+    if access_error:
+        return access_error
     payload, error_response = _portal_workspace_json_body(request)
     if error_response:
         return error_response
@@ -1523,6 +1534,9 @@ def portal_workspace_views(request):
 def portal_workspace_view_detail(request, view_id: str):
     """Edit or remove one private saved view; never alter another staff member's view."""
     actor = getattr(request, 'portal_user', None)
+    access_error = _portal_workspace_access_error(request)
+    if access_error:
+        return access_error
     from core.services.portal_workspace import (
         PortalWorkspaceError, delete_saved_view, rename_saved_view, serialize_saved_view,
         update_saved_view,
@@ -1560,6 +1574,9 @@ def portal_workspace_view_detail(request, view_id: str):
 def portal_workspace_view_activate(request, view_id: str):
     """Validate and return one saved view before client-side navigation applies it."""
     actor = getattr(request, 'portal_user', None)
+    access_error = _portal_workspace_access_error(request)
+    if access_error:
+        return access_error
     from core.services.portal_workspace import PortalWorkspaceError, activate_saved_view, serialize_saved_view
 
     try:
@@ -1578,6 +1595,9 @@ def portal_workspace_view_activate(request, view_id: str):
 def portal_workspace_view_startup(request, view_id: str):
     """Set one currently valid private view as the user's Portal startup context."""
     actor = getattr(request, 'portal_user', None)
+    access_error = _portal_workspace_access_error(request)
+    if access_error:
+        return access_error
     from core.services.portal_workspace import PortalWorkspaceError, serialize_saved_view, set_startup_view
 
     try:
@@ -1593,6 +1613,9 @@ def portal_workspace_view_startup(request, view_id: str):
 def _portal_workspace_farmer(request, farmer_id: str):
     from core.models import JawabuFarmerMaster
 
+    workspace_error = _portal_workspace_access_error(request)
+    if workspace_error:
+        return None, workspace_error
     farmer = JawabuFarmerMaster.objects.filter(pk=farmer_id).first()
     if farmer is None:
         return None, JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
@@ -1641,6 +1664,9 @@ def portal_workspace_case_unpin(request, farmer_id: str):
 @require_http_methods(["POST"])
 def portal_workspace_recents_clear(request):
     """Hide current recents without deleting their short investigation-retention window."""
+    access_error = _portal_workspace_access_error(request)
+    if access_error:
+        return access_error
     from core.services.portal_workspace import dismiss_recent_cases
 
     count = dismiss_recent_cases(user=request.portal_user)
@@ -2542,7 +2568,17 @@ def portal_farmer_detail(request, farmer_id: str):
         return access_error
     actor = getattr(request, 'portal_user', None)
     open_key = str(request.headers.get('X-Portal-Workspace-Open-Key') or '').strip()
-    if actor is not None and open_key:
+    from core.services.workflow_capabilities import has_capability
+    if (
+        actor is not None
+        and open_key
+        and has_capability(
+            actor,
+            'jawabu_portal',
+            'portal.workspace.manage',
+            access=getattr(request, 'portal_access', None),
+        )
+    ):
         from core.services.portal_workspace import PortalWorkspaceError, record_case_open
 
         try:

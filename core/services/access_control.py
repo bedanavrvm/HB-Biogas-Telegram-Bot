@@ -14,11 +14,11 @@ from django.conf import settings
 from django.contrib.auth.models import Group
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils import timezone
 
 from core.models import (
-    AccessControlChangeRequest, AccessControlNotification,
+    AccessControlChangeRequest, AccessControlCheckerAssignment, AccessControlNotification,
     AccessControlPolicySnapshot, AccessControlPolicyState, AccessGrant,
     CapabilityUsageDaily, EmergencyAccessGrant, UserProfile,
     DocumentSignoffPolicy, WorkflowRoleCapability, WorkflowRoleCapabilityAuditEvent,
@@ -32,11 +32,184 @@ EMERGENCY_ACCESS_HOURS = 4
 
 
 def approver_group() -> Group:
+    """Return the retired legacy group for data-migration compatibility only.
+
+    Effective checker authority is stored in ``AccessControlCheckerAssignment``.
+    Keeping this helper avoids breaking historical administration references
+    while ensuring a direct Group edit can never grant approval authority.
+    """
     return Group.objects.get_or_create(name=APPROVER_GROUP_NAME)[0]
 
 
+def approver_users():
+    """Return active root Superusers and independently appointed checkers."""
+    from django.contrib.auth import get_user_model
+
+    User = get_user_model()
+    return User.objects.filter(
+        Q(is_superuser=True)
+        | Q(
+            access_control_checker_assignments__isnull=False,
+            access_control_checker_assignments__revoked_at__isnull=True,
+        ),
+        is_active=True,
+    ).distinct()
+
+
+def active_checker_assignment_for_user(user):
+    if not user or not getattr(user, 'pk', None):
+        return None
+    return AccessControlCheckerAssignment.objects.filter(
+        user=user,
+        revoked_at__isnull=True,
+        user__is_active=True,
+    ).select_related('user', 'appointed_by', 'revoked_by').first()
+
+
 def can_approve_access_change(user) -> bool:
-    return bool(user and user.is_active and user.groups.filter(name=APPROVER_GROUP_NAME).exists())
+    return bool(user and user.is_active and (
+        user.is_superuser or active_checker_assignment_for_user(user) is not None
+    ))
+
+
+def bootstrap_override_available(request, approver) -> bool:
+    """Allow the sole root Superuser to establish the first control safely.
+
+    The exception is deliberately unavailable once any different active root
+    Superuser or appointed checker exists.  It is recorded distinctly and an
+    explicit decision reason is mandatory when used.
+    """
+    return bool(
+        request
+        and approver
+        and approver.is_active
+        and approver.is_superuser
+        and request.status == AccessControlChangeRequest.STATUS_PENDING
+        and request.requested_by_id == approver.pk
+        and not approver_users().exclude(pk=approver.pk).exists()
+    )
+
+
+def _record_checker_assignment(assignment, *, action: str, actor, before: dict, after: dict, decision_mode: str) -> None:
+    from core.services.compliance_audit import record_event
+
+    record_event(
+        workflow='access_control',
+        action=action,
+        category='authorization',
+        subject_type='access_control_checker',
+        subject_id=str(assignment.pk),
+        actor=actor,
+        authority_user=actor,
+        request_id=str(assignment.pk),
+        source_model='AccessControlCheckerAssignment',
+        source_event_id=str(assignment.pk),
+        deduplication_key=f'access:AccessControlCheckerAssignment:{assignment.pk}:{action}',
+        before_values=before,
+        after_values=after,
+        metadata={
+            'target_user_id': assignment.user_id,
+            'reason': assignment.appointment_reason if action.endswith('appointed') else assignment.revocation_reason,
+            'decision_mode': decision_mode,
+        },
+        sensitive=True,
+        occurred_at=timezone.now(),
+    )
+
+
+def appoint_access_control_checker(*, actor, user, reason: str):
+    """Directly appoint a checker from the technical Superuser boundary.
+
+    This is intentionally not a Mini App access grant.  It is the bootstrap
+    path which lets the first root administrator create independent reviewers
+    without an impossible self-approval loop.  Repeated submissions are
+    idempotent while the appointment remains active.
+    """
+    if not actor or not actor.is_active or not actor.is_superuser:
+        raise PermissionDenied('Only an active Django Superuser can appoint an access control checker.')
+    if not user or not user.is_active:
+        raise ValidationError('Only an active user can be appointed as an access control checker.')
+    if not user.is_staff:
+        raise ValidationError(
+            'An access control checker must have deliberate Django Admin access '
+            '(is_staff=True) so they can review requests independently.'
+        )
+    if user.pk == actor.pk:
+        raise ValidationError('A Django Superuser is already a root approver and does not need a checker appointment.')
+    if not reason.strip():
+        raise ValidationError('A reason is required to appoint an access control checker.')
+
+    with transaction.atomic():
+        existing = AccessControlCheckerAssignment.objects.select_for_update().filter(
+            user=user,
+            revoked_at__isnull=True,
+        ).first()
+        if existing:
+            return existing, False
+        decision_mode = (
+            AccessControlCheckerAssignment.SOURCE_BOOTSTRAP
+            if not approver_users().exclude(pk=actor.pk).exists()
+            else AccessControlCheckerAssignment.SOURCE_SUPERUSER
+        )
+        assignment = AccessControlCheckerAssignment.objects.create(
+            user=user,
+            appointed_by=actor,
+            appointment_reason=reason.strip(),
+            source=decision_mode,
+        )
+        _record_checker_assignment(
+            assignment,
+            action='access_control.checker.appointed',
+            actor=actor,
+            before={},
+            after={
+                'user_id': assignment.user_id,
+                'source': assignment.source,
+                'appointed_at': assignment.appointed_at,
+            },
+            decision_mode=decision_mode,
+        )
+    transaction.on_commit(lambda: notify_approvers(
+        None,
+        'checker_appointed',
+        extra=f'{user.get_username()} was appointed as an access control checker.',
+    ))
+    return assignment, True
+
+
+def revoke_access_control_checker(*, actor, assignment, reason: str):
+    """Revoke checker authority while preserving the appointment evidence."""
+    if not actor or not actor.is_active or not actor.is_superuser:
+        raise PermissionDenied('Only an active Django Superuser can revoke an access control checker.')
+    if not reason.strip():
+        raise ValidationError('A reason is required to revoke an access control checker.')
+    with transaction.atomic():
+        assignment = AccessControlCheckerAssignment.objects.select_for_update().select_related('user').get(pk=assignment.pk)
+        if assignment.revoked_at is not None:
+            return assignment, False
+        before = {
+            'user_id': assignment.user_id,
+            'source': assignment.source,
+            'appointed_at': assignment.appointed_at,
+        }
+        assignment.revoked_at = timezone.now()
+        assignment.revoked_by = actor
+        assignment.revocation_reason = reason.strip()
+        assignment.save(update_fields=['revoked_at', 'revoked_by', 'revocation_reason'])
+        _record_checker_assignment(
+            assignment,
+            action='access_control.checker.revoked',
+            actor=actor,
+            before=before,
+            after={**before, 'revoked_at': assignment.revoked_at},
+            decision_mode='superuser_revocation',
+        )
+    transaction.on_commit(lambda: notify_approvers(
+        None,
+        'checker_revoked',
+        extra=f'{assignment.user.get_username()} is no longer an access control checker.',
+    ))
+    return assignment, True
 
 
 def policy_version() -> int:
@@ -90,7 +263,12 @@ def _record_access_control_request(request: AccessControlChangeRequest) -> None:
     )
 
 
-def _record_access_control_decision(request: AccessControlChangeRequest, *, action: str) -> None:
+def _record_access_control_decision(
+    request: AccessControlChangeRequest,
+    *,
+    action: str,
+    decision_mode: str = 'independent_checker',
+) -> None:
     from core.services.compliance_audit import record_event
 
     record_event(
@@ -113,6 +291,7 @@ def _record_access_control_decision(request: AccessControlChangeRequest, *, acti
             'role': request.role,
             'impact': request.impact or {},
             'review_comment': request.review_comment,
+            'decision_mode': decision_mode,
         },
         sensitive=True,
         occurred_at=request.reviewed_at or timezone.now(),
@@ -321,8 +500,11 @@ def approve_request(*, request_id, approver, review_comment='') -> AccessControl
         raise PermissionDenied('You are not a designated access-policy approver.')
     with transaction.atomic():
         request = AccessControlChangeRequest.objects.select_for_update().select_related('requested_by').get(pk=request_id)
-        if request.requested_by_id == approver.pk:
+        bootstrap_override = bootstrap_override_available(request, approver)
+        if request.requested_by_id == approver.pk and not bootstrap_override:
             raise PermissionDenied('The request maker cannot approve their own access change.')
+        if bootstrap_override and not review_comment.strip():
+            raise ValidationError('A bootstrap override requires an explicit approval reason.')
         if request.status != request.STATUS_PENDING:
             raise ValidationError('Only pending access-control requests can be approved.')
         state, _created = AccessControlPolicyState.objects.select_for_update().get_or_create(singleton=1)
@@ -332,7 +514,11 @@ def approve_request(*, request_id, approver, review_comment='') -> AccessControl
             request.reviewed_at = timezone.now()
             request.review_comment = 'Policy changed after this request was proposed; create a new request from the current state.'
             request.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'review_comment'])
-            _record_access_control_decision(request, action='access_control.change.stale')
+            _record_access_control_decision(
+                request,
+                action='access_control.change.stale',
+                decision_mode='bootstrap_override' if bootstrap_override else 'independent_checker',
+            )
             return request
         request.reviewed_by = approver
         request.reviewed_at = timezone.now()
@@ -352,7 +538,11 @@ def approve_request(*, request_id, approver, review_comment='') -> AccessControl
         request.status = request.STATUS_APPLIED
         request.applied_at = timezone.now()
         request.save(update_fields=['reviewed_by', 'reviewed_at', 'review_comment', 'status', 'applied_at'])
-        _record_access_control_decision(request, action='access_control.change.applied')
+        _record_access_control_decision(
+            request,
+            action='access_control.change.bootstrap_override_applied' if bootstrap_override else 'access_control.change.applied',
+            decision_mode='bootstrap_override' if bootstrap_override else 'independent_checker',
+        )
     notify_approvers(request, 'applied')
     return request
 
@@ -447,7 +637,7 @@ def create_rollback_request(*, snapshot, requester, reason: str):
 
 def notify_approvers(request, event: str, extra='') -> None:
     """Best-effort Telegram delivery with a durable Admin delivery ledger."""
-    recipients = approver_group().user_set.filter(is_active=True).select_related('staff_profile')
+    recipients = approver_users().select_related('staff_profile')
     token = str(getattr(settings, 'TELEGRAM_BOT_TOKEN', '') or '')
     for recipient in recipients:
         note = AccessControlNotification.objects.create(request=request, recipient=recipient, channel=AccessControlNotification.CHANNEL_ADMIN, event=event, status='delivered', delivered_at=timezone.now())

@@ -57,6 +57,8 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **`initData`** | Telegram's signed payload proving a Mini App session belongs to a specific Telegram user; must be HMAC-verified server-side before trust. |
 | **Portal** | The aggregated staff-facing view across pipeline/workflow data, served by `core/api/portal_views.py`. |
 | **Business Admin** | A scoped Mini App role (`BUSINESS_ADMIN`) for operational approval/configuration authority. It is distinct from Django `is_staff`/`is_superuser`, which do not grant Mini App access. |
+| **IT** | A scoped support role available in every access-controlled Mini App workflow. It is assigned through `AccessGrant`, never inferred from Django technical-admin flags. |
+| **Access Control Checker** | A Django Admin staff user appointed by a technical Superuser to independently review Mini App access-policy requests. It is not a Mini App workflow role. |
 
 If new domain terms are introduced by a change, add them here rather than only in a service docstring — this table is the first place agents and new contributors look.
 
@@ -130,7 +132,7 @@ Key modules:
 - `business_admin.py` — read-only legacy-role cutover validation for the `BUSINESS_ADMIN` operational role
 - `workflow_timeline.py` — read-only, append-only-event timeline projections for Portal and TAT case history
 - `workflow_escalations.py` — scoped read models for current in-app escalation context
-- `portal_workspace.py` — private Portal saved views, pins, recents, and their bounded retention
+- `portal_workspace.py` — retained but currently IT-restricted Portal saved views, pins, recents, and their bounded retention
 - `workflow_capabilities.py` — centrally defined Mini App capabilities and role policy resolution
 - `miniapp_requests.py` — shared Mini App retry-key compatibility and strict-mode policy
 - `miniapp_settings.py` — typed personal preferences and maker-checker TAT configuration proposals

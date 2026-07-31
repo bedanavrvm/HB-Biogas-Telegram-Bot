@@ -1,19 +1,17 @@
 # Known Gaps and Verified Workarounds
 
-## Sentry project activation
+## Sentry production verification
 
 The Django SDK is pinned, installed, initialized from `SENTRY_DSN`, and tested
-with a synthetic DSN. The external Sentry Django project, its release-owner
-alert, IP-address privacy setting, and real `SENTRY_DSN` in Render remain an
-operator setup step. `release.sh` intentionally refuses to run migrations
-until that configuration passes `check_production_readiness --strict`. Test
-the eventual staging integration only with a synthetic exception and confirm
-that the event contains no customer/staff payload.
+with a synthetic DSN. Render's strict production-readiness gate passed on
+31-July-2026 after Sentry configuration. The remaining operator verification
+is a safe staging synthetic exception: confirm its alert rule fires and that
+the event contains no customer/staff payload.
 
 ## Business Administrator role cutover
 
-`core.0088_business_admin_role_cutover` is pending explicit production
-approval. It renames effective Portal/TAT/SPIN workflow access from legacy
+`core.0088_business_admin_role_cutover` was applied in production by the
+31-July-2026 recorded migration baseline. It renames effective Portal/TAT/SPIN workflow access from legacy
 `ADMIN` to `BUSINESS_ADMIN`, without rewriting historical audit evidence. Run
 `python manage.py check_business_admin_cutover --strict` before the production
 migration; it blocks unresolved pending legacy access-policy requests or
@@ -23,10 +21,34 @@ preserving the existing allow/deny policy. To undo after a controlled release, r
 the reverse migration stops if a legacy-role collision would make rollback
 ambiguous.
 
+## Access-control checker bootstrap
+
+`core.0090_accesscontrolcheckerassignment` is accepted for code merge and
+local/staging validation only. It records independent checker appointments and
+backfills legacy approver-group members without changing Users, Access Grants,
+workflow state, financial records, or Mini App access. Before any approved
+production rollback, export checker appointment and compliance-audit evidence,
+then run `python manage.py migrate core 0089_portalcaseworkspace_portalsavedview`.
+
+## Portal private workspace hold
+
+`core.0091_pause_portal_workspace_to_it` is accepted for code merge and
+local/staging validation only. It preserves existing private saved views, pins,
+and recents, but exposes them only to a user with an explicit scoped Portal
+`IT` AccessGrant and the `portal.workspace.manage` capability. It increments
+the policy version when it creates policy rows, forcing connected Mini Apps to
+refresh permissions on their next metadata poll. It does not alter customer
+cases, financial values, Drive/Sheets, or workspace records.
+
+Do not roll back application code to re-open this feature. To re-enable it for
+another role, submit a reasoned capability-matrix request and obtain its
+independent approval. The migration's reverse is intentionally a no-op so
+policy and compliance evidence remain retained.
+
 ## Portal workspace migration and retention
 
-`core.0089_portalcaseworkspace_portalsavedview` is pending explicit production
-approval. It adds only private, user-owned saved-view and case-workspace
+`core.0089_portalcaseworkspace_portalsavedview` was applied in production by
+the 31-July-2026 recorded migration baseline. It adds only private, user-owned saved-view and case-workspace
 metadata; it never changes Jawabu cases, workflow state, financial values, or
 audit evidence. Django live scope checks hide inaccessible/closed pins
 immediately. Until an authorised scheduler is configured, an operator may run
@@ -47,8 +69,8 @@ alter case, workflow, financial, or audit tables.
 
 `core.0085_tattrackercase_stage_target_snapshots_and_more`,
 `core.0086_seed_tat_target_snapshots`, and
-`core.0087_repair_tat_stage_target_snapshot_backfill` are local-only until an
-explicitly approved production release. They add user-owned Mini App
+`core.0087_repair_tat_stage_target_snapshot_backfill` were applied in
+production by the 31-July-2026 recorded migration baseline. They add user-owned Mini App
 preferences, maker-checker TAT setting proposals, escalation-rule storage, and
 target snapshots for active stages. Before any rollback, export approved
 configuration requests for audit evidence. To undo the schema locally or after
@@ -67,8 +89,8 @@ personal suppression in that future design.
 
 ## Bounded integration reliability
 
-`core.0084_integrationcircuitstate_integrationoperation` is pending release
-and is not authorised for production application. It records redacted external
+`core.0084_integrationcircuitstate_integrationoperation` was applied in
+production by the 31-July-2026 recorded migration baseline. It records redacted external
 operation/circuit state only; it does not start Celery, Redis, a scheduler, or
 any automatic retry worker. Operators can run `probe_integrations` without
 side effects for a configuration dry-run. `--execute` makes real read-only

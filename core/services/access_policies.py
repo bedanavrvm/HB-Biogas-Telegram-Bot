@@ -21,11 +21,13 @@ WORKFLOW_ROLES = {
         ('JBL_OFFICER', 'JBL Officer'),
         ('CREDIT_ANALYST', 'Credit Analyst'),
         ('HB_STAFF', 'HomeBiogas / Operations Staff'),
+        ('IT', 'IT / Platform Support'),
         (BUSINESS_ADMIN_ROLE, 'Business Administrator'),
     ),
     'complaint_cases': (
         ('OFFICER', 'Complaint Case Officer'),
         ('MANAGER', 'Complaint Case Manager'),
+        ('IT', 'IT / Platform Support'),
     ),
     'tat_tracker': (
         ('BRO', 'Branch Relationship Officer'),
@@ -41,6 +43,7 @@ WORKFLOW_ROLES = {
     ),
     'spin_credit_analysis': (
         ('CREDIT_ANALYST', 'Credit Analyst'),
+        ('IT', 'IT / Platform Support'),
         (BUSINESS_ADMIN_ROLE, 'Business Administrator'),
     ),
 }

@@ -1,6 +1,6 @@
 # JBL Workflow Platform Glossary
 
-Last reviewed: 30-July-2026
+Last reviewed: 31-July-2026
 
 This is the shared vocabulary for the Portal, Complaint Cases, TAT, and SPIN
 Mini Apps.  The code catalogues remain authoritative: role validation lives in
@@ -31,6 +31,9 @@ respective service modules.
 | Integration circuit | A persisted dependency safety state. It opens after repeated transient failures and blocks further calls during a short cooldown before one recovery probe. |
 | Mini App preference | A user-owned, validated setting for one Mini App (landing screen, saved filters, compact cards, and non-critical alert intent). It never grants workflow access. Preferences apply only to catalogue-listed informational/digest alerts, never to security/access, assignment, approval/rejection, or SLA-overdue-breach alerts. |
 | Business Admin | A scoped operational role (`BUSINESS_ADMIN`) used for high-impact workflow authority. It is distinct from Django `is_staff` and `is_superuser`; neither technical flag grants Mini App access. |
+| IT | A scoped Mini App support role (`IT`) available in Portal, Complaint Cases, TAT, and SPIN. It is not inferred from Django `is_staff` or `is_superuser`; every workflow still requires its own explicit `AccessGrant` and approved capabilities. |
+| Access Control Checker | An active Django Admin staff user appointed by a technical Superuser to independently approve or reject Mini App access-policy requests. This is not a Mini App role or capability. |
+| Bootstrap override | The audited, reason-required exception allowing a sole active Django Superuser to approve their own access-policy request only while no independent checker or different Superuser exists. It ends as soon as an independent reviewer exists. |
 | TAT configuration proposal | A reasoned, snapshot-based maker-checker request for TAT targets, future holidays, or escalation rules. IT proposes; a different authorised TAT Business Admin reviews it. |
 | Stage target snapshot | The TAT target captured when a case enters a stage. It protects an in-flight SLA calculation from later target changes. |
 
@@ -38,10 +41,10 @@ respective service modules.
 
 | Workflow key | Mini App | Canonical role codes |
 |---|---|---|
-| `jawabu_portal` | JBL/Jawabu Pipeline Portal | `JBL_OFFICER`, `CREDIT_ANALYST`, `HB_STAFF`, `BUSINESS_ADMIN` |
-| `complaint_cases` | Complaint Case Mini App | `OFFICER`, `MANAGER` |
+| `jawabu_portal` | JBL/Jawabu Pipeline Portal | `JBL_OFFICER`, `CREDIT_ANALYST`, `HB_STAFF`, `IT`, `BUSINESS_ADMIN` |
+| `complaint_cases` | Complaint Case Mini App | `OFFICER`, `MANAGER`, `IT` |
 | `tat_tracker` | TAT Tracker | `BRO`, `BUSINESS_ADMIN`, `CA`, `BM`, `SECRETARY`, `CHAIR`, `LOAN_APPROVER`, `FINANCE`, `IT`, `MANAGEMENT` |
-| `spin_credit_analysis` | SPIN / Credit Analysis | `CREDIT_ANALYST`, `BUSINESS_ADMIN` |
+| `spin_credit_analysis` | SPIN / Credit Analysis | `CREDIT_ANALYST`, `IT`, `BUSINESS_ADMIN` |
 
 Role codes are workflow-scoped. `BUSINESS_ADMIN` is a business authority,
 never a blanket Django-superuser permission, and must be explicitly granted
@@ -56,7 +59,7 @@ or template.
 
 | Prefix | Scope | Examples |
 |---|---|---|
-| `portal.*` | Jawabu Portal | `portal.dashboard.view`, `portal.jbl_visit.write`, `portal.payment.review`, `portal.documents.regenerate`, `portal.documents.sign` |
+| `portal.*` | Jawabu Portal | `portal.dashboard.view`, `portal.jbl_visit.write`, `portal.payment.review`, `portal.documents.regenerate`, `portal.documents.sign`, `portal.workspace.manage` |
 | `complaint.*` | Complaint Cases | `complaint.queue.view`, `complaint.case.create`, `complaint.case.update`, `complaint.case.manage` |
 | `tat.*` | TAT Tracker | `tat.home.view`, `tat.case.create`, `tat.case.correct`, `tat.stage.<stage>.update` |
 | `spin.*` | SPIN / Credit | `spin.request.view`, `spin.request.create`, `spin.request.review`, `spin.request.complete` |

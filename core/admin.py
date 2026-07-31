@@ -92,6 +92,7 @@ from .models import (
     WorkflowRoleCapability,
     WorkflowRoleCapabilityAuditEvent,
     AccessControlChangeRequest,
+    AccessControlCheckerAssignment,
     WorkflowConfigurationChangeRequest,
     AccessControlPolicySnapshot,
     EmergencyAccessGrant,
@@ -3046,6 +3047,14 @@ class AccessGrantRequestForm(AccessGrantAdminForm):
     )
 
 
+class AccessControlCheckerAssignmentForm(forms.Form):
+    reason = forms.CharField(
+        label='Reason',
+        widget=forms.Textarea(attrs={'rows': 3}),
+        help_text='Required. This appointment or revocation is permanently audit-logged.',
+    )
+
+
 class AccessGrantInline(StackedInline):
     model = AccessGrant
     form = AccessGrantAdminForm
@@ -3265,7 +3274,9 @@ class AccessControlChangeRequestAdmin(CompactModelAdmin):
         return False
 
     def has_change_permission(self, request, obj=None):
-        return bool(request.user.is_superuser or request.user.groups.filter(name='Access Policy Approvers').exists())
+        from core.services.access_control import can_approve_access_change
+
+        return can_approve_access_change(request.user)
 
     def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
         if request.method == 'POST' and ('approve_request' in request.POST or 'reject_request' in request.POST):
@@ -3282,9 +3293,24 @@ class AccessControlChangeRequestAdmin(CompactModelAdmin):
                 messages.error(request, '; '.join(getattr(exc, 'messages', [str(exc)])))
             return HttpResponseRedirect(reverse('admin:core_accesscontrolchangerequest_change', args=[object_id]))
         if object_id:
-            from core.services.access_control import can_approve_access_change, request_diff
+            from core.services.access_control import (
+                bootstrap_override_available,
+                can_approve_access_change,
+                request_diff,
+            )
             change_request = AccessControlChangeRequest.objects.get(pk=object_id)
-            extra_context = {**(extra_context or {}), 'request_diff': request_diff(change_request), 'can_approve_access_change': can_approve_access_change(request.user)}
+            can_approve = can_approve_access_change(request.user)
+            bootstrap_override = bootstrap_override_available(change_request, request.user)
+            extra_context = {
+                **(extra_context or {}),
+                'request_diff': request_diff(change_request),
+                'can_approve_access_change': can_approve,
+                'can_approve_request': can_approve and (
+                    change_request.requested_by_id != request.user.pk or bootstrap_override
+                ),
+                'can_reject_request': can_approve and change_request.requested_by_id != request.user.pk,
+                'bootstrap_override_available': bootstrap_override,
+            }
         return super().changeform_view(request, object_id, form_url, extra_context)
 
     def get_readonly_fields(self, request, obj=None):
@@ -3323,6 +3349,29 @@ class AccessControlPolicySnapshotAdmin(CompactModelAdmin):
     def has_add_permission(self, request): return False
     def has_change_permission(self, request, obj=None): return False
     def has_delete_permission(self, request, obj=None): return False
+
+
+@admin.register(AccessControlCheckerAssignment)
+class AccessControlCheckerAssignmentAdmin(CompactModelAdmin):
+    """Evidence-only view; checker authority changes only from a user record."""
+
+    list_display = ('user', 'source', 'appointed_by', 'appointed_at', 'revoked_at', 'revoked_by')
+    list_filter = ('source', 'revoked_at')
+    search_fields = ('user__username', 'user__first_name', 'user__last_name', 'appointment_reason')
+    list_select_related = ('user', 'appointed_by', 'revoked_by')
+    readonly_fields = (
+        'user', 'appointed_by', 'appointment_reason', 'source', 'appointed_at',
+        'revoked_at', 'revoked_by', 'revocation_reason',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return bool(request.user.is_superuser)
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(EmergencyAccessGrant)
@@ -3526,6 +3575,15 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
 
     def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
         self._recover_unusable_connection()
+        if object_id:
+            target_user = self.get_object(request, object_id)
+            if target_user is not None:
+                from core.services.access_control import active_checker_assignment_for_user
+
+                extra_context = {
+                    **(extra_context or {}),
+                    'access_control_checker_assignment': active_checker_assignment_for_user(target_user),
+                }
         return super().changeform_view(request, object_id, form_url, extra_context)
 
     def add_view(self, request, form_url='', extra_context=None):
@@ -3542,6 +3600,8 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
             path('<int:object_id>/request-access/', self.admin_site.admin_view(self.request_access_view), name='auth_user_request_access'),
             path('<int:object_id>/emergency-access/', self.admin_site.admin_view(self.emergency_access_view), name='auth_user_emergency_access'),
             path('<int:object_id>/effective-access/', self.admin_site.admin_view(self.effective_access_view), name='auth_user_effective_access'),
+            path('<int:object_id>/appoint-access-checker/', self.admin_site.admin_view(self.appoint_access_checker_view), name='auth_user_appoint_access_checker'),
+            path('<int:object_id>/revoke-access-checker/', self.admin_site.admin_view(self.revoke_access_checker_view), name='auth_user_revoke_access_checker'),
         ]
         return custom_urls + super().get_urls()
 
@@ -3619,6 +3679,80 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
             return HttpResponseRedirect(reverse('admin:core_accesscontrolchangerequest_change', args=[change_request.pk]))
         return TemplateResponse(request, 'admin/auth/user/access_request.html', {
             **self.admin_site.each_context(request), 'opts': self.model._meta, 'title': f'Request Mini App access: {user.get_username()}', 'form': form, 'target_user': user,
+        })
+
+    def appoint_access_checker_view(self, request, object_id):
+        """Appoint a non-superuser checker through the audited root boundary."""
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        user = self.get_object(request, object_id)
+        if user is None:
+            raise PermissionDenied
+        from core.services.access_control import appoint_access_control_checker
+
+        form = AccessControlCheckerAssignmentForm(request.POST or None)
+        if request.method == 'POST' and form.is_valid():
+            try:
+                _assignment, created = appoint_access_control_checker(
+                    actor=request.user,
+                    user=user,
+                    reason=form.cleaned_data['reason'],
+                )
+            except (PermissionDenied, ValidationError) as exc:
+                form.add_error(None, '; '.join(getattr(exc, 'messages', [str(exc)])))
+            else:
+                message = (
+                    f'{user.get_username()} is now an independent access control checker.'
+                    if created else f'{user.get_username()} is already an active access control checker.'
+                )
+                messages.success(request, message)
+                return HttpResponseRedirect(reverse('admin:auth_user_change', args=[user.pk]))
+        return TemplateResponse(request, 'admin/auth/user/access_checker_assignment.html', {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': f'Appoint access control checker: {user.get_username()}',
+            'form': form,
+            'target_user': user,
+            'mode': 'appoint',
+        })
+
+    def revoke_access_checker_view(self, request, object_id):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        user = self.get_object(request, object_id)
+        if user is None:
+            raise PermissionDenied
+        from core.services.access_control import active_checker_assignment_for_user, revoke_access_control_checker
+
+        assignment = active_checker_assignment_for_user(user)
+        if assignment is None:
+            messages.info(request, f'{user.get_username()} is not an active access control checker.')
+            return HttpResponseRedirect(reverse('admin:auth_user_change', args=[user.pk]))
+        form = AccessControlCheckerAssignmentForm(request.POST or None)
+        if request.method == 'POST' and form.is_valid():
+            try:
+                _assignment, changed = revoke_access_control_checker(
+                    actor=request.user,
+                    assignment=assignment,
+                    reason=form.cleaned_data['reason'],
+                )
+            except (PermissionDenied, ValidationError) as exc:
+                form.add_error(None, '; '.join(getattr(exc, 'messages', [str(exc)])))
+            else:
+                messages.success(
+                    request,
+                    f'{user.get_username()} is no longer an access control checker.' if changed
+                    else f'{user.get_username()} is already inactive as an access control checker.',
+                )
+                return HttpResponseRedirect(reverse('admin:auth_user_change', args=[user.pk]))
+        return TemplateResponse(request, 'admin/auth/user/access_checker_assignment.html', {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': f'Revoke access control checker: {user.get_username()}',
+            'form': form,
+            'target_user': user,
+            'mode': 'revoke',
+            'assignment': assignment,
         })
 
     def emergency_access_view(self, request, object_id):
