@@ -1,5 +1,17 @@
 # Changelog
 
+## Mini App settings hub - 31-July-2026
+
+- Portal, TAT, Complaint Cases, and SPIN now present settings as a compact,
+  role-aware hub with a read-only account/access summary, dependable workspace
+  defaults, and an app release/support section.
+- The unimplemented Telegram digest/quiet selector is no longer shown. Existing
+  stored preference values remain compatible, while mandatory operational alerts
+  remain unaffected.
+- Portal health and temporary delegation, and TAT's maker-checker configuration
+  cards, remain visible only to their existing authorised roles. Private Portal
+  workspace controls remain IT-only and paused for operational staff.
+
 ## Portal workspace hold - 31-July-2026
 
 - Private Portal saved views, pins, recents, and automatic case-open tracking

@@ -232,9 +232,10 @@
     branch.innerHTML = '<option value="">All branches</option>' + (data.branches || []).map((item) => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join('');
     $('complaintPreferenceStatus').value = personal.default_filters?.status || 'active';
     branch.value = personal.default_filters?.branch || '';
-    $('complaintPreferenceAlert').value = personal.alert_mode || 'immediate';
     $('complaintPreferenceCompact').checked = Boolean(personal.compact_cards);
     document.body.classList.toggle('complaint-compact-cards', Boolean(personal.compact_cards));
+    if (utils.renderSettingsAccount) utils.renderSettingsAccount($('complaintSettingsAccount'), data.account || {});
+    if ($('complaintSettingsRelease')) $('complaintSettingsRelease').textContent = data.account?.app_release || 'Current release';
   }
 
   function applyPersonalFilters(personal) {
@@ -425,7 +426,6 @@
             branch: $('complaintPreferenceBranch').value,
           },
           compact_cards: $('complaintPreferenceCompact').checked,
-          alert_mode: $('complaintPreferenceAlert').value,
         },
       });
       state.personal = result.data || state.personal;

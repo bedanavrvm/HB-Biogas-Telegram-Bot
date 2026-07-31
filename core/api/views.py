@@ -480,13 +480,20 @@ def tat_tracker_settings(request):
     if capability_error:
         return capability_error
     from django.contrib.auth import get_user_model
-    from core.services.miniapp_settings import preference_payload, tat_settings_payload
+    from core.services.miniapp_settings import account_summary_payload, preference_payload, tat_settings_payload
     actor = get_user_model().objects.filter(pk=user.get('user_id')).first()
     if not actor:
         return JsonResponse({'ok': False, 'error': 'Your staff account could not be resolved.'}, status=403)
     try:
         return JsonResponse({'ok': True, 'data': {
             'personal': preference_payload(actor, 'tat_tracker'),
+            'account': account_summary_payload(
+                actor,
+                'tat_tracker',
+                roles=user.get('roles') or [],
+                branches=user.get('branches') or [],
+                products=user.get('products') or [],
+            ),
             'configuration': tat_settings_payload(group_config, user),
         }})
     except ValueError as exc:
@@ -1500,8 +1507,21 @@ def spin_form_settings(request):
     actor = _spin_canonical_user(auth_payload)
     if actor is None:
         return JsonResponse({'success': False, 'message': 'Your SPIN staff account could not be resolved.'}, status=403)
-    from core.services.miniapp_settings import preference_payload
-    return JsonResponse({'success': True, 'data': preference_payload(actor, 'spin_credit_analysis')})
+    from core.services.miniapp_settings import account_summary_payload, preference_payload
+    from core.services.telegram_identity import user_access
+
+    access = user_access(actor, 'spin_credit_analysis', group_configuration=group_config)
+    return JsonResponse({
+        'success': True,
+        'data': preference_payload(actor, 'spin_credit_analysis'),
+        'account': account_summary_payload(
+            actor,
+            'spin_credit_analysis',
+            roles=access.get('roles') or [],
+            branches=access.get('branches') or [],
+            products=access.get('products') or [],
+        ),
+    })
 
 
 @csrf_exempt

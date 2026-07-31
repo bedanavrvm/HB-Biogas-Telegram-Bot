@@ -728,7 +728,6 @@
     personalPreference = personal || {};
     document.getElementById('spinPreferenceDefaultScreen').value = personalPreference.default_screen || 'requests';
     document.getElementById('spinPreferenceStatus').value = personalPreference.default_filters?.status || '';
-    document.getElementById('spinPreferenceAlert').value = personalPreference.alert_mode || 'immediate';
     document.getElementById('spinPreferenceCompact').checked = Boolean(personalPreference.compact_cards);
     document.body.classList.toggle('spin-compact-cards', Boolean(personalPreference.compact_cards));
     if (!options?.preserveSession && personalPreference.default_filters?.status) {
@@ -746,6 +745,9 @@
     const result = response.data || {};
     if (!response.ok || !result.success) throw new Error(result.message || 'Could not load SPIN settings.');
     applySpinPreference(result.data || {}, options);
+    if (utils.renderSettingsAccount) utils.renderSettingsAccount(document.getElementById('spinSettingsAccount'), result.account || {});
+    const release = document.getElementById('spinSettingsRelease');
+    if (release) release.textContent = result.account?.app_release || 'Current release';
     return result.data || {};
   }
 
@@ -1040,7 +1042,6 @@
           default_screen: document.getElementById('spinPreferenceDefaultScreen').value,
           default_filters: { status: document.getElementById('spinPreferenceStatus').value },
           compact_cards: document.getElementById('spinPreferenceCompact').checked,
-          alert_mode: document.getElementById('spinPreferenceAlert').value,
         },
       });
       const response = spinApi.postJson

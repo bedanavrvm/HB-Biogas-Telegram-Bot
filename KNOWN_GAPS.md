@@ -1,5 +1,13 @@
 # Known Gaps and Verified Workarounds
 
+## Personal notification delivery preferences
+
+`UserMiniAppPreference.alert_mode` remains stored for backward compatibility,
+but recipient-level Telegram delivery does not yet apply immediate, digest, or
+quiet choices. The Mini Apps intentionally do not render that selector until a
+delivery worker enforces the shared mandatory-alert catalogue. Assignment,
+approval, security, and overdue-breach alerts are not suppressible.
+
 ## Sentry production verification
 
 The Django SDK is pinned, installed, initialized from `SENTRY_DSN`, and tested

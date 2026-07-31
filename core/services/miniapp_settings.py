@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
@@ -56,6 +57,52 @@ PREFERENCE_CONTROLLED_ALERT_TYPES = frozenset({
     'workflow.informational',
     'workflow.digest_eligible',
 })
+
+
+WORKFLOW_LABELS = {
+    'jawabu_portal': 'JBL Pipeline Portal',
+    'complaint_cases': 'Complaint Cases',
+    'tat_tracker': 'TAT Tracker',
+    'spin_credit_analysis': 'SPIN Credit Analysis',
+}
+
+
+def _display_role(value: Any) -> str:
+    """Turn a stored workflow role into a staff-facing label."""
+    return str(value or '').strip().replace('_', ' ').title()
+
+
+def account_summary_payload(
+    user,
+    workflow: str,
+    *,
+    roles: list[str] | tuple[str, ...] | set[str] | None = None,
+    branches: list[str] | tuple[str, ...] | set[str] | None = None,
+    products: list[str] | tuple[str, ...] | set[str] | None = None,
+) -> dict[str, Any]:
+    """Return the authenticated staff member's safe, read-only Mini App profile.
+
+    Mini Apps authenticate through Telegram and use centrally managed access
+    grants.  This summary deliberately makes that clear without exposing a
+    mutable identity or raw Telegram identifier in every client response.
+    """
+    profile = getattr(user, 'staff_profile', None)
+    clean_values = lambda values: sorted({str(value).strip() for value in (values or []) if str(value).strip()})
+    clean_roles = clean_values(roles)
+    return {
+        'workflow': workflow,
+        'workflow_label': WORKFLOW_LABELS.get(workflow, 'Mini App'),
+        'display_name': user.get_full_name() or user.get_username(),
+        'username': user.get_username(),
+        'email': str(getattr(user, 'email', '') or '').strip(),
+        'phone_number': str(getattr(profile, 'phone_number', '') or '').strip(),
+        'telegram_username': str(getattr(profile, 'telegram_username', '') or '').strip(),
+        'telegram_linked': bool(str(getattr(profile, 'telegram_id', '') or '').strip()),
+        'roles': [{'key': role, 'label': _display_role(role)} for role in clean_roles],
+        'branches': clean_values(branches),
+        'products': clean_values(products),
+        'app_release': str(getattr(settings, 'APP_RELEASE', '') or 'Current release'),
+    }
 
 
 def alert_preference_applies(alert_type: str) -> bool:

@@ -165,23 +165,35 @@
     </section>
 
     <section id="settingsView" class="view" aria-label="TAT settings">
+      <section class="form-card tat-settings-hero">
+        <span class="settings-eyebrow">MY TAT</span>
+        <h2>Settings</h2>
+        <p>Your access, work defaults, and authorised TAT configuration controls.</p>
+      </section>
+      <section id="tatSettingsAccount" class="form-card miniapp-settings-account" aria-live="polite" hidden></section>
       <form id="personalSettingsForm" class="form-card">
         <div class="form-heading">
-          <h2>My TAT settings</h2>
-          <p>These choices apply only to your own Mini App. Mandatory assignment, security and overdue alerts always remain on.</p>
+          <span class="settings-eyebrow">MY WORKSPACE</span>
+          <h2>Work defaults</h2>
+          <p>These choices apply only to your own TAT workspace.</p>
         </div>
         <div class="form-grid">
           <label>Start on<select id="preferenceDefaultScreen"><option value="home">Queue</option><option value="new">Create case</option></select></label>
-          <label>Non-critical Telegram alerts<select id="preferenceAlertMode"><option value="immediate">Immediate</option><option value="daily_digest">Daily digest at 08:00</option><option value="quiet">Quiet</option></select><small>Saved for future individual delivery controls. Current shared group alerts are unchanged; assignment, approval, security, and overdue-breach alerts will remain mandatory.</small></label>
           <label class="check-label"><input id="preferenceCompactCards" type="checkbox"><span>Use compact case cards<small>Queue cards show the client, amount, product, branch, and next action only. Open a case for identifiers and timestamps.</small></span></label>
         </div>
         <div class="form-actions"><button id="savePersonalSettingsBtn" type="submit" class="secondary">Save my settings</button></div>
       </form>
 
+      <section class="form-card tat-settings-about">
+        <div class="form-heading"><span class="settings-eyebrow">ABOUT &amp; SUPPORT</span><h2>TAT access</h2><p>Telegram verifies sign-in. Assignment, approval, security, and overdue-breach alerts remain mandatory.</p></div>
+        <div class="tat-settings-about-row"><span>App release</span><strong id="tatSettingsRelease">Current release</strong></div>
+        <p class="settings-help">Contact a JBL administrator to correct your account details or access scope.</p>
+      </section>
+
       <form id="targetSettingsForm" class="form-card hidden">
         <div class="form-heading">
           <h2>TAT Targets</h2>
-          <p>Propose the overall and per-stage target in minutes. A different Admin must approve it before it becomes active.</p>
+          <p>Propose the overall and per-stage target in minutes. A different authorised Business Admin must approve it before it becomes active.</p>
         </div>
         <div id="targetSettingsList" class="target-settings-list" aria-live="polite"></div>
         <label>Reason for change<textarea id="targetSettingsReason" required placeholder="Why is this target changing?"></textarea></label>

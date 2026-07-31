@@ -1223,11 +1223,18 @@ def portal_settings(request):
     actor = getattr(request, 'portal_user', None)
     if actor is None:
         return JsonResponse({'ok': False, 'error': 'Your Portal staff account could not be resolved.'}, status=403)
-    from core.services.miniapp_settings import preference_payload, update_preference
+    from core.services.miniapp_settings import account_summary_payload, preference_payload, update_preference
 
     if request.method == 'GET':
         return JsonResponse({'ok': True, 'data': {
             'personal': preference_payload(actor, 'jawabu_portal'),
+            'account': account_summary_payload(
+                actor,
+                'jawabu_portal',
+                roles=(getattr(request, 'portal_access', None) or {}).get('roles', []),
+                branches=(getattr(request, 'portal_access', None) or {}).get('branches', []),
+                products=(getattr(request, 'portal_access', None) or {}).get('products', []),
+            ),
             **_portal_setting_options(request, actor),
         }})
     try:

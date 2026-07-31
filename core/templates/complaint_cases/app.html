@@ -87,16 +87,18 @@
     </section>
 
     <section id="settingsView" class="view" hidden aria-label="Complaint Case settings">
+      <section class="form-card complaint-settings-hero"><span class="settings-eyebrow">MY COMPLAINT CASES</span><h2>Settings</h2><p>Your account and defaults for the complaint workflow.</p></section>
+      <section id="complaintSettingsAccount" class="form-card miniapp-settings-account" aria-live="polite" hidden></section>
       <form id="complaintSettingsForm" class="form-card">
-        <div class="form-heading"><h2>My Complaint Case settings</h2><p>Save your queue defaults and visual density. Mandatory assignment, security and overdue alerts remain on.</p></div>
+        <div class="form-heading"><span class="settings-eyebrow">MY WORKSPACE</span><h2>Queue defaults</h2><p>Set the complaint queue you want to begin with.</p></div>
         <div class="form-grid">
           <label>Default status<select id="complaintPreferenceStatus"><option value="active">Active</option><option value="Open">Open</option><option value="In Progress">In progress</option><option value="Closed">Closed</option></select></label>
           <label>Default branch<select id="complaintPreferenceBranch"><option value="">All branches</option></select></label>
-          <label>Non-critical Telegram alerts<select id="complaintPreferenceAlert"><option value="immediate">Immediate</option><option value="daily_digest">Daily digest at 08:00</option><option value="quiet">Quiet</option></select></label>
-          <label class="settings-check"><input id="complaintPreferenceCompact" type="checkbox"> Use compact case cards</label>
+          <label class="settings-check"><input id="complaintPreferenceCompact" type="checkbox"><span>Use compact case cards</span></label>
         </div>
         <div class="form-actions"><button id="saveComplaintSettingsBtn" class="primary" type="submit">Save my settings</button></div>
       </form>
+      <section class="form-card complaint-settings-about"><div class="form-heading"><span class="settings-eyebrow">ABOUT &amp; SUPPORT</span><h2>Complaint Case access</h2><p>Telegram verifies sign-in. Critical operational notifications remain mandatory.</p></div><div class="complaint-settings-about-row"><span>App release</span><strong id="complaintSettingsRelease">Current release</strong></div><p class="field-help">Contact a JBL administrator to correct your account details or access scope.</p></section>
     </section>
 
     <section id="detailView" class="view detail-view" hidden>

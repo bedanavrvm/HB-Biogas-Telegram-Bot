@@ -239,6 +239,44 @@
     return { read: read, write: write };
   }
 
+  function renderSettingsAccount(target, account) {
+    if (!target) return;
+    target.hidden = false;
+    const data = account || {};
+    target.replaceChildren();
+    const heading = document.createElement('div');
+    heading.className = 'miniapp-settings-account-heading';
+    const title = document.createElement('strong');
+    title.textContent = data.display_name || 'My account';
+    const subtitle = document.createElement('span');
+    subtitle.textContent = data.workflow_label || 'Mini App access';
+    heading.append(title, subtitle);
+
+    const facts = document.createElement('div');
+    facts.className = 'miniapp-settings-account-facts';
+    const entries = [];
+    if (data.telegram_username) entries.push(['Telegram', '@' + String(data.telegram_username).replace(/^@/, '')]);
+    else entries.push(['Telegram', data.telegram_linked ? 'Linked' : 'Link pending']);
+    if (data.email) entries.push(['Email', data.email]);
+    if (data.phone_number) entries.push(['Contact', data.phone_number]);
+    if (Array.isArray(data.roles) && data.roles.length) entries.push(['Role', data.roles.map((role) => role.label || role.key).join(', ')]);
+    if (Array.isArray(data.branches) && data.branches.length) entries.push(['Branch scope', data.branches.join(', ')]);
+    if (Array.isArray(data.products) && data.products.length) entries.push(['Product scope', data.products.join(', ')]);
+    entries.forEach(function (entry) {
+      const row = document.createElement('div');
+      const label = document.createElement('span');
+      const value = document.createElement('strong');
+      label.textContent = entry[0];
+      value.textContent = entry[1];
+      row.append(label, value);
+      facts.appendChild(row);
+    });
+    const note = document.createElement('p');
+    note.className = 'miniapp-settings-account-note';
+    note.textContent = 'Account details and workflow access are managed by JBL administrators. Contact an administrator to correct them.';
+    target.append(heading, facts, note);
+  }
+
   window.MiniAppUtils = {
     escapeHtml: escapeHtml,
     fetchHtml: fetchHtml,
@@ -252,6 +290,7 @@
     skeletonCards: skeletonCards,
     createServerDraft: createServerDraft,
     createUiContext: createUiContext,
+    renderSettingsAccount: renderSettingsAccount,
     createRequestId: createRequestId,
     ensureRequestId: ensureRequestId,
     idempotencyHeaders: idempotencyHeaders,

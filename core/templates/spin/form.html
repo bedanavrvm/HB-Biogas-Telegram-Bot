@@ -218,14 +218,21 @@
 
   <div id="tab-settings" class="tab-page">
     <form id="spinSettingsForm" class="spin-form">
+      <section class="form-section spin-settings-hero">
+        <span class="settings-eyebrow">MY SPIN</span>
+        <h2>Settings</h2>
+        <p class="helper">Your account and defaults for SPIN Credit Analysis.</p>
+      </section>
+      <section id="spinSettingsAccount" class="form-section miniapp-settings-account" aria-live="polite" hidden></section>
       <section class="form-section">
-        <h2>My SPIN settings</h2>
-        <p class="helper">These choices apply only to your SPIN workspace. Mandatory security, assignment, approval, and overdue alerts remain on.</p>
+        <span class="settings-eyebrow">MY WORKSPACE</span>
+        <h2>Work defaults</h2>
+        <p class="helper">Choose the SPIN screen and request list you want to open first.</p>
         <label class="field"><span>Start on</span><select id="spinPreferenceDefaultScreen"><option value="requests">Requests dashboard</option><option value="new">New request</option></select></label>
         <label class="field"><span>Default request status</span><select id="spinPreferenceStatus"><option value="">All statuses</option><option value="review_needed">Awaiting review</option><option value="batch_review">Batch candidates</option><option value="completed">Completed</option></select></label>
-        <label class="field"><span>Non-critical Telegram alerts</span><select id="spinPreferenceAlert"><option value="immediate">Immediate</option><option value="daily_digest">Daily digest at 08:00</option><option value="quiet">Quiet</option></select></label>
         <label class="spin-settings-check"><input id="spinPreferenceCompact" type="checkbox"> Use compact request cards</label>
       </section>
+      <section class="form-section spin-settings-about"><span class="settings-eyebrow">ABOUT &amp; SUPPORT</span><h2>SPIN access</h2><p class="helper">Telegram verifies sign-in. Critical operational notifications remain mandatory.</p><div class="spin-settings-about-row"><span>App release</span><strong id="spinSettingsRelease">Current release</strong></div><p class="helper">Contact a JBL administrator to correct your account details or access scope.</p></section>
       <div class="actions"><button id="saveSpinSettingsBtn" type="submit" class="primary">Save my settings</button></div>
     </form>
   </div>

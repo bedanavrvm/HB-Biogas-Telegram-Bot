@@ -394,6 +394,8 @@ class TatTrackerWorkflowTest(TestCase):
         payload = json.loads(response.content)
         self.assertTrue(payload['ok'])
         self.assertIn('configuration', payload['data'])
+        self.assertEqual(payload['data']['account']['workflow'], 'tat_tracker')
+        self.assertTrue(payload['data']['account']['roles'])
         self.assertEqual(payload['data']['configuration']['settings_version'], 1)
 
     def test_preference_and_tat_target_proposal_require_independent_approval(self):

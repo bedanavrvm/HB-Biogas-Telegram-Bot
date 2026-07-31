@@ -683,8 +683,9 @@
     const result = await api('/api/tat-tracker/settings/', {});
     const personal = result.data.personal || {};
     const configuration = result.data.configuration || {};
+    if (utils.renderSettingsAccount) utils.renderSettingsAccount($('tatSettingsAccount'), result.data.account || {});
+    if ($('tatSettingsRelease')) $('tatSettingsRelease').textContent = result.data.account?.app_release || 'Current release';
     $('preferenceDefaultScreen').value = personal.default_screen || 'home';
-    $('preferenceAlertMode').value = personal.alert_mode || 'immediate';
     $('preferenceCompactCards').checked = Boolean(personal.compact_cards);
     const targetCard = (configuration.cards || {}).tat_targets || {};
     $('targetSettingsForm').classList.toggle('hidden', !targetCard.can_propose);
@@ -703,13 +704,13 @@
       targets: targetSettingsPayload(), reason: $('targetSettingsReason').value.trim(),
     });
     $('targetSettingsReason').value = '';
-    setStatus(`Target change proposed (${result.data.proposal_id}). Awaiting a different Admin.`, 'ok');
+    setStatus(`Target change proposed (${result.data.proposal_id}). Awaiting a different authorised Business Admin.`, 'ok');
     await loadSettings();
   }
 
   async function saveConfigurationSettings(settingKey, proposed, reason) {
     const result = await api('/api/tat-tracker/settings/proposals/', { setting_key: settingKey, proposed, reason });
-    setStatus(`Configuration change proposed (${result.data.proposal_id}). Awaiting a different Admin.`, 'ok');
+    setStatus(`Configuration change proposed (${result.data.proposal_id}). Awaiting a different authorised Business Admin.`, 'ok');
     await loadSettings();
   }
 
@@ -1374,13 +1375,11 @@
         preferences: {
           default_screen: $('preferenceDefaultScreen').value,
           compact_cards: $('preferenceCompactCards').checked,
-          alert_mode: $('preferenceAlertMode').value,
         },
       });
       applyPersonalPreference(result.data || {
         compact_cards: $('preferenceCompactCards').checked,
         default_screen: $('preferenceDefaultScreen').value,
-        alert_mode: $('preferenceAlertMode').value,
       });
       setStatus($('preferenceCompactCards').checked
         ? 'Compact cards saved. Queue cards now hide identifiers and timestamps; open a case for full detail.'

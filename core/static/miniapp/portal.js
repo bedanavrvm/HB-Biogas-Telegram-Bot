@@ -1300,11 +1300,12 @@
     const personal = data.data?.personal || {};
     state.personalPreference = personal;
     state.portalSettings = data.data || {};
+    if (utils.renderSettingsAccount) utils.renderSettingsAccount(el('portal-settings-account'), data.data?.account || {});
+    if (el('portal-settings-release')) el('portal-settings-release').textContent = data.data?.account?.app_release || 'Current release';
     populatePortalSettingScreens(data.data?.screens || [], personal.default_screen);
     populatePortalSettingSelect('portal-preference-default-queue', data.data?.queues || [], personal.default_filters?.queue, 'Use landing screen');
     populatePortalSettingSelect('portal-preference-default-branch', data.data?.branches || [], personal.default_filters?.branch, 'All permitted branches');
     populatePortalSettingSelect('portal-preference-review-status', data.data?.review_statuses || [], personal.default_filters?.status, 'Final decisions');
-    if (el('portal-preference-alert-mode')) el('portal-preference-alert-mode').value = personal.alert_mode || 'immediate';
     if (el('portal-preference-compact-cards')) el('portal-preference-compact-cards').checked = Boolean(personal.compact_cards);
     document.body.classList.toggle('portal-compact-cards', Boolean(personal.compact_cards));
     applyWorkspaceVisibility();
@@ -1765,7 +1766,6 @@
         default_screen: '',
         default_filters: {},
         compact_cards: false,
-        alert_mode: 'immediate',
       },
     }, tg).then((result) => {
       if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not clear Portal defaults.');
@@ -1831,7 +1831,6 @@
             status: el('portal-preference-review-status')?.value || '',
           },
           compact_cards: Boolean(el('portal-preference-compact-cards')?.checked),
-          alert_mode: el('portal-preference-alert-mode')?.value || 'immediate',
         },
       }, tg).then((result) => {
         if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not save Portal settings.');

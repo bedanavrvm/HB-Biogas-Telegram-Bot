@@ -112,8 +112,26 @@ h2 { font-size: 13px; font-weight: 800; }
 .form-actions .primary { min-width: 148px; }
 .settings-check { display: flex; align-items: center; gap: 8px; min-height: 36px; text-transform: none; }
 .settings-check input { width: 18px; min-height: 18px; height: 18px; margin: 0; }
+.settings-eyebrow { display: block; color: var(--complaint-accent); font-size: 9px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
+.complaint-settings-hero h2 { margin: 2px 0; color: var(--complaint-text); font-size: 17px; }
+.complaint-settings-hero p { margin: 0; color: var(--complaint-muted); font-size: 11px; }
+.miniapp-settings-account { display: grid; gap: 10px; }
+.miniapp-settings-account-heading { display: grid; gap: 2px; }
+.miniapp-settings-account-heading strong { color: var(--complaint-text); font-size: 14px; }
+.miniapp-settings-account-heading span, .miniapp-settings-account-note { color: var(--complaint-muted); font-size: 10px; line-height: 1.35; }
+.miniapp-settings-account-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.miniapp-settings-account-facts div { min-width: 0; padding: 7px; border: 1px solid var(--complaint-line); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--complaint-surface) 88%, var(--complaint-bg)); }
+.miniapp-settings-account-facts span, .miniapp-settings-account-facts strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.miniapp-settings-account-facts span { color: var(--complaint-muted); font-size: 8px; font-weight: 700; text-transform: uppercase; }
+.miniapp-settings-account-facts strong { margin-top: 2px; color: var(--complaint-text); font-size: 10px; }
+.miniapp-settings-account-note { margin: 0; }
+.complaint-settings-about-row { display: flex; justify-content: space-between; gap: 8px; padding: 8px; border: 1px solid var(--complaint-line); border-radius: var(--radius-sm); color: var(--complaint-muted); font-size: 10px; }
+.complaint-settings-about-row strong { color: var(--complaint-text); }
 body.complaint-compact-cards .case-row { padding: 7px 8px; gap: 6px; }
 body.complaint-compact-cards .case-row p { font-size: 9px; }
+body.complaint-compact-cards .case-row p:nth-of-type(3),
+body.complaint-compact-cards .case-row .case-recorded { display: none; }
+@media (max-width: 360px) { .miniapp-settings-account-facts { grid-template-columns: 1fr; } }
 .case-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .case-heading h2 { margin-top: 2px; font-size: 17px; }
 .case-id { color: var(--complaint-accent); font-size: 10px; font-weight: 800; }

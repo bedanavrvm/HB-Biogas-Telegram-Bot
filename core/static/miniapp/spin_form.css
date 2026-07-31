@@ -204,8 +204,23 @@ h2 { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacin
 .tab-page.active { display: grid; gap: 8px; }
 .spin-settings-check { display: flex; align-items: center; gap: 8px; min-height: 38px; color: var(--spin-muted); font-size: 12px; font-weight: 700; }
 .spin-settings-check input { width: 18px; height: 18px; margin: 0; }
+.settings-eyebrow { display: block; color: var(--spin-primary); font-size: 9px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
+.spin-settings-hero h2 { margin: 2px 0; color: var(--spin-text); font-size: 17px; }
+.miniapp-settings-account { display: grid; gap: 10px; }
+.miniapp-settings-account-heading { display: grid; gap: 2px; }
+.miniapp-settings-account-heading strong { color: var(--spin-text); font-size: 14px; }
+.miniapp-settings-account-heading span, .miniapp-settings-account-note { color: var(--spin-muted); font-size: 10px; line-height: 1.35; }
+.miniapp-settings-account-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.miniapp-settings-account-facts div { min-width: 0; padding: 7px; border: 1px solid var(--spin-line); border-radius: var(--radius-sm); background: var(--spin-surface-2); }
+.miniapp-settings-account-facts span, .miniapp-settings-account-facts strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.miniapp-settings-account-facts span { color: var(--spin-muted); font-size: 8px; font-weight: 700; text-transform: uppercase; }
+.miniapp-settings-account-facts strong { margin-top: 2px; color: var(--spin-text); font-size: 10px; }
+.miniapp-settings-account-note { margin: 0; }
+.spin-settings-about-row { display: flex; justify-content: space-between; gap: 8px; padding: 8px; border: 1px solid var(--spin-line); border-radius: var(--radius-sm); color: var(--spin-muted); font-size: 10px; }
+.spin-settings-about-row strong { color: var(--spin-text); }
 body.spin-compact-cards .request-card { padding: 9px; }
 body.spin-compact-cards .request-card .request-meta { font-size: 10px; }
+body.spin-compact-cards .request-card .card-date { display: none; }
 
 /* Form Card Sections */
 .form-section, .review-section {

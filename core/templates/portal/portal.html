@@ -366,16 +366,16 @@
   </section>
 
   <section id="page-settings" class="page{% if active_screen == 'settings' %} active{% endif %}">
-    <header><h1>Portal Settings</h1><p class="meta">Personal display choices are private to you. Mandatory security, assignment, approval, and overdue alerts remain on.</p></header>
+    <header class="portal-settings-hero"><span class="settings-eyebrow">MY PORTAL</span><h1>Settings</h1><p class="meta">Your account, work defaults, and the operational controls your role is authorised to use.</p></header>
+    <section id="portal-settings-account" class="portal-settings-card miniapp-settings-account" aria-live="polite" hidden></section>
     <form id="portal-personal-settings-form" class="portal-settings-card">
-      <div class="portal-settings-heading"><h2>My display defaults</h2><p>Set the Portal view that helps you begin work fastest.</p></div>
+      <div class="portal-settings-heading"><span class="settings-eyebrow">MY WORKSPACE</span><h2>Work defaults</h2><p>Open the authorised view and queue that help you begin work fastest.</p></div>
       <div class="portal-settings-grid">
         <label>Start on<select id="portal-preference-default-screen"></select></label>
         <label>Open work queue first<select id="portal-preference-default-queue"></select><span class="field-help">When selected, this queue opens instead of the landing screen.</span></label>
         <label>Default branch<select id="portal-preference-default-branch"></select></label>
         <label>Review list<select id="portal-preference-review-status"></select><span class="field-help">Used when the Review queue opens.</span></label>
-        <label>Non-critical Telegram alerts<select id="portal-preference-alert-mode"><option value="immediate">Immediate</option><option value="daily_digest">Daily digest at 08:00</option><option value="quiet">Quiet</option></select></label>
-        <label class="portal-settings-check"><input id="portal-preference-compact-cards" type="checkbox"> Use compact case cards</label>
+        <label class="portal-settings-check"><input id="portal-preference-compact-cards" type="checkbox"><span>Use compact case cards<span class="field-help">Keep the next action and essential status visible; open a case for full detail.</span></span></label>
       </div>
       <div class="form-actions"><button id="portal-save-personal-settings" class="btn btn-primary" type="submit">Save my settings</button><button id="portal-clear-personal-settings" class="btn btn-secondary" type="button">Clear defaults</button></div>
     </form>
@@ -389,6 +389,11 @@
       <div id="portal-workspace-saved-views" class="portal-workspace-view-list" aria-live="polite"></div>
     </section>
     <div id="portal-settings-operations" class="portal-settings-operations" aria-live="polite"></div>
+    <section class="portal-settings-card portal-settings-about">
+      <div class="portal-settings-heading"><span class="settings-eyebrow">ABOUT &amp; SUPPORT</span><h2>Portal access</h2><p>Sign-in is verified through Telegram. Security, assignment, approval, and overdue alerts remain mandatory.</p></div>
+      <div class="portal-settings-about-row"><span>App release</span><strong id="portal-settings-release">Current release</strong></div>
+      <p class="field-help">Need a profile, role, branch, or access correction? Contact a JBL administrator.</p>
+    </section>
   </section>
 
 <!-- Farmer detail sheet -->

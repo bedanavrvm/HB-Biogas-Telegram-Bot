@@ -114,10 +114,19 @@ def complaint_cases_bootstrap(request):
     if capability_error:
         return capability_error
     from core.services.access_control import policy_version
-    from core.services.miniapp_settings import preference_payload
+    from core.services.miniapp_settings import account_summary_payload, preference_payload
+    from core.services.telegram_identity import user_access
     data = bootstrap_data(group_config, actor)
     data['access_policy_version'] = policy_version()
     data['personal'] = preference_payload(actor.user, 'complaint_cases')
+    access = user_access(actor.user, 'complaint_cases', group_configuration=group_config)
+    data['account'] = account_summary_payload(
+        actor.user,
+        'complaint_cases',
+        roles=access.get('roles') or [],
+        branches=access.get('branches') or [],
+        products=access.get('products') or [],
+    )
     return JsonResponse({'ok': True, 'data': data})
 
 

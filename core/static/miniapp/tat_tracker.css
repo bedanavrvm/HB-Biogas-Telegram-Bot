@@ -623,6 +623,22 @@ h2 { font-size: 13px; font-weight: 750; }
 .form-grid { display: grid; gap: 6px; }
 .form-actions { display: flex; margin-top: 4px; }
 .form-actions button { width: 100%; }
+.settings-eyebrow { display: block; color: var(--tat-accent); font-size: 9px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
+.tat-settings-hero { padding: 10px; background: linear-gradient(135deg, var(--tat-surface), var(--tat-surface-2)); }
+.tat-settings-hero h2 { margin: 2px 0; color: var(--tat-text); font-size: 17px; text-transform: none; }
+.tat-settings-hero p, .settings-help { margin: 2px 0 0; color: var(--tat-muted); font-size: 11px; line-height: 1.35; }
+.miniapp-settings-account { gap: 10px; }
+.miniapp-settings-account-heading { display: grid; gap: 2px; }
+.miniapp-settings-account-heading strong { color: var(--tat-text); font-size: 14px; }
+.miniapp-settings-account-heading span, .miniapp-settings-account-note { color: var(--tat-muted); font-size: 10px; line-height: 1.35; }
+.miniapp-settings-account-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.miniapp-settings-account-facts div { min-width: 0; padding: 7px; border: 1px solid var(--tat-line); border-radius: var(--radius-sm); background: var(--tat-surface-2); }
+.miniapp-settings-account-facts span, .miniapp-settings-account-facts strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.miniapp-settings-account-facts span { color: var(--tat-muted); font-size: 8px; font-weight: 700; text-transform: uppercase; }
+.miniapp-settings-account-facts strong { margin-top: 2px; color: var(--tat-text); font-size: 10px; }
+.miniapp-settings-account-note { margin: 0; }
+.tat-settings-about-row { display: flex; justify-content: space-between; gap: 8px; padding: 8px; border: 1px solid var(--tat-line); border-radius: var(--radius-sm); background: var(--tat-surface-2); color: var(--tat-muted); font-size: 10px; }
+.tat-settings-about-row strong { color: var(--tat-text); }
 
 .target-settings-list {
   display: grid;
@@ -677,6 +693,9 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
   .settings-row { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; }
   .settings-escalation-row { grid-template-columns: repeat(3, minmax(0, 1fr)) auto; }
   .settings-holiday-row { grid-template-columns: 150px minmax(0, 1fr) auto auto; }
+}
+@media (max-width: 360px) {
+  .miniapp-settings-account-facts { grid-template-columns: 1fr; }
 }
 .search-row {
   display: grid;

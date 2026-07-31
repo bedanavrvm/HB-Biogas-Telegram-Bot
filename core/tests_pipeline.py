@@ -606,6 +606,9 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertTrue(settings_data['operations']['delegation'])
         self.assertEqual(settings_data['branches'], ['Embu'])
         self.assertIn('jbl', {item['key'] for item in settings_data['queues']})
+        self.assertEqual(settings_data['account']['workflow'], 'jawabu_portal')
+        self.assertEqual(settings_data['account']['roles'][0]['key'], 'BUSINESS_ADMIN')
+        self.assertEqual(settings_data['account']['branches'], ['EMBU'])
 
         response = self.client.post(
             reverse('portal_settings'),
