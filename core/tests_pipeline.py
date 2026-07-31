@@ -1700,6 +1700,10 @@ class JblPipelineApiTestCase(TestCase):
         self.assertTrue(data['ok'])
         self.assertEqual(data['ready_count'], 1)
         self.assertEqual(data['blocked_count'], 0)
+        self.assertEqual(
+            data['workflow_revisions'],
+            {str(self.farmer.id): self.farmer.workflow_revision},
+        )
         self.assertEqual(data['ready'][0]['final_decision_comment'], 'Customer confirmed during callup.')
 
     def test_portal_document_preview_returns_printable_rows_without_workbook_canvas(self):

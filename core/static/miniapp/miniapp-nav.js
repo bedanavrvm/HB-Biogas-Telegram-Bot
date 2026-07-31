@@ -4,6 +4,65 @@
   let backHandler = null;
   let mainHandler = null;
   let lastFocusedElement = null;
+  let portalHistoryDepth = 0;
+
+  function isPortalRoute(pathname = window.location.pathname) {
+    return /^\/portal\/(?:s\/[^/]+\/|cases\/[^/]+\/)/.test(pathname);
+  }
+
+  function markPortalHistoryEntry(depth = 0) {
+    if (!isPortalRoute() || !window.history?.replaceState) return;
+    const current = window.history.state || {};
+    const existingDepth = Number.isInteger(current.portalMiniAppDepth)
+      ? current.portalMiniAppDepth
+      : depth;
+    portalHistoryDepth = Math.max(0, existingDepth);
+    window.history.replaceState({
+      ...current,
+      portalMiniAppHistory: true,
+      portalMiniAppDepth: portalHistoryDepth,
+    }, document.title, window.location.href);
+  }
+
+  function clearBackHandler() {
+    if (backHandler && tg?.BackButton) tg.BackButton.offClick(backHandler);
+    backHandler = null;
+  }
+
+  function portalBackFallbackUrl() {
+    // A directly opened case (or a WebView restored from a cold page) has no
+    // reliable Portal entry behind it. Going back in that situation sends the
+    // Android WebView out of the Mini App, so use an allowed top-level screen
+    // instead. Prefer All Cases for a case detail, then Dashboard for roles
+    // that do not have that queue.
+    const preferredScreen = /\/portal\/cases\/[^/]+\//.test(window.location.pathname)
+      ? 'all'
+      : 'dashboard';
+    const fallbackLink = document.querySelector(`.shell-nav-link[data-screen="${preferredScreen}"]`)
+      || document.querySelector('.shell-nav-link[data-screen="dashboard"]')
+      || document.querySelector('.shell-nav-link');
+    return fallbackLink?.href || '/portal/s/dashboard/';
+  }
+
+  function navigateBackWithinPortal() {
+    const state = window.history.state || {};
+    if (state.portalMiniAppHistory && portalHistoryDepth > 0) {
+      window.history.back();
+      return;
+    }
+
+    const fallbackUrl = portalBackFallbackUrl();
+    const target = document.getElementById('content');
+    if (window.htmx && target) {
+      window.htmx.ajax('GET', fallbackUrl, {
+        target: '#content',
+        swap: 'innerHTML transition:true',
+        pushURL: true,
+      });
+      return;
+    }
+    window.location.assign(fallbackUrl);
+  }
 
   function setSidebar(open) {
     const sidebar = document.getElementById('sidebar');
@@ -71,7 +130,7 @@
     if (!tg?.BackButton) return;
     const openOverlay = document.querySelector('#content .sheet-overlay.open');
     if (openOverlay) {
-      if (backHandler) tg.BackButton.offClick(backHandler);
+      clearBackHandler();
       backHandler = () => {
         const close = openOverlay.querySelector('.sheet-close-button, [id$="-cancel"]');
         if (close) close.click();
@@ -83,11 +142,12 @@
     }
     const topLevel = document.querySelector('#content [data-top-level="true"]');
     if (topLevel) {
+      clearBackHandler();
       tg.BackButton.hide();
       return;
     }
-    if (backHandler) tg.BackButton.offClick(backHandler);
-    backHandler = () => window.history.back();
+    clearBackHandler();
+    backHandler = navigateBackWithinPortal;
     tg.BackButton.onClick(backHandler);
     tg.BackButton.show();
   }
@@ -130,6 +190,7 @@
     tg.onEvent?.('themeChanged', syncTheme);
   }
   syncTheme();
+  markPortalHistoryEntry();
 
   window.addEventListener('pageshow', restoreTelegramViewport);
   window.addEventListener('focus', restoreTelegramViewport);
@@ -147,10 +208,22 @@
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   });
   document.body.addEventListener('htmx:afterSwap', activateScreen);
+  document.body.addEventListener('htmx:pushedIntoHistory', () => {
+    // htmx owns browser history for in-shell links. Stamp its new entry with
+    // a Portal-only depth so Telegram Back never crosses into the host app.
+    markPortalHistoryEntry(portalHistoryDepth + 1);
+  });
   window.addEventListener('popstate', () => {
     // htmx restores cached history entries when available. For Telegram's
     // hardware/browser back on a cold or uncached entry, request the screen
     // fragment explicitly so the shell does not remain on the old page.
+    const state = window.history.state || {};
+    if (state.portalMiniAppHistory && Number.isInteger(state.portalMiniAppDepth)) {
+      portalHistoryDepth = Math.max(0, state.portalMiniAppDepth);
+    } else if (isPortalRoute()) {
+      // A cold/direct Portal page has no trustworthy in-app predecessor.
+      markPortalHistoryEntry(0);
+    }
     if (!window.htmx) return;
     const match = window.location.pathname.match(/\/portal\/s\/([^/]+)\//);
     if (!match) return;

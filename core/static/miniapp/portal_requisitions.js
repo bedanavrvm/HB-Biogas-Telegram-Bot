@@ -395,6 +395,19 @@
     return { farmer_ids, workflow_revisions, order_number, requisition_date, return_url: true };
   }
 
+  function payloadAtPreviewRevision(payload, preview) {
+    const revisions = preview?.workflow_revisions;
+    if (!revisions || typeof revisions !== 'object') return payload;
+    const currentRevisions = { ...payload.workflow_revisions };
+    payload.farmer_ids.forEach(farmerId => {
+      const revision = Number(revisions[String(farmerId)]);
+      if (!Number.isInteger(revision) || revision < 1) return;
+      currentRevisions[String(farmerId)] = revision;
+      state().selectedRequisitionRevisions.set(String(farmerId), revision);
+    });
+    return { ...payload, workflow_revisions: currentRevisions };
+  }
+
   function openInvoiceOverlay(orderNumber) {
     const overlay = el('invoice-overlay');
     const overlaySub = el('invoice-overlay-sub');
@@ -623,7 +636,10 @@
         deps.showToast(data.error || 'Could not prepare preview.', 'error');
         return;
       }
-      state().pendingRequisitionPayload = payload;
+      // Preview is deliberately read-only. Use the revision snapshot returned
+      // with it so the confirmed write detects a change after the preview,
+      // rather than a stale checkbox revision from an earlier queue refresh.
+      state().pendingRequisitionPayload = payloadAtPreviewRevision(payload, data);
       openRequisitionPreview(data, { readOnly: false });
     } catch (err) {
       console.error(err);

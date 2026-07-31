@@ -2926,6 +2926,15 @@ def portal_requisition_preview(request):
         'ready': parsed['ready'],
         'blocked': parsed['blocked'],
         'warnings': warnings,
+        # The preview is read-only, but it is the point at which a selected
+        # batch becomes an intentional generation request. Return the current
+        # server revisions so the subsequent write protects only changes made
+        # after this preview, rather than failing because a background queue
+        # refresh left the checkbox with an older display revision.
+        'workflow_revisions': {
+            str(farmer.id): int(getattr(farmer, 'workflow_revision', 1) or 1)
+            for farmer in farmers
+        },
         'workbook_preview': None,
         'preview_format': preview_format,
     })

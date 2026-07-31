@@ -1,5 +1,16 @@
 # Changelog
 
+## Portal Mini App navigation safety - 31-July-2026
+
+- Telegram Back now stays within the Portal. A cold/direct case screen with no
+  Portal history returns to an allowed Portal queue instead of sending Android
+  back to Telegram and closing the Mini App. Screen changes also clear stale
+  Telegram BackButton handlers before registering the current one.
+- Requisition previews now refresh the selected cases' server revision
+  snapshot before enabling generation. A background queue refresh no longer
+  causes a false “case changed while you were working” message; a genuine
+  change after the preview remains blocked.
+
 ## Batch-only order assignment - 31-July-2026
 
 - Orders can now be assigned only from the selected-cases checkbox panel in

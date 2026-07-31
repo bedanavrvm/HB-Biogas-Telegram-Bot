@@ -86,7 +86,16 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         self.assertIn('/\\/portal\\/cases\\/[^/]+\\//', source)
         self.assertIn("return 'case_history'", source)
-        self.assertContains(response, 'miniapp/miniapp-nav.js?v=9')
+        self.assertContains(response, 'miniapp/miniapp-nav.js?v=10')
+
+    def test_telegram_back_never_uses_host_history_for_a_cold_portal_screen(self):
+        source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
+
+        self.assertIn('navigateBackWithinPortal', source)
+        self.assertIn('portalBackFallbackUrl', source)
+        self.assertIn('portalMiniAppHistory', source)
+        self.assertIn("backHandler = navigateBackWithinPortal", source)
+        self.assertNotIn('backHandler = () => window.history.back()', source)
 
     def test_portal_sheets_restore_the_telegram_viewport_after_file_picker_return(self):
         navigation_source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
@@ -470,3 +479,10 @@ class MiniAppFrontendSmokeTests(TestCase):
         # stylesheet is present without tying a stacking-regression test to it.
         self.assertContains(response, 'miniapp/portal.css?v=')
         self.assertIn('#requisition-preview-overlay { z-index: 240; }', stylesheet)
+
+    def test_requisition_preview_refreshes_selected_case_revisions_before_generation(self):
+        source = Path('core/static/miniapp/portal_requisitions.js').read_text(encoding='utf-8')
+
+        self.assertIn('payloadAtPreviewRevision', source)
+        self.assertIn('workflow_revisions', source)
+        self.assertIn('state().pendingRequisitionPayload = payloadAtPreviewRevision(payload, data)', source)
