@@ -1419,6 +1419,7 @@ class JblPipelineApiTestCase(TestCase):
             business_key_value=self.farmer.national_id,
             file_type='LAF',
             original_filename='laf.pdf',
+            mime_type='application/pdf',
             drive_file_id='drive-laf-1',
             drive_url='https://drive.example/laf',
             upload_status='success',
@@ -1454,6 +1455,9 @@ class JblPipelineApiTestCase(TestCase):
         self.assertIn(str(media[0]['id']), media[0]['view_url'])
         self.assertIn('/media/', media[0]['preview_url'])
         self.assertTrue(media[0]['preview_url'].endswith('/preview/'))
+        self.assertIn('/api/portal/jbl-media-viewer-source/', media[0]['viewer_url'])
+        self.assertNotIn('drive.example', media[0]['viewer_url'])
+        self.assertEqual(payload['jbl_visit_photo_media'][0]['viewer_url'], '')
         self.assertIn('/api/portal/jbl-media-open/', media[0]['open_url'])
         self.assertNotIn('drive.example', media[0]['open_url'])
         self.assertEqual(media[0]['name'], 'laf.pdf')
@@ -1483,6 +1487,37 @@ class JblPipelineApiTestCase(TestCase):
         self.assertTrue(JawabuMediaAccessEvent.objects.filter(
             farmer=self.farmer, attachment=attachment, action='view',
         ).exists())
+
+    @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='test-media-folder')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage.download', return_value=b'%PDF-embedded-media')
+    def test_embedded_pdf_viewer_source_is_short_lived_scoped_and_audited(self, download):
+        attachment = MediaAttachment.objects.create(
+            group_id='portal-test', jawabu_farmer=self.farmer,
+            business_key_type='case_reference', business_key_value=f'case-{self.farmer.pk}',
+            file_type='LAF', original_filename='laf.pdf', mime_type='application/pdf',
+            drive_file_id='drive-laf-embedded', drive_url='https://drive.example/laf', upload_status='success',
+        )
+
+        listing = self.client.get(reverse('portal_jbl_media', args=[self.farmer.id])).json()
+        viewer_url = listing['laf_media'][0]['viewer_url']
+        response = self.client.get(urlsplit(viewer_url).path)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b'%PDF-embedded-media')
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertIn('inline', response['Content-Disposition'])
+        self.assertEqual(response['Cache-Control'], 'private, no-store, max-age=0')
+        self.assertNotIn('drive.example', viewer_url)
+        download.assert_called_once_with('drive-laf-embedded')
+        self.assertTrue(JawabuMediaAccessEvent.objects.filter(
+            farmer=self.farmer, attachment=attachment, action='view',
+        ).exists())
+
+    def test_embedded_pdf_viewer_source_rejects_tampering(self):
+        response = self.client.get(reverse('portal_jbl_media_viewer_source', args=['not-a-valid-token']))
+
+        self.assertEqual(response.status_code, 404)
+        self.assertIn('expired', response.json()['error'])
 
     def test_open_jbl_media_redirects_and_records_an_access_event(self):
         attachment = MediaAttachment.objects.create(

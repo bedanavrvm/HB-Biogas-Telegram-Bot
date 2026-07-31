@@ -46,7 +46,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertLess(html.index('miniapp/portal_requisitions.js'), html.index('miniapp/portal_payments.js'))
         self.assertLess(html.index('miniapp/portal_payments.js'), html.index('miniapp/portal.js'))
         self.assertIn('miniapp/portal_queues.js?v=6', html)
-        self.assertIn('miniapp/portal_farmer_sheet.js?v=23', html)
+        self.assertIn('miniapp/portal_farmer_sheet.js?v=24', html)
         self.assertIn('miniapp/portal_filters.js?v=6', html)
         self.assertIn('miniapp/portal.js?v=47', html)
 
@@ -297,6 +297,8 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('renderClientMediaLinks', source)
         self.assertIn('openClientMediaPreview', source)
         self.assertIn('fetch(item.preview_url', source)
+        self.assertIn('docs.google.com/gview?embedded=1', source)
+        self.assertIn('item.viewer_url', source)
         self.assertNotIn('item.open_url || item.view_url', source)
         self.assertIn('JBL visit photo', source)
         self.assertIn('Signed LAF document', source)

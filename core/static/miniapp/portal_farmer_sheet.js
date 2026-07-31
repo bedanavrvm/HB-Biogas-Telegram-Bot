@@ -700,6 +700,16 @@
     content.innerHTML = '<div class="media-viewer-loading" role="status"><span class="spinner-inline" aria-hidden="true"></span> Loading secure media…</div>';
     overlay.classList.add('open');
     try {
+      const declaredMimeType = String(item.mime_type || '').toLowerCase();
+      const isPdf = declaredMimeType.includes('application/pdf') || /\.pdf(?:$|\s)/i.test(String(item.name || ''));
+      if (isPdf && item.viewer_url) {
+        // Android Telegram WebView frequently renders blob-PDF iframes as a
+        // blank panel. Keep the viewer in this overlay, but let Google's
+        // embedded document renderer paint the short-lived, scoped source.
+        const viewerSrc = `https://docs.google.com/gview?embedded=1&url=${encodeURIComponent(item.viewer_url)}`;
+        content.innerHTML = `<iframe class="media-viewer-document" src="${viewerSrc}" title="${deps.escapeHtml(item.name || 'Client PDF')}"></iframe>`;
+        return;
+      }
       const response = await fetch(item.preview_url, {
         headers: mediaPreviewHeaders(),
         cache: 'no-store',

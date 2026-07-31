@@ -7,6 +7,10 @@
   current Mini App and case remain open; every successful view remains
   access-audited. Older URL-only evidence is clearly labelled as unavailable
   for in-app preview rather than launching an uncontrolled external intent.
+- PDFs use an embedded Google document renderer inside that same Portal panel,
+  because Android Telegram WebView does not reliably render protected PDF
+  blobs. The renderer receives only a short-lived, case- and item-scoped
+  source stream, never a Drive link or Drive file ID.
 
 ## Portal queue and final-review usability - 31-July-2026
 
