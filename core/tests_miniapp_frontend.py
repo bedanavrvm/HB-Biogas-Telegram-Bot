@@ -300,9 +300,12 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('Signed LAF document', source)
         self.assertIn('form-grid final-review-grid', form)
         self.assertIn('form-row form-row-wide', form)
+        stylesheet = Path('core/static/miniapp/portal.css').read_text(encoding='utf-8')
         self.assertIn('phone-action-field', form)
         self.assertIn('<span>Call</span>', form)
         self.assertIn("phoneDigits.startsWith('0')", form)
+        self.assertIn('.workflow-standard.portal-app .phone-call-button span', stylesheet)
+        self.assertIn('-webkit-text-fill-color: #fff', stylesheet)
         self.assertNotIn('final-reason-code', submit)
         self.assertNotIn('final-conditions', submit)
 

@@ -6,8 +6,9 @@
   than a large plain panel with a text-only `OK` marker. Queue messages explain
   the next expected work in staff language.
 - Final Review uses a two-column mobile-friendly field grid where space
-  permits. The phone action now has an always-visible phone glyph and `Call`
-  label, and normalizes Kenyan `07...` numbers for the dialler.
+  permits. The phone action is a 44px high-contrast control with an enforced
+  white phone glyph and `Call` label on Android Telegram WebView, and
+  normalizes Kenyan `07...` numbers for the dialler.
 
 ## JBL visit evidence foldering - 31-July-2026
 

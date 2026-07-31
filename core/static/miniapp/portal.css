@@ -638,30 +638,44 @@ body.portal-compact-cards .farmer-card .badge { padding: 2px 6px; font-size: 10p
 }
 .media-link:hover { background: var(--bg-surface-2, var(--bg-surface)); }
 .sheet-footer [hidden] { display: none !important; }
-.phone-call-button {
+/* This is an anchor so Android WebView's global link/theme colour must never
+   be allowed to turn the phone glyph and label into blue-on-blue. */
+.workflow-standard.portal-app .phone-call-button,
+.workflow-standard.portal-app .phone-call-button:visited,
+.workflow-standard.portal-app .phone-call-button:hover,
+.workflow-standard.portal-app .phone-call-button:active {
   flex: 0 0 auto;
   min-width: 44px;
-  min-height: 38px;
+  min-height: 44px;
   padding: 0 10px;
   border-radius: var(--radius-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  color: #fff;
-  background: var(--brand-primary);
-  border: 2px solid color-mix(in srgb, var(--brand-primary) 72%, #000 28%);
+  color: #fff !important;
+  -webkit-text-fill-color: #fff;
+  background: var(--brand-primary) !important;
+  border: 2px solid color-mix(in srgb, var(--brand-primary) 72%, #000 28%) !important;
   box-shadow: 0 1px 3px rgba(15,23,42,.22);
   text-decoration: none;
   font-size: 12px;
   font-weight: 800;
 }
-.phone-call-button svg {
+.workflow-standard.portal-app .phone-call-button span {
+  color: #fff !important;
+  -webkit-text-fill-color: #fff;
+  opacity: 1 !important;
+}
+.workflow-standard.portal-app .phone-call-button svg,
+.workflow-standard.portal-app .phone-call-button svg * {
   flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   stroke-width: 2.2;
-  stroke: currentColor;
+  stroke: #fff !important;
+  color: #fff !important;
+  opacity: 1 !important;
 }
 .phone-action-field { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .phone-action-field input { flex: 1 1 auto; min-width: 0; }
