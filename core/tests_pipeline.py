@@ -4,9 +4,11 @@ Unit tests for the JBL Pipeline Portal and its services.
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from io import StringIO
 from datetime import date, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
@@ -31,6 +33,7 @@ from core.services.jawabu_pipeline import (
     return_for_rework,
     set_credit_decision,
     set_final_decision,
+    sync_farmer_to_internal_order_sheet,
     sync_farmer_to_master_sheet,
 )
 from core.services.workflow_transitions import WorkflowRevisionConflict
@@ -303,6 +306,48 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(row[4], 'Muranga')
         self.assertEqual(row[5], 'Kandara')
         self.assertEqual(row[6], 'Gakira')
+
+    @patch('core.services.jawabu_pipeline._jawabu_group_config')
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_internal_order_sheet_sync_serializes_decimal_fields(self, mock_get_sheets, mock_group_config):
+        """Financial fields must cross the Google JSON boundary as primitives."""
+        from core.tests import FakeJawabuService, FakeMasterDataSheet
+
+        workflow = {
+            'type': 'jawabu',
+            'internal_order_sync_enabled': True,
+            'internal_order_sheet_id': 'internal-orders-sheet',
+            'internal_order_sheet_name': 'Orders',
+            'internal_order_header_row': 3,
+            'internal_order_data_start_row': 5,
+        }
+        mock_group_config.return_value = SimpleNamespace(
+            group_id=self.config.group_id,
+            workflow=workflow,
+        )
+        self.farmer_stage1.deposit_paid_hbg = Decimal('60000.00')
+        self.farmer_stage1.system_deposit_paid_jbl = Decimal('13500.50')
+        self.farmer_stage1.save(update_fields=['deposit_paid_hbg', 'system_deposit_paid_jbl', 'updated_at'])
+
+        headers = [
+            'ORDER RECORD ID',
+            'CUSTOMER NAME',
+            'DEPOSIT / HB',
+            'DEPOSIT / JBL',
+            'LAST UPDATED AT',
+        ]
+        fake_sheet = FakeMasterDataSheet(headers)
+        mock_get_sheets.return_value = FakeJawabuService(fake_sheet)
+
+        self.assertTrue(sync_farmer_to_internal_order_sheet(self.farmer_stage1))
+
+        synced_row = fake_sheet.values[-1]
+        self.assertEqual(synced_row[2], 60000)
+        self.assertEqual(synced_row[3], 13500.5)
+        self.assertFalse(any(isinstance(value, Decimal) for value in synced_row))
+        change = LiveSheetRecordChange.objects.get(sheet_id='internal-orders-sheet')
+        self.assertEqual(change.changes['DEPOSIT / HB']['after'], 60000)
+        self.assertEqual(change.changes['DEPOSIT / JBL']['after'], 13500.5)
 
     @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')

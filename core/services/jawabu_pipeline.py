@@ -15,7 +15,7 @@ Stage overview:
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from django.conf import settings
@@ -1510,6 +1510,29 @@ def _sheet_number(value):
     return float(value)
 
 
+def _sheet_cell_value(value: Any):
+    """Return a JSON-safe Google Sheets cell value without changing local data.
+
+    Django Decimal fields are deliberately retained as ``Decimal`` until the
+    external Sheets boundary.  gspread serializes update payloads as JSON, so
+    allowing one through here would make an otherwise valid workflow write
+    fail after its local validation has completed.
+    """
+    from decimal import Decimal
+
+    if value is None:
+        return ''
+    if isinstance(value, Decimal):
+        return _sheet_number(value)
+    if isinstance(value, datetime):
+        return _datetime_text(value)
+    if isinstance(value, date):
+        return _date_text(value)
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
+
+
 def sync_farmer_to_master_sheet(
     farmer: JawabuFarmerMaster,
     *,
@@ -1831,6 +1854,7 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
             header = first_existing_header(header_lookup, candidates)
             if not header:
                 return
+            value = _sheet_cell_value(value)
             idx = header_lookup[normalize_header(header)] - 1
             current = row_values[idx] if 0 <= idx < len(row_values) else ''
             if str(current or '').strip() != str(value or '').strip():

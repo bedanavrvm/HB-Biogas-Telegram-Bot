@@ -1,5 +1,11 @@
 # Changelog
 
+## Internal order-register reliability - 31-July-2026
+
+- Internal order-sheet publication now converts Django `Decimal` values to
+  JSON-safe numeric cells at the Google Sheets boundary, so a valid JBL visit
+  is not rejected solely because it includes an HBG or JBL deposit amount.
+
 ## Atomic JBL visit completion - 31-July-2026
 
 - Portal JBL visits now validate the form, LAF document and JBL visit photo in
