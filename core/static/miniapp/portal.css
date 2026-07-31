@@ -647,6 +647,13 @@ body.portal-compact-cards .farmer-card .badge { padding: 2px 6px; font-size: 10p
 .media-preview-link span { flex: 0 0 auto; font-size: 10px; font-weight: 800; text-transform: uppercase; }
 .media-link-unavailable { color: var(--text-muted); cursor: default; }
 .media-link-unavailable span { font-size: 10px; text-align: right; }
+.client-media-item { padding: 9px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-surface); }
+.client-media-name { margin: 0 0 8px; color: var(--text-primary); font-size: 12px; font-weight: 700; overflow-wrap: anywhere; }
+.client-media-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.client-media-actions .media-link { width: 100%; min-height: 44px; justify-content: center; font: inherit; text-align: center; cursor: pointer; }
+.media-external-link { color: var(--text-primary); border-color: var(--border-color-strong, var(--border-color)); }
+.media-external-link:disabled { opacity: .65; cursor: wait; }
+@media (max-width: 360px) { .client-media-actions { grid-template-columns: 1fr; } }
 
 /* Secure media is fetched from the protected Portal API and rendered here,
    keeping the WebView and active case open instead of launching Chrome/Drive. */

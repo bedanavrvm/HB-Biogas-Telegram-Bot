@@ -11,6 +11,10 @@
   display. This avoids Android Telegram WebView's blank PDF canvas and blocked
   Google viewer while keeping the original Drive file, workflow state, and
   access controls unchanged.
+- Client media now also offers a separate `Open externally` action for phone
+  download controls. It refreshes
+  the attachment-scoped external link immediately before launch, while `View
+  in app` remains the default context-preserving action.
 
 ## Portal queue and final-review usability - 31-July-2026
 

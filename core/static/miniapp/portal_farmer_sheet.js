@@ -645,6 +645,7 @@
         const category = item.category === 'JBL_VISIT_PHOTO' ? 'JBL visit photo' : 'Signed LAF document';
         item.name = `${category} — ${item.name || `${category} ${index + 1}`}`;
       });
+      target.dataset.farmerId = farmerId;
       renderClientMediaLinks(media, target);
       return;
     } catch (error) {
@@ -656,10 +657,19 @@
 
   function renderClientMediaLinks(media, target) {
     target.innerHTML = media.length
-      ? media.map((item, index) => item.preview_url
-        ? `<button type="button" class="media-link media-preview-link" data-media-index="${index}">${deps.escapeHtml(item.name || `LAF document ${index + 1}`)} <span aria-hidden="true">View</span></button>`
-        : `<span class="media-link media-link-unavailable">${deps.escapeHtml(item.name || `Legacy media ${index + 1}`)} <span>In-app preview unavailable for this older upload</span></span>`
-      ).join('')
+      ? media.map((item, index) => `
+        <article class="client-media-item">
+          <p class="client-media-name">${deps.escapeHtml(item.name || `Client media ${index + 1}`)}</p>
+          <div class="client-media-actions">
+            ${item.preview_url
+              ? `<button type="button" class="media-link media-preview-link" data-media-index="${index}">View in app</button>`
+              : '<span class="media-link media-link-unavailable">In-app preview unavailable for this older upload</span>'}
+            ${item.open_url
+              ? `<button type="button" class="media-link media-external-link" data-media-external-index="${index}" title="Open in your phone's external viewer to download">Open externally</button>`
+              : ''}
+          </div>
+        </article>
+      `).join('')
       : '<span class="field-help">No signed LAF document or JBL visit photo has been uploaded for this client.</span>';
     target.querySelectorAll('.media-preview-link').forEach(link => {
       link.addEventListener('click', () => {
@@ -667,6 +677,36 @@
         if (item) openClientMediaPreview(item);
       });
     });
+    target.querySelectorAll('.media-external-link').forEach(link => {
+      link.addEventListener('click', () => {
+        const item = media[Number(link.dataset.mediaExternalIndex)];
+        if (item) openClientMediaExternally(item, target, link);
+      });
+    });
+  }
+
+  async function openClientMediaExternally(item, target, button) {
+    const farmerId = target.dataset.farmerId;
+    if (!farmerId) return;
+    const originalLabel = button.textContent;
+    button.disabled = true;
+    button.textContent = 'Preparing…';
+    try {
+      // Refresh immediately before launching because the short-lived external
+      // link is intentionally not reusable after a staff member waits in the
+      // case for a while. The new link remains scoped to this attachment.
+      const result = await deps.apiFetch('/jbl-queue/' + encodeURIComponent(farmerId) + '/media/list/');
+      const latest = (result.data?.media || []).find(candidate => String(candidate.id) === String(item.id));
+      if (!result.ok || !latest?.open_url) {
+        throw new Error(result.data?.error || 'Could not prepare this media for download.');
+      }
+      deps.openPortalLink(latest.open_url);
+    } catch (error) {
+      deps.showToast(error.message || 'Could not open this media externally.', 'error');
+    } finally {
+      button.disabled = false;
+      button.textContent = originalLabel;
+    }
   }
 
   function closeMediaViewer() {
