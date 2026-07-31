@@ -1068,10 +1068,12 @@ def append_jbl_media_links(
     validation_error = _validate_jbl_media_files(uploaded_files, media_category)
     if validation_error:
         return False, validation_error, {}
-    # Keep generated Drive object names and their generic storage key free of
-    # customer identifiers.  The direct FK on ``MediaAttachment`` is the
-    # authoritative case linkage for all new Portal evidence; older rows are
-    # still readable through the legacy-ID fallback in the media view.
+    # The case reference remains the immutable attachment/audit key. Drive is
+    # access-controlled for this workflow, so staff can locate both evidence
+    # types in the one customer National-ID folder they expect operationally.
+    client_national_id = str(farmer.national_id or '').strip()
+    if not client_national_id:
+        return False, 'A client National ID is required before visit evidence can be stored.', {}
     storage_key = f'case-{farmer.pk}'
 
     group_config = _jawabu_group_config()
@@ -1121,9 +1123,18 @@ def append_jbl_media_links(
         order_update=None,
         media_category=media_category,
         workflow_key='Jawabu/JBL Visits',
-        record_type=media_category,
-        record_key=f'Case_{farmer.pk}',
+        # Both controlled evidence categories belong in the same client ID
+        # folder. The case UUID remains the immutable attachment key above.
+        record_type='ID',
+        record_key=client_national_id,
         business_key_type='case_reference',
+        storage_reference_value=client_national_id,
+        storage_reference_prefix='ID',
+        jawabu_farmer=farmer,
+        captured_at=captured_at,
+        capture_latitude=capture_latitude,
+        capture_longitude=capture_longitude,
+        capture_location_unavailable_reason=location_unavailable_reason,
     )
     if uploaded.links:
         from core.models import MediaAttachment

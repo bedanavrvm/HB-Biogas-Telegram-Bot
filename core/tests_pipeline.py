@@ -402,7 +402,10 @@ class JblPipelineServiceTestCase(TestCase):
 
         with (
             patch('core.services.jawabu_pipeline._jawabu_group_config', return_value=group_config),
-            patch('core.services.order_approval.store_uploaded_files_for_order', return_value=uploaded),
+            patch(
+                'core.services.order_approval.store_uploaded_files_for_order',
+                return_value=uploaded,
+            ) as mock_store,
             patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet', return_value=True),
             patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet', return_value=True),
         ):
@@ -415,6 +418,10 @@ class JblPipelineServiceTestCase(TestCase):
 
         self.assertTrue(ok, error)
         self.assertEqual(result['stored_count'], 1)
+        self.assertEqual(mock_store.call_args.kwargs['record_type'], 'ID')
+        self.assertEqual(mock_store.call_args.kwargs['record_key'], self.farmer_stage1.national_id)
+        self.assertEqual(mock_store.call_args.kwargs['storage_reference_value'], self.farmer_stage1.national_id)
+        self.assertEqual(mock_store.call_args.kwargs['business_key_type'], 'case_reference')
         attachment.refresh_from_db()
         self.assertEqual(attachment.jawabu_farmer_id, self.farmer_stage1.id)
 

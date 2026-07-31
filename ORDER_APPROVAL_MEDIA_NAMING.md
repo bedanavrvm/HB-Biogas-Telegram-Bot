@@ -88,6 +88,38 @@ Element meaning:
 | Telegram photo fallback | `KYC` | `2026-05-09 KYC ID-113650221 01.jpg` |
 | Telegram document fallback | `FILE Biogas` | `2026-05-09 FILE Biogas ID-113650221 01.pdf` |
 
+## Portal JBL Visit Evidence
+
+JBL visit evidence is a separate Portal workflow. New uploads use one client
+National-ID folder within the relevant month. The signed LAF document and JBL
+visit photo(s) are therefore kept together rather than being split into
+folders by media category.
+
+```text
+Order Approval Media/
++-- Jawabu/
+    +-- JBL Visits/
+        +-- 2026/
+            +-- 07-July/
+                +-- ID_<national ID>/
+                    +-- 2026-07-31 LAF JBL Visit ID-<national ID> 01.pdf
+                    +-- 2026-07-31 PHOTO JBL Visit ID-<national ID> 01.jpeg
+```
+
+Rules specific to this workflow:
+
+- The National ID is the controlled client reference approved for the
+  permissioned Mini App/Shared Drive. Customer name, telephone number, and the
+  internal enum must never appear in the Drive path or filename.
+- `LAF` and `JBL_VISIT_PHOTO` remain the canonical stored categories for
+  querying and audit, but their human-facing Drive filenames are `LAF` and
+  `PHOTO` respectively.
+- The sequence is per client National ID and evidence type across repeat-unit
+  cases: a second visit photo is `... PHOTO JBL Visit ID-<national ID> 02.jpeg`.
+- Existing Drive objects are audit evidence. This policy applies only to
+  future uploads; prior files are neither renamed nor moved without a separate
+  approved migration and Drive-side reconciliation.
+
 ## JBL Naming Policy Compliance
 
 This follows `JBL_File_Naming_Policy_v1.0.docx` for:

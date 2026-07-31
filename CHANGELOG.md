@@ -1,5 +1,14 @@
 # Changelog
 
+## JBL visit evidence foldering - 31-July-2026
+
+- Future signed LAF documents and JBL visit photos now share one permissioned
+  `ID_<National ID>` folder inside the relevant
+  `Jawabu/JBL Visits/YYYY/MM-Month` path. Human-readable names use `LAF` or
+  `PHOTO`, `JBL Visit`, and the client National ID; customer names and
+  internal category enums are excluded.
+- Existing Drive evidence remains unchanged for audit continuity.
+
 ## Authenticated client-media opening - 31-July-2026
 
 - Client-media links are now short-lived, case- and item-scoped links issued

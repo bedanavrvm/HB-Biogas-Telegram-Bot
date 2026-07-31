@@ -10,6 +10,7 @@ from core.services.order_approval import (
     TelegramMediaItem,
     UploadedFileItem,
     GoogleDriveMediaStorage,
+    build_storage_filename,
     clean_form_fields,
     collect_order_approval_uploaded_files,
     create_order_approval_form_token,
@@ -1040,6 +1041,80 @@ class OrderApprovalMediaTest(TestCase):
                 hasattr(call.kwargs['data'], 'read')
                 for call in storage.upload.call_args_list
             )
+        )
+
+    @override_settings(MEDIA_MAX_FILE_SIZE_MB=20, MEDIA_STORAGE_PROVIDER='google_drive')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_jbl_visit_uploads_use_human_readable_national_id_names(self, mock_storage_cls):
+        group_config = MagicMock(group_id='-100222')
+        storage = MagicMock()
+        storage.upload.return_value = ('drive_1', 'https://drive.example/visit-photo')
+        mock_storage_cls.return_value = storage
+
+        result = store_uploaded_files_for_order(
+            group_config=group_config,
+            uploaded_files=[UploadedFileItem(
+                SimpleUploadedFile('01.JPEG', b'visit-photo', content_type='image/jpeg'),
+                'JBL_VISIT_PHOTO',
+            )],
+            sender='Officer',
+            received_at=datetime(2026, 7, 31, tzinfo=dt_timezone.utc),
+            business_key_value='case-3fb74fcd-c1af-4b6a-a9c0-5a5a75249eb1',
+            business_key_type='case_reference',
+            media_category='JBL_VISIT_PHOTO',
+            workflow_key='Jawabu/JBL Visits',
+            record_type='ID',
+            record_key='8067845',
+            storage_reference_value='8067845',
+            storage_reference_prefix='ID',
+        )
+
+        self.assertEqual(result.stored_count, 1)
+        call = storage.upload.call_args
+        self.assertEqual(
+            call.kwargs['filename'],
+            '2026-07-31 PHOTO JBL Visit ID-8067845 01.jpeg',
+        )
+        self.assertEqual(call.kwargs['record_type'], 'ID')
+        self.assertEqual(call.kwargs['record_key'], '8067845')
+        self.assertEqual(MediaAttachment.objects.get().business_key_type, 'case_reference')
+
+    def test_jbl_visit_filename_uses_the_client_national_id(self):
+        filename = build_storage_filename(
+            TelegramMediaItem('', 'LAF', 'laf.pdf', 'application/pdf', 1),
+            '8067845',
+            2,
+            datetime(2026, 7, 31, tzinfo=dt_timezone.utc),
+            reference_prefix='ID',
+        )
+
+        self.assertEqual(
+            filename,
+            '2026-07-31 LAF JBL Visit ID-8067845 02.pdf',
+        )
+
+    @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='root-folder')
+    def test_jbl_visit_folder_groups_laf_and_photo_by_client_national_id(self):
+        storage = GoogleDriveMediaStorage()
+        storage.ensure_child_folder = MagicMock(side_effect=['jawabu', 'visits', 'year', 'month', 'case'])
+
+        folder = storage.ensure_workflow_folder_path(
+            'Jawabu/JBL Visits',
+            'ID',
+            '8067845',
+            datetime(2026, 7, 31, tzinfo=dt_timezone.utc),
+        )
+
+        self.assertEqual(folder, 'case')
+        self.assertEqual(
+            [call.args for call in storage.ensure_child_folder.call_args_list],
+            [
+                ('root-folder', 'Jawabu'),
+                ('jawabu', 'JBL Visits'),
+                ('visits', '2026'),
+                ('year', '07-July'),
+                ('month', 'ID_8067845'),
+            ],
         )
 
     @override_settings(MEDIA_MAX_FILE_SIZE_MB=20, MEDIA_STORAGE_PROVIDER='google_drive')

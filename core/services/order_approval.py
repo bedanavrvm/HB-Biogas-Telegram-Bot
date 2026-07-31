@@ -155,6 +155,10 @@ STORAGE_NAMING_PROFILES = {
     'other_file': {'type': 'FILE', 'context': 'Biogas', 'status': ''},
     'photo': {'type': 'KYC', 'context': '', 'status': ''},
     'document': {'type': 'FILE', 'context': 'Biogas', 'status': ''},
+    # Portal visit categories are deliberately human-readable in Drive. The
+    # stored category remains the canonical enum for querying and audit.
+    'LAF': {'type': 'LAF', 'context': 'JBL Visit', 'status': ''},
+    'JBL_VISIT_PHOTO': {'type': 'PHOTO', 'context': 'JBL Visit', 'status': ''},
 }
 FIELD_CHOICE_VALUES = {
     'imab_created': {
@@ -1761,6 +1765,13 @@ def store_uploaded_files_for_order(
     record_type: str = 'Customer',
     record_key: str = '',
     business_key_type: str = 'id_number',
+    storage_reference_value: str = '',
+    storage_reference_prefix: str = '',
+    jawabu_farmer=None,
+    captured_at=None,
+    capture_latitude=None,
+    capture_longitude=None,
+    capture_location_unavailable_reason: str = '',
 ) -> UploadedMedia:
     links: list[str] = []
     warnings: list[str] = []
@@ -1789,6 +1800,11 @@ def store_uploaded_files_for_order(
             storage_provider=getattr(settings, 'MEDIA_STORAGE_PROVIDER', 'google_drive'),
             business_key_type=business_key_type,
             business_key_value=business_key_value,
+            jawabu_farmer=jawabu_farmer,
+            captured_at=captured_at,
+            capture_latitude=capture_latitude,
+            capture_longitude=capture_longitude,
+            capture_location_unavailable_reason=str(capture_location_unavailable_reason or '').strip(),
         )
 
         max_bytes = int(getattr(settings, 'MEDIA_MAX_FILE_SIZE_MB', 20)) * 1024 * 1024
@@ -1821,6 +1837,7 @@ def store_uploaded_files_for_order(
             duplicate = find_existing_uploaded_media(
                 group_config=group_config,
                 business_key_value=business_key_value,
+                business_key_type=business_key_type,
                 file_type=file_type,
                 original_filename=original_filename,
                 size=actual_size,
@@ -1856,8 +1873,10 @@ def store_uploaded_files_for_order(
             storage_sequence = next_storage_sequence(
                 group_config=group_config,
                 business_key_value=business_key_value,
+                business_key_type=business_key_type,
                 file_type=file_type,
                 sequence_by_type=sequence_by_type,
+                jawabu_farmer=jawabu_farmer,
             )
             storage = GoogleDriveMediaStorage()
             if not workflow_key:
@@ -1869,12 +1888,16 @@ def store_uploaded_files_for_order(
                 data=file_obj,
                 filename=build_storage_filename(
                     item,
-                    business_key_value,
+                    storage_reference_value or business_key_value,
                     storage_sequence,
                     received_at,
+                    reference_prefix=(
+                        storage_reference_prefix
+                        or ('CASE' if business_key_type == 'case_reference' else 'ID')
+                    ),
                 ),
                 mime_type=mime_type or 'application/octet-stream',
-                id_number=business_key_value,
+                id_number=storage_reference_value or business_key_value,
                 received_at=received_at,
                 group_config=group_config,
                 workflow_key=workflow_key,
@@ -1998,6 +2021,7 @@ def find_existing_uploaded_media(
     original_filename: str,
     size: int,
     content_hash: str,
+    business_key_type: str = 'id_number',
 ) -> MediaAttachment | None:
     if not content_hash:
         return None
@@ -2005,7 +2029,7 @@ def find_existing_uploaded_media(
         MediaAttachment.objects
         .filter(
             group_id=group_config.group_id,
-            business_key_type='id_number',
+            business_key_type=business_key_type,
             business_key_value=business_key_value,
             file_type=file_type,
             original_filename=original_filename,
@@ -2123,8 +2147,17 @@ class GoogleDriveMediaStorage:
     def ensure_workflow_folder_path(self, workflow_key: str, record_type: str, record_key: str, received_at: datetime) -> str:
         """Canonical workflow-first hierarchy for all new Drive artifacts."""
         local_time = timezone.localtime(received_at) if timezone.is_aware(received_at) else received_at
+        # ``workflow_key`` may deliberately describe a controlled hierarchy
+        # (for example ``Jawabu/JBL Visits``). Split only on that explicit
+        # separator and sanitize every component so an untrusted value cannot
+        # escape or invent arbitrary Drive path levels.
+        workflow_parts = [
+            sanitize_folder_name(part)
+            for part in str(workflow_key or '').split('/')
+            if str(part).strip()
+        ] or ['Workflow']
         parts = [
-            sanitize_folder_name(workflow_key),
+            *workflow_parts,
             str(local_time.year),
             f"{local_time.strftime('%m')}-{local_time.strftime('%B')}",
             f"{sanitize_folder_name(record_type or 'Record')}_{sanitize_folder_name(record_key)}",
@@ -2521,6 +2554,8 @@ def build_storage_filename(
     business_key_value: str,
     sequence: int,
     received_at: datetime | None = None,
+    *,
+    reference_prefix: str = 'ID',
 ) -> str:
     suffix = PurePosixPath(item.original_filename or '').suffix
     if not suffix:
@@ -2541,7 +2576,7 @@ def build_storage_filename(
         storage_filename_date(received_at),
         type_prefix,
         sanitize_filename_element(profile.get('context', '')),
-        id_filename_reference(business_key_value),
+        storage_filename_reference(business_key_value, prefix=reference_prefix),
         file_sequence_suffix(sequence),
         sanitize_filename_element(profile.get('status', '')).upper(),
     ]
@@ -2558,31 +2593,45 @@ def next_storage_sequence(
     business_key_value: str,
     file_type: str,
     sequence_by_type: dict[str, int],
+    business_key_type: str = 'id_number',
+    jawabu_farmer=None,
 ) -> int:
     if file_type not in sequence_by_type:
-        existing_count = (
-            MediaAttachment.objects
-            .filter(
-                group_id=group_config.group_id,
-                business_key_type='id_number',
+        existing = MediaAttachment.objects.filter(
+            group_id=group_config.group_id,
+            file_type=file_type,
+            upload_status='success',
+        ).exclude(drive_file_id='')
+        if jawabu_farmer is not None:
+            # Repeat applications intentionally share the customer's National
+            # ID folder. Number files across all of that customer's cases so
+            # a later visit cannot collide with an existing Drive filename.
+            existing = existing.filter(jawabu_farmer__national_id=jawabu_farmer.national_id)
+        else:
+            existing = existing.filter(
+                business_key_type=business_key_type,
                 business_key_value=business_key_value,
-                file_type=file_type,
-                upload_status='success',
             )
-            .exclude(drive_file_id='')
-            .values('drive_file_id')
-            .distinct()
-            .count()
-        )
+        existing_count = existing.values('drive_file_id').distinct().count()
         sequence_by_type[file_type] = existing_count
     sequence_by_type[file_type] += 1
     return sequence_by_type[file_type]
 
 
 def id_filename_reference(value: str) -> str:
+    """Backward-compatible default storage reference for ID-backed workflows."""
+    return storage_filename_reference(value, prefix='ID')
+
+
+def storage_filename_reference(value: str, *, prefix: str = 'ID') -> str:
     cleaned = re.sub(r'[^A-Za-z0-9-]+', '-', str(value or '').strip())
     cleaned = cleaned.strip('-') or 'unknown'
-    return f"ID-{cleaned}"
+    label = sanitize_filename_element(prefix).upper() or 'ID'
+    # Portal's internal case key is stored as ``case-<uuid>``. The generated
+    # Drive name already supplies the CASE prefix, so avoid CASE-case-... .
+    if label == 'CASE' and cleaned.casefold().startswith('case-'):
+        cleaned = cleaned[5:] or 'unknown'
+    return f"{label}-{cleaned}"
 
 
 def storage_filename_date(received_at: datetime | None) -> str:
