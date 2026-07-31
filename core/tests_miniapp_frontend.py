@@ -46,7 +46,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertLess(html.index('miniapp/portal_requisitions.js'), html.index('miniapp/portal_payments.js'))
         self.assertLess(html.index('miniapp/portal_payments.js'), html.index('miniapp/portal.js'))
         self.assertIn('miniapp/portal_queues.js?v=6', html)
-        self.assertIn('miniapp/portal_farmer_sheet.js?v=26', html)
+        self.assertIn('miniapp/portal_farmer_sheet.js?v=27', html)
         self.assertIn('miniapp/portal_filters.js?v=6', html)
         self.assertIn('miniapp/portal.js?v=47', html)
 
@@ -262,8 +262,7 @@ class MiniAppFrontendSmokeTests(TestCase):
             'submitCreditDecision',
             'buildFinalReviewForm',
             'submitFinalDecision',
-            'buildRequisitionForm',
-            'submitOrder',
+            'buildRequisitionBatchNotice',
             'initMap',
             'btn-gps',
         ):
@@ -286,7 +285,7 @@ class MiniAppFrontendSmokeTests(TestCase):
     def test_final_review_form_uses_client_media_without_reason_or_condition_controls(self):
         source = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')
         form = source[source.index('function buildFinalReviewForm'):source.index('async function loadClientMedia')]
-        submit = source[source.index('async function submitFinalDecision'):source.index('async function submitOrder')]
+        submit = source[source.index('async function submitFinalDecision'):source.index('function buildRequisitionBatchNotice')]
 
         self.assertNotIn('Decision reason', form)
         self.assertNotIn('approval-condition', form)
@@ -317,6 +316,18 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('#media-viewer-overlay { z-index: 260; }', stylesheet)
         self.assertNotIn('final-reason-code', submit)
         self.assertNotIn('final-conditions', submit)
+
+    def test_requisition_case_sheet_defers_assignment_to_selected_batch_panel(self):
+        source = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')
+        form = source[source.index('function buildRequisitionBatchNotice'):source.index('function closeSheet')]
+
+        self.assertIn('Select this case using its checkbox', form)
+        self.assertIn('controlled system export', form)
+        self.assertNotIn('req-order', source)
+        self.assertNotIn('req-date', source)
+        self.assertNotIn('req-product', source)
+        self.assertNotIn('submitOrder', source)
+        self.assertNotIn("requisition: 'portal.requisition.write'", source)
 
     def test_portal_requisitions_exposes_batch_primitives(self):
         source = Path('core/static/miniapp/portal_requisitions.js').read_text(encoding='utf-8')

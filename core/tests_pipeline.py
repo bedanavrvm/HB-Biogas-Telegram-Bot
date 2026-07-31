@@ -1667,49 +1667,16 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(self.farmer.repayment_date, '15TH')
         self.assertEqual(self.farmer.repayment_tenor, '9 months')
 
-    def test_assign_order_gate_fails_on_unapproved(self):
-        """Verify requisition posting fails with 403 on credit not approved."""
-        # Farmer is Stage 1 (not finally approved)
+    def test_individual_order_assignment_is_retired(self):
+        """Orders can only be assigned by the selected-cases batch flow."""
         payload = {'workflow_revision': self.farmer.workflow_revision, 'order_number': 'JBL-2026-X1', 'requisition_date': '2026-07-02'}
         url = reverse('portal_assign_order', args=[self.farmer.id])
         response = self.client.post(url, json.dumps(payload), content_type='application/json')
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 410)
         self.assertEqual(response.json()['ok'], False)
-
-    def test_assign_order_succeeds_on_approved(self):
-        """Verify requisition posting succeeds when credit is approved."""
-        self.farmer.final_decision = 'Approved'
-        self.farmer.save()
-
-        payload = {'workflow_revision': self.farmer.workflow_revision, 'order_number': 'JBL-2026-X1', 'requisition_date': '2026-07-02'}
-        url = reverse('portal_assign_order', args=[self.farmer.id])
-        response = self.client.post(url, json.dumps(payload), content_type='application/json')
-        self.assertEqual(response.status_code, 200)
-
+        self.assertEqual(response.json()['code'], 'batch_assignment_required')
         self.farmer.refresh_from_db()
-        self.assertEqual(self.farmer.order_number, 'JBL-2026-X1')
-        self.assertEqual(self.farmer.requisition_date, date(2026, 7, 2))
-
-        # Assignment intentionally removes the farmer from the ready queue,
-        # but the assigned order must remain discoverable as a batch so staff
-        # can open the clients and the in-app requisition preview.
-        batches_response = self.client.get(reverse('portal_requisition_batches'))
-        self.assertEqual(batches_response.status_code, 200)
-        batches = batches_response.json()['batches']
-        assigned = next((batch for batch in batches if batch['order_number'] == 'JBL-2026-X1'), None)
-        self.assertIsNotNone(assigned)
-        self.assertEqual(assigned['farmer_count'], 1)
-        self.assertEqual(assigned['farmers'][0]['id'], str(self.farmer.id))
-
-        detail_response = self.client.get(
-            reverse('portal_requisition_batch_detail', args=['JBL-2026-X1'])
-        )
-        self.assertEqual(detail_response.status_code, 200)
-        self.assertTrue(detail_response.json()['ok'])
-        self.assertEqual(
-            detail_response.json()['batch']['farmers'][0]['id'],
-            str(self.farmer.id),
-        )
+        self.assertEqual(self.farmer.order_number, '')
 
     def test_portal_requisition_preview_reports_ready_clients(self):
         self.farmer.final_decision = 'Approved'
@@ -2020,7 +1987,7 @@ class JblPipelineApiTestCase(TestCase):
         data = response.json()
         self.assertTrue(any('inconsistent existing requisition dates' in item['message'] for item in data['warnings']))
 
-    def test_assign_order_rejects_different_date_for_existing_order(self):
+    def test_batch_preview_rejects_different_date_for_existing_order(self):
         original = self.farmer
         original.final_decision = 'Approved'
         original.order_number = '001'
@@ -2035,8 +2002,8 @@ class JblPipelineApiTestCase(TestCase):
         )
 
         response = self.client.post(
-            reverse('portal_assign_order', args=[new_farmer.id]),
-            json.dumps({'workflow_revision': new_farmer.workflow_revision, 'order_number': '001', 'requisition_date': '2026-07-25'}),
+            reverse('portal_requisition_preview'),
+            json.dumps({'farmer_ids': [str(new_farmer.id)], 'order_number': '001', 'requisition_date': '2026-07-25'}),
             content_type='application/json',
         )
 
@@ -2046,7 +2013,7 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(new_farmer.order_number, '')
         self.assertIsNone(new_farmer.requisition_date)
 
-    def test_assign_order_allows_same_date_for_existing_order(self):
+    def test_batch_preview_allows_same_date_for_existing_order(self):
         original = self.farmer
         original.final_decision = 'Approved'
         original.order_number = '001'
@@ -2061,15 +2028,15 @@ class JblPipelineApiTestCase(TestCase):
         )
 
         response = self.client.post(
-            reverse('portal_assign_order', args=[new_farmer.id]),
-            json.dumps({'workflow_revision': new_farmer.workflow_revision, 'order_number': '001', 'requisition_date': '2026-07-24'}),
+            reverse('portal_requisition_preview'),
+            json.dumps({'farmer_ids': [str(new_farmer.id)], 'order_number': '001', 'requisition_date': '2026-07-24'}),
             content_type='application/json',
         )
 
         self.assertEqual(response.status_code, 200)
         new_farmer.refresh_from_db()
-        self.assertEqual(new_farmer.order_number, '001')
-        self.assertEqual(new_farmer.requisition_date, date(2026, 7, 24))
+        self.assertEqual(new_farmer.order_number, '')
+        self.assertIsNone(new_farmer.requisition_date)
 
     @patch('core.services.requisition.generate_requisition_excel', return_value=b'xlsx-bytes')
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')

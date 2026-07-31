@@ -1061,7 +1061,7 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertFalse(data['ok'])
         self.assertEqual(data['readiness']['blocked_count'], 1)
 
-    def test_requisition_assignment_saves_payment_prerequisites(self):
+    def test_individual_requisition_assignment_cannot_set_payment_product(self):
         farmer = self.farmer(order_number='', repayment_date='', repayment_tenor='', payment_product='')
 
         response = self.client.post(
@@ -1077,9 +1077,9 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
             content_type='application/json',
         )
 
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 410)
         farmer.refresh_from_db()
-        self.assertEqual(farmer.order_number, 'ORDER-009')
-        self.assertEqual(farmer.repayment_date, '15TH')
-        self.assertEqual(farmer.repayment_tenor, '9')
-        self.assertEqual(farmer.payment_product, 'BIOGAS')
+        self.assertEqual(farmer.order_number, '')
+        self.assertEqual(farmer.repayment_date, '')
+        self.assertEqual(farmer.repayment_tenor, '')
+        self.assertEqual(farmer.payment_product, '')

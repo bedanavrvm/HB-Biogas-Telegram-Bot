@@ -1,5 +1,14 @@
 # Changelog
 
+## Batch-only order assignment - 31-July-2026
+
+- Orders can now be assigned only from the selected-cases checkbox panel in
+  the Orders queue. Individual case cards no longer expose order number or
+  requisition-date fields, and cached clients are safely directed to the
+  batch flow without changing a case.
+- Payment product is no longer accepted during order assignment. It remains
+  controlled by the later system-export import.
+
 ## Portal in-app client-media viewer - 31-July-2026
 
 - Signed LAF documents and JBL visit photos now open in a protected Portal

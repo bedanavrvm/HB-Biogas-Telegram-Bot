@@ -11,7 +11,6 @@
     jbl_visit: 'portal.jbl_visit.write',
     credit: 'portal.credit.write',
     final_review: 'portal.final_review.write',
-    requisition: 'portal.requisition.write',
   };
 
   function el(id) { return deps.el(id); }
@@ -259,16 +258,7 @@
       el('btn-submit-final').addEventListener('click', submitFinalDecision);
       el('btn-view-client-media')?.addEventListener('click', () => loadClientMedia(farmer.id));
     } else if (mode === 'requisition') {
-      const notApproved = farmer.final_decision !== 'Approved';
-      formEl.innerHTML = buildRequisitionForm(farmer);
-      if (notApproved) {
-        el('sheet-gate-warning').style.display = 'flex';
-        el('sheet-gate-warning').innerHTML = `Final Decision is <strong>${deps.escapeHtml(farmer.final_decision || 'not set')}</strong>. Must be <strong>Approved</strong> to assign an order.`;
-        footerEl.innerHTML = '<button class="primary" id="btn-submit-req" disabled>Assign Order (Gate: Final Review)</button>';
-      } else {
-        footerEl.innerHTML = '<button class="primary" id="btn-submit-req">Assign Order Number</button>';
-        el('btn-submit-req').addEventListener('click', submitOrder);
-      }
+      formEl.innerHTML = buildRequisitionBatchNotice();
     }
     el('sheet-overlay').classList.add('open');
     const lat = parseFloat(farmer.latitude);
@@ -761,15 +751,10 @@
     }
   }
 
-  function buildRequisitionForm(farmer) {
-    const today = new Date().toISOString().split('T')[0];
+  function buildRequisitionBatchNotice() {
     return `
       <div class="form-section">
-        <div class="form-row"><label>Order Number</label><input type="text" id="req-order" placeholder="e.g. JBL-2026-001" value="${deps.escapeHtml(farmer.order_number || '')}"></div>
-        <div class="form-row"><label>Requisition Date</label><input type="date" id="req-date" value="${deps.escapeHtml(farmer.requisition_date || today)}"></div>
-        <div class="form-row"><label>Repayment Date</label><input type="text" id="req-repayment-date" placeholder="e.g. 10TH" value="${deps.escapeHtml(farmer.repayment_date || '')}"></div>
-        <div class="form-row"><label>Tenor</label><input type="text" id="req-tenor" placeholder="e.g. 6" value="${deps.escapeHtml(farmer.repayment_tenor || '')}"></div>
-        <div class="form-row"><label>Payment Product</label><input type="text" id="req-product" placeholder="Optional" value="${deps.escapeHtml(farmer.payment_product || '')}"></div>
+        <div class="field-help">Select this case using its checkbox in the Orders queue, then assign one order batch from the selected cases panel. Payment product is supplied later by the controlled system export.</div>
       </div>
     `;
   }
@@ -900,46 +885,6 @@
     closeSheet();
     deps.reloadCurrentQueue();
     deps.loadDashboard();
-  }
-
-  async function submitOrder() {
-    const farmer = state().selectedFarmer;
-    if (!farmer) return;
-    const orderNumber = (el('req-order')?.value || '').trim();
-    const reqDate = el('req-date')?.value || '';
-    const repaymentDate = (el('req-repayment-date')?.value || '').trim();
-    const repaymentTenor = (el('req-tenor')?.value || '').trim();
-    const paymentProduct = (el('req-product')?.value || '').trim();
-    if (!orderNumber) return deps.showToast('Order number is required', 'error');
-    if (!repaymentDate) return deps.showToast('Repayment date is required for payment documents', 'error');
-    if (!repaymentTenor) return deps.showToast('Tenor is required for payment documents', 'error');
-
-    const btn = el('btn-submit-req');
-    deps.setButtonLoading(btn, true, 'Saving...');
-    const { ok, status, data } = await deps.apiFetch('/requisition-queue/' + farmer.id + '/', {
-      method: 'POST',
-      body: JSON.stringify({
-        request_id: requestId(),
-        workflow_revision: Number(farmer.workflow_revision || 1),
-        order_number: orderNumber,
-        requisition_date: reqDate,
-        repayment_date: repaymentDate,
-        repayment_tenor: repaymentTenor,
-        payment_product: paymentProduct,
-      }),
-    });
-    deps.setButtonLoading(btn, false);
-    if (!ok) {
-      deps.showToast(status === 403 ? ('Error: ' + (data.error || 'Final review not approved')) : (data.error || 'Save failed'), 'error');
-      return;
-    }
-    deps.showToast('Order assigned. Showing it under Batches.', 'success');
-    closeSheet();
-    deps.reloadCurrentQueue();
-    deps.loadDashboard();
-    if (deps.openAssignedOrder) {
-      await deps.openAssignedOrder(orderNumber);
-    }
   }
 
   function bindEvents() {

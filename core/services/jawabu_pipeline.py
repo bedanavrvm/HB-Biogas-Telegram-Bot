@@ -1308,7 +1308,6 @@ def assign_order(
     requisition_date: date | None = None,
     repayment_date: str | None = None,
     repayment_tenor: str | None = None,
-    payment_product: str | None = None,
     sender: str = '',
     request_id: str = '',
     expected_revision: int | None = None,
@@ -1396,9 +1395,6 @@ def assign_order(
         farmer.repayment_tenor = str(repayment_tenor or '').strip()
         farmer.repayment_tenor_months = tenor_months
         update_fields.extend(['repayment_tenor', 'repayment_tenor_months'])
-    if payment_product is not None:
-        farmer.payment_product = str(payment_product or '').strip()
-        update_fields.append('payment_product')
     farmer.save(update_fields=update_fields)
     from core.services.jawabu_case360 import record_pipeline_event
     record_pipeline_event(

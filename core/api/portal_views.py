@@ -2744,14 +2744,14 @@ def portal_requisition_queue(request):
 @require_http_methods(["POST"])
 def portal_assign_order(request, farmer_id: str):
     """
-    POST /api/portal/requisition-queue/<farmer_id>/
-    Body: { order_number, requisition_date (YYYY-MM-DD, optional) }
+    Retired single-case order assignment endpoint.
 
-    GATE: Returns HTTP 403 if final_decision != 'Approved'.
+    Orders are assigned from the selected-cases requisition batch flow so one
+    order number and requisition date are reviewed together. This endpoint is
+    retained only to direct cached Mini App clients safely; it must not mutate
+    a case or payment fields.
     """
-    from datetime import date as _date
     from core.models import JawabuFarmerMaster
-    from core.services.jawabu_pipeline import assign_order, farmer_to_card
 
     try:
         farmer = JawabuFarmerMaster.objects.get(pk=farmer_id)
@@ -2762,70 +2762,11 @@ def portal_assign_order(request, farmer_id: str):
     if role_error:
         return role_error
 
-    try:
-        body = json.loads(request.body)
-    except (json.JSONDecodeError, ValueError):
-        return JsonResponse({'ok': False, 'error': 'Invalid JSON body.'}, status=400)
-    try:
-        expected_revision = _portal_workflow_revision(body)
-    except ValueError as exc:
-        response = _portal_workflow_error(exc)
-        return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
-
-    order_number = str(body.get('order_number') or '').strip()
-    requisition_date_raw = str(body.get('requisition_date') or '').strip()
-    existing_order_scope_error = _portal_order_scope_error(request, order_number)
-    if existing_order_scope_error:
-        return existing_order_scope_error
-    requisition_date = None
-    if requisition_date_raw:
-        try:
-            requisition_date = _date.fromisoformat(requisition_date_raw)
-        except ValueError:
-            return JsonResponse(
-                {'ok': False, 'error': f"Invalid requisition_date '{requisition_date_raw}'. Use YYYY-MM-DD."},
-                status=400,
-            )
-
-    # An order number represents one requisition batch and therefore one
-    # requisition date. Never silently split or overwrite that date when a
-    # later client is attached to the same order.
-    if requisition_date is not None:
-        date_error, _, _ = _requisition_order_date_conflict(order_number, requisition_date)
-        if date_error:
-            return JsonResponse({'ok': False, 'error': date_error, 'code': 'requisition_date_conflict'}, status=409)
-    else:
-        existing_farmers, existing_batch = _requisition_order_context(order_number)
-        known_dates = _requisition_order_dates(existing_farmers, existing_batch)
-        if len(known_dates) == 1:
-            requisition_date = next(iter(known_dates))
-        elif len(known_dates) > 1:
-            date_error, _, _ = _requisition_order_date_conflict(order_number, None)
-            return JsonResponse({'ok': False, 'error': date_error, 'code': 'requisition_date_conflict'}, status=409)
-
-    sender = _portal_sender_from_request(request)
-    try:
-        ok, error = assign_order(
-            farmer,
-            order_number=order_number,
-            requisition_date=requisition_date,
-            repayment_date=body.get('repayment_date'),
-            repayment_tenor=body.get('repayment_tenor'),
-            payment_product=body.get('payment_product'),
-            sender=sender,
-            request_id=_portal_request_id(request, body),
-            expected_revision=expected_revision,
-            actor_user=getattr(request, 'portal_user', None),
-        )
-    except ValueError as exc:
-        response = _portal_workflow_error(exc)
-        return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
-    if not ok:
-        # Gate failure → 403 Forbidden
-        status_code = 403 if 'Final Decision' in error or 'final review' in error.lower() else 400
-        return JsonResponse({'ok': False, 'error': error}, status=status_code)
-    farmer.refresh_from_db()
-    return JsonResponse({'ok': True, 'farmer': farmer_to_card(farmer)})
+    return JsonResponse({
+        'ok': False,
+        'code': 'batch_assignment_required',
+        'error': 'Individual order assignment is no longer available. Select one or more cases using the Orders queue checkboxes, then assign the batch once.',
+    }, status=410)
 
 
 # ── All cases + deferred ──────────────────────────────────────────────────────
