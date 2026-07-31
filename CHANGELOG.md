@@ -1,5 +1,14 @@
 # Changelog
 
+## Focused Final Review and client media - 31-July-2026
+
+- Final Review no longer shows unrequested decision-reason or approval-
+  condition controls. It retains the operational decision, repayment, and
+  after-call inputs only.
+- The former LAF-only control is now Client media, showing the signed LAF
+  document and JBL visit photo uploaded by field officers as separately
+  labelled links.
+
 ## Reliable Head of Rural review switching - 31-July-2026
 
 - The Final Review selector now carries its chosen decision/payment lens

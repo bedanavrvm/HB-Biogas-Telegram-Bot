@@ -1740,7 +1740,6 @@ def portal_meta(request):
     from core.services.branches import global_branch_choices
     from core.services.locations import global_county_choices
     from core.services.access_control import policy_version
-    from core.services.jawabu_approvals import REASON_CODES
     branches = global_branch_choices()
     staff_branches = {
         str(value).strip().casefold()
@@ -1764,7 +1763,6 @@ def portal_meta(request):
         'credit_decisions': [c[0] for c in JawabuFarmerMaster.CREDIT_DECISION_CHOICES],
         'imab_created_options': ['Yes', 'No', 'Pending'],
         'final_decisions': [c[0] for c in JawabuFarmerMaster.FINAL_DECISION_CHOICES],
-        'approval_reason_codes': [{'value': value, 'label': label} for value, label in REASON_CODES],
         'approval_delegation_gates': delegation_gates,
         'capabilities': _portal_capabilities(request),
         'access_policy_version': policy_version(),
@@ -2071,7 +2069,14 @@ def portal_jbl_media(request, farmer_id: str):
             }
             for index, _url in enumerate(legacy_links)
         ]
-    return JsonResponse({'ok': True, 'media': media, 'laf_media': [item for item in media if item['category'] in {'LAF', 'LEGACY'}]})
+    laf_media = [item for item in media if item['category'] in {'LAF', 'LEGACY'}]
+    jbl_visit_photo_media = [item for item in media if item['category'] == 'JBL_VISIT_PHOTO']
+    return JsonResponse({
+        'ok': True,
+        'media': media,
+        'laf_media': laf_media,
+        'jbl_visit_photo_media': jbl_visit_photo_media,
+    })
 
 
 @csrf_exempt

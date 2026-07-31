@@ -1436,11 +1436,14 @@ class JblPipelineApiTestCase(TestCase):
         response = self.client.get(reverse('portal_jbl_media', args=[self.farmer.id]))
 
         self.assertEqual(response.status_code, 200)
-        media = response.json()['laf_media']
+        payload = response.json()
+        media = payload['laf_media']
         self.assertEqual(len(media), 1)
         self.assertIn(str(self.farmer.id), media[0]['view_url'])
         self.assertIn(str(media[0]['id']), media[0]['view_url'])
         self.assertEqual(media[0]['name'], 'laf.pdf')
+        self.assertEqual([item['name'] for item in payload['jbl_visit_photo_media']], ['visit.jpg'])
+        self.assertEqual({item['category'] for item in payload['media']}, {'LAF', 'JBL_VISIT_PHOTO'})
 
     def test_open_jbl_media_redirects_and_records_an_access_event(self):
         attachment = MediaAttachment.objects.create(

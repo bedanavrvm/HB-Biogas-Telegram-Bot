@@ -32,7 +32,6 @@
     metaDecisions: [],
     metaImabOptions: [],
     metaFinalDecisions: [],
-    metaApprovalReasons: [],
     approvalDelegationGates: [],
     metaBranches: [],
     metaCounties: [],
@@ -954,7 +953,6 @@
     state.metaDecisions = data.credit_decisions || [];
     state.metaImabOptions = data.imab_created_options || [];
     state.metaFinalDecisions = data.final_decisions || [];
-    state.metaApprovalReasons = data.approval_reason_codes || [];
     state.approvalDelegationGates = data.approval_delegation_gates || [];
     state.metaBranches = data.branches || [];
     state.metaCounties = data.counties || [];

@@ -256,7 +256,7 @@
       formEl.innerHTML = buildFinalReviewForm(farmer);
       footerEl.innerHTML = '<button class="primary" id="btn-submit-final">Save Final Review</button>';
       el('btn-submit-final').addEventListener('click', submitFinalDecision);
-      el('btn-view-laf')?.addEventListener('click', () => loadLafMedia(farmer.id));
+      el('btn-view-client-media')?.addEventListener('click', () => loadClientMedia(farmer.id));
     } else if (mode === 'requisition') {
       const notApproved = farmer.final_decision !== 'Approved';
       formEl.innerHTML = buildRequisitionForm(farmer);
@@ -269,8 +269,6 @@
         el('btn-submit-req').addEventListener('click', submitOrder);
       }
     }
-    wireApprovalConditionButtons();
-
     el('sheet-overlay').classList.add('open');
     const lat = parseFloat(farmer.latitude);
     const lng = parseFloat(farmer.longitude);
@@ -545,46 +543,6 @@
     }
   }
 
-  function buildApprovalReasonFields(prefix) {
-    const reasons = (state().metaApprovalReasons || []).map(item =>
-      `<option value="${deps.escapeHtml(item.value)}">${deps.escapeHtml(item.label)}</option>`
-    ).join('');
-    return `<div class="form-row approval-reason-fields">
-      <label>Decision reason <span class="label-help" aria-hidden="true">?</span></label>
-      <select id="${prefix}-reason-code"><option value="">Only required for conditional, rejected, or deferred decisions</option>${reasons}</select>
-      <textarea id="${prefix}-conditions" rows="2" placeholder="For an approval with conditions, enter one condition per line."></textarea>
-      <small class="field-help">Conditions block the next stage until they are explicitly cleared and audited.</small>
-    </div>`;
-  }
-
-  function renderApprovalConditions(farmer, gate) {
-    const approval = farmer.approvals?.[gate] || {};
-    const pending = (approval.conditions || []).filter(item => !item.satisfied_at);
-    if (!pending.length) return '';
-    return `<div class="approval-condition-list"><strong>Conditions still blocking this approval</strong>${pending.map(item =>
-      `<div><span>${deps.escapeHtml(item.description)}</span><button type="button" class="secondary" data-clear-approval-condition="${deps.escapeHtml(item.id)}">Mark met</button></div>`
-    ).join('')}</div>`;
-  }
-
-  function wireApprovalConditionButtons() {
-    el('sheet-form')?.querySelectorAll('[data-clear-approval-condition]').forEach(button => {
-      button.addEventListener('click', async () => {
-        const farmer = state().selectedFarmer;
-        if (!farmer) return;
-        deps.setButtonLoading(button, true, 'Saving...');
-        const { ok, data } = await deps.apiFetch('/approval-conditions/' + encodeURIComponent(button.dataset.clearApprovalCondition) + '/clear/', {
-          method: 'POST', body: JSON.stringify({ note: 'Condition evidenced in Portal.' }),
-        });
-        deps.setButtonLoading(button, false);
-        if (!ok) return deps.showToast(data.error || 'Could not clear the condition.', 'error');
-        deps.showToast('Approval condition cleared and audit recorded.', 'success');
-        closeSheet();
-        deps.reloadCurrentQueue();
-        deps.loadDashboard();
-      });
-    });
-  }
-
   function buildCreditForm(farmer) {
     const currentDecision = farmer.credit_decision || 'Pending';
     // Conditional approvals are a separate controlled approval process, not a
@@ -638,7 +596,7 @@
   }
 
   function buildFinalReviewForm(farmer) {
-    const decisionOptions = state().metaFinalDecisions.filter(decision => decision !== 'Under Review').map(decision =>
+    const decisionOptions = state().metaFinalDecisions.filter(decision => !['Under Review', 'Approved with Conditions'].includes(decision)).map(decision =>
       `<option value="${deps.escapeHtml(decision)}"${farmer.final_decision === decision ? ' selected' : ''}>${deps.escapeHtml(decision)}</option>`
     ).join('');
     const phone = String(farmer.primary_phone || '').replace(/[^0-9+]/g, '');
@@ -652,41 +610,43 @@
           </div>
         </div>
         <div class="form-row"><label>Final Decision</label><select id="final-decision"><option value="">- Select -</option>${decisionOptions}</select></div>
-        ${buildApprovalReasonFields('final')}
-        ${renderApprovalConditions(farmer, 'final_review')}
         ${hasCapability('portal.jbl_media.view') ? `<div class="form-row">
-          <label>LAF document</label>
-          <button type="button" class="secondary" id="btn-view-laf">View LAF document(s)</button>
-          <div id="final-laf-media" class="media-links" hidden></div>
+          <label>Client media</label>
+          <button type="button" class="secondary" id="btn-view-client-media">View client media</button>
+          <div id="final-client-media" class="media-links client-media-links" hidden></div>
         </div>` : ''}
         <div class="form-row"><label>Repayment Dates</label><input type="text" id="final-repayment-date" placeholder="e.g. 10TH" value="${deps.escapeHtml(farmer.repayment_date || '')}"></div>
         <div class="form-row"><label>Tenor</label><input type="text" id="final-repayment-tenor" placeholder="e.g. 6 months" value="${deps.escapeHtml(farmer.repayment_tenor || '')}"></div>
-        <div class="form-row"><label>After-call Comments</label><textarea id="final-comment" rows="4" placeholder="Summarize the call and reason for the decision...">${deps.escapeHtml(farmer.final_decision_comment || '')}</textarea></div>
+        <div class="form-row"><label>After-call Comments</label><textarea id="final-comment" rows="4" placeholder="Summarize the call and decision...">${deps.escapeHtml(farmer.final_decision_comment || '')}</textarea></div>
       </div>
       ${farmer.jbl_visit_comment ? `<div class="info-row"><span class="ir-label">BRO Comment</span><span class="ir-value">${deps.escapeHtml(farmer.jbl_visit_comment)}</span></div>` : ''}
     `;
   }
 
-  async function loadLafMedia(farmerId) {
-    const button = el('btn-view-laf');
-    const target = el('final-laf-media');
+  async function loadClientMedia(farmerId) {
+    const button = el('btn-view-client-media');
+    const target = el('final-client-media');
     if (!farmerId || !target) return;
     button && (button.disabled = true);
     target.hidden = false;
-    target.innerHTML = '<span class="field-help">Loading LAF documents...</span>';
+    target.innerHTML = '<span class="field-help">Loading client media...</span>';
     try {
       const result = await deps.apiFetch('/jbl-queue/' + encodeURIComponent(farmerId) + '/media/list/');
-      const media = result.data?.laf_media || [];
+      const media = result.data?.media || [];
       if (!result.ok || !result.data?.ok) {
-        target.innerHTML = `<span class="field-help">${deps.escapeHtml(result.data?.error || 'Could not load LAF documents.')}</span>`;
+        target.innerHTML = `<span class="field-help">${deps.escapeHtml(result.data?.error || 'Could not load client media.')}</span>`;
         return;
       }
-      media.forEach(item => { item.url = item.view_url || item.url; });
+      media.forEach((item, index) => {
+        item.url = item.view_url || item.url;
+        const category = item.category === 'JBL_VISIT_PHOTO' ? 'JBL visit photo' : 'Signed LAF document';
+        item.name = `${category} — ${item.name || `${category} ${index + 1}`}`;
+      });
       target.innerHTML = media.length
         ? media.map((item, index) => `<a class="media-link" href="${deps.escapeHtml(item.url)}" target="_blank" rel="noopener">${deps.escapeHtml(item.name || `LAF document ${index + 1}`)} <span aria-hidden="true">↗</span></a>`).join('')
-        : '<span class="field-help">No LAF document has been uploaded for this client.</span>';
+        : '<span class="field-help">No signed LAF document or JBL visit photo has been uploaded for this client.</span>';
     } catch (error) {
-      target.innerHTML = '<span class="field-help">Could not load LAF documents. Check your connection and retry.</span>';
+      target.innerHTML = '<span class="field-help">Could not load client media. Check your connection and retry.</span>';
     } finally {
       if (button) button.disabled = false;
     }
@@ -810,11 +770,7 @@
     const decisionComment = el('final-comment')?.value || '';
     const repaymentDate = el('final-repayment-date')?.value || '';
     const repaymentTenor = el('final-repayment-tenor')?.value || '';
-    const reasonCode = el('final-reason-code')?.value || '';
-    const conditions = (el('final-conditions')?.value || '').split('\n').map(value => value.trim()).filter(Boolean);
     if (!finalDecision) return deps.showToast('Please select a final decision', 'error');
-    if (['Approved with Conditions', 'Rejected', 'Deferred'].includes(finalDecision) && !reasonCode) return deps.showToast('Choose a decision reason', 'error');
-    if (finalDecision === 'Approved with Conditions' && !conditions.length) return deps.showToast('Add at least one approval condition', 'error');
 
     const btn = el('btn-submit-final');
     deps.setButtonLoading(btn, true, 'Saving...');
@@ -827,8 +783,6 @@
         decision_comment: decisionComment,
         repayment_date: repaymentDate,
         repayment_tenor: repaymentTenor,
-        reason_code: reasonCode,
-        conditions,
       }),
     });
     deps.setButtonLoading(btn, false);

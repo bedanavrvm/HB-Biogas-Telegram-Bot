@@ -46,7 +46,8 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertLess(html.index('miniapp/portal_requisitions.js'), html.index('miniapp/portal_payments.js'))
         self.assertLess(html.index('miniapp/portal_payments.js'), html.index('miniapp/portal.js'))
         self.assertIn('miniapp/portal_queues.js?v=5', html)
-        self.assertIn('miniapp/portal.js?v=44', html)
+        self.assertIn('miniapp/portal_farmer_sheet.js?v=20', html)
+        self.assertIn('miniapp/portal.js?v=45', html)
 
         spin_response = self.client.get(reverse('spin_form') + '?group_id=-100spin&token=test-token')
         spin_html = spin_response.content.decode('utf-8')
@@ -264,6 +265,22 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertNotIn('credit-conditions', submit)
         self.assertNotIn('reason_code:', submit)
         self.assertNotIn('conditions }', submit)
+
+    def test_final_review_form_uses_client_media_without_reason_or_condition_controls(self):
+        source = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')
+        form = source[source.index('function buildFinalReviewForm'):source.index('async function loadClientMedia')]
+        submit = source[source.index('async function submitFinalDecision'):source.index('async function submitOrder')]
+
+        self.assertNotIn('Decision reason', form)
+        self.assertNotIn('approval-condition', form)
+        self.assertIn("!['Under Review', 'Approved with Conditions'].includes(decision)", form)
+        self.assertIn('btn-view-client-media', form)
+        self.assertIn('final-client-media', form)
+        self.assertIn('loadClientMedia', source)
+        self.assertIn('JBL visit photo', source)
+        self.assertIn('Signed LAF document', source)
+        self.assertNotIn('final-reason-code', submit)
+        self.assertNotIn('final-conditions', submit)
 
     def test_portal_requisitions_exposes_batch_primitives(self):
         source = Path('core/static/miniapp/portal_requisitions.js').read_text(encoding='utf-8')
