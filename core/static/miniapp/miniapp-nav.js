@@ -48,6 +48,35 @@
     });
   }
 
+  function syncViewportHeight() {
+    // Android's WebView can leave `dvh` at the file-picker height after an
+    // officer returns to Telegram.  A measured height lets full-screen sheets
+    // fill the restored Mini App instead of leaving a white canvas below the
+    // action footer.  During normal text input we keep VisualViewport's
+    // keyboard-aware height; a file input is deliberately not treated as a
+    // keyboard-editable field.
+    const active = document.activeElement;
+    const keyboardEditable = active?.matches?.(
+      'textarea, select, [contenteditable="true"], input:not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"])',
+    );
+    const visualHeight = Math.round(window.visualViewport?.height || 0);
+    const layoutHeight = Math.round(window.innerHeight || 0);
+    const telegramHeight = Math.round(Number(tg?.viewportStableHeight || tg?.viewportHeight || 0));
+    const height = keyboardEditable
+      ? (visualHeight || layoutHeight || telegramHeight)
+      : Math.max(visualHeight, layoutHeight, telegramHeight);
+    if (height > 0) document.documentElement.style.setProperty('--miniapp-viewport-height', `${height}px`);
+  }
+
+  function scheduleViewportHeightSync() {
+    syncViewportHeight();
+    window.requestAnimationFrame(syncViewportHeight);
+    // Returning from Android's file picker can update viewport values after
+    // the visibility event, so measure again once the WebView is stable.
+    window.setTimeout(syncViewportHeight, 180);
+    window.setTimeout(syncViewportHeight, 600);
+  }
+
   function currentScreen() {
     if (/\/portal\/cases\/[^/]+\//.test(window.location.pathname)) return 'case_history';
     const match = window.location.pathname.match(/\/portal\/s\/([^/]+)\//);
@@ -115,8 +144,18 @@
     tg.ready();
     tg.expand();
     tg.onEvent?.('themeChanged', syncTheme);
+    tg.onEvent?.('viewportChanged', scheduleViewportHeightSync);
   }
   syncTheme();
+  scheduleViewportHeightSync();
+
+  window.addEventListener('resize', scheduleViewportHeightSync);
+  window.addEventListener('pageshow', scheduleViewportHeightSync);
+  window.addEventListener('focus', scheduleViewportHeightSync);
+  window.visualViewport?.addEventListener('resize', syncViewportHeight);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') scheduleViewportHeightSync();
+  });
 
   document.body.addEventListener('htmx:configRequest', event => {
     if (tg?.initData) event.detail.headers['X-Telegram-Init-Data'] = tg.initData;

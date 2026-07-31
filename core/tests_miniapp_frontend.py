@@ -82,7 +82,16 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         self.assertIn('/\\/portal\\/cases\\/[^/]+\\//', source)
         self.assertIn("return 'case_history'", source)
-        self.assertContains(response, 'miniapp/miniapp-nav.js?v=7')
+        self.assertContains(response, 'miniapp/miniapp-nav.js?v=8')
+
+    def test_miniapp_navigation_recovers_viewport_after_file_picker_return(self):
+        navigation_source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
+        portal_css = Path('core/static/miniapp/portal.css').read_text(encoding='utf-8')
+
+        self.assertIn('syncViewportHeight', navigation_source)
+        self.assertIn('visibilitychange', navigation_source)
+        self.assertIn('viewportChanged', navigation_source)
+        self.assertIn('var(--miniapp-viewport-height, 100dvh)', portal_css)
 
     def test_portal_helpers_expose_pure_ui_primitives(self):
         source = Path('core/static/miniapp/portal_helpers.js').read_text(encoding='utf-8')
