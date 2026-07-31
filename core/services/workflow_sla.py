@@ -122,10 +122,15 @@ def _decimal_minutes(value) -> Decimal | None:
     return number if number >= 0 else None
 
 
-def jawabu_sla_candidates(*, now=None) -> list[WorkflowSlaCandidate]:
-    """Find incomplete configured Jawabu TAT segments that are overdue."""
+def jawabu_sla_candidates(*, now=None, queryset=None) -> list[WorkflowSlaCandidate]:
+    """Find incomplete configured Jawabu TAT segments that are overdue.
+
+    An optional queryset lets a scoped Portal summary evaluate only records
+    currently visible to that staff member.
+    """
     candidates: list[WorkflowSlaCandidate] = []
-    for farmer in JawabuFarmerMaster.objects.filter(status='active').prefetch_related('pipeline_events'):
+    farmers = queryset if queryset is not None else JawabuFarmerMaster.objects.filter(status='active')
+    for farmer in farmers.prefetch_related('pipeline_events'):
         if current_workflow_state(farmer) in JAWABU_TERMINAL_STATES | {'deferred'}:
             continue
         tat = calculate_case_tat(farmer, now=now)

@@ -302,11 +302,12 @@ def _paginate_list(items: list, request, page_size: int = 30):
     return items[start:end], pagination
 
 
-def _apply_county_branch_filters(qs, request):
+def _apply_county_branch_filters(qs, request, *, params=None):
     from django.db.models import Q
 
-    county = request.GET.get('county', '').strip()
-    branch = request.GET.get('branch', '').strip()
+    params = params if params is not None else request.GET
+    county = params.get('county', '').strip()
+    branch = params.get('branch', '').strip()
     if county:
         qs = qs.filter(county__iexact=county)
     if branch:
@@ -323,6 +324,11 @@ def _apply_county_branch_filters(qs, request):
             branch_scope |= Q(branch__iexact=staff_branch)
         qs = qs.filter(branch_scope)
     return qs
+
+
+def _apply_portal_ordering(qs, *, params):
+    """Allow only the private workspace's safe alternate ordering."""
+    return qs.order_by('-created_at') if str(params.get('ordering') or '').strip() == 'newest' else qs
 
 
 PORTAL_VIEW_ROLES = {'viewer', 'jbl_officer', 'credit_analyst', 'head_rural', 'operations'}
@@ -484,9 +490,10 @@ PORTAL_QUEUE_CAPABILITIES = {
 }
 
 
-def _portal_review_stage(request) -> str:
+def _portal_review_stage(request, params=None) -> str:
     """Normalize the three HOR review lenses exposed by the review page."""
-    value = str(request.GET.get('stage') or request.GET.get('review_stage') or 'decision').strip().lower()
+    params = params if params is not None else request.GET
+    value = str(params.get('stage') or params.get('review_stage') or 'decision').strip().lower()
     return value if value in {'decision', 'requisition', 'payment'} else 'decision'
 
 
@@ -512,7 +519,7 @@ def _pending_payment_review_map(request=None):
     return pending
 
 
-def _payment_review_queryset(request):
+def _payment_review_queryset(request, *, params=None):
     """Return active farmers and their pending payment-review metadata."""
     from core.models import JawabuApprovalDelegation, JawabuFarmerMaster
 
@@ -522,7 +529,7 @@ def _payment_review_queryset(request):
     queryset = JawabuFarmerMaster.objects.filter(
         status='active', id__in=list(review_map),
     )
-    return _apply_county_branch_filters(queryset, request), review_map
+    return _apply_county_branch_filters(queryset, request, params=params), review_map
 
 
 def _card_with_payment_review_metadata(farmer, card, review_map):
@@ -541,34 +548,35 @@ def _card_with_payment_review_metadata(farmer, card, review_map):
     return card
 
 
-def _portal_queue_queryset(queue_key: str, request):
+def _portal_queue_queryset(queue_key: str, request, *, params=None):
     from core.services import jawabu_pipeline
 
     config = PORTAL_QUEUE_FRAGMENT_CONFIG.get(queue_key)
     if not config:
         return None, None
+    params = params if params is not None else request.GET
 
     if queue_key == 'all':
         qs = jawabu_pipeline.all_cases(
-            search=request.GET.get('search', '').strip(),
-            county=request.GET.get('county', '').strip(),
-            branch=request.GET.get('branch', '').strip(),
+            search=params.get('search', '').strip(),
+            county=params.get('county', '').strip(),
+            branch=params.get('branch', '').strip(),
         )
-        qs = _apply_county_branch_filters(qs, request)
+        qs = _apply_county_branch_filters(qs, request, params=params)
     else:
         if queue_key == 'final':
-            stage = _portal_review_stage(request)
+            stage = _portal_review_stage(request, params=params)
             if stage == 'requisition':
                 qs = jawabu_pipeline.requisition_queue()
             elif stage == 'payment':
-                qs, _review_map = _payment_review_queryset(request)
+                qs, _review_map = _payment_review_queryset(request, params=params)
             else:
                 qs = jawabu_pipeline.final_review_queue()
         else:
             service = getattr(jawabu_pipeline, config['service'])
-            qs = service(request.GET.get('search', '').strip()) if queue_key == 'jbl' else service()
-        qs = _apply_county_branch_filters(qs, request)
-    return qs, config
+            qs = service(params.get('search', '').strip()) if queue_key == 'jbl' else service()
+        qs = _apply_county_branch_filters(qs, request, params=params)
+    return _apply_portal_ordering(qs, params=params), config
 
 
 # ── Render View ───────────────────────────────────────────────────────────────
@@ -1157,6 +1165,51 @@ def portal_navigation(request):
     })
 
 
+def _portal_setting_options(request, actor) -> dict:
+    """Return the authenticated user's valid personal Portal configuration."""
+    from core.services.branches import global_branch_choices
+    from core.services.portal_navigation import get_portal_nav_items
+    from core.services.workflow_capabilities import has_capability
+
+    access = getattr(request, 'portal_access', None)
+    screens = [
+        item for item in get_portal_nav_items(actor, access=access)
+        if item['key'] != 'settings'
+    ]
+    staff_branches = {
+        str(value).strip().casefold()
+        for value in (access or {}).get('branches', [])
+        if str(value).strip()
+    }
+    branches = global_branch_choices()
+    if staff_branches:
+        branches = [branch for branch in branches if branch.casefold() in staff_branches]
+    return {
+        'screens': screens,
+        'queues': [item for item in screens if item['key'] in PORTAL_QUEUE_FRAGMENT_CONFIG],
+        'branches': branches,
+        'review_statuses': [
+            {'value': 'decision', 'label': 'Final decisions'},
+            {'value': 'payment', 'label': 'Payment batches awaiting review'},
+        ],
+        'operations': {
+            'health': has_capability(actor, 'jawabu_portal', 'portal.health.read', access=access),
+            'delegation': has_capability(actor, 'jawabu_portal', 'portal.approval.delegation.authorize', access=access),
+        },
+    }
+
+
+def _portal_workspace_options(request, actor) -> dict:
+    """Flatten settings options into a stable service-validation contract."""
+    values = _portal_setting_options(request, actor)
+    return {
+        'screens': [item['key'] for item in values['screens']],
+        'queues': [item['key'] for item in values['queues']],
+        'branches': values['branches'],
+        'review_statuses': [item['value'] for item in values['review_statuses']],
+    }
+
+
 @portal_auth_required
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
 @require_http_methods(["GET", "POST"])
@@ -1167,43 +1220,10 @@ def portal_settings(request):
         return JsonResponse({'ok': False, 'error': 'Your Portal staff account could not be resolved.'}, status=403)
     from core.services.miniapp_settings import preference_payload, update_preference
 
-    def setting_options():
-        """Return only defaults and operations the active staff member may use."""
-        from core.services.branches import global_branch_choices
-        from core.services.portal_navigation import get_portal_nav_items
-        from core.services.workflow_capabilities import has_capability
-
-        access = getattr(request, 'portal_access', None)
-        screens = [
-            item for item in get_portal_nav_items(actor, access=access)
-            if item['key'] != 'settings'
-        ]
-        staff_branches = {
-            str(value).strip().casefold()
-            for value in (access or {}).get('branches', [])
-            if str(value).strip()
-        }
-        branches = global_branch_choices()
-        if staff_branches:
-            branches = [branch for branch in branches if branch.casefold() in staff_branches]
-        return {
-            'screens': screens,
-            'queues': [item for item in screens if item['key'] in PORTAL_QUEUE_FRAGMENT_CONFIG],
-            'branches': branches,
-            'review_statuses': [
-                {'value': 'decision', 'label': 'Final decisions'},
-                {'value': 'payment', 'label': 'Payment batches awaiting review'},
-            ],
-            'operations': {
-                'health': has_capability(actor, 'jawabu_portal', 'portal.health.read', access=access),
-                'delegation': has_capability(actor, 'jawabu_portal', 'portal.approval.delegation.authorize', access=access),
-            },
-        }
-
     if request.method == 'GET':
         return JsonResponse({'ok': True, 'data': {
             'personal': preference_payload(actor, 'jawabu_portal'),
-            **setting_options(),
+            **_portal_setting_options(request, actor),
         }})
     try:
         payload = json.loads(request.body.decode('utf-8') or '{}')
@@ -1215,7 +1235,7 @@ def portal_settings(request):
         preferences = payload.get('preferences') or {}
         if not isinstance(preferences, dict):
             raise ValueError('Preferences must be a JSON object.')
-        options = setting_options()
+        options = _portal_setting_options(request, actor)
         allowed_screens = {item['key'] for item in options['screens']}
         allowed_queues = {item['key'] for item in options['queues']}
         allowed_branches = {str(value).strip().casefold(): str(value).strip() for value in options['branches']}
@@ -1411,6 +1431,222 @@ def portal_approval_delegation_revoke(request, delegation_id: str):
     return JsonResponse({'ok': True, 'data': _portal_delegation_payload(delegation)})
 
 
+def _portal_workspace_payload(request, actor, *, include_summary: bool = False) -> dict:
+    """Project private workspace metadata through the user's live Portal scope."""
+    from core.models import JawabuFarmerMaster, PortalCaseWorkspace
+    from core.services.portal_workspace import workspace_payload
+
+    accessible = _apply_county_branch_filters(JawabuFarmerMaster.objects.all(), request)
+    # Only workspace rows need availability resolution. Do not materialize every
+    # case ID just to render a staff member's private shortcuts.
+    workspace_farmer_ids = PortalCaseWorkspace.objects.filter(user=actor).values('farmer_id')
+    accessible_ids = accessible.filter(pk__in=workspace_farmer_ids).values_list('pk', flat=True)
+    options = _portal_workspace_options(request, actor)
+    payload = workspace_payload(
+        user=actor, accessible_farmer_ids=accessible_ids, options=options,
+    )
+    if include_summary:
+        from core.services.workflow_sla import jawabu_sla_candidates
+
+        startup = payload.get('startup_view')
+        queue_key = str((startup or {}).get('queue') or (startup or {}).get('screen') or '')
+        default_count = None
+        if queue_key in PORTAL_QUEUE_FRAGMENT_CONFIG:
+            params = request.GET.copy()
+            filters = (startup or {}).get('filters') or {}
+            if filters.get('branch'):
+                params['branch'] = str(filters['branch'])
+            if filters.get('status'):
+                params['stage'] = str(filters['status'])
+            queryset, _config = _portal_queue_queryset(queue_key, request, params=params)
+            default_count = queryset.count() if queryset is not None else None
+        overdue = jawabu_sla_candidates(queryset=accessible.filter(status='active'))
+        payload['summary'].update({
+            'default_view_label': (startup or {}).get('name') or 'Portal default',
+            'default_view_count': default_count,
+            'overdue_count': len(overdue),
+        })
+    return payload
+
+
+def _portal_workspace_json_body(request):
+    try:
+        payload = json.loads(request.body.decode('utf-8') or '{}')
+    except (UnicodeDecodeError, ValueError):
+        return None, JsonResponse({'ok': False, 'error': 'Workspace request must be valid JSON.'}, status=400)
+    if not isinstance(payload, dict):
+        return None, JsonResponse({'ok': False, 'error': 'Workspace request must be a JSON object.'}, status=400)
+    return payload, None
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["GET"])
+def portal_workspace(request):
+    """Return the current user's private, live-authorized Portal workspace."""
+    actor = getattr(request, 'portal_user', None)
+    if actor is None:
+        return JsonResponse({'ok': False, 'error': 'Your Portal staff account could not be resolved.'}, status=403)
+    include_summary = str(request.GET.get('summary') or '').strip().casefold() in {'1', 'true', 'yes'}
+    return JsonResponse({
+        'ok': True,
+        'data': _portal_workspace_payload(request, actor, include_summary=include_summary),
+    })
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["POST"])
+def portal_workspace_views(request):
+    """Create one user-owned Portal view from the currently visible context."""
+    actor = getattr(request, 'portal_user', None)
+    payload, error_response = _portal_workspace_json_body(request)
+    if error_response:
+        return error_response
+    from core.services.portal_workspace import PortalWorkspaceError, create_saved_view, serialize_saved_view
+
+    try:
+        view = create_saved_view(
+            user=actor, payload=payload, options=_portal_workspace_options(request, actor),
+        )
+    except PortalWorkspaceError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({
+        'ok': True,
+        'data': serialize_saved_view(view, options=_portal_workspace_options(request, actor)),
+    }, status=201)
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["PATCH", "DELETE"])
+def portal_workspace_view_detail(request, view_id: str):
+    """Edit or remove one private saved view; never alter another staff member's view."""
+    actor = getattr(request, 'portal_user', None)
+    from core.services.portal_workspace import (
+        PortalWorkspaceError, delete_saved_view, rename_saved_view, serialize_saved_view,
+        update_saved_view,
+    )
+
+    if request.method == 'DELETE':
+        try:
+            delete_saved_view(user=actor, view_id=view_id)
+        except PortalWorkspaceError as exc:
+            return JsonResponse({'ok': False, 'error': str(exc)}, status=404)
+        return JsonResponse({'ok': True})
+    payload, error_response = _portal_workspace_json_body(request)
+    if error_response:
+        return error_response
+    try:
+        view = (
+            update_saved_view(
+                user=actor, view_id=view_id, payload=payload,
+                options=_portal_workspace_options(request, actor),
+            )
+            if {'screen', 'queue', 'filters', 'ordering'}.intersection(payload)
+            else rename_saved_view(user=actor, view_id=view_id, name=payload.get('name'))
+        )
+    except PortalWorkspaceError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({
+        'ok': True,
+        'data': serialize_saved_view(view, options=_portal_workspace_options(request, actor)),
+    })
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["POST"])
+def portal_workspace_view_activate(request, view_id: str):
+    """Validate and return one saved view before client-side navigation applies it."""
+    actor = getattr(request, 'portal_user', None)
+    from core.services.portal_workspace import PortalWorkspaceError, activate_saved_view, serialize_saved_view
+
+    try:
+        view = activate_saved_view(user=actor, view_id=view_id, options=_portal_workspace_options(request, actor))
+    except PortalWorkspaceError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({
+        'ok': True,
+        'data': serialize_saved_view(view, options=_portal_workspace_options(request, actor)),
+    })
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["POST"])
+def portal_workspace_view_startup(request, view_id: str):
+    """Set one currently valid private view as the user's Portal startup context."""
+    actor = getattr(request, 'portal_user', None)
+    from core.services.portal_workspace import PortalWorkspaceError, serialize_saved_view, set_startup_view
+
+    try:
+        view = set_startup_view(user=actor, view_id=view_id, options=_portal_workspace_options(request, actor))
+    except PortalWorkspaceError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({
+        'ok': True,
+        'data': serialize_saved_view(view, options=_portal_workspace_options(request, actor)),
+    })
+
+
+def _portal_workspace_farmer(request, farmer_id: str):
+    from core.models import JawabuFarmerMaster
+
+    farmer = JawabuFarmerMaster.objects.filter(pk=farmer_id).first()
+    if farmer is None:
+        return None, JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
+    access_error = _portal_read_access_error(request, farmer)
+    if access_error:
+        return None, access_error
+    return farmer, None
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["POST"])
+def portal_workspace_case_pin(request, farmer_id: str):
+    """Pin one currently accessible case in the authenticated user's workspace."""
+    farmer, error_response = _portal_workspace_farmer(request, farmer_id)
+    if error_response:
+        return error_response
+    from core.services.portal_workspace import PortalWorkspaceError, pin_case
+
+    try:
+        item = pin_case(user=request.portal_user, farmer=farmer)
+    except PortalWorkspaceError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({'ok': True, 'data': {'farmer_id': str(item.farmer_id), 'pinned': item.pinned}})
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["POST"])
+def portal_workspace_case_unpin(request, farmer_id: str):
+    """Remove one private pin while retaining any in-window recent activity."""
+    farmer, error_response = _portal_workspace_farmer(request, farmer_id)
+    if error_response:
+        return error_response
+    from core.services.portal_workspace import PortalWorkspaceError, unpin_case
+
+    try:
+        item = unpin_case(user=request.portal_user, farmer=farmer)
+    except PortalWorkspaceError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({'ok': True, 'data': {'farmer_id': str(item.farmer_id), 'pinned': item.pinned}})
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["POST"])
+def portal_workspace_recents_clear(request):
+    """Hide current recents without deleting their short investigation-retention window."""
+    from core.services.portal_workspace import dismiss_recent_cases
+
+    count = dismiss_recent_cases(user=request.portal_user)
+    return JsonResponse({'ok': True, 'data': {'dismissed_count': count}})
+
+
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
 @csrf_exempt
@@ -1479,7 +1715,10 @@ def portal_jbl_queue(request):
         return access_error
     """GET /api/portal/jbl-queue/ — farmers awaiting JBL visit."""
     from core.services.jawabu_pipeline import jbl_visit_queue, farmer_to_card
-    qs = _apply_county_branch_filters(jbl_visit_queue(request.GET.get('search', '')), request)
+    qs = _apply_portal_ordering(
+        _apply_county_branch_filters(jbl_visit_queue(request.GET.get('search', '')), request),
+        params=request.GET,
+    )
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
@@ -1903,7 +2142,7 @@ def portal_credit_queue(request):
         return access_error
     """GET /api/portal/credit-queue/ — farmers awaiting credit analysis."""
     from core.services.jawabu_pipeline import credit_queue, farmer_to_card
-    qs = _apply_county_branch_filters(credit_queue(), request)
+    qs = _apply_portal_ordering(_apply_county_branch_filters(credit_queue(), request), params=request.GET)
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
@@ -1997,11 +2236,12 @@ def portal_final_review_queue(request):
     review_map = {}
     if stage == 'requisition':
         from core.services.jawabu_pipeline import requisition_queue
-        qs = _apply_county_branch_filters(requisition_queue(), request)
+        qs = _apply_portal_ordering(_apply_county_branch_filters(requisition_queue(), request), params=request.GET)
     elif stage == 'payment':
         qs, review_map = _payment_review_queryset(request)
     else:
-        qs = _apply_county_branch_filters(final_review_queue(), request)
+        qs = _apply_portal_ordering(_apply_county_branch_filters(final_review_queue(), request), params=request.GET)
+    qs = _apply_portal_ordering(qs, params=request.GET)
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
@@ -2140,7 +2380,7 @@ def portal_requisition_queue(request):
         return access_error
     """GET /api/portal/requisition-queue/ — credit-approved farmers awaiting order."""
     from core.services.jawabu_pipeline import requisition_queue, farmer_to_card
-    qs = _apply_county_branch_filters(requisition_queue(), request)
+    qs = _apply_portal_ordering(_apply_county_branch_filters(requisition_queue(), request), params=request.GET)
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
@@ -2255,7 +2495,7 @@ def portal_all_cases(request):
     county = request.GET.get('county', '').strip()
     branch = request.GET.get('branch', '').strip()
     qs = all_cases(search=search, county=county, branch=branch)
-    qs = _apply_county_branch_filters(qs, request)
+    qs = _apply_portal_ordering(_apply_county_branch_filters(qs, request), params=request.GET)
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
@@ -2272,7 +2512,10 @@ def portal_deferred(request):
         return access_error
     """GET /api/portal/deferred/ — deferred/rejected/flagged farmers."""
     from core.services.jawabu_pipeline import deferred_queue, reappraisal_required_queue, farmer_to_card
-    qs = _apply_county_branch_filters((deferred_queue() | reappraisal_required_queue()).distinct(), request)
+    qs = _apply_portal_ordering(
+        _apply_county_branch_filters((deferred_queue() | reappraisal_required_queue()).distinct(), request),
+        params=request.GET,
+    )
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
@@ -2297,6 +2540,15 @@ def portal_farmer_detail(request, farmer_id: str):
     access_error = _portal_read_access_error(request, farmer)
     if access_error:
         return access_error
+    actor = getattr(request, 'portal_user', None)
+    open_key = str(request.headers.get('X-Portal-Workspace-Open-Key') or '').strip()
+    if actor is not None and open_key:
+        from core.services.portal_workspace import PortalWorkspaceError, record_case_open
+
+        try:
+            record_case_open(user=actor, farmer=farmer, open_key=open_key)
+        except PortalWorkspaceError as exc:
+            return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     from core.services.jawabu_case360 import serialize_case360
     card = farmer_to_card(farmer)
     identity_filters = None

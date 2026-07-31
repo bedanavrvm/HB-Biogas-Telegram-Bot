@@ -13,6 +13,26 @@ preserving the existing allow/deny policy. To undo after a controlled release, r
 the reverse migration stops if a legacy-role collision would make rollback
 ambiguous.
 
+## Portal workspace migration and retention
+
+`core.0089_portalcaseworkspace_portalsavedview` is pending explicit production
+approval. It adds only private, user-owned saved-view and case-workspace
+metadata; it never changes Jawabu cases, workflow state, financial values, or
+audit evidence. Django live scope checks hide inaccessible/closed pins
+immediately. Until an authorised scheduler is configured, an operator may run
+the read-only preview `python manage.py prune_portal_workspace`, then the
+explicitly approved `python manage.py prune_portal_workspace --apply` on the
+agreed daily cadence to release pins unavailable for 30 days and remove
+un-pinned recent metadata older than 90 days. To undo after an approved
+release, run:
+
+```powershell
+python manage.py migrate core 0088_business_admin_role_cutover
+```
+
+The reverse migration drops only the two private workspace tables; it does not
+alter case, workflow, financial, or audit tables.
+
 ## TAT Settings migration
 
 `core.0085_tattrackercase_stage_target_snapshots_and_more`,

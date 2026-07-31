@@ -39,6 +39,8 @@
     personalPreference: null,
     portalSettings: null,
     portalDelegationOptions: null,
+    workspace: null,
+    workspaceOrdering: 'queue_default',
     capabilities: new Set(),
     accessPolicyVersion: null,
     selectedFarmer: null,
@@ -331,6 +333,7 @@
     loading.style.display = 'none';
     state.counts = data.counts || {};
     renderDashboard();
+    try { await loadPortalWorkspace({ includeSummary: true }); } catch (_) { /* Workspace shortcuts are non-critical to queue work. */ }
   }
 
   function renderDashboard() {
@@ -534,13 +537,7 @@
         updateBatchPanel();
       });
       card.addEventListener('click', async () => {
-        const id = card.dataset.farmerId;
-        const { ok, data } = await apiFetch('/farmers/' + encodeURIComponent(id) + '/');
-        if (!ok || !data.ok) {
-          showToast(data.error || 'Could not load farmer details.', 'error');
-          return;
-        }
-        openFarmerSheet(data.farmer, card.dataset.mode || null);
+        await openCurrentFarmerSheet({ id: card.dataset.farmerId }, card.dataset.mode || null);
       });
     });
     root.querySelectorAll('.btn-open-payment-review').forEach(button => {
@@ -874,6 +871,7 @@
   function openFarmerSheet(farmer, mode) {
     if (portalFarmerSheet.openFarmerSheet) {
       portalFarmerSheet.openFarmerSheet(farmer, mode);
+      appendWorkspacePinControl(farmer);
     }
   }
 
@@ -883,7 +881,9 @@
   async function openCurrentFarmerSheet(farmer, mode) {
     if (!farmer || !farmer.id) return;
     try {
-      const { ok, data } = await apiFetch('/farmers/' + encodeURIComponent(farmer.id) + '/');
+      const { ok, data } = await apiFetch('/farmers/' + encodeURIComponent(farmer.id) + '/', {
+        headers: { 'X-Portal-Workspace-Open-Key': newWorkspaceOpenKey() },
+      });
       if (!ok || !data || !data.ok || !data.farmer) {
         showToast((data && data.error) || 'Could not load current farmer details.', 'error');
         return;
@@ -1075,7 +1075,9 @@
     selected.hidden = false;
     if (pushUrl) window.history.pushState({ screen: 'case_history', farmerId }, '', caseHistoryUrl(farmerId));
     content.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading complete case history...</div></div>';
-    const { ok, data } = await apiFetch('/farmers/' + encodeURIComponent(farmerId) + '/');
+    const { ok, data } = await apiFetch('/farmers/' + encodeURIComponent(farmerId) + '/', {
+      headers: { 'X-Portal-Workspace-Open-Key': newWorkspaceOpenKey() },
+    });
     if (!ok || !data?.ok) {
       content.innerHTML = `<div class="batch-warning">${escapeHtml(data?.error || 'Could not load case history.')}</div>`;
       return;
@@ -1288,27 +1290,177 @@
     if (loadOperations) await renderPortalOperations(data.data?.operations || {});
     return personal;
   }
+
+  function newWorkspaceOpenKey() {
+    if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+    return 'portal-open-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+  }
+
+  function workspaceCaseMarkup(item, { pinAction = false } = {}) {
+    const meta = [item.branch, String(item.workflow_state || '').replace(/_/g, ' ')].filter(Boolean).join(' · ');
+    const action = pinAction
+      ? '<button type="button" class="workspace-toggle-pin" data-farmer-id="' + escapeHtml(item.farmer_id) + '">Unpin</button>'
+      : '<button type="button" class="workspace-toggle-pin workspace-primary" data-farmer-id="' + escapeHtml(item.farmer_id) + '">Pin</button>';
+    return '<article class="portal-workspace-item"><button type="button" class="portal-workspace-item-main workspace-open-case" data-farmer-id="' + escapeHtml(item.farmer_id) + '"><strong>' + escapeHtml(item.customer_name || 'Unnamed customer') + '</strong><span>' + escapeHtml(meta || 'Open case') + '</span></button><div class="portal-workspace-item-actions">' + action + '</div></article>';
+  }
+
+  function workspaceSelectOptions(items, selected, blankLabel) {
+    const rows = blankLabel ? [{ key: '', label: blankLabel }, ...(items || [])] : (items || []);
+    return rows.map(item => {
+      const key = String(item?.key ?? item?.value ?? item ?? '');
+      const label = String(item?.label ?? item ?? key);
+      return '<option value="' + escapeHtml(key) + '"' + (key === String(selected || '') ? ' selected' : '') + '>' + escapeHtml(label) + '</option>';
+    }).join('');
+  }
+
+  function workspaceEditFormMarkup(view) {
+    const settings = state.portalSettings || {};
+    const filters = view.filters || {};
+    return '<form class="portal-workspace-edit-form" data-view-id="' + escapeHtml(view.id) + '" hidden>'
+      + '<label>View name<input name="name" maxlength="60" required value="' + escapeHtml(view.name) + '"></label>'
+      + '<label>Screen<select name="screen">' + workspaceSelectOptions(settings.screens || [], view.screen) + '</select></label>'
+      + '<label>Queue<select name="queue">' + workspaceSelectOptions(settings.queues || [], view.queue, 'Use screen') + '</select></label>'
+      + '<label>Branch<select name="branch">' + workspaceSelectOptions(settings.branches || [], filters.branch, 'All permitted branches') + '</select></label>'
+      + '<label>Review list<select name="status">' + workspaceSelectOptions(settings.review_statuses || [], filters.status, 'Not a review list') + '</select></label>'
+      + '<label>Order<select name="ordering">' + workspaceSelectOptions([{ key: 'queue_default', label: 'Queue default' }, { key: 'newest', label: 'Newest first' }], view.ordering) + '</select></label>'
+      + '<div class="portal-workspace-edit-actions"><button type="submit" class="workspace-primary">Save view</button><button type="button" class="workspace-cancel-edit">Cancel</button></div>'
+      + '</form>';
+  }
+
+  function workspaceViewMarkup(view, { settings = false } = {}) {
+    const destination = view.queue || view.screen || 'Portal';
+    const stateLabel = view.available ? destination.replace(/_/g, ' ') : 'Unavailable';
+    const notice = view.available ? '' : '<span>' + escapeHtml(view.unavailable_reason || 'This view is no longer available to your Portal access.') + '</span>';
+    let actions = '';
+    if (settings) {
+      actions = '<button type="button" class="workspace-open-view workspace-primary" data-view-id="' + escapeHtml(view.id) + '"' + (view.available ? '' : ' disabled') + '>Open</button>'
+        + '<button type="button" class="workspace-set-startup" data-view-id="' + escapeHtml(view.id) + '"' + (view.available || view.is_startup ? '' : ' disabled') + '>' + (view.is_startup ? 'Startup' : 'Set startup') + '</button>'
+        + '<button type="button" class="workspace-edit-view" data-view-id="' + escapeHtml(view.id) + '">Edit</button>'
+        + '<button type="button" class="workspace-delete-view" data-view-id="' + escapeHtml(view.id) + '">Delete</button>';
+    } else if (view.available) {
+      actions = '<button type="button" class="workspace-open-view workspace-primary" data-view-id="' + escapeHtml(view.id) + '">Open</button>';
+    }
+    return '<article class="portal-workspace-item' + (view.available ? '' : ' is-unavailable') + '"><div class="portal-workspace-item-main"><strong>' + escapeHtml(view.name) + (view.is_startup ? ' · Startup' : '') + '</strong><span>' + escapeHtml(stateLabel) + ' · ' + escapeHtml(view.ordering === 'newest' ? 'Newest first' : 'Queue default') + '</span>' + notice + '</div><div class="portal-workspace-item-actions">' + actions + '</div>' + (settings ? workspaceEditFormMarkup(view) : '') + '</article>';
+  }
+
+  function renderPortalWorkspace() {
+    const workspace = state.workspace;
+    if (!workspace) return;
+    const dashboard = el('portal-workspace-dashboard');
+    const summary = workspace.summary || {};
+    if (dashboard) {
+      dashboard.hidden = false;
+      const defaultCount = summary.default_view_count == null ? '—' : String(summary.default_view_count);
+      const summaryTarget = el('portal-workspace-summary');
+      if (summaryTarget) {
+        summaryTarget.innerHTML = [
+          [defaultCount, summary.default_view_label || 'Portal default'],
+          [String(summary.overdue_count || 0), 'Overdue visible'],
+          [String(summary.pinned_count || 0), 'Pinned cases'],
+          [String(summary.recent_count || 0), 'Recent cases'],
+        ].map(item => '<div class="portal-workspace-summary-item"><strong>' + escapeHtml(item[0]) + '</strong><span>' + escapeHtml(item[1]) + '</span></div>').join('');
+      }
+      const pins = workspace.pinned || [];
+      const recents = workspace.recent || [];
+      const pinTarget = el('portal-workspace-pins');
+      const recentTarget = el('portal-workspace-recents');
+      const viewTarget = el('portal-workspace-dashboard-views');
+      if (pinTarget) pinTarget.innerHTML = pins.length ? pins.map(item => workspaceCaseMarkup(item, { pinAction: true })).join('') : '<p class="portal-workspace-empty">Pin an open case to keep it here.</p>';
+      if (recentTarget) recentTarget.innerHTML = recents.length ? recents.map(item => workspaceCaseMarkup(item)).join('') : '<p class="portal-workspace-empty">Recently opened cases appear here.</p>';
+      if (viewTarget) {
+        const availableViews = (workspace.views || []).filter(view => view.available).slice(0, 3);
+        viewTarget.innerHTML = availableViews.length ? availableViews.map(view => workspaceViewMarkup(view)).join('') : '';
+      }
+    }
+    const settingsTarget = el('portal-workspace-saved-views');
+    if (settingsTarget) {
+      const views = workspace.views || [];
+      settingsTarget.innerHTML = views.length ? views.map(view => workspaceViewMarkup(view, { settings: true })).join('') : '<p class="portal-workspace-empty">No saved views yet. Open a queue, choose your filters, then save it here.</p>';
+    }
+    if (el('portal-workspace-view-order')) el('portal-workspace-view-order').value = state.workspaceOrdering || 'queue_default';
+  }
+
+  async function loadPortalWorkspace({ includeSummary = false } = {}) {
+    const { ok, data } = await apiFetch(includeSummary ? '/workspace/?summary=1' : '/workspace/');
+    if (!ok || !data?.ok) throw new Error(data?.error || 'Workspace could not be loaded.');
+    state.workspace = data.data || {};
+    renderPortalWorkspace();
+    return state.workspace;
+  }
+
+  function applyWorkspaceView(view) {
+    if (!view?.available) {
+      showToast(view?.unavailable_reason || 'This saved view is unavailable.', 'error');
+      return;
+    }
+    state.workspaceOrdering = view.ordering === 'newest' ? 'newest' : 'queue_default';
+    state.filters.branch = String(view.filters?.branch || '');
+    state.filters.reviewStage = String(view.filters?.status || 'decision');
+    const destination = String(view.queue || view.screen || '');
+    if (!destination || !hasCapability(PAGE_CAPABILITIES[destination])) {
+      showToast('This saved view is no longer available to your Portal access.', 'error');
+      return;
+    }
+    if (el('final-review-stage')) el('final-review-stage').value = state.filters.reviewStage;
+    lastShellScreen = destination;
+    switchPage(destination);
+    rememberPortalUi();
+    loadPage(destination);
+  }
+
+  function currentWorkspaceViewPayload() {
+    const queue = queueConfig[state.activePage] ? state.activePage : '';
+    return {
+      name: el('portal-workspace-view-name')?.value || '',
+      screen: state.activePage || 'dashboard',
+      queue,
+      filters: {
+        branch: state.filters.branch || '',
+        status: state.activePage === 'final' ? state.filters.reviewStage || 'decision' : '',
+      },
+      ordering: el('portal-workspace-view-order')?.value || state.workspaceOrdering || 'queue_default',
+    };
+  }
+
+  function appendWorkspacePinControl(farmer) {
+    const footer = el('sheet-footer');
+    if (!footer || !farmer?.id) return;
+    footer.querySelector('.workspace-toggle-pin')?.remove();
+    const pinned = Boolean((state.workspace?.pinned || []).some(item => String(item.farmer_id) === String(farmer.id)));
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'secondary workspace-toggle-pin';
+    button.dataset.farmerId = farmer.id;
+    button.textContent = pinned ? 'Unpin case' : 'Pin case';
+    footer.prepend(button);
+  }
   // Bootstrap
   async function init() {
     configureHtmx();
     await loadMeta();
     try { await loadPortalSettings(); } catch (_) { /* Settings are non-critical to opening the workflow. */ }
+    try { await loadPortalWorkspace(); } catch (_) { /* Workspace is optional convenience data. */ }
     window.setInterval(loadMeta, 60000);
     const shellScreen = document.getElementById('portal-screen')?.dataset.screen || 'dashboard';
     const isRootLanding = /\/portal\/?$/.test(window.location.pathname);
     const savedFilters = state.personalPreference?.default_filters || {};
+    const startupView = isRootLanding ? state.workspace?.startup_view : null;
     const hasRestoredBranch = Object.prototype.hasOwnProperty.call(restoredPortalUi, 'branch');
     const hasRestoredReviewStage = Object.prototype.hasOwnProperty.call(restoredPortalUi, 'reviewStage');
-    if (isRootLanding && !hasRestoredBranch && savedFilters.branch) state.filters.branch = savedFilters.branch;
-    if (isRootLanding && !hasRestoredReviewStage && ['decision', 'payment'].includes(savedFilters.status)) {
-      state.filters.reviewStage = savedFilters.status;
+    const workspaceFilters = startupView?.filters || {};
+    if (startupView) state.workspaceOrdering = startupView.ordering === 'newest' ? 'newest' : 'queue_default';
+    if (isRootLanding && !hasRestoredBranch && (workspaceFilters.branch || savedFilters.branch)) {
+      state.filters.branch = workspaceFilters.branch || savedFilters.branch;
+    }
+    if (isRootLanding && !hasRestoredReviewStage && ['decision', 'payment'].includes(workspaceFilters.status || savedFilters.status)) {
+      state.filters.reviewStage = workspaceFilters.status || savedFilters.status;
     }
     if (el('final-review-stage')) el('final-review-stage').value = state.filters.reviewStage;
-    const savedQueue = isRootLanding ? String(savedFilters.queue || '') : '';
+    const savedQueue = isRootLanding ? String(startupView?.queue || savedFilters.queue || '') : '';
     const requestedPage = savedQueue && hasCapability(PAGE_CAPABILITIES[savedQueue])
       ? savedQueue
-      : (isRootLanding && state.personalPreference?.default_screen
-        ? state.personalPreference.default_screen
+      : (isRootLanding && (startupView?.screen || state.personalPreference?.default_screen)
+        ? (startupView?.screen || state.personalPreference.default_screen)
         : (shellScreen === 'dashboard' && restoredPortalUi.activePage ? restoredPortalUi.activePage : shellScreen));
     const initialPage = hasCapability(PAGE_CAPABILITIES[requestedPage]) ? requestedPage : firstPermittedPage();
     if (!initialPage) {
@@ -1330,6 +1482,117 @@
   }
 
   document.addEventListener('click', event => {
+    const manageWorkspaceButton = event.target.closest('.workspace-manage');
+    if (manageWorkspaceButton) {
+      event.preventDefault();
+      switchPage('settings');
+      loadPortalSettings(true).then(() => loadPortalWorkspace()).catch(error => showToast(error.message || 'Could not open workspace settings.', 'error'));
+      return;
+    }
+    const clearRecentsButton = event.target.closest('.workspace-clear-recents');
+    if (clearRecentsButton) {
+      event.preventDefault();
+      setButtonLoading(clearRecentsButton, true, 'Clearing');
+      portalApi.postJson('/workspace/recents/clear/', {}, tg)
+        .then(result => {
+          if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not clear recently opened cases.');
+          return loadPortalWorkspace();
+        })
+        .then(() => showToast('Recently opened cases were cleared from this workspace.', 'success'))
+        .catch(error => showToast(error.message || 'Could not clear recently opened cases.', 'error'))
+        .finally(() => setButtonLoading(clearRecentsButton, false));
+      return;
+    }
+    const openWorkspaceCaseButton = event.target.closest('.workspace-open-case');
+    if (openWorkspaceCaseButton) {
+      event.preventDefault();
+      openCurrentFarmerSheet({ id: openWorkspaceCaseButton.dataset.farmerId }, null);
+      return;
+    }
+    const pinWorkspaceCaseButton = event.target.closest('.workspace-toggle-pin');
+    if (pinWorkspaceCaseButton) {
+      event.preventDefault();
+      const farmerId = pinWorkspaceCaseButton.dataset.farmerId || '';
+      const currentlyPinned = Boolean((state.workspace?.pinned || []).some(item => String(item.farmer_id) === String(farmerId)));
+      setButtonLoading(pinWorkspaceCaseButton, true, currentlyPinned ? 'Unpinning' : 'Pinning');
+      portalApi.postJson(`/workspace/cases/${encodeURIComponent(farmerId)}/${currentlyPinned ? 'unpin' : 'pin'}/`, {}, tg)
+        .then(result => {
+          if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not update the case pin.');
+          return loadPortalWorkspace();
+        })
+        .then(() => {
+          pinWorkspaceCaseButton.textContent = currentlyPinned ? 'Pin case' : 'Unpin case';
+          showToast(currentlyPinned ? 'Case unpinned.' : 'Case pinned.', 'success');
+        })
+        .catch(error => showToast(error.message || 'Could not update the case pin.', 'error'))
+        .finally(() => setButtonLoading(pinWorkspaceCaseButton, false));
+      return;
+    }
+    const openWorkspaceViewButton = event.target.closest('.workspace-open-view');
+    if (openWorkspaceViewButton) {
+      event.preventDefault();
+      setButtonLoading(openWorkspaceViewButton, true, 'Opening');
+      portalApi.postJson(`/workspace/views/${encodeURIComponent(openWorkspaceViewButton.dataset.viewId || '')}/activate/`, {}, tg)
+        .then(result => {
+          if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not open this saved view.');
+          applyWorkspaceView(result.data.data);
+          return loadPortalWorkspace();
+        })
+        .catch(error => showToast(error.message || 'Could not open this saved view.', 'error'))
+        .finally(() => setButtonLoading(openWorkspaceViewButton, false));
+      return;
+    }
+    const startupWorkspaceViewButton = event.target.closest('.workspace-set-startup');
+    if (startupWorkspaceViewButton) {
+      event.preventDefault();
+      setButtonLoading(startupWorkspaceViewButton, true, 'Saving');
+      portalApi.postJson(`/workspace/views/${encodeURIComponent(startupWorkspaceViewButton.dataset.viewId || '')}/startup/`, {}, tg)
+        .then(result => {
+          if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not set the startup view.');
+          return loadPortalWorkspace();
+        })
+        .then(() => showToast('Portal startup view updated.', 'success'))
+        .catch(error => showToast(error.message || 'Could not set the startup view.', 'error'))
+        .finally(() => setButtonLoading(startupWorkspaceViewButton, false));
+      return;
+    }
+    const editWorkspaceViewButton = event.target.closest('.workspace-edit-view');
+    if (editWorkspaceViewButton) {
+      event.preventDefault();
+      const card = editWorkspaceViewButton.closest('.portal-workspace-item');
+      const form = card?.querySelector('.portal-workspace-edit-form');
+      if (!form) return;
+      document.querySelectorAll('.portal-workspace-edit-form').forEach(other => {
+        if (other !== form) other.hidden = true;
+      });
+      form.hidden = !form.hidden;
+      editWorkspaceViewButton.textContent = form.hidden ? 'Edit' : 'Close edit';
+      return;
+    }
+    const cancelWorkspaceEditButton = event.target.closest('.workspace-cancel-edit');
+    if (cancelWorkspaceEditButton) {
+      event.preventDefault();
+      const form = cancelWorkspaceEditButton.closest('.portal-workspace-edit-form');
+      if (form) form.hidden = true;
+      const card = cancelWorkspaceEditButton.closest('.portal-workspace-item');
+      const editButton = card?.querySelector('.workspace-edit-view');
+      if (editButton) editButton.textContent = 'Edit';
+      return;
+    }
+    const deleteWorkspaceViewButton = event.target.closest('.workspace-delete-view');
+    if (deleteWorkspaceViewButton) {
+      event.preventDefault();
+      if (!window.confirm('Delete this personal saved view?')) return;
+      setButtonLoading(deleteWorkspaceViewButton, true, 'Deleting');
+      apiFetch(`/workspace/views/${encodeURIComponent(deleteWorkspaceViewButton.dataset.viewId || '')}/`, { method: 'DELETE' })
+        .then(result => {
+          if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not delete this saved view.');
+          return loadPortalWorkspace();
+        }).then(() => showToast('Saved view deleted.', 'success'))
+        .catch(error => showToast(error.message || 'Could not delete this saved view.', 'error'))
+        .finally(() => setButtonLoading(deleteWorkspaceViewButton, false));
+      return;
+    }
     const openCaseHistoryButton = event.target.closest('.case-history-open');
     if (openCaseHistoryButton) {
       event.preventDefault();
@@ -1481,6 +1744,46 @@
   });
 
   document.addEventListener('submit', event => {
+    if (event.target.matches('.portal-workspace-edit-form')) {
+      event.preventDefault();
+      const form = event.target;
+      const button = form.querySelector('button[type="submit"]');
+      const payload = {
+        name: form.elements.name?.value || '',
+        screen: form.elements.screen?.value || '',
+        queue: form.elements.queue?.value || '',
+        filters: {
+          branch: form.elements.branch?.value || '',
+          status: form.elements.status?.value || '',
+        },
+        ordering: form.elements.ordering?.value || 'queue_default',
+      };
+      setButtonLoading(button, true, 'Saving');
+      apiFetch(`/workspace/views/${encodeURIComponent(form.dataset.viewId || '')}/`, {
+        method: 'PATCH', body: JSON.stringify(payload),
+      }).then(result => {
+        if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not update this saved view.');
+        return loadPortalWorkspace();
+      }).then(() => showToast('Saved view updated.', 'success'))
+        .catch(error => showToast(error.message || 'Could not update this saved view.', 'error'))
+        .finally(() => setButtonLoading(button, false));
+      return;
+    }
+    if (event.target.matches('#portal-workspace-save-view-form')) {
+      event.preventDefault();
+      const button = el('portal-workspace-save-view');
+      const payload = currentWorkspaceViewPayload();
+      setButtonLoading(button, true, 'Saving');
+      portalApi.postJson('/workspace/views/', payload, tg).then(result => {
+        if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not save this Portal view.');
+        if (el('portal-workspace-view-name')) el('portal-workspace-view-name').value = '';
+        state.workspaceOrdering = payload.ordering === 'newest' ? 'newest' : 'queue_default';
+        return loadPortalWorkspace();
+      }).then(() => showToast('Personal Portal view saved.', 'success'))
+        .catch(error => showToast(error.message || 'Could not save this Portal view.', 'error'))
+        .finally(() => setButtonLoading(button, false));
+      return;
+    }
     if (event.target.matches('#portal-personal-settings-form')) {
       event.preventDefault();
       const button = el('portal-save-personal-settings');

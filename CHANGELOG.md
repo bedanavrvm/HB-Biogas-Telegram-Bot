@@ -35,6 +35,11 @@
   branch lens, review list, compact-card preference, and non-critical alert
   intent. Business Admins additionally see safe document readiness and can
   issue or revoke audited, branch-scoped approval delegation for up to 14 days.
+- Portal now has a private workspace: staff can save up to ten validated queue
+  views, pin active cases, and return to their ten most recently opened cases.
+  Saved views never bypass the holder's current scope; inaccessible or closed
+  pins hide immediately, and convenience records are retained only for the
+  documented bounded period.
 
 ## Reliability hardening - 30-July-2026
 

@@ -1834,6 +1834,80 @@ class UserMiniAppPreference(models.Model):
         ordering = ['workflow', 'user_id']
 
 
+class PortalSavedView(models.Model):
+    """A private, validated Portal workspace view; never a workflow assignment."""
+
+    ORDER_QUEUE_DEFAULT = 'queue_default'
+    ORDER_NEWEST = 'newest'
+    ORDERING_CHOICES = [
+        (ORDER_QUEUE_DEFAULT, 'Queue default'),
+        (ORDER_NEWEST, 'Newest first'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='portal_saved_views',
+    )
+    name = models.CharField(max_length=60)
+    screen = models.CharField(max_length=80)
+    queue = models.CharField(max_length=80, blank=True, default='')
+    filters = models.JSONField(blank=True, default=dict)
+    ordering = models.CharField(max_length=24, choices=ORDERING_CHOICES, default=ORDER_QUEUE_DEFAULT)
+    is_startup = models.BooleanField(default=False)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-is_startup', '-last_used_at', '-updated_at', 'name']
+        constraints = [
+            models.UniqueConstraint(
+                models.functions.Lower('name'), 'user',
+                name='unique_portal_saved_view_name_per_user',
+            ),
+            models.UniqueConstraint(
+                fields=['user'], condition=models.Q(is_startup=True),
+                name='unique_portal_saved_startup_view_per_user',
+            ),
+        ]
+        indexes = [models.Index(fields=['user', 'is_startup'])]
+
+    def __str__(self):
+        return f'{self.user}: {self.name}'
+
+
+class PortalCaseWorkspace(models.Model):
+    """Private pin/recent metadata retained separately from the customer case."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='portal_case_workspace_items',
+    )
+    farmer = models.ForeignKey(
+        'JawabuFarmerMaster', on_delete=models.CASCADE, related_name='portal_workspace_items',
+    )
+    pinned = models.BooleanField(default=False)
+    pinned_at = models.DateTimeField(null=True, blank=True)
+    last_opened_at = models.DateTimeField(null=True, blank=True)
+    recent_dismissed_at = models.DateTimeField(null=True, blank=True)
+    unavailable_since = models.DateTimeField(null=True, blank=True)
+    last_open_key = models.CharField(max_length=64, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-pinned', '-pinned_at', '-last_opened_at']
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'farmer'], name='unique_portal_case_workspace_per_user'),
+        ]
+        indexes = [
+            models.Index(fields=['user', 'pinned', 'unavailable_since']),
+            models.Index(fields=['user', 'last_opened_at']),
+        ]
+
+    def __str__(self):
+        return f'{self.user}: {self.farmer}'
+
+
 class AccessGrant(models.Model):
     """Workflow-specific scope supplementing Django Groups/Permissions."""
 

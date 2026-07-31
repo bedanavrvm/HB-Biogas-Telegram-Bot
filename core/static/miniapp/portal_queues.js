@@ -33,6 +33,7 @@
     if (state.activePage === 'final' && (state.filters || {}).reviewStage) {
       params.set('stage', state.filters.reviewStage);
     }
+    if (state.workspaceOrdering === 'newest') params.set('ordering', 'newest');
   }
 
   function queueUrl(queueKey, page, state) {

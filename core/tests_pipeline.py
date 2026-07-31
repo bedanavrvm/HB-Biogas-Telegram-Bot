@@ -13,7 +13,7 @@ from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import AccessGrant, GroupSheetConfiguration, InvoiceUploadBatch, JawabuFarmerMaster, JawabuMediaAccessEvent, JawabuPipelineEvent, LiveSheetRecordChange, MediaAttachment, ParsedInvoice, PaymentDocument, RequisitionBatch, UserProfile, WorkflowRoleCapability
+from core.models import AccessGrant, ComplianceAuditEvent, GroupSheetConfiguration, InvoiceUploadBatch, JawabuFarmerMaster, JawabuMediaAccessEvent, JawabuPipelineEvent, LiveSheetRecordChange, MediaAttachment, ParsedInvoice, PaymentDocument, PortalCaseWorkspace, RequisitionBatch, UserProfile, WorkflowRoleCapability
 from core.services.jawabu_pipeline import (
     assign_order,
     all_cases,
@@ -616,6 +616,136 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertEqual(personal['default_filters']['queue'], 'jbl')
         self.assertEqual(personal['default_filters']['branch'], 'Embu')
         self.assertTrue(personal['compact_cards'])
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
+    def test_portal_workspace_saved_views_are_private_validated_and_safe_after_access_drift(self):
+        user = self.grant_portal_access(role='BUSINESS_ADMIN', branches=['EMBU'])
+        headers = {'HTTP_X_TELEGRAM_INIT_DATA': self._signed_init_data()}
+        payload = {
+            'name': 'Embu visit queue',
+            'screen': 'jbl',
+            'queue': 'jbl',
+            'filters': {'branch': 'EMBU'},
+            'ordering': 'newest',
+        }
+        create = self.client.post(
+            reverse('portal_workspace_views'), data=json.dumps(payload),
+            content_type='application/json', **headers,
+        )
+        self.assertEqual(create.status_code, 201)
+        saved_view = create.json()['data']
+        self.assertTrue(saved_view['available'])
+        self.assertEqual(saved_view['filters']['branch'], 'Embu')
+
+        invalid = self.client.post(
+            reverse('portal_workspace_views'),
+            data=json.dumps({**payload, 'name': 'Outside scope', 'filters': {'branch': 'Nakuru'}}),
+            content_type='application/json', **headers,
+        )
+        self.assertEqual(invalid.status_code, 400)
+
+        startup = self.client.post(
+            reverse('portal_workspace_view_startup', args=[saved_view['id']]),
+            data='{}', content_type='application/json', **headers,
+        )
+        self.assertEqual(startup.status_code, 200)
+        workspace = self.client.get(reverse('portal_workspace'), {'summary': '1'}, **headers)
+        self.assertEqual(workspace.status_code, 200)
+        self.assertEqual(workspace.json()['data']['startup_view']['id'], saved_view['id'])
+        self.assertEqual(workspace.json()['data']['summary']['default_view_label'], 'Embu visit queue')
+        self.assertTrue(ComplianceAuditEvent.objects.filter(
+            workflow='portal', action='portal.workspace.view.created', actor_id=user.pk,
+        ).exists())
+
+        AccessGrant.objects.filter(user=user, workflow='jawabu_portal').update(role='CREDIT_ANALYST')
+        drifted = self.client.get(reverse('portal_workspace'), **headers)
+        self.assertEqual(drifted.status_code, 200)
+        data = drifted.json()['data']
+        self.assertIsNone(data['startup_view'])
+        self.assertFalse(data['views'][0]['available'])
+        self.assertIn('available to your current access', data['views'][0]['unavailable_reason'])
+
+        repair = self.client.patch(
+            reverse('portal_workspace_view_detail', args=[saved_view['id']]),
+            data=json.dumps({
+                'name': 'Embu credit queue',
+                'screen': 'credit',
+                'queue': 'credit',
+                'filters': {'branch': 'Embu'},
+                'ordering': 'queue_default',
+            }),
+            content_type='application/json', **headers,
+        )
+        self.assertEqual(repair.status_code, 200)
+        self.assertTrue(repair.json()['data']['available'])
+        repaired_workspace = self.client.get(reverse('portal_workspace'), **headers).json()['data']
+        self.assertEqual(repaired_workspace['startup_view']['name'], 'Embu credit queue')
+        self.assertTrue(ComplianceAuditEvent.objects.filter(
+            workflow='portal', action='portal.workspace.view.updated', actor_id=user.pk,
+        ).exists())
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
+    def test_portal_workspace_case_open_is_idempotent_and_pins_hide_when_scope_changes(self):
+        user = self.grant_portal_access(branches=['EMBU'])
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Workspace farmer', national_id='10000234',
+            primary_phone='254700000234', branch='Embu', status='active',
+        )
+        headers = {
+            'HTTP_X_TELEGRAM_INIT_DATA': self._signed_init_data(),
+            'HTTP_X_PORTAL_WORKSPACE_OPEN_KEY': 'open-workspace-farmer-001',
+        }
+        detail_url = reverse('portal_farmer_detail', args=[farmer.pk])
+        first = self.client.get(detail_url, **headers)
+        second = self.client.get(detail_url, **headers)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(PortalCaseWorkspace.objects.filter(user=user, farmer=farmer).count(), 1)
+
+        pin = self.client.post(
+            reverse('portal_workspace_case_pin', args=[farmer.pk]), data='{}',
+            content_type='application/json', HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
+        )
+        self.assertEqual(pin.status_code, 200)
+        pin_repeat = self.client.post(
+            reverse('portal_workspace_case_pin', args=[farmer.pk]), data='{}',
+            content_type='application/json', HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
+        )
+        self.assertEqual(pin_repeat.status_code, 200)
+        self.assertEqual(PortalCaseWorkspace.objects.filter(user=user, farmer=farmer, pinned=True).count(), 1)
+
+        farmer.branch = 'Nakuru'
+        farmer.save(update_fields=['branch', 'updated_at'])
+        workspace = self.client.get(reverse('portal_workspace'), HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data())
+        self.assertEqual(workspace.status_code, 200)
+        self.assertEqual(workspace.json()['data']['pinned'], [])
+        item = PortalCaseWorkspace.objects.get(user=user, farmer=farmer)
+        self.assertIsNotNone(item.unavailable_since)
+
+    def test_portal_workspace_retention_releases_only_private_metadata(self):
+        from core.services.portal_workspace import purge_expired_workspace_metadata
+
+        user = self.grant_portal_access(branches=['EMBU'])
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Retention farmer', national_id='10000235',
+            primary_phone='254700000235', branch='Embu', status='active',
+        )
+        now = timezone.now()
+        item = PortalCaseWorkspace.objects.create(
+            user=user, farmer=farmer, pinned=True, pinned_at=now - timedelta(days=40),
+            unavailable_since=now - timedelta(days=31), last_opened_at=now - timedelta(days=1),
+        )
+        preview = purge_expired_workspace_metadata(now=now, apply=False)
+        self.assertEqual(preview['stale_pins_released'], 1)
+        self.assertEqual(preview['expired_workspace_rows_deleted'], 0)
+
+        applied = purge_expired_workspace_metadata(now=now, apply=True)
+        self.assertEqual(applied['stale_pins_released'], 1)
+        item.refresh_from_db()
+        self.assertFalse(item.pinned)
+        self.assertIsNone(item.unavailable_since)
+        farmer.refresh_from_db()
+        self.assertEqual(farmer.customer_name, 'Retention farmer')
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_portal_delegation_api_is_business_admin_only_and_audited(self):
