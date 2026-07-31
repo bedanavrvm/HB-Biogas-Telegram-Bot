@@ -587,7 +587,11 @@
 
   function buildCreditForm(farmer) {
     const currentDecision = farmer.credit_decision || 'Pending';
-    const decisionOptions = state().metaDecisions.filter(decision => decision !== 'Pending').map(decision =>
+    // Conditional approvals are a separate controlled approval process, not a
+    // data-entry option for the analyst's day-to-day Credit form. Older
+    // records remain visible in history, but this focused screen only offers
+    // the ordinary operational decisions.
+    const decisionOptions = state().metaDecisions.filter(decision => !['Pending', 'Approved with Conditions'].includes(decision)).map(decision =>
       `<option value="${deps.escapeHtml(decision)}"${currentDecision === decision ? ' selected' : ''}>${deps.escapeHtml(decision)}</option>`
     ).join('');
     const imabOptions = (state().metaImabOptions.length ? state().metaImabOptions : ['Yes', 'No', 'Pending']).map(value =>
@@ -602,16 +606,13 @@
     return `
       <div class="form-section">
         ${spinReferences ? `<div class="credit-reference-panel"><div class="field-help"><strong>SPIN / CRB reference</strong> · reports already uploaded for this customer</div>${spinReferences}</div>` : ''}
-        <div class="field-help credit-status-help"><strong>Status guide:</strong> Pending = the initial state until an analyst records a decision; Approved = move to Head of Rural review; Rejected = stop the case; Deferred = pause and reappraise after the deferral window; Exemption Approved = approved under the exemption path.</div>
-        <div class="form-row"><label title="Pending is the default until a credit analyst records a decision.">Credit Decision <span class="label-help" aria-hidden="true">?</span></label><select id="credit-decision"><option value="">- Select a decision -</option>${decisionOptions}</select><small class="field-help">Current status: <strong>${deps.escapeHtml(currentDecision)}</strong>. Pending is display-only and cannot be submitted as a decision.</small></div>
+        <div class="form-row"><label>Credit decision</label><select id="credit-decision"><option value="">- Select a decision -</option>${decisionOptions}</select></div>
         <div class="form-row"><label>IS CUSTOMER CREATED ON IMAB?</label><select id="credit-imab"><option value="">- Select -</option>${imabOptions}</select></div>
         <div class="form-row">
           <label>CUSTOMER NO</label>
           <input type="text" id="credit-customer-no" inputmode="numeric" pattern="[0-9]*" placeholder="IMAB customer number" value="${deps.escapeHtml(customerNoDisabled ? '' : (farmer.customer_no || ''))}"${customerNoDisabled ? ' disabled' : ''}>
           <small id="credit-imab-help" class="field-help">${customerNoDisabled ? 'Select Yes after IMAB creation before entering a customer number.' : 'Required before this case can move to Head of Rural review.'}</small>
         </div>
-        ${buildApprovalReasonFields('credit')}
-        ${renderApprovalConditions(farmer, 'credit')}
       </div>
       ${farmer.jbl_visit_comment ? `<div class="info-row"><span class="ir-label">JBL Comment</span><span class="ir-value">${deps.escapeHtml(farmer.jbl_visit_comment)}</span></div>` : ''}
     `;
@@ -784,11 +785,7 @@
     const decision = el('credit-decision')?.value || '';
     const imabCreated = el('credit-imab')?.value || '';
     const customerNo = (el('credit-customer-no')?.value || '').replace(/[^0-9]/g, '');
-    const reasonCode = el('credit-reason-code')?.value || '';
-    const conditions = (el('credit-conditions')?.value || '').split('\n').map(value => value.trim()).filter(Boolean);
     if (!decision) return deps.showToast('Please select a decision', 'error');
-    if (['Approved with Conditions', 'Rejected', 'Deferred'].includes(decision) && !reasonCode) return deps.showToast('Choose a decision reason', 'error');
-    if (decision === 'Approved with Conditions' && !conditions.length) return deps.showToast('Add at least one approval condition', 'error');
     if (imabCreated !== 'Yes') return deps.showToast('Create the customer in IMAB before sending this case to Head of Rural review.', 'error');
     if (!customerNo) return deps.showToast('Enter the IMAB Customer No before sending this case to Head of Rural review.', 'error');
 
@@ -796,7 +793,7 @@
     deps.setButtonLoading(btn, true, 'Saving...');
     const { ok, data } = await deps.apiFetch('/credit-queue/' + farmer.id + '/', {
       method: 'POST',
-      body: JSON.stringify({ request_id: requestId(), workflow_revision: Number(farmer.workflow_revision || 1), decision, imab_created: imabCreated, customer_no: customerNo, reason_code: reasonCode, conditions }),
+      body: JSON.stringify({ request_id: requestId(), workflow_revision: Number(farmer.workflow_revision || 1), decision, imab_created: imabCreated, customer_no: customerNo }),
     });
     deps.setButtonLoading(btn, false);
     if (!ok) return deps.showToast(data.error || 'Save failed', 'error');

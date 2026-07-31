@@ -48,6 +48,19 @@
     });
   }
 
+  function restoreTelegramViewport() {
+    // Android can return from its native file picker with the Mini App's
+    // WebView still contracted. CSS cannot fill space outside that native
+    // surface, so ask Telegram itself to expand again after the activity
+    // hand-off. The delayed calls cover clients that report focus before the
+    // WebView has finished measuring its restored window.
+    if (!tg?.expand) return;
+    tg.expand();
+    window.requestAnimationFrame(() => tg.expand());
+    window.setTimeout(() => tg.expand(), 180);
+    window.setTimeout(() => tg.expand(), 650);
+  }
+
   function currentScreen() {
     if (/\/portal\/cases\/[^/]+\//.test(window.location.pathname)) return 'case_history';
     const match = window.location.pathname.match(/\/portal\/s\/([^/]+)\//);
@@ -113,10 +126,19 @@
 
   if (tg) {
     tg.ready();
-    tg.expand();
+    restoreTelegramViewport();
     tg.onEvent?.('themeChanged', syncTheme);
   }
   syncTheme();
+
+  window.addEventListener('pageshow', restoreTelegramViewport);
+  window.addEventListener('focus', restoreTelegramViewport);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') restoreTelegramViewport();
+  });
+  document.addEventListener('change', event => {
+    if (event.target?.matches?.('input[type="file"]')) restoreTelegramViewport();
+  });
 
   document.body.addEventListener('htmx:configRequest', event => {
     if (tg?.initData) event.detail.headers['X-Telegram-Init-Data'] = tg.initData;

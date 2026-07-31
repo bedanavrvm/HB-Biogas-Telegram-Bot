@@ -1,5 +1,12 @@
 # Changelog
 
+## Focused Credit decision form - 31-July-2026
+
+- The Portal Credit form now contains only the analyst's operational inputs:
+  credit decision, IMAB creation status, and IMAB customer number. The
+  unrequested status guide, decision-reason field, and approval-condition
+  controls no longer burden staff. Historical approval evidence is retained.
+
 ## Internal order-register reliability - 31-July-2026
 
 - Internal order-sheet publication now converts Django `Decimal` values to
@@ -17,6 +24,9 @@
 - Portal detail sheets now use the stable layout viewport rather than a
   JavaScript-measured dynamic height, preventing Android's file-picker return
   from leaving a blank area below the JBL visit action bar.
+- On return from Android's native file picker, the Mini App now explicitly
+  asks Telegram to re-expand its WebView; this fixes the native contracted
+  canvas that CSS alone cannot cover.
 - FarmUp imports can label an HBG-visited, unvisited case `JBL to Schedule
   Visit`; the conservative backfill command defaults to a dry run and never
   writes to Sheets or Drive.

@@ -82,11 +82,16 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         self.assertIn('/\\/portal\\/cases\\/[^/]+\\//', source)
         self.assertIn("return 'case_history'", source)
-        self.assertContains(response, 'miniapp/miniapp-nav.js?v=8')
+        self.assertContains(response, 'miniapp/miniapp-nav.js?v=9')
 
-    def test_portal_sheets_use_a_stable_overlay_viewport_after_file_picker_return(self):
+    def test_portal_sheets_restore_the_telegram_viewport_after_file_picker_return(self):
+        navigation_source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
         portal_css = Path('core/static/miniapp/portal.css').read_text(encoding='utf-8')
 
+        self.assertIn('restoreTelegramViewport', navigation_source)
+        self.assertIn('visibilitychange', navigation_source)
+        self.assertIn('input[type="file"]', navigation_source)
+        self.assertIn('tg.expand()', navigation_source)
         self.assertIn('inset: 0 auto auto 0', portal_css)
         self.assertIn('height: 100vh', portal_css)
         self.assertIn('.sheet-panel {', portal_css)
@@ -232,6 +237,20 @@ class MiniAppFrontendSmokeTests(TestCase):
             'btn-gps',
         ):
             self.assertIn(expected, source)
+
+    def test_credit_form_excludes_unrequested_approval_controls(self):
+        source = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')
+        form = source[source.index('function buildCreditForm'):source.index('function wireCreditImabFields')]
+        submit = source[source.index('async function submitCreditDecision'):source.index('async function submitFinalDecision')]
+
+        self.assertNotIn('Status guide:', form)
+        self.assertNotIn("buildApprovalReasonFields('credit')", form)
+        self.assertNotIn("renderApprovalConditions(farmer, 'credit')", form)
+        self.assertIn("!['Pending', 'Approved with Conditions'].includes(decision)", form)
+        self.assertNotIn('credit-reason-code', submit)
+        self.assertNotIn('credit-conditions', submit)
+        self.assertNotIn('reason_code:', submit)
+        self.assertNotIn('conditions }', submit)
 
     def test_portal_requisitions_exposes_batch_primitives(self):
         source = Path('core/static/miniapp/portal_requisitions.js').read_text(encoding='utf-8')
