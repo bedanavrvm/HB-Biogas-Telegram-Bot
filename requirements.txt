@@ -29,4 +29,5 @@ requests==2.31.0
 openpyxl==3.1.5
 Pillow==11.3.0
 pypdf==4.2.0
+pypdfium2==5.12.1  # Server-render Portal PDFs to images; Android WebView cannot render protected PDF blobs.
 WeasyPrint==66.0

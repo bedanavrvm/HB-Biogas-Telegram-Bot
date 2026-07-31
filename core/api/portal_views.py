@@ -10,12 +10,14 @@ branch, product, and group grants.
 """
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import re
 import time
 import uuid
 from functools import wraps
+from html import escape as html_escape
 from urllib.parse import parse_qsl, quote
 
 from django.conf import settings
@@ -645,30 +647,76 @@ def _jbl_media_open_url(request, farmer_id: str, *, attachment_id: str = '', leg
     )
 
 
-def _jbl_media_viewer_source_url(request, farmer_id: str, attachment_id: str) -> str:
-    """Issue a short-lived PDF source URL for Google Drive's embedded viewer.
-
-    The source is not a Drive URL and reveals neither a folder nor a file ID.
-    It can only be minted after the Portal has authorized the media list.
-    """
-    actor = getattr(request, 'portal_user', None)
-    payload = json.dumps({
-        'attachment_id': str(attachment_id),
-        'farmer_id': str(farmer_id),
-        'request_id': _portal_request_id(request),
-        'user_id': str(getattr(actor, 'pk', '') or ''),
-    }, sort_keys=True, separators=(',', ':'))
-    token = TimestampSigner(salt='portal-jbl-media-viewer-source').sign(payload)
-    return request.build_absolute_uri(
-        f'/api/portal/jbl-media-viewer-source/{quote(token, safe="")}/'
-    )
-
-
 def _jbl_media_is_pdf(attachment) -> bool:
     """Return whether an attachment needs the WebView-safe PDF renderer."""
     mime_type = str(getattr(attachment, 'mime_type', '') or '').lower().split(';', 1)[0]
     filename = str(getattr(attachment, 'original_filename', '') or '').lower()
     return mime_type == 'application/pdf' or filename.endswith('.pdf')
+
+
+_PORTAL_PDF_PREVIEW_MAX_SOURCE_BYTES = 16 * 1024 * 1024
+_PORTAL_PDF_PREVIEW_MAX_PAGES = 8
+_PORTAL_PDF_PREVIEW_MAX_RENDERED_BYTES = 10 * 1024 * 1024
+_PORTAL_PDF_PREVIEW_SCALE = 1.25
+
+
+def _portal_pdf_preview_html(content: bytes, filename: str) -> bytes:
+    """Render bounded PDF pages to a self-contained, WebView-safe document.
+
+    Telegram Android WebView cannot reliably paint a protected PDF blob. The
+    server returns static image pages instead of asking the phone to hand the
+    document to Chrome or Drive. Limits keep an unusual PDF from consuming
+    unbounded memory or creating an oversized Mini App response.
+    """
+    if not content or len(content) > _PORTAL_PDF_PREVIEW_MAX_SOURCE_BYTES:
+        raise ValueError('This PDF is too large for an in-app preview.')
+
+    import pypdfium2 as pdfium
+
+    document = pdfium.PdfDocument(content)
+    total_pages = len(document)
+    if not total_pages:
+        raise ValueError('This PDF has no pages to preview.')
+    page_count = min(total_pages, _PORTAL_PDF_PREVIEW_MAX_PAGES)
+    rendered_bytes = 0
+    page_images: list[str] = []
+    try:
+        from io import BytesIO
+
+        for page_index in range(page_count):
+            page = document[page_index]
+            bitmap = page.render(scale=_PORTAL_PDF_PREVIEW_SCALE)
+            image = bitmap.to_pil().convert('RGB')
+            output = BytesIO()
+            image.save(output, format='JPEG', quality=82, optimize=True)
+            encoded = output.getvalue()
+            rendered_bytes += len(encoded)
+            if rendered_bytes > _PORTAL_PDF_PREVIEW_MAX_RENDERED_BYTES:
+                raise ValueError('This PDF is too detailed for an in-app preview.')
+            page_images.append(base64.b64encode(encoded).decode('ascii'))
+    finally:
+        document.close()
+
+    continuation = (
+        f'<p class="notice">Showing the first {page_count} of {total_pages} pages.</p>'
+        if total_pages > page_count else ''
+    )
+    image_markup = ''.join(
+        f'<figure><figcaption>Page {index}</figcaption>'
+        f'<img src="data:image/jpeg;base64,{encoded}" alt="{html_escape(filename)} - page {index}"></figure>'
+        for index, encoded in enumerate(page_images, start=1)
+    )
+    return f'''<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * {{ box-sizing: border-box; }}
+  body {{ margin: 0; padding: 12px; background: #f2f4f7; color: #1d2939; font: 14px system-ui, sans-serif; }}
+  header {{ position: sticky; top: 0; z-index: 1; padding: 8px 4px 10px; background: #f2f4f7; font-weight: 700; }}
+  figure {{ margin: 0 auto 14px; max-width: 980px; background: #fff; box-shadow: 0 1px 3px rgba(16,24,40,.16); }}
+  figcaption {{ padding: 7px 10px; color: #667085; font-size: 12px; }}
+  img {{ display: block; width: 100%; height: auto; }}
+  .notice {{ max-width: 980px; margin: 0 auto 12px; padding: 8px 10px; border-radius: 6px; background: #fff4e5; color: #7a4d00; }}
+</style></head><body><header>{html_escape(filename)}</header>{continuation}{image_markup}</body></html>'''.encode('utf-8')
 
 
 def _upload_generated_workbook_to_drive(data: bytes, filename: str, order_number: str) -> tuple[str, str]:
@@ -2101,14 +2149,6 @@ def portal_jbl_media(request, farmer_id: str):
                 f'/api/portal/jbl-queue/{farmer.id}/media/{item.id}/preview/'
                 if item.drive_file_id else ''
             ),
-            # Android Telegram WebView does not reliably paint a PDF blob in
-            # an iframe. PDFs therefore receive a one-item, short-lived
-            # source URL for the embedded Google viewer while images retain
-            # the protected direct-streaming route above.
-            'viewer_url': (
-                _jbl_media_viewer_source_url(request, str(farmer.id), str(item.id))
-                if item.drive_file_id and _jbl_media_is_pdf(item) else ''
-            ),
             # ``view_url`` remains the protected redirect route for existing
             # API callers. ``open_url`` is retained for old clients only.
             'open_url': _jbl_media_open_url(request, str(farmer.id), attachment_id=str(item.id)),
@@ -2132,7 +2172,6 @@ def portal_jbl_media(request, farmer_id: str):
             # stream. It is labelled unavailable for the in-app viewer rather
             # than silently sending staff to an Android activity chooser.
             'preview_url': '',
-            'viewer_url': '',
             'open_url': _jbl_media_open_url(request, str(farmer.id), legacy_index=index),
             'name': 'Legacy LAF/media link',
             'category': 'LEGACY',
@@ -2204,6 +2243,28 @@ def portal_preview_jbl_media(request, farmer_id: str, attachment_id: str):
             'error': 'The evidence could not be loaded from secure storage. Please retry shortly.',
         }, status=503)
 
+    mime_type = str(attachment.mime_type or '').strip() or (
+        'image/jpeg' if attachment.file_type == 'JBL_VISIT_PHOTO' else 'application/pdf'
+    )
+    is_pdf = _jbl_media_is_pdf(attachment) or mime_type.lower().split(';', 1)[0] == 'application/pdf'
+    if is_pdf:
+        try:
+            content = _portal_pdf_preview_html(
+                content,
+                attachment.original_filename or 'Signed LAF document.pdf',
+            )
+            mime_type = 'text/html; charset=utf-8'
+        except Exception:
+            logger.exception(
+                'Could not render Portal PDF preview attachment_id=%s farmer_id=%s',
+                attachment.pk,
+                farmer.pk,
+            )
+            return JsonResponse({
+                'ok': False,
+                'error': 'This PDF could not be prepared for in-app viewing. Please retry shortly.',
+            }, status=503)
+
     # The explicit fetch completed, so record the sensitive-data read once.
     # No content, Drive URL, or customer data is copied into either audit log.
     actor = getattr(request, 'portal_user', None)
@@ -2228,120 +2289,10 @@ def portal_preview_jbl_media(request, farmer_id: str, attachment_id: str):
             'media_category': attachment.file_type,
         },
     )
-    mime_type = str(attachment.mime_type or '').strip() or (
-        'image/jpeg' if attachment.file_type == 'JBL_VISIT_PHOTO' else 'application/pdf'
-    )
     response = HttpResponse(content, content_type=mime_type)
     response['Content-Disposition'] = content_disposition_header(
         False,
         attachment.original_filename or f'{attachment.file_type or "visit-media"}',
-    )
-    response['Cache-Control'] = 'private, no-store, max-age=0'
-    response['X-Content-Type-Options'] = 'nosniff'
-    return response
-
-
-@csrf_exempt
-@require_http_methods(["GET"])
-def portal_jbl_media_viewer_source(request, token: str):
-    """Serve one short-lived PDF source to the in-panel Google viewer.
-
-    Android Telegram WebView can show images streamed as object URLs, but its
-    PDF iframe rendering is inconsistent. The Google document viewer remains
-    embedded in the Portal overlay; this endpoint grants it only a short-lived
-    source stream for the exact PDF whose normal Portal media-list access was
-    already authorized. It never reveals the Drive URL or Drive file ID.
-    """
-    try:
-        payload = json.loads(
-            TimestampSigner(salt='portal-jbl-media-viewer-source').unsign(token, max_age=300)
-        )
-        farmer_id = str(payload['farmer_id'])
-        attachment_id = str(payload['attachment_id'])
-    except (BadSignature, KeyError, TypeError, ValueError):
-        return JsonResponse({
-            'ok': False,
-            'error': 'This secure PDF view has expired. Return to Client media and open it again.',
-        }, status=404)
-
-    from django.contrib.auth import get_user_model
-    from django.db.models import Q
-    from django.utils.http import content_disposition_header
-    from core.models import JawabuFarmerMaster, JawabuMediaAccessEvent, MediaAttachment
-
-    farmer = JawabuFarmerMaster.objects.filter(pk=farmer_id).first()
-    if not farmer:
-        return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
-    attachment = MediaAttachment.objects.filter(
-        pk=attachment_id,
-        upload_status='success',
-    ).filter(
-        Q(jawabu_farmer=farmer) |
-        Q(jawabu_farmer__isnull=True, business_key_type='id_number', business_key_value=str(farmer.national_id or '').strip())
-    ).exclude(drive_file_id='').first()
-    if not attachment or not _jbl_media_is_pdf(attachment):
-        return JsonResponse({'ok': False, 'error': 'This PDF evidence is unavailable.'}, status=404)
-
-    actor_id = str(payload.get('user_id') or '').strip()
-    actor = get_user_model().objects.filter(pk=actor_id, is_active=True).first() if actor_id else None
-    # Test/development environments can deliberately disable Telegram auth.
-    # In production a signed source always carries the active canonical user;
-    # if that user was disabled after the list was issued, fail closed.
-    if actor_id and not actor:
-        return JsonResponse({'ok': False, 'error': 'This secure PDF view is no longer available.'}, status=404)
-    if actor:
-        # The short-lived signature proves this source originated from an
-        # authorized media list. Re-evaluate current scope as well, so a
-        # branch/grant change takes effect immediately rather than leaving a
-        # five-minute evidence access window after revocation.
-        from core.services.telegram_identity import user_access
-
-        request.portal_user = actor
-        request.portal_access = user_access(actor, 'jawabu_portal')
-        access_error = _portal_read_access_error(request, farmer, capability='portal.jbl_media.view')
-        if access_error:
-            return JsonResponse({'ok': False, 'error': 'This secure PDF view is no longer available.'}, status=404)
-
-    try:
-        from core.services.order_approval import GoogleDriveMediaStorage
-
-        content = GoogleDriveMediaStorage().download(attachment.drive_file_id)
-    except Exception:
-        logger.exception(
-            'Could not stream embedded Portal PDF attachment_id=%s farmer_id=%s',
-            attachment.pk,
-            farmer.pk,
-        )
-        return JsonResponse({
-            'ok': False,
-            'error': 'The PDF could not be loaded from secure storage. Please retry shortly.',
-        }, status=503)
-
-    request_id = str(payload.get('request_id') or '')
-    JawabuMediaAccessEvent.objects.create(
-        farmer=farmer,
-        attachment=attachment,
-        actor=actor,
-        request_id=request_id,
-    )
-    from core.services.compliance_audit import record_sensitive_access
-    record_sensitive_access(
-        workflow='portal',
-        action='portal.jbl_media.view',
-        subject_type='media_attachment',
-        subject_id=str(attachment.pk),
-        actor=actor,
-        request_id=request_id,
-        metadata={
-            'access_route': 'embedded_pdf_viewer',
-            'farmer_id': str(farmer.pk),
-            'media_category': attachment.file_type,
-        },
-    )
-    response = HttpResponse(content, content_type='application/pdf')
-    response['Content-Disposition'] = content_disposition_header(
-        False,
-        attachment.original_filename or 'client-media.pdf',
     )
     response['Cache-Control'] = 'private, no-store, max-age=0'
     response['X-Content-Type-Options'] = 'nosniff'

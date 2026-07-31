@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal
-from io import StringIO
+from io import BytesIO, StringIO
 from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -1455,9 +1455,6 @@ class JblPipelineApiTestCase(TestCase):
         self.assertIn(str(media[0]['id']), media[0]['view_url'])
         self.assertIn('/media/', media[0]['preview_url'])
         self.assertTrue(media[0]['preview_url'].endswith('/preview/'))
-        self.assertIn('/api/portal/jbl-media-viewer-source/', media[0]['viewer_url'])
-        self.assertNotIn('drive.example', media[0]['viewer_url'])
-        self.assertEqual(payload['jbl_visit_photo_media'][0]['viewer_url'], '')
         self.assertIn('/api/portal/jbl-media-open/', media[0]['open_url'])
         self.assertNotIn('drive.example', media[0]['open_url'])
         self.assertEqual(media[0]['name'], 'laf.pdf')
@@ -1465,8 +1462,40 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual({item['category'] for item in payload['media']}, {'LAF', 'JBL_VISIT_PHOTO'})
 
     @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='test-media-folder')
-    @patch('core.services.order_approval.GoogleDriveMediaStorage.download', return_value=b'%PDF-test-media')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage.download', return_value=b'\xff\xd8\xff\xe0test-photo')
     def test_preview_jbl_media_streams_authorized_drive_content_inside_portal(self, download):
+        attachment = MediaAttachment.objects.create(
+            group_id='portal-test', jawabu_farmer=self.farmer,
+            business_key_type='case_reference', business_key_value=f'case-{self.farmer.pk}',
+            file_type='JBL_VISIT_PHOTO', original_filename='visit.jpg', mime_type='image/jpeg',
+            drive_file_id='drive-photo-preview', drive_url='https://drive.example/photo', upload_status='success',
+        )
+
+        response = self.client.get(reverse(
+            'portal_preview_jbl_media', args=[self.farmer.id, attachment.id],
+        ))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b'\xff\xd8\xff\xe0test-photo')
+        self.assertEqual(response['Content-Type'], 'image/jpeg')
+        self.assertIn('inline', response['Content-Disposition'])
+        self.assertEqual(response['Cache-Control'], 'private, no-store, max-age=0')
+        download.assert_called_once_with('drive-photo-preview')
+        self.assertTrue(JawabuMediaAccessEvent.objects.filter(
+            farmer=self.farmer, attachment=attachment, action='view',
+        ).exists())
+
+    @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='test-media-folder')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage.download')
+    def test_preview_jbl_pdf_is_rendered_as_internal_page_images(self, download):
+        from pypdf import PdfWriter
+
+        source_pdf = BytesIO()
+        writer = PdfWriter()
+        writer.add_blank_page(width=595, height=842)
+        writer.add_blank_page(width=595, height=842)
+        writer.write(source_pdf)
+        download.return_value = source_pdf.getvalue()
         attachment = MediaAttachment.objects.create(
             group_id='portal-test', jawabu_farmer=self.farmer,
             business_key_type='case_reference', business_key_value=f'case-{self.farmer.pk}',
@@ -1479,45 +1508,17 @@ class JblPipelineApiTestCase(TestCase):
         ))
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.content, b'%PDF-test-media')
-        self.assertEqual(response['Content-Type'], 'application/pdf')
+        preview = response.content.decode('utf-8')
+        self.assertTrue(response['Content-Type'].startswith('text/html'))
         self.assertIn('inline', response['Content-Disposition'])
         self.assertEqual(response['Cache-Control'], 'private, no-store, max-age=0')
+        self.assertEqual(preview.count('<figure>'), 2)
+        self.assertIn('data:image/jpeg;base64,', preview)
+        self.assertNotIn('drive.example', preview)
         download.assert_called_once_with('drive-laf-preview')
         self.assertTrue(JawabuMediaAccessEvent.objects.filter(
             farmer=self.farmer, attachment=attachment, action='view',
         ).exists())
-
-    @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='test-media-folder')
-    @patch('core.services.order_approval.GoogleDriveMediaStorage.download', return_value=b'%PDF-embedded-media')
-    def test_embedded_pdf_viewer_source_is_short_lived_scoped_and_audited(self, download):
-        attachment = MediaAttachment.objects.create(
-            group_id='portal-test', jawabu_farmer=self.farmer,
-            business_key_type='case_reference', business_key_value=f'case-{self.farmer.pk}',
-            file_type='LAF', original_filename='laf.pdf', mime_type='application/pdf',
-            drive_file_id='drive-laf-embedded', drive_url='https://drive.example/laf', upload_status='success',
-        )
-
-        listing = self.client.get(reverse('portal_jbl_media', args=[self.farmer.id])).json()
-        viewer_url = listing['laf_media'][0]['viewer_url']
-        response = self.client.get(urlsplit(viewer_url).path)
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.content, b'%PDF-embedded-media')
-        self.assertEqual(response['Content-Type'], 'application/pdf')
-        self.assertIn('inline', response['Content-Disposition'])
-        self.assertEqual(response['Cache-Control'], 'private, no-store, max-age=0')
-        self.assertNotIn('drive.example', viewer_url)
-        download.assert_called_once_with('drive-laf-embedded')
-        self.assertTrue(JawabuMediaAccessEvent.objects.filter(
-            farmer=self.farmer, attachment=attachment, action='view',
-        ).exists())
-
-    def test_embedded_pdf_viewer_source_rejects_tampering(self):
-        response = self.client.get(reverse('portal_jbl_media_viewer_source', args=['not-a-valid-token']))
-
-        self.assertEqual(response.status_code, 404)
-        self.assertIn('expired', response.json()['error'])
 
     def test_open_jbl_media_redirects_and_records_an_access_event(self):
         attachment = MediaAttachment.objects.create(

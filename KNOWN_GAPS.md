@@ -14,10 +14,11 @@ records a forwarded visit without the required evidence.
 
 Telegram's Android WebView can render a protected image stream in the Portal,
 but may display a blank panel for a PDF served through a blob iframe. The
-Portal therefore keeps PDFs inside its client-media overlay and renders them
-through an embedded Google document view backed by a five-minute, single-case,
-single-document source URL. The source does not disclose the Drive URL or file
-ID; reopening Client media obtains a fresh source after expiry.
+Portal therefore renders the authorized PDF server-side as bounded page images
+inside its client-media overlay. It does not use an external Drive link,
+browser activity, or Google document viewer. Very large or unusually detailed
+PDFs may be rejected for in-app preview and can be retried after a smaller scan
+is uploaded through the normal evidence process.
 
 ## Pending JBL scheduling backfill
 

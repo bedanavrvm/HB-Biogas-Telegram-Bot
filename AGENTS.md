@@ -965,6 +965,7 @@ the existing choice unsuitable and obtaining explicit approval:
 | Frontend interaction | Server-rendered HTML, htmx, Alpine.js, and small shared JavaScript utilities; no SPA/build server |
 | Workflow authority | Django/PostgreSQL owns state; Sheets and Drive are synchronized operational views/files |
 | PDF rendering | Use the existing server-side WeasyPrint path where a PDF is explicitly required; never rely on mobile `window.print()` |
+| Portal PDF preview | `pypdfium2==5.12.1` rasterizes authorized PDFs into Portal-owned page images because Android Telegram WebView blocks protected PDF blobs and embedded Google viewer responses; `pypdf` cannot render pages and PyMuPDF's AGPL licence is unsuitable. |
 | Workflow transitions | Server-side service/state-transition validation is mandatory. `django-fsm` is **not currently installed**; introducing it or replacing existing transition services requires an ADR, dependency justification, and explicit approval. |
 
 The repository does not currently have a Nuxt/Firebase frontend. Do not document

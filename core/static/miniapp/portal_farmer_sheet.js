@@ -700,16 +700,6 @@
     content.innerHTML = '<div class="media-viewer-loading" role="status"><span class="spinner-inline" aria-hidden="true"></span> Loading secure media…</div>';
     overlay.classList.add('open');
     try {
-      const declaredMimeType = String(item.mime_type || '').toLowerCase();
-      const isPdf = declaredMimeType.includes('application/pdf') || /\.pdf(?:$|\s)/i.test(String(item.name || ''));
-      if (isPdf && item.viewer_url) {
-        // Android Telegram WebView frequently renders blob-PDF iframes as a
-        // blank panel. Keep the viewer in this overlay, but let Google's
-        // embedded document renderer paint the short-lived, scoped source.
-        const viewerSrc = `https://docs.google.com/gview?embedded=1&url=${encodeURIComponent(item.viewer_url)}`;
-        content.innerHTML = `<iframe class="media-viewer-document" src="${viewerSrc}" title="${deps.escapeHtml(item.name || 'Client PDF')}"></iframe>`;
-        return;
-      }
       const response = await fetch(item.preview_url, {
         headers: mediaPreviewHeaders(),
         cache: 'no-store',
@@ -725,7 +715,7 @@
       const safeName = deps.escapeHtml(item.name || 'Client media');
       content.innerHTML = mimeType.startsWith('image/')
         ? `<img class="media-viewer-image" src="${activeMediaObjectUrl}" alt="${safeName}">`
-        : `<iframe class="media-viewer-document" src="${activeMediaObjectUrl}" title="${safeName}"></iframe>`;
+        : `<iframe class="media-viewer-document" sandbox="" src="${activeMediaObjectUrl}" title="${safeName}"></iframe>`;
     } catch (error) {
       content.innerHTML = `<p class="media-viewer-error">${deps.escapeHtml(error.message || 'Could not open this client media.')} The Portal remains open; close this view and retry.</p>`;
     }
