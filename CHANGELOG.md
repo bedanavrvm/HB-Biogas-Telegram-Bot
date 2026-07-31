@@ -1,5 +1,14 @@
 # Changelog
 
+## Portal queue and final-review usability - 31-July-2026
+
+- Empty Portal queues now use a compact, consistent completion state rather
+  than a large plain panel with a text-only `OK` marker. Queue messages explain
+  the next expected work in staff language.
+- Final Review uses a two-column mobile-friendly field grid where space
+  permits. The phone action now has an always-visible phone glyph and `Call`
+  label, and normalizes Kenyan `07...` numbers for the dialler.
+
 ## JBL visit evidence foldering - 31-July-2026
 
 - Future signed LAF documents and JBL visit photos now share one permissioned

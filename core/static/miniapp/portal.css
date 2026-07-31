@@ -639,25 +639,33 @@ body.portal-compact-cards .farmer-card .badge { padding: 2px 6px; font-size: 10p
 .media-link:hover { background: var(--bg-surface-2, var(--bg-surface)); }
 .sheet-footer [hidden] { display: none !important; }
 .phone-call-button {
-  flex: 0 0 38px;
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
+  flex: 0 0 auto;
+  min-width: 44px;
+  min-height: 38px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 5px;
   color: #fff;
   background: var(--brand-primary);
   border: 2px solid color-mix(in srgb, var(--brand-primary) 72%, #000 28%);
   box-shadow: 0 1px 3px rgba(15,23,42,.22);
   text-decoration: none;
+  font-size: 12px;
+  font-weight: 800;
 }
 .phone-call-button svg {
-  width: 18px;
-  height: 18px;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
   stroke-width: 2.2;
   stroke: currentColor;
 }
+.phone-action-field { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.phone-action-field input { flex: 1 1 auto; min-width: 0; }
+.final-review-grid .form-row-wide { grid-column: 1 / -1; }
 
 /* ── Gate warning ────────────────────────────────────────────────────────────── */
 .gate-warning {
@@ -683,6 +691,30 @@ body.portal-compact-cards .farmer-card .badge { padding: 2px 6px; font-size: 10p
 .empty-state .es-icon { font-size: 44px; margin-bottom: 8px; }
 .empty-state .es-title { font-size: 16px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
 .empty-state .es-sub { font-size: 13px; font-weight: 500; }
+.farmer-list > .queue-empty-state {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  min-height: 148px;
+  margin: 0;
+  padding: 22px 18px;
+  border: 1px dashed color-mix(in srgb, var(--brand-primary) 30%, var(--border-color));
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--brand-primary) 5%, var(--bg-surface));
+}
+.queue-empty-state .es-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin: 0 0 9px;
+  border-radius: 50%;
+  color: var(--status-success);
+  background: var(--status-success-bg);
+}
+.queue-empty-state .es-icon svg { width: 22px; height: 22px; }
+.queue-empty-state .es-title { font-size: 15px; }
+.queue-empty-state .es-sub { max-width: 280px; font-size: 12px; line-height: 1.4; }
 
 .spinner-inline {
   display: inline-block;

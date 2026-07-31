@@ -45,9 +45,10 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertLess(html.index('miniapp/portal_requisitions.js'), html.index('miniapp/portal.js'))
         self.assertLess(html.index('miniapp/portal_requisitions.js'), html.index('miniapp/portal_payments.js'))
         self.assertLess(html.index('miniapp/portal_payments.js'), html.index('miniapp/portal.js'))
-        self.assertIn('miniapp/portal_queues.js?v=5', html)
-        self.assertIn('miniapp/portal_farmer_sheet.js?v=21', html)
-        self.assertIn('miniapp/portal.js?v=46', html)
+        self.assertIn('miniapp/portal_queues.js?v=6', html)
+        self.assertIn('miniapp/portal_farmer_sheet.js?v=22', html)
+        self.assertIn('miniapp/portal_filters.js?v=6', html)
+        self.assertIn('miniapp/portal.js?v=47', html)
 
         spin_response = self.client.get(reverse('spin_form') + '?group_id=-100spin&token=test-token')
         spin_html = spin_response.content.decode('utf-8')
@@ -207,6 +208,22 @@ class MiniAppFrontendSmokeTests(TestCase):
         ):
             self.assertIn(expected, source)
 
+    def test_portal_queue_empty_states_use_the_compact_completion_treatment(self):
+        queue_source = Path('core/static/miniapp/portal_queues.js').read_text(encoding='utf-8')
+        portal_source = Path('core/static/miniapp/portal.js').read_text(encoding='utf-8')
+        filter_source = Path('core/static/miniapp/portal_filters.js').read_text(encoding='utf-8')
+        list_template = Path('core/templates/portal/partials/farmer_list.html').read_text(encoding='utf-8')
+        stylesheet = Path('core/static/miniapp/portal.css').read_text(encoding='utf-8')
+
+        self.assertIn('Credit queue is clear', queue_source)
+        self.assertNotIn('No BRO analysis cases', queue_source)
+        for source in (portal_source, filter_source, list_template):
+            self.assertIn('queue-empty-state', source)
+            self.assertIn('<svg viewBox', source)
+            self.assertNotIn('es-icon">OK', source)
+        self.assertIn('.farmer-list > .queue-empty-state', stylesheet)
+        self.assertIn('min-height: 148px', stylesheet)
+
     def test_final_review_queue_keeps_its_selected_lens_in_every_request_path(self):
         queue_source = Path('core/static/miniapp/portal_queues.js').read_text(encoding='utf-8')
         portal_source = Path('core/static/miniapp/portal.js').read_text(encoding='utf-8')
@@ -281,6 +298,11 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn("deps.openPortalLink(link.href || '')", source)
         self.assertIn('JBL visit photo', source)
         self.assertIn('Signed LAF document', source)
+        self.assertIn('form-grid final-review-grid', form)
+        self.assertIn('form-row form-row-wide', form)
+        self.assertIn('phone-action-field', form)
+        self.assertIn('<span>Call</span>', form)
+        self.assertIn("phoneDigits.startsWith('0')", form)
         self.assertNotIn('final-reason-code', submit)
         self.assertNotIn('final-conditions', submit)
 

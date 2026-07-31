@@ -26,8 +26,8 @@
     </div>
   {% endif %}
 {% else %}
-  <div class="empty-state">
-    <div class="es-icon">OK</div>
+  <div class="empty-state queue-empty-state">
+    <div class="es-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m5 12 4.2 4.2L19 6.5"/></svg></div>
     <div class="es-title">{{ empty_title }}</div>
     <div class="es-sub">{{ empty_sub }}</div>
   </div>

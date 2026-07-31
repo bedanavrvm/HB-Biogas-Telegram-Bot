@@ -599,25 +599,28 @@
     const decisionOptions = state().metaFinalDecisions.filter(decision => !['Under Review', 'Approved with Conditions'].includes(decision)).map(decision =>
       `<option value="${deps.escapeHtml(decision)}"${farmer.final_decision === decision ? ' selected' : ''}>${deps.escapeHtml(decision)}</option>`
     ).join('');
-    const phone = String(farmer.primary_phone || '').replace(/[^0-9+]/g, '');
+    const phoneDigits = String(farmer.primary_phone || '').replace(/\D/g, '');
+    const phone = phoneDigits.startsWith('0')
+      ? `254${phoneDigits.slice(1)}`
+      : phoneDigits;
     return `
-      <div class="form-section">
+      <div class="form-section form-grid final-review-grid">
         <div class="form-row">
           <label>Client Phone</label>
-          <div style="display:flex;gap:8px;align-items:center;width:100%;">
-            <input type="tel" value="${deps.escapeHtml(farmer.primary_phone || '')}" readonly style="flex:1;">
-            ${phone ? `<a class="phone-call-button" href="tel:+${phone.replace(/^\+/, '')}" aria-label="Call client"><i data-lucide="phone"></i></a>` : ''}
+          <div class="phone-action-field">
+            <input type="tel" value="${deps.escapeHtml(farmer.primary_phone || '')}" readonly>
+            ${phone ? `<a class="phone-call-button" href="tel:+${phone}" aria-label="Call ${deps.escapeHtml(farmer.primary_phone || 'client')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.77.63 2.6a2 2 0 0 1-.45 2.11L8.02 9.7a16 16 0 0 0 6.28 6.28l1.27-1.27a2 2 0 0 1 2.11-.45c.83.3 1.7.51 2.6.63A2 2 0 0 1 22 16.92Z"/></svg><span>Call</span></a>` : ''}
           </div>
         </div>
         <div class="form-row"><label>Final Decision</label><select id="final-decision"><option value="">- Select -</option>${decisionOptions}</select></div>
-        ${hasCapability('portal.jbl_media.view') ? `<div class="form-row">
+        ${hasCapability('portal.jbl_media.view') ? `<div class="form-row form-row-wide">
           <label>Client media</label>
           <button type="button" class="secondary" id="btn-view-client-media">View client media</button>
           <div id="final-client-media" class="media-links client-media-links" hidden></div>
         </div>` : ''}
         <div class="form-row"><label>Repayment Dates</label><input type="text" id="final-repayment-date" placeholder="e.g. 10TH" value="${deps.escapeHtml(farmer.repayment_date || '')}"></div>
         <div class="form-row"><label>Tenor</label><input type="text" id="final-repayment-tenor" placeholder="e.g. 6 months" value="${deps.escapeHtml(farmer.repayment_tenor || '')}"></div>
-        <div class="form-row"><label>After-call Comments</label><textarea id="final-comment" rows="4" placeholder="Summarize the call and decision...">${deps.escapeHtml(farmer.final_decision_comment || '')}</textarea></div>
+        <div class="form-row form-row-wide"><label>After-call Comments</label><textarea id="final-comment" rows="4" placeholder="Summarize the call and decision...">${deps.escapeHtml(farmer.final_decision_comment || '')}</textarea></div>
       </div>
       ${farmer.jbl_visit_comment ? `<div class="info-row"><span class="ir-label">BRO Comment</span><span class="ir-value">${deps.escapeHtml(farmer.jbl_visit_comment)}</span></div>` : ''}
     `;
