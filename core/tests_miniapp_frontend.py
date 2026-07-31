@@ -84,14 +84,14 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn("return 'case_history'", source)
         self.assertContains(response, 'miniapp/miniapp-nav.js?v=8')
 
-    def test_miniapp_navigation_recovers_viewport_after_file_picker_return(self):
-        navigation_source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
+    def test_portal_sheets_use_a_stable_overlay_viewport_after_file_picker_return(self):
         portal_css = Path('core/static/miniapp/portal.css').read_text(encoding='utf-8')
 
-        self.assertIn('syncViewportHeight', navigation_source)
-        self.assertIn('visibilitychange', navigation_source)
-        self.assertIn('viewportChanged', navigation_source)
-        self.assertIn('var(--miniapp-viewport-height, 100dvh)', portal_css)
+        self.assertIn('inset: 0 auto auto 0', portal_css)
+        self.assertIn('height: 100vh', portal_css)
+        self.assertIn('.sheet-panel {', portal_css)
+        self.assertIn('height: 100%;', portal_css)
+        self.assertNotIn('--miniapp-viewport-height', portal_css)
 
     def test_portal_helpers_expose_pure_ui_primitives(self):
         source = Path('core/static/miniapp/portal_helpers.js').read_text(encoding='utf-8')

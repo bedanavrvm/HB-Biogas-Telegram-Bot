@@ -20,8 +20,10 @@ from django.utils import timezone
 
 from core.models import AccessGrant, ComplianceAuditEvent, GroupSheetConfiguration, InvoiceUploadBatch, JawabuFarmerMaster, JawabuMediaAccessEvent, JawabuPipelineEvent, LiveSheetRecordChange, MediaAttachment, ParsedInvoice, PaymentDocument, PortalCaseWorkspace, RequisitionBatch, UserProfile, WorkflowRoleCapability
 from core.services.jawabu_pipeline import (
+    append_jbl_media_links,
     assign_order,
     all_cases,
+    complete_jbl_visit,
     credit_queue,
     deferred_queue,
     farmer_to_card,
@@ -348,6 +350,72 @@ class JblPipelineServiceTestCase(TestCase):
         change = LiveSheetRecordChange.objects.get(sheet_id='internal-orders-sheet')
         self.assertEqual(change.changes['DEPOSIT / HB']['after'], 60000)
         self.assertEqual(change.changes['DEPOSIT / JBL']['after'], 13500.5)
+
+    def test_forward_visit_requires_missing_evidence_before_drive_upload(self):
+        """A missing multipart category must never leave an orphaned upload."""
+        laf = SimpleUploadedFile('laf.pdf', b'x' * 5000, content_type='application/pdf')
+
+        with patch('core.services.jawabu_pipeline.append_jbl_media_uploads') as mock_upload:
+            ok, error, result = complete_jbl_visit(
+                self.farmer_stage1,
+                categorized_files={'LAF': [laf]},
+                visit_date=date(2026, 6, 28),
+                officer='Officer Joe',
+                visit_status='Awaiting Analysis',
+                latitude=-1.2921,
+                longitude=36.8219,
+                request_id='visit-missing-photo-001',
+                expected_revision=self.farmer_stage1.workflow_revision,
+            )
+
+        self.assertFalse(ok)
+        self.assertIn('JBL visit photo', error)
+        self.assertFalse(result['evidence_saved'])
+        self.assertEqual(result['missing_evidence'], ['JBL_VISIT_PHOTO'])
+        mock_upload.assert_not_called()
+
+    def test_new_jbl_evidence_is_linked_to_the_case_before_visit_guard(self):
+        """A stored case-reference upload must satisfy the case evidence guard."""
+        from core.models import MediaAttachment
+        from core.services.order_approval import hash_uploaded_file
+
+        laf = SimpleUploadedFile('laf.pdf', b'x' * 5000, content_type='application/pdf')
+        content_hash, _size = hash_uploaded_file(laf)
+        attachment = MediaAttachment.objects.create(
+            group_id=self.config.group_id,
+            business_key_type='case_reference',
+            business_key_value=f'case-{self.farmer_stage1.pk}',
+            file_type='LAF',
+            original_filename='laf.pdf',
+            content_hash=content_hash,
+            drive_url='https://drive.example/laf',
+            upload_status='success',
+        )
+        uploaded = SimpleNamespace(
+            links=['https://drive.example/laf'],
+            stored_count=1,
+            skipped_count=0,
+            warnings=[],
+        )
+        group_config = SimpleNamespace(group_id=self.config.group_id)
+
+        with (
+            patch('core.services.jawabu_pipeline._jawabu_group_config', return_value=group_config),
+            patch('core.services.order_approval.store_uploaded_files_for_order', return_value=uploaded),
+            patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet', return_value=True),
+            patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet', return_value=True),
+        ):
+            ok, error, result = append_jbl_media_links(
+                self.farmer_stage1,
+                uploaded_files=[laf],
+                sender='Officer Joe',
+                media_category='LAF',
+            )
+
+        self.assertTrue(ok, error)
+        self.assertEqual(result['stored_count'], 1)
+        attachment.refresh_from_db()
+        self.assertEqual(attachment.jawabu_farmer_id, self.farmer_stage1.id)
 
     @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')

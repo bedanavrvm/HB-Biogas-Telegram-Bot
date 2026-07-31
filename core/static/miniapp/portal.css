@@ -447,7 +447,9 @@ body.portal-compact-cards .farmer-card .badge { padding: 2px 6px; font-size: 10p
 .sheet-overlay {
   display: none;
   position: fixed;
-  inset: 0;
+  inset: 0 auto auto 0;
+  width: 100vw;
+  height: 100vh;
   z-index: 200;
   background: rgba(0,0,0,0.35);
   align-items: stretch;
@@ -466,7 +468,8 @@ body.portal-compact-cards .farmer-card .badge { padding: 2px 6px; font-size: 10p
 
 .sheet-panel {
   width: 100%;
-  height: var(--miniapp-viewport-height, 100dvh);
+  height: 100%;
+  min-height: 0;
   max-height: none;
   background: var(--bg-surface);
   border-radius: 0;

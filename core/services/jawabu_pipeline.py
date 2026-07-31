@@ -30,6 +30,7 @@ JBL_MEDIA_CATEGORIES = {
     'LAF': 'LAF document',
     'JBL_VISIT_PHOTO': 'JBL visit photo',
 }
+JBL_FORWARD_EVIDENCE_CATEGORIES = ('LAF', 'JBL_VISIT_PHOTO')
 JBL_SCHEDULING_STATUS = 'JBL to Schedule Visit'
 
 logger = logging.getLogger(__name__)
@@ -557,6 +558,29 @@ def complete_jbl_visit(
         validation_error = _validate_jbl_media_files(files, category)
         if validation_error:
             return False, validation_error, {'evidence_saved': False}
+
+    # A forward visit needs both pieces of evidence.  Check the request and
+    # the case's already-linked evidence before touching Drive: an Android
+    # file picker can retain a visual filename while omitting that file from
+    # the multipart request after an activity switch.
+    if visit_status in JBL_FORWARD_STATUSES:
+        from core.services.jawabu_approvals import visit_evidence_status
+
+        existing_evidence = visit_evidence_status(farmer)
+        missing_categories = [
+            category for category in JBL_FORWARD_EVIDENCE_CATEGORIES
+            if not categories.get(category) and not existing_evidence.get(category)
+        ]
+        if missing_categories:
+            missing_labels = ', '.join(JBL_MEDIA_CATEGORIES[category] for category in missing_categories)
+            return False, (
+                'Select the required visit evidence in this submission before forwarding: '
+                f'{missing_labels}. Nothing has been uploaded.'
+            ), {
+                'evidence_saved': False,
+                'visit_logged': False,
+                'missing_evidence': missing_categories,
+            }
 
     ok, error, already_completed = preflight_jbl_visit_completion(
         farmer,
@@ -1105,7 +1129,7 @@ def append_jbl_media_links(
         from core.models import MediaAttachment
         linked_rows = MediaAttachment.objects.filter(
             jawabu_farmer__isnull=True,
-            business_key_type='id_number',
+            business_key_type='case_reference',
             business_key_value=storage_key,
             file_type=media_category,
             upload_status='success',

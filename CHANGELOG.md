@@ -11,6 +11,12 @@
 - Portal JBL visits now validate the form, LAF document and JBL visit photo in
   one retry-safe multipart completion request. Cached two-step upload/log
   clients receive an upgrade message instead of creating orphaned evidence.
+- New LAF and photo uploads now attach to the canonical case using the same
+  case-reference key used during storage. A forward visit missing either
+  required multipart category is rejected before any Drive upload begins.
+- Portal detail sheets now use the stable layout viewport rather than a
+  JavaScript-measured dynamic height, preventing Android's file-picker return
+  from leaving a blank area below the JBL visit action bar.
 - FarmUp imports can label an HBG-visited, unvisited case `JBL to Schedule
   Visit`; the conservative backfill command defaults to a dry run and never
   writes to Sheets or Drive.
