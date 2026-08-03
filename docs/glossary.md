@@ -42,6 +42,7 @@ respective service modules.
 | Django Superuser Access Grant override | The audited, immediate technical-admin path for an active Django `is_superuser` to create, edit, activate, deactivate, or delete a staff `AccessGrant`. It never grants that Superuser Mini App access by itself and does not extend to capability-matrix or document-signoff policy changes. |
 | TAT configuration proposal | A reasoned, snapshot-based maker-checker request for TAT targets, future holidays, or escalation rules. IT proposes; a different authorised TAT Business Admin reviews it. |
 | Stage target snapshot | The TAT target captured when a case enters a stage. It protects an in-flight SLA calculation from later target changes. |
+| Portal report definition | An IT-owned, versioned configuration that can select only fields and chart operations from the server-owned Portal catalogue. It runs against live canonical Django case data and never permits arbitrary SQL, ORM paths, cross-workflow identity matching, Drive/Sheets output, or report-source snapshots. |
 
 ## Workflow keys and role codes
 
@@ -65,7 +66,7 @@ or template.
 
 | Prefix | Scope | Examples |
 |---|---|---|
-| `portal.*` | Jawabu Portal | `portal.dashboard.view`, `portal.jbl_visit.write`, `portal.payment.review`, `portal.documents.regenerate`, `portal.documents.sign`, `portal.imports.view`, `portal.workspace.manage` |
+| `portal.*` | Jawabu Portal | `portal.dashboard.view`, `portal.jbl_visit.write`, `portal.payment.review`, `portal.documents.regenerate`, `portal.documents.sign`, `portal.imports.view`, `portal.workspace.manage`, `portal.reports.view`, `portal.reports.manage` |
 | `complaint.*` | Complaint Cases | `complaint.queue.view`, `complaint.case.create`, `complaint.case.update`, `complaint.case.manage` |
 | `tat.*` | TAT Tracker | `tat.home.view`, `tat.case.create`, `tat.case.correct`, `tat.stage.<stage>.update` |
 | `spin.*` | SPIN / Credit | `spin.request.view`, `spin.request.create`, `spin.request.review`, `spin.request.complete` |

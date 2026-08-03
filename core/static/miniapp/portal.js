@@ -13,6 +13,7 @@
   const portalInvoices = window.PortalMiniAppInvoices || {};
   const portalPayments = window.PortalMiniAppPayments || {};
   const portalImports = window.PortalMiniAppImports || {};
+  const portalReports = window.PortalMiniAppReports || {};
   const tg = utils.initTelegram ? utils.initTelegram({ closingConfirmation: false }) : window.Telegram?.WebApp;
   if (tg && !utils.initTelegram) {
     tg.ready();
@@ -84,6 +85,7 @@
     payments: 'portal.payment.view',
     history: 'portal.documents.view',
     imports: 'portal.imports.view',
+    reports: 'portal.reports.view',
     settings: null,
   };
 
@@ -1209,6 +1211,10 @@
     else if (page === 'case_history') loadCaseHistory();
     else if (page === 'payments' && portalPayments.load) portalPayments.load();
     else if (page === 'imports' && portalImports.load) portalImports.load();
+    else if (page === 'reports' && portalReports.load) portalReports.load({
+      tg,
+      canManage: hasCapability('portal.reports.manage'),
+    });
     else if (page === 'settings') loadPortalSettings(true);
     else if (queueConfig[page]) loadQueue(page, 1);
   }

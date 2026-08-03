@@ -21,6 +21,7 @@ PORTAL_NAV_ITEMS = (
     ('payments', 'Payments', 'banknote', 'portal.payment.view'),
     ('history', 'Documents', 'history', 'portal.documents.view'),
     ('imports', 'Imports', 'upload', 'portal.imports.view'),
+    ('reports', 'Reports', 'chart-no-axes-combined', 'portal.reports.view'),
 )
 
 # Personal preferences are available to every already-authorized Portal user.

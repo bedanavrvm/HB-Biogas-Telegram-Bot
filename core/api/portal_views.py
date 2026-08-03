@@ -2099,6 +2099,216 @@ def portal_import_archive_attempt(request):
 
 # ── Stage 2: JBL Visit queue ──────────────────────────────────────────────────
 
+# ── Controlled Portal reporting ────────────────────────────────────────────
+
+def _portal_report_or_404(report_id: str):
+    """Fetch a Portal report with its bounded chart configuration."""
+    from core.models import PortalReportDefinition
+
+    return PortalReportDefinition.objects.prefetch_related('charts').filter(pk=report_id).first()
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["GET"])
+def portal_reports_catalogue(request):
+    """Return the server-owned field catalogue for the IT reporting builder."""
+    access_error = _portal_read_access_error(request, capability='portal.reports.view')
+    if access_error:
+        return access_error
+    from core.services.portal_reporting import catalogue_payload
+
+    return JsonResponse({'ok': True, 'catalogue': catalogue_payload()})
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["GET"])
+def portal_reporting_relationships(request):
+    """Expose the non-sensitive relationship map to IT; it never returns rows."""
+    access_error = _portal_read_access_error(request, capability='portal.reports.manage')
+    if access_error:
+        return access_error
+    from core.services.reporting_relationships import portal_relationship_summary
+
+    return JsonResponse({'ok': True, 'relationship_summary': portal_relationship_summary()})
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["GET", "POST"])
+def portal_reports(request):
+    """List IT report definitions or create one from the safe catalogue."""
+    capability = 'portal.reports.manage' if request.method == 'POST' else 'portal.reports.view'
+    access_error = _portal_read_access_error(request, capability=capability)
+    if access_error:
+        return access_error
+    from core.models import PortalReportDefinition
+    from core.services.portal_reporting import PortalReportingError, create_definition, definition_payload
+
+    if request.method == 'GET':
+        reports = PortalReportDefinition.objects.filter(
+            source_key=PortalReportDefinition.SOURCE_PORTAL_CASES,
+            is_active=True,
+        ).prefetch_related('charts').order_by('title')
+        return JsonResponse({'ok': True, 'reports': [definition_payload(item) for item in reports]})
+
+    payload = _portal_request_data(request)
+    try:
+        definition, replayed = create_definition(
+            payload=payload,
+            actor=getattr(request, 'portal_user', None),
+            request_id=_portal_request_id(request, payload),
+        )
+    except PortalReportingError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    except Exception:
+        logger.exception('Could not create Portal report request_id=%s', getattr(request, 'portal_request_id', ''))
+        return JsonResponse({'ok': False, 'error': 'The report definition could not be saved. Please retry.'}, status=500)
+    return JsonResponse({
+        'ok': True,
+        'replayed': replayed,
+        'report': definition_payload(definition),
+        'message': 'Report definition saved.' if not replayed else 'This report request was already saved.',
+    }, status=200 if replayed else 201)
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["GET", "POST"])
+def portal_report_detail(request, report_id: str):
+    """Read or version-update one IT-owned Portal report definition."""
+    capability = 'portal.reports.manage' if request.method == 'POST' else 'portal.reports.view'
+    access_error = _portal_read_access_error(request, capability=capability)
+    if access_error:
+        return access_error
+    from core.services.portal_reporting import PortalReportingError, definition_payload, update_definition
+
+    if request.method == 'GET':
+        definition = _portal_report_or_404(report_id)
+        if definition is None or not definition.is_active:
+            return JsonResponse({'ok': False, 'error': 'This report definition is unavailable.'}, status=404)
+        return JsonResponse({'ok': True, 'report': definition_payload(definition)})
+
+    payload = _portal_request_data(request)
+    try:
+        definition, replayed = update_definition(
+            definition_id=report_id,
+            payload=payload,
+            actor=getattr(request, 'portal_user', None),
+            request_id=_portal_request_id(request, payload),
+        )
+    except PortalReportingError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=409 if 'changed while' in str(exc) else 400)
+    except Exception:
+        logger.exception('Could not update Portal report=%s request_id=%s', report_id, getattr(request, 'portal_request_id', ''))
+        return JsonResponse({'ok': False, 'error': 'The report definition could not be updated. Please retry.'}, status=500)
+    return JsonResponse({
+        'ok': True,
+        'replayed': replayed,
+        'report': definition_payload(definition),
+        'message': 'Report definition saved.' if not replayed else 'This report request was already saved.',
+    })
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["POST"])
+def portal_report_archive(request, report_id: str):
+    """Archive, rather than delete, a report definition and its audit trail."""
+    access_error = _portal_read_access_error(request, capability='portal.reports.manage')
+    if access_error:
+        return access_error
+    from core.services.portal_reporting import PortalReportingError, archive_definition, definition_payload
+
+    payload = _portal_request_data(request)
+    try:
+        definition, replayed = archive_definition(
+            definition_id=report_id,
+            version=payload.get('version'),
+            actor=getattr(request, 'portal_user', None),
+            request_id=_portal_request_id(request, payload),
+        )
+    except PortalReportingError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=409 if 'changed while' in str(exc) else 400)
+    return JsonResponse({
+        'ok': True, 'replayed': replayed, 'report': definition_payload(definition),
+        'message': 'Report archived.' if not replayed else 'This archive request was already applied.',
+    })
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["POST"])
+def portal_report_run(request, report_id: str):
+    """Run a live, scoped report. Only the access audit entry is written."""
+    access_error = _portal_read_access_error(request, capability='portal.reports.view')
+    if access_error:
+        return access_error
+    from core.services.portal_reporting import PortalReportingError, record_run, run_definition
+
+    definition = _portal_report_or_404(report_id)
+    if definition is None:
+        return JsonResponse({'ok': False, 'error': 'This report definition is unavailable.'}, status=404)
+    payload = _portal_request_data(request)
+    try:
+        result = run_definition(
+            definition=definition,
+            user=getattr(request, 'portal_user', None),
+            access=getattr(request, 'portal_access', None),
+            page=payload.get('page', 1),
+        )
+        record_run(
+            definition=definition,
+            actor=getattr(request, 'portal_user', None),
+            request_id=_portal_request_id(request, payload),
+            result_count=result['total_rows'],
+        )
+    except PortalReportingError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    except Exception:
+        logger.exception('Could not run Portal report=%s request_id=%s', report_id, getattr(request, 'portal_request_id', ''))
+        return JsonResponse({'ok': False, 'error': 'The report could not be run. Please retry.'}, status=500)
+    return JsonResponse({'ok': True, 'result': result})
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["POST"])
+def portal_report_export(request, report_id: str):
+    """Export the same scoped, live report to XLSX; no PDF/print path in v1."""
+    access_error = _portal_read_access_error(request, capability='portal.reports.view')
+    if access_error:
+        return access_error
+    from core.services.portal_reporting import PortalReportingError, export_xlsx, record_run
+
+    definition = _portal_report_or_404(report_id)
+    if definition is None:
+        return JsonResponse({'ok': False, 'error': 'This report definition is unavailable.'}, status=404)
+    payload = _portal_request_data(request)
+    try:
+        workbook = export_xlsx(
+            definition=definition,
+            user=getattr(request, 'portal_user', None),
+            access=getattr(request, 'portal_access', None),
+        )
+        record_run(
+            definition=definition,
+            actor=getattr(request, 'portal_user', None),
+            request_id=_portal_request_id(request, payload),
+            exported=True,
+        )
+    except PortalReportingError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    except Exception:
+        logger.exception('Could not export Portal report=%s request_id=%s', report_id, getattr(request, 'portal_request_id', ''))
+        return JsonResponse({'ok': False, 'error': 'The report could not be exported. Please retry.'}, status=500)
+    filename = re.sub(r'[^a-z0-9]+', '-', definition.title.casefold()).strip('-') or 'portal-report'
+    response = HttpResponse(workbook, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = f'attachment; filename="{filename}.xlsx"'
+    return response
+
+
 @csrf_exempt
 @require_http_methods(["GET"])
 def portal_jbl_queue(request):

@@ -396,6 +396,20 @@
     <section id="portal-import-review" class="portal-import-review" hidden aria-live="polite"></section>
   </section>
 
+  <section id="page-reports" class="page{% if active_screen == 'reports' %} active{% endif %}" data-required-capability="portal.reports.view">
+    <header>
+      <h1>Reports</h1>
+      <p class="meta">IT-only live reports from controlled Portal case fields. Reports never write to customer records.</p>
+    </header>
+    <section class="portal-report-notice" role="note">
+      <strong>Controlled reporting</strong>
+      <span>Use approved fields, filters, and chart types only. TAT, SPIN, Complaint Case, media, GPS, comments, and Drive data are not joined or exposed here.</span>
+    </section>
+    <div id="portal-reports-root" class="portal-reports-root" aria-live="polite">
+      <div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading report definitions...</div></div>
+    </div>
+  </section>
+
   <section id="page-settings" class="page{% if active_screen == 'settings' %} active{% endif %}">
     <header class="portal-settings-hero"><span class="settings-eyebrow">MY PORTAL</span><h1>Settings</h1><p class="meta">Your account, work defaults, and the operational controls your role is authorised to use.</p></header>
     <section id="portal-settings-account" class="portal-settings-card miniapp-settings-account" aria-live="polite" hidden></section>

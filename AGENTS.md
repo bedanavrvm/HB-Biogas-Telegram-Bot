@@ -56,6 +56,7 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **Mini App** | A Telegram Web App (mobile-first web UI launched inside Telegram) backed by Django templates/static assets under `core/templates/*` and `core/static/miniapp/`. |
 | **`initData`** | Telegram's signed payload proving a Mini App session belongs to a specific Telegram user; must be HMAC-verified server-side before trust. |
 | **Portal** | The aggregated staff-facing view across pipeline/workflow data, served by `core/api/portal_views.py`. |
+| **Portal report** | An IT-only, catalogue-constrained live report over canonical Portal cases. It is not a generic SQL/ORM builder and has no cross-workflow identity join. |
 | **Head of Rural** | The Portal label for the stable scoped Mini App role (`BUSINESS_ADMIN`), responsible for final/payment approvals. It is distinct from Django `is_staff`. |
 | **Operations Administrator** | A scoped Portal role (`OPERATIONS_ADMIN`) for operational processing such as orders, invoices, and payment preparation; it does not grant Head of Rural approvals or JBL visit logging. |
 | **Django Superuser** | Active `is_superuser` is the explicitly approved technical break-glass override across Mini App capabilities and scopes. It is auditable and is not the same staff business role as Head of Rural or Operations Administrator. |
@@ -136,6 +137,8 @@ Key modules:
 - `workflow_escalations.py` — scoped read models for current in-app escalation context
 - `portal_workspace.py` — retained but currently IT-restricted Portal saved views, pins, recents, and their bounded retention
 - `portal_maintenance.py` — IT-controlled Portal read-only maintenance state and audit evidence
+- `portal_reporting.py` — IT-only, catalogue-constrained live Portal reports, chart aggregates, XLSX exports, and reporting audit events
+- `reporting_relationships.py` — read-only model-relationship inventory used to govern future report-source expansion; it never creates cross-workflow customer joins
 - `workflow_capabilities.py` — centrally defined Mini App capabilities and role policy resolution
 - `miniapp_requests.py` — shared Mini App retry-key compatibility and strict-mode policy
 - `miniapp_settings.py` — typed personal preferences and maker-checker TAT configuration proposals
@@ -165,6 +168,11 @@ Static assets:
 
 - `core/static/miniapp/`
 
+`core/static/miniapp/vendor-chartjs-4.5.1.umd.min.js` is intentionally vendored
+for the Portal reporting workspace. Chart.js 4.5.1 provides responsive charts
+without a build step; a runtime CDN was rejected for unreliable field/offline
+connectivity, and hand-written canvas charting was rejected for maintenance risk.
+
 The Mini Apps use Django templates and mostly vanilla JavaScript. Preserve Telegram Web App compatibility and mobile-first behaviour.
 
 ### Tests
@@ -180,6 +188,7 @@ The Mini Apps use Django templates and mostly vanilla JavaScript. Preserve Teleg
 - `core/test_data_quality_simple.py`
 - `core/tests_reliability.py`
 - `core/tests_portal_approval_controls.py`
+- `core/tests_portal_reporting.py`
 
 - `core/tests_portal_imports.py`
 
@@ -576,7 +585,7 @@ Use this table to locate the likely change surface for a given workflow, and wha
 | **Complaint/case ingestion** | `core/api/views.py`, `services/parser.py`, `services/deduplication.py`, `services/case_updates.py`, `services/sheets.py`, `services/sheet_sync.py`, `core/models.py`, `core/tests.py`, `core/tests_data_quality.py` | Raw-message audit history, deduplication, group context, bot-owned vs. staff-owned sheet fields |
 | **Complaint Cases Mini App** | `core/api/complaint_case_views.py`, `services/complaint_cases.py`, `templates/complaint_cases/`, `static/miniapp/complaint_cases.*`, `core/tests_complaint_cases.py` | Verified Telegram identity plus named group staff roles, group-scoped reads/writes, append-only case/evidence records, idempotent updates, and Drive failure metadata |
 | **Group/workflow configuration** | `services/group_config.py`, `services/workflow_presets.py`, `services/workflow_capabilities.py`, `services/access_control.py`, `services/telegram_command_menu.py`, `core/models.py`, `core/admin.py`, `core/tests_pipeline.py`, `core/tests_workflow_capabilities.py` | Database-managed group configuration and Mini App role capability policy; permanent policy changes require independent approval, while Django Superuser Access Grant overrides remain immediate, audit-logged, and policy-versioned |
-| **Jawabu/FCA pipeline** | `services/jawabu.py`, `services/jawabu_master.py`, `services/jawabu_pipeline.py`, `services/fca.py`, `services/portal_workspace.py`, `services/portal_maintenance.py`, `core/api/views.py`, `core/api/portal_views.py`, `templates/jawabu_farmers/`, `templates/fca_review/`, `templates/portal/`, `static/miniapp/portal.*`, `core/tests_pipeline.py` | Controlled state transitions, atomic JBL visit completion with evidence, decision history, actor/timestamp metadata, and private workspace data that never expands live case access |
+| **Jawabu/FCA pipeline** | `services/jawabu.py`, `services/jawabu_master.py`, `services/jawabu_pipeline.py`, `services/fca.py`, `services/portal_workspace.py`, `services/portal_maintenance.py`, `services/portal_reporting.py`, `services/reporting_relationships.py`, `core/api/views.py`, `core/api/portal_views.py`, `templates/jawabu_farmers/`, `templates/fca_review/`, `templates/portal/`, `static/miniapp/portal.*`, `core/tests_pipeline.py`, `core/tests_portal_reporting.py` | Controlled state transitions, atomic JBL visit completion with evidence, decision history, actor/timestamp metadata, private workspace data that never expands live case access, and IT-only reports built only from the safe server-owned catalogue |
 | **Jawabu customer data quality** | `services/jawabu_customer_quality.py`, `services/jawabu_data_quality.py`, `services/jawabu_validation.py`, `services/system_export.py`, `core/tests_system_export.py`, `core/tests_jawabu_data_quality.py` | Exact identifier matching only, review-only name candidates, append-only provenance, controlled branches/counties/products, and no Sheet-originated overwrite |
 | **Requisitions and invoices** | `services/requisition.py`, `services/invoice_parser.py`, `services/document_signoffs.py`, `core/api/portal_views.py`, `core/models.py`, requisition templates/workbooks, `core/tests_pipeline.py` | Money handling, order numbers, filenames, generated workbook contents, physical signed-scan/source-hash binding, download authorization, idempotency |
 | **Order approval** | `services/order_approval.py`, `core/api/views.py`, `templates/order_approval/`, `services/storage.py`, `core/models.py`, `core/tests_order_approval.py`, `order_approval_apps_script.gs` | Telegram authentication, lookup/suggestion APIs, attachment limits, duplicate submissions, media storage failures, sheet sync |

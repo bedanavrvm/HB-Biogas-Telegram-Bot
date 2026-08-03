@@ -1,5 +1,12 @@
 # Changelog
 
+## Controlled Portal reporting workspace — 03-August-2026
+
+- Added an **IT-only Reports** screen in the Portal. IT can create bounded live case reports from a reviewed field catalogue, apply validated filters/order, add constrained bar/doughnut/line charts, preview results, and export an XLSX workbook. No report operation writes customer, workflow, Google Sheets, or Google Drive data.
+- Added a read-only relationship-inventory command, `python manage.py inspect_reporting_relationships --json`, to make model relationships visible before a future report source is approved. TAT, SPIN, complaint, raw-message, GPS, media, Drive, and audit payload data remain excluded from this first release.
+
+  Migration note: `core.0099_portal_reporting` is accepted for merge and local/staging validation only. It is **not authorised for production application** until an explicit release approval. To undo a non-production application before use: `python manage.py migrate core 0098_portal_role_separation`. That removes only the report-definition/chart schema; the policy and compliance evidence remain append-only and must not be deleted or silently rewritten.
+
 ## Portal operational-role separation and technical break-glass — 03-August-2026
 
 - Portal **Business Administrator** is now labelled **Head of Rural** and is limited to final/payment review, approval delegation, and authorised document sign-off. A new **Operations Administrator** role owns operational credit, orders, invoices, payment preparation, and document regeneration, without JBL visit logging or Head of Rural review authority.

@@ -59,6 +59,10 @@ _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     # Imports stage raw operational files but deliberately cannot commit them
     # to customer records from the Portal in this release.
     CapabilityDefinition('portal.imports.view', 'jawabu_portal', 'Stage and review FarmUp and SysUp imports', 'Imports', _roles('IT')),
+    # Reports are intentionally an IT-only, catalogue-constrained view of the
+    # Portal case model. They never grant case, document, or media access.
+    CapabilityDefinition('portal.reports.view', 'jawabu_portal', 'View controlled Portal reports', 'Reporting', _roles('IT')),
+    CapabilityDefinition('portal.reports.manage', 'jawabu_portal', 'Create and manage controlled Portal reports', 'Reporting', _roles('IT'), ('portal.reports.view',)),
     CapabilityDefinition('portal.health.read', 'jawabu_portal', 'View workflow health', 'Operations', _roles('HB_STAFF', OPERATIONS_ADMIN_ROLE, 'IT', BUSINESS_ADMIN_ROLE)),
     CapabilityDefinition('portal.health.maintenance.manage', 'jawabu_portal', 'Set Portal maintenance mode', 'Operations', _roles('IT'), ('portal.health.read',)),
     CapabilityDefinition('portal.workspace.manage', 'jawabu_portal', 'Use private saved views, pins, and recents', 'IT support', _roles('IT'), ('portal.case.read',)),

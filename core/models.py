@@ -1985,6 +1985,111 @@ class PortalCaseWorkspace(models.Model):
         return f'{self.user}: {self.farmer}'
 
 
+class PortalReportDefinition(models.Model):
+    """An IT-owned, validated definition for a read-only Portal report.
+
+    The JSON configuration contains only keys from the server-owned Portal
+    reporting catalogue.  It intentionally never stores arbitrary ORM paths,
+    SQL, source data, Drive links, or customer snapshots.
+    """
+
+    SOURCE_PORTAL_CASES = 'portal_cases'
+    SOURCE_CHOICES = [
+        (SOURCE_PORTAL_CASES, 'Portal customer cases'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    title = models.CharField(max_length=100)
+    source_key = models.CharField(max_length=40, choices=SOURCE_CHOICES, default=SOURCE_PORTAL_CASES)
+    configuration = models.JSONField(default=dict, blank=True)
+    version = models.PositiveIntegerField(default=1)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='created_portal_report_definitions',
+    )
+    archived_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='archived_portal_report_definitions',
+    )
+    archived_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+    create_request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-is_active', 'title']
+        indexes = [
+            models.Index(fields=['is_active', 'title']),
+            models.Index(fields=['created_by', 'created_at']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['create_request_id'],
+                condition=~models.Q(create_request_id=''),
+                name='unique_portal_report_create_request',
+            ),
+        ]
+        verbose_name = 'Portal report definition'
+        verbose_name_plural = 'Portal report definitions'
+
+    def __str__(self):
+        return f'{self.title} (v{self.version})'
+
+
+class PortalReportChart(models.Model):
+    """A constrained chart attached to a Portal report definition."""
+
+    TYPE_BAR = 'bar'
+    TYPE_DOUGHNUT = 'doughnut'
+    TYPE_LINE = 'line'
+    TYPE_CHOICES = [
+        (TYPE_BAR, 'Bar chart'),
+        (TYPE_DOUGHNUT, 'Doughnut chart'),
+        (TYPE_LINE, 'Line chart'),
+    ]
+    AGGREGATE_COUNT = 'count'
+    AGGREGATE_SUM = 'sum'
+    AGGREGATE_AVERAGE = 'average'
+    AGGREGATE_CHOICES = [
+        (AGGREGATE_COUNT, 'Count cases'),
+        (AGGREGATE_SUM, 'Sum'),
+        (AGGREGATE_AVERAGE, 'Average'),
+    ]
+    BUCKET_NONE = ''
+    BUCKET_DAY = 'day'
+    BUCKET_MONTH = 'month'
+    DATE_BUCKET_CHOICES = [
+        (BUCKET_NONE, 'No date bucket'),
+        (BUCKET_DAY, 'Day'),
+        (BUCKET_MONTH, 'Month'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    definition = models.ForeignKey(
+        PortalReportDefinition, on_delete=models.CASCADE, related_name='charts',
+    )
+    title = models.CharField(max_length=100, blank=True, default='')
+    chart_type = models.CharField(max_length=16, choices=TYPE_CHOICES)
+    dimension_field = models.CharField(max_length=80)
+    metric_field = models.CharField(max_length=80, blank=True, default='')
+    aggregation = models.CharField(max_length=16, choices=AGGREGATE_CHOICES, default=AGGREGATE_COUNT)
+    date_bucket = models.CharField(max_length=12, choices=DATE_BUCKET_CHOICES, blank=True, default='')
+    position = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['position', 'created_at']
+        constraints = [
+            models.UniqueConstraint(fields=['definition', 'position'], name='unique_portal_report_chart_position'),
+        ]
+        verbose_name = 'Portal report chart'
+        verbose_name_plural = 'Portal report charts'
+
+    def __str__(self):
+        return self.title or f'{self.definition}: {self.get_chart_type_display()}'
+
+
 class AccessGrant(models.Model):
     """Workflow-specific scope supplementing Django Groups/Permissions."""
 

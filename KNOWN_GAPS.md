@@ -1,5 +1,17 @@
 # Known Gaps and Verified Workarounds
 
+## Portal reporting v1 scope
+
+The IT-only Portal reporting workspace is deliberately limited to live
+`JawabuFarmerMaster` case data, a server-owned field catalogue, named safe
+aggregate counts, in-app Chart.js charts, and local XLSX export. It is not an
+arbitrary query builder and currently has no cross-workflow customer joins,
+PDF/print output, Drive/Sheets publishing, scheduled delivery, saved data
+snapshots, or historical version-diff renderer. TAT, SPIN, Complaint Case and
+raw message models are listed through a read-only relationship inventory only;
+they must not be joined by name, phone, national ID, or another mutable identity
+until a separate ADR, data-owner rule, and release approval exist.
+
 ## Free Render publication reliability
 
 The free Render service has no durable worker process. Portal writes therefore

@@ -1572,6 +1572,63 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .portal-import-pager > div { display: flex; gap: 6px; }
 .portal-import-pager .btn { min-height: 34px; padding: 6px 9px; font-size: 10px; }
 @media (max-width: 520px) { .portal-import-upload-grid { grid-template-columns: 1fr; } .portal-import-stats { grid-template-columns: 1fr 1fr; } .portal-import-history-heading { align-items: flex-end; } }
+
+/* IT-only Portal reports. The builder deliberately reads like a compact
+   configuration form rather than a generic database/query console. */
+.portal-report-notice { display: grid; gap: 3px; margin: 10px 0; padding: 10px 11px; border: 1px solid color-mix(in srgb, var(--color-primary) 32%, var(--border-color)); border-radius: var(--radius-md); background: color-mix(in srgb, var(--color-primary) 7%, var(--bg-surface)); color: var(--text-primary); font-size: 11px; line-height: 1.35; }
+.portal-report-notice span { color: var(--text-muted); }
+.portal-reports-layout { display: grid; grid-template-columns: minmax(195px, 27%) minmax(0, 1fr); gap: 10px; align-items: start; }
+.portal-report-list, .portal-report-editor, .portal-report-results { border: 1px solid var(--border-color); border-radius: var(--radius-lg); background: var(--bg-surface); }
+.portal-report-list { display: grid; gap: 7px; padding: 10px; position: sticky; top: 66px; max-height: calc(100vh - 84px); overflow: auto; }
+.portal-report-list-heading, .portal-report-editor-heading, .portal-report-section-heading, .portal-report-results-heading, .portal-report-pager { display: flex; align-items: flex-start; justify-content: space-between; gap: 9px; }
+.portal-report-list-heading h2, .portal-report-editor h2, .portal-report-editor h3, .portal-report-results h2, .portal-report-results h3, .portal-report-list p { margin: 0; }
+.portal-report-list-heading h2, .portal-report-editor h2, .portal-report-results h2 { margin-top: 2px; color: var(--text-primary); font-size: 16px; }
+.portal-report-list-item { display: grid; gap: 3px; width: 100%; padding: 9px; border: 1px solid var(--border-color); border-radius: 9px; background: var(--bg-surface); color: var(--text-primary); text-align: left; cursor: pointer; }
+.portal-report-list-item.is-active { border-color: var(--color-primary); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 18%, transparent); background: color-mix(in srgb, var(--color-primary) 7%, var(--bg-surface)); }
+.portal-report-list-item strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.portal-report-list-item span, .portal-report-empty-copy, .portal-report-editor p, .portal-report-result-copy { color: var(--text-muted); font-size: 10px; line-height: 1.35; }
+.portal-report-editor { display: grid; gap: 13px; padding: 12px; }
+.portal-report-editor-heading > div { min-width: 0; }
+.portal-report-editor-heading p { margin: 3px 0 0; }
+.portal-report-title { display: grid; gap: 5px; color: var(--text-muted); font-size: 10px; font-weight: 800; text-transform: uppercase; }
+.portal-report-title input, .portal-report-filter-row input, .portal-report-filter-row select, .portal-report-chart-row input, .portal-report-chart-row select, .portal-report-ordering select { min-height: 38px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-surface); color: var(--text-primary); padding: 7px 8px; font: inherit; }
+.portal-report-field-catalog h3, .portal-report-section h3 { color: var(--text-primary); font-size: 13px; }
+.portal-report-field-catalog > p, .portal-report-section-heading p { margin: 3px 0 8px; color: var(--text-muted); font-size: 10px; line-height: 1.35; }
+.portal-report-field-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.portal-report-field-grid fieldset { min-width: 0; margin: 0; padding: 8px; border: 1px solid var(--border-color); border-radius: 9px; }
+.portal-report-field-grid legend { padding: 0 3px; color: var(--text-muted); font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.portal-report-field-grid label { display: flex; align-items: flex-start; gap: 6px; padding: 4px 0; color: var(--text-primary); font-size: 10px; line-height: 1.25; }
+.portal-report-field-grid input { flex: 0 0 auto; width: 16px; height: 16px; margin: 0; accent-color: var(--color-primary); }
+.portal-report-field-grid small { color: var(--text-muted); font-size: 8px; }
+.portal-report-section { display: grid; gap: 7px; padding-top: 10px; border-top: 1px solid var(--border-color); }
+.portal-report-section-heading { align-items: center; }
+.portal-report-filter-row, .portal-report-chart-row { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(110px, .7fr) minmax(140px, 1fr) auto; gap: 6px; align-items: center; }
+.portal-report-chart-row { grid-template-columns: minmax(120px, 1.2fr) repeat(4, minmax(98px, 1fr)) auto; }
+.portal-report-ordering > div { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(120px, .5fr); gap: 7px; }
+.portal-report-actions { display: flex; flex-wrap: wrap; gap: 7px; padding-top: 1px; }
+.portal-report-actions .btn { min-height: 40px; }
+.portal-report-data-boundary { border: 1px solid var(--border-color); border-radius: 9px; background: var(--bg-muted); color: var(--text-muted); font-size: 10px; line-height: 1.35; }
+.portal-report-data-boundary summary { min-height: 38px; display: flex; align-items: center; cursor: pointer; padding: 0 9px; color: var(--text-primary); font-size: 11px; font-weight: 750; }
+.portal-report-data-boundary p { margin: 0; padding: 0 9px 8px; }
+.portal-report-data-boundary p + p { padding-top: 0; }
+.portal-report-results { display: grid; gap: 10px; margin-top: 12px; padding: 12px; }
+.portal-report-results-heading p { margin: 3px 0 0; color: var(--text-muted); font-size: 10px; line-height: 1.35; }
+.portal-report-charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.portal-report-chart { min-width: 0; min-height: 240px; padding: 10px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-muted); }
+.portal-report-chart h3 { color: var(--text-primary); font-size: 12px; }
+.portal-report-chart p { margin: 3px 0 8px; color: var(--text-muted); font-size: 9px; }
+.portal-report-chart canvas { width: 100% !important; height: 194px !important; }
+.portal-report-table-wrap { overflow: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--border-color); border-radius: 9px; }
+.portal-report-table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 10px; }
+.portal-report-table th { position: sticky; top: 0; z-index: 1; background: var(--bg-muted); color: var(--text-primary); font-size: 9px; text-align: left; white-space: nowrap; }
+.portal-report-table th, .portal-report-table td { max-width: 240px; padding: 7px 8px; border-bottom: 1px solid var(--border-color); overflow-wrap: anywhere; vertical-align: top; }
+.portal-report-table td { color: var(--text-muted); }
+.portal-report-pager { align-items: center; color: var(--text-muted); font-size: 10px; }
+.portal-report-pager > div { display: flex; gap: 6px; }
+.portal-report-pager .btn { min-height: 34px; padding: 6px 9px; font-size: 10px; }
+.portal-report-placeholder { align-content: center; min-height: 230px; }
+@media (max-width: 760px) { .portal-reports-layout { grid-template-columns: 1fr; } .portal-report-list { position: static; max-height: none; } .portal-report-field-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .portal-report-filter-row, .portal-report-chart-row { grid-template-columns: 1fr 1fr; } .portal-report-filter-row input, .portal-report-chart-row input { grid-column: 1 / -1; } .portal-report-filter-row .btn, .portal-report-chart-row .btn { width: 100%; } .portal-report-charts { grid-template-columns: 1fr; } }
+@media (max-width: 420px) { .portal-report-field-grid, .portal-report-filter-row, .portal-report-chart-row, .portal-report-ordering > div { grid-template-columns: 1fr; } .portal-report-filter-row input, .portal-report-chart-row input { grid-column: auto; } .portal-report-pager { align-items: flex-start; flex-direction: column; } }
 @media print {
   body.printing-document * { visibility: hidden !important; }
   body.printing-document .print-active,
