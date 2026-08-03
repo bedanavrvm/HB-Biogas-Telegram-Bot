@@ -173,7 +173,7 @@ FARMERS_TO_MASTER_MAPPING = [
     },
     {
         'source_column': 'COMMENTS',
-        'master_column': 'Additional Comments',
+        'master_column': 'HBG Visit Comment',
         'field': 'comments',
         'confidence': 'medium',
         'notes': 'Cleaned as free text.',
@@ -218,7 +218,7 @@ MASTER_FIELD_HEADERS = {
     'lead_source': ['Lead Source'],
     'hb_sales_person': ['HB Sales Person'],
     'sign_date': ['HBG Visit Date'],
-    'comments': ['Additional Comments'],
+    'comments': ['HBG Visit Comment', 'HBG Comment'],
     # FarmUp actual receipts are the HomeBiogas deposit.  The JBL deposit is
     # owned by the later system export and must never be inferred from this
     # import field.
@@ -1091,7 +1091,10 @@ def cleaned_master_row_from_review(
         'hb_sales_person': clean_sales_person(row.get('HB Sales Person', '')),
         'sign_date': clean_date(row.get('HBG Visit Date', '')),
         'created_date': '',
-        'comments': clean_text(row.get('Additional Comments', '')),
+        # FarmUp comments describe the HBG visit itself.  The separate
+        # Additional Comments column is a backend-owned chronological JBL
+        # workflow history and must not be re-imported as fresh source data.
+        'comments': clean_text(row.get('HBG Visit Comment', '') or row.get('HBG Comment', '')),
         'duplicate_key': duplicate_key,
         'status': 'active',
         'cleaning_notes': clean_text(row.get('Cleaning Notes', '')),
@@ -1412,8 +1415,10 @@ def master_preview_row(cleaned: dict, source_name: str, source_row_number: int) 
         'Lead Source': cleaned.get('lead_source', ''),
         'HB Sales Person': cleaned.get('hb_sales_person', ''),
         'HBG Visit Date': cleaned.get('sign_date', ''),
-        'HBG Visit Comment': '',
-        'Additional Comments': cleaned.get('comments', ''),
+        'HBG Visit Comment': cleaned.get('comments', ''),
+        # Kept blank on initial intake; post-visit remarks are appended from
+        # JawabuCaseComment by the Portal publication path.
+        'Additional Comments': '',
         'Deposit Paid to HB': cleaned.get('actual_receipts', ''),
         'Installation Status': cleaned.get('installation_status', ''),
         'Order No.': '',

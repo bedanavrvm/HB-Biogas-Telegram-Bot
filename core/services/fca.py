@@ -17,6 +17,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from core.models import FcaImportRecord
+from core.services.jawabu_comments import master_comment_history, record_case_comment
 from core.services.order_approval import normalize_kenyan_phone, order_record_id_prefix
 from core.services.sheets import get_sheets_service
 
@@ -988,7 +989,7 @@ def sync_fcaup_records_to_master_data(group_config, records: list[FcaImportRecor
                 farmer.save()
                 logger.info("FCA sync: Updated existing database record for farmer %s", farmer.id)
             else:
-                JawabuFarmerMaster.objects.create(
+                farmer = JawabuFarmerMaster.objects.create(
                     customer_name=record.customer_name,
                     national_id=fields.get('id_number', ''),
                     primary_phone=record.primary_phone,
@@ -1002,6 +1003,23 @@ def sync_fcaup_records_to_master_data(group_config, records: list[FcaImportRecor
                     sign_date=visit_date,
                     status='active',
                 )
+
+            # FCA comments are human JBL-visit remarks.  Keep their immutable
+            # history in Django, then project that history (not just the latest
+            # FCA text) into the staff-facing Master Data register.
+            record_case_comment(
+                farmer=farmer,
+                stage_key='jbl_visit',
+                comment=record.fca_comment,
+                actor=record.sender,
+                request_id=f'fcaup:{record.id}',
+            )
+            set_header_value(
+                row_values,
+                header_lookup,
+                'Additional Comments',
+                master_comment_history(farmer),
+            )
             add_fcaup_master_index_row(existing, row_number, row_values, header_lookup)
             record.row_number = row_number
             record.import_status = 'imported'
@@ -1132,7 +1150,6 @@ def apply_fcaup_master_values(
     set_header_value(row_values, header_lookup, 'Jawabu Visit Date', fields.get('fca_visit_date'))
     set_header_value(row_values, header_lookup, 'JBL BRO', fields.get('jbl_officer'))
     set_header_value(row_values, header_lookup, 'Jawabu Comment After visit', fields.get('fca_decision'))
-    set_header_value(row_values, header_lookup, 'Additional Comments', fields.get('fca_comment'))
     set_header_value(row_values, header_lookup, 'Source Filename', source_record.source_filename)
     set_header_value(row_values, header_lookup, 'Source Row', fields.get('fca_source_row'))
     set_header_value(row_values, header_lookup, 'Import Status', 'fca_updated')

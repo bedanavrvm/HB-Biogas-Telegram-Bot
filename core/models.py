@@ -1444,6 +1444,56 @@ class JawabuPipelineEvent(models.Model):
         ]
 
 
+class JawabuCaseComment(models.Model):
+    """Immutable human-authored Portal remark projected to Master Data."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    farmer = models.ForeignKey(
+        JawabuFarmerMaster,
+        on_delete=models.PROTECT,
+        related_name='case_comments',
+    )
+    pipeline_event = models.ForeignKey(
+        JawabuPipelineEvent,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='case_comments',
+    )
+    stage_key = models.CharField(max_length=40, db_index=True)
+    comment = models.TextField()
+    actor = models.CharField(max_length=255, blank=True, default='')
+    actor_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='jawabu_case_comments',
+    )
+    role_code = models.CharField(max_length=64, blank=True, default='')
+    role_label = models.CharField(max_length=128, blank=True, default='')
+    request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    occurred_at = models.DateTimeField(default=timezone.now, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['occurred_at', 'created_at']
+        indexes = [
+            models.Index(fields=['farmer', 'occurred_at'], name='jawabu_comment_timeline_idx'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(comment=''),
+                name='jawabu_case_comment_not_empty',
+            ),
+            models.UniqueConstraint(
+                fields=['farmer', 'request_id'],
+                condition=~models.Q(request_id=''),
+                name='jawabu_unique_comment_request',
+            ),
+        ]
+
+
 class PortalMaintenanceState(models.Model):
     """Singleton operational mode for safe, staff-visible Portal maintenance."""
 

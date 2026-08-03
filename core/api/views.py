@@ -3087,7 +3087,7 @@ def _process_fcaup_command(
                 "Attach the agreed FCA Section A .xlsx workbook or a .zip containing FCA workbooks and send:\n"
                 "@bot /fcaup\n\n"
                 "The bot updates Master Data using ID NUMBER first, then PHONE. "
-                "STATUS writes to Jawabu Comment After visit; COMMENT writes to Additional Comments."
+                "STATUS writes to Jawabu Comment After visit; COMMENT is retained in the chronological case history."
             ),
         }
 

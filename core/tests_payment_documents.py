@@ -881,6 +881,9 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         final = PaymentDocument.objects.get(status='final')
         self.assertEqual(final.case_call_up_comments, {str(farmer.id): comment})
         self.assertEqual(final.call_up_comments, '')
+        case_comment = farmer.case_comments.get(stage_key='payment')
+        self.assertEqual(case_comment.role_label, 'Head of Rural')
+        self.assertEqual(case_comment.comment, comment)
         workbook = load_workbook(io.BytesIO(generate_payment_workbook(
             'ORDER-001', '107', farmer_ids=[str(farmer.id)],
             case_call_up_comments={str(farmer.id): comment},

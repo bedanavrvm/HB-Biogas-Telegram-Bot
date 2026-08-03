@@ -24,6 +24,7 @@ from django.db import transaction
 from django.db.models import F, Q
 
 from core.models import JawabuFarmerMaster, JawabuPipelineEvent
+from core.services.jawabu_comments import master_comment_history, record_case_comment
 from core.services.workflow_transitions import next_workflow_revision, validate_workflow_revision
 
 JBL_MEDIA_CATEGORIES = {
@@ -509,7 +510,7 @@ def log_jbl_visit(
             reason='JBL visit evidence or visit details were updated after approval.',
         )
     from core.services.jawabu_case360 import record_pipeline_event
-    record_pipeline_event(
+    event = record_pipeline_event(
         farmer, action='jbl_visit_completed', stage_key='jbl_visit', actor=sender or officer,
         request_id=request_id,
         new_values={
@@ -523,6 +524,16 @@ def log_jbl_visit(
         to_state=next_state,
         revision_before=revision_before,
         revision_after=revision_after,
+    )
+    record_case_comment(
+        farmer=farmer,
+        stage_key='jbl_visit',
+        comment=comment,
+        actor=sender or officer,
+        actor_user=actor_user,
+        request_id=request_id,
+        pipeline_event=event,
+        occurred_at=event.occurred_at,
     )
     logger.info(
         'JBL visit logged for farmer %s by %s: %s (coordinates: %s, %s)',
@@ -958,16 +969,31 @@ def set_final_decision(
         transaction.set_rollback(True)
         return False, str(exc)
     from core.services.jawabu_case360 import record_pipeline_event
-    record_pipeline_event(
+    event = record_pipeline_event(
         farmer, action='final_decision_recorded', stage_key='final_review', actor=sender,
         request_id=request_id,
-        old_values={'decision': old_decision}, new_values={'decision': final_decision, 'reason_code': reason_code},
+        old_values={'decision': old_decision},
+        new_values={
+            'decision': final_decision,
+            'reason_code': reason_code,
+            'comment': str(decision_comment or '').strip(),
+        },
         actor_user=actor_user,
         transition_code='jawabu.final_review.record_decision',
         from_state=from_state,
         to_state=next_state,
         revision_before=revision_before,
         revision_after=revision_after,
+    )
+    record_case_comment(
+        farmer=farmer,
+        stage_key='final_review',
+        comment=decision_comment,
+        actor=sender,
+        actor_user=actor_user,
+        request_id=request_id,
+        pipeline_event=event,
+        occurred_at=event.occurred_at,
     )
     logger.info(
         'Final decision %s set for farmer %s by %s',
@@ -1061,7 +1087,7 @@ def return_for_rework(
     )
     new_values = {'returned_to': target_state}
     farmer.save(update_fields=list(dict.fromkeys(update_fields)))
-    record_pipeline_event(
+    event = record_pipeline_event(
         farmer,
         action='returned_for_rework',
         stage_key=stage_key,
@@ -1076,6 +1102,16 @@ def return_for_rework(
         reason=reason,
         revision_before=revision_before,
         revision_after=revision_after,
+    )
+    record_case_comment(
+        farmer=farmer,
+        stage_key=stage_key,
+        comment=reason,
+        actor=sender,
+        actor_user=actor_user,
+        request_id=request_id,
+        pipeline_event=event,
+        occurred_at=event.occurred_at,
     )
     from core.services.portal_publication import reserve_farmer_publication
     reserve_farmer_publication(
@@ -1797,6 +1833,7 @@ def sync_farmer_to_master_sheet(
             'jbl_visit_status': (candidates('jbl_visit_status'), farmer.jbl_visit_status),
             'current_pipeline_state': (candidates('current_pipeline_state'), current_pipeline_state_label(farmer)),
             'jbl_visit_comment': (candidates('jbl_visit_comment'), farmer.jbl_visit_comment),
+            'case_comment_history': (candidates('case_comment_history'), master_comment_history(farmer)),
             'hbg_visit_comment': (candidates('hbg_visit_comment'), farmer.comments),
             'county': (candidates('county'), farmer.county),
             'sub_county': (candidates('sub_county'), farmer.sub_county),

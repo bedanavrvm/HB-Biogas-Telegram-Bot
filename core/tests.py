@@ -2189,7 +2189,8 @@ class FcaWorkflowServiceTest(TestCase):
         row = fake_sheet.values[4]
         self.assertEqual(row[4], '23-June-2026')
         self.assertEqual(row[6], 'Approved')
-        self.assertEqual(row[7], 'Customer needs 5k top-up')
+        self.assertIn('Customer needs 5k top-up', row[7])
+        self.assertIn('JBL Officer', row[7])
         self.assertNotIn('Ignored basis text', row[7])
         record.refresh_from_db()
         self.assertEqual(record.fca_decision, 'Approved')

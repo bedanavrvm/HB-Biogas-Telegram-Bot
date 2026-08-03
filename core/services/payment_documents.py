@@ -842,7 +842,7 @@ def approve_payment_document(
                     access=access,
                     payment_document=final,
                 )
-                record_pipeline_event(
+                event = record_pipeline_event(
                     farmer,
                     action='payment_finalized',
                     stage_key='payment',
@@ -860,6 +860,25 @@ def approve_payment_document(
                         'payment_document_id': str(final.id),
                         'review_document_id': str(review.id),
                     },
+                    actor_user=actor_user,
+                )
+                from core.services.jawabu_comments import record_case_comment
+                record_case_comment(
+                    farmer=farmer,
+                    stage_key='payment',
+                    comment=comments.get(str(farmer.id), comment),
+                    actor=actor,
+                    actor_user=actor_user,
+                    request_id=f'payment-document:{final.id}:{farmer.id}',
+                    pipeline_event=event,
+                    occurred_at=event.occurred_at,
+                )
+                from core.services.portal_publication import reserve_farmer_publication
+                reserve_farmer_publication(
+                    farmer,
+                    request_id=f'payment-comment:{final.id}:{farmer.id}',
+                    requested_by=actor_user,
+                    requested_by_label=actor,
                 )
     except Exception:
         logger.exception(

@@ -19,7 +19,8 @@ from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import AccessGrant, ComplianceAuditEvent, GroupSheetConfiguration, InvoiceUploadBatch, JawabuFarmerMaster, JawabuMediaAccessEvent, JawabuPipelineEvent, LiveSheetRecordChange, MediaAttachment, ParsedInvoice, PaymentDocument, PortalCaseWorkspace, RequisitionBatch, UserProfile, WorkflowRoleCapability
+from core.models import AccessGrant, ComplianceAuditEvent, GroupSheetConfiguration, InvoiceUploadBatch, JawabuCaseComment, JawabuFarmerMaster, JawabuMediaAccessEvent, JawabuPipelineEvent, LiveSheetRecordChange, MediaAttachment, ParsedInvoice, PaymentDocument, PortalCaseWorkspace, RequisitionBatch, UserProfile, WorkflowRoleCapability
+from core.services.jawabu_comments import master_comment_history
 from core.services.jawabu_pipeline import (
     append_jbl_media_links,
     assign_order,
@@ -238,6 +239,38 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(self.farmer_stage1.sub_county, 'Kandara')
         self.assertEqual(self.farmer_stage1.village, 'Gakira')
         mock_reserve_publication.assert_called_once()
+
+    @patch('core.services.portal_publication.reserve_farmer_publication')
+    def test_jbl_visit_comment_is_append_only_and_retry_safe(self, mock_reserve_publication):
+        request_id = 'jbl-comment-1'
+        ok, error = log_jbl_visit(
+            self.farmer_stage1,
+            visit_date=date(2026, 6, 28),
+            officer='Officer Joe',
+            visit_status='Awaiting Analysis',
+            comment='Client requested a morning follow-up.',
+            sender='Officer Joe',
+            request_id=request_id,
+        )
+
+        self.assertTrue(ok, error)
+        comment = self.farmer_stage1.case_comments.get(request_id=request_id)
+        self.assertEqual(comment.stage_key, 'jbl_visit')
+        self.assertEqual(comment.role_code, 'JBL_OFFICER')
+        self.assertEqual(comment.role_label, 'JBL Officer')
+        self.assertEqual(comment.comment, 'Client requested a morning follow-up.')
+
+        ok, error = log_jbl_visit(
+            self.farmer_stage1,
+            visit_date=date(2026, 6, 28),
+            officer='Officer Joe',
+            visit_status='Awaiting Analysis',
+            comment='Client requested a morning follow-up.',
+            sender='Officer Joe',
+            request_id=request_id,
+        )
+        self.assertTrue(ok, error)
+        self.assertEqual(self.farmer_stage1.case_comments.count(), 1)
 
     @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
     @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
@@ -496,6 +529,9 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(self.farmer_stage_review.repayment_date, '10TH')
         self.assertEqual(self.farmer_stage_review.repayment_tenor, '6 months')
         self.assertEqual(self.farmer_stage_review.final_decided_by, 'head_rural')
+        comment = self.farmer_stage_review.case_comments.get()
+        self.assertEqual(comment.role_label, 'Head of Rural')
+        self.assertEqual(comment.comment, 'Called and approved')
         mock_reserve_publication.assert_called_once()
         mock_notify.assert_called_once_with(self.farmer_stage_review)
 
@@ -579,7 +615,46 @@ class JblPipelineServiceTestCase(TestCase):
         event = self.farmer_stage_review.pipeline_events.get(request_id='return-credit-1')
         self.assertEqual(event.transition_code, 'jawabu.final_review.return_to_credit')
         self.assertEqual(event.reason, 'Recheck affordability against the corrected income evidence.')
+        comment = self.farmer_stage_review.case_comments.get(request_id='return-credit-1')
+        self.assertEqual(comment.stage_key, 'final_review')
+        self.assertEqual(comment.comment, 'Recheck affordability against the corrected income evidence.')
         self.assertEqual(mock_reserve_publication.call_count, 1)
+
+    @patch('core.services.sheets.GoogleSheetsService.get_instance')
+    def test_master_sheet_projects_post_jbl_comments_in_chronological_order(self, mock_get_sheets):
+        from core.tests import FakeJawabuService, FakeMasterDataSheet
+
+        earlier = timezone.now() - timedelta(minutes=5)
+        later = timezone.now()
+        JawabuCaseComment.objects.create(
+            farmer=self.farmer_stage1,
+            stage_key='jbl_visit',
+            comment='First comment.',
+            actor='Officer Joe',
+            role_code='JBL_OFFICER',
+            role_label='JBL Officer',
+            occurred_at=earlier,
+        )
+        JawabuCaseComment.objects.create(
+            farmer=self.farmer_stage1,
+            stage_key='final_review',
+            comment='Second comment.',
+            actor='Head Rural',
+            role_code='BUSINESS_ADMIN',
+            role_label='Head of Rural',
+            occurred_at=later,
+        )
+        expected = master_comment_history(self.farmer_stage1)
+        headers = ['No.', 'Customer Name', 'National ID', 'Primary Phone', 'Additional Comments']
+        fake_sheet = FakeMasterDataSheet(headers, [
+            '1', self.farmer_stage1.customer_name, self.farmer_stage1.national_id,
+            self.farmer_stage1.primary_phone, 'Legacy Sheet-only comment',
+        ])
+        mock_get_sheets.return_value = FakeJawabuService(fake_sheet)
+
+        self.assertTrue(sync_farmer_to_master_sheet(self.farmer_stage1))
+        self.assertEqual(fake_sheet.values[4][4], expected)
+        self.assertLess(expected.index('First comment.'), expected.index('Second comment.'))
 
     def test_rework_route_cannot_skip_credit_back_to_jbl_visit(self):
         ok, error = return_for_rework(
@@ -2417,6 +2492,10 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(db_farmer.jbl_visit_status, 'Approved')
         self.assertEqual(db_farmer.jbl_visit_comment, 'A comment')
         self.assertEqual(db_farmer.jbl_visit_date, date(2026, 7, 5))
+        self.assertEqual(db_farmer.case_comments.count(), 1)
+        comment = db_farmer.case_comments.get()
+        self.assertEqual(comment.comment, 'A comment')
+        self.assertEqual(comment.role_label, 'JBL Officer')
 
     @override_settings(INVOICE_UPLOAD_MAX_FILE_SIZE_MB=1)
     def test_invoice_upload_rejects_file_over_configured_limit(self):

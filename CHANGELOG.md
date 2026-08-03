@@ -1,5 +1,22 @@
 # Changelog
 
+## Portal additive case comments - 03-August-2026
+
+- `Additional Comments` is now a Django-owned, oldest-to-newest history of
+  new human remarks recorded from the JBL visit onward. Each entry includes
+  the Kenya-local timestamp, staff member, and responsible Portal function.
+- Existing Sheet-only text is deliberately replaced on the next Django
+  publication; it is not treated as canonical history. JBL visit, final
+  review, rework, and per-case payment call-up comments are added only when
+  the authorised existing workflow action includes non-empty text.
+- The Master Data Apps Script warning-protects `Additional Comments` alongside
+  `Current Pipeline State` as a backend-owned value.
+
+  Migration note: `core.0095_jawabucasecomment` creates an empty append-only
+  comment ledger and does not backfill or rewrite cases, Sheets, or Drive.
+  It has not been applied to production by this change. To undo after an
+  approved migration: `python manage.py migrate core 0094_alter_jawabuapprovalrecord_decision_and_more`.
+
 ## Master Data lifecycle publication - 03-August-2026
 
 - Master Data can now receive Django's backend-owned `Current Pipeline State`

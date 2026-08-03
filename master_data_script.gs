@@ -46,7 +46,7 @@ const CONFIG = {
     LEAD_SOURCE: ['Lead Source'], HB_AGENT: ['HB Sales Person', 'HB Agent'], HBG_VISIT_DATE: ['HBG Visit Date', 'Sign Date'],
     HBG_COMMENT: ['HBG Visit Comment', 'HBG Comment'], JAWABU_VISIT_DATE: ['JBL Visit Date', 'Jawabu Visit Date'],
     BRO: ['JBL Officer', 'BRO'], JAWABU_OUTCOME: ['Jawabu Comment After Visit', 'JBL Visit Status'],
-    ADD_COMMENTS: ['Additional Comments', 'JBL Visit Comment'], CREDIT_DECISION: ['Credit Decision'],
+    ADD_COMMENTS: ['Additional Comments'], CREDIT_DECISION: ['Credit Decision'],
     HBG_DEPOSIT_DATE: ['Deposit Date to HBG'], HB_DEPOSIT_PAID: ['Deposit Paid to HB', 'Deposit Paid to HBG'],
     REQUISITION_DATE: ['Jawabu Requisition Date', 'Requisition Date'], ORDER_NO: ['Order No.', 'Order No'],
     MODE_OF_PAYMENT: ['Mode of Payment'], LOAN_REPAY_START: ['Loan Repayment Start Date'],
@@ -83,7 +83,7 @@ const CONFIG = {
     LAST_UPDATED_AT: 'Last Updated At'
   },
 
-  BACKEND_OWNED_COL_KEYS: ['CURRENT_PIPELINE_STATE'],
+  BACKEND_OWNED_COL_KEYS: ['CURRENT_PIPELINE_STATE', 'ADD_COMMENTS'],
 
   // Columns that must always be stored as text (leading zeros, alphanumerics)
   TEXT_COLS: ['NATIONAL_ID', 'PHONE1', 'PHONE2', 'INVOICE_NO', 'SERIAL_NO'],
