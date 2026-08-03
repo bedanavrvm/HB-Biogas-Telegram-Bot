@@ -1,5 +1,18 @@
 # Changelog
 
+## Portal loader recovery - 03-August-2026
+
+- Made Portal JSON and queue-fragment requests time-bounded. A stalled or
+  failed mobile request now resolves to a clear, recoverable error state rather
+  than leaving queues, invoices, or payment candidates on a permanent loader.
+- Added an in-place Retry action for operational queues and ensured Invoice
+  loading is always unlocked after an unexpected request/render failure.
+  No workflow, financial, access-control, customer, Sheet, or Drive data
+  changed.
+
+  Migration note: no schema migration is included. To undo, redeploy the prior
+  application commit; no persisted data is affected.
+
 ## Portal Invoice workspace drill-down - 03-August-2026
 
 - Reorganized the Portal Invoice experience into focused nested pages for the

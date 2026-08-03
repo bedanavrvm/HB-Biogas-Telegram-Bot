@@ -54,8 +54,10 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('miniapp/portal_imports.js?v=4', html)
         self.assertNotIn('portal-import-group', html)
         self.assertIn('miniapp/portal_requisitions.js?v=33', html)
-        self.assertIn('miniapp/portal_invoices.js?v=13', html)
-        self.assertIn('miniapp/portal.js?v=55', html)
+        self.assertIn('miniapp/portal_api.js?v=4', html)
+        self.assertIn('miniapp/portal_invoices.js?v=14', html)
+        self.assertIn('miniapp/portal_payments.js?v=7', html)
+        self.assertIn('miniapp/portal.js?v=56', html)
 
         spin_response = self.client.get(reverse('spin_form') + '?group_id=-100spin&token=test-token')
         spin_html = spin_response.content.decode('utf-8')
@@ -297,6 +299,24 @@ class MiniAppFrontendSmokeTests(TestCase):
             'renderFragment',
         ):
             self.assertIn(expected, source)
+
+    def test_portal_list_loaders_resolve_transport_failures_to_recoverable_ui(self):
+        api_source = Path('core/static/miniapp/portal_api.js').read_text(encoding='utf-8')
+        portal_source = Path('core/static/miniapp/portal.js').read_text(encoding='utf-8')
+        invoice_source = Path('core/static/miniapp/portal_invoices.js').read_text(encoding='utf-8')
+        payment_source = Path('core/static/miniapp/portal_payments.js').read_text(encoding='utf-8')
+
+        self.assertIn('REQUEST_TIMEOUT_MS = 20000', api_source)
+        self.assertIn('fetchWithTimeout', api_source)
+        self.assertIn('requestFailureMessage', api_source)
+        self.assertIn("data: { ok: false, error: requestFailureMessage(error) }", api_source)
+        self.assertIn('queueFailureMarkup', portal_source)
+        self.assertIn('renderQueueFailure(listEl, qKey, page, data?.error, requestId)', portal_source)
+        self.assertIn('renderQueueFailure(listEl, qKey, page, \'The queue could not be loaded. Please try again.\')', portal_source)
+        self.assertIn('try {', invoice_source)
+        self.assertIn('finally {\n      state.loading = false;', invoice_source)
+        self.assertIn('Could not load invoices', invoice_source)
+        self.assertIn('Could not load invoiced cases', payment_source)
 
     def test_portal_filters_expose_filter_primitives(self):
         source = Path('core/static/miniapp/portal_filters.js').read_text(encoding='utf-8')

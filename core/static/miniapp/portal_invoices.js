@@ -285,42 +285,48 @@
     if (!invoicesScreenIsActive()) return;
     if (state.loading) return;
     state.loading = true;
-    const route = readRoute();
-    if (route.view === 'detail') {
-      await loadDetail(route.invoiceId);
-      state.loading = false;
-      return;
-    }
-    if (state.workspace !== route.view) {
-      state.workspace = route.view;
-      state.selectedIds.clear();
-      state.review = '';
-      state.search = '';
-    }
-    state.page = page || 1;
-    const list = el('invoice-pool-list');
-    if (list) list.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
-    const params = new URLSearchParams({ page: String(state.page) });
-    if (['inbox', 'matched', 'ignored'].includes(route.view)) params.set('workspace', route.view);
-    if (state.status) params.set('status', state.status);
-    if (state.review) params.set('review', state.review);
-    if (state.search) params.set('search', state.search);
-    if (extra && extra.batch_id) params.set('batch_id', extra.batch_id);
-    const result = await deps.apiFetch('/invoice-pool/?' + params.toString());
-    state.loading = false;
-    if (!invoicesScreenIsActive()) return;
-    if (!result.ok || !result.data?.ok) {
+    try {
+      const route = readRoute();
+      if (route.view === 'detail') {
+        await loadDetail(route.invoiceId);
+        return;
+      }
+      if (state.workspace !== route.view) {
+        state.workspace = route.view;
+        state.selectedIds.clear();
+        state.review = '';
+        state.search = '';
+      }
+      state.page = page || 1;
+      const list = el('invoice-pool-list');
+      if (list) list.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
+      const params = new URLSearchParams({ page: String(state.page) });
+      if (['inbox', 'matched', 'ignored'].includes(route.view)) params.set('workspace', route.view);
+      if (state.status) params.set('status', state.status);
+      if (state.review) params.set('review', state.review);
+      if (state.search) params.set('search', state.search);
+      if (extra && extra.batch_id) params.set('batch_id', extra.batch_id);
+      const result = await deps.apiFetch('/invoice-pool/?' + params.toString());
+      if (!invoicesScreenIsActive()) return;
+      if (!result.ok || !result.data?.ok) {
+        if (list) list.innerHTML = '<div class="empty-state"><div class="es-title">Could not load invoices</div><div class="es-sub">Refresh and try again.</div></div>';
+        return;
+      }
+      renderSummary(result.data.summary || {});
+      if (route.view === 'upload') {
+        renderUploadHistory(result.data.batches || []);
+      } else {
+        renderInvoices(result.data.invoices || []);
+        renderPagination(result.data.pagination || {});
+      }
+      if (window.lucide) window.lucide.createIcons();
+    } catch (_) {
+      if (!invoicesScreenIsActive()) return;
+      const list = el('invoice-pool-list');
       if (list) list.innerHTML = '<div class="empty-state"><div class="es-title">Could not load invoices</div><div class="es-sub">Refresh and try again.</div></div>';
-      return;
+    } finally {
+      state.loading = false;
     }
-    renderSummary(result.data.summary || {});
-    if (route.view === 'upload') {
-      renderUploadHistory(result.data.batches || []);
-    } else {
-      renderInvoices(result.data.invoices || []);
-      renderPagination(result.data.pagination || {});
-    }
-    if (window.lucide) window.lucide.createIcons();
   }
 
   function openMatchOverlay(invoice) {

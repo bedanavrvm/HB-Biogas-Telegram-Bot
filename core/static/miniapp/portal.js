@@ -216,9 +216,17 @@
     if (!requestOptions.method || String(requestOptions.method).toUpperCase() === 'GET') {
       requestOptions.cache = 'no-store';
     }
-    const res = await fetch(apiBase() + path, requestOptions);
-    const data = await res.json();
-    return { ok: res.ok, status: res.status, data };
+    try {
+      const res = await fetch(apiBase() + path, requestOptions);
+      const data = await res.json().catch(() => ({}));
+      return { ok: res.ok, status: res.status, data };
+    } catch (_) {
+      return {
+        ok: false,
+        status: 0,
+        data: { ok: false, error: navigator.onLine === false ? 'You appear to be offline. Reconnect, then try again.' : 'Could not reach the Portal. Check your connection and try again.' },
+      };
+    }
   }
 
   let _toastTimer = null;
@@ -524,6 +532,16 @@
     return entry ? entry[0] : null;
   }
 
+  function queueFailureMarkup(qKey, message, requestId) {
+    return `<div class="empty-state queue-error" role="alert"><div class="es-icon">!</div><div class="es-title">Queue unavailable</div><div class="es-sub">${escapeHtml(message || 'The queue could not be loaded.')}</div><button type="button" class="btn btn-secondary queue-retry" data-queue="${escapeHtml(qKey)}">Retry</button>${requestId ? `<div class="es-sub error-reference">Reference: ${escapeHtml(requestId)}</div>` : ''}</div>`;
+  }
+
+  function renderQueueFailure(listEl, qKey, page, message, requestId) {
+    if (!listEl) return;
+    listEl.innerHTML = queueFailureMarkup(qKey, message, requestId);
+    listEl.querySelector('.queue-retry')?.addEventListener('click', () => loadQueue(qKey, state.pages[qKey] || page));
+  }
+
   async function loadQueue(qKey, page = 1) {
     const cfg = queueConfig[qKey];
     if (!cfg) return;
@@ -533,68 +551,69 @@
       + (utils.skeletonCards ? utils.skeletonCards(3) : '<div class="empty-state"><div class="spinner-inline"></div></div>')
       + '</div>';
 
-    const url = portalQueues.queueUrl ? portalQueues.queueUrl(qKey, page, state) : cfg.endpoint + '?page=' + page;
+    try {
+      const url = portalQueues.queueUrl ? portalQueues.queueUrl(qKey, page, state) : cfg.endpoint + '?page=' + page;
+      const { ok, data, requestId } = await apiFetch(url);
+      if (!isCurrentScreen(qKey)) return;
+      if (!ok) {
+        renderQueueFailure(listEl, qKey, page, data?.error, requestId);
+        return;
+      }
 
-    const { ok, data, requestId } = await apiFetch(url);
-    if (!isCurrentScreen(qKey)) return;
-    if (!ok) {
-      const message = data?.error || 'The queue could not be loaded.';
-      listEl.innerHTML = `<div class="empty-state queue-error" role="alert"><div class="es-icon">!</div><div class="es-title">Queue unavailable</div><div class="es-sub">${escapeHtml(message)}</div><button type="button" class="btn btn-secondary queue-retry" data-queue="${escapeHtml(qKey)}">Retry</button>${requestId ? `<div class="es-sub error-reference">Reference: ${escapeHtml(requestId)}</div>` : ''}</div>`;
-      const retry = listEl.querySelector('.queue-retry');
-      retry?.addEventListener('click', () => loadQueue(qKey, state.pages[qKey] || page));
-      return;
-    }
-
-    if (qKey === 'batches') {
-      const batches = data.batches || [];
-      state.queues[qKey] = batches;
-      state.pagination[qKey] = data.pagination || {};
-      state.pages[qKey] = page;
-      if (window.htmx) {
-        const rendered = await renderQueueFragment(qKey, page);
-        if (rendered) {
-          const pgEl = el('pg-batches');
-          if (pgEl) pgEl.innerHTML = '';
+      if (qKey === 'batches') {
+        const batches = data.batches || [];
+        state.queues[qKey] = batches;
+        state.pagination[qKey] = data.pagination || {};
+        state.pages[qKey] = page;
+        if (window.htmx) {
+          const rendered = await renderQueueFragment(qKey, page);
+          if (rendered) {
+            const pgEl = el('pg-batches');
+            if (pgEl) pgEl.innerHTML = '';
+          } else {
+            renderBatchesList(listEl, batches, cfg);
+            renderPagination(qKey, data.pagination);
+          }
         } else {
           renderBatchesList(listEl, batches, cfg);
           renderPagination(qKey, data.pagination);
         }
-      } else {
-        renderBatchesList(listEl, batches, cfg);
-        renderPagination(qKey, data.pagination);
+        return;
       }
-      return;
-    }
 
-    const farmers = data.farmers || [];
-    state.queues[qKey] = farmers;
-    state.pagination[qKey] = data.pagination || {};
-    state.pages[qKey] = page;
+      const farmers = data.farmers || [];
+      state.queues[qKey] = farmers;
+      state.pagination[qKey] = data.pagination || {};
+      state.pages[qKey] = page;
 
-    // Apply filtering
-    if (cfg.fragmentEndpoint && window.htmx) {
-      updateFilterOptions(farmers);
-      const rendered = await renderQueueFragment(qKey, page);
-      if (rendered) {
-        const pgEl = el('pg-' + qKey);
-        if (pgEl) pgEl.innerHTML = '';
+      // Apply filtering
+      if (cfg.fragmentEndpoint && window.htmx) {
+        updateFilterOptions(farmers);
+        const rendered = await renderQueueFragment(qKey, page);
+        if (rendered) {
+          const pgEl = el('pg-' + qKey);
+          if (pgEl) pgEl.innerHTML = '';
+        } else if (qKey !== 'dashboard' && qKey !== 'all') {
+          applyFilters();
+          renderPagination(qKey, data.pagination);
+        } else {
+          if (qKey === 'all') updateFilterOptions(farmers);
+          renderFarmerList(listEl, farmers, cfg, qKey);
+          renderPagination(qKey, data.pagination);
+        }
       } else if (qKey !== 'dashboard' && qKey !== 'all') {
+        updateFilterOptions(farmers);
         applyFilters();
-        renderPagination(qKey, data.pagination);
       } else {
         if (qKey === 'all') updateFilterOptions(farmers);
         renderFarmerList(listEl, farmers, cfg, qKey);
+      }
+      if (!(cfg.fragmentEndpoint && window.htmx)) {
         renderPagination(qKey, data.pagination);
       }
-    } else if (qKey !== 'dashboard' && qKey !== 'all') {
-      updateFilterOptions(farmers);
-      applyFilters();
-    } else {
-      if (qKey === 'all') updateFilterOptions(farmers);
-      renderFarmerList(listEl, farmers, cfg, qKey);
-    }
-    if (!(cfg.fragmentEndpoint && window.htmx)) {
-      renderPagination(qKey, data.pagination);
+    } catch (error) {
+      if (!isCurrentScreen(qKey)) return;
+      renderQueueFailure(listEl, qKey, page, 'The queue could not be loaded. Please try again.');
     }
   }
 

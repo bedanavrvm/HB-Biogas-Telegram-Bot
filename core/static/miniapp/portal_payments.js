@@ -48,25 +48,31 @@
     const list = el('payments-list');
     if (!list) return;
     list.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
-    const query = String(el('payments-search')?.value || '').trim();
-    const response = await deps.apiFetch('/payments/candidates/?search=' + encodeURIComponent(query));
-    if (!paymentsScreenIsActive()) return;
-    if (!response.ok || !response.data?.ok) {
-      list.innerHTML = `<div class="batch-warning">${escape(response.data?.error || 'Could not load invoiced cases.')}</div>`;
-      return;
+    try {
+      const query = String(el('payments-search')?.value || '').trim();
+      const response = await deps.apiFetch('/payments/candidates/?search=' + encodeURIComponent(query));
+      if (!paymentsScreenIsActive()) return;
+      if (!response.ok || !response.data?.ok) {
+        list.innerHTML = `<div class="batch-warning">${escape(response.data?.error || 'Could not load invoiced cases.')}</div>`;
+        return;
+      }
+      const ready = response.data.ready || [];
+      const blocked = response.data.blocked || [];
+      const pending = response.data.pending_review || [];
+      readyIds = ready.map(item => item.farmer_id);
+      const visible = new Set([...readyIds, ...blocked.map(item => item.farmer_id), ...pending.map(item => item.farmer_id)]);
+      [...selected].forEach(id => { if (!visible.has(id)) selected.delete(id); });
+      const summary = el('payments-ready-summary');
+      if (summary) summary.textContent = `${ready.length} ready | ${blocked.length} need attention | ${pending.length} awaiting HOR review`;
+      list.innerHTML = ready.length || blocked.length || pending.length
+        ? ready.map(item => candidateCard(item, false, false)).join('') + blocked.map(item => candidateCard(item, true, false)).join('') + pending.map(item => candidateCard(item, false, true)).join('')
+        : '<div class="empty-state"><div class="es-title">No invoice-matched cases</div><div class="es-sub">Confirm invoice matching before building a payment batch.</div></div>';
+      updateSelection();
+    } catch (_) {
+      if (paymentsScreenIsActive()) {
+        list.innerHTML = '<div class="empty-state"><div class="es-title">Could not load invoiced cases</div><div class="es-sub">Refresh and try again.</div></div>';
+      }
     }
-    const ready = response.data.ready || [];
-    const blocked = response.data.blocked || [];
-    const pending = response.data.pending_review || [];
-    readyIds = ready.map(item => item.farmer_id);
-    const visible = new Set([...readyIds, ...blocked.map(item => item.farmer_id), ...pending.map(item => item.farmer_id)]);
-    [...selected].forEach(id => { if (!visible.has(id)) selected.delete(id); });
-    const summary = el('payments-ready-summary');
-    if (summary) summary.textContent = `${ready.length} ready | ${blocked.length} need attention | ${pending.length} awaiting HOR review`;
-    list.innerHTML = ready.length || blocked.length || pending.length
-      ? ready.map(item => candidateCard(item, false, false)).join('') + blocked.map(item => candidateCard(item, true, false)).join('') + pending.map(item => candidateCard(item, false, true)).join('')
-      : '<div class="empty-state"><div class="es-title">No invoice-matched cases</div><div class="es-sub">Confirm invoice matching before building a payment batch.</div></div>';
-    updateSelection();
   }
 
   function payload(final) {

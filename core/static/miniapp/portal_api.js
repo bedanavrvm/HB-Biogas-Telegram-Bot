@@ -2,6 +2,11 @@
   'use strict';
 
   const utils = window.MiniAppUtils || {};
+  // A Portal queue must never leave a staff member staring at a permanent
+  // loader when an Android WebView network request stalls.  This is deliberately
+  // short enough to return a retry state, while still allowing ordinary mobile
+  // requests to complete without treating them as failures.
+  const REQUEST_TIMEOUT_MS = 20000;
 
   function apiBase() {
     return '/api/portal';
@@ -17,6 +22,36 @@
     return headers['Idempotency-Key'] || headers['idempotency-key'] || headers['X-Request-ID'] || headers['x-request-id'] || options?.request_id || (
       window.crypto?.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`
     );
+  }
+
+  function requestFailureMessage(error) {
+    if (error?.name === 'AbortError') {
+      return 'The request took too long. Check your connection and try again.';
+    }
+    if (navigator.onLine === false) {
+      return 'You appear to be offline. Reconnect, then try again.';
+    }
+    return 'Could not reach the Portal. Check your connection and try again.';
+  }
+
+  async function fetchWithTimeout(url, options) {
+    const requestOptions = options || {};
+    if (!window.AbortController) return fetch(url, requestOptions);
+
+    const controller = new AbortController();
+    const callerSignal = requestOptions.signal;
+    const abortForCaller = function () { controller.abort(); };
+    const timeout = window.setTimeout(function () { controller.abort(); }, REQUEST_TIMEOUT_MS);
+    if (callerSignal) {
+      if (callerSignal.aborted) controller.abort();
+      else callerSignal.addEventListener('abort', abortForCaller, { once: true });
+    }
+    try {
+      return await fetch(url, { ...requestOptions, signal: controller.signal });
+    } finally {
+      window.clearTimeout(timeout);
+      if (callerSignal) callerSignal.removeEventListener('abort', abortForCaller);
+    }
   }
 
   const pendingPublicationOperations = [];
@@ -86,16 +121,25 @@
     if (!requestOptions.method || String(requestOptions.method).toUpperCase() === 'GET') {
       requestOptions.cache = 'no-store';
     }
-    const response = await fetch(apiBase() + path, requestOptions);
-    const data = await response.json().catch(function () { return {}; });
-    if (
-      data?.ok && path !== '/publication/attempt/'
-      && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(String(requestOptions.method || 'GET').toUpperCase())
-    ) {
-      if (data.publication) schedulePublication(data.publication, tg);
-      (Array.isArray(data.publications) ? data.publications : []).forEach(item => schedulePublication(item, tg));
+    try {
+      const response = await fetchWithTimeout(apiBase() + path, requestOptions);
+      const data = await response.json().catch(function () { return {}; });
+      if (
+        data?.ok && path !== '/publication/attempt/'
+        && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(String(requestOptions.method || 'GET').toUpperCase())
+      ) {
+        if (data.publication) schedulePublication(data.publication, tg);
+        (Array.isArray(data.publications) ? data.publications : []).forEach(item => schedulePublication(item, tg));
+      }
+      return { ok: response.ok, status: response.status, data, requestId: response.headers.get('X-Request-ID') || headers['X-Request-ID'] };
+    } catch (error) {
+      return {
+        ok: false,
+        status: 0,
+        data: { ok: false, error: requestFailureMessage(error) },
+        requestId: headers['X-Request-ID'],
+      };
     }
-    return { ok: response.ok, status: response.status, data, requestId: response.headers.get('X-Request-ID') || headers['X-Request-ID'] };
   }
 
   async function postJson(path, payload, tg, extraHeaders) {
@@ -112,7 +156,7 @@
   async function postForm(path, formData, tg, extraHeaders) {
     const key = formData.get('client_request_id') || requestId({headers: extraHeaders || {}});
     if (!formData.get('client_request_id')) formData.set('client_request_id', key);
-    const response = await fetch(apiBase() + path, {
+    const response = await fetchWithTimeout(apiBase() + path, {
       method: 'POST',
       headers: { ...initDataHeader(tg), ...(extraHeaders || {}), 'X-Request-ID': key, 'Idempotency-Key': key },
       body: formData,
@@ -130,13 +174,7 @@
     const url = path.startsWith('/api/') ? path : apiBase() + path;
     const headers = { ...initDataHeader(tg), ...(options.headers || {}) };
     headers['X-Request-ID'] = requestId(options);
-    if (utils.fetchHtml) {
-      return utils.fetchHtml(url, {
-        ...options,
-        headers,
-      });
-    }
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       ...options,
       cache: 'no-store',
       headers,
@@ -151,6 +189,7 @@
     apiFetch,
     fetchHtml,
     initDataHeader,
+    fetchWithTimeout,
     schedulePublication,
     postForm,
     postJson,
