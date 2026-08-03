@@ -1,5 +1,18 @@
 # Changelog
 
+## Django Superuser Access Grant override - 03-August-2026
+
+- An active Django Superuser can now add, edit, activate, deactivate, or
+  remove a staff member's Mini App Access Grants directly from the User admin
+  page. Each immediate change remains recorded with before/after evidence,
+  an applied access-control request, compliance audit event, policy snapshot,
+  and a refreshed access-policy version. This does not grant the technical
+  Superuser any Mini App role or bypass maker-checker controls for capability
+  matrix, document-signoff, or TAT configuration changes.
+
+  Migration note: no schema migration is included. To undo, redeploy the
+  prior application commit; do not delete the direct-override audit evidence.
+
 ## Current requisition Drive links - 03-August-2026
 
 - Generating a requisition no longer opens the temporary local Excel download.

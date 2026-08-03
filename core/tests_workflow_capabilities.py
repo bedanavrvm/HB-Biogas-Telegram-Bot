@@ -23,11 +23,13 @@ from core.models import (
 )
 from core.services.access_control import (
     APPROVER_GROUP_NAME,
+    apply_superuser_grant_override,
     appoint_access_control_checker,
     approve_request,
     can_approve_access_change,
     create_capability_request,
     create_emergency_grant,
+    policy_version,
     revoke_access_control_checker,
 )
 from core.services.access_policies import WORKFLOW_ROLES
@@ -216,6 +218,61 @@ class WorkflowCapabilityPolicyTests(TestCase):
         event = ComplianceAuditEvent.objects.get(source_event_id=f'{request.pk}:applied')
         self.assertEqual(event.action, 'access_control.change.bootstrap_override_applied')
         self.assertEqual(event.metadata['decision_mode'], 'bootstrap_override')
+
+    def test_superuser_can_directly_apply_and_remove_staff_grants_with_audit_evidence(self):
+        root = get_user_model().objects.create_superuser(
+            username='grant-root', email='grant-root@example.test', password='password',
+        )
+        other_root = get_user_model().objects.create_superuser(
+            username='grant-other-root', email='grant-other-root@example.test', password='password',
+        )
+        target = get_user_model().objects.create_user(username='grant-target', is_active=True)
+        initial_version = policy_version()
+
+        created = apply_superuser_grant_override(
+            actor=root,
+            user=target,
+            workflow='jawabu_portal',
+            role='JBL_OFFICER',
+        )
+        grant = AccessGrant.objects.get(user=target, workflow='jawabu_portal', role='JBL_OFFICER')
+        self.assertEqual(created.status, AccessControlChangeRequest.STATUS_APPLIED)
+        self.assertEqual(created.reviewed_by, root)
+        self.assertEqual(grant.source, 'django_superuser_override')
+        self.assertEqual(policy_version(), initial_version + 1)
+        event = ComplianceAuditEvent.objects.get(source_event_id=f'{created.pk}:applied')
+        self.assertEqual(event.action, 'access_control.change.superuser_override_applied')
+        self.assertEqual(event.metadata['decision_mode'], 'django_superuser_override')
+
+        updated = apply_superuser_grant_override(
+            actor=other_root,
+            user=target,
+            workflow='jawabu_portal',
+            role='JBL_OFFICER',
+            active=False,
+            grant=grant,
+        )
+        grant.refresh_from_db()
+        self.assertFalse(grant.active)
+        self.assertEqual(updated.reviewed_by, other_root)
+
+        removed = apply_superuser_grant_override(
+            actor=root,
+            user=target,
+            grant=grant,
+            operation='delete',
+        )
+        self.assertEqual(removed.status, AccessControlChangeRequest.STATUS_APPLIED)
+        self.assertFalse(AccessGrant.objects.filter(pk=grant.pk).exists())
+        self.assertEqual(policy_version(), initial_version + 3)
+
+        with self.assertRaises(PermissionDenied):
+            apply_superuser_grant_override(
+                actor=self.user,
+                user=target,
+                workflow='jawabu_portal',
+                role='JBL_OFFICER',
+            )
 
     def test_superuser_can_appoint_and_revoke_an_independent_checker(self):
         root = get_user_model().objects.create_superuser(

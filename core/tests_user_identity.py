@@ -9,7 +9,8 @@ from urllib.parse import urlencode
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.contrib import admin
-from django.test import TestCase, override_settings
+from django.contrib.messages.storage.fallback import FallbackStorage
+from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 
 from core.models import (
@@ -127,9 +128,12 @@ class CanonicalStaffAdminTests(TestCase):
         self.assertTrue(profile.user.is_active)
         self.assertFalse(profile.user.is_staff)
         self.assertFalse(profile.user.has_usable_password())
-        self.assertFalse(AccessGrant.objects.filter(user=profile.user, role='JBL_OFFICER').exists())
+        self.assertTrue(AccessGrant.objects.filter(
+            user=profile.user, role='JBL_OFFICER', source='django_superuser_override',
+        ).exists())
         self.assertTrue(AccessControlChangeRequest.objects.filter(
-            target_user=profile.user, workflow='jawabu_portal', role='JBL_OFFICER', status='pending',
+            target_user=profile.user, workflow='jawabu_portal', role='JBL_OFFICER', status='applied',
+            requested_by=superuser, reviewed_by=superuser,
         ).exists())
 
     def test_superuser_can_create_password_user_with_initial_access(self):
@@ -150,9 +154,12 @@ class CanonicalStaffAdminTests(TestCase):
         user = get_user_model().objects.get(username='portal-admin')
         self.assertTrue(user.is_staff)
         self.assertTrue(user.check_password('secure-test-password'))
-        self.assertFalse(AccessGrant.objects.filter(user=user, workflow='jawabu_portal', role='BUSINESS_ADMIN').exists())
+        self.assertTrue(AccessGrant.objects.filter(
+            user=user, workflow='jawabu_portal', role='BUSINESS_ADMIN', source='django_superuser_override',
+        ).exists())
         self.assertTrue(AccessControlChangeRequest.objects.filter(
-            target_user=user, workflow='jawabu_portal', role='BUSINESS_ADMIN', status='pending',
+            target_user=user, workflow='jawabu_portal', role='BUSINESS_ADMIN', status='applied',
+            requested_by=superuser, reviewed_by=superuser,
         ).exists())
 
         # The redirect target must render the canonical User form, including
@@ -160,6 +167,62 @@ class CanonicalStaffAdminTests(TestCase):
         change = self.client.get(reverse('admin:auth_user_change', args=(user.pk,)))
         self.assertEqual(change.status_code, 200)
         self.assertContains(change, 'Access grants')
+
+    def test_superuser_access_grant_inline_applies_through_the_override_ledger(self):
+        from core.admin import AccessGrantInline, UnfoldUserAdmin
+
+        root = get_user_model().objects.create_superuser(
+            username='inline-root', email='inline-root@example.test', password='test-password',
+        )
+        target = get_user_model().objects.create_user(username='inline-target', is_active=True)
+        ordinary_staff = get_user_model().objects.create_user(
+            username='inline-staff', is_active=True, is_staff=True,
+        )
+        request = RequestFactory().post('/admin/auth/user/')
+        request.session = {}
+        request._messages = FallbackStorage(request)
+        request.user = root
+        inline = AccessGrantInline(get_user_model(), admin.site)
+        self.assertTrue(inline.has_add_permission(request, target))
+        self.assertTrue(inline.has_change_permission(request, target))
+        self.assertTrue(inline.has_delete_permission(request, target))
+
+        request.user = ordinary_staff
+        self.assertFalse(inline.has_add_permission(request, target))
+        self.assertFalse(inline.has_change_permission(request, target))
+        self.assertFalse(inline.has_delete_permission(request, target))
+
+        request.user = root
+        formset_class = inline.get_formset(request, target)
+        prefix = formset_class.get_default_prefix()
+        formset = formset_class(
+            data={
+                f'{prefix}-TOTAL_FORMS': '1',
+                f'{prefix}-INITIAL_FORMS': '0',
+                f'{prefix}-MIN_NUM_FORMS': '0',
+                f'{prefix}-MAX_NUM_FORMS': '1000',
+                f'{prefix}-0-active': 'on',
+                f'{prefix}-0-workflow': 'jawabu_portal',
+                f'{prefix}-0-role': 'JBL_OFFICER',
+                f'{prefix}-0-branch': '',
+                f'{prefix}-0-product': '',
+                f'{prefix}-0-group_configuration': '',
+            },
+            instance=target,
+            prefix=prefix,
+        )
+        self.assertTrue(formset.is_valid(), formset.errors)
+        user_admin = UnfoldUserAdmin(get_user_model(), admin.site)
+        user_admin.save_formset(request, None, formset, change=True)
+
+        grant = AccessGrant.objects.get(user=target, workflow='jawabu_portal', role='JBL_OFFICER')
+        self.assertEqual(grant.source, 'django_superuser_override')
+        self.assertTrue(AccessControlChangeRequest.objects.filter(
+            target_user=target,
+            status=AccessControlChangeRequest.STATUS_APPLIED,
+            requested_by=root,
+            reviewed_by=root,
+        ).exists())
 
     def test_user_change_view_recovers_an_unusable_persistent_connection(self):
         superuser = get_user_model().objects.create_superuser(

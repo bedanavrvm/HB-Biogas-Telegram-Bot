@@ -39,6 +39,7 @@ respective service modules.
 | Current Pipeline State | A Django-derived Master Data summary of the case's present operational state. It complements, but never overwrites, historical JBL visit, Credit, and Head of Rural columns. |
 | Access Control Checker | An active Django Admin staff user appointed by a technical Superuser to independently approve or reject Mini App access-policy requests. This is not a Mini App role or capability. |
 | Bootstrap override | The audited, reason-required exception allowing a sole active Django Superuser to approve their own access-policy request only while no independent checker or different Superuser exists. It ends as soon as an independent reviewer exists. |
+| Django Superuser Access Grant override | The audited, immediate technical-admin path for an active Django `is_superuser` to create, edit, activate, deactivate, or delete a staff `AccessGrant`. It never grants that Superuser Mini App access by itself and does not extend to capability-matrix or document-signoff policy changes. |
 | TAT configuration proposal | A reasoned, snapshot-based maker-checker request for TAT targets, future holidays, or escalation rules. IT proposes; a different authorised TAT Business Admin reviews it. |
 | Stage target snapshot | The TAT target captured when a case enters a stage. It protects an in-flight SLA calculation from later target changes. |
 

@@ -461,7 +461,16 @@ def _apply_capability_request(request: AccessControlChangeRequest) -> None:
 
 
 def _apply_grant_request(request: AccessControlChangeRequest) -> None:
-    data = (request.proposed_snapshot or {}).get('grant') or {}
+    snapshot = request.proposed_snapshot or {}
+    data = snapshot.get('grant') or {}
+    if snapshot.get('operation') == 'delete':
+        before = (request.before_snapshot or {}).get('grant') or {}
+        grant_id = before.get('id')
+        grant = AccessGrant.objects.select_for_update().filter(pk=grant_id).first()
+        if grant is None:
+            raise ValidationError('The Access Grant no longer exists and cannot be deleted.')
+        grant.delete()
+        return
     grant_id = data.get('id')
     if grant_id:
         grant = AccessGrant.objects.select_for_update().filter(pk=grant_id).first()
@@ -475,9 +484,134 @@ def _apply_grant_request(request: AccessControlChangeRequest) -> None:
     grant.product = data.get('product', '')
     grant.group_configuration_id = data.get('group_configuration_id') or None
     grant.active = bool(data.get('active'))
-    grant.source = 'approved_access_request'
+    grant.source = (
+        'django_superuser_override'
+        if snapshot.get('execution_mode') == 'django_superuser_override'
+        else 'approved_access_request'
+    )
     grant.full_clean()
     grant.save()
+
+
+def apply_superuser_grant_override(
+    *,
+    actor,
+    user,
+    workflow: str | None = None,
+    role: str | None = None,
+    branch: str = '',
+    product: str = '',
+    group_configuration=None,
+    active: bool = True,
+    grant: AccessGrant | None = None,
+    operation: str = 'upsert',
+) -> AccessControlChangeRequest:
+    """Apply one Access Grant immediately from the Django Superuser boundary.
+
+    This is intentionally narrower than a Mini App authorization bypass: the
+    technical Superuser can administer *staff grant rows* directly, but does
+    not gain any workflow role or capability merely by doing so.  The request
+    record, compliance events, policy snapshot, and version bump keep this
+    exceptional path fully visible to later review and force Mini Apps to
+    refresh their effective access on the next metadata request.
+    """
+    if not actor or not actor.is_active or not actor.is_superuser:
+        raise PermissionDenied('Only an active Django Superuser can directly apply an Access Grant override.')
+    if not user or not user.pk:
+        raise ValidationError('Choose the staff user receiving the Access Grant.')
+    if operation not in {'upsert', 'delete'}:
+        raise ValidationError('Unsupported Django Superuser Access Grant operation.')
+    if operation == 'delete':
+        if grant is None or grant.user_id != user.pk:
+            raise ValidationError('Choose an existing Access Grant for deletion.')
+        before = _grant_payload(
+            user=grant.user,
+            workflow=grant.workflow,
+            role=grant.role,
+            branch=grant.branch,
+            product=grant.product,
+            group_configuration=grant.group_configuration,
+            active=grant.active,
+            grant_id=grant.pk,
+        )
+        proposed = {}
+        request_workflow, request_role = grant.workflow, grant.role
+    else:
+        if not workflow or not role:
+            raise ValidationError('Workflow and role are required for an Access Grant.')
+        proposed = _grant_payload(
+            user=user,
+            workflow=workflow,
+            role=role,
+            branch=branch,
+            product=product,
+            group_configuration=group_configuration,
+            active=active,
+            grant_id=getattr(grant, 'pk', ''),
+        )
+        before = (
+            _grant_payload(
+                user=grant.user,
+                workflow=grant.workflow,
+                role=grant.role,
+                branch=grant.branch,
+                product=grant.product,
+                group_configuration=grant.group_configuration,
+                active=grant.active,
+                grant_id=grant.pk,
+            )
+            if grant else {}
+        )
+        request_workflow, request_role = proposed['workflow'], proposed['role']
+
+    reason = f'Direct Django Superuser override via User administration: {operation} Access Grant.'
+    with transaction.atomic():
+        state, _created = AccessControlPolicyState.objects.select_for_update().get_or_create(singleton=1)
+        request = AccessControlChangeRequest.objects.create(
+            change_type=AccessControlChangeRequest.TYPE_GRANT,
+            workflow=request_workflow,
+            role=request_role,
+            target_user=user,
+            before_snapshot={'grant': before},
+            proposed_snapshot={
+                'grant': proposed,
+                'operation': operation,
+                'execution_mode': 'django_superuser_override',
+            },
+            impact={
+                'staff_count': 1,
+                'branch_count': 1 if (proposed or before).get('branch') else 0,
+                'branches': [branch_name] if (branch_name := (proposed or before).get('branch')) else [],
+            },
+            reason=reason,
+            status=AccessControlChangeRequest.STATUS_PENDING,
+            policy_version=state.version,
+            requested_by=actor,
+        )
+        _record_access_control_request(request)
+        request.reviewed_by = actor
+        request.reviewed_at = timezone.now()
+        request.review_comment = reason
+        request.status = AccessControlChangeRequest.STATUS_APPROVED
+        _apply_grant_request(request)
+        state.version += 1
+        state.save(update_fields=['version', 'updated_at'])
+        AccessControlPolicySnapshot.objects.create(
+            version=state.version,
+            request=request,
+            state=_policy_snapshot(),
+        )
+        request.status = AccessControlChangeRequest.STATUS_APPLIED
+        request.applied_at = timezone.now()
+        request.save(update_fields=[
+            'reviewed_by', 'reviewed_at', 'review_comment', 'status', 'applied_at',
+        ])
+        _record_access_control_decision(
+            request,
+            action='access_control.change.superuser_override_applied',
+            decision_mode='django_superuser_override',
+        )
+    return request
 
 
 def _apply_document_signoff_policy_request(request: AccessControlChangeRequest) -> None:

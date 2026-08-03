@@ -3071,13 +3071,13 @@ class AccessGrantInline(StackedInline):
     readonly_fields = ('source',)
 
     def has_add_permission(self, request, obj=None):
-        return False
+        return bool(request.user.is_active and request.user.is_superuser)
 
     def has_change_permission(self, request, obj=None):
-        return False
+        return bool(request.user.is_active and request.user.is_superuser)
 
     def has_delete_permission(self, request, obj=None):
-        return False
+        return bool(request.user.is_active and request.user.is_superuser)
 
 
 @admin.register(WorkflowTatDailyMetric)
@@ -3517,6 +3517,70 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
     def get_queryset(self, request):
         return super().get_queryset(request).prefetch_related('access_grants')
 
+    def save_formset(self, request, form, formset, change):
+        """Route technical-root grant edits through the audited override service.
+
+        A raw inline save would bypass the policy ledger and leave Mini App
+        clients with no version signal to re-evaluate effective access.
+        Non-AccessGrant inlines retain Django's normal save behaviour.
+        """
+        if formset.model is not AccessGrant:
+            return super().save_formset(request, form, formset, change)
+        if not request.user.is_active or not request.user.is_superuser:
+            raise PermissionDenied('Only an active Django Superuser can directly manage Access Grants.')
+
+        from core.services.access_control import apply_superuser_grant_override
+
+        target_user = formset.instance
+        formset.save(commit=False)
+        deleted = list(formset.deleted_objects)
+        changed = [instance for instance, _changed_fields in formset.changed_objects]
+        created = list(formset.new_objects)
+        applied = 0
+        with transaction.atomic():
+            # Delete first so a scope can be moved onto a currently occupied
+            # unique key without a transient uniqueness collision.
+            for grant in deleted:
+                apply_superuser_grant_override(
+                    actor=request.user,
+                    user=target_user,
+                    grant=grant,
+                    operation='delete',
+                )
+                applied += 1
+            for instance in changed:
+                existing = AccessGrant.objects.select_related('group_configuration').get(pk=instance.pk)
+                apply_superuser_grant_override(
+                    actor=request.user,
+                    user=target_user,
+                    workflow=instance.workflow,
+                    role=instance.role,
+                    branch=instance.branch,
+                    product=instance.product,
+                    group_configuration=instance.group_configuration,
+                    active=instance.active,
+                    grant=existing,
+                )
+                applied += 1
+            for instance in created:
+                apply_superuser_grant_override(
+                    actor=request.user,
+                    user=target_user,
+                    workflow=instance.workflow,
+                    role=instance.role,
+                    branch=instance.branch,
+                    product=instance.product,
+                    group_configuration=instance.group_configuration,
+                    active=instance.active,
+                )
+                applied += 1
+        formset.save_m2m()
+        if applied:
+            messages.success(
+                request,
+                f'{applied} Access Grant change(s) applied immediately by Django Superuser override and audit-logged.',
+            )
+
     @admin.display(description='Role tags')
     def role_tags(self, obj):
         workflow_labels = dict(AccessGrant.WORKFLOW_CHOICES)
@@ -3617,7 +3681,7 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
         creation_form = StaffUserCreationForm(request.POST or None)
         if request.method == 'POST' and creation_form.is_valid():
             user = self._create_staff_user(creation_form.cleaned_data, request.user)
-            messages.success(request, f'{user.get_full_name() or user.get_username()} was created. Their initial workflow access is pending independent approval.')
+            messages.success(request, f'{user.get_full_name() or user.get_username()} was created with immediate, audit-logged workflow access.')
             return HttpResponseRedirect(reverse('admin:auth_user_change', args=(user.pk,)))
         context = {
             **self.admin_site.each_context(request),
@@ -3655,12 +3719,11 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
             user.set_unusable_password()
         user.save()
         UserProfile.objects.create(user=user, telegram_username=telegram_username)
-        from core.services.access_control import create_grant_request
-        create_grant_request(
-            requester=requester, user=user, workflow=data['workflow'], role=data['role'],
+        from core.services.access_control import apply_superuser_grant_override
+        apply_superuser_grant_override(
+            actor=requester, user=user, workflow=data['workflow'], role=data['role'],
             branch=data.get('branch', ''), product=data.get('product', ''),
             group_configuration=data.get('group_configuration'),
-            reason='Initial workflow access for newly enrolled staff user.',
         )
         return user
 
