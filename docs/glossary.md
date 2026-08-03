@@ -20,7 +20,7 @@ respective service modules.
 | Emergency access | A separately audited, reason-required grant that expires automatically. It is not a substitute for a permanent AccessGrant. |
 | Physical document sign-off | An authorised Portal role's attested upload of a scan of a paper-signed and stamped generated workbook. It is not an e-signature or handwriting-verification service. |
 | Approval gate | A distinct credit, final-review, or payment-review decision record. It is not inferred solely from the current text shown on a farmer card. |
-| Conditional approval | A forward decision that remains ineffective until every separately recorded condition is cleared by an authorised staff member. |
+| Conditional approval | Retired Portal decision type. New Credit and Head of Rural decisions must be Approved, Deferred, Rejected, or the existing supported exception path; a cached client submitting a conditional decision is rejected. Historical audit structures remain readable. |
 | Approval invalidation | An append-only change of an approval record when a material controlled field changes after the decision. The case requires re-review rather than silently retaining the old decision. |
 | Approval delegation | A Portal-Admin-authorised, non-self-granted temporary authority limited to one approval gate, optional branch/product scope, and at most 14 days. |
 | Controlled visit evidence | The only Portal forward-visit media categories: LAF and JBL visit photo. New records bind directly to a case and carry a case-reference storage key, content hash, capture context, and retrieval audit. |
@@ -34,6 +34,7 @@ respective service modules.
 | IT | A scoped Mini App support role (`IT`) available in Portal, Complaint Cases, TAT, and SPIN. It is not inferred from Django `is_staff` or `is_superuser`; every workflow still requires its own explicit `AccessGrant` and approved capabilities. |
 | Portal maintenance mode | An IT-only temporary Portal read-only state. It blocks newly admitted Portal writes with a safe message while reads and requests already inside a view can finish. It is not a general outage flag or a bypass of normal access control. |
 | JBL to Schedule Visit | A FarmUp-created operational handoff after an HBG visit is available and before a JBL officer records a real visit outcome. It is a queue status, not an officer-selectable completed-visit result. |
+| Current Pipeline State | A Django-derived Master Data summary of the case's present operational state. It complements, but never overwrites, historical JBL visit, Credit, and Head of Rural columns. |
 | Access Control Checker | An active Django Admin staff user appointed by a technical Superuser to independently approve or reject Mini App access-policy requests. This is not a Mini App role or capability. |
 | Bootstrap override | The audited, reason-required exception allowing a sole active Django Superuser to approve their own access-policy request only while no independent checker or different Superuser exists. It ends as soon as an independent reviewer exists. |
 | TAT configuration proposal | A reasoned, snapshot-based maker-checker request for TAT targets, future holidays, or escalation rules. IT proposes; a different authorised TAT Business Admin reviews it. |

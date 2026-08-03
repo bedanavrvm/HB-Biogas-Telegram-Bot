@@ -1,5 +1,25 @@
 # Changelog
 
+## Master Data lifecycle publication - 03-August-2026
+
+- Master Data can now receive Django's backend-owned `Current Pipeline State`
+  without replacing the historical JBL visit, Credit, or Head of Rural
+  decision columns. It distinguishes JBL reschedules/halts, the 90-day
+  reappraisal rule, order/invoice waiting, payment processing, and payment
+  finalization.
+- Conditional approvals are retired from active Portal decisions. Credit and
+  Head of Rural now accept only the supported through/defer/reject outcomes;
+  conditional input from cached clients is rejected safely.
+- `master_data_script.gs` now resolves its operational columns from row-3
+  headers, so a manually inserted business column cannot shift dropdowns,
+  formulas, duplicate checks, or formats into the wrong column. Deploy the
+  script manually to a copied Sheet before production use.
+
+  Migration note: `core.0094_remove_conditional_jawabu_decisions` changes
+  Django choice metadata only; it does not rewrite stored case data. It has
+  not been applied to production by this change. To undo after an approved
+  migration: `python manage.py migrate core 0093_requisition_publication_retry_key`.
+
 ## Portal durable register publication - 31-July-2026
 
 - Portal case changes now commit to Django before any Google Sheet publication.

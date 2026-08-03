@@ -73,7 +73,6 @@ def decision_code(decision: str) -> str:
     value = str(decision or '').strip()
     mapping = {
         'Approved': JawabuApprovalRecord.DECISION_APPROVED,
-        'Approved with Conditions': JawabuApprovalRecord.DECISION_CONDITIONAL,
         'Rejected': JawabuApprovalRecord.DECISION_REJECTED,
         'Deferred': JawabuApprovalRecord.DECISION_DEFERRED,
         'Returned for Rework': JawabuApprovalRecord.DECISION_RETURNED,
@@ -323,10 +322,11 @@ def record_approval(*, farmer, gate: str, decision: str, reason_code: str = '', 
     if not allowed:
         raise JawabuApprovalError('Your Portal role is not authorized to record this approval.')
     condition_values = [str(value or '').strip() for value in (conditions or []) if str(value or '').strip()]
-    if normalized_decision == JawabuApprovalRecord.DECISION_CONDITIONAL and not condition_values:
-        raise JawabuApprovalError('Add at least one condition for an approval with conditions.')
-    if normalized_decision != JawabuApprovalRecord.DECISION_CONDITIONAL and condition_values:
-        raise JawabuApprovalError('Conditions are only allowed for an approval with conditions.')
+    # Conditional decisions were retired from the operational workflow.  The
+    # historical tables remain append-only evidence, but no new active
+    # approval may depend on conditions that would create an ambiguous route.
+    if condition_values:
+        raise JawabuApprovalError('Conditional approvals are no longer supported. Choose Approved, Deferred, or Rejected.')
     existing = JawabuApprovalRecord.objects.select_for_update().filter(
         farmer=farmer, gate=gate, payment_document=payment_document,
         status__in=[JawabuApprovalRecord.STATUS_ACTIVE, JawabuApprovalRecord.STATUS_CONDITIONS_PENDING],
@@ -336,17 +336,13 @@ def record_approval(*, farmer, gate: str, decision: str, reason_code: str = '', 
     record = JawabuApprovalRecord.objects.create(
         farmer=farmer, payment_document=payment_document, gate=gate,
         decision=normalized_decision,
-        status=(JawabuApprovalRecord.STATUS_CONDITIONS_PENDING if condition_values else JawabuApprovalRecord.STATUS_ACTIVE),
+        status=JawabuApprovalRecord.STATUS_ACTIVE,
         reason_code=normalized_reason, comment=str(comment or '').strip(),
         source_revision=int(getattr(farmer, 'workflow_revision', 1) or 1),
         authority_role=role, delegation=delegation, decided_by=actor,
         decided_by_label=str(actor_label or ''), decided_at=current,
         expires_at=current + timedelta(days=APPROVAL_VALIDITY_DAYS),
     )
-    JawabuApprovalCondition.objects.bulk_create([
-        JawabuApprovalCondition(approval=record, description=value)
-        for value in condition_values
-    ])
     return record
 
 

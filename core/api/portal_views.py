@@ -2673,10 +2673,8 @@ def portal_set_credit_decision(request, farmer_id: str):
     imab_created = str(body.get('imab_created') or '').strip()
     customer_no = str(body.get('customer_no') or '').strip()
     reason_code = str(body.get('reason_code') or '').strip()
-    try:
-        conditions = _approval_conditions_from_body(body)
-    except ValueError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    if body.get('conditions'):
+        return JsonResponse({'ok': False, 'error': 'Conditional approvals are no longer supported.'}, status=400)
     if not decision:
         return JsonResponse({'ok': False, 'error': 'decision is required.'}, status=400)
 
@@ -2688,7 +2686,6 @@ def portal_set_credit_decision(request, farmer_id: str):
             imab_created=imab_created,
             customer_no=customer_no,
             reason_code=reason_code,
-            conditions=conditions,
             sender=sender,
             request_id=_portal_request_id(request, body),
             expected_revision=expected_revision,
@@ -2778,10 +2775,8 @@ def portal_set_final_decision(request, farmer_id: str):
     repayment_date = str(body.get('repayment_date') or '').strip() if 'repayment_date' in body else None
     repayment_tenor = str(body.get('repayment_tenor') or '').strip() if 'repayment_tenor' in body else None
     reason_code = str(body.get('reason_code') or '').strip()
-    try:
-        conditions = _approval_conditions_from_body(body)
-    except ValueError as exc:
-        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    if body.get('conditions'):
+        return JsonResponse({'ok': False, 'error': 'Conditional approvals are no longer supported.'}, status=400)
     if not final_decision:
         return JsonResponse({'ok': False, 'error': 'final_decision is required.'}, status=400)
 
@@ -2792,7 +2787,6 @@ def portal_set_final_decision(request, farmer_id: str):
             final_decision=final_decision,
             decision_comment=decision_comment,
             reason_code=reason_code,
-            conditions=conditions,
             repayment_date=repayment_date,
             repayment_tenor=repayment_tenor,
             sender=sender,

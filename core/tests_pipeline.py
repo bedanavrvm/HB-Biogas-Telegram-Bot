@@ -38,6 +38,7 @@ from core.services.jawabu_pipeline import (
     set_final_decision,
     sync_farmer_to_internal_order_sheet,
     sync_farmer_to_master_sheet,
+    current_pipeline_state_label,
 )
 from core.services.workflow_transitions import WorkflowRevisionConflict
 
@@ -1047,6 +1048,36 @@ class PortalMiniAppAuthTestCase(TestCase):
             primary_phone='254700000003', branch='Kiambu', order_number='OUTSIDE-1',
             status='active',
         )
+
+    def test_current_pipeline_state_labels_cover_halts_and_finance_lifecycle(self):
+        self.assertEqual(current_pipeline_state_label(self.farmer_stage1), 'Awaiting JBL Visit')
+        self.assertEqual(current_pipeline_state_label(self.farmer_stage2), 'Awaiting Credit Analysis')
+        self.assertEqual(current_pipeline_state_label(self.farmer_stage_review), 'Awaiting Head of Rural Review')
+        self.assertEqual(current_pipeline_state_label(self.farmer_stage3), 'Ready for Order')
+        self.assertEqual(current_pipeline_state_label(self.farmer_stage4), 'Ordered — Awaiting Invoice')
+
+        self.farmer_stage1.jbl_visit_status = 'Rescheduled'
+        self.farmer_stage1.save(update_fields=['jbl_visit_status'])
+        self.assertEqual(current_pipeline_state_label(self.farmer_stage1), 'JBL Visit Rescheduled')
+
+        paused = JawabuFarmerMaster.objects.create(
+            customer_name='Paused case', national_id='55555555', primary_phone='254755555555',
+            workflow_state='deferred', deferred_stage='credit',
+            deferred_until=timezone.localdate() + timedelta(days=1), status='active',
+        )
+        self.assertEqual(current_pipeline_state_label(paused), 'Deferred — Credit')
+        paused.deferred_until = timezone.localdate()
+        paused.save(update_fields=['deferred_until'])
+        self.assertEqual(current_pipeline_state_label(paused), 'Reappraisal Required')
+
+        batch = InvoiceUploadBatch.objects.create(order_number=self.farmer_stage4.order_number, status='matched')
+        ParsedInvoice.objects.create(
+            batch=batch, status='matched', matched_farmer=self.farmer_stage4,
+            invoice_no='STATE-INV-1', balance_due=Decimal('5000.00'),
+        )
+        self.assertEqual(current_pipeline_state_label(self.farmer_stage4), 'Payment Processing')
+        JawabuPipelineEvent.objects.create(farmer=self.farmer_stage4, action='payment_finalized', stage_key='payment')
+        self.assertEqual(current_pipeline_state_label(self.farmer_stage4), 'Payment Finalized')
         RequisitionBatch.objects.create(
             order_number='OUTSIDE-1', file_content=b'xlsx-bytes',
             farmer_ids=[str(farmer.id)], farmer_count=1,

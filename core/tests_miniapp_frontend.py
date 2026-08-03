@@ -285,11 +285,12 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertNotIn('Status guide:', form)
         self.assertNotIn("buildApprovalReasonFields('credit')", form)
         self.assertNotIn("renderApprovalConditions(farmer, 'credit')", form)
-        self.assertIn("!['Pending', 'Approved with Conditions'].includes(decision)", form)
+        self.assertIn("decision !== 'Pending'", form)
         self.assertNotIn('credit-reason-code', submit)
         self.assertNotIn('credit-conditions', submit)
         self.assertNotIn('reason_code:', submit)
         self.assertNotIn('conditions }', submit)
+        self.assertNotIn('Approved with Conditions', source)
 
     def test_final_review_form_uses_client_media_without_reason_or_condition_controls(self):
         source = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')
@@ -298,7 +299,7 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         self.assertNotIn('Decision reason', form)
         self.assertNotIn('approval-condition', form)
-        self.assertIn("!['Under Review', 'Approved with Conditions'].includes(decision)", form)
+        self.assertIn("decision !== 'Under Review'", form)
         self.assertIn('btn-view-client-media', form)
         self.assertIn('final-client-media', form)
         self.assertIn('loadClientMedia', source)
@@ -325,6 +326,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('#media-viewer-overlay { z-index: 260; }', stylesheet)
         self.assertNotIn('final-reason-code', submit)
         self.assertNotIn('final-conditions', submit)
+        self.assertNotIn('Approved with Conditions', source)
 
     def test_requisition_case_sheet_defers_assignment_to_selected_batch_panel(self):
         source = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')

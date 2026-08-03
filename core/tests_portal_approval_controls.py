@@ -11,7 +11,6 @@ from django.utils import timezone
 from core.models import AccessGrant, JawabuApprovalRecord, JawabuFarmerMaster, MediaAttachment
 from core.services.jawabu_approvals import (
     approval_is_effective,
-    clear_condition,
     create_delegation,
     invalidate_material_approvals,
     record_approval,
@@ -44,35 +43,17 @@ class PortalApprovalControlsTests(TestCase):
             user=self.delegate, workflow='jawabu_portal', role='JBL_OFFICER', branch='EMBU', active=True,
         )
 
-    @patch('core.services.jawabu_pipeline.sync_farmer_to_internal_order_sheet')
-    @patch('core.services.jawabu_pipeline.sync_farmer_to_master_sheet')
-    def test_conditional_credit_approval_blocks_then_advances_when_evidenced(self, _master_sync, _order_sync):
+    def test_conditional_credit_approval_is_rejected(self):
         ok, error = set_credit_decision(
             self.farmer, decision='Approved with Conditions', imab_created='Yes',
-            customer_no='9001', reason_code='affordability',
-            conditions=['Confirm current income document.'], sender='credit',
+            customer_no='9001', reason_code='affordability', sender='credit',
         )
 
-        self.assertTrue(ok, error)
+        self.assertFalse(ok)
+        self.assertIn('Invalid credit decision', error)
         self.farmer.refresh_from_db()
-        approval = self.farmer.approval_records.get(gate='credit')
-        self.assertEqual(approval.status, JawabuApprovalRecord.STATUS_CONDITIONS_PENDING)
-        self.assertFalse(approval_is_effective(self.farmer, 'credit'))
-        with self.assertRaises(ValidationError):
-            require_effective_approval(self.farmer, 'credit')
-
-        condition = approval.conditions.get()
-        clear_condition(
-            condition_id=condition.pk,
-            actor=self.admin,
-            access=user_access(self.admin, 'jawabu_portal'),
-            note='Income document reviewed.',
-        )
-        self.farmer.refresh_from_db()
-        approval.refresh_from_db()
-        self.assertEqual(approval.status, JawabuApprovalRecord.STATUS_ACTIVE)
-        self.assertEqual(self.farmer.credit_decision, 'Approved')
-        self.assertEqual(self.farmer.workflow_state, 'final_review')
+        self.assertEqual(self.farmer.credit_decision, 'Pending')
+        self.assertFalse(self.farmer.approval_records.filter(gate='credit').exists())
 
     def test_unauthorized_staff_cannot_record_an_approval(self):
         with self.assertRaises(ValidationError):

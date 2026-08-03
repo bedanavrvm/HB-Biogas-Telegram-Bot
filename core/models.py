@@ -999,7 +999,6 @@ class JawabuFarmerMaster(models.Model):
     # Stage 3 Ã¢â‚¬â€ Credit Decision values (master data dropdown)
     CREDIT_DECISION_CHOICES = [
         ('Approved', 'Approved'),
-        ('Approved with Conditions', 'Approved with Conditions'),
         ('Rejected', 'Rejected'),
         ('Deferred', 'Deferred'),
         ('Exemption Approved', 'Exemption Approved'),
@@ -1008,7 +1007,6 @@ class JawabuFarmerMaster(models.Model):
 
     FINAL_DECISION_CHOICES = [
         ('Approved', 'Approved'),
-        ('Approved with Conditions', 'Approved with Conditions'),
         ('Rejected', 'Rejected'),
         ('Deferred', 'Deferred'),
         ('Under Review', 'Under Review'),
@@ -1303,7 +1301,6 @@ class JawabuApprovalRecord(models.Model):
     DECISION_RETURNED = 'returned_for_rework'
     DECISION_CHOICES = [
         (DECISION_APPROVED, 'Approved'),
-        (DECISION_CONDITIONAL, 'Approved with conditions'),
         (DECISION_REJECTED, 'Rejected'),
         (DECISION_DEFERRED, 'Deferred'),
         (DECISION_RETURNED, 'Returned for rework'),

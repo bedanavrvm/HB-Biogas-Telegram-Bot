@@ -43,7 +43,7 @@ JBL_FORWARD_STATUSES = frozenset({
 
 CREDIT_APPROVED = 'Approved'
 CREDIT_TERMINAL = frozenset({'Approved', 'Rejected', 'Deferred', 'Exemption Approved'})
-CREDIT_RECORDED_DECISIONS = CREDIT_TERMINAL | frozenset({'Approved with Conditions'})
+CREDIT_RECORDED_DECISIONS = CREDIT_TERMINAL
 FINAL_DECISION_APPROVED = 'Approved'
 FINAL_DECISION_TERMINAL = frozenset({'Approved', 'Rejected', 'Deferred'})
 
@@ -97,6 +97,69 @@ def infer_workflow_state(farmer: JawabuFarmerMaster) -> str:
 
 def current_workflow_state(farmer: JawabuFarmerMaster) -> str:
     return str(farmer.workflow_state or infer_workflow_state(farmer))
+
+
+def current_pipeline_state_label(farmer: JawabuFarmerMaster) -> str:
+    """Return the concise, staff-facing owner/status for Master Data.
+
+    This is deliberately derived from canonical Django state and immutable
+    pipeline events.  Visit/credit/final-decision columns retain the detailed
+    historical decision; this label answers only what happens next.
+    """
+    if is_reappraisal_required(farmer):
+        return 'Reappraisal Required'
+
+    state = current_workflow_state(farmer)
+    deferred_labels = {
+        'jbl_visit': 'Deferred — JBL Visit',
+        'credit': 'Deferred — Credit',
+        'final': 'Deferred — Head of Rural Review',
+        'order': 'Deferred — Order',
+        'payment': 'Deferred — Payment',
+    }
+    if state == JawabuWorkflowState.DEFERRED or farmer.deferred_until:
+        return deferred_labels.get(str(farmer.deferred_stage or ''), 'Deferred')
+
+    visit_status = str(farmer.jbl_visit_status or '').strip()
+    if visit_status == 'Rejected by JBL':
+        return 'Rejected by JBL'
+    if visit_status == 'Opted for Cash':
+        return 'Closed — Opted for Cash'
+    if visit_status == 'Opted for other Partner':
+        return 'Closed — Other Partner'
+    if state == JawabuWorkflowState.REJECTED:
+        if farmer.final_decision == 'Rejected':
+            return 'Rejected — Head of Rural Review'
+        if farmer.credit_decision == 'Rejected':
+            return 'Rejected — Credit'
+        return 'Rejected'
+    if state == JawabuWorkflowState.WITHDRAWN:
+        return 'Withdrawn'
+
+    if farmer.pipeline_events.filter(action='payment_finalized').exists():
+        return 'Payment Finalized'
+    if farmer.order_number:
+        invoice_matched = farmer.parsed_invoices.filter(
+            status='matched', matched_farmer=farmer,
+        ).exists()
+        if invoice_matched:
+            return 'Payment Processing'
+        return 'Ordered — Awaiting Invoice'
+
+    if state == JawabuWorkflowState.ORDER:
+        return 'Ready for Order'
+    if state == JawabuWorkflowState.FINAL_REVIEW:
+        return 'Awaiting Head of Rural Review'
+    if state == JawabuWorkflowState.CREDIT:
+        return 'Awaiting Credit Analysis'
+
+    if visit_status == 'Rescheduled':
+        return 'JBL Visit Rescheduled'
+    if visit_status == 'Deferred / On Hold':
+        return 'Deferred — JBL Visit'
+    if not farmer.hbg_visit_date and not farmer.sign_date:
+        return 'Awaiting HBG Visit'
+    return 'Awaiting JBL Visit'
 
 
 def _advance_state(
@@ -667,7 +730,6 @@ def set_credit_decision(
     imab_created: str = '',
     customer_no: str = '',
     reason_code: str = '',
-    conditions: list[str] | None = None,
     sender: str = '',
     request_id: str = '',
     expected_revision: int | None = None,
@@ -725,14 +787,10 @@ def set_credit_decision(
         _clear_deferral(farmer, sender, request_id)
         if decision in {'Approved', 'Exemption Approved'}:
             next_state = JawabuWorkflowState.FINAL_REVIEW
-        elif decision == 'Approved with Conditions':
-            next_state = JawabuWorkflowState.CREDIT
         else:
             next_state = JawabuWorkflowState.REJECTED
     elif decision in {'Approved', 'Exemption Approved'}:
         next_state = JawabuWorkflowState.FINAL_REVIEW
-    elif decision == 'Approved with Conditions':
-        next_state = JawabuWorkflowState.CREDIT
     else:
         next_state = JawabuWorkflowState.REJECTED
     from_state, revision_before, revision_after = _advance_state(
@@ -753,7 +811,6 @@ def set_credit_decision(
             gate='credit',
             decision=decision,
             reason_code=reason_code,
-            conditions=conditions,
             actor=actor_user,
             actor_label=sender,
             access=access,
@@ -795,7 +852,6 @@ def set_final_decision(
     final_decision: str,
     decision_comment: str = '',
     reason_code: str = '',
-    conditions: list[str] | None = None,
     repayment_date: str | None = None,
     repayment_tenor: str | None = None,
     sender: str = '',
@@ -860,8 +916,6 @@ def set_final_decision(
         next_state = JawabuWorkflowState.ORDER if final_decision == FINAL_DECISION_APPROVED else (JawabuWorkflowState.REJECTED if final_decision == 'Rejected' else JawabuWorkflowState.FINAL_REVIEW)
     elif final_decision == FINAL_DECISION_APPROVED:
         next_state = JawabuWorkflowState.ORDER
-    elif final_decision == 'Approved with Conditions':
-        next_state = JawabuWorkflowState.FINAL_REVIEW
     elif final_decision == 'Rejected':
         next_state = JawabuWorkflowState.REJECTED
     else:
@@ -896,7 +950,6 @@ def set_final_decision(
             decision=final_decision,
             reason_code=reason_code,
             comment=decision_comment,
-            conditions=conditions,
             actor=actor_user,
             actor_label=sender,
             access=access,
@@ -1451,6 +1504,7 @@ def farmer_to_card(farmer: JawabuFarmerMaster) -> dict[str, Any]:
     return {
         'id': str(farmer.id),
         'workflow_state': current_workflow_state(farmer),
+        'current_pipeline_state': current_pipeline_state_label(farmer),
         'workflow_revision': int(farmer.workflow_revision or 1),
         'customer_id': str(farmer.customer_id or ''),
         'unit_number': farmer.unit_number,
@@ -1741,6 +1795,7 @@ def sync_farmer_to_master_sheet(
             'jbl_visit_date': (candidates('jbl_visit_date'), farmer.jbl_visit_date.strftime('%d-%B-%Y') if farmer.jbl_visit_date else ''),
             'jbl_officer': (candidates('jbl_officer'), farmer.jbl_officer),
             'jbl_visit_status': (candidates('jbl_visit_status'), farmer.jbl_visit_status),
+            'current_pipeline_state': (candidates('current_pipeline_state'), current_pipeline_state_label(farmer)),
             'jbl_visit_comment': (candidates('jbl_visit_comment'), farmer.jbl_visit_comment),
             'hbg_visit_comment': (candidates('hbg_visit_comment'), farmer.comments),
             'county': (candidates('county'), farmer.county),
@@ -2012,6 +2067,7 @@ def sync_farmer_to_internal_order_sheet(farmer: JawabuFarmerMaster) -> bool:
         put(candidates('system_deposit_paid_jbl'), farmer.system_deposit_paid_jbl if farmer.system_deposit_paid_jbl is not None else 0)
         put(candidates('hbg_visit_comment'), farmer.comments)
         put(candidates('jbl_visit_comment'), farmer.jbl_visit_comment)
+        put(candidates('current_pipeline_state'), current_pipeline_state_label(farmer))
         put(candidates('credit_decision'), farmer.credit_decision)
         put(candidates('imab_created'), farmer.imab_created)
         put(candidates('customer_no'), farmer.customer_no)

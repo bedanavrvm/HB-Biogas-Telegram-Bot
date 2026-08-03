@@ -536,11 +536,7 @@
 
   function buildCreditForm(farmer) {
     const currentDecision = farmer.credit_decision || 'Pending';
-    // Conditional approvals are a separate controlled approval process, not a
-    // data-entry option for the analyst's day-to-day Credit form. Older
-    // records remain visible in history, but this focused screen only offers
-    // the ordinary operational decisions.
-    const decisionOptions = state().metaDecisions.filter(decision => !['Pending', 'Approved with Conditions'].includes(decision)).map(decision =>
+    const decisionOptions = state().metaDecisions.filter(decision => decision !== 'Pending').map(decision =>
       `<option value="${deps.escapeHtml(decision)}"${currentDecision === decision ? ' selected' : ''}>${deps.escapeHtml(decision)}</option>`
     ).join('');
     const imabOptions = (state().metaImabOptions.length ? state().metaImabOptions : ['Yes', 'No', 'Pending']).map(value =>
@@ -587,7 +583,7 @@
   }
 
   function buildFinalReviewForm(farmer) {
-    const decisionOptions = state().metaFinalDecisions.filter(decision => !['Under Review', 'Approved with Conditions'].includes(decision)).map(decision =>
+    const decisionOptions = state().metaFinalDecisions.filter(decision => decision !== 'Under Review').map(decision =>
       `<option value="${deps.escapeHtml(decision)}"${farmer.final_decision === decision ? ' selected' : ''}>${deps.escapeHtml(decision)}</option>`
     ).join('');
     const phoneDigits = String(farmer.primary_phone || '').replace(/\D/g, '');
