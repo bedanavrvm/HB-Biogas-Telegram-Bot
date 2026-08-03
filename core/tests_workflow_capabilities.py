@@ -142,7 +142,7 @@ class WorkflowCapabilityPolicyTests(TestCase):
         expected_capabilities = {
             'jawabu_portal': {
                 'portal.dashboard.view', 'portal.case.read', 'portal.workspace.manage',
-                'portal.health.read', 'portal.health.maintenance.manage',
+                'portal.health.read', 'portal.health.maintenance.manage', 'portal.imports.view',
             },
             'complaint_cases': {'complaint.queue.view'},
             'tat_tracker': {'tat.home.view'},

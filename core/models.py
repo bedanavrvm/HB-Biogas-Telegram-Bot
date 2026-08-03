@@ -2443,7 +2443,13 @@ class MiniAppDraft(models.Model):
 
 
 class JawabuFarmerUploadBatch(models.Model):
-    """Staged FarmUp/system-export upload awaiting staff review and commit."""
+    """Staged FarmUp/system-export upload awaiting staff review and commit.
+
+    The original source is retained as a bounded binary payload so an accepted
+    import can be archived to Drive after a free-Render request returns.  The
+    parsed rows remain the review surface; they are not a replacement for the
+    submitted source document.
+    """
 
     IMPORT_KIND_CHOICES = [
         ('farmers', 'Farmers CSV'),
@@ -2461,7 +2467,25 @@ class JawabuFarmerUploadBatch(models.Model):
     group_id = models.CharField(max_length=100, db_index=True)
     telegram_message_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
     sender = models.CharField(max_length=255, blank=True, default='')
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='jawabu_import_batches',
+    )
+    upload_request_id = models.CharField(max_length=128, null=True, blank=True, unique=True)
     source_filename = models.CharField(max_length=255, blank=True, default='')
+    source_mime_type = models.CharField(max_length=255, blank=True, default='')
+    source_size = models.PositiveIntegerField(default=0)
+    source_content_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    source_content = models.BinaryField(blank=True, null=True)
+    archive_file_id = models.CharField(max_length=255, blank=True, default='')
+    archive_url = models.URLField(max_length=1000, blank=True, default='')
+    archive_error = models.TextField(blank=True, default='')
+    archive_sync_attempts = models.PositiveIntegerField(default=0)
+    archive_last_sync_at = models.DateTimeField(null=True, blank=True)
+    archive_next_retry_at = models.DateTimeField(null=True, blank=True)
     import_kind = models.CharField(
         max_length=32,
         choices=IMPORT_KIND_CHOICES,
@@ -2491,6 +2515,7 @@ class JawabuFarmerUploadBatch(models.Model):
             models.Index(fields=['group_id', 'created_at']),
             models.Index(fields=['status', 'created_at']),
             models.Index(fields=['telegram_message_id']),
+            models.Index(fields=['archive_next_retry_at']),
         ]
         verbose_name = 'Jawabu farmer upload batch'
         verbose_name_plural = 'Jawabu farmer upload batches'

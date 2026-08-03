@@ -1520,6 +1520,58 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .payment-selection-preview h2 { font-size: 13px; }
 .payment-selection-preview p { color: var(--text-muted); font-size: 9px; }
 @media (max-width: 700px) { .payment-candidate-list { grid-template-columns: 1fr; } .payment-builder-toolbar { grid-template-columns: 1fr; } .payment-builder-actions { flex-wrap: wrap; top: 54px; } .payment-builder-actions > div { width: 100%; } }
+
+/* Imports are intentionally review-only.  These cards make the source,
+   validation outcome, and Drive-retention state scannable without turning a
+   finance/data-quality import into a dense Admin table. */
+.portal-import-notice { display: grid; gap: 3px; margin: 10px 0; padding: 10px 11px; border: 1px solid color-mix(in srgb, var(--color-primary) 32%, var(--border-color)); border-radius: var(--radius-md); background: color-mix(in srgb, var(--color-primary) 7%, var(--bg-surface)); color: var(--text-primary); font-size: 11px; line-height: 1.35; }
+.portal-import-notice span { color: var(--text-muted); }
+.portal-import-group-field { display: grid; gap: 5px; margin: 10px 0; color: var(--text-muted); font-size: 11px; font-weight: 700; }
+.portal-import-group-field select { min-height: 42px; }
+.portal-import-upload-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.portal-import-upload { display: grid; gap: 9px; min-width: 0; padding: 11px; border: 1px solid var(--border-color); border-radius: var(--radius-lg); background: var(--bg-surface); }
+.portal-import-upload h2, .portal-import-upload p { margin: 0; }
+.portal-import-upload h2 { margin-top: 2px; color: var(--text-primary); font-size: 15px; }
+.portal-import-upload p { margin-top: 3px; color: var(--text-muted); font-size: 10px; line-height: 1.35; }
+.portal-import-upload .invoice-upload-dropzone { position: relative; min-height: 88px; padding: 9px; }
+.portal-import-upload .invoice-upload-dropzone input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.portal-import-upload .invoice-upload-dropzone span { color: var(--color-primary); font-size: 12px; font-weight: 800; text-transform: uppercase; }
+.portal-import-upload .btn { width: 100%; }
+.portal-import-history { margin-top: 16px; }
+.portal-import-history-heading, .portal-import-card-title, .portal-import-actions, .portal-import-review-heading { display: flex; align-items: center; justify-content: space-between; gap: 9px; }
+.portal-import-history-heading { margin-bottom: 8px; }
+.portal-import-history-heading h2, .portal-import-review-heading h2 { margin: 2px 0 0; color: var(--text-primary); font-size: 16px; }
+.portal-import-card { display: grid; gap: 8px; padding: 11px; border: 1px solid var(--border-color); border-radius: var(--radius-lg); background: var(--bg-surface); }
+.portal-import-card + .portal-import-card { margin-top: 8px; }
+.portal-import-card-title > div { min-width: 0; }
+.portal-import-card-title h3, .portal-import-card-title p { margin: 0; }
+.portal-import-card-title h3 { overflow: hidden; color: var(--text-primary); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.portal-import-card-title p, .portal-import-review-heading p { margin-top: 3px; color: var(--text-muted); font-size: 10px; line-height: 1.3; }
+.portal-import-card-title .badge { flex: 0 0 auto; }
+.portal-import-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.portal-import-stats span { min-width: 0; padding: 7px; border-radius: 8px; background: var(--bg-muted); color: var(--text-muted); font-size: 9px; line-height: 1.2; }
+.portal-import-stats span.warning { color: #9a5b00; background: rgba(245, 158, 11, .12); }
+.portal-import-stats strong { display: block; color: var(--text-primary); font-size: 14px; }
+.portal-import-stats span.warning strong { color: #9a5b00; }
+.portal-import-error { margin: 0; padding: 7px 8px; border-radius: 8px; background: rgba(220, 38, 38, .08); color: #b42318; font-size: 10px; line-height: 1.35; }
+.portal-import-actions { justify-content: flex-start; flex-wrap: wrap; }
+.portal-import-actions .btn { min-height: 36px; }
+.portal-import-feedback { margin: 8px 0; padding: 8px 10px; border-radius: 8px; font-size: 11px; line-height: 1.35; }
+.portal-import-feedback.info { background: rgba(37, 99, 235, .09); color: #1d4ed8; }
+.portal-import-feedback.success { background: rgba(22, 163, 74, .09); color: #15803d; }
+.portal-import-feedback.error { background: rgba(220, 38, 38, .09); color: #b42318; }
+.portal-import-review { margin-top: 14px; padding: 11px; border: 1px solid var(--border-color); border-radius: var(--radius-lg); background: var(--bg-surface); }
+.portal-import-review-heading { align-items: flex-start; margin-bottom: 10px; }
+.portal-import-review-heading > div { min-width: 0; }
+.portal-import-table-wrap { overflow: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--border-color); border-radius: 9px; }
+.portal-import-table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 10px; }
+.portal-import-table th { position: sticky; top: 0; z-index: 1; background: var(--bg-muted); color: var(--text-primary); font-size: 9px; text-align: left; white-space: nowrap; }
+.portal-import-table th, .portal-import-table td { max-width: 220px; padding: 7px 8px; border-bottom: 1px solid var(--border-color); overflow-wrap: anywhere; vertical-align: top; }
+.portal-import-table td { color: var(--text-muted); }
+.portal-import-pager { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; color: var(--text-muted); font-size: 10px; }
+.portal-import-pager > div { display: flex; gap: 6px; }
+.portal-import-pager .btn { min-height: 34px; padding: 6px 9px; font-size: 10px; }
+@media (max-width: 520px) { .portal-import-upload-grid { grid-template-columns: 1fr; } .portal-import-stats { grid-template-columns: 1fr 1fr; } .portal-import-history-heading { align-items: flex-end; } }
 @media print {
   body.printing-document * { visibility: hidden !important; }
   body.printing-document .print-active,

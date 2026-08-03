@@ -145,6 +145,8 @@ Key modules:
 - `compliance_audit.py` — cross-workflow immutable audit ledger, integrity verification, evidence exports, and supervised checkpoints
 - `jawabu_approvals.py` — append-only Portal approval gates, conditions, expiry, invalidation, and scoped temporary delegation
 
+- `portal_imports.py`: IT-only FarmUp/SysUp staging, review metadata, and durable restricted-Drive archival; it never commits customer data from Portal.
+
 ### Frontend Mini Apps
 
 Templates:
@@ -176,6 +178,8 @@ The Mini Apps use Django templates and mostly vanilla JavaScript. Preserve Teleg
 - `core/test_data_quality_simple.py`
 - `core/tests_reliability.py`
 - `core/tests_portal_approval_controls.py`
+
+- `core/tests_portal_imports.py`
 
 ### Operational integrations and examples
 
@@ -216,6 +220,8 @@ This is a template of variables this class of system typically needs. Treat it a
 | `COMPLAINT_CASES_WEBAPP_REQUIRE_TELEGRAM_AUTH` | Requires verified Telegram Mini App identity for complaint case APIs | No |
 | `TELEGRAM_AUTH_MAX_AGE_SECONDS` | Maximum age accepted by the shared Telegram-to-Django authentication backend | No |
 | `COMPLAINT_CASE_MAX_FILES_PER_UPDATE` / `COMPLAINT_CASE_MAX_TOTAL_UPLOAD_MB` | Limits complaint evidence uploads | No |
+
+| `JAWABU_IMPORTS_DRIVE_FOLDER_ID` | Restricted Shared Drive root for IT-only Portal FarmUp/SysUp source archives | Treat as sensitive operational configuration |
 
 When adding a new configuration value, add it to `.env.example` with a placeholder (never a real value) in the same change, and add it to this table.
 
@@ -566,6 +572,7 @@ Use this table to locate the likely change surface for a given workflow, and wha
 
 | Workflow | Key files | Preserve |
 |---|---|---|
+| **Portal import staging** | `services/portal_imports.py`, `core/api/portal_views.py`, `templates/portal/`, `static/miniapp/portal_imports.js`, `core/tests_portal_imports.py` | IT-only group-scoped review, original-source retention, idempotent staged batches, and Drive archive state; no Portal customer commit |
 | **Complaint/case ingestion** | `core/api/views.py`, `services/parser.py`, `services/deduplication.py`, `services/case_updates.py`, `services/sheets.py`, `services/sheet_sync.py`, `core/models.py`, `core/tests.py`, `core/tests_data_quality.py` | Raw-message audit history, deduplication, group context, bot-owned vs. staff-owned sheet fields |
 | **Complaint Cases Mini App** | `core/api/complaint_case_views.py`, `services/complaint_cases.py`, `templates/complaint_cases/`, `static/miniapp/complaint_cases.*`, `core/tests_complaint_cases.py` | Verified Telegram identity plus named group staff roles, group-scoped reads/writes, append-only case/evidence records, idempotent updates, and Drive failure metadata |
 | **Group/workflow configuration** | `services/group_config.py`, `services/workflow_presets.py`, `services/workflow_capabilities.py`, `services/access_control.py`, `services/telegram_command_menu.py`, `core/models.py`, `core/admin.py`, `core/tests_pipeline.py`, `core/tests_workflow_capabilities.py` | Database-managed group configuration and Mini App role capability policy; permanent access changes require independent approval and audit evidence |

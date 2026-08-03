@@ -1882,6 +1882,193 @@ def portal_meta(request):
     })
 
 
+# ── Staged FarmUp / SysUp imports ────────────────────────────────────────────
+
+def _portal_import_group_ids(request):
+    """Return scoped Jawabu groups, or ``None`` when the grant is global."""
+    access = getattr(request, 'portal_access', None) or {}
+    grants = list(access.get('grants') or [])
+    if not grants:
+        return set()
+    if any(getattr(grant, 'group_configuration_id', None) is None for grant in grants):
+        return None
+    return {
+        group_id for group_id in (
+            str(getattr(getattr(grant, 'group_configuration', None), 'group_id', '') or '').strip()
+            for grant in grants
+            if getattr(grant, 'group_configuration_id', None)
+        ) if group_id
+    }
+
+
+def _portal_imports_queryset(request):
+    """Return import batches inside the caller's explicit group scope.
+
+    Import files contain source-system customer data and have no branch until
+    their separate commit workflow runs.  Group scope is therefore the only
+    applicable AccessGrant scope at this staging boundary.
+    """
+    from core.models import JawabuFarmerUploadBatch
+
+    queryset = JawabuFarmerUploadBatch.objects.select_related('created_by').order_by('-created_at')
+    allowed_groups = _portal_import_group_ids(request)
+    if allowed_groups is None:
+        return queryset
+    return queryset.filter(group_id__in=allowed_groups) if allowed_groups else queryset.none()
+
+
+def _portal_import_in_scope(request, batch_id: str):
+    return _portal_imports_queryset(request).filter(pk=batch_id).first()
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["GET"])
+def portal_imports(request):
+    """List staged Portal imports and eligible Jawabu import destinations."""
+    access_error = _portal_read_access_error(request, capability='portal.imports.view')
+    if access_error:
+        return access_error
+    from core.services.portal_imports import archive_operation_ids, available_import_groups, serialize_import_batch
+
+    batches = list(_portal_imports_queryset(request)[:50])
+    archive_operations = archive_operation_ids(batches)
+    return JsonResponse({
+        'ok': True,
+        'groups': available_import_groups(allowed_group_ids=_portal_import_group_ids(request)),
+        'batches': [
+            serialize_import_batch(batch, archive_operation_id=archive_operations.get(str(batch.pk), ''))
+            for batch in batches
+        ],
+        'review_only': True,
+    })
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["POST"])
+def portal_import_stage(request, kind: str):
+    """Stage one validated source file; never commit it to customer records."""
+    access_error = _portal_read_access_error(request, capability='portal.imports.view')
+    if access_error:
+        return access_error
+    source_file = request.FILES.get('file')
+    if source_file is None:
+        return JsonResponse({'ok': False, 'error': 'Choose an import file before staging it.'}, status=400)
+    try:
+        from core.services.portal_imports import PortalImportError, serialize_import_batch, stage_portal_import
+
+        request_id = _portal_request_id(request, request.POST.dict())
+        batch, operation, replayed = stage_portal_import(
+            kind=kind,
+            filename=source_file.name,
+            content=source_file.read(),
+            group_id=str(request.POST.get('group_id') or ''),
+            request_id=request_id,
+            actor=getattr(request, 'portal_user', None),
+            allowed_group_ids=_portal_import_group_ids(request),
+        )
+    except PortalImportError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    except Exception:
+        logger.exception('Could not stage Portal import kind=%s request_id=%s', kind, getattr(request, 'portal_request_id', ''))
+        return JsonResponse({'ok': False, 'error': 'The import could not be staged. Check the file and retry.'}, status=502)
+    return JsonResponse({
+        'ok': True,
+        'replayed': replayed,
+        'batch': serialize_import_batch(batch),
+        # The client makes one short follow-up request, so free Render does
+        # not parse a source file and wait for Google Drive in the same worker.
+        'archive_operation_id': str(operation.pk),
+        'message': 'Import staged for review. No customer records have changed.',
+    }, status=200 if replayed else 201)
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["GET"])
+def portal_import_detail(request, batch_id: str):
+    """Return one bounded page of parsed rows for the IT review surface."""
+    access_error = _portal_read_access_error(request, capability='portal.imports.view')
+    if access_error:
+        return access_error
+    batch = _portal_import_in_scope(request, batch_id)
+    if batch is None:
+        return JsonResponse({'ok': False, 'error': 'This staged import is unavailable in your scope.'}, status=404)
+    from core.services.portal_imports import archive_operation_ids, serialize_import_batch
+
+    try:
+        page = max(1, int(request.GET.get('page', '1')))
+    except (TypeError, ValueError):
+        page = 1
+    page_size = 50
+    rows = list(batch.parsed_rows or [])
+    total_rows = len(rows)
+    start = (page - 1) * page_size
+    if start >= total_rows and total_rows:
+        page = max(1, (total_rows + page_size - 1) // page_size)
+        start = (page - 1) * page_size
+    review_pages = max(1, (total_rows + page_size - 1) // page_size)
+    payload = serialize_import_batch(
+        batch,
+        archive_operation_id=archive_operation_ids([batch]).get(str(batch.pk), ''),
+    )
+    payload['mapping'] = list(batch.mapping or [])
+    payload['rows'] = rows[start:start + page_size]
+    payload['review_pagination'] = {
+        'page': page,
+        'page_size': page_size,
+        'pages': review_pages,
+        'total_rows': total_rows,
+    }
+
+    return JsonResponse({
+        'ok': True,
+        'batch': payload,
+        'review_only': True,
+    })
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["POST"])
+def portal_import_archive_attempt(request):
+    """Perform one bounded Drive archive attempt for a staged source file."""
+    access_error = _portal_read_access_error(request, capability='portal.imports.view')
+    if access_error:
+        return access_error
+    payload = _portal_request_data(request)
+    operation_id = str(payload.get('operation_id') or '').strip()
+    if not operation_id:
+        return JsonResponse({'ok': False, 'error': 'Import archive operation is required.'}, status=400)
+    try:
+        from core.models import IntegrationOperation
+        from core.services.portal_imports import ARCHIVE_OPERATION, PortalImportError, SOURCE_MODEL, attempt_import_archive, serialize_import_batch
+
+        operation = IntegrationOperation.objects.filter(pk=operation_id).first()
+        if (
+            operation is None
+            or operation.source_model != SOURCE_MODEL
+            or operation.operation_type != ARCHIVE_OPERATION
+            or _portal_import_in_scope(request, operation.source_id) is None
+        ):
+            return JsonResponse({'ok': False, 'error': 'This staged import is unavailable in your scope.'}, status=404)
+
+        result = attempt_import_archive(operation_id)
+        batch = result['batch']
+    except PortalImportError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    except Exception:
+        logger.exception('Could not archive Portal import operation_id=%s', operation_id)
+        return JsonResponse({'ok': False, 'error': 'The Drive archive could not be completed. Retry from Imports.'}, status=502)
+    return JsonResponse({
+        'ok': bool(result.get('ok')),
+        'batch': serialize_import_batch(batch),
+        'replayed': bool(result.get('replayed')),
+        'error': result.get('error', ''),
+    }, status=200 if result.get('ok') else 502)
+
+
 # ── Stage 2: JBL Visit queue ──────────────────────────────────────────────────
 
 @csrf_exempt

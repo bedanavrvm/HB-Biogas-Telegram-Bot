@@ -12,6 +12,7 @@
   const portalRequisitions = window.PortalMiniAppRequisitions || {};
   const portalInvoices = window.PortalMiniAppInvoices || {};
   const portalPayments = window.PortalMiniAppPayments || {};
+  const portalImports = window.PortalMiniAppImports || {};
   const tg = utils.initTelegram ? utils.initTelegram({ closingConfirmation: false }) : window.Telegram?.WebApp;
   if (tg && !utils.initTelegram) {
     tg.ready();
@@ -81,6 +82,7 @@
     invoices: 'portal.invoice.view',
     payments: 'portal.payment.view',
     history: 'portal.documents.view',
+    imports: 'portal.imports.view',
     settings: null,
   };
 
@@ -322,7 +324,7 @@
     // Show filter bar on farmer list views.
     const filterBar = el('portal-filter-bar');
     if (filterBar) {
-      if (page === 'dashboard' || page === 'batches' || page === 'invoices' || page === 'payments' || page === 'history' || page === 'case_history' || page === 'settings') {
+      if (page === 'dashboard' || page === 'batches' || page === 'invoices' || page === 'payments' || page === 'history' || page === 'case_history' || page === 'imports' || page === 'settings') {
         filterBar.style.display = 'none';
       } else {
         filterBar.style.display = 'flex';
@@ -1205,6 +1207,7 @@
     else if (page === 'history') loadHistory();
     else if (page === 'case_history') loadCaseHistory();
     else if (page === 'payments' && portalPayments.load) portalPayments.load();
+    else if (page === 'imports' && portalImports.load) portalImports.load();
     else if (page === 'settings') loadPortalSettings(true);
     else if (queueConfig[page]) loadQueue(page, 1);
   }

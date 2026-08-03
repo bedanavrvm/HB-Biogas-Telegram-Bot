@@ -1298,11 +1298,15 @@ class JawabuVisitRecordAdmin(ReadOnlyAuditAdmin):
 class JawabuFarmerUploadBatchAdmin(ReadOnlyAuditAdmin):
     list_display = [
         'source_filename', 'import_kind', 'group_id', 'status', 'total_rows',
-        'review_needed', 'committed_count', 'skipped_count', 'sender', 'created_at',
+        'review_needed', 'committed_count', 'skipped_count', 'archive_file_id', 'sender', 'created_at',
     ]
-    list_filter = ['import_kind', 'status', 'group_id', 'created_at', 'committed_at']
-    search_fields = ['source_filename', 'group_id', 'sender', 'telegram_message_id', 'error']
-    readonly_fields = ['id', 'created_at', 'updated_at', 'committed_at']
+    list_filter = ['import_kind', 'status', 'group_id', 'created_at', 'committed_at', 'archive_last_sync_at']
+    search_fields = ['source_filename', 'group_id', 'sender', 'telegram_message_id', 'error', 'archive_error']
+    list_select_related = ['created_by']
+    # The raw source is retained only to drive an authorised archive retry. It
+    # is deliberately not rendered as a giant PII-bearing binary field in the
+    # Admin; use the IT-only Portal review surface for parsed rows instead.
+    exclude = ['source_content']
 class JawabuFarmerMasterAdminForm(forms.ModelForm):
     county = forms.ChoiceField(required=False)
     branch = forms.ChoiceField(required=False)

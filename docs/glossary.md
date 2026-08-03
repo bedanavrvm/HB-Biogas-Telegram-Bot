@@ -1,6 +1,6 @@
 # JBL Workflow Platform Glossary
 
-Last reviewed: 31-July-2026
+Last reviewed: 03-August-2026
 
 This is the shared vocabulary for the Portal, Complaint Cases, TAT, and SPIN
 Mini Apps.  The code catalogues remain authoritative: role validation lives in
@@ -29,6 +29,8 @@ respective service modules.
 | Mini App retry key | A client-generated request identity sent in `Idempotency-Key`/`X-Request-ID` and the payload. It makes a mobile retry traceable; legacy clients are marked until strict mode is approved. |
 | Integration operation | A redacted local record of a Sheets, Drive, or Telegram side effect, its bounded attempts, outcome, and retry/dead-letter state. It is not an automatic background job. |
 | Integration circuit | A persisted dependency safety state. It opens after repeated transient failures and blocks further calls during a short cooldown before one recovery probe. |
+| Portal import staging | IT-only review of a FarmUp or SysUp source file using the existing parser. It creates a `JawabuFarmerUploadBatch` and never commits customer changes from Portal. |
+| Import archive | The restricted Drive retention copy of a staged FarmUp/SysUp source. It is retried through a durable integration operation and its Drive URL is never exposed in the Mini App API. |
 | Mini App preference | A user-owned, validated setting for one Mini App (landing screen, saved filters, compact cards, and non-critical alert intent). It never grants workflow access. Preferences apply only to catalogue-listed informational/digest alerts, never to security/access, assignment, approval/rejection, or SLA-overdue-breach alerts. |
 | Business Admin | A scoped operational role (`BUSINESS_ADMIN`) used for high-impact workflow authority. It is distinct from Django `is_staff` and `is_superuser`; neither technical flag grants Mini App access. |
 | IT | A scoped Mini App support role (`IT`) available in Portal, Complaint Cases, TAT, and SPIN. It is not inferred from Django `is_staff` or `is_superuser`; every workflow still requires its own explicit `AccessGrant` and approved capabilities. |
@@ -62,7 +64,7 @@ or template.
 
 | Prefix | Scope | Examples |
 |---|---|---|
-| `portal.*` | Jawabu Portal | `portal.dashboard.view`, `portal.jbl_visit.write`, `portal.payment.review`, `portal.documents.regenerate`, `portal.documents.sign`, `portal.workspace.manage` |
+| `portal.*` | Jawabu Portal | `portal.dashboard.view`, `portal.jbl_visit.write`, `portal.payment.review`, `portal.documents.regenerate`, `portal.documents.sign`, `portal.imports.view`, `portal.workspace.manage` |
 | `complaint.*` | Complaint Cases | `complaint.queue.view`, `complaint.case.create`, `complaint.case.update`, `complaint.case.manage` |
 | `tat.*` | TAT Tracker | `tat.home.view`, `tat.case.create`, `tat.case.correct`, `tat.stage.<stage>.update` |
 | `spin.*` | SPIN / Credit | `spin.request.view`, `spin.request.create`, `spin.request.review`, `spin.request.complete` |

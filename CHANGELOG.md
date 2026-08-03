@@ -1,5 +1,21 @@
 # Changelog
 
+## Portal Imports staging and source archive - 03-August-2026
+
+- An IT-only **Imports** tab stages and reviews FarmUp CSV and SysUp CSV/XLSX
+  files through the existing validated parsers. It intentionally has no Portal
+  customer-commit control: staging changes no customer, case, order, payment,
+  or Sheet record.
+- Every accepted Portal source retains bounded local archive metadata and makes
+  a separate, durable Drive-archive attempt under the configured restricted
+  imports folder. The Portal shows whether that archive is pending, retained,
+  or needs attention without exposing a direct Drive URL.
+
+  Migration note: `core.0096_portal_import_archives` has not been applied to
+  production by this change. To undo after an explicitly approved migration:
+  `python manage.py migrate core 0095_jawabucasecomment`. This reverse never
+  deletes customer data, audit evidence, or Drive files.
+
 ## Portal final-review queue tabs - 03-August-2026
 
 - Head of Rural Review now uses two direct, touch-sized tabs: **Orders** for

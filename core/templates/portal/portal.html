@@ -357,6 +357,35 @@
     <div id="history-list" class="farmer-list"><div class="empty-state"><div class="spinner-inline"></div></div></div>
   </section>
 
+  <section id="page-imports" class="page{% if active_screen == 'imports' %} active{% endif %}" data-required-capability="portal.imports.view">
+    <header>
+      <h1>Imports</h1>
+      <p class="meta">Stage FarmUp and SysUp files for IT review. Customer records do not change here.</p>
+    </header>
+    <section class="portal-import-notice" role="note">
+      <strong>Review only</strong>
+      <span>Each accepted source is retained and archived to the controlled Imports Drive folder. This screen does not commit or overwrite cases.</span>
+    </section>
+    <label class="portal-import-group-field" for="portal-import-group">Jawabu HomeBiogas group<select id="portal-import-group" aria-describedby="portal-import-group-help"></select><span id="portal-import-group-help" class="field-help">Choose the operational group that owns this upload.</span></label>
+    <div class="portal-import-upload-grid">
+      <form class="portal-import-upload" data-import-kind="farmup">
+        <div><span class="settings-eyebrow">FARMUP</span><h2>Farmer intake CSV</h2><p>Stage a UTF-8 Farmers CSV for validation and row-by-row review.</p></div>
+        <label class="invoice-upload-dropzone"><input type="file" name="file" accept=".csv,text/csv" required><span>Tap to choose Farmers CSV</span><small>CSV only</small></label>
+        <button type="submit" class="btn btn-primary">Stage FarmUp</button>
+      </form>
+      <form class="portal-import-upload" data-import-kind="sysup">
+        <div><span class="settings-eyebrow">SYSUP</span><h2>System export</h2><p>Stage a Customers Without Loans export for matching and data-quality review.</p></div>
+        <label class="invoice-upload-dropzone"><input type="file" name="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required><span>Tap to choose system export</span><small>CSV or XLSX</small></label>
+        <button type="submit" class="btn btn-primary">Stage SysUp</button>
+      </form>
+    </div>
+    <section class="portal-import-history">
+      <div class="portal-import-history-heading"><div><span class="settings-eyebrow">STAGED UPLOADS</span><h2>Review history</h2></div><button type="button" id="portal-import-refresh" class="btn btn-secondary">Refresh</button></div>
+      <div id="portal-import-list" class="farmer-list"><div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading staged imports...</div></div></div>
+    </section>
+    <section id="portal-import-review" class="portal-import-review" hidden aria-live="polite"></section>
+  </section>
+
   <section id="page-settings" class="page{% if active_screen == 'settings' %} active{% endif %}">
     <header class="portal-settings-hero"><span class="settings-eyebrow">MY PORTAL</span><h1>Settings</h1><p class="meta">Your account, work defaults, and the operational controls your role is authorised to use.</p></header>
     <section id="portal-settings-account" class="portal-settings-card miniapp-settings-account" aria-live="polite" hidden></section>

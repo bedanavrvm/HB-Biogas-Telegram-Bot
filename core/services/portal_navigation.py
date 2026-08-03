@@ -19,6 +19,7 @@ PORTAL_NAV_ITEMS = (
     ('invoices', 'Invoices', 'receipt-text', 'portal.invoice.view'),
     ('payments', 'Payments', 'banknote', 'portal.payment.view'),
     ('history', 'Documents', 'history', 'portal.documents.view'),
+    ('imports', 'Imports', 'upload', 'portal.imports.view'),
 )
 
 # Personal preferences are available to every already-authorized Portal user.

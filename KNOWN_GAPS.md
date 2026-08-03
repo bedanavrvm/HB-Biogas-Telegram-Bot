@@ -10,6 +10,16 @@ sync fields and resumes on a later relevant Portal visit. This is durable but
 not a replacement for a dedicated worker: a Render background worker remains
 the recommended future upgrade for guaranteed scheduled retries and alerting.
 
+## Portal import staging is intentionally not a commit workflow
+
+The IT-only Portal Imports screen parses, stores, and reviews FarmUp/SysUp
+source files only. It does not expose the existing customer-commit routines.
+A future commit workflow needs its own approved maker-checker decision,
+explicit row selection, and separate release authorization. Until then, any
+Drive archive marked `needs attention` remains retriable from the authorised
+Imports screen or support tooling; the configured Imports Drive folder must be
+restricted to the approved Shared Drive members.
+
 ## JBL visit evidence after a Telegram/WebView return
 
 Portal restores the current JBL visit's text, date, location and GPS-fallback

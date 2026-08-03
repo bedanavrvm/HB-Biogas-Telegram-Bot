@@ -2048,8 +2048,12 @@ class GoogleDriveMediaStorage:
 
     SCOPES = ['https://www.googleapis.com/auth/drive']
 
-    def __init__(self):
-        parent_folder_id = getattr(settings, 'GOOGLE_DRIVE_MEDIA_FOLDER_ID', '')
+    def __init__(self, *, parent_folder_id: str = ''):
+        # Workflow archives occasionally need a stricter parent than ordinary
+        # field media.  Accepting an explicit configured parent avoids making
+        # those archives share a folder merely because they reuse the safe
+        # Drive transport below.
+        parent_folder_id = parent_folder_id or getattr(settings, 'GOOGLE_DRIVE_MEDIA_FOLDER_ID', '')
         if not parent_folder_id:
             raise ValueError('GOOGLE_DRIVE_MEDIA_FOLDER_ID is not configured')
         self.parent_folder_id = parent_folder_id
