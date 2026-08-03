@@ -47,6 +47,7 @@ from .views import (
 from .portal_views import (
     portal_home,
     portal_screen,
+    portal_reports_screen,
     portal_case_history_detail,
     portal_navigation,
     portal_settings,
@@ -211,6 +212,13 @@ urlpatterns = [
     # JBL Pipeline Portal
     path('portal/', portal_home, name='portal_home'),
     path('portal/cases/<str:farmer_id>/', portal_case_history_detail, name='portal_case_history_detail'),
+    # Reports use drill-down routes so phone/browser Back returns through
+    # report detail rather than a crowded all-in-one workspace.
+    path('portal/s/reports/', portal_reports_screen, name='portal_reports_screen'),
+    path('portal/s/reports/new/', portal_reports_screen, {'report_view': 'edit'}, name='portal_reports_new'),
+    path('portal/s/reports/<str:report_id>/', portal_reports_screen, {'report_view': 'detail'}, name='portal_report_screen_detail'),
+    path('portal/s/reports/<str:report_id>/edit/', portal_reports_screen, {'report_view': 'edit'}, name='portal_report_screen_edit'),
+    path('portal/s/reports/<str:report_id>/run/', portal_reports_screen, {'report_view': 'run'}, name='portal_report_screen_run'),
     path('portal/s/<str:screen>/', portal_screen, name='portal_screen'),
     path('portal/navigation/', portal_navigation, name='portal_navigation'),
     path('portal/settings/', portal_settings, name='portal_settings'),

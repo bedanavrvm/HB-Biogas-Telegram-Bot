@@ -49,12 +49,12 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('miniapp/portal_queues.js?v=6', html)
         self.assertIn('miniapp/portal_farmer_sheet.js?v=29', html)
         self.assertIn('miniapp/utils.js?v=4', html)
-        self.assertIn('miniapp/portal.css?v=56', html)
+        self.assertIn('miniapp/portal.css?v=57', html)
         self.assertIn('miniapp/portal_filters.js?v=7', html)
         self.assertIn('miniapp/portal_imports.js?v=4', html)
         self.assertNotIn('portal-import-group', html)
         self.assertIn('miniapp/portal_requisitions.js?v=33', html)
-        self.assertIn('miniapp/portal.js?v=53', html)
+        self.assertIn('miniapp/portal.js?v=54', html)
 
         spin_response = self.client.get(reverse('spin_form') + '?group_id=-100spin&token=test-token')
         spin_html = spin_response.content.decode('utf-8')
@@ -105,7 +105,7 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         self.assertIn('/\\/portal\\/cases\\/[^/]+\\//', source)
         self.assertIn("return 'case_history'", source)
-        self.assertContains(response, 'miniapp/miniapp-nav.js?v=12')
+        self.assertContains(response, 'miniapp/miniapp-nav.js?v=13')
 
     def test_telegram_back_never_uses_host_history_for_a_cold_portal_screen(self):
         source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
@@ -113,6 +113,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('navigateBackWithinPortal', source)
         self.assertIn('portalBackFallbackUrl', source)
         self.assertIn('portalMiniAppHistory', source)
+        self.assertIn("? 'reports'", source)
         self.assertIn("backHandler = navigateBackWithinPortal", source)
         self.assertNotIn('backHandler = () => window.history.back()', source)
 
@@ -130,6 +131,20 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn("swap: 'outerHTML transition:true'", portal_source)
         self.assertIn("target: '#portal-screen'", navigation_source)
         self.assertIn('portalReports.unmount?.()', portal_source)
+
+    def test_portal_reports_use_route_backed_drill_down_screens(self):
+        portal_source = Path('core/static/miniapp/portal.js').read_text(encoding='utf-8')
+        reports_source = Path('core/static/miniapp/portal_reports.js').read_text(encoding='utf-8')
+        portal_template = Path('core/templates/portal/portal.html').read_text(encoding='utf-8')
+
+        self.assertIn('data-report-view', portal_template)
+        self.assertIn('data-report-id', portal_template)
+        self.assertIn('routeUrl(view', reports_source)
+        self.assertIn("'/portal/s/reports/'", reports_source)
+        self.assertIn("view === 'detail'", reports_source)
+        self.assertIn("view === 'edit'", reports_source)
+        self.assertIn("view === 'run'", reports_source)
+        self.assertIn('navigateUrl(url, options)', portal_source)
 
     def test_portal_invoice_handlers_are_delegated_for_screen_fragment_swaps(self):
         source = Path('core/static/miniapp/portal_invoices.js').read_text(encoding='utf-8')

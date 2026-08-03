@@ -2083,7 +2083,7 @@
     activate(page) {
       if (!page) return;
       const root = currentScreenRoot();
-      const screenSignature = `${page}:${root?.dataset.caseFarmerId || ''}`;
+      const screenSignature = `${page}:${root?.dataset.caseFarmerId || ''}:${root?.dataset.reportView || ''}:${root?.dataset.reportId || ''}`;
       const changed = lastShellScreen !== screenSignature;
       lastShellScreen = screenSignature;
       switchPage(page);
@@ -2093,6 +2093,9 @@
     openCaseHistory(farmerId) {
       portalFarmerSheet.closeSheet?.();
       navigateToUrl(caseHistoryUrl(farmerId));
+    },
+    navigateUrl(url, options) {
+      navigateToUrl(url, options);
     },
   };
 

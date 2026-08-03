@@ -37,7 +37,9 @@
     // that do not have that queue.
     const preferredScreen = /\/portal\/cases\/[^/]+\//.test(window.location.pathname)
       ? 'all'
-      : 'dashboard';
+      : /\/portal\/s\/reports\/[^/]+\//.test(window.location.pathname)
+        ? 'reports'
+        : 'dashboard';
     const fallbackLink = document.querySelector(`.shell-nav-link[data-screen="${preferredScreen}"]`)
       || document.querySelector('.shell-nav-link[data-screen="dashboard"]')
       || document.querySelector('.shell-nav-link');

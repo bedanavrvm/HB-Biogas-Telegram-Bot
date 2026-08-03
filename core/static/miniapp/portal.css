@@ -1626,6 +1626,19 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
    configuration form rather than a generic database/query console. */
 .portal-report-notice { display: grid; gap: 3px; margin: 10px 0; padding: 10px 11px; border: 1px solid color-mix(in srgb, var(--color-primary) 32%, var(--border-color)); border-radius: var(--radius-md); background: color-mix(in srgb, var(--color-primary) 7%, var(--bg-surface)); color: var(--text-primary); font-size: 11px; line-height: 1.35; }
 .portal-report-notice span { color: var(--text-muted); }
+.portal-report-catalogue, .portal-report-detail { display: grid; gap: 12px; padding: 12px; border: 1px solid var(--border-color); border-radius: var(--radius-lg); background: var(--bg-surface); }
+.portal-report-catalogue-heading, .portal-report-detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.portal-report-catalogue h2, .portal-report-detail h2, .portal-report-detail h3 { margin: 2px 0 0; color: var(--text-primary); font-size: 16px; }
+.portal-report-catalogue-heading p, .portal-report-detail-heading p, .portal-report-detail-section p { margin: 3px 0 0; color: var(--text-muted); font-size: 11px; line-height: 1.4; }
+.portal-report-catalogue-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 9px; }
+.portal-report-empty-state { display: grid; gap: 4px; padding: 18px; border: 1px dashed var(--border-color); border-radius: 10px; color: var(--text-muted); font-size: 11px; }
+.portal-report-empty-state strong { color: var(--text-primary); }
+.portal-report-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--border-color); border-radius: 10px; overflow: hidden; }
+.portal-report-summary-item { display: grid; gap: 3px; min-width: 0; padding: 10px; border-right: 1px solid var(--border-color); background: var(--bg-muted); }
+.portal-report-summary-item:last-child { border-right: 0; }
+.portal-report-summary-item span { color: var(--text-muted); font-size: 9px; font-weight: 800; letter-spacing: .03em; text-transform: uppercase; }
+.portal-report-summary-item strong { color: var(--text-primary); font-size: 18px; }
+.portal-report-detail-section { padding: 10px; border: 1px solid var(--border-color); border-radius: 9px; background: var(--bg-muted); }
 .portal-reports-layout { display: grid; grid-template-columns: minmax(195px, 27%) minmax(0, 1fr); gap: 10px; align-items: start; }
 .portal-report-list, .portal-report-editor, .portal-report-results { border: 1px solid var(--border-color); border-radius: var(--radius-lg); background: var(--bg-surface); }
 .portal-report-list { display: grid; gap: 7px; padding: 10px; position: sticky; top: 66px; max-height: calc(100vh - 84px); overflow: auto; }

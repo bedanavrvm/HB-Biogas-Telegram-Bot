@@ -12,6 +12,7 @@
     tg: null,
     canManage: false,
     root: null,
+    route: { view: 'catalogue', reportId: '' },
   };
 
   const api = () => window.PortalMiniAppApi || {};
@@ -20,6 +21,33 @@
   }[char]));
   const requestId = () => window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const root = () => document.getElementById('portal-reports-root');
+
+  function readRoute() {
+    const screen = document.getElementById('portal-screen');
+    const view = screen?.dataset.reportView || 'catalogue';
+    return {
+      view: ['catalogue', 'detail', 'edit', 'run'].includes(view) ? view : 'catalogue',
+      reportId: screen?.dataset.reportId || '',
+    };
+  }
+  function routeUrl(view = 'catalogue', reportId = '') {
+    const base = '/portal/s/reports/';
+    if (view === 'catalogue') return base;
+    if (view === 'edit' && !reportId) return `${base}new/`;
+    const safeId = encodeURIComponent(reportId || '');
+    if (!safeId) return base;
+    if (view === 'edit') return `${base}${safeId}/edit/`;
+    if (view === 'run') return `${base}${safeId}/run/`;
+    return `${base}${safeId}/`;
+  }
+  function navigate(view = 'catalogue', reportId = '') {
+    const url = routeUrl(view, reportId);
+    if (window.PortalAppShell?.navigateUrl) {
+      window.PortalAppShell.navigateUrl(url);
+      return;
+    }
+    window.location.assign(url);
+  }
 
   function fields() {
     return (state.catalogue?.categories || []).flatMap((category) => category.fields.map((field) => ({ ...field, category: category.label })));
@@ -91,7 +119,7 @@
     const categories = state.catalogue?.categories || [];
     return `<section class="portal-report-editor">
       <div class="portal-report-editor-heading"><div><span class="settings-eyebrow">${current.is_new ? 'NEW DEFINITION' : `VERSION ${escapeHtml(current.version)}`}</span><h2>${escapeHtml(current.title)}</h2><p>Live data respects the viewer’s current Portal access scope. Exports contain the same scoped data.</p></div>
-      ${current.is_new || !editable ? '' : '<button type="button" class="btn btn-secondary" data-report-action="archive">Archive</button>'}</div>
+      <button type="button" class="btn btn-secondary" data-report-action="back">Back</button></div>
       <label class="portal-report-title">Report title<input id="portal-report-title" maxlength="100" value="${escapeHtml(current.title)}" ${editable ? '' : 'readonly'}></label>
       <div class="portal-report-field-catalog"><h3>Report fields</h3><p>Choose up to ${escapeHtml(state.catalogue?.limits?.fields || 18)} fields. Sensitive case comments, media, GPS and cross-workflow records are intentionally excluded.</p>
         <div class="portal-report-field-grid">${categories.map((category) => `<fieldset><legend>${escapeHtml(category.label)}</legend>${category.fields.map((item) => `<label><input type="checkbox" data-report-field value="${escapeHtml(item.key)}" ${selectedFields().includes(item.key) ? 'checked' : ''} ${editable ? '' : 'disabled'}><span>${escapeHtml(item.label)}${item.derived ? ' <small>Derived</small>' : ''}</span></label>`).join('')}</fieldset>`).join('')}</div>
@@ -101,15 +129,26 @@
       <section class="portal-report-section"><div class="portal-report-section-heading"><div><h3>Charts</h3><p>Chart categories must be selected report fields. A count chart has no numeric metric.</p></div>${editable ? '<button type="button" class="btn btn-secondary" data-report-action="add-chart">Add chart</button>' : ''}</div>${chartRowsMarkup()}</section>
       <div class="portal-report-actions">
         ${editable ? `<button type="button" class="btn btn-primary" data-report-action="save">${current.is_new ? 'Save report' : 'Save changes'}</button>` : ''}
-        ${current.is_new ? '' : '<button type="button" class="btn btn-secondary" data-report-action="run">Run live report</button><button type="button" class="btn btn-secondary" data-report-action="export">Download XLSX</button>'}
       </div>${relationshipMarkup()}
     </section>`;
   }
-  function listMarkup() {
+  function catalogueMarkup() {
     const reports = state.definitions;
-    return `<aside class="portal-report-list"><div class="portal-report-list-heading"><div><span class="settings-eyebrow">SAVED REPORTS</span><h2>Definitions</h2></div>${state.canManage ? '<button type="button" class="btn btn-primary" data-report-action="new">New</button>' : ''}</div>
-      ${reports.length ? reports.map((report) => `<button type="button" class="portal-report-list-item${String(state.current?.id || '') === String(report.id) ? ' is-active' : ''}" data-report-action="select" data-id="${escapeHtml(report.id)}"><strong>${escapeHtml(report.title)}</strong><span>${escapeHtml(report.configuration?.fields?.length || 0)} fields · ${escapeHtml(report.charts?.length || 0)} charts · v${escapeHtml(report.version)}</span></button>`).join('') : '<p class="portal-report-empty-copy">No reports saved yet.</p>'}
-    </aside>`;
+    return `<section class="portal-report-catalogue"><div class="portal-report-catalogue-heading"><div><span class="settings-eyebrow">SAVED REPORTS</span><h2>Choose a report</h2><p>Open a definition to review it, run current data, or download its XLSX.</p></div>${state.canManage ? '<button type="button" class="btn btn-primary" data-report-action="new">New report</button>' : ''}</div>
+      <div class="portal-report-catalogue-list">${reports.length ? reports.map((report) => `<button type="button" class="portal-report-list-item" data-report-action="open" data-id="${escapeHtml(report.id)}"><strong>${escapeHtml(report.title)}</strong><span>${escapeHtml(report.configuration?.fields?.length || 0)} fields · ${escapeHtml(report.charts?.length || 0)} charts · version ${escapeHtml(report.version)}</span></button>`).join('') : '<div class="portal-report-empty-state"><strong>No reports saved yet.</strong><span>Use New report to create the first approved Portal report.</span></div>'}</div>
+    </section>`;
+  }
+  function detailMarkup() {
+    const current = state.current;
+    if (!current) return '<section class="portal-report-detail portal-report-placeholder"><h2>Report unavailable</h2><p>This report is no longer available. Return to the report catalogue and choose another definition.</p><button type="button" class="btn btn-secondary" data-report-action="catalogue">Back to reports</button></section>';
+    const fieldCount = current.configuration?.fields?.length || 0;
+    const filterCount = current.configuration?.filters?.length || 0;
+    const chartCount = current.charts?.length || 0;
+    return `<section class="portal-report-detail"><div class="portal-report-detail-heading"><div><span class="settings-eyebrow">VERSION ${escapeHtml(current.version)}</span><h2>${escapeHtml(current.title)}</h2><p>This definition only reads fields and cases available in your current Portal access scope.</p></div><button type="button" class="btn btn-secondary" data-report-action="catalogue">Back to reports</button></div>
+      <div class="portal-report-summary-grid"><div class="portal-report-summary-item"><span>Fields</span><strong>${escapeHtml(fieldCount)}</strong></div><div class="portal-report-summary-item"><span>Filters</span><strong>${escapeHtml(filterCount)}</strong></div><div class="portal-report-summary-item"><span>Charts</span><strong>${escapeHtml(chartCount)}</strong></div></div>
+      <section class="portal-report-detail-section"><h3>Included fields</h3><p>${escapeHtml(selectedFields().map(label).join(' · ') || 'No fields selected.')}</p></section>
+      <div class="portal-report-actions"><button type="button" class="btn btn-primary" data-report-action="run">Run live report</button><button type="button" class="btn btn-secondary" data-report-action="export">Download XLSX</button>${state.canManage ? '<button type="button" class="btn btn-secondary" data-report-action="edit">Edit definition</button><button type="button" class="btn btn-secondary" data-report-action="archive">Archive</button>' : ''}</div>${relationshipMarkup()}
+    </section>`;
   }
   function resultMarkup() {
     const result = state.result;
@@ -125,7 +164,11 @@
     if (!state.root) return;
     state.charts.forEach((chart) => chart.destroy?.());
     state.charts = [];
-    state.root.innerHTML = `<div class="portal-reports-layout">${listMarkup()}${editorMarkup()}</div>${resultMarkup()}`;
+    const view = state.route?.view || 'catalogue';
+    if (view === 'edit') state.root.innerHTML = editorMarkup();
+    else if (view === 'detail') state.root.innerHTML = detailMarkup();
+    else if (view === 'run') state.root.innerHTML = `${resultMarkup()}<div class="portal-report-actions"><button type="button" class="btn btn-secondary" data-report-action="detail">Back to report</button><button type="button" class="btn btn-secondary" data-report-action="export">Download XLSX</button></div>`;
+    else state.root.innerHTML = catalogueMarkup();
     renderCharts();
   }
   function renderCharts() {
@@ -179,6 +222,7 @@
   async function load() {
     state.root = root();
     if (!state.root) return;
+    state.route = readRoute();
     state.root.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading controlled reports...</div></div>';
     const [catalogueResult, reportsResult, relationshipResult] = await Promise.all([
       api().apiFetch('/reports/catalogue/', {}, state.tg), api().apiFetch('/reports/', {}, state.tg),
@@ -193,16 +237,36 @@
     state.catalogue = catalogueResult.data.catalogue;
     state.definitions = reportsResult.data.reports || [];
     state.relationships = relationshipResult.data?.relationship_summary || null;
-    state.current = state.definitions[0] || null;
     state.result = null;
+    if (state.route.view === 'edit' && !state.route.reportId) {
+      state.current = emptyDraft();
+    } else if (state.route.reportId) {
+      try {
+        await select(state.route.reportId, { render: false });
+      } catch (error) {
+        state.current = null;
+        state.route = { view: 'catalogue', reportId: '' };
+        toast(error.message || 'This report is unavailable.', 'error');
+      }
+    } else {
+      state.current = null;
+    }
+    if (state.route.view === 'run' && state.current?.id) {
+      try {
+        await run(1, { render: false });
+      } catch (error) {
+        state.result = null;
+        toast(error.message || 'Could not run this report.', 'error');
+      }
+    }
     render();
   }
-  async function select(id) {
+  async function select(id, { render = true } = {}) {
     const result = await api().apiFetch(`/reports/${encodeURIComponent(id)}/`, {}, state.tg);
     if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not load this report.');
     state.current = result.data.report;
     state.result = null;
-    render();
+    if (render) render();
   }
   async function save() {
     const draft = readDraft();
@@ -217,26 +281,26 @@
     if (existing >= 0) state.definitions.splice(existing, 1, state.current); else state.definitions.push(state.current);
     state.definitions.sort((a, b) => a.title.localeCompare(b.title));
     state.result = null;
-    render();
     toast(result.data.message || 'Report saved.', 'success');
+    navigate('detail', state.current.id);
   }
-  async function run(page = 1) {
+  async function run(page = 1, { render = true } = {}) {
     if (!state.current?.id) return;
     const result = await api().postJson(`/reports/${encodeURIComponent(state.current.id)}/run/`, { page }, state.tg);
     if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not run the report.');
     state.result = result.data.result;
     state.current = result.data.result.definition;
-    render();
+    if (render) render();
   }
   async function archive() {
     if (!state.current?.id || !window.confirm('Archive this report definition? Its audit history remains available.')) return;
     const result = await api().postJson(`/reports/${encodeURIComponent(state.current.id)}/archive/`, { version: state.current.version }, state.tg);
     if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not archive the report.');
     state.definitions = state.definitions.filter((item) => item.id !== state.current.id);
-    state.current = state.definitions[0] || null;
+    state.current = null;
     state.result = null;
-    render();
     toast('Report archived.', 'success');
+    navigate('catalogue');
   }
   async function exportXlsx() {
     if (!state.current?.id) return;
@@ -280,14 +344,18 @@
       event.preventDefault();
       try {
         const action = button.dataset.reportAction;
-        if (action === 'new') { state.current = emptyDraft(); state.result = null; render(); }
-        else if (action === 'select') await select(button.dataset.id);
+        if (action === 'new') navigate('edit');
+        else if (action === 'open') navigate('detail', button.dataset.id);
+        else if (action === 'catalogue') navigate('catalogue');
+        else if (action === 'detail') navigate('detail', state.current?.id || state.route.reportId);
+        else if (action === 'back') navigate(state.current?.is_new ? 'catalogue' : 'detail', state.current?.id || '');
+        else if (action === 'edit') navigate('edit', state.current?.id || state.route.reportId);
         else if (action === 'add-filter') addFilter();
         else if (action === 'remove-filter') { snapshotDraft(); state.current.configuration.filters.splice(Number(button.dataset.index), 1); render(); }
         else if (action === 'add-chart') addChart();
         else if (action === 'remove-chart') { snapshotDraft(); state.current.charts.splice(Number(button.dataset.index), 1); render(); }
         else if (action === 'save') await save();
-        else if (action === 'run') await run();
+        else if (action === 'run') navigate('run', state.current?.id || state.route.reportId);
         else if (action === 'page') await run(Number(button.dataset.page || 1));
         else if (action === 'archive') await archive();
         else if (action === 'export') await exportXlsx();

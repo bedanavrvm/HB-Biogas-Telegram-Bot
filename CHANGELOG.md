@@ -1,5 +1,19 @@
 # Changelog
 
+## Portal Reports drill-down - 03-August-2026
+
+- Split the IT-only Portal Reports workspace into ordinary nested pages for
+  the catalogue, saved-report detail, editor, and live results. Phone and
+  Telegram Back now return through those pages instead of forcing the full
+  builder, charts, and table onto one crowded screen.
+- Preserved the existing report field catalogue, capability checks, live-run
+  audit behaviour, and XLSX export. No customer/workflow data, report schema,
+  Sheets, or Drive data changed.
+
+  Migration note: no schema migration is included. To undo, redeploy the
+  prior application commit; report definitions and audit evidence remain
+  unchanged.
+
 ## Portal navigation and layout foundation - 03-August-2026
 
 - Reorganized the Portal navigation into role-aware sidebar groups: Overview,
