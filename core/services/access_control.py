@@ -233,7 +233,7 @@ def _policy_snapshot() -> dict:
         'grants': grants,
         'document_signoff_policies': list(
             DocumentSignoffPolicy.objects.order_by('document_type').values(
-                'document_type', 'workflow', 'approval_role', 'is_active',
+                'document_type', 'workflow', 'approval_role', 'approval_roles', 'is_active',
             )
         ),
     }
@@ -358,8 +358,8 @@ def create_grant_request(*, requester, user, workflow, role, reason, branch='', 
     return request
 
 
-def create_document_signoff_policy_request(*, requester, document_type: str, approval_role: str, reason: str, source_request=None):
-    """Propose the responsible role for a physical finance-document sign-off.
+def create_document_signoff_policy_request(*, requester, document_type: str, reason: str, approval_role: str = '', approval_roles=None, source_request=None):
+    """Propose one or more responsible roles for physical document sign-off.
 
     A role selection changes who may attest a signed/stamped scan, so it uses
     the same maker-checker ledger and policy-version guard as capabilities and
@@ -370,35 +370,51 @@ def create_document_signoff_policy_request(*, requester, document_type: str, app
     valid_types = {value for value, _label in DocumentSignoffPolicy.DOCUMENT_TYPE_CHOICES}
     if document_type not in valid_types:
         raise ValidationError({'document_type': 'Select a supported document type.'})
-    role = validate_access_scope(workflow='jawabu_portal', role=approval_role)
-    if not WorkflowRoleCapability.objects.filter(
-        workflow='jawabu_portal',
-        role=role,
+    raw_roles = approval_roles if approval_roles is not None else [approval_role]
+    if isinstance(raw_roles, str):
+        raw_roles = [raw_roles]
+    roles = []
+    for raw_role in raw_roles or []:
+        role = validate_access_scope(workflow='jawabu_portal', role=str(raw_role or ''))
+        if role not in roles:
+            roles.append(role)
+    if not roles:
+        raise ValidationError({'approval_roles': 'Select at least one authorised Portal role.'})
+    unsupported = [role for role in roles if not WorkflowRoleCapability.objects.filter(
+        workflow='jawabu_portal', role=role,
         capability_key='portal.documents.sign',
         effect=WorkflowRoleCapability.EFFECT_ALLOW,
-    ).exists():
+    ).exists()]
+    if unsupported:
         raise ValidationError(
-            'Give this role the approved portal.documents.sign capability before making it a document sign-off approver.'
+            'Give each selected role the approved portal.documents.sign capability before making it a document sign-off approver.'
         )
     current = DocumentSignoffPolicy.objects.filter(document_type=document_type).first()
     before = {
         'document_type': current.document_type,
         'workflow': current.workflow,
         'approval_role': current.approval_role,
+        'approval_roles': list(current.effective_approval_roles),
         'is_active': current.is_active,
     } if current else {}
     proposed = {
         'document_type': document_type,
         'workflow': 'jawabu_portal',
-        'approval_role': role,
+        'approval_role': roles[0],
+        'approval_roles': roles,
         'is_active': True,
     }
     request = AccessControlChangeRequest.objects.create(
         change_type=AccessControlChangeRequest.TYPE_DOCUMENT_SIGNOFF,
-        workflow='jawabu_portal', role=role,
+        workflow='jawabu_portal', role=roles[0],
         before_snapshot={'document_signoff_policy': before},
         proposed_snapshot={'document_signoff_policy': proposed},
-        impact=capability_impact('jawabu_portal', role),
+        impact={
+            'roles': roles,
+            'staff_count': AccessGrant.objects.filter(
+                workflow='jawabu_portal', role__in=roles, active=True,
+            ).values('user_id').distinct().count(),
+        },
         reason=reason.strip(), status=AccessControlChangeRequest.STATUS_PENDING,
         policy_version=AccessControlPolicyState.current().version,
         requested_by=requester, source_request=source_request,
@@ -621,6 +637,7 @@ def _apply_document_signoff_policy_request(request: AccessControlChangeRequest) 
         defaults={
             'workflow': data.get('workflow') or 'jawabu_portal',
             'approval_role': data['approval_role'],
+            'approval_roles': data.get('approval_roles') or [data['approval_role']],
             'is_active': bool(data.get('is_active', True)),
         },
     )
@@ -739,6 +756,7 @@ def create_rollback_request(*, snapshot, requester, reason: str):
             requester=requester,
             document_type=before['document_type'],
             approval_role=before['approval_role'],
+            approval_roles=before.get('approval_roles') or [before['approval_role']],
             reason=reason,
             source_request=original,
         )

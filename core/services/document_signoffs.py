@@ -70,8 +70,10 @@ def can_approve_physical_signoff(user, access: dict | None, document_type: str) 
         return False
     if not has_capability(user, 'jawabu_portal', 'portal.documents.sign', access=access):
         return False
+    if getattr(user, 'is_superuser', False):
+        return True
     roles = set((access or {}).get('roles') or [])
-    return policy.approval_role in roles
+    return bool(roles.intersection(policy.effective_approval_roles))
 
 
 def policy_payload(document_type: str) -> dict:
@@ -79,6 +81,7 @@ def policy_payload(document_type: str) -> dict:
     return {
         'configured': bool(policy),
         'approval_role': policy.approval_role if policy else '',
+        'approval_roles': list(policy.effective_approval_roles) if policy else [],
     }
 
 

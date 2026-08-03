@@ -3,6 +3,7 @@
 
   const QUEUE_CONFIG = {
     jbl: { endpoint: '/jbl-queue/', fragmentEndpoint: '/queues/jbl/fragment/', listId: 'jbl-list', pageKey: 'jbl', mode: 'jbl_visit', emptyTitle: 'JBL visit queue is clear', emptySub: 'No farmer is waiting for a JBL visit.' },
+    my_visits: { endpoint: '/my-visits/', fragmentEndpoint: '/queues/my_visits/fragment/', listId: 'my-visits-list', pageKey: 'my_visits', mode: null, emptyTitle: 'No submitted JBL visits', emptySub: 'Cases you log after a JBL visit will appear here.' },
     credit: { endpoint: '/credit-queue/', fragmentEndpoint: '/queues/credit/fragment/', listId: 'credit-list', pageKey: 'credit', mode: 'credit', emptyTitle: 'Credit queue is clear', emptySub: 'No farmer is waiting for credit analysis.' },
     final: { endpoint: '/final-review-queue/', fragmentEndpoint: '/queues/final/fragment/', listId: 'final-list', pageKey: 'final', mode: 'final_review', emptyTitle: 'Final review queue is clear', emptySub: 'No client is waiting for Head of Rural review.' },
     requisition: { endpoint: '/requisition-queue/', fragmentEndpoint: '/queues/requisition/fragment/', listId: 'req-list', pageKey: 'requisition', mode: 'requisition', emptyTitle: 'No orders to assign', emptySub: 'Approved cases awaiting an order number will appear here.' },

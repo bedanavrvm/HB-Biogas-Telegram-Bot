@@ -70,6 +70,7 @@ from .portal_views import (
     portal_set_maintenance,
     portal_jbl_queue,
     portal_jbl_queue_fragment,
+    portal_my_visits,
     portal_queue_fragment,
     portal_log_jbl_visit,
     portal_jbl_visit_draft,
@@ -227,6 +228,7 @@ urlpatterns = [
     # Stage 2 - JBL Visit
     path('portal/jbl-queue/', portal_auth_required(portal_jbl_queue), name='portal_jbl_queue'),
     path('portal/jbl-queue/fragment/', portal_auth_required(portal_jbl_queue_fragment), name='portal_jbl_queue_fragment'),
+    path('portal/my-visits/', portal_auth_required(portal_my_visits), name='portal_my_visits'),
     path('portal/queues/<str:queue_key>/fragment/', portal_auth_required(portal_queue_fragment), name='portal_queue_fragment'),
     path('portal/jbl-queue/<str:farmer_id>/', portal_auth_required(portal_log_jbl_visit), name='portal_log_jbl_visit'),
     path('portal/jbl-queue/<str:farmer_id>/draft/', portal_auth_required(portal_jbl_visit_draft), name='portal_jbl_visit_draft'),

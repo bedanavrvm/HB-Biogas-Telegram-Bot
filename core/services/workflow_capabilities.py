@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Iterable
 
-from core.services.access_policies import BUSINESS_ADMIN_ROLE
+from core.services.access_policies import BUSINESS_ADMIN_ROLE, OPERATIONS_ADMIN_ROLE
 
 
 @dataclass(frozen=True)
@@ -32,33 +32,34 @@ def _roles(*roles: str) -> frozenset[str]:
 _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     # Jawabu Portal: a view capability owns a screen; write capabilities own
     # consequential actions on that screen.
-    CapabilityDefinition('portal.dashboard.view', 'jawabu_portal', 'View dashboard', 'Dashboard', _roles('JBL_OFFICER', 'CREDIT_ANALYST', 'HB_STAFF', 'IT', BUSINESS_ADMIN_ROLE)),
-    CapabilityDefinition('portal.case.read', 'jawabu_portal', 'View all cases and case history', 'Cases', _roles('JBL_OFFICER', 'CREDIT_ANALYST', 'HB_STAFF', 'IT', BUSINESS_ADMIN_ROLE)),
-    CapabilityDefinition('portal.deferred.view', 'jawabu_portal', 'View deferred cases', 'Cases', _roles('JBL_OFFICER', 'CREDIT_ANALYST', 'HB_STAFF', BUSINESS_ADMIN_ROLE), ('portal.case.read',)),
-    CapabilityDefinition('portal.jbl_queue.view', 'jawabu_portal', 'View JBL visit queue', 'JBL visit', _roles('JBL_OFFICER', BUSINESS_ADMIN_ROLE)),
-    CapabilityDefinition('portal.jbl_visit.write', 'jawabu_portal', 'Log JBL visit', 'JBL visit', _roles('JBL_OFFICER', BUSINESS_ADMIN_ROLE), ('portal.jbl_queue.view',)),
-    CapabilityDefinition('portal.jbl_media.view', 'jawabu_portal', 'View JBL visit media', 'JBL visit', _roles('JBL_OFFICER', BUSINESS_ADMIN_ROLE), ('portal.jbl_queue.view',)),
-    CapabilityDefinition('portal.jbl_media.write', 'jawabu_portal', 'Upload JBL visit media', 'JBL visit', _roles('JBL_OFFICER', BUSINESS_ADMIN_ROLE), ('portal.jbl_queue.view',)),
-    CapabilityDefinition('portal.credit_queue.view', 'jawabu_portal', 'View credit queue', 'Credit', _roles('CREDIT_ANALYST', BUSINESS_ADMIN_ROLE)),
-    CapabilityDefinition('portal.credit.write', 'jawabu_portal', 'Record credit analysis', 'Credit', _roles('CREDIT_ANALYST', BUSINESS_ADMIN_ROLE), ('portal.credit_queue.view',)),
+    CapabilityDefinition('portal.dashboard.view', 'jawabu_portal', 'View dashboard', 'Dashboard', _roles('JBL_OFFICER', 'CREDIT_ANALYST', 'HB_STAFF', OPERATIONS_ADMIN_ROLE, 'IT', BUSINESS_ADMIN_ROLE)),
+    CapabilityDefinition('portal.case.read', 'jawabu_portal', 'View all cases and case history', 'Cases', _roles('JBL_OFFICER', 'CREDIT_ANALYST', 'HB_STAFF', OPERATIONS_ADMIN_ROLE, 'IT', BUSINESS_ADMIN_ROLE)),
+    CapabilityDefinition('portal.deferred.view', 'jawabu_portal', 'View deferred cases', 'Cases', _roles('JBL_OFFICER', 'CREDIT_ANALYST', 'HB_STAFF', OPERATIONS_ADMIN_ROLE, BUSINESS_ADMIN_ROLE), ('portal.case.read',)),
+    CapabilityDefinition('portal.jbl_queue.view', 'jawabu_portal', 'View JBL visit queue', 'JBL visit', _roles('JBL_OFFICER', OPERATIONS_ADMIN_ROLE)),
+    CapabilityDefinition('portal.jbl_followup.view', 'jawabu_portal', 'View my submitted JBL visits', 'JBL visit', _roles('JBL_OFFICER'), ('portal.case.read',)),
+    CapabilityDefinition('portal.jbl_visit.write', 'jawabu_portal', 'Log JBL visit', 'JBL visit', _roles('JBL_OFFICER'), ('portal.jbl_queue.view',)),
+    CapabilityDefinition('portal.jbl_media.view', 'jawabu_portal', 'View JBL visit media', 'JBL visit', _roles('JBL_OFFICER', 'CREDIT_ANALYST', OPERATIONS_ADMIN_ROLE, BUSINESS_ADMIN_ROLE), ('portal.case.read',)),
+    CapabilityDefinition('portal.jbl_media.write', 'jawabu_portal', 'Upload JBL visit media', 'JBL visit', _roles('JBL_OFFICER'), ('portal.jbl_queue.view',)),
+    CapabilityDefinition('portal.credit_queue.view', 'jawabu_portal', 'View credit queue', 'Credit', _roles('CREDIT_ANALYST', OPERATIONS_ADMIN_ROLE)),
+    CapabilityDefinition('portal.credit.write', 'jawabu_portal', 'Record credit analysis', 'Credit', _roles('CREDIT_ANALYST', OPERATIONS_ADMIN_ROLE), ('portal.credit_queue.view',)),
     CapabilityDefinition('portal.final_review.view', 'jawabu_portal', 'View Head of Rural review', 'Review', _roles(BUSINESS_ADMIN_ROLE)),
     CapabilityDefinition('portal.final_review.write', 'jawabu_portal', 'Record final and payment review', 'Review', _roles(BUSINESS_ADMIN_ROLE), ('portal.final_review.view',)),
-    CapabilityDefinition('portal.requisition.view', 'jawabu_portal', 'View requisition queue', 'Orders', _roles('HB_STAFF', BUSINESS_ADMIN_ROLE)),
-    CapabilityDefinition('portal.requisition.write', 'jawabu_portal', 'Assign orders and generate requisitions', 'Orders', _roles('HB_STAFF', BUSINESS_ADMIN_ROLE), ('portal.requisition.view',)),
-    CapabilityDefinition('portal.batches.view', 'jawabu_portal', 'View requisition batches', 'Orders', _roles('HB_STAFF', BUSINESS_ADMIN_ROLE)),
-    CapabilityDefinition('portal.invoice.view', 'jawabu_portal', 'View invoices', 'Invoices', _roles('HB_STAFF', BUSINESS_ADMIN_ROLE)),
-    CapabilityDefinition('portal.invoice.write', 'jawabu_portal', 'Upload, match, and edit invoices', 'Invoices', _roles('HB_STAFF', 'CREDIT_ANALYST', BUSINESS_ADMIN_ROLE), ('portal.invoice.view',)),
-    CapabilityDefinition('portal.payment.view', 'jawabu_portal', 'View payment workspace', 'Payments', _roles('HB_STAFF', BUSINESS_ADMIN_ROLE)),
-    CapabilityDefinition('portal.payment.prepare', 'jawabu_portal', 'Prepare payment batch', 'Payments', _roles('HB_STAFF', BUSINESS_ADMIN_ROLE), ('portal.payment.view',)),
+    CapabilityDefinition('portal.requisition.view', 'jawabu_portal', 'View requisition queue', 'Orders', _roles('JBL_OFFICER', 'HB_STAFF', OPERATIONS_ADMIN_ROLE)),
+    CapabilityDefinition('portal.requisition.write', 'jawabu_portal', 'Assign orders and generate requisitions', 'Orders', _roles('HB_STAFF', OPERATIONS_ADMIN_ROLE), ('portal.requisition.view',)),
+    CapabilityDefinition('portal.batches.view', 'jawabu_portal', 'View requisition batches', 'Orders', _roles('HB_STAFF', OPERATIONS_ADMIN_ROLE)),
+    CapabilityDefinition('portal.invoice.view', 'jawabu_portal', 'View invoices', 'Invoices', _roles('HB_STAFF', OPERATIONS_ADMIN_ROLE)),
+    CapabilityDefinition('portal.invoice.write', 'jawabu_portal', 'Upload, match, and edit invoices', 'Invoices', _roles('HB_STAFF', OPERATIONS_ADMIN_ROLE), ('portal.invoice.view',)),
+    CapabilityDefinition('portal.payment.view', 'jawabu_portal', 'View payment workspace', 'Payments', _roles('HB_STAFF', OPERATIONS_ADMIN_ROLE, BUSINESS_ADMIN_ROLE)),
+    CapabilityDefinition('portal.payment.prepare', 'jawabu_portal', 'Prepare payment batch', 'Payments', _roles('HB_STAFF', OPERATIONS_ADMIN_ROLE), ('portal.payment.view',)),
     CapabilityDefinition('portal.payment.review', 'jawabu_portal', 'Approve payment review', 'Payments', _roles(BUSINESS_ADMIN_ROLE), ('portal.payment.view',)),
     CapabilityDefinition('portal.approval.delegation.authorize', 'jawabu_portal', 'Authorize temporary approval delegation', 'Review controls', _roles(BUSINESS_ADMIN_ROLE), ('portal.case.read',)),
-    CapabilityDefinition('portal.documents.view', 'jawabu_portal', 'View generated documents', 'Documents', _roles('HB_STAFF', BUSINESS_ADMIN_ROLE)),
-    CapabilityDefinition('portal.documents.regenerate', 'jawabu_portal', 'Regenerate generated documents', 'Documents', _roles('HB_STAFF', BUSINESS_ADMIN_ROLE), ('portal.documents.view',)),
-    CapabilityDefinition('portal.documents.sign', 'jawabu_portal', 'Upload and attest physically signed documents', 'Documents', _roles(BUSINESS_ADMIN_ROLE), ('portal.documents.view',)),
+    CapabilityDefinition('portal.documents.view', 'jawabu_portal', 'View generated documents', 'Documents', _roles('HB_STAFF', OPERATIONS_ADMIN_ROLE, BUSINESS_ADMIN_ROLE)),
+    CapabilityDefinition('portal.documents.regenerate', 'jawabu_portal', 'Regenerate generated documents', 'Documents', _roles('HB_STAFF', OPERATIONS_ADMIN_ROLE), ('portal.documents.view',)),
+    CapabilityDefinition('portal.documents.sign', 'jawabu_portal', 'Upload and attest physically signed documents', 'Documents', _roles(OPERATIONS_ADMIN_ROLE, BUSINESS_ADMIN_ROLE), ('portal.documents.view',)),
     # Imports stage raw operational files but deliberately cannot commit them
     # to customer records from the Portal in this release.
     CapabilityDefinition('portal.imports.view', 'jawabu_portal', 'Stage and review FarmUp and SysUp imports', 'Imports', _roles('IT')),
-    CapabilityDefinition('portal.health.read', 'jawabu_portal', 'View workflow health', 'Operations', _roles('HB_STAFF', 'IT', BUSINESS_ADMIN_ROLE)),
+    CapabilityDefinition('portal.health.read', 'jawabu_portal', 'View workflow health', 'Operations', _roles('HB_STAFF', OPERATIONS_ADMIN_ROLE, 'IT', BUSINESS_ADMIN_ROLE)),
     CapabilityDefinition('portal.health.maintenance.manage', 'jawabu_portal', 'Set Portal maintenance mode', 'Operations', _roles('IT'), ('portal.health.read',)),
     CapabilityDefinition('portal.workspace.manage', 'jawabu_portal', 'Use private saved views, pins, and recents', 'IT support', _roles('IT'), ('portal.case.read',)),
     # Complaint cases.
@@ -168,6 +169,12 @@ def effective_capability_keys(user, workflow: str, *, access: dict | None = None
     if not user or not user.is_active:
         return set()
     available = {item.key for item in capabilities_for_workflow(workflow)}
+    # A Django Superuser is the technical break-glass authority requested for
+    # this deployment.  It is intentionally separate from BUSINESS_ADMIN
+    # (Head of Rural): ordinary staff still receive only the matrix policy and
+    # every action continues to carry its normal audit identity.
+    if user.is_superuser:
+        return available
     roles = (access or {}).get('roles') or []
     return _policy_enabled_keys(workflow, roles).intersection(available)
 

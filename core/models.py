@@ -3314,7 +3314,7 @@ class PaymentDocument(models.Model):
 
 
 class DocumentSignoffPolicy(models.Model):
-    """Maker-checker controlled role responsible for physical document sign-off."""
+    """Maker-checker controlled Portal roles allowed to attest physical sign-off."""
 
     DOCUMENT_REQUISITION = 'requisition'
     DOCUMENT_PAYMENT = 'payment'
@@ -3330,7 +3330,12 @@ class DocumentSignoffPolicy(models.Model):
         default='jawabu_portal',
         editable=False,
     )
+    # ``approval_role`` remains as a stable compatibility pointer for earlier
+    # audit snapshots and integrations.  Effective authorization uses
+    # ``approval_roles`` so a document type can deliberately name more than
+    # one accountable operational role.
     approval_role = models.CharField(max_length=80)
+    approval_roles = models.JSONField(default=list, blank=True)
     is_active = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -3344,13 +3349,29 @@ class DocumentSignoffPolicy(models.Model):
 
         if self.workflow != 'jawabu_portal':
             raise ValidationError({'workflow': 'Physical finance-document sign-off is a Jawabu Portal policy.'})
-        self.approval_role = validate_access_scope(
-            workflow=self.workflow,
-            role=self.approval_role,
-        )
+        raw_roles = self.approval_roles or [self.approval_role]
+        if isinstance(raw_roles, str):
+            raw_roles = [raw_roles]
+        if not isinstance(raw_roles, (list, tuple, set)):
+            raise ValidationError({'approval_roles': 'Select one or more Portal roles.'})
+        roles = []
+        for raw_role in raw_roles:
+            role = validate_access_scope(workflow=self.workflow, role=str(raw_role or ''))
+            if role not in roles:
+                roles.append(role)
+        if not roles:
+            raise ValidationError({'approval_roles': 'Select at least one Portal role.'})
+        self.approval_roles = roles
+        self.approval_role = roles[0]
+
+    @property
+    def effective_approval_roles(self) -> tuple[str, ...]:
+        """Return the multi-role policy while preserving pre-migration rows."""
+        values = self.approval_roles or [self.approval_role]
+        return tuple(str(value).strip() for value in values if str(value).strip())
 
     def __str__(self):
-        return f'{self.get_document_type_display()}: {self.approval_role}'
+        return f'{self.get_document_type_display()}: {", ".join(self.effective_approval_roles)}'
 
 
 class DocumentPhysicalSignoff(models.Model):

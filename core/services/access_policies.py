@@ -8,6 +8,7 @@ from core.services.branches import global_branch_choices
 # ``is_superuser`` is a Django technical-administration flag.  It must never
 # be used as a Mini App business role or as a shortcut around AccessGrant.
 BUSINESS_ADMIN_ROLE = 'BUSINESS_ADMIN'
+OPERATIONS_ADMIN_ROLE = 'OPERATIONS_ADMIN'
 LEGACY_BUSINESS_ADMIN_ROLE = 'ADMIN'
 BUSINESS_ADMIN_WORKFLOWS = frozenset({
     'jawabu_portal',
@@ -21,8 +22,12 @@ WORKFLOW_ROLES = {
         ('JBL_OFFICER', 'JBL Officer'),
         ('CREDIT_ANALYST', 'Credit Analyst'),
         ('HB_STAFF', 'HomeBiogas / Operations Staff'),
+        (OPERATIONS_ADMIN_ROLE, 'Operations Administrator'),
         ('IT', 'IT / Platform Support'),
-        (BUSINESS_ADMIN_ROLE, 'Business Administrator'),
+        # The stable code is retained so existing grants and audit evidence do
+        # not need a semantic rewrite.  Portal staff see the actual business
+        # authority: Head of Rural.
+        (BUSINESS_ADMIN_ROLE, 'Head of Rural'),
     ),
     'complaint_cases': (
         ('OFFICER', 'Complaint Case Officer'),
@@ -54,6 +59,7 @@ ROLE_ALIASES = {
         'jbl_officer': 'JBL_OFFICER',
         'credit_analyst': 'CREDIT_ANALYST', 'operations': 'HB_STAFF',
         'hb_staff': 'HB_STAFF', 'head_rural': BUSINESS_ADMIN_ROLE,
+        'operations_admin': OPERATIONS_ADMIN_ROLE, 'ops_admin': OPERATIONS_ADMIN_ROLE,
     },
     'tat_tracker': {
         'admin': BUSINESS_ADMIN_ROLE,

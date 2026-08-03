@@ -3,7 +3,7 @@
   data-farmer-id="{{ farmer.id }}"
   data-mode="{{ mode|default:'' }}"
 >
-  {% if queue_key == "requisition" %}
+  {% if queue_key == "requisition" and can_requisition_write %}
     <input
       type="checkbox"
       class="farmer-card-checkbox"

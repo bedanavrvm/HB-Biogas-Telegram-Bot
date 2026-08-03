@@ -9,7 +9,7 @@
           type="button"
           class="btn btn-secondary"
           hx-get="/api/portal/queues/{{ queue_key }}/fragment/?page={{ pagination.page|add:'-1' }}{% if search %}&search={{ search|urlencode }}{% endif %}{% if county %}&county={{ county|urlencode }}{% endif %}{% if branch %}&branch={{ branch|urlencode }}{% endif %}{% if queue_key == 'final' and review_stage %}&stage={{ review_stage|urlencode }}{% endif %}"
-          hx-target="#{% if queue_key == 'requisition' %}req{% else %}{{ queue_key }}{% endif %}-list"
+          hx-target="#{{ queue_list_id }}"
           hx-swap="innerHTML"
         >Previous</button>
       {% endif %}
@@ -19,7 +19,7 @@
           type="button"
           class="btn btn-secondary"
           hx-get="/api/portal/queues/{{ queue_key }}/fragment/?page={{ pagination.page|add:'1' }}{% if search %}&search={{ search|urlencode }}{% endif %}{% if county %}&county={{ county|urlencode }}{% endif %}{% if branch %}&branch={{ branch|urlencode }}{% endif %}{% if queue_key == 'final' and review_stage %}&stage={{ review_stage|urlencode }}{% endif %}"
-          hx-target="#{% if queue_key == 'requisition' %}req{% else %}{{ queue_key }}{% endif %}-list"
+          hx-target="#{{ queue_list_id }}"
           hx-swap="innerHTML"
         >Next</button>
       {% endif %}

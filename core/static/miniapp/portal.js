@@ -24,9 +24,9 @@
   let state = {
     activePage: document.getElementById('portal-screen')?.dataset.screen || 'dashboard',
     counts: {},
-    queues: { jbl: [], credit: [], final: [], requisition: [], deferred: [], all: [], batches: [] },
+    queues: { jbl: [], my_visits: [], credit: [], final: [], requisition: [], deferred: [], all: [], batches: [] },
     pagination: {},
-    pages: { jbl: 1, credit: 1, final: 1, requisition: 1, deferred: 1, all: 1, batches: 1 },
+    pages: { jbl: 1, my_visits: 1, credit: 1, final: 1, requisition: 1, deferred: 1, all: 1, batches: 1 },
     search: String(restoredPortalUi.search || ''),
     jblSearch: String(restoredPortalUi.jblSearch || ''),
     metaStatuses: [],
@@ -72,6 +72,7 @@
   const PAGE_CAPABILITIES = {
     dashboard: 'portal.dashboard.view',
     jbl: 'portal.jbl_queue.view',
+    my_visits: 'portal.jbl_followup.view',
     credit: 'portal.credit_queue.view',
     final: 'portal.final_review.view',
     requisition: 'portal.requisition.view',
@@ -872,7 +873,7 @@
     }
     listEl.innerHTML = farmers.map((f, i) => `
       <div class="farmer-card${qKey === 'requisition' ? ' requisition-card' : ''}" data-qkey="${qKey}" data-farmer-id="${escapeHtml(f.id || '')}" data-idx="${i}" id="fc-${qKey}-${i}">
-        ${qKey === 'requisition' ? `
+        ${qKey === 'requisition' && hasCapability('portal.requisition.write') ? `
           <input type="checkbox" class="farmer-card-checkbox" data-id="${escapeHtml(f.id || '')}" data-revision="${escapeHtml(String(f.workflow_revision || 1))}" ${state.selectedRequisitions.has(f.id) ? 'checked' : ''} onclick="event.stopPropagation();">
         ` : ''}
         <div style="flex: 1;">

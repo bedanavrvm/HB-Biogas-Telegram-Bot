@@ -119,6 +119,17 @@
     <div class="pagination" id="pg-jbl"></div>
   </section>
 
+  <section id="page-my_visits" class="page{% if active_screen == 'my_visits' %} active{% endif %}">
+    <header>
+      <h1>My Submitted Visits</h1>
+      <p class="meta">Your latest JBL visit submissions and their current progress</p>
+    </header>
+    <div id="my-visits-list" class="farmer-list">
+      <div class="empty-state"><div class="spinner-inline"></div></div>
+    </div>
+    <div class="pagination" id="pg-my_visits"></div>
+  </section>
+
   <!-- Credit Queue -->
   <section id="page-credit" class="page{% if active_screen == 'credit' %} active{% endif %}">
     <header>

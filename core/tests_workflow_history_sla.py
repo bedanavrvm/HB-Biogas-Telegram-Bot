@@ -99,6 +99,17 @@ class UnifiedTimelineTests(TestCase):
         self.assertTrue(any(entry['kind'] == 'provenance' for entry in payload['timeline']))
         self.assertEqual(payload['related_cases'][0]['unit_number'], 2)
 
+    def test_case_history_exposes_canonical_workflow_state_for_progress_strip(self):
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Returned JBL visit', national_id='87654321',
+            primary_phone='254700000001', workflow_state='jbl_visit',
+            jbl_visit_status='Rescheduled', credit_decision='Approved',
+        )
+
+        payload = serialize_case360(farmer)
+
+        self.assertEqual(payload['workflow_state'], 'jbl_visit')
+
 
 class HybridTatAndEscalationTests(TestCase):
     def setUp(self):

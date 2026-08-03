@@ -62,16 +62,15 @@ class WorkflowCapabilityPolicyTests(TestCase):
 
         self.assertFalse(can_approve_access_change(self.user))
 
-    def test_django_superuser_has_no_miniapp_bypass_but_business_admin_grant_is_effective(self):
+    def test_django_superuser_is_auditable_technical_break_glass_override(self):
         superuser = get_user_model().objects.create_superuser(
             username='technical-only', email='technical@example.test', password='password',
         )
         no_grant_access = user_access(superuser, 'jawabu_portal')
-        self.assertFalse(no_grant_access['authorized'])
-        self.assertEqual(
-            effective_capability_keys(superuser, 'jawabu_portal', access=no_grant_access),
-            set(),
-        )
+        self.assertTrue(no_grant_access['authorized'])
+        capabilities = effective_capability_keys(superuser, 'jawabu_portal', access=no_grant_access)
+        self.assertIn('portal.health.maintenance.manage', capabilities)
+        self.assertIn('portal.final_review.write', capabilities)
 
         AccessGrant.objects.create(
             user=superuser, workflow='jawabu_portal', role='BUSINESS_ADMIN', branch='EMBU',
@@ -82,6 +81,26 @@ class WorkflowCapabilityPolicyTests(TestCase):
             'portal.payment.review',
             effective_capability_keys(superuser, 'jawabu_portal', access=business_access),
         )
+
+    def test_portal_role_separation_preserves_jbl_followup_but_denies_generation(self):
+        access = user_access(self.user, 'jawabu_portal')
+        capabilities = effective_capability_keys(self.user, 'jawabu_portal', access=access)
+        self.assertIn('portal.jbl_followup.view', capabilities)
+        self.assertIn('portal.requisition.view', capabilities)
+        self.assertNotIn('portal.requisition.write', capabilities)
+        self.assertNotIn('portal.requisition.preview', capabilities)
+
+        operations = get_user_model().objects.create_user(username='ops-admin', is_active=True)
+        AccessGrant.objects.create(
+            user=operations, workflow='jawabu_portal', role='OPERATIONS_ADMIN', branch='EMBU',
+        )
+        operation_caps = effective_capability_keys(
+            operations, 'jawabu_portal', access=user_access(operations, 'jawabu_portal'),
+        )
+        self.assertIn('portal.requisition.write', operation_caps)
+        self.assertIn('portal.documents.sign', operation_caps)
+        self.assertNotIn('portal.jbl_visit.write', operation_caps)
+        self.assertNotIn('portal.final_review.write', operation_caps)
 
     def test_business_admin_cutover_preflight_flags_pending_legacy_request(self):
         AccessControlChangeRequest.objects.create(

@@ -9,6 +9,7 @@ from django.urls import reverse
 PORTAL_NAV_ITEMS = (
     ('dashboard', 'Dashboard', 'bar-chart-3', 'portal.dashboard.view'),
     ('jbl', 'JBL Queue', 'home', 'portal.jbl_queue.view'),
+    ('my_visits', 'My Visits', 'clipboard-check', 'portal.jbl_followup.view'),
     ('credit', 'Credit', 'shield-check', 'portal.credit_queue.view'),
     ('final', 'Review', 'phone-call', 'portal.final_review.view'),
     ('requisition', 'Orders', 'shopping-bag', 'portal.requisition.view'),

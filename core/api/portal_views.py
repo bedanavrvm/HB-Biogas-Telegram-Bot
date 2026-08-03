@@ -424,6 +424,8 @@ def _portal_branch_scope_error(request, farmer=None):
     access = getattr(request, 'portal_access', None)
     if access is None or farmer is None:
         return None
+    if getattr(getattr(request, 'portal_user', None), 'is_active', False) and getattr(request.portal_user, 'is_superuser', False):
+        return None
     branches = {str(value).strip().casefold() for value in access.get('branches', []) if str(value).strip()}
     if branches and str(farmer.branch or '').strip().casefold() not in branches:
         return JsonResponse({'ok': False, 'error': 'This case is outside your authorized branch scope.'}, status=403)
@@ -451,6 +453,8 @@ def _portal_approval_authority_error(request, farmer, gate: str):
     """Apply normal scope checks, then accept a valid temporary delegation."""
     access = getattr(request, 'portal_access', None)
     if access is None:
+        return None
+    if getattr(getattr(request, 'portal_user', None), 'is_active', False) and getattr(request.portal_user, 'is_superuser', False):
         return None
     from core.services.jawabu_approvals import approval_authority
 
@@ -518,6 +522,7 @@ def _portal_saved_document_in_scope(request, order_number: str, farmer_ids=None)
 
 PORTAL_QUEUE_FRAGMENT_CONFIG = {
     'jbl': {'service': 'jbl_visit_queue', 'mode': 'jbl_visit', 'empty_title': 'JBL visit queue is clear', 'empty_sub': 'No farmer matches the current JBL visit filters.'},
+    'my_visits': {'service': '', 'mode': '', 'empty_title': 'No submitted JBL visits', 'empty_sub': 'Cases you log after a JBL visit will appear here.'},
     'credit': {'service': 'credit_queue', 'mode': 'credit', 'empty_title': 'Credit queue is clear', 'empty_sub': 'No farmer matches the current credit filters.'},
     'final': {'service': 'final_review_queue', 'mode': 'final_review', 'empty_title': 'Final review queue is clear', 'empty_sub': 'No client matches the current final review filters.'},
     'requisition': {'service': 'requisition_queue', 'mode': 'requisition', 'empty_title': 'No orders to assign', 'empty_sub': 'Approved cases awaiting an order number will appear here.'},
@@ -527,6 +532,7 @@ PORTAL_QUEUE_FRAGMENT_CONFIG = {
 
 PORTAL_QUEUE_CAPABILITIES = {
     'jbl': 'portal.jbl_queue.view',
+    'my_visits': 'portal.jbl_followup.view',
     'credit': 'portal.credit_queue.view',
     'final': 'portal.final_review.view',
     'requisition': 'portal.requisition.view',
@@ -606,7 +612,26 @@ def _portal_queue_queryset(queue_key: str, request, *, params=None):
         return None, None
     params = params if params is not None else request.GET
 
-    if queue_key == 'all':
+    if queue_key == 'my_visits':
+        # JBL officers need a follow-up view without re-opening the visit
+        # queue.  The latest completion event is the durable ownership record;
+        # a mutable name/phone/branch must never decide who submitted a visit.
+        from django.db.models import OuterRef, Subquery
+        from core.models import JawabuFarmerMaster, JawabuPipelineEvent
+
+        actor = getattr(request, 'portal_user', None)
+        if actor is None:
+            return JawabuFarmerMaster.objects.none(), config
+        latest_actor = JawabuPipelineEvent.objects.filter(
+            farmer_id=OuterRef('pk'), action='jbl_visit_completed',
+        ).order_by('-occurred_at', '-created_at').values('actor_user_id')[:1]
+        qs = JawabuFarmerMaster.objects.filter(
+            status='active', jbl_visit_date__isnull=False,
+        ).annotate(_latest_jbl_visit_actor=Subquery(latest_actor)).filter(
+            _latest_jbl_visit_actor=actor.pk,
+        )
+        qs = _apply_county_branch_filters(qs, request, params=params)
+    elif queue_key == 'all':
         qs = jawabu_pipeline.all_cases(
             search=params.get('search', '').strip(),
             county=params.get('county', '').strip(),
@@ -2100,6 +2125,25 @@ def portal_jbl_queue_fragment(request):
 
 @csrf_exempt
 @require_http_methods(["GET"])
+def portal_my_visits(request):
+    """Return only cases whose latest JBL visit was logged by this officer."""
+    access_error = _portal_read_access_error(request, capability='portal.jbl_followup.view')
+    if access_error:
+        return access_error
+    from core.services.jawabu_pipeline import farmer_to_card
+
+    qs, _config = _portal_queue_queryset('my_visits', request)
+    items, pagination = _paginate_qs(qs, request)
+    return JsonResponse({
+        'ok': True,
+        'queue': 'my_visits',
+        'farmers': _numbered_farmer_cards(items, pagination),
+        'pagination': pagination,
+    })
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
 def portal_queue_fragment(request, queue_key: str):
     access_error = _portal_read_access_error(
         request, capability=PORTAL_QUEUE_CAPABILITIES.get(queue_key, ''),
@@ -2126,6 +2170,7 @@ def portal_queue_fragment(request, queue_key: str):
         'farmers': farmer_cards,
         'pagination': pagination,
         'queue_key': queue_key,
+        'queue_list_id': 'req-list' if queue_key == 'requisition' else f'{queue_key.replace("_", "-")}-list',
         'mode': fragment_mode,
         'county': request.GET.get('county', '').strip(),
         'branch': request.GET.get('branch', '').strip(),
@@ -2133,6 +2178,7 @@ def portal_queue_fragment(request, queue_key: str):
         'review_stage': review_stage,
         'empty_title': config['empty_title'],
         'empty_sub': config['empty_sub'],
+        'can_requisition_write': _portal_capability_error(request, 'portal.requisition.write') is None,
     })
 
 
@@ -3345,7 +3391,7 @@ def portal_requisition_preview(request):
     farmer_ids = parsed['farmer_ids']
     order_number = parsed['order_number']
     requisition_date = parsed['requisition_date']
-    access_error = _portal_capability_error(request, 'portal.requisition.view') or _portal_farmers_scope_error(request, farmers)
+    access_error = _portal_capability_error(request, 'portal.requisition.write') or _portal_farmers_scope_error(request, farmers)
     if access_error:
         return access_error
 

@@ -149,6 +149,23 @@ class PhysicalDocumentSignoffTests(TestCase):
 
         self.assertEqual(DocumentSignoffPolicy.objects.get(document_type='payment').approval_role, 'BUSINESS_ADMIN')
 
+    def test_signoff_policy_can_name_operations_and_head_of_rural(self):
+        maker = get_user_model().objects.create_superuser(
+            username='multi-role-maker', email='multi-role-maker@example.test', password='password',
+        )
+        checker = get_user_model().objects.create_superuser(
+            username='multi-role-checker', email='multi-role-checker@example.test', password='password',
+        )
+        request = create_document_signoff_policy_request(
+            requester=maker,
+            document_type='payment',
+            approval_roles=['BUSINESS_ADMIN', 'OPERATIONS_ADMIN'],
+            reason='Allow the Head of Rural or Operations Administrator to attest signed payment schedules.',
+        )
+        approve_request(request_id=request.pk, approver=checker)
+        policy = DocumentSignoffPolicy.objects.get(document_type='payment')
+        self.assertEqual(policy.effective_approval_roles, ('BUSINESS_ADMIN', 'OPERATIONS_ADMIN'))
+
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_drive_failure_keeps_scan_for_retry(self, storage):
         storage.return_value.upload.side_effect = RuntimeError('Drive unavailable')

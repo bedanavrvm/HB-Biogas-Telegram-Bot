@@ -110,15 +110,27 @@ def resolve_or_bind_telegram_user(identity: TelegramIdentity):
 def user_access(user, workflow: str, *, group_configuration=None) -> dict:
     """Return canonical Mini App roles and scopes from active AccessGrants.
 
-    Django Groups remain available for Django Admin permission bundles.  They
-    must not grant Mini App access: only an active, scoped AccessGrant may do
-    that, so user management has one authoritative workflow access path.
+    Django Groups remain available for Django Admin permission bundles and
+    never grant Mini App access. Active AccessGrants are the normal authority
+    path. An active Django Superuser is the explicitly approved technical
+    break-glass exception and receives every code-owned role without branch or
+    product limits; callers still receive the real actor identity for audit.
     """
     from core.models import AccessGrant, EmergencyAccessGrant
     from django.utils import timezone
-    from core.services.access_policies import canonical_access_role
+    from core.services.access_policies import WORKFLOW_ROLES, canonical_access_role
     if not user or not user.is_active:
         return {'authorized': False, 'roles': [], 'branches': [], 'products': [], 'grants': []}
+    if user.is_superuser:
+        return {
+            'authorized': True,
+            'roles': [role for role, _label in WORKFLOW_ROLES.get(workflow, ())],
+            'branches': [],
+            'products': [],
+            'grants': [],
+            'emergency_grants': [],
+            'technical_override': True,
+        }
     grants = AccessGrant.objects.filter(user=user, workflow=workflow, active=True)
     database_group = database_group_configuration(group_configuration)
     if group_configuration is not None:
@@ -141,10 +153,6 @@ def user_access(user, workflow: str, *, group_configuration=None) -> dict:
         for grant in [*grants, *emergency_grants]
         if grant.role
     }
-    # Django ``is_superuser`` is deliberately not a Mini App authorization
-    # shortcut.  Technical administration and operational authority are
-    # separate: every Mini App role must originate from a scoped permanent or
-    # time-boxed emergency grant.
     roles = grant_roles
     return {
         'authorized': bool(grants or emergency_grants),

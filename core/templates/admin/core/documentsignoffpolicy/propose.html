@@ -5,11 +5,11 @@
   <h1 class="text-xl font-semibold">{{ title }}</h1>
   <p class="mt-2 text-sm text-font-subtle-light dark:text-font-subtle-dark">Only a role that already has the approved <code>portal.documents.sign</code> capability can be selected. A different designated approver must approve this proposal before it becomes live.</p>
   <dl class="mt-4 grid gap-2 text-sm">
-    {% for policy in policies %}<div class="flex justify-between rounded bg-base-50 px-3 py-2 dark:bg-base-900"><dt>{{ policy.get_document_type_display }}</dt><dd class="font-medium">{{ policy.approval_role }}</dd></div>{% endfor %}
+    {% for policy in policies %}<div class="flex justify-between rounded bg-base-50 px-3 py-2 dark:bg-base-900"><dt>{{ policy.get_document_type_display }}</dt><dd class="font-medium">{{ policy.effective_approval_roles|join:", " }}</dd></div>{% endfor %}
   </dl>
   <form method="post" class="mt-5 grid gap-4">{% csrf_token %}
     <label class="block text-sm font-medium">Document type<select required name="document_type" class="mt-1 block w-full">{% for value,label in document_types %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></label>
-    <label class="block text-sm font-medium">Authorised Portal role<select required name="approval_role" class="mt-1 block w-full">{% for value,label in role_options %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></label>
+    <label class="block text-sm font-medium">Authorised Portal roles<select required name="approval_roles" multiple size="6" class="mt-1 block w-full">{% for value,label in role_options %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select><span class="mt-1 block text-xs text-font-subtle-light dark:text-font-subtle-dark">Select every role allowed to attest the signed and stamped scan.</span></label>
     <label class="block text-sm font-medium">Business reason<textarea required name="reason" rows="3" class="mt-1 block w-full" placeholder="Why should this role become responsible?"></textarea></label>
     <button class="min-h-11 rounded bg-primary-600 px-4 font-medium text-white">Submit for independent approval</button>
   </form>

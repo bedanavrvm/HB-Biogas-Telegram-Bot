@@ -56,7 +56,9 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **Mini App** | A Telegram Web App (mobile-first web UI launched inside Telegram) backed by Django templates/static assets under `core/templates/*` and `core/static/miniapp/`. |
 | **`initData`** | Telegram's signed payload proving a Mini App session belongs to a specific Telegram user; must be HMAC-verified server-side before trust. |
 | **Portal** | The aggregated staff-facing view across pipeline/workflow data, served by `core/api/portal_views.py`. |
-| **Business Admin** | A scoped Mini App role (`BUSINESS_ADMIN`) for operational approval/configuration authority. It is distinct from Django `is_staff`/`is_superuser`, which do not grant Mini App access. |
+| **Head of Rural** | The Portal label for the stable scoped Mini App role (`BUSINESS_ADMIN`), responsible for final/payment approvals. It is distinct from Django `is_staff`. |
+| **Operations Administrator** | A scoped Portal role (`OPERATIONS_ADMIN`) for operational processing such as orders, invoices, and payment preparation; it does not grant Head of Rural approvals or JBL visit logging. |
+| **Django Superuser** | Active `is_superuser` is the explicitly approved technical break-glass override across Mini App capabilities and scopes. It is auditable and is not the same staff business role as Head of Rural or Operations Administrator. |
 | **IT** | A scoped support role available in every access-controlled Mini App workflow. It is assigned through `AccessGrant`, never inferred from Django technical-admin flags. |
 | **Access Control Checker** | A Django Admin staff user appointed by a technical Superuser to independently review Mini App access-policy requests. It is not a Mini App workflow role. |
 

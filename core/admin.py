@@ -2682,9 +2682,9 @@ class PaymentDocumentAdmin(ReadOnlyAuditAdmin):
 class DocumentSignoffPolicyAdmin(CompactModelAdmin):
     """Read-only effective policy with maker-checker proposals only."""
 
-    list_display = ('document_type', 'approval_role', 'is_active', 'updated_at')
+    list_display = ('document_type', 'approval_roles_display', 'is_active', 'updated_at')
     list_filter = ('document_type', 'is_active')
-    readonly_fields = ('document_type', 'workflow', 'approval_role', 'is_active', 'updated_at')
+    readonly_fields = ('document_type', 'workflow', 'approval_role', 'approval_roles', 'is_active', 'updated_at')
     change_list_template = 'admin/core/documentsignoffpolicy/change_list.html'
 
     def has_add_permission(self, request):
@@ -2701,6 +2701,10 @@ class DocumentSignoffPolicyAdmin(CompactModelAdmin):
             path('propose/', self.admin_site.admin_view(self.propose_policy), name='core_documentsignoffpolicy_propose'),
         ] + super().get_urls()
 
+    @admin.display(description='Authorised Portal roles')
+    def approval_roles_display(self, obj):
+        return ', '.join(obj.effective_approval_roles)
+
     def propose_policy(self, request):
         if not request.user.is_superuser:
             raise PermissionDenied
@@ -2713,7 +2717,7 @@ class DocumentSignoffPolicyAdmin(CompactModelAdmin):
                 change_request = create_document_signoff_policy_request(
                     requester=request.user,
                     document_type=str(request.POST.get('document_type') or ''),
-                    approval_role=str(request.POST.get('approval_role') or ''),
+                    approval_roles=request.POST.getlist('approval_roles'),
                     reason=str(request.POST.get('reason') or ''),
                 )
             except ValidationError as exc:

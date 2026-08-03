@@ -388,6 +388,7 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None) -> dict[str, Any
 
 
 def serialize_case360(farmer: JawabuFarmerMaster) -> dict[str, Any]:
+    from core.services.jawabu_pipeline import current_workflow_state
     validation = validation_warnings(farmer)
     timeline_projection = jawabu_case_timeline(farmer)
     invoice = ParsedInvoice.objects.filter(matched_farmer=farmer, status='matched').order_by('-updated_at').first()
@@ -403,6 +404,11 @@ def serialize_case360(farmer: JawabuFarmerMaster) -> dict[str, Any]:
         [document for document in payment_documents if document.status == 'final']
     )
     return {
+        # The current canonical state, rather than historical non-empty
+        # fields, owns the case-progress strip. A returned JBL visit can still
+        # retain an earlier credit decision for audit without appearing to be
+        # simultaneously in two stages.
+        'workflow_state': current_workflow_state(farmer),
         'sections': {
             'identity': {'customer_name': farmer.customer_name, 'system_name': farmer.imab_customer_name, 'national_id': farmer.national_id, 'primary_phone': farmer.primary_phone, 'secondary_phone': farmer.secondary_phone, 'customer_no': farmer.customer_no, 'unit_number': farmer.unit_number},
             # Ward is retained for source/import compatibility, but is not a

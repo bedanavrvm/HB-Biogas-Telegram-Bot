@@ -73,7 +73,7 @@
     ).join('')}</div>`;
   }
 
-  function caseStageFlow(sections) {
+  function caseStageFlow(sections, workflowState = '') {
     const steps = [
       ['Application', Boolean(sections.identity?.customer_name || sections.intake?.hbg_visit_date)],
       ['JBL Visit', Boolean(sections.jbl_visit?.visit_date || sections.jbl_visit?.status)],
@@ -82,10 +82,23 @@
       ['Order', Boolean(sections.order?.order_number)],
       ['Invoice', Boolean(sections.invoice?.number)],
     ];
-    const current = steps.findIndex(([, complete]) => !complete);
+    const stateIndex = {
+      jbl_visit: 1,
+      credit: 2,
+      final_review: 3,
+      order: 4,
+      ordered: 5,
+    };
+    // The workflow state is canonical. The older field-presence fallback is
+    // retained for records created before state integrity existed.
+    const current = Object.prototype.hasOwnProperty.call(stateIndex, workflowState)
+      ? stateIndex[workflowState]
+      : steps.findIndex(([, complete]) => !complete);
     return `<ol class="case360-flow" aria-label="Case progress">${steps.map(([label, complete], index) => {
-      const status = complete ? 'complete' : index === current ? 'current' : 'pending';
-      const icon = complete
+      const status = index < current ? 'complete' : index === current ? 'current' : 'pending';
+      // A historical value can remain populated after a case is returned to
+      // JBL. Render from canonical step status, not the stale value itself.
+      const icon = status === 'complete'
         ? '<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>'
         : status === 'current'
           ? '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>'
@@ -94,7 +107,7 @@
     }).join('')}</ol>`;
   }
 
-  function caseHeader(sections) {
+  function caseHeader(sections, workflowState = '') {
     const identity = sections.identity || {};
     const intake = sections.intake || {};
     const systemName = identity.system_name && identity.system_name !== identity.customer_name
@@ -106,7 +119,7 @@
     return `<header class="case360-hero">
       <div class="case360-identity"><span class="case360-eyebrow">Customer case</span><h2>${deps.escapeHtml(identity.customer_name || 'Unnamed customer')}</h2><p>${deps.escapeHtml([systemName, identity.national_id && `ID ${identity.national_id}`, identity.primary_phone, intake.branch].filter(Boolean).join('  |  ') || 'Identifiers not recorded')}</p></div>
       <span class="case360-status">${deps.escapeHtml(status)}</span>
-    </header>${caseStageFlow(sections)}`;
+    </header>${caseStageFlow(sections, workflowState)}`;
   }
 
   function renderCase360(data, target) {
@@ -140,7 +153,7 @@
     const relatedCaseCards = relatedCases.length ? `<details class="case360-section"><summary><div><h3>Other Units</h3><p>Prior or repeat-customer applications</p></div><span class="case360-chevron" aria-hidden="true"></span></summary><div class="case360-related-cases">${relatedCases.map(item => `<button type="button" class="case360-related-case" data-related-farmer="${deps.escapeHtml(item.id)}"><strong>Unit ${deps.escapeHtml(item.unit_number)}</strong><span>${deps.escapeHtml(item.customer_name || 'Customer')} · ${deps.escapeHtml(humanLabel(item.status || ''))}</span></button>`).join('')}</div></details>` : '';
     const escalationAlert = escalation ? `<div class="case360-escalation level-${deps.escapeHtml(escalation.escalation_level)}"><strong>SLA escalation: ${deps.escapeHtml(escalation.routing_role)}</strong><span>${deps.escapeHtml(formatTatMinutes(escalation.overdue_minutes))} overdue at ${deps.escapeHtml(escalation.threshold_percent)}% threshold</span></div>` : '';
     root.innerHTML = `
-      ${caseHeader(sections)}
+      ${caseHeader(sections, data.workflow_state || '')}
       <div class="case360-tabs" role="tablist">
         ${tabs.map(([key, label, count], index) => `<button type="button" role="tab" aria-selected="${index ? 'false' : 'true'}" data-case360-tab="${key}" class="${index ? '' : 'active'}"><span>${label}</span>${count !== '' ? `<b>${count}</b>` : ''}</button>`).join('')}
       </div>

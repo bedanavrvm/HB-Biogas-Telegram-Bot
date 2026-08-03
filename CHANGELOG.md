@@ -1,5 +1,14 @@
 # Changelog
 
+## Portal operational-role separation and technical break-glass — 03-August-2026
+
+- Portal **Business Administrator** is now labelled **Head of Rural** and is limited to final/payment review, approval delegation, and authorised document sign-off. A new **Operations Administrator** role owns operational credit, orders, invoices, payment preparation, and document regeneration, without JBL visit logging or Head of Rural review authority.
+- JBL Officers can view their own submitted JBL visits and the Orders queue, but cannot select cases, preview a batch, or generate a requisition. Credit Analysts can view JBL evidence for credit review without media-upload rights.
+- An active Django Superuser is now the requested, auditable technical break-glass override for all Mini App capabilities and Portal branch scopes. This supersedes the earlier changelog statement that a technical Superuser had no Mini App bypass; ordinary Django `is_staff` users remain non-bypass technical-admin users.
+- Physical requisition/payment sign-off policy can name both Head of Rural and Operations Administrator through the existing independent maker-checker request process.
+
+  Migration note: `core.0097_document_signoff_approval_roles` and `core.0098_portal_role_separation` are not authorised for production application by this code change. Apply only through an approved release. To undo `0097` before multi-role policy use: `python manage.py migrate core 0096_portal_import_archives`. Do not blindly reverse `0098`; restore the prior matrix through an audited maker-checker request using its recorded before/after evidence.
+
 ## Django Superuser Access Grant override - 03-August-2026
 
 - An active Django Superuser can now add, edit, activate, deactivate, or
