@@ -2083,7 +2083,7 @@
     activate(page) {
       if (!page) return;
       const root = currentScreenRoot();
-      const screenSignature = `${page}:${root?.dataset.caseFarmerId || ''}:${root?.dataset.reportView || ''}:${root?.dataset.reportId || ''}`;
+      const screenSignature = `${page}:${root?.dataset.caseFarmerId || ''}:${root?.dataset.reportView || ''}:${root?.dataset.reportId || ''}:${root?.dataset.invoiceView || ''}:${root?.dataset.invoiceId || ''}`;
       const changed = lastShellScreen !== screenSignature;
       lastShellScreen = screenSignature;
       switchPage(page);

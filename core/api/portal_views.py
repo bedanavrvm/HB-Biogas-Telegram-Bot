@@ -1336,6 +1336,29 @@ def portal_reports_screen(request, report_view: str = 'catalogue', report_id: st
 
 
 @require_http_methods(["GET", "HEAD"])
+def portal_invoices_screen(request, invoice_view: str = 'inbox', invoice_id: str = ''):
+    """Render one route-backed Invoice workspace view.
+
+    The invoice APIs remain the source of parsed data, reconciliation state,
+    and audit history.  This only separates the previously crowded workspace
+    into an inbox, focused reconciliation lists, an upload page, and a
+    dedicated record detail screen.
+    """
+    if invoice_view not in {'inbox', 'matched', 'ignored', 'upload', 'detail'}:
+        return HttpResponse('Unknown invoice screen.', status=404)
+    if invoice_view == 'detail' and not invoice_id:
+        return HttpResponse('An invoice identifier is required.', status=404)
+    context = _portal_screen_context(
+        'invoices',
+        invoice_view=invoice_view,
+        invoice_id=invoice_id,
+    )
+    if request.htmx:
+        return _portal_screen_fragment(request, 'invoices', context=context)
+    return render(request, 'portal/portal_screen_full.html', context)
+
+
+@require_http_methods(["GET", "HEAD"])
 def portal_case_history_detail(request, farmer_id: str):
     """Render one customer's Case 360 as a dedicated navigable screen."""
     context = _portal_screen_context('case_history', case_history_farmer_id=farmer_id)
@@ -4512,6 +4535,7 @@ def portal_invoice_pool(request):
     search = str(request.GET.get('search') or '').strip()
     batch_id = str(request.GET.get('batch_id') or '').strip()
     review = str(request.GET.get('review') or '').strip()
+    workspace = str(request.GET.get('workspace') or '').strip().lower()
 
     invoices = ParsedInvoice.objects.select_related('batch', 'matched_farmer').all()
     staff_branches = [
@@ -4527,7 +4551,15 @@ def portal_invoice_pool(request):
         # links it to a case.
         invoices = invoices.filter(branch_scope)
     scoped_invoices = invoices
-    if status:
+    if workspace == 'inbox':
+        # The staff inbox is deliberately limited to records that need a
+        # reconciliation decision.  Batch-level parse failures remain visible
+        # through the returned upload history and summary rather than being
+        # fabricated as invoice records.
+        invoices = invoices.filter(status__in=['draft', 'unmatched', 'ambiguous'])
+    elif workspace in {'matched', 'ignored'}:
+        invoices = invoices.filter(status=workspace)
+    elif status:
         invoices = invoices.filter(status=status)
     if batch_id:
         invoices = invoices.filter(batch_id=batch_id)
@@ -4605,10 +4637,17 @@ def portal_invoice_pool(request):
     summary = {
         'batch_count': scoped_invoices.values('batch_id').distinct().count(),
         'invoice_count': scoped_invoices.count(),
+        'draft_count': scoped_invoices.filter(status='draft').count(),
         'unmatched_count': scoped_invoices.filter(status='unmatched').count(),
         'matched_count': scoped_invoices.filter(status='matched').count(),
         'ambiguous_count': scoped_invoices.filter(status='ambiguous').count(),
         'ignored_count': scoped_invoices.filter(status='ignored').count(),
+        # Parse-failed batches have no ParsedInvoice row. Do not expose their
+        # filenames or count to a branch-limited user because no trusted
+        # branch can be derived from the failed source document yet.
+        'parse_failed_batch_count': 0 if staff_branches else InvoiceUploadBatch.objects.filter(
+            status='parse_failed',
+        ).count(),
     }
 
     return JsonResponse({
@@ -4625,6 +4664,7 @@ def portal_invoice_pool(request):
             'search': search,
             'batch_id': batch_id,
             'review': review,
+            'workspace': workspace,
         },
     })
 

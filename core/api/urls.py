@@ -48,6 +48,7 @@ from .portal_views import (
     portal_home,
     portal_screen,
     portal_reports_screen,
+    portal_invoices_screen,
     portal_case_history_detail,
     portal_navigation,
     portal_settings,
@@ -219,6 +220,13 @@ urlpatterns = [
     path('portal/s/reports/<str:report_id>/', portal_reports_screen, {'report_view': 'detail'}, name='portal_report_screen_detail'),
     path('portal/s/reports/<str:report_id>/edit/', portal_reports_screen, {'report_view': 'edit'}, name='portal_report_screen_edit'),
     path('portal/s/reports/<str:report_id>/run/', portal_reports_screen, {'report_view': 'run'}, name='portal_report_screen_run'),
+    # Invoices use ordinary nested routes so Telegram and phone Back move
+    # through the workspace instead of reopening one crowded all-in-one view.
+    path('portal/s/invoices/', portal_invoices_screen, name='portal_invoices_screen'),
+    path('portal/s/invoices/matched/', portal_invoices_screen, {'invoice_view': 'matched'}, name='portal_invoices_matched'),
+    path('portal/s/invoices/ignored/', portal_invoices_screen, {'invoice_view': 'ignored'}, name='portal_invoices_ignored'),
+    path('portal/s/invoices/upload/', portal_invoices_screen, {'invoice_view': 'upload'}, name='portal_invoices_upload'),
+    path('portal/s/invoices/<str:invoice_id>/', portal_invoices_screen, {'invoice_view': 'detail'}, name='portal_invoice_screen_detail'),
     path('portal/s/<str:screen>/', portal_screen, name='portal_screen'),
     path('portal/navigation/', portal_navigation, name='portal_navigation'),
     path('portal/settings/', portal_settings, name='portal_settings'),

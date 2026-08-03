@@ -1,5 +1,19 @@
 # Changelog
 
+## Portal Invoice workspace drill-down - 03-August-2026
+
+- Reorganized the Portal Invoice experience into focused nested pages for the
+  reconciliation inbox, matched invoices, ignored invoices, uploads, and an
+  individual invoice record. The default view now shows only records requiring
+  a decision rather than mixing uploads, all statuses, and full audit detail.
+- Kept existing invoice parsing, matching, unmatching, ignore/restore, bulk
+  review, payment-readiness, Drive-source, and audit-event behaviour intact.
+  No financial or customer workflow data changed.
+
+  Migration note: no schema migration is included. To undo, redeploy the
+  prior application commit; parsed invoices, upload batches, and audit history
+  remain unchanged.
+
 ## Portal Reports drill-down - 03-August-2026
 
 - Split the IT-only Portal Reports workspace into ordinary nested pages for

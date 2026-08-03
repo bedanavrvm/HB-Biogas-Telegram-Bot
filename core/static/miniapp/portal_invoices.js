@@ -8,6 +8,7 @@
     review: '',
     search: '',
     loading: false,
+    workspace: '',
     selectedInvoice: null,
     selectedIds: new Set(),
   };
@@ -20,6 +21,33 @@
 
   function invoicesScreenIsActive() {
     return document.getElementById('portal-screen')?.dataset.screen === 'invoices';
+  }
+
+  function readRoute() {
+    const screen = document.getElementById('portal-screen');
+    const view = screen?.dataset.invoiceView || 'inbox';
+    return {
+      view: ['inbox', 'matched', 'ignored', 'upload', 'detail'].includes(view) ? view : 'inbox',
+      invoiceId: screen?.dataset.invoiceId || '',
+    };
+  }
+
+  function routeUrl(view = 'inbox', invoiceId = '') {
+    const base = '/portal/s/invoices/';
+    if (view === 'matched') return base + 'matched/';
+    if (view === 'ignored') return base + 'ignored/';
+    if (view === 'upload') return base + 'upload/';
+    if (view === 'detail' && invoiceId) return base + encodeURIComponent(invoiceId) + '/';
+    return base;
+  }
+
+  function navigate(view = 'inbox', invoiceId = '') {
+    const url = routeUrl(view, invoiceId);
+    if (window.PortalAppShell?.navigateUrl) {
+      window.PortalAppShell.navigateUrl(url);
+      return;
+    }
+    window.location.assign(url);
   }
 
   function escapeHtml(value) {
@@ -71,16 +99,23 @@
   function renderSummary(summary) {
     const target = el('invoice-pool-summary');
     if (!target) return;
-    const items = [
-      { label: 'Batches', value: summary.batch_count || 0 },
-      { label: 'Parsed invoices', value: summary.invoice_count || 0 },
-      { label: 'Unmatched', value: summary.unmatched_count || 0 },
-      { label: 'Matched', value: summary.matched_count || 0 },
-      { label: 'Ambiguous', value: summary.ambiguous_count || 0 },
-    ];
+    const route = readRoute();
+    const needsReview = Number(summary.draft_count || 0) + Number(summary.unmatched_count || 0) + Number(summary.ambiguous_count || 0);
+    const items = route.view === 'upload'
+      ? [
+          { label: 'Upload batches', value: summary.batch_count || 0 },
+          { label: 'Parsed invoices', value: summary.invoice_count || 0 },
+          { label: 'Needs review', value: needsReview },
+          { label: 'Not parsed', value: summary.parse_failed_batch_count || 0 },
+        ]
+      : [
+          { label: 'Needs review', value: needsReview },
+          { label: 'Matched', value: summary.matched_count || 0 },
+          { label: 'Ignored', value: summary.ignored_count || 0 },
+        ];
     target.innerHTML = items.map(function (item) {
       const key = item.label.toLowerCase().replace(/\s+/g, '-');
-      const alert = (key === 'unmatched' || key === 'ambiguous') && Number(item.value) > 0;
+      const alert = (key === 'needs-review' || key === 'not-parsed') && Number(item.value) > 0;
       const positive = key === 'matched' && Number(item.value) > 0;
       return '<div class="batch-summary-item invoice-summary-' + key + (alert ? ' has-alert' : '') + (positive ? ' has-positive' : '') + '"><strong>' + escapeHtml(item.value) + '</strong><span>' + escapeHtml(item.label) + '</span></div>';
     }).join('');
@@ -99,7 +134,13 @@
     const target = el('invoice-pool-list');
     if (!target) return;
     if (!invoices.length) {
-      target.innerHTML = '<div class="empty-state"><div class="es-title">No invoices found</div><div class="es-sub">Try a different status or search term.</div></div>';
+      const route = readRoute();
+      const copy = route.view === 'matched'
+        ? ['No matched invoices', 'Matched invoices will appear here after reconciliation.']
+        : route.view === 'ignored'
+          ? ['No ignored invoices', 'No invoices have been intentionally excluded from matching.']
+          : ['No invoices need review', 'New unmatched or ambiguous invoices will appear here.'];
+      target.innerHTML = '<div class="empty-state"><div class="es-title">' + copy[0] + '</div><div class="es-sub">' + copy[1] + '</div></div>';
       return;
     }
     target.innerHTML = invoices.map(function (invoice) {
@@ -118,8 +159,8 @@
         ? '<span class="badge badge-orange">Possible duplicates: ' + escapeHtml(invoice.duplicate_count) + '</span>'
         : '';
       const actions = [
-        '<button class="btn btn-secondary invoice-detail-action" data-invoice="' + escapeHtml(invoice.id) + '">Details</button>',
-        canWriteInvoices() && invoice.status !== 'matched' ? '<button class="btn btn-secondary invoice-match-action" data-invoice="' + escapeHtml(invoice.id) + '">Match</button>' : '',
+        '<button class="btn btn-secondary invoice-detail-action" data-invoice="' + escapeHtml(invoice.id) + '">Review</button>',
+        canWriteInvoices() && ['draft', 'unmatched', 'ambiguous'].includes(invoice.status) ? '<button class="btn btn-primary invoice-match-action" data-invoice="' + escapeHtml(invoice.id) + '">Match</button>' : '',
         canWriteInvoices() && invoice.status === 'matched' ? '<button class="btn btn-secondary invoice-unmatch-action" data-invoice="' + escapeHtml(invoice.id) + '">Unmatch</button>' : '',
         canWriteInvoices() && invoice.status !== 'ignored' ? '<button class="btn btn-secondary invoice-ignore-action" data-invoice="' + escapeHtml(invoice.id) + '">Ignore</button>' : '',
         canWriteInvoices() && invoice.status === 'ignored' ? '<button class="btn btn-secondary invoice-restore-action" data-invoice="' + escapeHtml(invoice.id) + '">Restore</button>' : '',
@@ -135,7 +176,6 @@
         '<div class="invoice-card-meta"><span>ID ' + escapeHtml(invoice.customer_id || '-') + '</span><span>' + escapeHtml(invoice.customer_phone || '-') + '</span>' + matched + '</div>',
         '<div class="fc-badges invoice-card-money">',
         '<span class="badge badge-grey">Amount: ' + money(invoice.invoice_amount) + '</span>',
-        '<span class="badge badge-grey">HBG deposit: ' + money(hbgDeposit(invoice)) + '</span>',
         '<span class="badge badge-grey">Balance: ' + money(invoice.balance_due) + '</span>',
         readinessBadge,
         duplicateBadge,
@@ -198,14 +238,70 @@
     if (next) el('pg-next-invoices').addEventListener('click', function () { load(pagination.page + 1); });
   }
 
+  function renderUploadHistory(batches) {
+    const target = el('invoice-upload-history');
+    if (!target) return;
+    if (!batches.length) {
+      target.innerHTML = '<div class="empty-state"><div class="es-title">No invoice uploads yet</div><div class="es-sub">Upload a PDF when HB invoices are received.</div></div>';
+      return;
+    }
+    target.innerHTML = batches.map(function (batch) {
+      const sync = batch.sync_status === 'retryable_failure'
+        ? '<span class="badge badge-orange">Drive sync needs retry</span>'
+        : batch.sync_status === 'pending'
+          ? '<span class="badge badge-blue">Drive sync pending</span>'
+          : batch.drive_url
+            ? '<span class="badge badge-green">Stored in Drive</span>'
+            : '';
+      return [
+        '<article class="farmer-card invoice-upload-history-card">',
+        '<div class="invoice-card-heading"><div class="fc-name">' + escapeHtml(batch.original_filename || 'Invoice PDF') + '</div><span class="badge ' + badgeClass(batch.status) + '">' + escapeHtml(batch.status || '-') + '</span></div>',
+        '<div class="invoice-card-meta"><span>' + escapeHtml(fmtDate(batch.created_at)) + '</span><span>' + escapeHtml(batch.total_parsed || 0) + ' parsed</span><span>' + escapeHtml(batch.unmatched_count || 0) + ' unmatched</span></div>',
+        '<div class="fc-badges invoice-card-money">' + sync + (batch.error ? '<span class="badge badge-red">' + escapeHtml(batch.error) + '</span>' : '') + '</div>',
+        '</article>',
+      ].join('');
+    }).join('');
+  }
+
+  async function loadDetail(invoiceId) {
+    const target = el('invoice-detail-page');
+    if (!target) return;
+    if (!invoiceId) {
+      target.innerHTML = '<div class="empty-state"><div class="es-title">Invoice unavailable</div><div class="es-sub">Return to the invoice inbox and choose a record.</div></div>';
+      return;
+    }
+    target.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading invoice detail...</div></div>';
+    const result = await deps.apiFetch('/invoice-pool/' + encodeURIComponent(invoiceId) + '/');
+    if (!invoicesScreenIsActive() || readRoute().invoiceId !== invoiceId) return;
+    if (!result.ok || !result.data?.ok) {
+      target.innerHTML = '<div class="empty-state"><div class="es-title">Invoice unavailable</div><div class="es-sub">' + escapeHtml(result.data?.error || 'Refresh the invoice inbox and try again.') + '</div><button type="button" class="btn btn-secondary invoice-detail-back">Back to invoices</button></div>';
+      target.querySelector('.invoice-detail-back')?.addEventListener('click', function () { navigate('inbox'); });
+      return;
+    }
+    renderInvoiceDetail(result.data, target, { routeMode: true });
+  }
+
   async function load(page, extra) {
     if (!invoicesScreenIsActive()) return;
     if (state.loading) return;
     state.loading = true;
+    const route = readRoute();
+    if (route.view === 'detail') {
+      await loadDetail(route.invoiceId);
+      state.loading = false;
+      return;
+    }
+    if (state.workspace !== route.view) {
+      state.workspace = route.view;
+      state.selectedIds.clear();
+      state.review = '';
+      state.search = '';
+    }
     state.page = page || 1;
     const list = el('invoice-pool-list');
     if (list) list.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
     const params = new URLSearchParams({ page: String(state.page) });
+    if (['inbox', 'matched', 'ignored'].includes(route.view)) params.set('workspace', route.view);
     if (state.status) params.set('status', state.status);
     if (state.review) params.set('review', state.review);
     if (state.search) params.set('search', state.search);
@@ -218,8 +314,12 @@
       return;
     }
     renderSummary(result.data.summary || {});
-    renderInvoices(result.data.invoices || []);
-    renderPagination(result.data.pagination || {});
+    if (route.view === 'upload') {
+      renderUploadHistory(result.data.batches || []);
+    } else {
+      renderInvoices(result.data.invoices || []);
+      renderPagination(result.data.pagination || {});
+    }
     if (window.lucide) window.lucide.createIcons();
   }
 
@@ -257,8 +357,7 @@
     return '<div class="invoice-detail-field"><div class="meta">' + escapeHtml(label) + '</div><div class="name">' + escapeHtml(value || '-') + '</div></div>';
   }
 
-  function renderInvoiceDetail(data) {
-    const target = el('invoice-detail-content');
+  function renderInvoiceDetail(data, target = el('invoice-detail-content'), { routeMode = false } = {}) {
     if (!target) return;
     const invoice = data.invoice || {};
     const batch = data.batch || {};
@@ -267,6 +366,13 @@
     const sourceLink = data.source_pdf_url
       ? '<button class="btn btn-secondary invoice-drive-link" data-url="' + escapeHtml(data.source_pdf_url) + '">Open source PDF</button>'
       : '<span class="badge badge-grey">No source PDF link</span>';
+    const actionButtons = [
+      routeMode ? '<button type="button" class="btn btn-secondary invoice-detail-back">Back to invoices</button>' : '',
+      canWriteInvoices() && ['draft', 'unmatched', 'ambiguous'].includes(invoice.status) ? '<button type="button" class="btn btn-primary invoice-detail-match-action">Match invoice</button>' : '',
+      canWriteInvoices() && invoice.status === 'matched' ? '<button type="button" class="btn btn-secondary invoice-detail-unmatch-action">Unmatch invoice</button>' : '',
+      canWriteInvoices() && invoice.status !== 'ignored' ? '<button type="button" class="btn btn-secondary invoice-detail-ignore-action">Ignore invoice</button>' : '',
+      canWriteInvoices() && invoice.status === 'ignored' ? '<button type="button" class="btn btn-secondary invoice-detail-restore-action">Restore invoice</button>' : '',
+    ].join('');
     const duplicateHtml = duplicates.length
       ? duplicates.map(function (dup) {
         const reasons = (dup.duplicate_reasons || []).join(', ') || 'Possible duplicate';
@@ -290,7 +396,7 @@
       '<span class="badge badge-grey">HBG deposit: ' + money(hbgDeposit(invoice)) + '</span>',
       '<span class="badge badge-grey">Balance: ' + money(invoice.balance_due) + '</span>',
       '</div>',
-      '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">' + sourceLink + '</div>',
+      '<div class="invoice-detail-actions">' + sourceLink + actionButtons + '</div>',
       '</div>',
       '<div class="form-section">',
       '<h3 style="font-size:14px;margin:0 0 8px;">Parsed fields</h3>',
@@ -318,20 +424,16 @@
         else window.open(btn.dataset.url, '_blank', 'noopener');
       });
     });
+    target.querySelector('.invoice-detail-back')?.addEventListener('click', function () { navigate('inbox'); });
+    target.querySelector('.invoice-detail-match-action')?.addEventListener('click', function () { openMatchOverlay(invoice); });
+    target.querySelector('.invoice-detail-unmatch-action')?.addEventListener('click', function () { unmatchInvoice(invoice.id); });
+    target.querySelector('.invoice-detail-ignore-action')?.addEventListener('click', function () { ignoreInvoice(invoice.id); });
+    target.querySelector('.invoice-detail-restore-action')?.addEventListener('click', function () { restoreInvoice(invoice.id); });
   }
 
   async function openInvoiceDetail(invoiceId) {
-    const overlay = el('invoice-detail-overlay');
-    const target = el('invoice-detail-content');
-    if (!overlay || !invoiceId) return;
-    if (target) target.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
-    overlay.classList.add('open');
-    const result = await deps.apiFetch('/invoice-pool/' + encodeURIComponent(invoiceId) + '/');
-    if (!result.ok || !result.data?.ok) {
-      if (target) target.innerHTML = '<div class="empty-state"><div class="es-title">Could not load invoice</div><div class="es-sub">' + escapeHtml(result.data?.error || 'Refresh and try again.') + '</div></div>';
-      return;
-    }
-    renderInvoiceDetail(result.data);
+    if (!invoiceId) return;
+    navigate('detail', invoiceId);
   }
 
   function closeInvoiceDetail() {
@@ -472,8 +574,7 @@
     if (document.documentElement.dataset.invoiceFiltersBound === 'true') return;
     document.documentElement.dataset.invoiceFiltersBound = 'true';
     document.addEventListener('change', function (event) {
-      if (event.target.id === 'invoice-pool-status') state.status = event.target.value || '';
-      else if (event.target.id === 'invoice-pool-review') state.review = event.target.value || '';
+      if (event.target.id === 'invoice-pool-review') state.review = event.target.value || '';
       else return;
       load(1);
     });
@@ -485,10 +586,8 @@
     });
     document.addEventListener('click', function (event) {
       if (!event.target.closest('#invoice-pool-clear')) return;
-      state.status = '';
       state.review = '';
       state.search = '';
-      if (el('invoice-pool-status')) el('invoice-pool-status').value = '';
       if (el('invoice-pool-review')) el('invoice-pool-review').value = '';
       if (el('invoice-pool-search')) el('invoice-pool-search').value = '';
       load(1);

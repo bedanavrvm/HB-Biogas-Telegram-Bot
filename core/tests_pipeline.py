@@ -1425,6 +1425,57 @@ class JblPipelineApiTestCase(TestCase):
         self.assertContains(response, 'data-report-view="detail"')
         self.assertNotContains(response, 'id="sheet-overlay"')
 
+    def test_invoice_workspace_routes_keep_the_shell_and_route_context(self):
+        invoice_id = 'invoice-test-123'
+        cases = (
+            ('portal_invoices_screen', {}, 'inbox', ''),
+            ('portal_invoices_matched', {}, 'matched', ''),
+            ('portal_invoices_ignored', {}, 'ignored', ''),
+            ('portal_invoices_upload', {}, 'upload', ''),
+            ('portal_invoice_screen_detail', {'invoice_id': invoice_id}, 'detail', invoice_id),
+        )
+        for route_name, kwargs, invoice_view, expected_invoice_id in cases:
+            with self.subTest(route=route_name):
+                response = self.client.get(reverse(route_name, kwargs=kwargs))
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, '<html')
+                self.assertContains(response, 'data-screen="invoices"')
+                self.assertContains(response, f'data-invoice-view="{invoice_view}"')
+                self.assertContains(response, f'data-invoice-id="{expected_invoice_id}"')
+                self.assertContains(response, 'data-top-level="true"' if invoice_view == 'inbox' else 'data-top-level="false"')
+
+    def test_invoice_workspace_detail_fragment_omits_shell(self):
+        response = self.client.get(
+            reverse('portal_invoice_screen_detail', kwargs={'invoice_id': 'invoice-test-123'}),
+            HTTP_HX_REQUEST='true',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, '<html')
+        self.assertContains(response, 'data-screen="invoices"')
+        self.assertContains(response, 'data-invoice-view="detail"')
+        self.assertContains(response, 'id="invoice-detail-page"')
+        self.assertNotContains(response, 'id="sheet-overlay"')
+
+    def test_invoice_workspace_filters_route_backed_reconciliation_lists(self):
+        batch = InvoiceUploadBatch.objects.create(status='parsed', original_filename='invoice-pool.pdf')
+        review_invoice = ParsedInvoice.objects.create(batch=batch, status='unmatched', invoice_no='INBOX-1')
+        matched_invoice = ParsedInvoice.objects.create(batch=batch, status='matched', invoice_no='MATCHED-1')
+        ignored_invoice = ParsedInvoice.objects.create(batch=batch, status='ignored', invoice_no='IGNORED-1')
+
+        for workspace, expected_ids in (
+            ('inbox', {str(review_invoice.id)}),
+            ('matched', {str(matched_invoice.id)}),
+            ('ignored', {str(ignored_invoice.id)}),
+        ):
+            with self.subTest(workspace=workspace):
+                response = self.client.get(reverse('portal_invoice_pool'), {'workspace': workspace})
+                self.assertEqual(response.status_code, 200)
+                payload = response.json()
+                self.assertTrue(payload['ok'])
+                self.assertEqual(payload['filters']['workspace'], workspace)
+                self.assertEqual({item['id'] for item in payload['invoices']}, expected_ids)
+
     def test_case_history_is_a_dedicated_screen(self):
         response = self.client.get(reverse('portal_screen', kwargs={'screen': 'case_history'}))
 

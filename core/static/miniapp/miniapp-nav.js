@@ -37,6 +37,8 @@
     // that do not have that queue.
     const preferredScreen = /\/portal\/cases\/[^/]+\//.test(window.location.pathname)
       ? 'all'
+      : /\/portal\/s\/invoices\/[^/]+\//.test(window.location.pathname)
+        ? 'invoices'
       : /\/portal\/s\/reports\/[^/]+\//.test(window.location.pathname)
         ? 'reports'
         : 'dashboard';

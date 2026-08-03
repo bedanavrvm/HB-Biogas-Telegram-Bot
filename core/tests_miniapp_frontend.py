@@ -49,12 +49,13 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('miniapp/portal_queues.js?v=6', html)
         self.assertIn('miniapp/portal_farmer_sheet.js?v=29', html)
         self.assertIn('miniapp/utils.js?v=4', html)
-        self.assertIn('miniapp/portal.css?v=57', html)
+        self.assertIn('miniapp/portal.css?v=58', html)
         self.assertIn('miniapp/portal_filters.js?v=7', html)
         self.assertIn('miniapp/portal_imports.js?v=4', html)
         self.assertNotIn('portal-import-group', html)
         self.assertIn('miniapp/portal_requisitions.js?v=33', html)
-        self.assertIn('miniapp/portal.js?v=54', html)
+        self.assertIn('miniapp/portal_invoices.js?v=13', html)
+        self.assertIn('miniapp/portal.js?v=55', html)
 
         spin_response = self.client.get(reverse('spin_form') + '?group_id=-100spin&token=test-token')
         spin_html = spin_response.content.decode('utf-8')
@@ -105,7 +106,7 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         self.assertIn('/\\/portal\\/cases\\/[^/]+\\//', source)
         self.assertIn("return 'case_history'", source)
-        self.assertContains(response, 'miniapp/miniapp-nav.js?v=13')
+        self.assertContains(response, 'miniapp/miniapp-nav.js?v=14')
 
     def test_telegram_back_never_uses_host_history_for_a_cold_portal_screen(self):
         source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
@@ -114,6 +115,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('portalBackFallbackUrl', source)
         self.assertIn('portalMiniAppHistory', source)
         self.assertIn("? 'reports'", source)
+        self.assertIn("? 'invoices'", source)
         self.assertIn("backHandler = navigateBackWithinPortal", source)
         self.assertNotIn('backHandler = () => window.history.back()', source)
 
@@ -144,6 +146,19 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn("view === 'detail'", reports_source)
         self.assertIn("view === 'edit'", reports_source)
         self.assertIn("view === 'run'", reports_source)
+        self.assertIn('navigateUrl(url, options)', portal_source)
+
+    def test_portal_invoices_use_route_backed_workspace_screens(self):
+        portal_source = Path('core/static/miniapp/portal.js').read_text(encoding='utf-8')
+        invoices_source = Path('core/static/miniapp/portal_invoices.js').read_text(encoding='utf-8')
+        portal_template = Path('core/templates/portal/portal.html').read_text(encoding='utf-8')
+
+        self.assertIn('data-invoice-view', portal_template)
+        self.assertIn('data-invoice-id', portal_template)
+        self.assertIn('routeUrl(view', invoices_source)
+        self.assertIn("'/portal/s/invoices/'", invoices_source)
+        self.assertIn("view === 'detail'", invoices_source)
+        self.assertIn("workspace', route.view", invoices_source)
         self.assertIn('navigateUrl(url, options)', portal_source)
 
     def test_portal_invoice_handlers_are_delegated_for_screen_fragment_swaps(self):
