@@ -11,26 +11,40 @@
   function state() { return deps.state; }
   function csrfHeader() { return { 'X-CSRFToken': deps.getCookie('csrftoken') || '' }; }
 
-  function scheduleRequisitionDriveSync(batch) {
-    if (!batch?.order_number || !['pending', 'retryable_failure'].includes(batch.drive_sync_status)) return;
+  function scheduleRequisitionDriveSync(batch, options = {}) {
+    const openWhenReady = Boolean(options.openWhenReady);
+    const automatic = options.automatic !== false;
+    if (batch?.drive_sync_status === 'succeeded' && batch.drive_url) {
+      if (openWhenReady) deps.openPortalLink(batch.drive_url);
+      return Promise.resolve(batch);
+    }
+    if (!batch?.order_number || !['pending', 'retryable_failure'].includes(batch.drive_sync_status)) {
+      return Promise.resolve(batch || null);
+    }
     // Free Render has no persistent worker. Keep generation local-only, then
     // make one small authenticated Drive attempt after the response is shown.
-    window.setTimeout(async () => {
-      try {
-        const response = await deps.portalApi.postJson(
-          `/requisition-batches/${encodeURIComponent(batch.order_number)}/retry-sync/`,
-          { automatic: true }, deps.tg, csrfHeader(),
-        );
-        const updated = response.data?.batch;
-        if (updated?.drive_sync_status === 'succeeded') {
-          deps.showToast('Workbook saved to the shared register.', 'success');
-        } else if (updated?.drive_sync_status === 'retryable_failure') {
-          deps.showToast('Workbook is saved here; shared-register sync will retry later.', 'warning');
+    return new Promise((resolve) => {
+      window.setTimeout(async () => {
+        let updated = null;
+        try {
+          const response = await deps.portalApi.postJson(
+            `/requisition-batches/${encodeURIComponent(batch.order_number)}/retry-sync/`,
+            { automatic }, deps.tg, csrfHeader(),
+          );
+          updated = response.data?.batch || null;
+          if (updated?.drive_sync_status === 'succeeded') {
+            deps.showToast('Workbook saved to Drive.', 'success');
+            if (openWhenReady && updated.drive_url) deps.openPortalLink(updated.drive_url);
+          } else if (updated?.drive_sync_status === 'retryable_failure') {
+            deps.showToast('Requisition is saved. Drive storage needs a retry from Batches.', 'warning');
+          }
+        } catch (_) {
+          // Local generation remains valid; persisted state is shown on Batches.
+        } finally {
+          resolve(updated || batch);
         }
-      } catch (_) {
-        // Local generation remains valid; persisted state is shown on Batches.
-      }
-    }, 0);
+      }, 0);
+    });
   }
 
   function renderPrintableRequisition(data) {
@@ -579,12 +593,9 @@
         return;
       }
       deps.showToast(result.drive_sync_pending
-        ? 'Requisition saved. Shared-register sync is starting.'
+        ? 'Requisition saved. Saving the current workbook to Drive.'
         : 'Requisition form generated and stored.', 'success');
-      scheduleRequisitionDriveSync(result.batch);
-      if (result.drive_url || result.download_url) {
-        deps.openPortalLink(result.drive_url || result.download_url);
-      }
+      await scheduleRequisitionDriveSync(result.batch, { openWhenReady: true });
       deps.loadQueue('batches', state().pages.batches || 1);
       openBatchDetail(batch.order_number);
     } catch (err) {
@@ -635,9 +646,17 @@
       { label: 'Invoiced', value: String(inv.invoiced_count || 0) },
       { label: 'Pending invoices', value: String(inv.pending_invoice_count ?? 0) },
     ]);
-    const hasRequisitionOutput = batch.drive_url || batch.download_url;
+    const hasRequisitionOutput = Boolean(batch.drive_url);
+    const drivePending = batch.drive_sync_status === 'pending';
+    const driveRetryNeeded = batch.drive_sync_status === 'retryable_failure';
     actions.innerHTML = `
-      ${hasRequisitionOutput ? `<button class="btn btn-primary" id="batch-detail-download">Open Saved Excel</button>` : '<button class="btn btn-primary" id="batch-detail-generate">Generate and Save Excel</button><span class="badge badge-grey">No generated requisition form yet</span>'}
+      ${hasRequisitionOutput
+        ? '<button class="btn btn-primary" id="batch-detail-download">Open in Drive</button>'
+        : drivePending
+          ? '<button class="btn btn-primary" disabled>Saving to Drive…</button>'
+          : driveRetryNeeded
+            ? '<button class="btn btn-secondary" id="batch-detail-retry-sync">Retry Drive storage</button>'
+            : '<button class="btn btn-primary" id="batch-detail-generate">Generate and Save Excel</button><span class="badge badge-grey">No generated requisition form yet</span>'}
       <button class="btn btn-secondary" id="batch-detail-preview">Preview in App</button>
       <button class="btn btn-secondary" id="batch-detail-upload">Upload Invoices</button>
     `;
@@ -648,10 +667,14 @@
       invoiceResult.innerHTML = '<span class="badge badge-grey">No invoice upload recorded</span>';
     }
     if (batch.drive_sync_status === 'pending') {
-      invoiceResult.insertAdjacentHTML('beforeend', ' <span class="badge badge-orange">Shared-register sync pending</span>');
-      scheduleRequisitionDriveSync(batch);
+      invoiceResult.insertAdjacentHTML('beforeend', ' <span class="badge badge-orange">Drive storage pending</span>');
+      scheduleRequisitionDriveSync(batch).then((updated) => {
+        if (updated?.drive_sync_status === 'succeeded' && activeBatch?.order_number === orderNumber) {
+          openBatchDetail(orderNumber);
+        }
+      });
     } else if (batch.drive_sync_status === 'retryable_failure') {
-      invoiceResult.insertAdjacentHTML('beforeend', ' <span class="badge badge-red">Shared-register sync needs retry</span>');
+      invoiceResult.insertAdjacentHTML('beforeend', ' <span class="badge badge-red">Drive storage needs retry</span>');
       scheduleRequisitionDriveSync(batch);
     }
     clients.innerHTML = deps.batchClientRows(batch.farmers || []);
@@ -743,15 +766,14 @@
     try {
       const response = await deps.portalApi.postJson('/requisition-queue/generate/', payload, deps.tg, csrfHeader());
       const result = response.data || {};
-      if (!response.ok || !result.ok || !(result.drive_url || result.download_url)) {
+      if (!response.ok || !result.ok) {
         deps.showToast(result.error || 'Requisition generation failed.', 'error');
         return;
       }
-      deps.openPortalLink(result.drive_url || result.download_url);
       deps.showToast(result.drive_sync_pending
-        ? 'Requisition saved. Shared-register sync is starting.'
+        ? 'Requisition saved. Saving the current workbook to Drive.'
         : 'Requisition generated and saved to Batches.', 'success');
-      scheduleRequisitionDriveSync(result.batch);
+      await scheduleRequisitionDriveSync(result.batch, { openWhenReady: true });
       state().selectedRequisitions.clear();
       state().selectedRequisitionRevisions.clear();
       state().pendingRequisitionPayload = null;
@@ -919,12 +941,12 @@
   function bindEvents() {
     if (!document.documentElement.dataset.portalRequisitionEventsBound) {
       document.documentElement.dataset.portalRequisitionEventsBound = 'true';
-      document.addEventListener('click', event => {
+      document.addEventListener('click', async event => {
         const action = event.target.closest(
           '#btn-generate-requisition, #requisition-preview-confirm, '
           + '#requisition-preview-close, #requisition-preview-cancel, #batch-detail-close, '
           + '#batch-detail-download, #batch-detail-generate, #batch-detail-preview, '
-          + '#batch-detail-upload'
+          + '#batch-detail-upload, #batch-detail-retry-sync'
         );
         if (action) {
           event.preventDefault();
@@ -941,7 +963,16 @@
           }
           else if (action.id === 'batch-detail-close') el('batch-detail-overlay')?.classList.remove('open');
           else if (!activeBatch) deps.showToast('Batch details are unavailable. Close and reopen this batch.', 'error');
-          else if (action.id === 'batch-detail-download') deps.openPortalLink(activeBatch.drive_url || activeBatch.download_url);
+          else if (action.id === 'batch-detail-download') deps.openPortalLink(activeBatch.drive_url);
+          else if (action.id === 'batch-detail-retry-sync') {
+            deps.setButtonLoading(action, true, 'Saving to Drive...');
+            const refreshed = await scheduleRequisitionDriveSync(
+              { ...activeBatch, drive_sync_status: 'retryable_failure' },
+              { openWhenReady: true, automatic: false },
+            );
+            if (refreshed?.drive_sync_status === 'succeeded') openBatchDetail(activeBatch.order_number);
+            else deps.setButtonLoading(action, false);
+          }
           else if (action.id === 'batch-detail-generate') generateRequisitionForBatch(activeBatch, action);
           else if (action.id === 'batch-detail-preview') {
             const farmerIds = (activeBatch.farmers || []).map(farmer => farmer.id).filter(Boolean);

@@ -3593,7 +3593,17 @@ def portal_requisition_generate(request):
         batch.filename = filename
         batch.file_content = xlsx_bytes
         batch.generation_request_id = batch_request_id
+        # These fields describe the *current* workbook version.  Leaving a
+        # previous version's Drive pointer in place would let the Portal open
+        # an outdated requisition while the new one is still being archived.
+        # The older immutable workbook remains retained in Drive; it simply
+        # is no longer presented as this batch's current output.
+        batch.drive_file_id = ''
+        batch.drive_url = ''
         batch.drive_upload_error = 'Drive synchronization pending.'
+        batch.drive_sync_attempts = 0
+        batch.drive_last_sync_at = None
+        batch.drive_next_retry_at = None
         batch.farmer_ids = [str(farmer.id) for farmer in farmers]
         batch.farmer_count = len(farmers)
         batch.status = 'needs_review'
@@ -3794,8 +3804,10 @@ def portal_requisition_batch_retry_sync(request, order_number: str):
     if not result.get('ok'):
         farmers = _farmers_for_batch(order_number, batch.farmer_ids or None)
         if automatic:
-            # The local workbook remains available for download.  Persisted
-            # retry state—not a failing web request—drives the next attempt.
+            # The current Portal UI only opens the Drive-backed workbook.
+            # Persisted retry state—not a failing web request—drives the
+            # next publication attempt; the legacy download route remains
+            # available only for already-cached clients.
             return JsonResponse({
                 'ok': True,
                 'sync_pending': True,

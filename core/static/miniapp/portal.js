@@ -716,7 +716,7 @@
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               <button class="btn btn-secondary btn-view-batch" data-order="${escapeHtml(b.order_number)}">View</button>
-              <button class="btn btn-primary btn-download-batch" data-url="${escapeHtml(b.drive_url || b.download_url || '')}" ${(b.drive_url || b.download_url) ? '' : 'disabled'}>Open Saved Excel</button>
+              <button class="btn btn-primary btn-download-batch" data-url="${escapeHtml(b.drive_url || '')}" ${b.drive_url ? '' : 'disabled'}>Open in Drive</button>
               ${b.drive_sync_status === 'retryable_failure' && hasCapability('portal.requisition.write') ? `<button class="btn btn-secondary btn-retry-batch" data-order="${escapeHtml(b.order_number)}">Retry storage</button>` : ''}
               ${hasCapability('portal.invoice.write') ? `<button class="btn btn-secondary btn-upload-invoices" data-order="${escapeHtml(b.order_number)}">Upload Invoices</button>` : ''}
             </div>

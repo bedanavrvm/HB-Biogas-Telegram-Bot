@@ -52,7 +52,8 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('miniapp/portal.css?v=54', html)
         self.assertIn('miniapp/portal_filters.js?v=7', html)
         self.assertIn('miniapp/portal_imports.js?v=1', html)
-        self.assertIn('miniapp/portal.js?v=49', html)
+        self.assertIn('miniapp/portal_requisitions.js?v=33', html)
+        self.assertIn('miniapp/portal.js?v=50', html)
 
         spin_response = self.client.get(reverse('spin_form') + '?group_id=-100spin&token=test-token')
         spin_html = spin_response.content.decode('utf-8')
@@ -130,6 +131,21 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('.sheet-panel {', portal_css)
         self.assertIn('max-height: var(--miniapp-viewport-height, 100dvh);', portal_css)
         self.assertIn('--miniapp-viewport-height', portal_css)
+
+    def test_requisition_generation_waits_for_the_current_drive_workbook(self):
+        requisitions = Path('core/static/miniapp/portal_requisitions.js').read_text(encoding='utf-8')
+        portal = Path('core/static/miniapp/portal.js').read_text(encoding='utf-8')
+        batch_card = Path('core/templates/portal/partials/batch_card.html').read_text(encoding='utf-8')
+
+        self.assertIn('scheduleRequisitionDriveSync(result.batch, { openWhenReady: true })', requisitions)
+        self.assertIn("if (openWhenReady && updated.drive_url) deps.openPortalLink(updated.drive_url);", requisitions)
+        self.assertNotIn('result.drive_url || result.download_url', requisitions)
+        self.assertNotIn('activeBatch.drive_url || activeBatch.download_url', requisitions)
+        self.assertIn('Open in Drive', requisitions)
+        self.assertIn('data-url="${escapeHtml(b.drive_url || \'\')}"', portal)
+        self.assertNotIn('b.drive_url || b.download_url', portal)
+        self.assertIn('data-url="{{ batch.drive_url }}"', batch_card)
+        self.assertNotIn('batch.download_url', batch_card)
 
     def test_jbl_gps_explanation_is_only_revealed_after_capture_failure(self):
         source = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')

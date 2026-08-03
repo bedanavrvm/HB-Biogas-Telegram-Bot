@@ -2439,11 +2439,15 @@ class JblPipelineApiTestCase(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()['drive_sync_pending'])
+        self.assertEqual(response.json()['batch']['drive_url'], '')
         batch = RequisitionBatch.objects.get(order_number='REQ-RETRY-1')
-        self.assertEqual(batch.drive_file_id, 'previous-drive-id')
-        self.assertEqual(batch.drive_url, 'https://drive.test/previous-order')
+        # The batch row is the current-version pointer.  A new version must
+        # never expose a previous workbook while Drive publication is pending.
+        self.assertEqual(batch.drive_file_id, '')
+        self.assertEqual(batch.drive_url, '')
         self.assertEqual(batch.file_content, b'new-xlsx')
         self.assertEqual(batch.drive_upload_error, 'Drive synchronization pending.')
+        self.assertEqual(batch.drive_sync_attempts, 0)
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_requisition_batch_retry_uploads_stored_workbook(self, mock_storage):

@@ -1,5 +1,17 @@
 # Changelog
 
+## Current requisition Drive links - 03-August-2026
+
+- Generating a requisition no longer opens the temporary local Excel download.
+  The Portal now waits for the bounded Drive publication attempt and opens only
+  the current generated workbook's Drive link. While publication is pending,
+  Batches clearly shows **Saving to Drive**; a failed attempt remains retryable
+  without presenting an older workbook as the current version.
+
+  Migration note: no schema migration is included. To undo, redeploy the
+  prior application commit; generated workbooks already retained in Drive are
+  not deleted.
+
 ## Portal Imports staging and source archive - 03-August-2026
 
 - An IT-only **Imports** tab stages and reviews FarmUp CSV and SysUp CSV/XLSX
