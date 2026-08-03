@@ -1,16 +1,41 @@
-{% for item in nav_items %}
-  <a class="shell-nav-link{% if item.key == active_screen %} active{% endif %}"
-     href="{{ item.url }}"
-     hx-get="{{ item.url }}"
-     hx-target="#content"
-     hx-select="#portal-screen"
-     hx-swap="innerHTML transition:true"
-     hx-push-url="true"
-     data-screen="{{ item.key }}"
-     {% if item.key == 'dashboard' or item.key == 'jbl' or item.key == 'credit' or item.key == 'invoices' or item.key == 'payments' %}data-bottom-primary="true"{% endif %}>
-    <i data-lucide="{{ item.icon }}" aria-hidden="true"></i>
-    <span>{{ item.label }}</span>
-  </a>
-{% empty %}
-  <span class="shell-nav-status">No screens available</span>
-{% endfor %}
+{% if surface == 'bottom' %}
+  {% for item in nav_items %}
+    {% if item.bottom_primary %}
+      <a class="shell-nav-link{% if item.key == active_screen %} active{% endif %}"
+         href="{{ item.url }}"
+         hx-get="{{ item.url }}"
+         hx-target="#content"
+         hx-select="#portal-screen"
+         hx-swap="innerHTML transition:true"
+         hx-push-url="true"
+         data-screen="{{ item.key }}"
+         data-bottom-primary="true">
+        <i data-lucide="{{ item.icon }}" aria-hidden="true"></i>
+        <span>{{ item.label }}</span>
+      </a>
+    {% endif %}
+  {% empty %}
+    <span class="shell-nav-status">No screens available</span>
+  {% endfor %}
+{% else %}
+  {% for group in nav_groups %}
+    <section class="shell-nav-group" aria-label="{{ group.label }}">
+      <h2 class="shell-nav-group-label">{{ group.label }}</h2>
+      {% for item in group.items %}
+        <a class="shell-nav-link{% if item.key == active_screen %} active{% endif %}"
+           href="{{ item.url }}"
+           hx-get="{{ item.url }}"
+           hx-target="#content"
+           hx-select="#portal-screen"
+           hx-swap="innerHTML transition:true"
+           hx-push-url="true"
+           data-screen="{{ item.key }}">
+          <i data-lucide="{{ item.icon }}" aria-hidden="true"></i>
+          <span>{{ item.label }}</span>
+        </a>
+      {% endfor %}
+    </section>
+  {% empty %}
+    <span class="shell-nav-status">No screens available</span>
+  {% endfor %}
+{% endif %}

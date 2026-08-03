@@ -1326,10 +1326,15 @@ def portal_case_history_detail(request, farmer_id: str):
 @require_http_methods(["GET"])
 def portal_navigation(request):
     """Render only links authorized for the authenticated Telegram staff member."""
-    from core.services.portal_navigation import get_portal_nav_items
+    from core.services.portal_navigation import get_portal_nav_groups, get_portal_nav_items
+    surface = request.GET.get('surface', 'sidebar')
+    if surface not in {'sidebar', 'bottom'}:
+        surface = 'sidebar'
     return render(request, 'portal/partials/navigation.html', {
         'nav_items': get_portal_nav_items(getattr(request, 'portal_user', None), access=getattr(request, 'portal_access', None)),
+        'nav_groups': get_portal_nav_groups(getattr(request, 'portal_user', None), access=getattr(request, 'portal_access', None)),
         'active_screen': request.GET.get('active', 'dashboard'),
+        'surface': surface,
     })
 
 

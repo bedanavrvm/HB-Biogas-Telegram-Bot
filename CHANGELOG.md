@@ -1,5 +1,23 @@
 # Changelog
 
+## Portal navigation and layout foundation - 03-August-2026
+
+- Reorganized the Portal navigation into role-aware sidebar groups: Overview,
+  My work, Finance & documents, Cases, IT tools, and Account. Staff still see
+  only the destinations their existing Portal capabilities allow.
+- Reduced the mobile bottom bar to at most four role-relevant destinations;
+  the complete authorized navigation remains in the scrollable sidebar.
+- Made route navigation canonical for Dashboard cards, case-history drill-down,
+  and retained workspace actions. Explicit Portal URLs now take precedence
+  over stale local "last screen" state, improving Telegram and phone-back
+  behaviour without changing workflow data.
+- Added Portal semantic status tokens, a documented overlay stacking scale,
+  shared labelled-value tile primitives, and wider reduced-motion coverage.
+
+  Migration note: no schema migration is included. To undo, redeploy the
+  prior application commit; this does not alter customer, workflow, document,
+  audit, Drive, or Sheets data.
+
 ## Table readability and numbering — 03-August-2026
 
 - Standardized the staff review, Portal Imports, and Portal Reports data tables so their first column is always **No.** with visible, page-aware row numbering.

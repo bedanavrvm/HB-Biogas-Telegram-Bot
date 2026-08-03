@@ -102,6 +102,46 @@
     return !capability || state.capabilities.has(capability);
   }
 
+  function portalScreenUrl(page) {
+    return document.querySelector(`.shell-nav-link[data-screen="${page}"]`)?.href || `/portal/s/${encodeURIComponent(page)}/`;
+  }
+
+  function navigateToUrl(url, { afterSwap } = {}) {
+    if (!url) return;
+    const destination = new URL(url, window.location.origin);
+    const current = new URL(window.location.href);
+    if (destination.pathname === current.pathname && destination.search === current.search) {
+      afterSwap?.();
+      return;
+    }
+    const target = document.getElementById('content');
+    if (!window.htmx || !target) {
+      window.location.assign(destination.href);
+      return;
+    }
+    if (afterSwap) {
+      const runAfterSwap = event => {
+        if (event.detail?.target?.id !== 'content') return;
+        document.body.removeEventListener('htmx:afterSwap', runAfterSwap);
+        afterSwap();
+      };
+      document.body.addEventListener('htmx:afterSwap', runAfterSwap);
+    }
+    window.htmx.ajax('GET', destination.pathname + destination.search, {
+      target: '#content',
+      swap: 'innerHTML transition:true',
+      pushURL: true,
+    });
+  }
+
+  function navigateTo(page, options = {}) {
+    if (!hasCapability(PAGE_CAPABILITIES[page])) {
+      showToast('This Portal screen is not available to your role.', 'error');
+      return;
+    }
+    navigateToUrl(portalScreenUrl(page), options);
+  }
+
   // The workspace feature can only return through an approved rollout.  Keep
   // its existing server-side capability check so re-enabling the UI never
   // broadens access by accident.
@@ -303,12 +343,12 @@
       : 'badge-orange';
     return `<span class="badge ${cls}">${farmer.jbl_visit_status}</span>`;
   }
-  // Tab navigation
+  // Legacy in-page tabs can still exist in cached markup, but top-level
+  // navigation must use the canonical Portal route rather than toggling a
+  // hidden sibling screen in place.
   document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      const page = btn.dataset.page;
-      switchPage(page);
-      loadPage(page);
+      navigateTo(btn.dataset.page);
     });
   });
 
@@ -347,6 +387,7 @@
         p.style.display = 'none';
       }
     });
+    return Boolean(document.getElementById('page-' + page));
   }
   // Dashboard
   async function loadDashboard() {
@@ -405,13 +446,13 @@
     }
   }
 
-  // Clicking a count card navigates to that queue
-  document.querySelectorAll('.count-card[data-page], .dashboard-total[data-page]').forEach(card => {
-    card.addEventListener('click', () => {
-      const page = card.dataset.page;
-      switchPage(page);
-      loadPage(page);
-    });
+  // Dashboard markup is replaced when htmx returns to Home, so keep this
+  // top-level screen action delegated rather than binding only on first load.
+  document.addEventListener('click', event => {
+    const card = event.target.closest('.count-card[data-page], .dashboard-total[data-page]');
+    if (!card) return;
+    event.preventDefault();
+    navigateTo(card.dataset.page);
   });
   // Generic queue loader
   const queueConfig = portalQueues.config ? portalQueues.config() : {
@@ -986,15 +1027,16 @@
   // operator straight to the durable batch view so the newly assigned client
   // and its in-app requisition preview remain visible instead of appearing to
   // vanish after the form is submitted.
-  async function openAssignedOrder(orderNumber) {
+  function openAssignedOrder(orderNumber) {
     if (!orderNumber) return;
-    switchPage('batches');
-    await loadQueue('batches', 1);
-    await openBatchDetail(orderNumber);
+    navigateTo('batches', {
+      afterSwap: () => openBatchDetail(orderNumber),
+    });
   }
-  // Search (All Cases tab)
+  // Search (All Cases tab). The input is re-rendered on every route change.
   let searchTimer;
-  el('all-search')?.addEventListener('input', e => {
+  document.addEventListener('input', e => {
+    if (!e.target.matches('#all-search')) return;
     clearTimeout(searchTimer);
     state.search = e.target.value.trim();
     rememberPortalUi();
@@ -1160,7 +1202,10 @@
     if (!selected || !content) return;
     if (results) results.hidden = true;
     selected.hidden = false;
-    if (pushUrl) window.history.pushState({ screen: 'case_history', farmerId }, '', caseHistoryUrl(farmerId));
+    if (pushUrl) {
+      navigateToUrl(caseHistoryUrl(farmerId));
+      return;
+    }
     content.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading complete case history...</div></div>';
     const requestOptions = canManagePortalWorkspace()
       ? { headers: { 'X-Portal-Workspace-Open-Key': newWorkspaceOpenKey() } }
@@ -1541,10 +1586,8 @@
       return;
     }
     syncFinalReviewStageTabs();
-    lastShellScreen = destination;
-    switchPage(destination);
     rememberPortalUi();
-    loadPage(destination);
+    navigateTo(destination);
   }
 
   function currentWorkspaceViewPayload() {
@@ -1603,15 +1646,22 @@
       ? savedQueue
       : (isRootLanding && (startupView?.screen || state.personalPreference?.default_screen)
         ? (startupView?.screen || state.personalPreference.default_screen)
-        : (shellScreen === 'dashboard' && restoredPortalUi.activePage ? restoredPortalUi.activePage : shellScreen));
+        : shellScreen);
     const initialPage = hasCapability(PAGE_CAPABILITIES[requestedPage]) ? requestedPage : firstPermittedPage();
     if (!initialPage) {
       document.getElementById('portal-screen').innerHTML = '<section class="shell-error" role="alert"><h2>Access not configured</h2><p>Ask an administrator to assign a Portal role and capability.</p></section>';
       return;
     }
-    lastShellScreen = initialPage;
-    switchPage(initialPage);
-    loadPage(initialPage);
+    // A cold `/portal/` visit may honour the user's authorised landing
+    // preference, but every explicit Portal URL wins over stale browser UI
+    // state. This keeps deep links and Telegram Back deterministic.
+    if (initialPage !== shellScreen) {
+      navigateTo(initialPage);
+      return;
+    }
+    lastShellScreen = shellScreen;
+    switchPage(shellScreen);
+    loadPage(shellScreen);
     if (window.lucide) {
       window.lucide.createIcons();
     }
@@ -1638,8 +1688,7 @@
     if (manageWorkspaceButton) {
       event.preventDefault();
       if (!canManagePortalWorkspace()) return;
-      switchPage('settings');
-      loadPortalSettings(true).then(() => loadPortalWorkspace()).catch(error => showToast(error.message || 'Could not open workspace settings.', 'error'));
+      navigateTo('settings');
       return;
     }
     const clearRecentsButton = event.target.closest('.workspace-clear-recents');
@@ -1749,13 +1798,12 @@
     const openCaseHistoryButton = event.target.closest('.case-history-open');
     if (openCaseHistoryButton) {
       event.preventDefault();
-      window.location.assign(caseHistoryUrl(openCaseHistoryButton.dataset.farmerId));
+      navigateToUrl(caseHistoryUrl(openCaseHistoryButton.dataset.farmerId));
       return;
     }
-    if (event.target.closest('#case-history-back')) {
+    if (event.target.closest('#case-history-back, .case-history-back')) {
       event.preventDefault();
-      window.history.pushState({ screen: 'case_history' }, '', caseHistoryUrl());
-      showCaseHistorySearch();
+      navigateTo('case_history');
       return;
     }
     const kindButton = event.target.closest('.history-kind');
@@ -1847,13 +1895,16 @@
     else portalRequisitions.openFinalOrderHistory?.(viewButton.dataset.order);
   });
   let jblSearchTimer;
-  el('jbl-search')?.addEventListener('input', e => {
+  document.addEventListener('input', e => {
+    if (!e.target.matches('#jbl-search')) return;
     clearTimeout(jblSearchTimer);
     state.jblSearch = e.target.value.trim();
     rememberPortalUi();
     jblSearchTimer = setTimeout(() => loadQueue('jbl', 1), 350);
   });
-  el('jbl-search-clear')?.addEventListener('click', () => {
+  document.addEventListener('click', event => {
+    if (!event.target.closest('#jbl-search-clear')) return;
+    event.preventDefault();
     state.jblSearch = '';
     rememberPortalUi();
     if (el('jbl-search')) el('jbl-search').value = '';
@@ -2020,7 +2071,7 @@
     },
     openCaseHistory(farmerId) {
       portalFarmerSheet.closeSheet?.();
-      window.location.assign(caseHistoryUrl(farmerId));
+      navigateToUrl(caseHistoryUrl(farmerId));
     },
   };
 

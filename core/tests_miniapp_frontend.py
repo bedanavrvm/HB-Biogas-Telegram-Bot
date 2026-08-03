@@ -49,12 +49,12 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('miniapp/portal_queues.js?v=6', html)
         self.assertIn('miniapp/portal_farmer_sheet.js?v=29', html)
         self.assertIn('miniapp/utils.js?v=4', html)
-        self.assertIn('miniapp/portal.css?v=54', html)
+        self.assertIn('miniapp/portal.css?v=56', html)
         self.assertIn('miniapp/portal_filters.js?v=7', html)
-        self.assertIn('miniapp/portal_imports.js?v=2', html)
+        self.assertIn('miniapp/portal_imports.js?v=3', html)
         self.assertNotIn('portal-import-group', html)
         self.assertIn('miniapp/portal_requisitions.js?v=33', html)
-        self.assertIn('miniapp/portal.js?v=50', html)
+        self.assertIn('miniapp/portal.js?v=52', html)
 
         spin_response = self.client.get(reverse('spin_form') + '?group_id=-100spin&token=test-token')
         spin_html = spin_response.content.decode('utf-8')
@@ -375,7 +375,8 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn("phoneDigits.startsWith('0')", form)
         self.assertIn('.workflow-standard.portal-app .phone-call-button span', stylesheet)
         self.assertIn('-webkit-text-fill-color: #fff', stylesheet)
-        self.assertIn('#media-viewer-overlay { z-index: 260; }', stylesheet)
+        self.assertIn('--portal-z-media: 260;', stylesheet)
+        self.assertIn('#media-viewer-overlay { z-index: var(--portal-z-media); }', stylesheet)
         self.assertNotIn('final-reason-code', submit)
         self.assertNotIn('final-conditions', submit)
         self.assertNotIn('Approved with Conditions', source)
@@ -535,7 +536,8 @@ class MiniAppFrontendSmokeTests(TestCase):
         # The cache-buster changes whenever Portal styles change; assert the
         # stylesheet is present without tying a stacking-regression test to it.
         self.assertContains(response, 'miniapp/portal.css?v=')
-        self.assertIn('#requisition-preview-overlay { z-index: 240; }', stylesheet)
+        self.assertIn('--portal-z-overlay-nested: 240;', stylesheet)
+        self.assertIn('#requisition-preview-overlay { z-index: var(--portal-z-overlay-nested); }', stylesheet)
 
     def test_requisition_preview_refreshes_selected_case_revisions_before_generation(self):
         source = Path('core/static/miniapp/portal_requisitions.js').read_text(encoding='utf-8')

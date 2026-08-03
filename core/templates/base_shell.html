@@ -16,9 +16,9 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
-  <link rel="stylesheet" href="{% static 'miniapp/portal.css' %}?v=55">
+  <link rel="stylesheet" href="{% static 'miniapp/portal.css' %}?v=56">
   <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=16">
-  <link rel="stylesheet" href="{% static 'miniapp/theme.css' %}?v=8">
+  <link rel="stylesheet" href="{% static 'miniapp/theme.css' %}?v=9">
   <script defer src="{% static 'miniapp/miniapp-nav.js' %}?v=11"></script>
 </head>
 <body class="workflow-standard portal-app">
@@ -34,7 +34,7 @@
 
   <aside id="sidebar" class="app-sidebar">
     <nav aria-label="Portal screens"
-         hx-get="{% url 'portal_navigation' %}?active={{ active_screen }}"
+         hx-get="{% url 'portal_navigation' %}?active={{ active_screen }}&amp;surface=sidebar"
          hx-trigger="load"
          hx-swap="innerHTML">
       <span class="shell-nav-status">Loading navigation...</span>
@@ -49,7 +49,7 @@
   </main>
 
   <nav id="bottom-tabs" class="app-bottom-tabs" aria-label="Portal tabs"
-       hx-get="{% url 'portal_navigation' %}?active={{ active_screen }}"
+       hx-get="{% url 'portal_navigation' %}?active={{ active_screen }}&amp;surface=bottom"
        hx-trigger="load"
        hx-swap="innerHTML">
     <span class="shell-nav-status">Loading...</span>
@@ -68,6 +68,6 @@
   <!-- Pinned local asset: Chart.js 4.5.1; no runtime CDN dependency. -->
   <script src="{% static 'miniapp/vendor-chartjs-4.5.1.umd.min.js' %}?v=4.5.1"></script>
   <script src="{% static 'miniapp/portal_reports.js' %}?v=2"></script>
-  <script src="{% static 'miniapp/portal.js' %}?v=51"></script>
+  <script src="{% static 'miniapp/portal.js' %}?v=52"></script>
 </body>
 </html>
