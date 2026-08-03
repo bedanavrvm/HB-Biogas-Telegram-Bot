@@ -21,7 +21,7 @@
   </div>
 {% endif %}
 
-<div id="portal-screen" data-screen="{{ active_screen }}" data-case-farmer-id="{{ case_history_farmer_id|default:'' }}" data-report-view="{{ report_view|default:'' }}" data-report-id="{{ report_id|default:'' }}" data-invoice-view="{{ invoice_view|default:'' }}" data-invoice-id="{{ invoice_id|default:'' }}" data-top-level="{% if case_history_farmer_id %}false{% elif report_view and report_view != 'catalogue' %}false{% elif invoice_view and invoice_view != 'inbox' %}false{% else %}true{% endif %}">
+<div id="portal-screen" data-screen="{{ active_screen }}" data-case-farmer-id="{{ case_history_farmer_id|default:'' }}" data-report-view="{{ report_view|default:'' }}" data-report-id="{{ report_id|default:'' }}" data-report-step="{{ report_step|default:'' }}" data-invoice-view="{{ invoice_view|default:'' }}" data-invoice-id="{{ invoice_id|default:'' }}" data-top-level="{% if case_history_farmer_id %}false{% elif report_view and report_view != 'catalogue' %}false{% elif invoice_view and invoice_view != 'inbox' %}false{% else %}true{% endif %}">
 
   <!-- Dashboard -->
   {% if active_screen == 'dashboard' %}
@@ -458,13 +458,13 @@
   {% if active_screen == 'reports' %}
   <section id="page-reports" class="page{% if active_screen == 'reports' %} active{% endif %}" data-required-capability="portal.reports.view">
     <header>
-      <h1>{% if report_view == 'edit' %}Report editor{% elif report_view == 'detail' %}Report details{% elif report_view == 'run' %}Report results{% else %}Reports{% endif %}</h1>
-      <p class="meta">{% if report_view == 'edit' %}Configure a controlled report from approved Portal fields.{% elif report_view == 'detail' %}Review a saved report before running it.{% elif report_view == 'run' %}Review the current live result for this report.{% else %}Choose a saved report or create a new controlled report.{% endif %}</p>
+      <h1>{% if report_view == 'edit' and report_step == 'fields' %}Report setup{% elif report_view == 'edit' and report_step == 'filters' %}Report rules{% elif report_view == 'edit' and report_step == 'review' %}Review report{% elif report_view == 'detail' %}Report details{% elif report_view == 'run' %}Report results{% else %}Reports{% endif %}</h1>
+      <p class="meta">{% if report_view == 'edit' and report_step == 'fields' %}Choose the approved Portal fields this report will show.{% elif report_view == 'edit' and report_step == 'filters' %}Set the filters and order for the live report.{% elif report_view == 'edit' and report_step == 'review' %}Review the definition and optional charts before saving it.{% elif report_view == 'detail' %}Review a saved report before running it.{% elif report_view == 'run' %}Review the current live result for this report.{% else %}Choose a saved report or create a new controlled report.{% endif %}</p>
     </header>
-    <section class="portal-report-notice" role="note">
+    {% if not report_view or report_view == 'catalogue' %}<section class="portal-report-notice" role="note">
       <strong>Controlled reporting</strong>
       <span>Use approved fields, filters, and chart types only. TAT, SPIN, Complaint Case, media, GPS, comments, and Drive data are not joined or exposed here.</span>
-    </section>
+    </section>{% endif %}
     <div id="portal-reports-root" class="portal-reports-root" aria-live="polite">
       <div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading report definitions...</div></div>
     </div>

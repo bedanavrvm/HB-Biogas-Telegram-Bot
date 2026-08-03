@@ -217,8 +217,10 @@ urlpatterns = [
     # report detail rather than a crowded all-in-one workspace.
     path('portal/s/reports/', portal_reports_screen, name='portal_reports_screen'),
     path('portal/s/reports/new/', portal_reports_screen, {'report_view': 'edit'}, name='portal_reports_new'),
+    path('portal/s/reports/new/<str:report_step>/', portal_reports_screen, {'report_view': 'edit'}, name='portal_reports_new_step'),
     path('portal/s/reports/<str:report_id>/', portal_reports_screen, {'report_view': 'detail'}, name='portal_report_screen_detail'),
     path('portal/s/reports/<str:report_id>/edit/', portal_reports_screen, {'report_view': 'edit'}, name='portal_report_screen_edit'),
+    path('portal/s/reports/<str:report_id>/edit/<str:report_step>/', portal_reports_screen, {'report_view': 'edit'}, name='portal_report_screen_edit_step'),
     path('portal/s/reports/<str:report_id>/run/', portal_reports_screen, {'report_view': 'run'}, name='portal_report_screen_run'),
     # Invoices use ordinary nested routes so Telegram and phone Back move
     # through the workspace instead of reopening one crowded all-in-one view.

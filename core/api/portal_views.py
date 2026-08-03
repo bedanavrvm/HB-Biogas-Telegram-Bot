@@ -1314,7 +1314,12 @@ def portal_screen(request, screen: str):
 
 
 @require_http_methods(["GET", "HEAD"])
-def portal_reports_screen(request, report_view: str = 'catalogue', report_id: str = ''):
+def portal_reports_screen(
+    request,
+    report_view: str = 'catalogue',
+    report_id: str = '',
+    report_step: str = '',
+):
     """Render one route-backed drill-down view of the controlled Reports UI.
 
     The report catalogue, definition detail, editor, and live result each use
@@ -1325,10 +1330,15 @@ def portal_reports_screen(request, report_view: str = 'catalogue', report_id: st
         return HttpResponse('Unknown report screen.', status=404)
     if report_view in {'detail', 'run'} and not report_id:
         return HttpResponse('A report identifier is required.', status=404)
+    if report_step and (report_view != 'edit' or report_step not in {'fields', 'filters', 'review'}):
+        return HttpResponse('Unknown report editor step.', status=404)
+    if report_view == 'edit':
+        report_step = report_step or 'fields'
     context = _portal_screen_context(
         'reports',
         report_view=report_view,
         report_id=report_id,
+        report_step=report_step,
     )
     if request.htmx:
         return _portal_screen_fragment(request, 'reports', context=context)

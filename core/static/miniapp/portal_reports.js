@@ -2,8 +2,11 @@
 (() => {
   'use strict';
 
+  const EDITOR_STEPS = ['fields', 'filters', 'review'];
+  const DRAFT_STORAGE_PREFIX = 'portal-report-draft:v1:';
   const state = {
     catalogue: null,
+    catalogueSearch: '',
     definitions: [],
     current: null,
     result: null,
@@ -12,7 +15,7 @@
     tg: null,
     canManage: false,
     root: null,
-    route: { view: 'catalogue', reportId: '' },
+    route: { view: 'catalogue', reportId: '', step: '' },
   };
 
   const api = () => window.PortalMiniAppApi || {};
@@ -21,27 +24,36 @@
   }[char]));
   const requestId = () => window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const root = () => document.getElementById('portal-reports-root');
+  const toast = (message, type = '') => window.MiniAppUtils?.showToast?.(
+    document.getElementById('toast'), message,
+    { className: `toast show ${type ? `${type}-toast` : ''}`, resetClassName: 'toast', timeout: 3500 },
+  );
 
   function readRoute() {
     const screen = document.getElementById('portal-screen');
     const view = screen?.dataset.reportView || 'catalogue';
+    const reportStep = screen?.dataset.reportStep || '';
     return {
       view: ['catalogue', 'detail', 'edit', 'run'].includes(view) ? view : 'catalogue',
       reportId: screen?.dataset.reportId || '',
+      step: EDITOR_STEPS.includes(reportStep) ? reportStep : (view === 'edit' ? 'fields' : ''),
     };
   }
-  function routeUrl(view = 'catalogue', reportId = '') {
+
+  function routeUrl(view = 'catalogue', reportId = '', step = 'fields') {
     const base = '/portal/s/reports/';
     if (view === 'catalogue') return base;
-    if (view === 'edit' && !reportId) return `${base}new/`;
+    if (view === 'edit' && !reportId) return `${base}new/${EDITOR_STEPS.includes(step) ? step : 'fields'}/`;
     const safeId = encodeURIComponent(reportId || '');
     if (!safeId) return base;
-    if (view === 'edit') return `${base}${safeId}/edit/`;
+    if (view === 'edit') return `${base}${safeId}/edit/${EDITOR_STEPS.includes(step) ? step : 'fields'}/`;
     if (view === 'run') return `${base}${safeId}/run/`;
     return `${base}${safeId}/`;
   }
-  function navigate(view = 'catalogue', reportId = '') {
-    const url = routeUrl(view, reportId);
+
+  function navigate(view = 'catalogue', reportId = '', step = 'fields') {
+    if (state.route.view === 'edit') snapshotDraft();
+    const url = routeUrl(view, reportId, step);
     if (window.PortalAppShell?.navigateUrl) {
       window.PortalAppShell.navigateUrl(url);
       return;
@@ -50,30 +62,105 @@
   }
 
   function fields() {
-    return (state.catalogue?.categories || []).flatMap((category) => category.fields.map((field) => ({ ...field, category: category.label })));
+    return (state.catalogue?.categories || []).flatMap((category) => (
+      category.fields.map((item) => ({ ...item, category: category.label }))
+    ));
   }
   function field(key) { return fields().find((item) => item.key === key); }
   function label(key) { return field(key)?.label || key; }
   function selectedFields() { return state.current?.configuration?.fields || []; }
   function selectedReportFields(predicate = () => true) { return selectedFields().map(field).filter(Boolean).filter(predicate); }
-  function toast(message, type = '') { window.MiniAppUtils?.showToast?.(document.getElementById('toast'), message, { className: `toast show ${type ? `${type}-toast` : ''}`, resetClassName: 'toast', timeout: 3500 }); }
+  function editorStep() { return state.route.step || 'fields'; }
+  function editorStepIndex(step = editorStep()) { return EDITOR_STEPS.indexOf(step); }
+  function stepTitle(step) { return ({ fields: 'Basics & fields', filters: 'Filters & ordering', review: 'Charts & review' }[step] || step); }
 
   function emptyDraft() {
     return {
       title: 'New Portal report', source_key: 'portal_cases', version: 0,
-      configuration: { fields: ['customer_name', 'branch', 'workflow_state', 'credit_decision', 'created_at'], filters: [], ordering: { field: 'customer_name', direction: 'asc' } },
+      configuration: {
+        fields: ['customer_name', 'branch', 'workflow_state', 'credit_decision', 'created_at'],
+        filters: [],
+        ordering: { field: 'customer_name', direction: 'asc' },
+      },
       charts: [], is_new: true,
     };
   }
 
+  function draftKey(report = state.current) {
+    return `${DRAFT_STORAGE_PREFIX}${report?.id || state.route.reportId || 'new'}`;
+  }
+  function readLocalDraft(report = state.current) {
+    try {
+      const raw = window.sessionStorage?.getItem(draftKey(report));
+      return raw ? JSON.parse(raw) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+  function persistDraft() {
+    if (!state.current || state.route.view !== 'edit') return;
+    const payload = {
+      id: state.current.id || '',
+      is_new: Boolean(state.current.is_new),
+      title: state.current.title || '',
+      source_key: state.current.source_key || 'portal_cases',
+      version: Number(state.current.version || 0),
+      configuration: state.current.configuration || {},
+      charts: state.current.charts || [],
+    };
+    try { window.sessionStorage?.setItem(draftKey(state.current), JSON.stringify(payload)); } catch (_) { /* Storage is optional. */ }
+  }
+  function clearLocalDraft(report = state.current) {
+    try { window.sessionStorage?.removeItem(draftKey(report)); } catch (_) { /* Storage is optional. */ }
+  }
+  function restoreLocalDraft(serverReport, { isNew = false } = {}) {
+    const stored = readLocalDraft(serverReport || { id: '' });
+    if (!stored) return serverReport;
+    if (isNew && stored.is_new) return { ...emptyDraft(), ...stored, is_new: true };
+    if (serverReport && stored.id === serverReport.id && Number(stored.version) === Number(serverReport.version)) {
+      return { ...serverReport, ...stored, id: serverReport.id, is_new: false };
+    }
+    clearLocalDraft(serverReport || { id: '' });
+    return serverReport;
+  }
+
   function optionMarkup(items, selected, empty = 'Choose') {
-    return `<option value="">${escapeHtml(empty)}</option>${items.map((item) => `<option value="${escapeHtml(item.key || item)}"${String(item.key || item) === String(selected || '') ? ' selected' : ''}>${escapeHtml(item.label || item)}</option>`).join('')}`;
+    return `<option value="">${escapeHtml(empty)}</option>${items.map((item) => {
+      const value = item.key || item;
+      return `<option value="${escapeHtml(value)}"${String(value) === String(selected || '') ? ' selected' : ''}>${escapeHtml(item.label || item)}</option>`;
+    }).join('')}`;
   }
   function valueToInput(value) { return Array.isArray(value) ? value.join(' | ') : String(value ?? ''); }
+  function formatDateTime(value) {
+    if (!value) return 'Not recorded';
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleString('en-GB', {
+      day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+    });
+  }
+  function formatValue(value, type) {
+    if (value === null || value === undefined || value === '') return '—';
+    if (type === 'date') {
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
+    }
+    if (type === 'number') return String(value).replace(/\.00$/, '');
+    return String(value);
+  }
+  function fieldChips(keys) {
+    return keys.length
+      ? `<div class="portal-report-chips">${keys.map((key) => `<span>${escapeHtml(label(key))}</span>`).join('')}</div>`
+      : '<p class="portal-report-empty-copy">No fields selected.</p>';
+  }
+  function filterSummary(filters) {
+    if (!filters.length) return '<p class="portal-report-empty-copy">No filters. The report reads cases inside the viewer’s approved Portal scope.</p>';
+    return `<ul class="portal-report-summary-list">${filters.map((filter) => `<li><strong>${escapeHtml(label(filter.field))}</strong><span>${escapeHtml(filter.operator)} ${escapeHtml(valueToInput(filter.value) || '—')}</span></li>`).join('')}</ul>`;
+  }
+
   function filterRowsMarkup() {
     const filters = state.current?.configuration?.filters || [];
     const available = selectedReportFields((item) => item.filterable);
-    if (!filters.length) return '<p class="portal-report-empty-copy">No filters. This report reads every case inside your current access scope.</p>';
+    if (!filters.length) return '<p class="portal-report-empty-copy">No filters yet. Add one only when it helps staff answer a defined operational question.</p>';
     return filters.map((filter, index) => {
       const activeField = field(filter.field) || available[0];
       const operators = activeField?.operators || [];
@@ -86,13 +173,16 @@
       </div>`;
     }).join('');
   }
+
   function chartRowsMarkup() {
     const charts = state.current?.charts || [];
-    if (!charts.length) return '<p class="portal-report-empty-copy">No charts yet. Add a chart after selecting its category/date and numeric fields.</p>';
+    if (!charts.length) return '<p class="portal-report-empty-copy">No charts yet. Reports remain useful without charts; add only a chart that supports an operational decision.</p>';
     const dimensions = selectedReportFields((item) => item.groupable);
     const metrics = selectedReportFields((item) => item.type === 'number');
     return charts.map((chart, index) => {
-      const dateBucket = chart.chart_type === 'line' ? `<select data-report-chart-bucket>${optionMarkup([{ key: 'day', label: 'By day' }, { key: 'month', label: 'By month' }], chart.date_bucket, 'Date grouping')}</select>` : '';
+      const dateBucket = chart.chart_type === 'line'
+        ? `<select data-report-chart-bucket>${optionMarkup([{ key: 'day', label: 'By day' }, { key: 'month', label: 'By month' }], chart.date_bucket, 'Date grouping')}</select>`
+        : '';
       return `<div class="portal-report-chart-row" data-report-chart-row="${index}">
         <input data-report-chart-title value="${escapeHtml(chart.title || '')}" maxlength="100" placeholder="Chart title (optional)">
         <select data-report-chart-type>${optionMarkup([{ key: 'bar', label: 'Bar' }, { key: 'doughnut', label: 'Doughnut' }, { key: 'line', label: 'Line' }], chart.chart_type, 'Chart type')}</select>
@@ -104,73 +194,117 @@
       </div>`;
     }).join('');
   }
+
   function relationshipMarkup() {
     if (!state.canManage || !state.relationships) return '';
     const isolated = state.relationships.unlinked_identity_only || [];
-    return `<details class="portal-report-data-boundary"><summary>Data-source boundaries</summary>
-      <p><strong>${escapeHtml(state.relationships.root || 'Portal customer cases')}</strong> is the current report source. Related collections are available only through named safe counts; they cannot be flattened into case rows.</p>
-      <p>Not joined in v1: ${escapeHtml(isolated.map((item) => item.replace(/^core\./, '')).join(', ') || 'none')}.</p>
+    return `<details class="portal-report-data-boundary"><summary>Data-source boundary</summary>
+      <p><strong>${escapeHtml(state.relationships.root || 'Portal customer cases')}</strong> is the report source. Related collections are available only through named safe counts; they cannot be flattened into case rows.</p>
+      <p>Not joined: ${escapeHtml(isolated.map((item) => item.replace(/^core\./, '')).join(', ') || 'none')}.</p>
     </details>`;
   }
+
+  function stepperMarkup() {
+    const active = editorStep();
+    return `<nav class="portal-report-stepper" aria-label="Report setup steps">${EDITOR_STEPS.map((step, index) => `<button type="button" class="${step === active ? 'is-active' : ''}" data-report-action="step" data-report-step="${step}"${!state.canManage ? ' disabled' : ''}><span>${index + 1}</span>${escapeHtml(stepTitle(step))}</button>`).join('')}</nav>`;
+  }
+  function draftNoticeMarkup() {
+    return '<p class="portal-report-draft-note">Draft changes stay only in this browser until you save or discard them. They are not yet a report definition or audit event.</p>';
+  }
+  function editorFieldsMarkup(current, editable) {
+    const categories = state.catalogue?.categories || [];
+    return `<section class="portal-report-editor-step" data-report-editor-step="fields">
+      <label class="portal-report-title">Report title<input id="portal-report-title" maxlength="100" value="${escapeHtml(current.title)}" ${editable ? '' : 'readonly'}></label>
+      <div class="portal-report-section-heading"><div><h3>Report fields</h3><p>Choose the information that staff need to see. Sensitive comments, media, GPS, and cross-workflow data are excluded.</p></div><strong class="portal-report-selection-count">${escapeHtml(selectedFields().length)} / ${escapeHtml(state.catalogue?.limits?.fields || 18)}</strong></div>
+      <label class="portal-report-field-search">Find a field<input type="search" data-report-field-search placeholder="Search approved fields"></label>
+      <div class="portal-report-field-grid">${categories.map((category) => `<fieldset><legend>${escapeHtml(category.label)}</legend>${category.fields.map((item) => `<label data-report-field-label data-search="${escapeHtml(`${item.label} ${category.label}`.toLowerCase())}"><input type="checkbox" data-report-field value="${escapeHtml(item.key)}" ${selectedFields().includes(item.key) ? 'checked' : ''} ${editable ? '' : 'disabled'}><span>${escapeHtml(item.label)}${item.derived ? ' <small>Derived</small>' : ''}</span></label>`).join('')}</fieldset>`).join('')}</div>
+    </section>`;
+  }
+  function editorFiltersMarkup(current, editable) {
+    return `<section class="portal-report-editor-step" data-report-editor-step="filters">
+      <section class="portal-report-section portal-report-section-first"><div class="portal-report-section-heading"><div><h3>Filters</h3><p>Filters narrow live Portal cases. They never broaden the viewer’s branch access.</p></div>${editable ? '<button type="button" class="btn btn-secondary" data-report-action="add-filter">Add filter</button>' : ''}</div>${filterRowsMarkup()}</section>
+      <section class="portal-report-section portal-report-ordering"><h3>Ordering</h3><p>Choose how the live rows should be arranged for staff.</p><div><select id="portal-report-order-field" ${editable ? '' : 'disabled'}>${optionMarkup(selectedReportFields((item) => item.sortable && !item.derived), current.configuration?.ordering?.field, 'Order field')}</select><select id="portal-report-order-direction" ${editable ? '' : 'disabled'}>${optionMarkup([{ key: 'asc', label: 'Ascending' }, { key: 'desc', label: 'Descending' }], current.configuration?.ordering?.direction, 'Direction')}</select></div></section>
+    </section>`;
+  }
+  function editorReviewMarkup(current, editable) {
+    return `<section class="portal-report-editor-step" data-report-editor-step="review">
+      <section class="portal-report-review-block"><span class="settings-eyebrow">INCLUDED FIELDS</span>${fieldChips(selectedFields())}</section>
+      <section class="portal-report-review-block"><span class="settings-eyebrow">FILTERS</span>${filterSummary(current.configuration?.filters || [])}</section>
+      <section class="portal-report-review-block"><span class="settings-eyebrow">ORDERING</span><p>${escapeHtml(label(current.configuration?.ordering?.field || ''))} · ${escapeHtml(current.configuration?.ordering?.direction || 'asc')}</p></section>
+      <section class="portal-report-section portal-report-section-first"><div class="portal-report-section-heading"><div><h3>Charts</h3><p>Optional. Categories and metrics must be selected report fields.</p></div>${editable ? '<button type="button" class="btn btn-secondary" data-report-action="add-chart">Add chart</button>' : ''}</div>${chartRowsMarkup()}</section>
+      ${relationshipMarkup()}
+    </section>`;
+  }
+  function editorActionsMarkup(current, editable) {
+    const currentIndex = editorStepIndex();
+    const previous = EDITOR_STEPS[currentIndex - 1];
+    const next = EDITOR_STEPS[currentIndex + 1];
+    return `<div class="portal-report-actions portal-report-editor-actions">
+      <button type="button" class="btn btn-secondary" data-report-action="back">${previous ? `Back: ${escapeHtml(stepTitle(previous))}` : 'Back to reports'}</button>
+      ${editable && currentIndex < EDITOR_STEPS.length - 1 ? `<button type="button" class="btn btn-primary" data-report-action="next">Continue: ${escapeHtml(stepTitle(next))}</button>` : ''}
+      ${editable && currentIndex === EDITOR_STEPS.length - 1 ? `<button type="button" class="btn btn-primary" data-report-action="save">${current.is_new ? 'Save report' : 'Save changes'}</button>` : ''}
+      ${editable ? '<button type="button" class="btn btn-secondary" data-report-action="discard">Discard local draft</button>' : ''}
+    </div>`;
+  }
   function editorMarkup() {
-    if (!state.current) return '<section class="portal-report-editor portal-report-placeholder"><h2>Select a report</h2><p>Create a controlled report or choose one to run it. Only approved Portal fields are available.</p></section>';
+    if (!state.current) return '<section class="portal-report-editor portal-report-placeholder"><h2>Report unavailable</h2><p>Return to Reports and choose a saved definition.</p><button type="button" class="btn btn-secondary" data-report-action="catalogue">Back to reports</button></section>';
     const current = state.current;
     const editable = state.canManage;
-    const categories = state.catalogue?.categories || [];
+    const step = editorStep();
+    const content = step === 'filters' ? editorFiltersMarkup(current, editable) : step === 'review' ? editorReviewMarkup(current, editable) : editorFieldsMarkup(current, editable);
     return `<section class="portal-report-editor">
-      <div class="portal-report-editor-heading"><div><span class="settings-eyebrow">${current.is_new ? 'NEW DEFINITION' : `VERSION ${escapeHtml(current.version)}`}</span><h2>${escapeHtml(current.title)}</h2><p>Live data respects the viewer’s current Portal access scope. Exports contain the same scoped data.</p></div>
-      <button type="button" class="btn btn-secondary" data-report-action="back">Back</button></div>
-      <label class="portal-report-title">Report title<input id="portal-report-title" maxlength="100" value="${escapeHtml(current.title)}" ${editable ? '' : 'readonly'}></label>
-      <div class="portal-report-field-catalog"><h3>Report fields</h3><p>Choose up to ${escapeHtml(state.catalogue?.limits?.fields || 18)} fields. Sensitive case comments, media, GPS and cross-workflow records are intentionally excluded.</p>
-        <div class="portal-report-field-grid">${categories.map((category) => `<fieldset><legend>${escapeHtml(category.label)}</legend>${category.fields.map((item) => `<label><input type="checkbox" data-report-field value="${escapeHtml(item.key)}" ${selectedFields().includes(item.key) ? 'checked' : ''} ${editable ? '' : 'disabled'}><span>${escapeHtml(item.label)}${item.derived ? ' <small>Derived</small>' : ''}</span></label>`).join('')}</fieldset>`).join('')}</div>
-      </div>
-      <section class="portal-report-section"><div class="portal-report-section-heading"><div><h3>Filters</h3><p>Filters narrow live Portal cases; they cannot broaden branch access.</p></div>${editable ? '<button type="button" class="btn btn-secondary" data-report-action="add-filter">Add filter</button>' : ''}</div>${filterRowsMarkup()}</section>
-      <section class="portal-report-section portal-report-ordering"><h3>Ordering</h3><div><select id="portal-report-order-field">${optionMarkup(selectedReportFields((item) => item.sortable && !item.derived), current.configuration?.ordering?.field, 'Order field')}</select><select id="portal-report-order-direction">${optionMarkup([{ key: 'asc', label: 'Ascending' }, { key: 'desc', label: 'Descending' }], current.configuration?.ordering?.direction, 'Direction')}</select></div></section>
-      <section class="portal-report-section"><div class="portal-report-section-heading"><div><h3>Charts</h3><p>Chart categories must be selected report fields. A count chart has no numeric metric.</p></div>${editable ? '<button type="button" class="btn btn-secondary" data-report-action="add-chart">Add chart</button>' : ''}</div>${chartRowsMarkup()}</section>
-      <div class="portal-report-actions">
-        ${editable ? `<button type="button" class="btn btn-primary" data-report-action="save">${current.is_new ? 'Save report' : 'Save changes'}</button>` : ''}
-      </div>${relationshipMarkup()}
+      <div class="portal-report-editor-heading"><div><span class="settings-eyebrow">${current.is_new ? 'NEW DEFINITION' : `VERSION ${escapeHtml(current.version)}`}</span><h2>${escapeHtml(current.title)}</h2><p>Live data, results, and XLSX exports always respect the viewer’s current Portal scope.</p></div></div>
+      ${stepperMarkup()}${content}${editable ? draftNoticeMarkup() : ''}${editorActionsMarkup(current, editable)}
     </section>`;
   }
+
   function catalogueMarkup() {
     const reports = state.definitions;
-    return `<section class="portal-report-catalogue"><div class="portal-report-catalogue-heading"><div><span class="settings-eyebrow">SAVED REPORTS</span><h2>Choose a report</h2><p>Open a definition to review it, run current data, or download its XLSX.</p></div>${state.canManage ? '<button type="button" class="btn btn-primary" data-report-action="new">New report</button>' : ''}</div>
-      <div class="portal-report-catalogue-list">${reports.length ? reports.map((report) => `<button type="button" class="portal-report-list-item" data-report-action="open" data-id="${escapeHtml(report.id)}"><strong>${escapeHtml(report.title)}</strong><span>${escapeHtml(report.configuration?.fields?.length || 0)} fields · ${escapeHtml(report.charts?.length || 0)} charts · version ${escapeHtml(report.version)}</span></button>`).join('') : '<div class="portal-report-empty-state"><strong>No reports saved yet.</strong><span>Use New report to create the first approved Portal report.</span></div>'}</div>
+    return `<section class="portal-report-catalogue"><div class="portal-report-catalogue-heading"><div><span class="settings-eyebrow">SAVED REPORTS</span><h2>Find and run</h2><p>Open a definition to review its fields, rules, and charts. Run uses current approved Portal data.</p></div>${state.canManage ? '<button type="button" class="btn btn-primary" data-report-action="new">New report</button>' : ''}</div>
+      <label class="portal-report-search">Find a report<input type="search" data-report-catalogue-search value="${escapeHtml(state.catalogueSearch)}" placeholder="Search report title"></label>
+      <div class="portal-report-catalogue-list">${reports.length ? reports.map((report) => `<article class="portal-report-card" data-report-card data-search="${escapeHtml(report.title.toLowerCase())}"><div><span class="settings-eyebrow">VERSION ${escapeHtml(report.version)}</span><h3>${escapeHtml(report.title)}</h3><p>Updated ${escapeHtml(formatDateTime(report.updated_at || report.created_at))}</p></div><div class="portal-report-card-stats"><span>${escapeHtml(report.configuration?.fields?.length || 0)} fields</span><span>${escapeHtml(report.configuration?.filters?.length || 0)} filters</span><span>${escapeHtml(report.charts?.length || 0)} charts</span></div><div class="portal-report-actions"><button type="button" class="btn btn-secondary" data-report-action="open" data-id="${escapeHtml(report.id)}">Open</button><button type="button" class="btn btn-primary" data-report-action="run-card" data-id="${escapeHtml(report.id)}">Run</button></div></article>`).join('') : '<div class="portal-report-empty-state"><strong>No reports saved yet.</strong><span>Create a controlled report only when it answers a recurring operational question.</span></div>'}</div>
+      <div class="portal-report-empty-state" data-report-search-empty hidden><strong>No report matches that title.</strong><span>Clear the search or create a new controlled report.</span></div>
     </section>`;
   }
+
   function detailMarkup() {
     const current = state.current;
-    if (!current) return '<section class="portal-report-detail portal-report-placeholder"><h2>Report unavailable</h2><p>This report is no longer available. Return to the report catalogue and choose another definition.</p><button type="button" class="btn btn-secondary" data-report-action="catalogue">Back to reports</button></section>';
-    const fieldCount = current.configuration?.fields?.length || 0;
-    const filterCount = current.configuration?.filters?.length || 0;
+    if (!current) return '<section class="portal-report-detail portal-report-placeholder"><h2>Report unavailable</h2><p>This report is no longer available. Return to the catalogue and choose another definition.</p><button type="button" class="btn btn-secondary" data-report-action="catalogue">Back to reports</button></section>';
+    const fieldsCount = current.configuration?.fields?.length || 0;
+    const filtersCount = current.configuration?.filters?.length || 0;
     const chartCount = current.charts?.length || 0;
-    return `<section class="portal-report-detail"><div class="portal-report-detail-heading"><div><span class="settings-eyebrow">VERSION ${escapeHtml(current.version)}</span><h2>${escapeHtml(current.title)}</h2><p>This definition only reads fields and cases available in your current Portal access scope.</p></div><button type="button" class="btn btn-secondary" data-report-action="catalogue">Back to reports</button></div>
-      <div class="portal-report-summary-grid"><div class="portal-report-summary-item"><span>Fields</span><strong>${escapeHtml(fieldCount)}</strong></div><div class="portal-report-summary-item"><span>Filters</span><strong>${escapeHtml(filterCount)}</strong></div><div class="portal-report-summary-item"><span>Charts</span><strong>${escapeHtml(chartCount)}</strong></div></div>
-      <section class="portal-report-detail-section"><h3>Included fields</h3><p>${escapeHtml(selectedFields().map(label).join(' · ') || 'No fields selected.')}</p></section>
-      <div class="portal-report-actions"><button type="button" class="btn btn-primary" data-report-action="run">Run live report</button><button type="button" class="btn btn-secondary" data-report-action="export">Download XLSX</button>${state.canManage ? '<button type="button" class="btn btn-secondary" data-report-action="edit">Edit definition</button><button type="button" class="btn btn-secondary" data-report-action="archive">Archive</button>' : ''}</div>${relationshipMarkup()}
+    return `<section class="portal-report-detail"><div class="portal-report-detail-heading"><div><span class="settings-eyebrow">VERSION ${escapeHtml(current.version)}</span><h2>${escapeHtml(current.title)}</h2><p>Last updated ${escapeHtml(formatDateTime(current.updated_at || current.created_at))}. The data remains scoped to the current viewer.</p></div><button type="button" class="btn btn-secondary" data-report-action="catalogue">Back to reports</button></div>
+      <div class="portal-report-summary-grid"><div class="portal-report-summary-item"><span>Fields</span><strong>${escapeHtml(fieldsCount)}</strong></div><div class="portal-report-summary-item"><span>Filters</span><strong>${escapeHtml(filtersCount)}</strong></div><div class="portal-report-summary-item"><span>Charts</span><strong>${escapeHtml(chartCount)}</strong></div></div>
+      <section class="portal-report-detail-section"><h3>Included fields</h3>${fieldChips(selectedFields())}</section>
+      <section class="portal-report-detail-section"><h3>Filters</h3>${filterSummary(current.configuration?.filters || [])}</section>
+      <section class="portal-report-detail-section"><h3>Ordering</h3><p>${escapeHtml(label(current.configuration?.ordering?.field || ''))} · ${escapeHtml(current.configuration?.ordering?.direction || 'asc')}</p></section>
+      <section class="portal-report-detail-section"><h3>Charts</h3>${chartCount ? `<ul class="portal-report-summary-list">${current.charts.map((chart) => `<li><strong>${escapeHtml(chart.title || 'Untitled chart')}</strong><span>${escapeHtml(chart.chart_type)} · ${escapeHtml(label(chart.dimension_field))} · ${escapeHtml(chart.aggregation)}</span></li>`).join('')}</ul>` : '<p>No charts configured.</p>'}</section>
+      <div class="portal-report-actions"><button type="button" class="btn btn-primary" data-report-action="run">Run live report</button><button type="button" class="btn btn-secondary" data-report-action="export">Download XLSX</button>${state.canManage ? '<button type="button" class="btn btn-secondary" data-report-action="edit">Edit definition</button><button type="button" class="btn btn-secondary" data-report-action="archive">Archive</button>' : ''}</div>
     </section>`;
   }
+
   function resultMarkup() {
     const result = state.result;
-    if (!result) return '';
+    if (!result) return '<section class="portal-report-results portal-report-placeholder"><h2>Report could not run</h2><p>Refresh or return to the definition and try again.</p></section>';
     const pageSize = Number(result.pagination?.page_size || result.rows.length || 1);
     const firstPosition = (Number(result.pagination?.page || 1) - 1) * pageSize;
     const table = `<div class="portal-report-table-wrap"><table class="portal-report-table"><thead><tr><th class="table-number">No.</th>${result.columns.map((item) => `<th>${escapeHtml(item.label)}</th>`).join('')}</tr></thead><tbody>${result.rows.length ? result.rows.map((row, index) => `<tr><td class="table-number">${firstPosition + index + 1}</td>${result.columns.map((column) => `<td>${escapeHtml(formatValue(row[column.key], column.type))}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${result.columns.length + 1}">No cases match this report.</td></tr>`}</tbody></table></div>`;
     const pagination = result.pagination?.pages > 1 ? `<div class="portal-report-pager"><span>Page ${escapeHtml(result.pagination.page)} of ${escapeHtml(result.pagination.pages)} · ${escapeHtml(result.total_rows)} rows</span><div><button type="button" class="btn btn-secondary" data-report-action="page" data-page="${Math.max(1, result.pagination.page - 1)}" ${result.pagination.page <= 1 ? 'disabled' : ''}>Previous</button><button type="button" class="btn btn-secondary" data-report-action="page" data-page="${Math.min(result.pagination.pages, result.pagination.page + 1)}" ${result.pagination.page >= result.pagination.pages ? 'disabled' : ''}>Next</button></div></div>` : `<p class="portal-report-result-copy">${escapeHtml(result.total_rows)} live row${result.total_rows === 1 ? '' : 's'}${result.total_rows > result.shown_rows_limit ? `; table is limited to the first ${escapeHtml(result.shown_rows_limit)}` : ''}.</p>`;
-    return `<section class="portal-report-results"><div class="portal-report-results-heading"><div><span class="settings-eyebrow">LIVE RESULT</span><h2>${escapeHtml(result.definition?.title || 'Report')}</h2><p>Generated ${escapeHtml(formatValue(result.run_at, 'date'))}. This preview is not a document and does not save a data snapshot.</p></div></div><div id="portal-report-charts" class="portal-report-charts">${(result.charts || []).map((chart, index) => `<article class="portal-report-chart"><h3>${escapeHtml(chart.title)}</h3><p>${escapeHtml(chart.metric_label)} by ${escapeHtml(chart.dimension_label)}${chart.truncated ? ' · first 100 groups' : ''}</p><canvas id="portal-report-chart-${index}" aria-label="${escapeHtml(chart.title)}"></canvas></article>`).join('')}</div>${table}${pagination}</section>`;
+    return `<section class="portal-report-results"><div class="portal-report-results-heading"><div><span class="settings-eyebrow">LIVE RESULT</span><h2>${escapeHtml(result.definition?.title || 'Report')}</h2><p>Generated ${escapeHtml(formatDateTime(result.run_at))}. This preview does not save a data snapshot.</p></div><div class="portal-report-actions"><button type="button" class="btn btn-primary" data-report-action="rerun">Run again</button><button type="button" class="btn btn-secondary" data-report-action="export">Download XLSX</button></div></div><div class="portal-report-summary-grid"><div class="portal-report-summary-item"><span>Rows</span><strong>${escapeHtml(result.total_rows || 0)}</strong></div><div class="portal-report-summary-item"><span>Shown</span><strong>${escapeHtml(result.rows?.length || 0)}</strong></div><div class="portal-report-summary-item"><span>Charts</span><strong>${escapeHtml(result.charts?.length || 0)}</strong></div></div><div id="portal-report-charts" class="portal-report-charts">${(result.charts || []).map((chart, index) => `<article class="portal-report-chart"><h3>${escapeHtml(chart.title)}</h3><p>${escapeHtml(chart.metric_label)} by ${escapeHtml(chart.dimension_label)}${chart.truncated ? ' · first 100 groups' : ''}</p><canvas id="portal-report-chart-${index}" aria-label="${escapeHtml(chart.title)}"></canvas></article>`).join('')}</div>${table}${pagination}</section>`;
   }
+
   function render() {
     state.root = root();
     if (!state.root) return;
     state.charts.forEach((chart) => chart.destroy?.());
     state.charts = [];
-    const view = state.route?.view || 'catalogue';
-    if (view === 'edit') state.root.innerHTML = editorMarkup();
-    else if (view === 'detail') state.root.innerHTML = detailMarkup();
-    else if (view === 'run') state.root.innerHTML = `${resultMarkup()}<div class="portal-report-actions"><button type="button" class="btn btn-secondary" data-report-action="detail">Back to report</button><button type="button" class="btn btn-secondary" data-report-action="export">Download XLSX</button></div>`;
+    if (state.route.view === 'edit') state.root.innerHTML = editorMarkup();
+    else if (state.route.view === 'detail') state.root.innerHTML = detailMarkup();
+    else if (state.route.view === 'run') state.root.innerHTML = `${resultMarkup()}<div class="portal-report-actions"><button type="button" class="btn btn-secondary" data-report-action="detail">Back to definition</button></div>`;
     else state.root.innerHTML = catalogueMarkup();
     renderCharts();
   }
+
   function renderCharts() {
     const result = state.result;
     if (!result || !window.Chart) return;
@@ -184,54 +318,85 @@
       }));
     });
   }
-  function formatValue(value, type) {
-    if (value === null || value === undefined || value === '') return '—';
-    if (type === 'date') {
-      const parsed = new Date(value);
-      return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
-    }
-    if (type === 'number') return String(value).replace(/\.00$/, '');
-    return String(value);
-  }
+
   function readDraft() {
     const current = state.current;
     if (!current) return null;
-    const config = {
-      fields: [...document.querySelectorAll('[data-report-field]:checked')].map((node) => node.value),
-      filters: [...document.querySelectorAll('[data-report-filter-row]')].map((row) => {
+    const reportRoot = root();
+    const config = { ...(current.configuration || {}) };
+    const activeStep = reportRoot?.querySelector('[data-report-editor-step]')?.dataset.reportEditorStep;
+    const title = reportRoot?.querySelector('#portal-report-title');
+    if (title) current.title = title.value.trim();
+    if (activeStep === 'fields') config.fields = [...reportRoot.querySelectorAll('[data-report-field]:checked')].map((node) => node.value);
+    if (activeStep === 'filters') {
+      config.filters = [...reportRoot.querySelectorAll('[data-report-filter-row]')].map((row) => {
         const reportField = row.querySelector('[data-report-filter-field]')?.value || '';
         const operator = row.querySelector('[data-report-filter-operator]')?.value || '';
         const raw = row.querySelector('[data-report-filter-value]')?.value || '';
         const value = ['between', 'in'].includes(operator) ? raw.split('|').map((item) => item.trim()).filter(Boolean) : raw.trim();
         return { field: reportField, operator, value };
-      }),
-      ordering: { field: document.getElementById('portal-report-order-field')?.value || '', direction: document.getElementById('portal-report-order-direction')?.value || 'asc' },
-    };
-    const charts = [...document.querySelectorAll('[data-report-chart-row]')].map((row) => ({
-      title: row.querySelector('[data-report-chart-title]')?.value || '', chart_type: row.querySelector('[data-report-chart-type]')?.value || '',
-      dimension_field: row.querySelector('[data-report-chart-dimension]')?.value || '', aggregation: row.querySelector('[data-report-chart-aggregation]')?.value || '',
-      metric_field: row.querySelector('[data-report-chart-metric]')?.value || '', date_bucket: row.querySelector('[data-report-chart-bucket]')?.value || '',
-    }));
-    return { title: document.getElementById('portal-report-title')?.value || '', configuration: config, charts, version: current.version };
+      });
+      config.ordering = {
+        field: reportRoot.querySelector('#portal-report-order-field')?.value || '',
+        direction: reportRoot.querySelector('#portal-report-order-direction')?.value || 'asc',
+      };
+    }
+    const charts = activeStep === 'review' ? [...reportRoot.querySelectorAll('[data-report-chart-row]')].map((row) => ({
+      title: row.querySelector('[data-report-chart-title]')?.value || '',
+      chart_type: row.querySelector('[data-report-chart-type]')?.value || '',
+      dimension_field: row.querySelector('[data-report-chart-dimension]')?.value || '',
+      aggregation: row.querySelector('[data-report-chart-aggregation]')?.value || '',
+      metric_field: row.querySelector('[data-report-chart-metric]')?.value || '',
+      date_bucket: row.querySelector('[data-report-chart-bucket]')?.value || '',
+    })) : current.charts;
+    return { title: current.title, configuration: config, charts, version: current.version };
   }
+
   function snapshotDraft() {
     const draft = readDraft();
     if (!draft || !state.current) return;
     state.current = { ...state.current, ...draft };
+    persistDraft();
   }
+
+  function validateStep(step) {
+    snapshotDraft();
+    if (step === 'fields') {
+      if (!state.current?.title?.trim()) throw new Error('Give this report a title before continuing.');
+      if (!selectedFields().length) throw new Error('Choose at least one approved report field before continuing.');
+    }
+    if (step === 'filters') {
+      const incomplete = (state.current?.configuration?.filters || []).some((item) => !item.field || !item.operator || !valueToInput(item.value).trim());
+      if (incomplete) throw new Error('Complete or remove every filter before continuing.');
+      if (!state.current?.configuration?.ordering?.field) throw new Error('Choose how report rows should be ordered.');
+    }
+  }
+
+  function filterCatalogue(query) {
+    state.catalogueSearch = query;
+    const normalized = query.trim().toLowerCase();
+    let visible = 0;
+    root()?.querySelectorAll('[data-report-card]').forEach((card) => {
+      const match = !normalized || card.dataset.search.includes(normalized);
+      card.hidden = !match;
+      if (match) visible += 1;
+    });
+    const empty = root()?.querySelector('[data-report-search-empty]');
+    if (empty) empty.hidden = visible !== 0;
+  }
+
   async function load() {
     state.root = root();
     if (!state.root) return;
     state.route = readRoute();
     state.root.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading controlled reports...</div></div>';
     const [catalogueResult, reportsResult, relationshipResult] = await Promise.all([
-      api().apiFetch('/reports/catalogue/', {}, state.tg), api().apiFetch('/reports/', {}, state.tg),
-      state.canManage
-        ? api().apiFetch('/reports/relationships/', {}, state.tg)
-        : Promise.resolve({ ok: true, data: { ok: true, relationship_summary: null } }),
+      api().apiFetch('/reports/catalogue/', {}, state.tg),
+      api().apiFetch('/reports/', {}, state.tg),
+      state.canManage ? api().apiFetch('/reports/relationships/', {}, state.tg) : Promise.resolve({ ok: true, data: { ok: true, relationship_summary: null } }),
     ]);
     if (!catalogueResult.ok || !catalogueResult.data?.ok || !reportsResult.ok || !reportsResult.data?.ok) {
-      state.root.innerHTML = `<div class="empty-state"><div class="es-title">Reports unavailable</div><div class="es-sub">${escapeHtml(catalogueResult.data?.error || reportsResult.data?.error || 'Check your IT reporting access and try again.')}</div></div>`;
+      state.root.innerHTML = `<div class="empty-state"><div class="es-title">Reports unavailable</div><div class="es-sub">${escapeHtml(catalogueResult.data?.error || reportsResult.data?.error || 'Check IT reporting access and try again.')}</div></div>`;
       return;
     }
     state.catalogue = catalogueResult.data.catalogue;
@@ -239,44 +404,44 @@
     state.relationships = relationshipResult.data?.relationship_summary || null;
     state.result = null;
     if (state.route.view === 'edit' && !state.route.reportId) {
-      state.current = emptyDraft();
+      state.current = restoreLocalDraft(emptyDraft(), { isNew: true });
     } else if (state.route.reportId) {
       try {
-        await select(state.route.reportId, { render: false });
+        await select(state.route.reportId, { render: false, restoreDraft: state.route.view === 'edit' });
       } catch (error) {
         state.current = null;
-        state.route = { view: 'catalogue', reportId: '' };
+        state.route = { view: 'catalogue', reportId: '', step: '' };
         toast(error.message || 'This report is unavailable.', 'error');
       }
     } else {
       state.current = null;
     }
     if (state.route.view === 'run' && state.current?.id) {
-      try {
-        await run(1, { render: false });
-      } catch (error) {
-        state.result = null;
-        toast(error.message || 'Could not run this report.', 'error');
-      }
+      try { await run(1, { render: false }); } catch (error) { state.result = null; toast(error.message || 'Could not run this report.', 'error'); }
     }
     render();
   }
-  async function select(id, { render = true } = {}) {
+
+  async function select(id, { render = true, restoreDraft = false } = {}) {
     const result = await api().apiFetch(`/reports/${encodeURIComponent(id)}/`, {}, state.tg);
     if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not load this report.');
-    state.current = result.data.report;
+    state.current = restoreDraft ? restoreLocalDraft(result.data.report) : result.data.report;
     state.result = null;
     if (render) render();
   }
+
   async function save() {
+    validateStep('review');
     const draft = readDraft();
     if (!draft) return;
+    const oldDraftKey = draftKey(state.current);
     const isNew = Boolean(state.current?.is_new);
     const path = isNew ? '/reports/' : `/reports/${encodeURIComponent(state.current.id)}/`;
     const result = await api().postJson(path, draft, state.tg);
     if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not save the report.');
-    state.current = result.data.report;
-    state.current.is_new = false;
+    try { window.sessionStorage?.removeItem(oldDraftKey); } catch (_) { /* Storage is optional. */ }
+    state.current = { ...result.data.report, is_new: false };
+    clearLocalDraft(state.current);
     const existing = state.definitions.findIndex((item) => item.id === state.current.id);
     if (existing >= 0) state.definitions.splice(existing, 1, state.current); else state.definitions.push(state.current);
     state.definitions.sort((a, b) => a.title.localeCompare(b.title));
@@ -284,6 +449,7 @@
     toast(result.data.message || 'Report saved.', 'success');
     navigate('detail', state.current.id);
   }
+
   async function run(page = 1, { render = true } = {}) {
     if (!state.current?.id) return;
     const result = await api().postJson(`/reports/${encodeURIComponent(state.current.id)}/run/`, { page }, state.tg);
@@ -296,6 +462,7 @@
     if (!state.current?.id || !window.confirm('Archive this report definition? Its audit history remains available.')) return;
     const result = await api().postJson(`/reports/${encodeURIComponent(state.current.id)}/archive/`, { version: state.current.version }, state.tg);
     if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not archive the report.');
+    clearLocalDraft(state.current);
     state.definitions = state.definitions.filter((item) => item.id !== state.current.id);
     state.current = null;
     state.result = null;
@@ -306,7 +473,8 @@
     if (!state.current?.id) return;
     const key = requestId();
     const response = await fetch(`${api().apiBase()}/reports/${encodeURIComponent(state.current.id)}/export/`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', ...api().initDataHeader(state.tg), 'X-Request-ID': key, 'Idempotency-Key': key },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...api().initDataHeader(state.tg), 'X-Request-ID': key, 'Idempotency-Key': key },
       body: JSON.stringify({ client_request_id: key }),
     });
     if (!response.ok) {
@@ -326,6 +494,7 @@
     const candidate = selectedReportFields((item) => item.filterable)[0];
     if (!candidate) throw new Error('Select a filterable report field first.');
     state.current.configuration.filters.push({ field: candidate.key, operator: candidate.operators[0], value: '' });
+    persistDraft();
     render();
   }
   function addChart() {
@@ -333,8 +502,17 @@
     const dimension = selectedReportFields((item) => item.groupable)[0];
     if (!dimension) throw new Error('Select a category or date report field first.');
     state.current.charts.push({ title: '', chart_type: 'bar', dimension_field: dimension.key, aggregation: 'count', metric_field: '', date_bucket: '' });
+    persistDraft();
     render();
   }
+  function discardDraft() {
+    if (!state.current || !window.confirm('Discard this browser-only draft? Saved report definitions will not be changed.')) return;
+    const wasNew = Boolean(state.current.is_new);
+    const reportId = state.current.id;
+    clearLocalDraft(state.current);
+    navigate(wasNew ? 'catalogue' : 'detail', wasNew ? '' : reportId);
+  }
+
   function bindEvents() {
     if (document.documentElement.dataset.portalReportsBound) return;
     document.documentElement.dataset.portalReportsBound = 'true';
@@ -344,22 +522,44 @@
       event.preventDefault();
       try {
         const action = button.dataset.reportAction;
-        if (action === 'new') navigate('edit');
+        if (action === 'new') navigate('edit', '', 'fields');
         else if (action === 'open') navigate('detail', button.dataset.id);
+        else if (action === 'run-card') navigate('run', button.dataset.id);
         else if (action === 'catalogue') navigate('catalogue');
         else if (action === 'detail') navigate('detail', state.current?.id || state.route.reportId);
-        else if (action === 'back') navigate(state.current?.is_new ? 'catalogue' : 'detail', state.current?.id || '');
-        else if (action === 'edit') navigate('edit', state.current?.id || state.route.reportId);
+        else if (action === 'back') {
+          const previous = EDITOR_STEPS[editorStepIndex() - 1];
+          navigate(previous ? 'edit' : (state.current?.is_new ? 'catalogue' : 'detail'), previous ? (state.current?.id || '') : (state.current?.id || ''), previous || 'fields');
+        } else if (action === 'next') {
+          validateStep(editorStep());
+          navigate('edit', state.current?.id || '', EDITOR_STEPS[editorStepIndex() + 1]);
+        } else if (action === 'step') {
+          const targetStep = button.dataset.reportStep;
+          if (editorStepIndex(targetStep) > editorStepIndex()) validateStep(editorStep());
+          navigate('edit', state.current?.id || '', targetStep);
+        } else if (action === 'edit') navigate('edit', state.current?.id || state.route.reportId, 'fields');
+        else if (action === 'discard') discardDraft();
         else if (action === 'add-filter') addFilter();
-        else if (action === 'remove-filter') { snapshotDraft(); state.current.configuration.filters.splice(Number(button.dataset.index), 1); render(); }
+        else if (action === 'remove-filter') { snapshotDraft(); state.current.configuration.filters.splice(Number(button.dataset.index), 1); persistDraft(); render(); }
         else if (action === 'add-chart') addChart();
-        else if (action === 'remove-chart') { snapshotDraft(); state.current.charts.splice(Number(button.dataset.index), 1); render(); }
+        else if (action === 'remove-chart') { snapshotDraft(); state.current.charts.splice(Number(button.dataset.index), 1); persistDraft(); render(); }
         else if (action === 'save') await save();
         else if (action === 'run') navigate('run', state.current?.id || state.route.reportId);
+        else if (action === 'rerun') await run(1);
         else if (action === 'page') await run(Number(button.dataset.page || 1));
         else if (action === 'archive') await archive();
         else if (action === 'export') await exportXlsx();
       } catch (error) { toast(error.message || 'That report action could not be completed.', 'error'); }
+    });
+    document.addEventListener('input', (event) => {
+      if (!root()?.contains(event.target)) return;
+      if (event.target.matches('[data-report-catalogue-search]')) { filterCatalogue(event.target.value); return; }
+      if (event.target.matches('[data-report-field-search]')) {
+        const query = event.target.value.trim().toLowerCase();
+        root()?.querySelectorAll('[data-report-field-label]').forEach((item) => { item.hidden = Boolean(query) && !item.dataset.search.includes(query); });
+        return;
+      }
+      if (state.route.view === 'edit') snapshotDraft();
     });
     document.addEventListener('change', (event) => {
       if (!root()?.contains(event.target)) return;
@@ -370,6 +570,7 @@
           state.current.configuration.fields = state.current.configuration.fields.filter((item) => item !== event.target.value);
           toast(`Choose at most ${state.catalogue?.limits?.fields || 18} fields.`, 'error');
         }
+        persistDraft();
         render();
         return;
       }
@@ -383,11 +584,12 @@
           const dateDimension = selectedReportFields((item) => item.type === 'date')[0];
           if (dateDimension) chart.dimension_field = dateDimension.key;
           chart.date_bucket = chart.date_bucket || 'day';
-        } else {
-          chart.date_bucket = '';
-        }
+        } else chart.date_bucket = '';
+        persistDraft();
         render();
+        return;
       }
+      if (state.route.view === 'edit') snapshotDraft();
     });
   }
 

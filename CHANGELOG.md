@@ -1,5 +1,23 @@
 # Changelog
 
+## Portal Reports guided workspace - 03-August-2026
+
+- Reworked the IT-only Portal Reports workspace into a searchable catalogue,
+  focused definition detail page, and a three-step route-backed editor:
+  approved fields, filters/order, then charts/review. This keeps reports
+  readable on phones without changing the controlled reporting catalogue,
+  access checks, branch scope, audit events, or report APIs.
+- Added browser-session-only editor drafts so an unfinished definition survives
+  normal movement between setup pages but is neither saved nor audited until
+  the final Save action. A changed server version discards the stale local
+  draft rather than overwriting it.
+- Made live-result tables keep the opaque `No.` column fixed while horizontally
+  scrolling, preventing header and row text from showing through each other.
+
+  Migration note: no schema migration is included. To undo, redeploy the prior
+  application commit; saved report definitions, audit evidence, Sheets, Drive,
+  and customer/workflow data remain unchanged.
+
 ## Portal loader recovery - 03-August-2026
 
 - Made Portal JSON and queue-fragment requests time-bounded. A stalled or

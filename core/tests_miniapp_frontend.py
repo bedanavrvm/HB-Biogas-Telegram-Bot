@@ -143,11 +143,19 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         self.assertIn('data-report-view', portal_template)
         self.assertIn('data-report-id', portal_template)
+        self.assertIn('data-report-step', portal_template)
         self.assertIn('routeUrl(view', reports_source)
         self.assertIn("'/portal/s/reports/'", reports_source)
+        self.assertIn('EDITOR_STEPS', reports_source)
+        self.assertIn("DRAFT_STORAGE_PREFIX", reports_source)
+        self.assertIn('sessionStorage', reports_source)
         self.assertIn("view === 'detail'", reports_source)
         self.assertIn("view === 'edit'", reports_source)
         self.assertIn("view === 'run'", reports_source)
+        self.assertIn("data-report-action=\"step\"", reports_source)
+        self.assertIn('data-report-catalogue-search', reports_source)
+        self.assertIn('data-report-action=\"discard\"', reports_source)
+        self.assertIn('No.</th>', reports_source)
         self.assertIn('navigateUrl(url, options)', portal_source)
 
     def test_portal_invoices_use_route_backed_workspace_screens(self):
