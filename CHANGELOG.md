@@ -1,5 +1,10 @@
 # Changelog
 
+## Table readability and numbering — 03-August-2026
+
+- Standardized the staff review, Portal Imports, and Portal Reports data tables so their first column is always **No.** with visible, page-aware row numbering.
+- Replaced transparent/inherited frozen-cell backgrounds with opaque Telegram-theme-aware surfaces. Sticky headers and the frozen No. column now remain readable while horizontally scrolling in either theme.
+
 ## Controlled Portal reporting workspace — 03-August-2026
 
 - Added an **IT-only Reports** screen in the Portal. IT can create bounded live case reports from a reviewed field catalogue, apply validated filters/order, add constrained bar/doughnut/line charts, preview results, and export an XLSX workbook. No report operation writes customer, workflow, Google Sheets, or Google Drive data.

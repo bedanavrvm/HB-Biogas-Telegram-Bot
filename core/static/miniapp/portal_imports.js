@@ -151,9 +151,11 @@
       const currentPage = Number(pagination.page || 1);
       const pageCount = Number(pagination.pages || 1);
       const totalRows = Number(pagination.total_rows || batch.total_rows || rows.length);
+      const pageSize = Number(pagination.page_size || rows.length || 1);
+      const firstPosition = (currentPage - 1) * pageSize;
       const table = !rows.length
         ? '<div class="empty-state"><div class="es-title">No parsed rows</div><div class="es-sub">This staged file did not produce review rows.</div></div>'
-        : `<div class="portal-import-table-wrap"><table class="portal-import-table"><thead><tr>${columns.map(column => `<th>${escapeHtml(column)}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${columns.map(column => `<td>${escapeHtml(displayCell(row?.[column]))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+        : `<div class="portal-import-table-wrap"><table class="portal-import-table"><thead><tr><th class="table-number">No.</th>${columns.map(column => `<th>${escapeHtml(column)}</th>`).join('')}</tr></thead><tbody>${rows.map((row, index) => `<tr><td class="table-number">${firstPosition + index + 1}</td>${columns.map(column => `<td>${escapeHtml(displayCell(row?.[column]))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
       target.innerHTML = `<div class="portal-import-review-heading"><div><span class="settings-eyebrow">REVIEW ONLY</span><h2>${escapeHtml(batch.source_filename || 'Staged import')}</h2><p>${escapeHtml(batch.total_rows || 0)} parsed rows · ${escapeHtml(batch.review_needed || 0)} need review. No Portal commit action is available.</p></div><button type="button" class="btn btn-secondary" id="portal-import-review-close">Close review</button></div>${table}`;
       if (pageCount > 1) {
         target.insertAdjacentHTML('beforeend', `<div class="portal-import-pager"><span>Showing page ${escapeHtml(currentPage)} of ${escapeHtml(pageCount)} (${escapeHtml(totalRows)} rows)</span><div><button type="button" class="btn btn-secondary portal-import-review-page" data-batch-id="${escapeHtml(batch.id)}" data-page="${escapeHtml(currentPage - 1)}" ${currentPage <= 1 ? 'disabled' : ''}>Previous</button><button type="button" class="btn btn-secondary portal-import-review-page" data-batch-id="${escapeHtml(batch.id)}" data-page="${escapeHtml(currentPage + 1)}" ${currentPage >= pageCount ? 'disabled' : ''}>Next</button></div></div>`);

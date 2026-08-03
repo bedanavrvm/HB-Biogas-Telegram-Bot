@@ -283,6 +283,8 @@ button:disabled {
 }
 
 .table-wrap {
+  position: relative;
+  isolation: isolate;
   overflow: auto;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
@@ -294,6 +296,7 @@ button:disabled {
 table {
   width: 100%;
   border-collapse: collapse;
+  background: var(--bg-surface);
 }
 
 th, td {
@@ -319,12 +322,24 @@ td:first-child, th:first-child {
   position: sticky;
   left: 0;
   z-index: 20;
-  background: inherit;
+  /* A frozen first column cannot inherit from a transparent table row: the
+     horizontally-scrolled cells would bleed through and become unreadable. */
+  background: var(--bg-surface);
+  box-shadow: 1px 0 0 var(--border-color);
 }
 
 th:first-child {
   z-index: 35;
   background: var(--color-soft);
+}
+
+.table-number {
+  width: 48px;
+  min-width: 48px;
+  text-align: center;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
 }
 
 input, select, textarea {

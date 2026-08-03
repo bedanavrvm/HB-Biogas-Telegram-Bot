@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% if batch.import_kind == 'system_export' %}Review System Export{% else %}Review Farmers Upload{% endif %}</title>
-  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=5">
+  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
   <link rel="stylesheet" href="{% static 'miniapp/farmup_review.css' %}?v=3">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=14">
@@ -46,6 +46,7 @@
     <table aria-label="Extracted upload rows">
       <thead>
         <tr>
+          <th class="table-number">No.</th>
           <th class="small">Use</th>
           {% if batch.import_kind == 'system_export' %}
           <th class="id-col">Customer ID</th><th class="name">Name</th><th class="phone">Mobile No</th><th class="id-col">ID NO</th><th class="hub-col">Branch</th><th class="staff-col">Loan Officer</th><th class="staff-col">Product Name</th><th class="deposit-col">LGF Balance</th><th class="staff-col">Match</th><th class="notes">Notes</th>
@@ -62,9 +63,9 @@
 <script src="{% static 'miniapp/telegram.js' %}"></script>
 <script src="{% static 'miniapp/utils.js' %}?v=3"></script>
 {% if batch.import_kind == 'system_export' %}
-<script src="{% static 'miniapp/system_export_review.js' %}?v=3"></script>
+<script src="{% static 'miniapp/system_export_review.js' %}?v=4"></script>
 {% else %}
-<script src="{% static 'miniapp/farmup_review.js' %}?v=10"></script>
+<script src="{% static 'miniapp/farmup_review.js' %}?v=11"></script>
 {% endif %}
 </body>
 </html>

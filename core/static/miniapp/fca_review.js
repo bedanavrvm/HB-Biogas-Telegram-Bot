@@ -40,9 +40,13 @@
 
   function render() {
     body.innerHTML = '';
-    rows.forEach((row) => {
+    rows.forEach((row, index) => {
       const tr = document.createElement('tr');
       tr.className = !row.approved ? 'row-skipped' : (isReview(row) ? 'row-review' : '');
+      const number = document.createElement('td');
+      number.className = 'table-number';
+      number.textContent = String(index + 1);
+      tr.appendChild(number);
       const use = document.createElement('td');
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';

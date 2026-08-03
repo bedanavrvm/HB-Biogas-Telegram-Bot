@@ -109,9 +109,13 @@
   function render() {
     body.innerHTML = '';
     const filteredRows = visibleRows();
-    filteredRows.forEach((row) => {
+    filteredRows.forEach((row, index) => {
       const tr = document.createElement('tr');
       tr.className = !row.approved ? 'row-skipped' : (isReview(row) ? 'row-review' : '');
+      const number = document.createElement('td');
+      number.className = 'table-number';
+      number.textContent = String(index + 1);
+      tr.appendChild(number);
       const use = document.createElement('td');
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
@@ -165,7 +169,7 @@
     if (!filteredRows.length) {
       const tr = document.createElement('tr');
       const td = document.createElement('td');
-      td.colSpan = fields.length + 1;
+      td.colSpan = fields.length + 2;
       td.className = 'no-results';
       td.textContent = 'No rows match the current search.';
       tr.appendChild(td);
