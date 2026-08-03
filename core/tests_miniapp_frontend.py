@@ -86,7 +86,7 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         self.assertIn('/\\/portal\\/cases\\/[^/]+\\//', source)
         self.assertIn("return 'case_history'", source)
-        self.assertContains(response, 'miniapp/miniapp-nav.js?v=10')
+        self.assertContains(response, 'miniapp/miniapp-nav.js?v=11')
 
     def test_telegram_back_never_uses_host_history_for_a_cold_portal_screen(self):
         source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
@@ -104,12 +104,15 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('restoreTelegramViewport', navigation_source)
         self.assertIn('visibilitychange', navigation_source)
         self.assertIn('input[type="file"]', navigation_source)
-        self.assertIn('tg.expand()', navigation_source)
-        self.assertIn('inset: 0 auto auto 0', portal_css)
-        self.assertIn('height: 100vh', portal_css)
+        self.assertIn('viewportChanged', navigation_source)
+        self.assertIn('viewportStableHeight', navigation_source)
+        self.assertIn('--miniapp-viewport-height', navigation_source)
+        self.assertIn('tg?.expand?.()', navigation_source)
+        self.assertIn('inset: 0;', portal_css)
+        self.assertIn('height: var(--miniapp-viewport-height, 100dvh);', portal_css)
         self.assertIn('.sheet-panel {', portal_css)
-        self.assertIn('height: 100%;', portal_css)
-        self.assertNotIn('--miniapp-viewport-height', portal_css)
+        self.assertIn('max-height: var(--miniapp-viewport-height, 100dvh);', portal_css)
+        self.assertIn('--miniapp-viewport-height', portal_css)
 
     def test_portal_helpers_expose_pure_ui_primitives(self):
         source = Path('core/static/miniapp/portal_helpers.js').read_text(encoding='utf-8')

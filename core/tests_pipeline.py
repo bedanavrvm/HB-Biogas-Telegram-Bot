@@ -407,6 +407,90 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(result['missing_evidence'], ['JBL_VISIT_PHOTO'])
         mock_upload.assert_not_called()
 
+    @patch('core.services.jawabu_pipeline.log_jbl_visit')
+    @patch('core.services.jawabu_pipeline.append_jbl_media_uploads')
+    @patch('core.services.jawabu_pipeline.preflight_jbl_visit_completion')
+    def test_atomic_visit_uses_the_revision_created_by_its_evidence_uploads(
+        self, mock_preflight, mock_uploads, mock_log_visit,
+    ):
+        """A compound visit must not reject its own media-link revisions."""
+        mock_preflight.return_value = (True, '', False)
+        initial_revision = self.farmer_stage1.workflow_revision
+        mock_uploads.return_value = (
+            True,
+            '',
+            {
+                'stored_count': 2,
+                'skipped_count': 0,
+                'warnings': [],
+                'errors': [],
+                'workflow_revision': initial_revision + 2,
+            },
+        )
+        mock_log_visit.return_value = (True, '')
+        laf = SimpleUploadedFile('laf.pdf', b'x' * 5000, content_type='application/pdf')
+        photo = SimpleUploadedFile('visit.jpg', b'x' * 5000, content_type='image/jpeg')
+
+        ok, error, result = complete_jbl_visit(
+            self.farmer_stage1,
+            categorized_files={'LAF': [laf], 'JBL_VISIT_PHOTO': [photo]},
+            visit_date=date(2026, 6, 28),
+            officer='Officer Joe',
+            visit_status='Awaiting Analysis',
+            latitude=-1.2921,
+            longitude=36.8219,
+            request_id='visit-revision-chain-001',
+            expected_revision=initial_revision,
+        )
+
+        self.assertTrue(ok, error)
+        self.assertTrue(result['visit_logged'])
+        self.assertEqual(
+            mock_log_visit.call_args.kwargs['expected_revision'],
+            initial_revision + 2,
+        )
+
+    def test_jbl_media_link_keeps_a_genuine_concurrent_revision_conflict(self):
+        """Stored Drive evidence must not overwrite another user's newer case edit."""
+        from core.services.order_approval import hash_uploaded_file
+
+        initial_revision = self.farmer_stage1.workflow_revision
+        self.farmer_stage1.workflow_revision = initial_revision + 1
+        self.farmer_stage1.save(update_fields=['workflow_revision', 'updated_at'])
+        laf = SimpleUploadedFile('laf.pdf', b'x' * 5000, content_type='application/pdf')
+        content_hash, _size = hash_uploaded_file(laf)
+        attachment = MediaAttachment.objects.create(
+            group_id=self.config.group_id,
+            business_key_type='case_reference',
+            business_key_value=f'case-{self.farmer_stage1.pk}',
+            file_type='LAF',
+            original_filename='laf.pdf',
+            content_hash=content_hash,
+            drive_url='https://drive.example/laf',
+            upload_status='success',
+        )
+        uploaded = SimpleNamespace(
+            links=['https://drive.example/laf'], stored_count=1, skipped_count=0, warnings=[],
+        )
+
+        with (
+            patch('core.services.jawabu_pipeline._jawabu_group_config', return_value=SimpleNamespace(group_id=self.config.group_id)),
+            patch('core.services.order_approval.store_uploaded_files_for_order', return_value=uploaded),
+        ):
+            ok, error, result = append_jbl_media_links(
+                self.farmer_stage1,
+                uploaded_files=[laf],
+                sender='Officer Joe',
+                media_category='LAF',
+                expected_revision=initial_revision,
+            )
+
+        self.assertFalse(ok)
+        self.assertIn('This case changed while you were working', error)
+        self.assertTrue(result['evidence_saved'])
+        attachment.refresh_from_db()
+        self.assertIsNone(attachment.jawabu_farmer_id)
+
     def test_new_jbl_evidence_is_linked_to_the_case_before_visit_guard(self):
         """A stored case-reference upload must satisfy the case evidence guard."""
         from core.models import MediaAttachment

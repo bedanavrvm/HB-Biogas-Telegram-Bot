@@ -107,17 +107,34 @@
     });
   }
 
+  function syncTelegramViewportHeight() {
+    // Telegram's Android picker can return a WebView with stale CSS viewport
+    // units. Prefer Telegram's measured stable height, then its live height,
+    // then the browser fallback so fixed Portal sheets never leave a native
+    // white canvas below their action bar.
+    const height = Number(tg?.viewportStableHeight)
+      || Number(tg?.viewportHeight)
+      || Number(window.visualViewport?.height)
+      || Number(window.innerHeight);
+    if (height > 0) {
+      document.documentElement.style.setProperty('--miniapp-viewport-height', `${Math.round(height)}px`);
+    }
+  }
+
   function restoreTelegramViewport() {
     // Android can return from its native file picker with the Mini App's
     // WebView still contracted. CSS cannot fill space outside that native
     // surface, so ask Telegram itself to expand again after the activity
     // hand-off. The delayed calls cover clients that report focus before the
     // WebView has finished measuring its restored window.
-    if (!tg?.expand) return;
-    tg.expand();
-    window.requestAnimationFrame(() => tg.expand());
-    window.setTimeout(() => tg.expand(), 180);
-    window.setTimeout(() => tg.expand(), 650);
+    const expandAndMeasure = () => {
+      tg?.expand?.();
+      syncTelegramViewportHeight();
+    };
+    expandAndMeasure();
+    window.requestAnimationFrame(expandAndMeasure);
+    window.setTimeout(expandAndMeasure, 180);
+    window.setTimeout(expandAndMeasure, 650);
   }
 
   function currentScreen() {
@@ -188,12 +205,15 @@
     tg.ready();
     restoreTelegramViewport();
     tg.onEvent?.('themeChanged', syncTheme);
+    tg.onEvent?.('viewportChanged', syncTelegramViewportHeight);
   }
   syncTheme();
   markPortalHistoryEntry();
 
   window.addEventListener('pageshow', restoreTelegramViewport);
   window.addEventListener('focus', restoreTelegramViewport);
+  window.addEventListener('resize', syncTelegramViewportHeight);
+  window.visualViewport?.addEventListener('resize', syncTelegramViewportHeight);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') restoreTelegramViewport();
   });

@@ -1,5 +1,18 @@
 # Changelog
 
+## Atomic JBL visit completion and Telegram viewport recovery - 03-August-2026
+
+- A single JBL visit submission now carries its own evidence-link revisions
+  through to the final visit transition. This removes the false
+  "case changed" conflict caused by the submission's own LAF/photo links,
+  while retaining rejection of a genuine concurrent case edit.
+- Portal sheets now use Telegram's reported viewport height after Android file
+  picker return instead of stale `100vh` sizing, preventing the blank native
+  canvas below the fixed visit action bar.
+
+  Migration note: no schema migration is included. To undo the code change,
+  redeploy the prior application commit; no customer data migration is needed.
+
 ## Portal additive case comments - 03-August-2026
 
 - `Additional Comments` is now a Django-owned, oldest-to-newest history of

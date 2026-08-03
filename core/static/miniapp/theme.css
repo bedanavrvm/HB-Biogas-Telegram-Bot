@@ -1,4 +1,5 @@
 :root {
+  --miniapp-viewport-height: 100dvh;
   --tg-bg: var(--tg-theme-bg-color, #f4f7f6);
   --tg-secondary-bg: var(--tg-theme-secondary-bg-color, #ffffff);
   --tg-text: var(--tg-theme-text-color, #14201d);
@@ -8,7 +9,7 @@
   --tg-button-text: var(--tg-theme-button-text-color, #ffffff);
 }
 
-html, body { background: var(--tg-bg); color: var(--tg-text); }
+html, body { min-height: var(--miniapp-viewport-height); background: var(--tg-bg); color: var(--tg-text); }
 body.sidebar-is-open { overflow: hidden; }
 body { margin: 0; padding-bottom: calc(64px + env(safe-area-inset-bottom)); overflow-x: hidden; }
 .workflow-standard .app-shell-header { position: sticky; top: 0; z-index: 70; box-sizing: border-box; min-height: 48px; height: 48px; display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px; margin: 0; padding: 4px 10px; background: var(--tg-secondary-bg); color: var(--tg-text); border-bottom: 1px solid color-mix(in srgb, var(--tg-hint) 25%, transparent); }
@@ -34,7 +35,7 @@ body { margin: 0; padding-bottom: calc(64px + env(safe-area-inset-bottom)); over
 .app-bottom-tabs .shell-nav-link:not([data-bottom-primary="true"]) { display: none; }
 .app-bottom-tabs .shell-nav-link span { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app-bottom-tabs .shell-nav-link svg { width: 17px; height: 17px; }
-#content { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; overflow-x: hidden; color: var(--tg-text); min-height: calc(100vh - 130px); }
+#content { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; overflow-x: hidden; color: var(--tg-text); min-height: calc(var(--miniapp-viewport-height) - 130px); }
 #content .card, #content .count-card, #content .dashboard-total, #content .sheet-panel,
 #content .filter-bar, #content .batch-panel, #content input, #content select, #content textarea {
   background-color: var(--tg-secondary-bg);

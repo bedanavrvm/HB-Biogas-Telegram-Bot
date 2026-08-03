@@ -686,6 +686,7 @@ def complete_jbl_visit(
             capture_latitude=latitude,
             capture_longitude=longitude,
             location_unavailable_reason=location_unavailable_reason,
+            expected_revision=expected_revision,
         )
         upload_result = upload_result or {}
         if not uploaded_ok or upload_result.get('errors'):
@@ -713,7 +714,10 @@ def complete_jbl_visit(
             sub_county=sub_county,
             village=village,
             request_id=request_id,
-            expected_revision=expected_revision,
+            # Each evidence category is a deliberate case mutation.  Continue
+            # from the revision produced by this same compound request, while
+            # still rejecting a different user's intervening write.
+            expected_revision=upload_result.get('workflow_revision', expected_revision),
             actor_user=actor_user,
         )
     except ValueError as exc:
@@ -1157,6 +1161,7 @@ def append_jbl_media_links(
     capture_latitude=None,
     capture_longitude=None,
     location_unavailable_reason: str = '',
+    expected_revision: int | None = None,
 ) -> tuple[bool, str, dict[str, Any]]:
     """Upload JBL visit media to Drive, append links to farmer/order sheet, and audit uploads."""
     if not uploaded_files:
@@ -1213,6 +1218,7 @@ def append_jbl_media_links(
             'media_category': media_category,
             'media_categories': {media_category: category_count},
             'duplicate_hashes_reused': len(existing_hashes),
+            'workflow_revision': int(farmer.workflow_revision or 1),
         }
 
     uploaded = store_uploaded_files_for_order(
@@ -1237,61 +1243,81 @@ def append_jbl_media_links(
         capture_longitude=capture_longitude,
         capture_location_unavailable_reason=location_unavailable_reason,
     )
+    revision_after = int(farmer.workflow_revision or 1)
     if uploaded.links:
-        from core.models import MediaAttachment
-        linked_rows = MediaAttachment.objects.filter(
-            jawabu_farmer__isnull=True,
-            business_key_type='case_reference',
-            business_key_value=storage_key,
-            file_type=media_category,
-            upload_status='success',
-            content_hash__in=content_hashes,
-        )
-        linked_rows.update(
-            jawabu_farmer=farmer,
-            captured_at=captured_at,
-            capture_latitude=capture_latitude,
-            capture_longitude=capture_longitude,
-            capture_location_unavailable_reason=str(location_unavailable_reason or '').strip(),
-        )
-        existing = [line.strip() for line in str(farmer.jbl_media_urls or '').splitlines() if line.strip()]
-        for link in uploaded.links:
-            if link and link not in existing:
-                existing.append(link)
-        # Evidence links are part of the published case representation.  Give
-        # them a new revision so a completed publication for an older revision
-        # cannot suppress the register update for newly attached media.
-        revision_before, revision_after = next_workflow_revision(farmer)
-        farmer.jbl_media_urls = '\n'.join(existing)
-        farmer.save(update_fields=['jbl_media_urls', 'workflow_revision', 'updated_at'])
-        from core.services.jawabu_approvals import invalidate_material_approvals
-        invalidate_material_approvals(
-            farmer=farmer,
-            changed_fields={'jbl_media'},
-            reason=f'{JBL_MEDIA_CATEGORIES[media_category]} was uploaded or linked after approval.',
-        )
-        from core.services.jawabu_case360 import record_pipeline_event
-        record_pipeline_event(
-            farmer,
-            action='jbl_media_uploaded',
-            stage_key='jbl_visit',
-            actor=sender,
-            new_values={
-                'category': media_category,
+        # Drive storage cannot share Django's transaction.  Re-check the
+        # revision immediately before linking the stored evidence so this
+        # request can advance its own revision while a real competing edit is
+        # still rejected.  A retry reuses the content hash rather than making
+        # a duplicate file when the external upload already succeeded.
+        try:
+            with transaction.atomic():
+                locked_farmer = JawabuFarmerMaster.objects.select_for_update().get(pk=farmer.pk)
+                validate_workflow_revision(locked_farmer, expected_revision)
+
+                from core.models import MediaAttachment
+                linked_rows = MediaAttachment.objects.filter(
+                    jawabu_farmer__isnull=True,
+                    business_key_type='case_reference',
+                    business_key_value=storage_key,
+                    file_type=media_category,
+                    upload_status='success',
+                    content_hash__in=content_hashes,
+                )
+                linked_rows.update(
+                    jawabu_farmer=locked_farmer,
+                    captured_at=captured_at,
+                    capture_latitude=capture_latitude,
+                    capture_longitude=capture_longitude,
+                    capture_location_unavailable_reason=str(location_unavailable_reason or '').strip(),
+                )
+                existing = [line.strip() for line in str(locked_farmer.jbl_media_urls or '').splitlines() if line.strip()]
+                for link in uploaded.links:
+                    if link and link not in existing:
+                        existing.append(link)
+                # Evidence links are part of the published case representation.
+                revision_before, revision_after = next_workflow_revision(locked_farmer)
+                locked_farmer.jbl_media_urls = '\n'.join(existing)
+                locked_farmer.save(update_fields=['jbl_media_urls', 'workflow_revision', 'updated_at'])
+                from core.services.jawabu_approvals import invalidate_material_approvals
+                invalidate_material_approvals(
+                    farmer=locked_farmer,
+                    changed_fields={'jbl_media'},
+                    reason=f'{JBL_MEDIA_CATEGORIES[media_category]} was uploaded or linked after approval.',
+                )
+                from core.services.jawabu_case360 import record_pipeline_event
+                record_pipeline_event(
+                    locked_farmer,
+                    action='jbl_media_uploaded',
+                    stage_key='jbl_visit',
+                    actor=sender,
+                    new_values={
+                        'category': media_category,
+                        'stored_count': uploaded.stored_count,
+                        'duplicate_hashes_reused': len(existing_hashes),
+                    },
+                    actor_user=actor_user,
+                    transition_code='jawabu.jbl_visit.media_uploaded',
+                    from_state=current_workflow_state(locked_farmer),
+                    to_state=current_workflow_state(locked_farmer),
+                    revision_before=revision_before,
+                    revision_after=revision_after,
+                )
+                from core.services.portal_publication import reserve_farmer_publication
+                reserve_farmer_publication(
+                    locked_farmer, requested_by=actor_user, requested_by_label=sender,
+                )
+        except ValueError as exc:
+            return False, str(exc), {
                 'stored_count': uploaded.stored_count,
-                'duplicate_hashes_reused': len(existing_hashes),
-            },
-            actor_user=actor_user,
-            transition_code='jawabu.jbl_visit.media_uploaded',
-            from_state=current_workflow_state(farmer),
-            to_state=current_workflow_state(farmer),
-            revision_before=revision_before,
-            revision_after=revision_after,
-        )
-        from core.services.portal_publication import reserve_farmer_publication
-        reserve_farmer_publication(
-            farmer, requested_by=actor_user, requested_by_label=sender,
-        )
+                'skipped_count': uploaded.skipped_count,
+                'warnings': uploaded.warnings,
+                'links': uploaded.links,
+                'media_category': media_category,
+                'evidence_saved': bool(uploaded.stored_count),
+                'workflow_revision': int(farmer.workflow_revision or 1),
+            }
+        farmer.refresh_from_db()
 
     from core.models import MediaAttachment
     category_rows = (
@@ -1322,6 +1348,7 @@ def append_jbl_media_links(
         'media_category': media_category,
         'media_categories': category_counts,
         'duplicate_hashes_reused': len(existing_hashes),
+        'workflow_revision': int(revision_after),
     }
 
 
@@ -1335,6 +1362,7 @@ def append_jbl_media_uploads(
     capture_latitude=None,
     capture_longitude=None,
     location_unavailable_reason: str = '',
+    expected_revision: int | None = None,
 ) -> tuple[bool, str, dict[str, Any]]:
     """Store LAF and JBL-visit media categories in one visit-form update.
 
@@ -1358,6 +1386,7 @@ def append_jbl_media_uploads(
     media_categories: dict[str, int] = {}
     category_results: dict[str, dict[str, Any]] = {}
     successful_categories = 0
+    current_revision = expected_revision
 
     for category, files in categories.items():
         ok, error, result = append_jbl_media_links(
@@ -1370,6 +1399,7 @@ def append_jbl_media_uploads(
             capture_latitude=capture_latitude,
             capture_longitude=capture_longitude,
             location_unavailable_reason=location_unavailable_reason,
+            expected_revision=current_revision,
         )
         result = result or {}
         category_results[category] = {
@@ -1378,6 +1408,7 @@ def append_jbl_media_uploads(
             'skipped_count': result.get('skipped_count', 0),
             'warnings': result.get('warnings', []),
             'links': result.get('links', []),
+            'workflow_revision': result.get('workflow_revision'),
         }
         if ok:
             successful_categories += 1
@@ -1386,6 +1417,8 @@ def append_jbl_media_uploads(
             links.extend(result.get('links') or [])
             warnings.extend(result.get('warnings') or [])
             media_categories.update(result.get('media_categories') or {})
+            if result.get('workflow_revision') is not None:
+                current_revision = int(result['workflow_revision'])
         else:
             errors.append({'category': category, 'error': error or 'Media upload failed.'})
 
@@ -1400,6 +1433,7 @@ def append_jbl_media_uploads(
         'category_results': category_results,
         'errors': errors,
         'partial': bool(errors and successful_categories),
+        'workflow_revision': current_revision,
     }
     if not successful_categories:
         messages = '; '.join(f"{item['category']}: {item['error']}" for item in errors)
