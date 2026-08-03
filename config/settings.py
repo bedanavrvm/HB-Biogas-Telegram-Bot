@@ -443,6 +443,12 @@ WHATSAPP_BATCH_MAX_MESSAGES = config('WHATSAPP_BATCH_MAX_MESSAGES', default=0, c
 WHATSAPP_BATCH_ASYNC_THRESHOLD = config('WHATSAPP_BATCH_ASYNC_THRESHOLD', default=100, cast=int)
 WHATSAPP_BATCH_MAX_FILE_SIZE_MB = config('WHATSAPP_BATCH_MAX_FILE_SIZE_MB', default=5, cast=int)
 FCA_BATCH_MAX_FILE_SIZE_MB = config('FCA_BATCH_MAX_FILE_SIZE_MB', default=10, cast=int)
+# `/sysup` runs in the Render web process. Keep its file/row and per-commit
+# budgets explicit so a large system export is reviewed in safe chunks rather
+# than holding a worker until Gunicorn terminates it.
+SYSUP_MAX_FILE_SIZE_MB = config('SYSUP_MAX_FILE_SIZE_MB', default=5, cast=int)
+SYSUP_MAX_ROWS_PER_UPLOAD = config('SYSUP_MAX_ROWS_PER_UPLOAD', default=150, cast=int)
+SYSUP_COMMIT_MAX_ROWS_PER_REQUEST = config('SYSUP_COMMIT_MAX_ROWS_PER_REQUEST', default=20, cast=int)
 INVOICE_UPLOAD_MAX_FILE_SIZE_MB = config('INVOICE_UPLOAD_MAX_FILE_SIZE_MB', default=8, cast=int)
 # Physically signed/stamped requisition and payment scans are stored in Django
 # before their Drive upload, so keep the accepted payload bounded.

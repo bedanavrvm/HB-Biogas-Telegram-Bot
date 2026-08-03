@@ -617,6 +617,15 @@ body.portal-compact-cards .farmer-card .badge { padding: 2px 6px; font-size: 10p
   font-size: 11px;
   line-height: 1.35;
 }
+.jbl-draft-state {
+  margin: 0;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-muted);
+}
+.jbl-draft-state[data-state="saved"] { color: var(--color-success); }
+.jbl-draft-state[data-state="local-only"],
+.jbl-draft-state[data-state="offline"] { color: var(--color-warning, #a15c00); }
 .media-links {
   display: grid;
   gap: 6px;

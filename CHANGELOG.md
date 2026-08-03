@@ -1,5 +1,37 @@
 # Changelog
 
+## Portal JBL Visit recovery drafts - 03-August-2026
+
+- Unfinished JBL Visit fields now autosave to a private, verified staff draft as
+  the officer types and when Telegram hides or closes the WebView. Closing the
+  sheet or opening case history no longer clears unfinished work; only a
+  successful visit completion clears the draft.
+- The form restores the newest secure/server or device-local field copy when
+  the case is reopened. LAF/photo file handles cannot be restored by Telegram
+  or Android, so the form states clearly that evidence must be selected again.
+- Draft reads and writes require the existing `portal.jbl_visit.write`
+  capability and the staff member's branch scope. Drafts remain field-only,
+  staff-private, revision-protected, and expire through the existing
+  `MiniAppDraft` retention policy.
+
+  Migration note: this reuses already-applied `core.0072_miniapp_drafts`; no
+  new schema migration is included. To undo, redeploy the prior application
+  commit. Existing recovery drafts are disposable and may be deleted through
+  their normal seven-day expiry.
+
+## Safer `/sysup` budgets and conditional GPS fallback - 03-August-2026
+
+- The JBL Visit form now hides the GPS-unavailable explanation until location
+  capture is unsupported, denied, unavailable, or times out. A restored draft
+  shows it only when it contains a prior fallback explanation.
+- `/sysup` now has configurable file, staging-row, and per-commit row limits.
+  Oversized exports are rejected before expensive matching; approved rows are
+  committed in safe chunks, and register publication is reserved for later
+  bounded processing rather than calling Google Sheets inside the request.
+
+  Migration note: no schema migration is included. To undo the code change,
+  redeploy the prior application commit; no customer data migration is needed.
+
 ## Atomic JBL visit completion and Telegram viewport recovery - 03-August-2026
 
 - A single JBL visit submission now carries its own evidence-link revisions

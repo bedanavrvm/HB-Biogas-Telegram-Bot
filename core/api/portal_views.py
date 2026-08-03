@@ -2094,6 +2094,115 @@ def portal_log_jbl_visit(request, farmer_id: str):
     return _legacy_jbl_visit_write_response()
 
 
+_PORTAL_JBL_VISIT_DRAFT_FIELD_LIMITS = {
+    'jbl-date': 32,
+    'jbl-status': 80,
+    'jbl-officer': 255,
+    'jbl-county': 255,
+    'jbl-sub-county': 255,
+    'jbl-village': 255,
+    'jbl-comment': 2_000,
+    'jbl-lat': 64,
+    'jbl-lng': 64,
+    'jbl-location-unavailable': 255,
+}
+
+
+def _portal_jbl_visit_draft_payload(body: dict) -> dict:
+    """Keep persisted Portal recovery drafts field-only and intentionally small."""
+    raw = body.get('payload')
+    if not isinstance(raw, dict):
+        raise ValueError('Draft data must be an object.')
+    values = raw.get('values')
+    if not isinstance(values, dict):
+        raise ValueError('Draft fields must be an object.')
+    unexpected = set(values).difference(_PORTAL_JBL_VISIT_DRAFT_FIELD_LIMITS)
+    if unexpected:
+        raise ValueError('Draft contains unsupported fields.')
+    cleaned = {}
+    for field, limit in _PORTAL_JBL_VISIT_DRAFT_FIELD_LIMITS.items():
+        value = values.get(field, '')
+        if not isinstance(value, (str, int, float)):
+            raise ValueError('Draft values must be text.')
+        text = str(value)
+        if len(text) > limit:
+            raise ValueError(f'Draft value for {field} is too long.')
+        cleaned[field] = text
+    try:
+        saved_at = int(raw.get('saved_at') or 0)
+    except (TypeError, ValueError) as exc:
+        raise ValueError('Draft timestamp is invalid.') from exc
+    return {'values': cleaned, 'saved_at': max(saved_at, 0)}
+
+
+@csrf_exempt  # Verified Telegram initData, capability, and branch scope authorize this personal draft.
+@require_http_methods(["GET", "POST", "DELETE"])
+def portal_jbl_visit_draft(request, farmer_id: str):
+    """Persist only a staff member's unfinished JBL Visit fields for recovery."""
+    from core.models import JawabuFarmerMaster
+    from core.services.miniapp_drafts import (
+        MiniAppDraftConflict,
+        MiniAppDraftError,
+        delete_draft,
+        get_draft,
+        save_draft,
+    )
+
+    farmer = JawabuFarmerMaster.objects.filter(pk=farmer_id).first()
+    if farmer is None:
+        return JsonResponse({'ok': False, 'error': 'This case is no longer available.'}, status=404)
+    access_error = _portal_capability_error(request, 'portal.jbl_visit.write', farmer)
+    if access_error:
+        return access_error
+    user = getattr(request, 'portal_user', None)
+    if user is None:
+        # Production Portal writes always resolve a canonical Telegram staff
+        # User. Keep the recovery API closed in auth-disabled local mode rather
+        # than accidentally assigning a personal draft to an anonymous actor.
+        return JsonResponse({'ok': False, 'error': 'Your Portal staff account could not be resolved.'}, status=403)
+
+    workflow = 'portal_jbl_visit'
+    context_key = f'farmer:{farmer.pk}'
+    if request.method == 'GET':
+        draft = get_draft(user=user, workflow=workflow, context_key=context_key)
+        return JsonResponse({
+            'ok': True,
+            'draft': None if draft is None else {
+                'payload': draft.payload,
+                'revision': draft.revision,
+                'updated_at': draft.updated_at.isoformat(),
+                'expires_at': draft.expires_at.isoformat(),
+            },
+        })
+    if request.method == 'DELETE':
+        delete_draft(user=user, workflow=workflow, context_key=context_key)
+        return JsonResponse({'ok': True})
+
+    body = _portal_request_data(request)
+    try:
+        revision = body.get('revision')
+        expected_revision = int(revision) if revision not in (None, '') else None
+    except (TypeError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'Draft revision is invalid.'}, status=400)
+    try:
+        draft = save_draft(
+            user=user,
+            workflow=workflow,
+            context_key=context_key,
+            payload=_portal_jbl_visit_draft_payload(body),
+            expected_revision=expected_revision,
+        )
+    except MiniAppDraftConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except (MiniAppDraftError, ValueError) as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({'ok': True, 'draft': {
+        'revision': draft.revision,
+        'updated_at': draft.updated_at.isoformat(),
+        'expires_at': draft.expires_at.isoformat(),
+    }})
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def portal_complete_jbl_visit(request, farmer_id: str):

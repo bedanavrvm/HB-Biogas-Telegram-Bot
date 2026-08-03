@@ -1,8 +1,9 @@
 import csv
 import io
 from decimal import Decimal
+from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from core.models import (
     JawabuCustomer,
@@ -80,6 +81,58 @@ class SystemExportImportTests(TestCase):
         self.assertEqual(rows[0]['Customer ID'], '9001')
         self.assertEqual(rows[0]['LGF Balance'], '0')
         self.assertTrue(rows[0]['approved'])
+
+    @override_settings(SYSUP_MAX_ROWS_PER_UPLOAD=1)
+    def test_parser_rejects_an_export_above_the_configured_web_budget(self):
+        with self.assertRaisesMessage(ValueError, 'more than 1 non-blank rows'):
+            parse_system_export(export_csv([
+                {
+                    'Customer ID': '9001', 'Name': 'WANJIKU, JANE', 'Mobile No': '0712345678',
+                    'ID NO': '12345678', 'Branch': 'Embu', 'Loan Officer': 'Officer A',
+                    'Product Name': 'Biogas', 'LGF Balance': '0',
+                },
+                {
+                    'Customer ID': '9002', 'Name': 'OTHER, CUSTOMER', 'Mobile No': '0712345679',
+                    'ID NO': '87654321', 'Branch': 'Embu', 'Loan Officer': 'Officer B',
+                    'Product Name': 'Biogas', 'LGF Balance': '0',
+                },
+            ]), 'customers.csv')
+
+    @override_settings(SYSUP_COMMIT_MAX_ROWS_PER_REQUEST=1)
+    @patch('core.services.portal_publication.reserve_farmer_publication')
+    def test_commit_uses_a_configured_safe_chunk_and_defers_the_rest(self, mock_reserve):
+        other = JawabuFarmerMaster.objects.create(
+            customer_name='Other Customer', national_id='87654321',
+            primary_phone='254712345679', branch='Embu', status='active',
+        )
+        batch, _stats = create_system_export_review_batch(
+            group_id='-100sysup', telegram_message_id='sysup-chunked', sender='Officer',
+            source_filename='customers.csv', content=export_csv([
+                {
+                    'Customer ID': '9001', 'Name': 'WANJIKU, JANE', 'Mobile No': '0712345678',
+                    'ID NO': '12345678', 'Branch': 'Embu', 'Loan Officer': 'Officer A',
+                    'Product Name': 'Biogas', 'LGF Balance': '0',
+                },
+                {
+                    'Customer ID': '9002', 'Name': 'OTHER, CUSTOMER', 'Mobile No': '0712345679',
+                    'ID NO': '87654321', 'Branch': 'Embu', 'Loan Officer': 'Officer B',
+                    'Product Name': 'Biogas', 'LGF Balance': '0',
+                },
+            ]),
+        )
+
+        result = commit_system_export_review_batch(batch, batch.parsed_rows, actor='Officer')
+
+        self.assertTrue(result['success'])
+        self.assertEqual(result['committed'], 1)
+        self.assertEqual(result['deferred'], 1)
+        self.assertIn('commit again', result['message'])
+        batch.refresh_from_db()
+        self.assertEqual(batch.status, 'pending_review')
+        self.assertEqual(len(batch.parsed_rows), 1)
+        self.assertEqual(mock_reserve.call_count, 1)
+        other.refresh_from_db()
+        self.assertEqual(other.customer_no, '')
 
     def test_commit_preserves_imab_name_and_updates_system_fields(self):
         batch, _stats = create_system_export_review_batch(

@@ -14,6 +14,7 @@ import re
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -116,7 +117,16 @@ def _normalise_system_row(raw: dict[str, Any], source_row: int) -> dict[str, Any
     }
 
 
-def _read_csv(content: bytes) -> tuple[list[tuple[int, dict[str, Any]]], list[str]]:
+def _row_limit_error(max_rows: int) -> ValueError:
+    return ValueError(
+        f'This /sysup export has more than {max_rows} non-blank rows. '
+        'Split it into smaller exports and submit them separately.'
+    )
+
+
+def _read_csv(
+    content: bytes, *, max_rows: int | None = None,
+) -> tuple[list[tuple[int, dict[str, Any]]], list[str]]:
     text = ''
     for encoding in ('utf-8-sig', 'utf-8', 'cp1252'):
         try:
@@ -139,12 +149,16 @@ def _read_csv(content: bytes) -> tuple[list[tuple[int, dict[str, Any]]], list[st
     for row_number, values in enumerate(reader, start=2):
         if not any(str(value or '').strip() for value in values):
             continue
+        if max_rows is not None and len(rows) >= max_rows:
+            raise _row_limit_error(max_rows)
         padded = list(values) + [''] * max(0, len(headers) - len(values))
         rows.append((row_number, dict(zip(headers, padded))))
     return rows, headers
 
 
-def _read_xlsx(content: bytes) -> tuple[list[tuple[int, dict[str, Any]]], list[str]]:
+def _read_xlsx(
+    content: bytes, *, max_rows: int | None = None,
+) -> tuple[list[tuple[int, dict[str, Any]]], list[str]]:
     try:
         from openpyxl import load_workbook
         workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
@@ -168,6 +182,8 @@ def _read_xlsx(content: bytes) -> tuple[list[tuple[int, dict[str, Any]]], list[s
             values = list(row)
             if not any(_cell_text(value) for value in values):
                 continue
+            if max_rows is not None and len(rows) >= max_rows:
+                raise _row_limit_error(max_rows)
             rows.append((row_number, dict(zip(headers, values))))
         return rows, headers
     finally:
@@ -222,12 +238,17 @@ def resolve_system_export_row(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
-def parse_system_export(content: bytes, filename: str = '') -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def parse_system_export(
+    content: bytes, filename: str = '', *, max_rows: int | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Parse only a bounded system-export payload in the web process."""
+    if max_rows is None:
+        max_rows = max(1, int(getattr(settings, 'SYSUP_MAX_ROWS_PER_UPLOAD', 150) or 150))
     lower = str(filename or '').lower()
     if lower.endswith('.xlsx'):
-        source_rows, headers = _read_xlsx(content)
+        source_rows, headers = _read_xlsx(content, max_rows=max_rows)
     elif lower.endswith('.csv') or not lower:
-        source_rows, headers = _read_csv(content)
+        source_rows, headers = _read_csv(content, max_rows=max_rows)
     else:
         raise ValueError('The /sysup command only supports .csv or .xlsx system exports.')
     rows = [resolve_system_export_row(_normalise_system_row(raw, row_number)) for row_number, raw in source_rows]
@@ -362,7 +383,9 @@ def _identifier_belongs_to_a_different_customer(
 def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list[dict[str, Any]], *, actor: str = '') -> dict[str, Any]:
     if batch.status == 'committed':
         return {'success': True, 'message': 'This batch has already been committed. No duplicate write was made.', 'committed': 0, 'skipped': 0, 'review_needed': 0, 'errors': []}
-    committed = skipped = 0
+    committed = skipped = deferred = 0
+    commit_budget = max(1, int(getattr(settings, 'SYSUP_COMMIT_MAX_ROWS_PER_REQUEST', 20) or 20))
+    attempted_approved_rows = 0
     errors = []
     remaining = []
     for index, row in enumerate(rows, start=1):
@@ -371,6 +394,11 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
             skipped += 1
             remaining.append(row)
             continue
+        if attempted_approved_rows >= commit_budget:
+            deferred += 1
+            remaining.append(row)
+            continue
+        attempted_approved_rows += 1
         values, validation_errors = _commit_values(row)
         if validation_errors:
             _mark_review(row, '; '.join(validation_errors))
@@ -487,8 +515,13 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
             field for field, old_value in old_values.items()
             if str(new_values.get(field, '')) != str(old_value or '')
         }
+        revision_before = revision_after = None
         if material_changes:
             from core.services.jawabu_approvals import invalidate_material_approvals
+            from core.services.workflow_transitions import next_workflow_revision
+
+            revision_before, revision_after = next_workflow_revision(farmer)
+            farmer.save(update_fields=['workflow_revision', 'updated_at'])
             invalidate_material_approvals(
                 farmer=farmer,
                 changed_fields=material_changes,
@@ -503,6 +536,8 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
             metadata={'source_filename': batch.source_filename, 'source_row': row.get('Source Row'), 'match_basis': row.get('Match Basis', '')},
             old_values=old_values,
             new_values=new_values,
+            revision_before=revision_before,
+            revision_after=revision_after,
         )
         record_field_provenance(
             farmer,
@@ -513,22 +548,12 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
             source_row_number=int(row.get('Source Row') or 0) or None,
             actor=actor,
         )
-        # The system export is a Django-owned correction/update path. Publish
-        # the committed identity and JBL financial values to any configured
-        # operational registers, while keeping Sheet failures non-fatal to the
-        # canonical database transaction.
-        try:
-            from core.services.jawabu_pipeline import (
-                sync_farmer_to_internal_order_sheet,
-                sync_farmer_to_master_sheet,
-            )
-
-            sync_farmer_to_master_sheet(farmer)
-            sync_farmer_to_internal_order_sheet(farmer)
-        except Exception as exc:  # pragma: no cover - publishers already fail safely
-            # A transient Drive/Sheets failure must not undo an accepted
-            # system-export update; the publisher logs its own failure.
-            logger.warning('System-export publication failed for farmer %s: %s', farmer.id, exc, exc_info=True)
+        # A large /sysup must never perform Google I/O inside this web request.
+        # The durable Portal publication queue reads the committed Django state
+        # later and makes one bounded attempt at a time on subsequent traffic.
+        if material_changes:
+            from core.services.portal_publication import reserve_farmer_publication
+            reserve_farmer_publication(farmer, requested_by_label=actor)
         committed += 1
     batch.parsed_rows = remaining
     batch.committed_count += committed
@@ -539,4 +564,18 @@ def commit_system_export_review_batch(batch: JawabuFarmerUploadBatch, rows: list
     if batch.status == 'committed':
         batch.committed_at = timezone.now()
     batch.save()
-    return {'success': not errors, 'message': 'System export committed.' if not errors else 'Some rows still need review.', 'committed': committed, 'skipped': skipped, 'review_needed': len(remaining), 'errors': errors[:20]}
+    if errors:
+        message = 'Some rows still need review.'
+    elif deferred:
+        message = f'{committed} row(s) committed safely. {deferred} approved row(s) remain; commit again to continue.'
+    else:
+        message = 'System export committed.'
+    return {
+        'success': not errors,
+        'message': message,
+        'committed': committed,
+        'skipped': skipped,
+        'deferred': deferred,
+        'review_needed': len(remaining),
+        'errors': errors[:20],
+    }

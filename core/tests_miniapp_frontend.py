@@ -46,7 +46,9 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertLess(html.index('miniapp/portal_requisitions.js'), html.index('miniapp/portal_payments.js'))
         self.assertLess(html.index('miniapp/portal_payments.js'), html.index('miniapp/portal.js'))
         self.assertIn('miniapp/portal_queues.js?v=6', html)
-        self.assertIn('miniapp/portal_farmer_sheet.js?v=27', html)
+        self.assertIn('miniapp/portal_farmer_sheet.js?v=29', html)
+        self.assertIn('miniapp/utils.js?v=4', html)
+        self.assertIn('miniapp/portal.css?v=53', html)
         self.assertIn('miniapp/portal_filters.js?v=6', html)
         self.assertIn('miniapp/portal.js?v=47', html)
 
@@ -79,6 +81,19 @@ class MiniAppFrontendSmokeTests(TestCase):
             'showToast',
         ):
             self.assertIn(expected, source)
+
+    def test_portal_jbl_visit_keeps_a_server_backed_field_draft_through_sheet_closure(self):
+        source = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')
+        utilities = Path('core/static/miniapp/utils.js').read_text(encoding='utf-8')
+
+        self.assertIn('/jbl-queue/${encodeURIComponent(farmer.id)}/draft/', source)
+        self.assertIn('restoreJblVisitServerDraft', source)
+        self.assertIn('window.addEventListener(\'pagehide\'', source)
+        self.assertIn('await clearJblVisitDraft(farmer);', source)
+        self.assertIn('closeSheet({ saveDraft: false });', source)
+        self.assertIn('Closing a sheet, opening case history, or Telegram temporarily replacing', source)
+        self.assertIn("const baseUrl = settings.baseUrl ||", utilities)
+        self.assertIn("result['X-Request-ID'] = settings.requestId();", utilities)
 
     def test_miniapp_navigation_maps_case_detail_route_to_case_history(self):
         source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
@@ -113,6 +128,13 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('.sheet-panel {', portal_css)
         self.assertIn('max-height: var(--miniapp-viewport-height, 100dvh);', portal_css)
         self.assertIn('--miniapp-viewport-height', portal_css)
+
+    def test_jbl_gps_explanation_is_only_revealed_after_capture_failure(self):
+        source = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')
+
+        self.assertIn('jbl-location-unavailable-wrap" hidden', source)
+        self.assertIn('setGpsUnavailableReasonVisible(true)', source)
+        self.assertIn('setGpsUnavailableReasonVisible(false)', source)
 
     def test_portal_helpers_expose_pure_ui_primitives(self):
         source = Path('core/static/miniapp/portal_helpers.js').read_text(encoding='utf-8')

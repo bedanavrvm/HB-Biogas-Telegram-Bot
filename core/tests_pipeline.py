@@ -828,6 +828,83 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertEqual(response.json()['request_id'], 'portal-test-request-001')
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
+    def test_jbl_visit_recovery_draft_is_staff_scoped_and_field_only(self):
+        user = self.grant_portal_access(role='JBL_OFFICER', branches=['Ruiru'])
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Draft recovery farmer', national_id='49999111',
+            primary_phone='254799991111', branch='Ruiru', status='active',
+        )
+        url = reverse('portal_jbl_visit_draft', kwargs={'farmer_id': farmer.id})
+        headers = {
+            'HTTP_X_TELEGRAM_INIT_DATA': self._signed_init_data(),
+            'HTTP_X_REQUEST_ID': 'jbl-visit-draft-save-001',
+        }
+        payload = {
+            'payload': {
+                'saved_at': 1_754_000_000_000,
+                'values': {
+                    'jbl-date': '2026-08-03',
+                    'jbl-status': 'JBL Visit Completed',
+                    'jbl-officer': 'Portal User',
+                    'jbl-county': 'Kiambu',
+                    'jbl-sub-county': 'Ruiru',
+                    'jbl-village': 'Kahawa',
+                    'jbl-comment': 'Draft note',
+                    'jbl-lat': '-1.2',
+                    'jbl-lng': '36.8',
+                    'jbl-location-unavailable': '',
+                },
+            },
+        }
+
+        saved = self.client.post(url, data=json.dumps(payload), content_type='application/json', **headers)
+
+        self.assertEqual(saved.status_code, 200)
+        restored = self.client.get(url, HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data())
+        self.assertEqual(restored.status_code, 200)
+        self.assertEqual(restored.json()['draft']['payload']['values']['jbl-comment'], 'Draft note')
+        self.assertEqual(restored.json()['draft']['payload']['saved_at'], 1_754_000_000_000)
+        self.assertEqual(restored.json()['draft']['revision'], 1)
+        self.assertEqual(user.miniapp_drafts.filter(workflow='portal_jbl_visit').count(), 1)
+
+        rejected_attachment = self.client.post(
+            url,
+            data=json.dumps({'payload': {'values': {'files': 'data:application/pdf;base64,not-a-file'}}}),
+            content_type='application/json',
+            HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
+            HTTP_X_REQUEST_ID='jbl-visit-draft-attachment-001',
+        )
+        self.assertEqual(rejected_attachment.status_code, 400)
+        self.assertEqual(
+            self.client.get(url, HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data()).json()['draft']['payload']['values']['jbl-comment'],
+            'Draft note',
+        )
+
+        cleared = self.client.delete(
+            url,
+            HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
+            HTTP_X_REQUEST_ID='jbl-visit-draft-delete-001',
+        )
+        self.assertEqual(cleared.status_code, 200)
+        self.assertIsNone(self.client.get(url, HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data()).json()['draft'])
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
+    def test_jbl_visit_recovery_draft_requires_the_visit_write_capability(self):
+        self.grant_portal_access(role='CREDIT_ANALYST', branches=['Ruiru'])
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Draft access farmer', national_id='49999112',
+            primary_phone='254799991112', branch='Ruiru', status='active',
+        )
+
+        response = self.client.get(
+            reverse('portal_jbl_visit_draft', kwargs={'farmer_id': farmer.id}),
+            HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()['ok'], False)
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_portal_api_generates_request_id_when_client_does_not_supply_one(self):
         self.grant_portal_access(role='BUSINESS_ADMIN')
         response = self.client.get(

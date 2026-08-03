@@ -240,19 +240,19 @@ must be regenerated before a new traceable physical sign-off can be attached.
 
 ## Mini App recovery drafts
 
-`core.0072_miniapp_drafts` is committed but not authorized for production
-application. The feature requires verified Telegram identity and the form's
-existing scoped authorization; it cannot promise an offline save. Offline
-edits remain in the current open screen and become durable only after the UI
-shows that the server saved the draft. Attachments are intentionally excluded.
+`core.0072_miniapp_drafts` is applied in the current production migration
+baseline. Recovery requires verified Telegram identity and the form's existing
+scoped authorization; it cannot promise an offline save. Offline edits remain
+in the current open screen and become durable only after the UI shows that the
+server saved the draft. Attachments are intentionally excluded.
 
 Required verification before release:
 
-1. Explicit approval to deploy and apply the migration.
-2. A real Telegram mobile test for SPIN, FCA, FarmUp, and System Export draft
-   restore, conflict behaviour, expiration, and attachment re-selection.
-3. Confirmation that `release.sh` runs the migration against the intended
-   database only.
+1. A real Telegram mobile test for Portal JBL Visit, SPIN, FCA, FarmUp, and
+   System Export draft restore, conflict behaviour, expiration, and attachment
+   re-selection.
+2. A future form must reuse the shared server draft service and enforce its
+   own capability/scope before saving any field state.
 
 ### Order Approval browser draft remains
 

@@ -6,6 +6,9 @@
   let mapMarker = null;
   let currentMapLocation = null;
   let activeMediaObjectUrl = '';
+  let jblServerDraft = null;
+  let jblServerDraftFarmerId = '';
+  let jblDraftInputVersion = 0;
 
   const MODE_WRITE_CAPABILITIES = {
     jbl_visit: 'portal.jbl_visit.write',
@@ -394,9 +397,12 @@
           <div id="gps-coords" class="field-help">Not captured</div>
           <input type="hidden" id="jbl-lat" value="">
           <input type="hidden" id="jbl-lng" value="">
-          <label class="field-help" for="jbl-location-unavailable">If GPS is unavailable, explain why before forwarding.</label>
-          <input type="text" id="jbl-location-unavailable" maxlength="255" placeholder="e.g. phone location was disabled">
+          <div id="jbl-location-unavailable-wrap" hidden>
+            <label class="field-help" for="jbl-location-unavailable">GPS could not be captured. Explain why before forwarding.</label>
+            <input type="text" id="jbl-location-unavailable" maxlength="255" placeholder="e.g. phone location was disabled">
+          </div>
         </div>
+        <p id="jbl-draft-state" class="field-help jbl-draft-state" aria-live="polite">Draft saves automatically. Files are never stored in a draft.</p>
       </div>
     `;
   }
@@ -415,39 +421,133 @@
     if (label) label.textContent = selectedFileLabel(Array.from(input?.files || []));
   }
 
-  function saveJblVisitDraft(farmer) {
-    if (!farmer?.id || !el('jbl-date')) return;
+  function jblVisitDraftValues() {
     const values = {};
     ['jbl-date', 'jbl-status', 'jbl-officer', 'jbl-county', 'jbl-sub-county', 'jbl-village', 'jbl-comment', 'jbl-lat', 'jbl-lng', 'jbl-location-unavailable'].forEach(id => {
       values[id] = el(id)?.value || '';
     });
-    sessionStorage.setItem(jblDraftKey(farmer.id), JSON.stringify({ farmer_id: farmer.id, values, saved_at: Date.now() }));
+    return values;
   }
 
-  function restoreJblVisitDraft(farmer) {
+  function setJblDraftState(message, stateName) {
+    const status = el('jbl-draft-state');
+    if (!status) return;
+    status.textContent = message;
+    status.dataset.state = stateName || '';
+  }
+
+  function jblLocalDraft(farmer) {
     try {
       const raw = sessionStorage.getItem(jblDraftKey(farmer.id));
       const draft = raw ? JSON.parse(raw) : null;
-      if (!draft?.values) return;
-      Object.entries(draft.values).forEach(([id, value]) => {
-        const field = el(id);
-        if (field) field.value = value;
-      });
-      const help = el('gps-coords');
-      if (help && draft.values['jbl-lat'] && draft.values['jbl-lng']) {
-        help.textContent = `Location restored: ${draft.values['jbl-lat']}, ${draft.values['jbl-lng']}`;
-      }
-      const notice = document.createElement('p');
-      notice.className = 'field-help jbl-draft-notice';
-      notice.textContent = 'Details restored after returning to Portal. Reselect evidence if Telegram cleared the file selection.';
-      el('sheet-form')?.prepend(notice);
+      return draft?.values ? draft : null;
     } catch (_error) {
       sessionStorage.removeItem(jblDraftKey(farmer.id));
+      return null;
     }
   }
 
-  function clearJblVisitDraft(farmer) {
+  function applyJblVisitDraft(draft) {
+    if (!draft?.values) return false;
+    Object.entries(draft.values).forEach(([id, value]) => {
+      const field = el(id);
+      if (field) field.value = value;
+    });
+    const help = el('gps-coords');
+    if (help && draft.values['jbl-lat'] && draft.values['jbl-lng']) {
+      help.textContent = `Location restored: ${draft.values['jbl-lat']}, ${draft.values['jbl-lng']}`;
+    }
+    setGpsUnavailableReasonVisible(
+      !draft.values['jbl-lat'] && !draft.values['jbl-lng'] && !!draft.values['jbl-location-unavailable'],
+    );
+    return true;
+  }
+
+  function ensureJblServerDraft(farmer) {
+    if (!farmer?.id || !window.MiniAppUtils?.createServerDraft) return null;
+    if (jblServerDraft && jblServerDraftFarmerId === String(farmer.id)) return jblServerDraft;
+    jblServerDraftFarmerId = String(farmer.id);
+    jblServerDraft = window.MiniAppUtils.createServerDraft({
+      workflow: 'portal_jbl_visit',
+      contextKey: String(farmer.id),
+      baseUrl: `/api/portal/jbl-queue/${encodeURIComponent(farmer.id)}/draft/`,
+      initData: () => deps.tg?.initData || '',
+      requestId,
+      onSaving: () => setJblDraftState('Saving draft…', 'saving'),
+      onSaved: () => setJblDraftState('Draft saved securely. Files must be selected again after Telegram closes.', 'saved'),
+      onError: () => setJblDraftState('Draft is kept on this device. Keep the form open and retry when connected.', 'local-only'),
+      onCleared: () => setJblDraftState('', ''),
+    });
+    return jblServerDraft;
+  }
+
+  function saveJblVisitDraft(farmer, { immediate = false } = {}) {
+    if (!farmer?.id || !el('jbl-date')) return;
+    const draft = { farmer_id: farmer.id, values: jblVisitDraftValues(), saved_at: Date.now() };
+    try { sessionStorage.setItem(jblDraftKey(farmer.id), JSON.stringify(draft)); } catch (_error) {}
+    const serverDraft = ensureJblServerDraft(farmer);
+    if (!serverDraft || !navigator.onLine) return draft;
+    const save = immediate ? serverDraft.save(draft) : serverDraft.schedule(draft);
+    if (immediate && save?.catch) save.catch(() => {});
+    return draft;
+  }
+
+  function restoreJblVisitDraft(farmer) {
+    const draft = jblLocalDraft(farmer);
+    if (applyJblVisitDraft(draft)) {
+      setJblDraftState('Details restored on this device. Files must be selected again.', 'restored');
+    }
+    return draft;
+  }
+
+  async function restoreJblVisitServerDraft(farmer, localDraft, inputVersion) {
+    const serverDraft = ensureJblServerDraft(farmer);
+    if (!serverDraft) return;
+    try {
+      const remoteDraft = await serverDraft.load();
+      const remote = remoteDraft?.payload;
+      const localSavedAt = Number(localDraft?.saved_at || 0);
+      const remoteSavedAt = Number(remote?.saved_at || 0);
+      // Do not overwrite fields the officer has started typing while the
+      // network request was in flight. The device-local copy wins ties.
+      if (
+        remote?.values
+        && jblServerDraftFarmerId === String(farmer.id)
+        && state().selectedFarmer?.id === farmer.id
+        && jblDraftInputVersion === inputVersion
+        && remoteSavedAt > localSavedAt
+      ) {
+        applyJblVisitDraft(remote);
+        try { sessionStorage.setItem(jblDraftKey(farmer.id), JSON.stringify(remote)); } catch (_error) {}
+        setJblDraftState('Details restored from your secure draft. Files must be selected again.', 'restored');
+      } else if (!localDraft) {
+        setJblDraftState('Draft saves automatically. Files are never stored in a draft.', 'ready');
+      }
+    } catch (_error) {
+      // A local copy still protects the current session. The status below is
+      // deliberately informative rather than a disruptive autosave toast.
+      if (!localDraft) setJblDraftState('Draft will save when your connection is available.', 'offline');
+    }
+  }
+
+  async function clearJblVisitDraft(farmer) {
     if (farmer?.id) sessionStorage.removeItem(jblDraftKey(farmer.id));
+    if (jblServerDraftFarmerId === String(farmer?.id || '')) {
+      const draft = jblServerDraft;
+      jblServerDraft = null;
+      jblServerDraftFarmerId = '';
+      if (draft) {
+        try { await draft.clear(); } catch (_error) {}
+      }
+    }
+  }
+
+  function setGpsUnavailableReasonVisible(visible) {
+    const wrapper = el('jbl-location-unavailable-wrap');
+    const field = el('jbl-location-unavailable');
+    if (!wrapper) return;
+    wrapper.hidden = !visible;
+    if (!visible && field) field.value = '';
   }
 
   function selectedJblFilesAreValid() {
@@ -466,16 +566,25 @@
   }
 
   function wireJblVisitDraft(farmer) {
-    restoreJblVisitDraft(farmer);
+    jblDraftInputVersion = 0;
+    const localDraft = restoreJblVisitDraft(farmer);
+    restoreJblVisitServerDraft(farmer, localDraft, jblDraftInputVersion);
     ['jbl-laf-media', 'jbl-visit-photo-media'].forEach((id, index) => {
       const labelId = index ? 'jbl-visit-photo-media-name' : 'jbl-laf-media-name';
       el(id)?.addEventListener('change', () => {
         updateJblFileLabel(id, labelId);
+        jblDraftInputVersion += 1;
         saveJblVisitDraft(farmer);
       });
     });
-    el('sheet-form')?.addEventListener('input', () => saveJblVisitDraft(farmer));
-    el('sheet-form')?.addEventListener('change', () => saveJblVisitDraft(farmer));
+    el('sheet-form')?.addEventListener('input', () => {
+      jblDraftInputVersion += 1;
+      saveJblVisitDraft(farmer);
+    });
+    el('sheet-form')?.addEventListener('change', () => {
+      jblDraftInputVersion += 1;
+      saveJblVisitDraft(farmer);
+    });
   }
 
   function wireGpsButton() {
@@ -483,6 +592,7 @@
     if (!btn) return;
     btn.addEventListener('click', () => {
       if (!navigator.geolocation) {
+        setGpsUnavailableReasonVisible(true);
         deps.showToast('GPS is not supported by your browser', 'error');
         return;
       }
@@ -494,6 +604,7 @@
           const lng = position.coords.longitude;
           el('jbl-lat').value = lat;
           el('jbl-lng').value = lng;
+          setGpsUnavailableReasonVisible(false);
           el('gps-coords').innerHTML = `Location captured<br><span style="font-family: monospace; font-size: 12px; color: var(--color-success)">Lat: ${lat.toFixed(6)}, Lng: ${lng.toFixed(6)}</span>`;
           initMap(lat, lng);
           btn.innerHTML = 'Location Captured';
@@ -512,6 +623,7 @@
             coords.innerHTML = `${deps.escapeHtml(msg)}${error.code === error.PERMISSION_DENIED ? ' <button type="button" class="btn btn-secondary gps-settings-button" id="gps-open-settings">Open location settings</button>' : ''}`;
             coords.querySelector('#gps-open-settings')?.addEventListener('click', openLocationSettings);
           }
+          setGpsUnavailableReasonVisible(true);
           deps.showToast(msg, 'error');
         },
         { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
@@ -755,8 +867,12 @@
     `;
   }
 
-  function closeSheet() {
-    clearJblVisitDraft(state().selectedFarmer);
+  function closeSheet({ saveDraft = true } = {}) {
+    const farmer = state().selectedFarmer;
+    // Closing a sheet, opening case history, or Telegram temporarily replacing
+    // this WebView must never discard unfinished visit fields. Successful
+    // submission is the sole path that clears this private recovery draft.
+    if (saveDraft && state().activeMode === 'jbl_visit') saveJblVisitDraft(farmer, { immediate: true });
     sessionStorage.removeItem(JBL_ACTIVE_DRAFT_KEY);
     el('sheet-overlay')?.classList.remove('open');
     state().selectedFarmer = null;
@@ -824,7 +940,8 @@
     }
     const uploaded = Number(data.stored_count || 0);
     deps.showToast(data.already_completed ? 'This visit was already saved.' : `JBL visit logged${uploaded ? ` with ${uploaded} new evidence file${uploaded === 1 ? '' : 's'}` : ''}.`, 'success');
-    closeSheet();
+    await clearJblVisitDraft(farmer);
+    closeSheet({ saveDraft: false });
     deps.reloadCurrentQueue();
     deps.loadDashboard();
   }
@@ -923,8 +1040,11 @@
     bindEvents();
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden' && state().activeMode === 'jbl_visit') {
-        saveJblVisitDraft(state().selectedFarmer);
+        saveJblVisitDraft(state().selectedFarmer, { immediate: true });
       }
+    });
+    window.addEventListener('pagehide', () => {
+      if (state().activeMode === 'jbl_visit') saveJblVisitDraft(state().selectedFarmer, { immediate: true });
     });
     window.addEventListener('pageshow', () => { restoreJblVisitAfterWebViewReturn(); });
     window.setTimeout(restoreJblVisitAfterWebViewReturn, 0);

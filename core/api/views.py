@@ -3312,7 +3312,7 @@ def _download_telegram_system_export_document(message_data: dict) -> tuple[bytes
     if not lower_filename.endswith(('.csv', '.xlsx')):
         filename += '.xlsx' if 'spreadsheetml' in mime_type else '.csv'
     file_size = int(document.get('file_size') or 0)
-    max_mb = max(1, int(getattr(settings, 'FARMUP_MAX_FILE_SIZE_MB', 5)))
+    max_mb = max(1, int(getattr(settings, 'SYSUP_MAX_FILE_SIZE_MB', 5)))
     if file_size and file_size > max_mb * 1024 * 1024:
         return b'', filename, f'System export is too large. Maximum size is {max_mb} MB.'
     bot_token = settings.TELEGRAM_BOT_TOKEN

@@ -112,7 +112,7 @@ Key modules:
 - `jawabu_pipeline.py` — pipeline state and transition logic
 - `live_sheet_records.py` — sheet-originated record-change handling
 - `locations.py` — centralized branch and county configuration
-- `miniapp_drafts.py` — short-lived, user-owned recovery drafts for eligible Mini App forms
+- `miniapp_drafts.py` — short-lived, user-owned field-only recovery drafts for eligible Mini App forms; current Portal JBL Visit recovery uses the shared service and never persists attachments
 - `order_approval.py` — order-approval workflow and attachments
 - `parser.py` — complaint/message parsing
 - `requisition.py` — requisition generation and files
@@ -208,6 +208,8 @@ This is a template of variables this class of system typically needs. Treat it a
 | `COMPLIANCE_AUDIT_CHECKPOINT_RECIPIENT` | Controlled compliance mailbox for approved checkpoint delivery | Treat as sensitive operational contact data |
 | `REQUIRE_MINIAPP_IDEMPOTENCY_KEY` | Enables strict rejection of Mini App writes without a retry key after cached-client verification | No |
 | `GOOGLE_SHEETS_MAX_RETRIES` | Maximum bounded synchronous Google Sheets write attempts (default 4) | No |
+| `SYSUP_MAX_FILE_SIZE_MB` / `SYSUP_MAX_ROWS_PER_UPLOAD` | Maximum `/sysup` input size and non-blank rows parsed in a Render web request | No |
+| `SYSUP_COMMIT_MAX_ROWS_PER_REQUEST` | Approved `/sysup` rows committed per request; remaining rows stay staged for the next commit | No |
 | `TAT_REPAIR_RETRY_BASE_SECONDS` | Base delay for bounded Google Sheets quota backoff during Admin TAT repair retries | No |
 | `TAT_REPAIR_CASE_DELAY_SECONDS` | Delay between Admin TAT repair case writes to stay below Google Sheets per-minute quotas | No |
 | `COMPLAINT_CASES_MINI_APP_SHORT_NAME` | Telegram Mini App short name for complaint cases | No |

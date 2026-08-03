@@ -140,7 +140,9 @@
     const settings = options || {};
     const workflow = String(settings.workflow || '');
     const contextKey = String(settings.contextKey || '');
-    const baseUrl = '/api/miniapp-drafts/' + encodeURIComponent(workflow) + '/' + encodeURIComponent(contextKey) + '/';
+    const baseUrl = settings.baseUrl || (
+      '/api/miniapp-drafts/' + encodeURIComponent(workflow) + '/' + encodeURIComponent(contextKey) + '/'
+    );
     let revision = null;
     let timer = null;
     let savePromise = null;
@@ -150,6 +152,10 @@
       const result = { 'Content-Type': 'application/json' };
       if (settings.initData) result['X-Telegram-Init-Data'] = settings.initData();
       if (settings.token) result['X-MiniApp-Context-Token'] = settings.token();
+      // Portal applies the same retry-key policy to draft writes as it does to
+      // workflow writes. A fresh key is correct here: draft revision locking,
+      // rather than a workflow-side effect, is what makes repeated autosaves safe.
+      if (settings.requestId) result['X-Request-ID'] = settings.requestId();
       return result;
     }
 
