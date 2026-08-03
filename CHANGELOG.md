@@ -13,6 +13,10 @@
   behaviour without changing workflow data.
 - Added Portal semantic status tokens, a documented overlay stacking scale,
   shared labelled-value tile primitives, and wider reduced-motion coverage.
+- Portal route changes now swap only the active screen fragment. The shared
+  shell, filters, feedback, and workflow overlays remain mounted, preventing
+  duplicate bindings and reducing mobile DOM weight without changing any
+  workflow, customer, document, audit, Drive, or Sheets data.
 
   Migration note: no schema migration is included. To undo, redeploy the
   prior application commit; this does not alter customer, workflow, document,

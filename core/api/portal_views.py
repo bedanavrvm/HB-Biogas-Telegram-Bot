@@ -1293,17 +1293,17 @@ def _portal_screen_fragment(request, screen: str, context: dict | None = None):
             '<p>Your Portal role cannot open this screen.</p></section>',
             status=403,
         )
-    return render(request, 'portal/portal.html', context or _portal_screen_context(screen))
+    fragment_context = dict(context or _portal_screen_context(screen))
+    # The full Portal shell owns filters and all workflow overlays.  A route
+    # navigation replaces only this screen root so persistent module bindings
+    # cannot be lost or registered twice.
+    fragment_context['portal_fragment_only'] = True
+    return render(request, 'portal/portal.html', fragment_context)
 
 
 @require_http_methods(["GET", "HEAD"])
 def portal_screen(request, screen: str):
-    """Return the persistent shell on cold loads and authenticated content to htmx.
-
-    The Portal's tabs intentionally share one fragment because its existing
-    workflow overlays and client state span queues. The screen URL selects the
-    active section while keeping that shared markup as the single source.
-    """
+    """Return the Portal shell on cold loads and one authorized screen to htmx."""
     from core.services.portal_navigation import PORTAL_NAV_ITEMS, PORTAL_PERSONAL_NAV_ITEM
     known_screens = {item[0] for item in PORTAL_NAV_ITEMS} | {PORTAL_PERSONAL_NAV_ITEM[0]}
     if screen not in known_screens:

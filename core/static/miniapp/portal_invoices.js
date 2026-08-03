@@ -18,6 +18,10 @@
     return deps.el ? deps.el(id) : document.getElementById(id);
   }
 
+  function invoicesScreenIsActive() {
+    return document.getElementById('portal-screen')?.dataset.screen === 'invoices';
+  }
+
   function escapeHtml(value) {
     return deps.escapeHtml ? deps.escapeHtml(value) : String(value ?? '').replace(/[&<>"']/g, function (ch) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
@@ -195,6 +199,7 @@
   }
 
   async function load(page, extra) {
+    if (!invoicesScreenIsActive()) return;
     if (state.loading) return;
     state.loading = true;
     state.page = page || 1;
@@ -207,6 +212,7 @@
     if (extra && extra.batch_id) params.set('batch_id', extra.batch_id);
     const result = await deps.apiFetch('/invoice-pool/?' + params.toString());
     state.loading = false;
+    if (!invoicesScreenIsActive()) return;
     if (!result.ok || !result.data?.ok) {
       if (list) list.innerHTML = '<div class="empty-state"><div class="es-title">Could not load invoices</div><div class="es-sub">Refresh and try again.</div></div>';
       return;
@@ -505,9 +511,19 @@
   }
 
   function bindBulkActions() {
-    el('invoice-bulk-ignore')?.addEventListener('click', function () { bulkInvoiceAction('ignore'); });
-    el('invoice-bulk-restore')?.addEventListener('click', function () { bulkInvoiceAction('restore'); });
-    el('invoice-selection-clear')?.addEventListener('click', function () {
+    if (document.documentElement.dataset.invoiceBulkActionsBound === 'true') return;
+    document.documentElement.dataset.invoiceBulkActionsBound = 'true';
+    document.addEventListener('click', function (event) {
+      const button = event.target.closest('#invoice-bulk-ignore, #invoice-bulk-restore, #invoice-selection-clear');
+      if (!button) return;
+      if (button.id === 'invoice-bulk-ignore') {
+        bulkInvoiceAction('ignore');
+        return;
+      }
+      if (button.id === 'invoice-bulk-restore') {
+        bulkInvoiceAction('restore');
+        return;
+      }
       state.selectedIds.clear();
       document.querySelectorAll('.invoice-select-row').forEach(function (input) { input.checked = false; });
       updateBulkToolbar();
@@ -515,13 +531,15 @@
   }
 
   function bindUpload() {
-    const form = el('invoice-pool-upload-form');
-    if (!form) return;
-    form.addEventListener('submit', async function (event) {
+    if (document.documentElement.dataset.invoicePoolUploadBound === 'true') return;
+    document.documentElement.dataset.invoicePoolUploadBound = 'true';
+    document.addEventListener('submit', async function (event) {
+      const form = event.target.closest('#invoice-pool-upload-form');
+      if (!form) return;
       event.preventDefault();
-      const fileInput = el('invoice-pool-file');
-      const resultBox = el('invoice-pool-upload-result');
-      const submit = el('invoice-pool-upload-submit');
+      const fileInput = form.querySelector('#invoice-pool-file');
+      const resultBox = form.parentElement?.querySelector('#invoice-pool-upload-result');
+      const submit = form.querySelector('#invoice-pool-upload-submit');
       const files = fileInput?.files ? Array.from(fileInput.files) : [];
       if (!files.length) return deps.showToast('Select at least one invoice PDF first.', 'error');
       const invalid = files.find(function (file) {

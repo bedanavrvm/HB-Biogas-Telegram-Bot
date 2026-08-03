@@ -59,6 +59,22 @@
   let historyKind = 'orders';
   let lastShellScreen = null;
 
+  function currentScreenRoot() {
+    return document.getElementById('portal-screen');
+  }
+
+  function isCurrentScreen(page) {
+    const root = currentScreenRoot();
+    return Boolean(root && state.activePage === page && root.dataset.screen === page);
+  }
+
+  function unmountPreviousScreen() {
+    // Chart.js owns canvas resources that must be released when its screen is
+    // replaced. Other Portal modules bind to the persistent shell or use
+    // delegated events, so they safely survive an active-screen swap.
+    portalReports.unmount?.();
+  }
+
   function rememberPortalUi() {
     portalUiContext?.write?.({
       activePage: state.activePage,
@@ -114,22 +130,22 @@
       afterSwap?.();
       return;
     }
-    const target = document.getElementById('content');
+    const target = currentScreenRoot();
     if (!window.htmx || !target) {
       window.location.assign(destination.href);
       return;
     }
     if (afterSwap) {
       const runAfterSwap = event => {
-        if (event.detail?.target?.id !== 'content') return;
+        if (event.detail?.target?.id !== 'portal-screen') return;
         document.body.removeEventListener('htmx:afterSwap', runAfterSwap);
         afterSwap();
       };
       document.body.addEventListener('htmx:afterSwap', runAfterSwap);
     }
     window.htmx.ajax('GET', destination.pathname + destination.search, {
-      target: '#content',
-      swap: 'innerHTML transition:true',
+      target: '#portal-screen',
+      swap: 'outerHTML transition:true',
       pushURL: true,
     });
   }
@@ -353,6 +369,7 @@
   });
 
   function switchPage(page) {
+    unmountPreviousScreen();
     state.activePage = page;
     rememberPortalUi();
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.page === page));
@@ -376,26 +393,22 @@
       }
     }
 
-    document.querySelectorAll('.page').forEach(p => {
-      const isTarget = p.id === 'page-' + page;
-      if (isTarget) {
-        p.style.display = 'block';
-        p.offsetHeight; // force layout reflow for animation
-        p.classList.add('active');
-      } else {
-        p.classList.remove('active');
-        p.style.display = 'none';
-      }
-    });
-    return Boolean(document.getElementById('page-' + page));
+    const pageElement = document.getElementById('page-' + page);
+    if (pageElement) {
+      pageElement.style.display = 'block';
+      pageElement.classList.add('active');
+    }
+    return Boolean(pageElement);
   }
   // Dashboard
   async function loadDashboard() {
     const loading = el('dash-loading');
+    if (!loading || !isCurrentScreen('dashboard')) return;
     loading.style.display = 'block';
     loading.setAttribute('aria-busy', 'true');
     el('dash-counts').style.display = 'none';
     const { ok, status, data } = await apiFetch('/dashboard/');
+    if (!isCurrentScreen('dashboard')) return;
     if (!ok) {
       const message = data?.error || data?.message || 'The dashboard request failed.';
       const guidance = status === 403
@@ -515,6 +528,7 @@
     const cfg = queueConfig[qKey];
     if (!cfg) return;
     const listEl = el(cfg.listId);
+    if (!listEl || !isCurrentScreen(qKey)) return;
     listEl.innerHTML = '<div class="mini-skeleton-list" role="status" aria-label="Loading queue">'
       + (utils.skeletonCards ? utils.skeletonCards(3) : '<div class="empty-state"><div class="spinner-inline"></div></div>')
       + '</div>';
@@ -522,6 +536,7 @@
     const url = portalQueues.queueUrl ? portalQueues.queueUrl(qKey, page, state) : cfg.endpoint + '?page=' + page;
 
     const { ok, data, requestId } = await apiFetch(url);
+    if (!isCurrentScreen(qKey)) return;
     if (!ok) {
       const message = data?.error || 'The queue could not be loaded.';
       listEl.innerHTML = `<div class="empty-state queue-error" role="alert"><div class="es-icon">!</div><div class="es-title">Queue unavailable</div><div class="es-sub">${escapeHtml(message)}</div><button type="button" class="btn btn-secondary queue-retry" data-queue="${escapeHtml(qKey)}">Retry</button>${requestId ? `<div class="es-sub error-reference">Reference: ${escapeHtml(requestId)}</div>` : ''}</div>`;
@@ -1162,12 +1177,14 @@
   async function loadHistory(kind = historyKind) {
     historyKind = kind;
     const target = el('history-list');
+    if (!target || !isCurrentScreen('history')) return;
     if (target) target.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
     document.querySelectorAll('.history-kind').forEach(button => {
       button.classList.toggle('btn-primary', button.dataset.kind === kind);
       button.classList.toggle('btn-secondary', button.dataset.kind !== kind);
     });
     const { ok, data } = await apiFetch('/document-history/?kind=' + encodeURIComponent(kind));
+    if (!isCurrentScreen('history')) return;
     if (!ok || !data.ok) {
       if (target) target.innerHTML = '<div class="empty-state"><div class="es-title">Could not load document history</div></div>';
       return;
@@ -1211,6 +1228,7 @@
       ? { headers: { 'X-Portal-Workspace-Open-Key': newWorkspaceOpenKey() } }
       : undefined;
     const { ok, data } = await apiFetch('/farmers/' + encodeURIComponent(farmerId) + '/', requestOptions);
+    if (!isCurrentScreen('case_history') || currentScreenRoot()?.dataset.caseFarmerId !== farmerId) return;
     if (!ok || !data?.ok) {
       content.innerHTML = `<div class="batch-warning">${escapeHtml(data?.error || 'Could not load case history.')}</div>`;
       return;
@@ -1229,6 +1247,7 @@
     showCaseHistorySearch();
     target.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div></div>';
     const { ok, data } = await apiFetch('/farmers/?search=' + encodeURIComponent(normalized));
+    if (!isCurrentScreen('case_history')) return;
     if (!ok || !data?.ok) {
       target.innerHTML = `<div class="batch-warning">${escapeHtml(data?.error || 'Could not search cases.')}</div>`;
       return;
@@ -2063,8 +2082,10 @@
   window.PortalAppShell = {
     activate(page) {
       if (!page) return;
-      const changed = lastShellScreen !== page;
-      lastShellScreen = page;
+      const root = currentScreenRoot();
+      const screenSignature = `${page}:${root?.dataset.caseFarmerId || ''}`;
+      const changed = lastShellScreen !== screenSignature;
+      lastShellScreen = screenSignature;
       switchPage(page);
       if (changed) loadPage(page);
       if (window.lucide) window.lucide.createIcons();

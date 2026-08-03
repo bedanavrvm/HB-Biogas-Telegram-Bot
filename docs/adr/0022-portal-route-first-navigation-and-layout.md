@@ -34,18 +34,20 @@ Alpine.js for local interactivity; this does not justify a React/Vue migration.
    scale, shared labelled-value tile primitives, and complete reduced-motion
    coverage. Branded document print styles remain intentionally fixed to paper
    colours and are outside runtime theme replacement.
-6. The current all-screen fragment remains temporarily intact. Replacing it
-   with per-screen fragments requires each feature module's event binding to
-   be delegated or re-initializable after an htmx swap. That extraction is a
-   follow-up structural change, not a partial migration hidden in this work.
+6. A cold Portal load renders one persistent shell: offline feedback, shared
+   filters, workflow overlays, toast, and the selected screen root. Route
+   navigation replaces only `#portal-screen` with its single authorized page.
+   Screen-local handlers must be delegated or explicitly re-initializable;
+   persistent overlays retain their existing one-time bindings.
 
 ## Consequences
 
 - Staff get a compact role-aware bottom bar and a readable grouped sidebar
   without losing any authorized screen or deep-link behaviour.
 - Dynamic page changes no longer leave the browser URL at the old screen.
-- There is one migration path for a future fragment/lazy-load implementation,
-  with current behaviour retained while JavaScript modules are prepared.
+- A route change no longer ships or toggles every Portal page. This reduces
+  DOM size, avoids duplicate element IDs, and makes each screen's lifecycle
+  explicit without changing a workflow API or data record.
 - Navigation grouping and bottom-bar order are presentation rules. They do not
   grant access and must remain covered by server-side capability checks.
 
@@ -56,9 +58,9 @@ Alpine.js for local interactivity; this does not justify a React/Vue migration.
   risk without fixing competing navigation ownership.
 - **Keep all twelve-plus destinations in the bottom bar:** rejected because it
   produces illegible labels and unreliable touch targets on field devices.
-- **Immediately render only one screen fragment:** deferred because several
-  existing feature modules bind static controls at shell load. Doing this
-  before re-binding work would break invoice, payment, and requisition forms.
+- **Retain all screens inside a hidden sibling container:** rejected because
+  it leaves mobile memory/DOM pressure, duplicate IDs, and stale handler risk
+  in place even when the route-first navigation is working.
 
 ## Migration and rollback
 

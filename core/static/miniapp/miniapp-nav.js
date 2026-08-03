@@ -52,11 +52,11 @@
     }
 
     const fallbackUrl = portalBackFallbackUrl();
-    const target = document.getElementById('content');
+    const target = document.getElementById('portal-screen');
     if (window.htmx && target) {
       window.htmx.ajax('GET', fallbackUrl, {
-        target: '#content',
-        swap: 'innerHTML transition:true',
+        target: '#portal-screen',
+        swap: 'outerHTML transition:true',
         pushURL: true,
       });
       return;
@@ -247,11 +247,11 @@
     if (!window.htmx) return;
     const match = window.location.pathname.match(/\/portal\/s\/([^/]+)\//);
     if (!match) return;
-    const target = document.getElementById('content');
+    const target = document.getElementById('portal-screen');
     if (!target) return;
     window.htmx.ajax('GET', window.location.pathname, {
-      target: '#content',
-      swap: 'innerHTML transition:true',
+      target: '#portal-screen',
+      swap: 'outerHTML transition:true',
       pushURL: false,
     });
   });
@@ -268,7 +268,7 @@
   document.body.addEventListener('htmx:responseError', event => {
     const target = event.detail.target;
     if (!target) return;
-    if (target.id === 'content') {
+    if (target.id === 'content' || target.id === 'portal-screen') {
       target.innerHTML = '<section class="shell-error" role="alert"><h2>Screen unavailable</h2><p>'
         + (event.detail.xhr?.status === 403
           ? 'Your Telegram account is not authorized for this Portal screen.'

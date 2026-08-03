@@ -1,5 +1,5 @@
-<div id="portal-screen" data-screen="{{ active_screen }}" data-case-farmer-id="{{ case_history_farmer_id|default:'' }}" data-top-level="{% if case_history_farmer_id %}false{% else %}true{% endif %}">
-
+{% if not portal_fragment_only %}
+<div id="portal-shell">
   <div id="portal-offline-banner" style="display:none; position:sticky; top:0; z-index:80; margin:0 0 10px; padding:10px 12px; border:1px solid rgba(255,59,48,.25); border-radius:8px; background:#ffe5e5; color:#b42318; font-size:13px; font-weight:600;">Offline. You can view already loaded data, but uploads and updates need a connection.</div>
   <!-- Shared Filter Bar -->
   <div class="filter-bar" id="portal-filter-bar" style="display: none;">
@@ -19,8 +19,12 @@
       -
     </button>
   </div>
+{% endif %}
+
+<div id="portal-screen" data-screen="{{ active_screen }}" data-case-farmer-id="{{ case_history_farmer_id|default:'' }}" data-top-level="{% if case_history_farmer_id %}false{% else %}true{% endif %}">
 
   <!-- Dashboard -->
+  {% if active_screen == 'dashboard' %}
   <section id="page-dashboard" class="page{% if active_screen == 'dashboard' %} active{% endif %}">
     <div class="dashboard-intro">
       <div>
@@ -101,8 +105,10 @@
       </ol>
     </section>
   </section>
+  {% endif %}
 
   <!-- JBL Queue -->
+  {% if active_screen == 'jbl' %}
   <section id="page-jbl" class="page{% if active_screen == 'jbl' %} active{% endif %}">
     <header>
       <h1>JBL Visit Queue</h1>
@@ -118,7 +124,9 @@
     </div>
     <div class="pagination" id="pg-jbl"></div>
   </section>
+  {% endif %}
 
+  {% if active_screen == 'my_visits' %}
   <section id="page-my_visits" class="page{% if active_screen == 'my_visits' %} active{% endif %}">
     <header>
       <h1>My Submitted Visits</h1>
@@ -129,8 +137,10 @@
     </div>
     <div class="pagination" id="pg-my_visits"></div>
   </section>
+  {% endif %}
 
   <!-- Credit Queue -->
+  {% if active_screen == 'credit' %}
   <section id="page-credit" class="page{% if active_screen == 'credit' %} active{% endif %}">
     <header>
       <h1>Credit Analysis Queue</h1>
@@ -141,8 +151,10 @@
     </div>
     <div class="pagination" id="pg-credit"></div>
   </section>
+  {% endif %}
 
   <!-- Requisition Queue -->
+  {% if active_screen == 'final' %}
   <section id="page-final" class="page{% if active_screen == 'final' %} active{% endif %}">
     <header>
       <h1>Head of Rural Review</h1>
@@ -166,7 +178,9 @@
     </div>
     <div class="pagination" id="pg-final"></div>
   </section>
+  {% endif %}
 
+  {% if active_screen == 'requisition' %}
   <section id="page-requisition" class="page{% if active_screen == 'requisition' %} active{% endif %}">
     <header>
       <h1>Requisition Queue</h1>
@@ -199,7 +213,9 @@
     </div>
     <div class="pagination" id="pg-requisition"></div>
   </section>
+  {% endif %}
 
+  {% if active_screen == 'invoices' %}
   <section id="page-invoices" class="page{% if active_screen == 'invoices' %} active{% endif %}">
     <header>
       <h1>Invoices</h1>
@@ -263,8 +279,10 @@
     </div>
     <div class="pagination" id="pg-invoices"></div>
   </section>
+  {% endif %}
 
   <!-- Payment batch selection -->
+  {% if active_screen == 'payments' %}
   <section id="page-payments" class="page{% if active_screen == 'payments' %} active{% endif %}">
     <header><h1>Payments</h1><p class="meta">Select invoice-matched cases for a numbered payment batch</p></header>
     <div class="payment-builder-toolbar" data-required-capability="portal.payment.prepare">
@@ -287,8 +305,10 @@
       <div id="payments-review-content"></div>
     </section>
   </section>
+  {% endif %}
 
   <!-- Deferred -->
+  {% if active_screen == 'deferred' %}
   <section id="page-deferred" class="page{% if active_screen == 'deferred' %} active{% endif %}">
     <header>
       <h1>Deferred / Reappraisal Required</h1>
@@ -299,8 +319,10 @@
     </div>
     <div class="pagination" id="pg-deferred"></div>
   </section>
+  {% endif %}
 
   <!-- All Cases -->
+  {% if active_screen == 'all' %}
   <section id="page-all" class="page{% if active_screen == 'all' %} active{% endif %}">
     <header>
       <h1>All Cases</h1>
@@ -314,8 +336,10 @@
     </div>
     <div class="pagination" id="pg-all"></div>
   </section>
+  {% endif %}
 
   <!-- Batches -->
+  {% if active_screen == 'batches' %}
   <section id="page-batches" class="page{% if active_screen == 'batches' %} active{% endif %}">
     <header>
       <h1>Requisition Batches</h1>
@@ -329,8 +353,10 @@
     </div>
     <div class="pagination" id="pg-batches"></div>
   </section>
+  {% endif %}
 
   <!-- Case History / Case 360 -->
+  {% if active_screen == 'case_history' %}
   <section id="page-case_history" class="page{% if active_screen == 'case_history' %} active{% endif %}">
     {% if case_history_farmer_id %}
     <header class="case-history-page-header">
@@ -358,7 +384,9 @@
     </div>
     {% endif %}
   </section>
+  {% endif %}
 
+  {% if active_screen == 'history' %}
   <section id="page-history" class="page{% if active_screen == 'history' %} active{% endif %}">
     <header><h1>Document History</h1><p class="meta">Generated orders plus payment reviews and approved payment schedules</p></header>
     <div class="history-tabs" role="tablist">
@@ -367,7 +395,9 @@
     </div>
     <div id="history-list" class="farmer-list"><div class="empty-state"><div class="spinner-inline"></div></div></div>
   </section>
+  {% endif %}
 
+  {% if active_screen == 'imports' %}
   <section id="page-imports" class="page{% if active_screen == 'imports' %} active{% endif %}" data-required-capability="portal.imports.view">
     <header>
       <h1>Imports</h1>
@@ -395,7 +425,9 @@
     </section>
     <section id="portal-import-review" class="portal-import-review" hidden aria-live="polite"></section>
   </section>
+  {% endif %}
 
+  {% if active_screen == 'reports' %}
   <section id="page-reports" class="page{% if active_screen == 'reports' %} active{% endif %}" data-required-capability="portal.reports.view">
     <header>
       <h1>Reports</h1>
@@ -409,7 +441,9 @@
       <div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading report definitions...</div></div>
     </div>
   </section>
+  {% endif %}
 
+  {% if active_screen == 'settings' %}
   <section id="page-settings" class="page{% if active_screen == 'settings' %} active{% endif %}">
     <header class="portal-settings-hero"><span class="settings-eyebrow">MY PORTAL</span><h1>Settings</h1><p class="meta">Your account, work defaults, and the operational controls your role is authorised to use.</p></header>
     <section id="portal-settings-account" class="portal-settings-card miniapp-settings-account" aria-live="polite" hidden></section>
@@ -431,7 +465,11 @@
       <p class="field-help">Need a profile, role, branch, or access correction? Contact a JBL administrator.</p>
     </section>
   </section>
+  {% endif %}
 
+</div>
+
+{% if not portal_fragment_only %}
 <!-- Farmer detail sheet -->
 <div class="sheet-overlay" id="sheet-overlay" role="dialog" aria-modal="true">
   <div class="sheet-panel">
@@ -635,3 +673,4 @@
 <!-- Toast -->
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 </div>
+{% endif %}

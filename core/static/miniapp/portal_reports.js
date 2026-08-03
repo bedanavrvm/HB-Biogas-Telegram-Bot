@@ -323,6 +323,12 @@
     });
   }
 
+  function unmount() {
+    state.charts.forEach((chart) => chart.destroy?.());
+    state.charts = [];
+    state.root = null;
+  }
+
   window.PortalMiniAppReports = {
     async load(options = {}) {
       state.tg = options.tg || state.tg;
@@ -330,5 +336,6 @@
       bindEvents();
       return load();
     },
+    unmount,
   };
 })();

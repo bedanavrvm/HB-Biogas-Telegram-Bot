@@ -1368,15 +1368,31 @@ class JblPipelineApiTestCase(TestCase):
         self.assertNotContains(response, '<html')
         self.assertNotContains(response, 'id="bottom-tabs"')
         self.assertContains(response, 'data-screen="credit"')
+        self.assertContains(response, 'id="page-credit"')
+        self.assertNotContains(response, 'id="page-dashboard"')
+        self.assertNotContains(response, 'id="page-invoices"')
+        self.assertNotContains(response, 'id="sheet-overlay"')
+
+    def test_portal_cold_screen_retains_shared_shell_and_only_active_page(self):
+        response = self.client.get(reverse('portal_screen', kwargs={'screen': 'credit'}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="portal-shell"')
+        self.assertContains(response, 'id="portal-screen"')
+        self.assertContains(response, 'id="page-credit"')
+        self.assertContains(response, 'id="sheet-overlay"')
+        self.assertNotContains(response, 'id="page-dashboard"')
+        self.assertNotContains(response, 'id="page-invoices"')
 
     def test_each_portal_screen_cold_load_includes_shell(self):
-        for screen in ('dashboard', 'jbl', 'credit', 'final', 'requisition', 'deferred', 'all', 'case_history', 'batches', 'invoices', 'payments', 'history'):
+        for screen in ('dashboard', 'jbl', 'my_visits', 'credit', 'final', 'requisition', 'deferred', 'all', 'case_history', 'batches', 'invoices', 'payments', 'history', 'imports', 'reports', 'settings'):
             with self.subTest(screen=screen):
                 response = self.client.get(reverse('portal_screen', kwargs={'screen': screen}))
                 self.assertEqual(response.status_code, 200)
                 self.assertContains(response, '<html')
                 self.assertContains(response, 'id="content"')
                 self.assertContains(response, f'data-screen="{screen}"')
+                self.assertContains(response, f'id="page-{screen}"')
 
     def test_case_history_is_a_dedicated_screen(self):
         response = self.client.get(reverse('portal_screen', kwargs={'screen': 'case_history'}))

@@ -4,9 +4,9 @@
       <a class="shell-nav-link{% if item.key == active_screen %} active{% endif %}"
          href="{{ item.url }}"
          hx-get="{{ item.url }}"
-         hx-target="#content"
+         hx-target="#portal-screen"
          hx-select="#portal-screen"
-         hx-swap="innerHTML transition:true"
+         hx-swap="outerHTML transition:true"
          hx-push-url="true"
          data-screen="{{ item.key }}"
          data-bottom-primary="true">
@@ -25,9 +25,9 @@
         <a class="shell-nav-link{% if item.key == active_screen %} active{% endif %}"
            href="{{ item.url }}"
            hx-get="{{ item.url }}"
-           hx-target="#content"
+           hx-target="#portal-screen"
            hx-select="#portal-screen"
-           hx-swap="innerHTML transition:true"
+           hx-swap="outerHTML transition:true"
            hx-push-url="true"
            data-screen="{{ item.key }}">
           <i data-lucide="{{ item.icon }}" aria-hidden="true"></i>

@@ -7,6 +7,7 @@
   let importState = { batches: [], loaded: false };
 
   function node(id) { return document.getElementById(id); }
+  function importsScreenIsActive() { return document.getElementById('portal-screen')?.dataset.screen === 'imports'; }
 
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, char => ({
@@ -84,11 +85,13 @@
   }
 
   async function load({ silent = false } = {}) {
+    if (!importsScreenIsActive()) return;
     const list = node('portal-import-list');
     if (!list) return;
     if (!silent) list.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading staged imports...</div></div>';
     try {
       const result = await api.apiFetch('/imports/', {}, tg);
+      if (!importsScreenIsActive()) return;
       if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not load staged imports.');
       importState = { batches: result.data.batches || [], loaded: true };
       renderBatches();
@@ -137,12 +140,14 @@
   }
 
   async function review(batchId, page = 1) {
+    if (!importsScreenIsActive()) return;
     const target = node('portal-import-review');
     if (!target) return;
     target.hidden = false;
     target.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading review rows...</div></div>';
     try {
       const result = await api.apiFetch(`/imports/${encodeURIComponent(batchId)}/?page=${encodeURIComponent(page)}`, {}, tg);
+      if (!importsScreenIsActive()) return;
       if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not load import review data.');
       const batch = result.data.batch || {};
       const rows = Array.isArray(batch.rows) ? batch.rows : [];
