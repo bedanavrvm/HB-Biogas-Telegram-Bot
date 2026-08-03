@@ -221,8 +221,6 @@ This is a template of variables this class of system typically needs. Treat it a
 | `TELEGRAM_AUTH_MAX_AGE_SECONDS` | Maximum age accepted by the shared Telegram-to-Django authentication backend | No |
 | `COMPLAINT_CASE_MAX_FILES_PER_UPDATE` / `COMPLAINT_CASE_MAX_TOTAL_UPLOAD_MB` | Limits complaint evidence uploads | No |
 
-| `JAWABU_IMPORTS_DRIVE_FOLDER_ID` | Restricted Shared Drive root for IT-only Portal FarmUp/SysUp source archives | Treat as sensitive operational configuration |
-
 When adding a new configuration value, add it to `.env.example` with a placeholder (never a real value) in the same change, and add it to this table.
 
 ---

@@ -255,9 +255,9 @@ def attempt_import_archive(operation_id: str) -> dict[str, Any]:
         raise PortalImportError('The staged import is no longer available.')
     if batch.archive_file_id and batch.archive_url:
         return {'ok': True, 'batch': batch, 'operation': operation, 'replayed': True}
-    folder_id = str(getattr(settings, 'JAWABU_IMPORTS_DRIVE_FOLDER_ID', '') or '').strip()
+    folder_id = str(getattr(settings, 'GOOGLE_DRIVE_MEDIA_FOLDER_ID', '') or '').strip()
     if not folder_id:
-        batch.archive_error = 'Import Drive archive is not configured.'
+        batch.archive_error = 'The shared Drive archive is not configured.'
         batch.save(update_fields=['archive_error', 'updated_at'])
         return {'ok': False, 'batch': batch, 'operation': operation, 'error': batch.archive_error}
     if not batch.source_content:
@@ -269,7 +269,9 @@ def attempt_import_archive(operation_id: str) -> dict[str, Any]:
     def archive_once() -> dict[str, str]:
         from core.services.order_approval import GoogleDriveMediaStorage
 
-        file_id, url = GoogleDriveMediaStorage(parent_folder_id=folder_id).upload(
+        # Imports share the approved media Drive root, but the storage gateway
+        # creates their own Imports/YYYY/MM-Month/Batch_<id> path beneath it.
+        file_id, url = GoogleDriveMediaStorage().upload(
             batch.source_content,
             filename=_archive_filename(batch),
             mime_type=batch.source_mime_type or 'application/octet-stream',

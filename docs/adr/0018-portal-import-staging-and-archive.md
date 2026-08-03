@@ -25,11 +25,12 @@ hold a web worker while a file is parsed and a Google Drive upload waits.
 - Store a bounded original upload payload, SHA-256 digest, creator, retry key,
   and Drive-archive state on `JawabuFarmerUploadBatch`. The raw source supports
   later archive retry; it is never returned from the Portal API.
-- Archive accepted sources to the separately configured
-  `JAWABU_IMPORTS_DRIVE_FOLDER_ID` through a durable `IntegrationOperation`.
-  The Mini App makes one bounded follow-up attempt after staging; a later
-  permitted visit can retry a retained pending/failed operation. Local batch
-  staging never waits for Drive.
+- Archive accepted sources beneath the existing approved
+  `GOOGLE_DRIVE_MEDIA_FOLDER_ID`, in a distinct
+  `Imports/YYYY/MM-Month/Batch_<id>` path, through a durable
+  `IntegrationOperation`. The Mini App makes one bounded follow-up attempt
+  after staging; a later permitted visit can retry a retained pending/failed
+  operation. Local batch staging never waits for Drive.
 - Respect the requesting IT user's AccessGrant group scope for both batch
   listing and destination selection. Archive operations are scope-checked
   before any Drive call.
@@ -60,8 +61,9 @@ safe on the current free Render deployment.
 - **Drive upload inside the staging request:** rejected because it can exceed
   the free Render Gunicorn worker budget and make a valid staged import look
   failed.
-- **Use the ordinary media Drive root:** rejected because imports should have a
-  stricter, auditable retention boundary than field visit media.
+- **A separate Drive root:** rejected because the existing controlled Shared
+  Drive is the approved storage boundary. Imports receive an auditable,
+  separate path under that root instead of a second configuration value.
 
 ## Rollback
 

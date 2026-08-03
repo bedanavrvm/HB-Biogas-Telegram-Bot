@@ -73,7 +73,7 @@ class PortalImportStagingTests(TestCase):
             self.stage(allowed_group_ids={'-100different-group'})
         self.assertEqual(JawabuFarmerUploadBatch.objects.get(pk=batch.pk).group_id, self.group.group_id)
 
-    @override_settings(JAWABU_IMPORTS_DRIVE_FOLDER_ID='test-import-drive-root')
+    @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='test-shared-drive-root')
     @patch('core.services.order_approval.GoogleDriveMediaStorage.upload', return_value=('drive-file-1', 'https://drive.example/file-1'))
     def test_drive_archive_runs_after_staging_and_never_exposes_raw_source(self, upload):
         batch, operation, _replayed = self.stage(allowed_group_ids={self.group.group_id})

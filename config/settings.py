@@ -304,9 +304,6 @@ ORDER_APPROVAL_IMAGE_PREVIEW_LIMIT = config(
     cast=int,
 )
 GOOGLE_DRIVE_MEDIA_FOLDER_ID = config('GOOGLE_DRIVE_MEDIA_FOLDER_ID', default='')
-# A separate restricted root keeps raw operational imports out of the visit
-# media tree while preserving their review/retention evidence in Drive.
-JAWABU_IMPORTS_DRIVE_FOLDER_ID = config('JAWABU_IMPORTS_DRIVE_FOLDER_ID', default='')
 ORDER_APPROVAL_WEBAPP_ENABLED = config('ORDER_APPROVAL_WEBAPP_ENABLED', default=True, cast=bool)
 ORDER_APPROVAL_MINI_APP_SHORT_NAME = config('ORDER_APPROVAL_MINI_APP_SHORT_NAME', default='').strip().strip('/')
 FARMUP_MINI_APP_SHORT_NAME = config('FARMUP_MINI_APP_SHORT_NAME', default='').strip().strip('/')

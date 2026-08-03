@@ -17,8 +17,9 @@ source files only. It does not expose the existing customer-commit routines.
 A future commit workflow needs its own approved maker-checker decision,
 explicit row selection, and separate release authorization. Until then, any
 Drive archive marked `needs attention` remains retriable from the authorised
-Imports screen or support tooling; the configured Imports Drive folder must be
-restricted to the approved Shared Drive members.
+Imports screen or support tooling. Archives use their own Imports path beneath
+the existing approved Shared Drive root and remain visible only to its
+approved members.
 
 ## JBL visit evidence after a Telegram/WebView return
 
