@@ -1037,10 +1037,15 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
-.review-stage-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 0 12px; padding:10px 12px; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-surface); }
-.review-stage-toolbar label { font-size:11px; font-weight:700; color:var(--text-primary); }
-.review-stage-toolbar select { min-height:36px; border:1px solid var(--border-color); border-radius:8px; background:var(--bg-muted); color:var(--text-primary); padding:7px 9px; }
-.review-stage-toolbar .meta { flex:1; min-width:220px; }
+.review-stage-toolbar { margin:0 0 12px; padding:4px; border:1px solid var(--border-color); border-radius:12px; background:var(--bg-surface); }
+.review-stage-tabs { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:4px; padding:3px; border-radius:9px; background:var(--bg-muted); }
+.review-stage-tab { min-width:0; min-height:48px; padding:7px 10px; border:0; border-radius:7px; background:transparent; color:var(--text-muted); font:inherit; text-align:left; cursor:pointer; transition:background .16s ease, color .16s ease, box-shadow .16s ease; }
+.review-stage-tab > span, .review-stage-tab > small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.review-stage-tab > span { font-size:13px; font-weight:800; }
+.review-stage-tab > small { margin-top:2px; font-size:10px; font-weight:600; }
+.review-stage-tab.is-active { background:var(--button-color, var(--brand-primary)); color:var(--button-text-color, #fff); box-shadow:0 1px 3px rgba(15,23,42,.18); }
+.review-stage-tab:focus-visible { outline:2px solid var(--link-color, var(--brand-primary)); outline-offset:2px; }
+.review-stage-toolbar .meta { display:block; margin:8px 8px 5px; color:var(--text-muted); font-size:11px; line-height:1.35; }
 .btn-open-payment-review { margin-top:9px; width:100%; justify-content:center; }
 .payment-case-comment { width:100%; min-height:56px; resize:vertical; }
 .payment-review-case-list { display:grid; gap:10px; }

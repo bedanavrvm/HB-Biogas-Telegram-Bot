@@ -419,6 +419,45 @@
     batches: { endpoint: '/requisition-batches/', fragmentEndpoint: '/requisition-batches/fragment/', listId: 'batches-list', pageKey: 'batches', mode: null, emptyTitle: 'No batches found', emptySub: 'No requisition batches have been generated yet.' },
   };
 
+  const FINAL_REVIEW_STAGES = new Set(['decision', 'payment']);
+
+  function normaliseFinalReviewStage(value) {
+    const stage = String(value || '').trim().toLowerCase();
+    return FINAL_REVIEW_STAGES.has(stage) ? stage : 'decision';
+  }
+
+  // The review queue is a two-way operational choice, not a filter with an
+  // arbitrary third state. Keeping the active tab and request state together
+  // prevents a fragment refresh from showing a different list than its tab.
+  function syncFinalReviewStageTabs() {
+    const stage = normaliseFinalReviewStage(state.filters.reviewStage);
+    state.filters.reviewStage = stage;
+    document.querySelectorAll('[data-final-review-stage]').forEach(tab => {
+      const active = tab.dataset.finalReviewStage === stage;
+      tab.classList.toggle('is-active', active);
+      tab.setAttribute('aria-selected', String(active));
+      tab.tabIndex = active ? 0 : -1;
+    });
+    const help = el('final-review-stage-help');
+    if (help) {
+      help.textContent = stage === 'payment'
+        ? 'Review the exact cases captured in each pending payment file.'
+        : 'Record the final decision before an approved case moves to Orders.';
+    }
+  }
+
+  async function selectFinalReviewStage(value) {
+    const stage = normaliseFinalReviewStage(value);
+    if (state.filters.reviewStage === stage) {
+      syncFinalReviewStageTabs();
+      return;
+    }
+    state.filters.reviewStage = stage;
+    syncFinalReviewStageTabs();
+    rememberPortalUi();
+    if (state.activePage === 'final') await loadQueue('final', 1);
+  }
+
   function queueKeyForList(listId) {
     if (portalQueues.queueKeyForList) return portalQueues.queueKeyForList(listId);
     if (!listId) return null;
@@ -1491,7 +1530,7 @@
       showToast('This saved view is no longer available to your Portal access.', 'error');
       return;
     }
-    if (el('final-review-stage')) el('final-review-stage').value = state.filters.reviewStage;
+    syncFinalReviewStageTabs();
     lastShellScreen = destination;
     switchPage(destination);
     rememberPortalUi();
@@ -1548,7 +1587,7 @@
     if (isRootLanding && !hasRestoredReviewStage && ['decision', 'payment'].includes(workspaceFilters.status || savedFilters.status)) {
       state.filters.reviewStage = workspaceFilters.status || savedFilters.status;
     }
-    if (el('final-review-stage')) el('final-review-stage').value = state.filters.reviewStage;
+    syncFinalReviewStageTabs();
     const savedQueue = isRootLanding ? String(startupView?.queue || savedFilters.queue || '') : '';
     const requestedPage = savedQueue && hasCapability(PAGE_CAPABILITIES[savedQueue])
       ? savedQueue
@@ -1811,10 +1850,17 @@
     loadQueue('jbl', 1);
   });
 
+  document.addEventListener('click', event => {
+    const reviewTab = event.target.closest('[data-final-review-stage]');
+    if (!reviewTab) return;
+    event.preventDefault();
+    selectFinalReviewStage(reviewTab.dataset.finalReviewStage);
+  });
+
   // The filter module deliberately owns filtering mechanics. Persisting this
   // harmless view context here keeps all Portal navigation state in one place.
   document.addEventListener('change', event => {
-    if (event.target.matches('#final-review-stage, #filter-county, #filter-branch')) {
+    if (event.target.matches('#filter-county, #filter-branch')) {
       window.setTimeout(rememberPortalUi, 0);
     }
     if (event.target.matches('#portal-preference-compact-cards')) {

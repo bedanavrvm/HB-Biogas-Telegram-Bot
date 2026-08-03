@@ -536,7 +536,12 @@ PORTAL_QUEUE_CAPABILITIES = {
 
 
 def _portal_review_stage(request, params=None) -> str:
-    """Normalize the three HOR review lenses exposed by the review page."""
+    """Normalize final-review queue stages, including the legacy requisition URL.
+
+    The staff UI presents only Orders (``decision``) and Payments.  Retaining
+    ``requisition`` here preserves existing direct links while the dedicated
+    Orders screen remains the one place staff assign requisition batches.
+    """
     params = params if params is not None else request.GET
     value = str(params.get('stage') or params.get('review_stage') or 'decision').strip().lower()
     return value if value in {'decision', 'requisition', 'payment'} else 'decision'

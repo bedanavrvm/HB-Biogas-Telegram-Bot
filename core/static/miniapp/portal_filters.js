@@ -133,13 +133,6 @@
   }
 
   function bindEvents() {
-    el('final-review-stage')?.addEventListener('change', async event => {
-      state().filters.reviewStage = event.target.value || 'decision';
-      // Fetch the selected lens again so the non-HTMX fallback and the
-      // fragment path both replace the cached decision queue.
-      await deps.loadQueue('final', 1);
-    });
-
     el('filter-county')?.addEventListener('change', async event => {
       state().filters.county = event.target.value;
       state().filters.branch = '';

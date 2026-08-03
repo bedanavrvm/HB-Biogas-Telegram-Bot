@@ -137,13 +137,18 @@
       <h1>Head of Rural Review</h1>
       <p class="meta">Make final decisions and review payment batches. Approved cases move automatically to Orders.</p>
     </header>
-    <div class="review-stage-toolbar" role="group" aria-label="Head of Rural review stage">
-      <label for="final-review-stage">Review queue</label>
-      <select id="final-review-stage">
-        <option value="decision">Final decision (before requisition)</option>
-        <option value="payment">Payment batches awaiting HOR review</option>
-      </select>
-      <span class="meta">Payment review shows the exact cases captured in each pending payment file.</span>
+    <div class="review-stage-toolbar" aria-label="Head of Rural review queue">
+      <div class="review-stage-tabs" role="tablist" aria-label="Choose review queue">
+        <button type="button" class="review-stage-tab is-active" role="tab" aria-selected="true" aria-controls="final-list" data-final-review-stage="decision">
+          <span>Orders</span>
+          <small>Final decisions</small>
+        </button>
+        <button type="button" class="review-stage-tab" role="tab" aria-selected="false" aria-controls="final-list" data-final-review-stage="payment">
+          <span>Payments</span>
+          <small>Pending payment files</small>
+        </button>
+      </div>
+      <p id="final-review-stage-help" class="meta">Record the final decision before an approved case moves to Orders.</p>
     </div>
     <div id="final-list" class="farmer-list">
       <div class="empty-state"><div class="spinner-inline"></div></div>

@@ -48,9 +48,9 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('miniapp/portal_queues.js?v=6', html)
         self.assertIn('miniapp/portal_farmer_sheet.js?v=29', html)
         self.assertIn('miniapp/utils.js?v=4', html)
-        self.assertIn('miniapp/portal.css?v=53', html)
-        self.assertIn('miniapp/portal_filters.js?v=6', html)
-        self.assertIn('miniapp/portal.js?v=47', html)
+        self.assertIn('miniapp/portal.css?v=54', html)
+        self.assertIn('miniapp/portal_filters.js?v=7', html)
+        self.assertIn('miniapp/portal.js?v=48', html)
 
         spin_response = self.client.get(reverse('spin_form') + '?group_id=-100spin&token=test-token')
         spin_html = spin_response.content.decode('utf-8')
@@ -261,12 +261,20 @@ class MiniAppFrontendSmokeTests(TestCase):
     def test_final_review_queue_keeps_its_selected_lens_in_every_request_path(self):
         queue_source = Path('core/static/miniapp/portal_queues.js').read_text(encoding='utf-8')
         portal_source = Path('core/static/miniapp/portal.js').read_text(encoding='utf-8')
+        filter_source = Path('core/static/miniapp/portal_filters.js').read_text(encoding='utf-8')
+        portal_template = Path('core/templates/portal/portal.html').read_text(encoding='utf-8')
         list_template = Path('core/templates/portal/partials/farmer_list.html').read_text(encoding='utf-8')
 
         self.assertIn("queueKey === 'final'", queue_source)
         self.assertNotIn("state.activePage === 'final'", queue_source)
         self.assertIn("params.set('stage', state.filters.reviewStage)", queue_source)
         self.assertIn("qKey === 'final' && state.filters.reviewStage", portal_source)
+        self.assertIn("selectFinalReviewStage", portal_source)
+        self.assertIn("closest('[data-final-review-stage]')", portal_source)
+        self.assertIn('data-final-review-stage="decision"', portal_template)
+        self.assertIn('data-final-review-stage="payment"', portal_template)
+        self.assertNotIn('id="final-review-stage"', portal_template)
+        self.assertNotIn("el('final-review-stage')", filter_source)
         self.assertIn("&stage={{ review_stage|urlencode }}", list_template)
 
     def test_portal_farmer_sheet_exposes_detail_primitives(self):
@@ -401,10 +409,13 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('data-payment-case-card', requisitions_source)
         self.assertIn('bindPaymentReviewAccordion', requisitions_source)
 
-    def test_head_of_rural_selector_only_contains_actual_hor_queues(self):
+    def test_head_of_rural_tabs_only_expose_order_and_payment_reviews(self):
         response = self.client.get(reverse('portal_home'))
-        self.assertContains(response, 'Final decision (before requisition)')
-        self.assertContains(response, 'Payment batches awaiting HOR review')
+        self.assertContains(response, 'data-final-review-stage="decision"')
+        self.assertContains(response, 'data-final-review-stage="payment"')
+        self.assertContains(response, '>Orders<')
+        self.assertContains(response, '>Payments<')
+        self.assertNotContains(response, 'id="final-review-stage"')
         self.assertNotContains(response, 'Ready for requisition / order')
 
     def test_portal_payments_exposes_selection_primitives(self):

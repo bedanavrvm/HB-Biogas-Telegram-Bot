@@ -1,5 +1,16 @@
 # Changelog
 
+## Portal final-review queue tabs - 03-August-2026
+
+- Head of Rural Review now uses two direct, touch-sized tabs: **Orders** for
+  final decisions before a case can move to Orders, and **Payments** for cases
+  captured in pending payment files. The selected tab is retained across queue
+  fragment refreshes and sends its server-validated stage with every request.
+
+  Migration note: no schema migration is included. To undo, redeploy the prior
+  application commit; this only changes the Portal presentation and queue
+  selection control.
+
 ## Portal JBL Visit recovery drafts - 03-August-2026
 
 - Unfinished JBL Visit fields now autosave to a private, verified staff draft as
