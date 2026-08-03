@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -37,7 +38,6 @@ class PortalImportStagingTests(TestCase):
             kind='farmup',
             filename='farmers.csv',
             content=FARMUP_CSV,
-            group_id=self.group.group_id,
             request_id=request_id,
             actor=self.user,
             allowed_group_ids=allowed_group_ids,
@@ -61,8 +61,8 @@ class PortalImportStagingTests(TestCase):
         self.assertEqual(JawabuFarmerUploadBatch.objects.count(), 1)
         self.assertFalse(JawabuFarmerMaster.objects.exists())
 
-    def test_group_scope_cannot_stage_into_another_group(self):
-        with self.assertRaisesMessage(PortalImportError, 'Select an active Jawabu HomeBiogas group'):
+    def test_configured_import_group_must_be_in_staff_scope(self):
+        with self.assertRaisesMessage(PortalImportError, 'does not cover the configured Jawabu HomeBiogas workflow'):
             self.stage(allowed_group_ids={'-100different-group'})
         self.assertFalse(JawabuFarmerUploadBatch.objects.exists())
 
@@ -72,6 +72,36 @@ class PortalImportStagingTests(TestCase):
         with self.assertRaisesMessage(PortalImportError, 'unavailable in your scope'):
             self.stage(allowed_group_ids={'-100different-group'})
         self.assertEqual(JawabuFarmerUploadBatch.objects.get(pk=batch.pk).group_id, self.group.group_id)
+
+    def test_import_group_is_fixed_to_the_single_configured_workflow(self):
+        GroupSheetConfiguration.objects.create(
+            group_id='-100another-jawabu-group',
+            display_name='Another Jawabu workflow',
+            sheet_id='another-sheet-id',
+            workflow={'type': 'jawabu'},
+        )
+
+        batch, _operation, _replayed = self.stage(allowed_group_ids={self.group.group_id})
+
+        self.assertEqual(batch.group_id, self.group.group_id)
+
+    def test_multiple_configured_import_workflows_are_a_safe_configuration_error(self):
+        GroupSheetConfiguration.objects.create(
+            group_id='-100duplicate-import-workflow',
+            display_name='Duplicate Jawabu HomeBiogas',
+            sheet_id='duplicate-sheet-id',
+            workflow={'type': 'jawabu_homebiogas'},
+        )
+
+        with self.assertRaisesMessage(PortalImportError, 'More than one Jawabu HomeBiogas import workflow'):
+            self.stage()
+
+    def test_django_superuser_import_scope_is_global(self):
+        from core.api.portal_views import _portal_import_group_ids
+
+        request = SimpleNamespace(portal_access={'technical_override': True, 'grants': []})
+
+        self.assertIsNone(_portal_import_group_ids(request))
 
     @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='test-shared-drive-root')
     @patch('core.services.order_approval.GoogleDriveMediaStorage.upload', return_value=('drive-file-1', 'https://drive.example/file-1'))

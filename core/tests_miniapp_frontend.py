@@ -51,7 +51,8 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('miniapp/utils.js?v=4', html)
         self.assertIn('miniapp/portal.css?v=54', html)
         self.assertIn('miniapp/portal_filters.js?v=7', html)
-        self.assertIn('miniapp/portal_imports.js?v=1', html)
+        self.assertIn('miniapp/portal_imports.js?v=2', html)
+        self.assertNotIn('portal-import-group', html)
         self.assertIn('miniapp/portal_requisitions.js?v=33', html)
         self.assertIn('miniapp/portal.js?v=50', html)
 

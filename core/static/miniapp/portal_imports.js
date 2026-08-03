@@ -4,7 +4,7 @@
   const api = window.PortalMiniAppApi || {};
   const utils = window.MiniAppUtils || {};
   const tg = window.Telegram?.WebApp;
-  let importState = { groups: [], batches: [], loaded: false };
+  let importState = { batches: [], loaded: false };
 
   function node(id) { return document.getElementById(id); }
 
@@ -61,23 +61,6 @@
     return String(kind) === 'sysup' ? 'SysUp' : 'FarmUp';
   }
 
-  function renderGroups() {
-    const select = node('portal-import-group');
-    if (!select) return;
-    const selected = select.value;
-    select.replaceChildren();
-    if (!importState.groups.length) {
-      select.add(new Option('No permitted Jawabu group', ''));
-      select.disabled = true;
-      return;
-    }
-    select.disabled = importState.groups.length === 1;
-    if (importState.groups.length > 1) select.add(new Option('Select group', ''));
-    importState.groups.forEach(group => select.add(new Option(group.label, group.group_id)));
-    select.value = importState.groups.some(group => group.group_id === selected)
-      ? selected : (importState.groups.length === 1 ? importState.groups[0].group_id : '');
-  }
-
   function renderBatches() {
     const list = node('portal-import-list');
     if (!list) return;
@@ -91,7 +74,7 @@
       const retry = batch.archive_state === 'needs_attention'
         ? `<button type="button" class="btn btn-secondary portal-import-archive" data-batch-id="${escapeHtml(batch.id)}">Retry Drive archive</button>` : '';
       return `<article class="portal-import-card">
-        <div class="portal-import-card-title"><div><span class="settings-eyebrow">${kindText(batch.kind)}</span><h3>${escapeHtml(batch.source_filename || 'Untitled import')}</h3><p>${escapeHtml(batch.group_id || 'No group')} · ${escapeHtml(formatDateTime(batch.created_at))}</p></div>${archived}</div>
+        <div class="portal-import-card-title"><div><span class="settings-eyebrow">${kindText(batch.kind)}</span><h3>${escapeHtml(batch.source_filename || 'Untitled import')}</h3><p>Jawabu HomeBiogas · ${escapeHtml(formatDateTime(batch.created_at))}</p></div>${archived}</div>
         <div class="portal-import-stats"><span><strong>${escapeHtml(batch.total_rows)}</strong> rows</span><span class="${issues ? 'warning' : ''}"><strong>${escapeHtml(issues)}</strong> review needed</span><span><strong>${escapeHtml(batch.committed_count)}</strong> committed outside Portal</span></div>
         ${batch.error ? `<p class="portal-import-error">${escapeHtml(batch.error)}</p>` : ''}
         ${batch.archive_error ? `<p class="portal-import-error">${escapeHtml(batch.archive_error)}</p>` : ''}
@@ -107,8 +90,7 @@
     try {
       const result = await api.apiFetch('/imports/', {}, tg);
       if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not load staged imports.');
-      importState = { groups: result.data.groups || [], batches: result.data.batches || [], loaded: true };
-      renderGroups();
+      importState = { batches: result.data.batches || [], loaded: true };
       renderBatches();
     } catch (error) {
       list.innerHTML = `<div class="empty-state"><div class="es-title">Imports unavailable</div><div class="es-sub">${escapeHtml(error.message || 'Refresh and try again.')}</div></div>`;
@@ -118,19 +100,13 @@
   async function stage(form) {
     const kind = String(form.dataset.importKind || '').trim();
     const fileInput = form.querySelector('input[type="file"]');
-    const groupId = node('portal-import-group')?.value || '';
     const submit = form.querySelector('button[type="submit"]');
     if (!fileInput?.files?.[0]) {
       feedback('Choose a source file before staging it.', 'error');
       return;
     }
-    if (!groupId) {
-      feedback('Choose the Jawabu HomeBiogas group that owns this import.', 'error');
-      return;
-    }
     const formData = new FormData();
     formData.set('file', fileInput.files[0]);
-    formData.set('group_id', groupId);
     setLoading(submit, true, 'Staging');
     feedback('Validating and staging the source file…', 'info');
     try {

@@ -40,6 +40,10 @@
   files through the existing validated parsers. It intentionally has no Portal
   customer-commit control: staging changes no customer, case, order, payment,
   or Sheet record.
+- FarmUp and SysUp now always resolve to the single configured **Jawabu
+  HomeBiogas** workflow. IT no longer selects a Telegram group in the Mini
+  App; a missing, duplicate, or out-of-scope configuration returns a clear
+  server-side error before the source is staged.
 - Every accepted Portal source retains bounded local archive metadata and makes
   a separate, durable Drive-archive attempt beneath the existing approved
   Shared Drive root, in an `Imports/YYYY/MM-Month/Batch_<id>` path. The Portal

@@ -28,7 +28,7 @@ IMPORT_KIND_SYSUP = 'sysup'
 IMPORT_KINDS = frozenset({IMPORT_KIND_FARMUP, IMPORT_KIND_SYSUP})
 SOURCE_MODEL = 'core.JawabuFarmerUploadBatch'
 ARCHIVE_OPERATION = 'portal_import_drive_archive'
-_JAWABU_GROUP_TYPES = frozenset({'jawabu', 'jawabu_homebiogas'})
+_JAWABU_IMPORT_WORKFLOW_TYPE = 'jawabu_homebiogas'
 _SAFE_FILENAME = re.compile(r'[^A-Za-z0-9._ -]+')
 
 
@@ -36,36 +36,27 @@ class PortalImportError(ValueError):
     """A stable validation failure suitable for a staff-facing API response."""
 
 
-def available_import_groups(*, allowed_group_ids: set[str] | None = None) -> list[dict[str, str]]:
-    """Return enabled Jawabu group configurations eligible for these imports."""
-    groups = []
-    for config in GroupSheetConfiguration.objects.filter(enabled=True).order_by('display_name', 'group_id'):
-        workflow_type = str((config.workflow or {}).get('type') or '').strip()
-        if workflow_type not in _JAWABU_GROUP_TYPES:
-            continue
-        if allowed_group_ids is not None and str(config.group_id) not in allowed_group_ids:
-            continue
-        groups.append({
-            'group_id': str(config.group_id),
-            'label': str(config.display_name or config.group_id),
-        })
-    return groups
+def resolve_import_group(*, allowed_group_ids: set[str] | None = None) -> GroupSheetConfiguration:
+    """Resolve the one configured Jawabu HomeBiogas import destination.
 
-
-def resolve_import_group(
-    group_id: str = '', *, allowed_group_ids: set[str] | None = None,
-) -> GroupSheetConfiguration:
-    """Resolve one configured Jawabu destination without guessing a group."""
-    choices = available_import_groups(allowed_group_ids=allowed_group_ids)
-    requested = str(group_id or '').strip()
-    if requested:
-        allowed_ids = {item['group_id'] for item in choices}
-        if requested not in allowed_ids:
-            raise PortalImportError('Select an active Jawabu HomeBiogas group for this import.')
-        return GroupSheetConfiguration.objects.get(group_id=requested)
-    if len(choices) != 1:
-        raise PortalImportError('Select the Jawabu HomeBiogas group before staging this import.')
-    return GroupSheetConfiguration.objects.get(group_id=choices[0]['group_id'])
+    FarmUp and SysUp are Portal-owned intake routes, not a multi-group import
+    tool. Letting the browser choose a Telegram group made the upload route
+    ambiguous and could block an authorised IT user before sending the file.
+    Ordinary AccessGrant group scope is still enforced here.
+    """
+    configurations = [
+        config
+        for config in GroupSheetConfiguration.objects.filter(enabled=True).order_by('group_id')
+        if str((config.workflow or {}).get('type') or '').strip() == _JAWABU_IMPORT_WORKFLOW_TYPE
+    ]
+    if not configurations:
+        raise PortalImportError('The Jawabu HomeBiogas import workflow is not configured. Ask IT to configure it before staging files.')
+    if len(configurations) > 1:
+        raise PortalImportError('More than one Jawabu HomeBiogas import workflow is configured. Ask IT to correct the configuration before staging files.')
+    configuration = configurations[0]
+    if allowed_group_ids is not None and str(configuration.group_id) not in allowed_group_ids:
+        raise PortalImportError('Your Portal import access does not cover the configured Jawabu HomeBiogas workflow.')
+    return configuration
 
 
 def _source_limit_bytes(kind: str) -> int:
@@ -118,7 +109,6 @@ def _existing_replay(request_id: str, *, kind: str, source_hash: str) -> JawabuF
 def _assert_replay_is_in_scope(
     batch: JawabuFarmerUploadBatch,
     *,
-    requested_group_id: str,
     allowed_group_ids: set[str] | None,
 ) -> None:
     """Keep an idempotent replay inside the caller's original import scope.
@@ -126,9 +116,6 @@ def _assert_replay_is_in_scope(
     A retry key must replay exactly one source upload, not become a way to
     retrieve a staged file from a different configured Telegram group.
     """
-    requested_group_id = str(requested_group_id or '').strip()
-    if requested_group_id and str(batch.group_id) != requested_group_id:
-        raise PortalImportError('This retry key belongs to a different import group. Reload the screen and submit again.')
     if allowed_group_ids is not None and str(batch.group_id) not in allowed_group_ids:
         raise PortalImportError('This staged import is unavailable in your scope.')
 
@@ -155,7 +142,6 @@ def stage_portal_import(
     kind: str,
     filename: str,
     content: bytes,
-    group_id: str,
     request_id: str,
     actor,
     allowed_group_ids: set[str] | None = None,
@@ -174,11 +160,10 @@ def stage_portal_import(
     if existing is not None:
         _assert_replay_is_in_scope(
             existing,
-            requested_group_id=group_id,
             allowed_group_ids=allowed_group_ids,
         )
         return existing, reserve_import_archive(existing, request_id=request_id, user=actor), True
-    group_configuration = resolve_import_group(group_id, allowed_group_ids=allowed_group_ids)
+    group_configuration = resolve_import_group(allowed_group_ids=allowed_group_ids)
     try:
         with transaction.atomic():
             # Check again inside the transaction.  The unique request key is
@@ -187,7 +172,6 @@ def stage_portal_import(
             if existing is not None:
                 _assert_replay_is_in_scope(
                     existing,
-                    requested_group_id=group_id,
                     allowed_group_ids=allowed_group_ids,
                 )
                 return existing, reserve_import_archive(existing, request_id=request_id, user=actor), True
@@ -231,7 +215,6 @@ def stage_portal_import(
         if existing is not None:
             _assert_replay_is_in_scope(
                 existing,
-                requested_group_id=group_id,
                 allowed_group_ids=allowed_group_ids,
             )
             return existing, reserve_import_archive(existing, request_id=request_id, user=actor), True

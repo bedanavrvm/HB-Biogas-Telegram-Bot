@@ -1912,6 +1912,11 @@ def portal_meta(request):
 def _portal_import_group_ids(request):
     """Return scoped Jawabu groups, or ``None`` when the grant is global."""
     access = getattr(request, 'portal_access', None) or {}
+    if access.get('technical_override'):
+        # A Django Superuser is the explicit technical break-glass authority.
+        # It has no synthetic AccessGrant rows, so an empty grant list must
+        # mean global access here rather than "no permitted group".
+        return None
     grants = list(access.get('grants') or [])
     if not grants:
         return set()
@@ -1950,17 +1955,16 @@ def _portal_import_in_scope(request, batch_id: str):
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
 @require_http_methods(["GET"])
 def portal_imports(request):
-    """List staged Portal imports and eligible Jawabu import destinations."""
+    """List staged Portal imports for the configured Jawabu workflow."""
     access_error = _portal_read_access_error(request, capability='portal.imports.view')
     if access_error:
         return access_error
-    from core.services.portal_imports import archive_operation_ids, available_import_groups, serialize_import_batch
+    from core.services.portal_imports import archive_operation_ids, serialize_import_batch
 
     batches = list(_portal_imports_queryset(request)[:50])
     archive_operations = archive_operation_ids(batches)
     return JsonResponse({
         'ok': True,
-        'groups': available_import_groups(allowed_group_ids=_portal_import_group_ids(request)),
         'batches': [
             serialize_import_batch(batch, archive_operation_id=archive_operations.get(str(batch.pk), ''))
             for batch in batches
@@ -1988,7 +1992,6 @@ def portal_import_stage(request, kind: str):
             kind=kind,
             filename=source_file.name,
             content=source_file.read(),
-            group_id=str(request.POST.get('group_id') or ''),
             request_id=request_id,
             actor=getattr(request, 'portal_user', None),
             allowed_group_ids=_portal_import_group_ids(request),
