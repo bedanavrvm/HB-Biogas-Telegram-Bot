@@ -79,11 +79,15 @@
     return isCurrentScreen(page) && queueLoadVersions.get(page) === version;
   }
 
-  function unmountPreviousScreen() {
-    // Chart.js owns canvas resources that must be released when its screen is
-    // replaced. Other Portal modules bind to the persistent shell or use
-    // delegated events, so they safely survive an active-screen swap.
-    portalReports.unmount?.();
+  function unmountPreviousScreen(nextPage) {
+    // Chart.js owns canvas resources that must be released when the Reports
+    // screen is actually left. Report editor steps are separate URLs, but are
+    // still one live Reports workspace: tearing it down between Fields,
+    // Filters, and Review invalidates its in-flight load token and can leave
+    // the replacement route showing its static loader indefinitely.
+    if (state.activePage === 'reports' && nextPage !== 'reports') {
+      portalReports.unmount?.();
+    }
   }
 
   function rememberPortalUi() {
@@ -204,6 +208,10 @@
 
   function configureHtmx() {
     if (!window.htmx) return;
+    // Portal API calls already have a bounded timeout. Route swaps use htmx
+    // directly, so give them the same protection rather than leaving a
+    // phone user on a permanent loading screen when a WebView request stalls.
+    window.htmx.config.timeout = 20000;
     document.body.addEventListener('htmx:configRequest', event => {
       const raw = tg?.initData || '';
       if (raw) event.detail.headers['X-Telegram-Init-Data'] = raw;
@@ -388,7 +396,7 @@
   });
 
   function switchPage(page) {
-    unmountPreviousScreen();
+    unmountPreviousScreen(page);
     state.activePage = page;
     rememberPortalUi();
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.page === page));

@@ -57,8 +57,8 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('miniapp/portal_api.js?v=5', html)
         self.assertIn('miniapp/portal_invoices.js?v=14', html)
         self.assertIn('miniapp/portal_payments.js?v=7', html)
-        self.assertIn('miniapp/portal_reports.js?v=7', html)
-        self.assertIn('miniapp/portal.js?v=58', html)
+        self.assertIn('miniapp/portal_reports.js?v=8', html)
+        self.assertIn('miniapp/portal.js?v=59', html)
 
         spin_response = self.client.get(reverse('spin_form') + '?group_id=-100spin&token=test-token')
         spin_html = spin_response.content.decode('utf-8')
@@ -117,7 +117,7 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         self.assertIn('/\\/portal\\/cases\\/[^/]+\\//', source)
         self.assertIn("return 'case_history'", source)
-        self.assertContains(response, 'miniapp/miniapp-nav.js?v=15')
+        self.assertContains(response, 'miniapp/miniapp-nav.js?v=16')
 
     def test_telegram_back_never_uses_host_history_for_a_cold_portal_screen(self):
         source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
@@ -144,6 +144,9 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn("swap: 'outerHTML transition:true'", portal_source)
         self.assertIn("target: '#portal-screen'", navigation_source)
         self.assertIn('portalReports.unmount?.()', portal_source)
+        self.assertIn("state.activePage === 'reports' && nextPage !== 'reports'", portal_source)
+        self.assertIn('window.htmx.config.timeout = 20000', portal_source)
+        self.assertIn("document.body.addEventListener('htmx:timeout'", navigation_source)
 
     def test_portal_reports_use_route_backed_drill_down_screens(self):
         portal_source = Path('core/static/miniapp/portal.js').read_text(encoding='utf-8')
@@ -178,6 +181,8 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('renderMobileResultCards', reports_source)
         self.assertIn('portal-report-wizard-actions', reports_source)
         self.assertIn('canHandleBack', reports_source)
+        self.assertIn('function canReuseEditorDraft', reports_source)
+        self.assertIn('canReuseEditorDraft(nextRoute)', reports_source)
         self.assertIn('portal:reports-route-change', navigation_source)
         self.assertIn('reports?.canHandleBack?.()', navigation_source)
         self.assertIn('navigateUrl(url, options)', portal_source)

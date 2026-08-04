@@ -1,5 +1,17 @@
 # Changelog
 
+## Portal Reports wizard-route reliability - 04-August-2026
+
+- Kept the live Reports controller mounted while moving between the Fields,
+  Filters, and Review URLs. Those steps now reuse the already loaded local
+  draft immediately instead of waiting for the report catalogue again.
+- Bounded Portal route swaps to 20 seconds and show a clear retry instruction
+  when a Telegram WebView navigation request stalls.
+
+  Migration note: no schema migration is included. To undo, redeploy the
+  prior application commit; report definitions, audit evidence, customer data,
+  Sheets, Drive, and workflow state remain unchanged.
+
 ## Portal Reports mobile-first workspace - 04-August-2026
 
 - Made the IT-only report builder operate as a phone-first three-step wizard:

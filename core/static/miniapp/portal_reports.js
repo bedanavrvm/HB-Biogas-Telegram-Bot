@@ -81,6 +81,21 @@
     return state.loadVersion === version && root() === target;
   }
 
+  function canReuseEditorDraft(nextRoute) {
+    // Fields, Filters, and Review are route-backed for deep links and Back,
+    // but switching between them must not refetch the catalogue or discard
+    // the browser-only draft. The next route has already been authorized by
+    // the server; this only reuses data that is still in the same live Portal
+    // screen and will still be validated on save.
+    return Boolean(
+      state.catalogue
+      && state.current
+      && state.route.view === 'edit'
+      && nextRoute.view === 'edit'
+      && state.route.reportId === nextRoute.reportId
+    );
+  }
+
   function routeUrl(view = 'catalogue', reportId = '', step = 'fields') {
     const base = '/portal/s/reports/';
     if (view === 'catalogue') return base;
@@ -606,9 +621,22 @@
   async function load() {
     const target = root();
     if (!target) return;
+    const nextRoute = readRoute();
+    if (canReuseEditorDraft(nextRoute)) {
+      // Invalidate an older async operation, then immediately render the
+      // already validated local draft into the fresh htmx screen root. This
+      // prevents a route-backed wizard step from waiting on three read APIs.
+      state.loadVersion += 1;
+      state.root = target;
+      state.route = nextRoute;
+      state.result = null;
+      state.runError = '';
+      render();
+      return;
+    }
     const loadVersion = ++state.loadVersion;
     state.root = target;
-    state.route = readRoute();
+    state.route = nextRoute;
     state.result = null;
     state.runError = '';
     target.innerHTML = loadingMarkup();

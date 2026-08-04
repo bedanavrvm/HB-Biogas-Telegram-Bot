@@ -298,6 +298,12 @@
         + '</span>';
     }
   });
+  document.body.addEventListener('htmx:timeout', event => {
+    const target = event.detail?.target;
+    if (!target || (target.id !== 'content' && target.id !== 'portal-screen')) return;
+    target.innerHTML = '<section class="shell-error" role="alert"><h2>Screen took too long to load</h2>'
+      + '<p>Check your connection, then choose the screen again from the menu.</p></section>';
+  });
   document.addEventListener('DOMContentLoaded', activateScreen);
   new MutationObserver(() => {
     syncBackButton();
