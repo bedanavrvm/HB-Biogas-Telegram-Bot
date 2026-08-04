@@ -126,13 +126,6 @@
     }
   }
 
-  function rowColumns(rows) {
-    const names = new Set();
-    rows.slice(0, 50).forEach(row => Object.keys(row || {}).forEach(key => names.add(key)));
-    const ignored = new Set(['raw_data']);
-    return [...names].filter(name => !ignored.has(name)).slice(0, 16);
-  }
-
   function displayCell(value) {
     if (value === null || value === undefined || value === '') return '—';
     if (typeof value === 'object') return JSON.stringify(value);
@@ -150,18 +143,17 @@
       if (!importsScreenIsActive()) return;
       if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not load import review data.');
       const batch = result.data.batch || {};
-      const rows = Array.isArray(batch.rows) ? batch.rows : [];
-      const columns = rowColumns(rows);
+      const sourceTable = batch.source_table || {};
+      const columns = Array.isArray(sourceTable.headers) ? sourceTable.headers : [];
+      const rows = Array.isArray(sourceTable.rows) ? sourceTable.rows : [];
       const pagination = batch.review_pagination || {};
       const currentPage = Number(pagination.page || 1);
       const pageCount = Number(pagination.pages || 1);
       const totalRows = Number(pagination.total_rows || batch.total_rows || rows.length);
-      const pageSize = Number(pagination.page_size || rows.length || 1);
-      const firstPosition = (currentPage - 1) * pageSize;
       const table = !rows.length
-        ? '<div class="empty-state"><div class="es-title">No parsed rows</div><div class="es-sub">This staged file did not produce review rows.</div></div>'
-        : `<div class="portal-import-table-wrap"><table class="portal-import-table"><thead><tr><th class="table-number">No.</th>${columns.map(column => `<th>${escapeHtml(column)}</th>`).join('')}</tr></thead><tbody>${rows.map((row, index) => `<tr><td class="table-number">${firstPosition + index + 1}</td>${columns.map(column => `<td>${escapeHtml(displayCell(row?.[column]))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-      target.innerHTML = `<div class="portal-import-review-heading"><div><span class="settings-eyebrow">REVIEW ONLY</span><h2>${escapeHtml(batch.source_filename || 'Staged import')}</h2><p>${escapeHtml(batch.total_rows || 0)} parsed rows · ${escapeHtml(batch.review_needed || 0)} need review. No Portal commit action is available.</p></div><button type="button" class="btn btn-secondary" id="portal-import-review-close">Close review</button></div>${table}`;
+        ? '<div class="empty-state"><div class="es-title">No source rows</div><div class="es-sub">This staged file has no non-blank source rows to display.</div></div>'
+        : `<div class="portal-import-table-wrap"><table class="portal-import-table"><thead><tr>${columns.map(column => `<th>${escapeHtml(column)}</th>`).join('')}</tr></thead><tbody>${rows.map(row => `<tr>${columns.map((column, index) => `<td>${escapeHtml(displayCell(row?.[index]))}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+      target.innerHTML = `<div class="portal-import-review-heading"><div><span class="settings-eyebrow">REVIEW ONLY</span><h2>${escapeHtml(batch.source_filename || 'Staged import')}</h2><p>${escapeHtml(batch.total_rows || 0)} source rows · ${escapeHtml(batch.review_needed || 0)} validation flags. No Portal commit action is available.</p></div><button type="button" class="btn btn-secondary" id="portal-import-review-close">Close review</button></div>${table}`;
       if (pageCount > 1) {
         target.insertAdjacentHTML('beforeend', `<div class="portal-import-pager"><span>Showing page ${escapeHtml(currentPage)} of ${escapeHtml(pageCount)} (${escapeHtml(totalRows)} rows)</span><div><button type="button" class="btn btn-secondary portal-import-review-page" data-batch-id="${escapeHtml(batch.id)}" data-page="${escapeHtml(currentPage - 1)}" ${currentPage <= 1 ? 'disabled' : ''}>Previous</button><button type="button" class="btn btn-secondary portal-import-review-page" data-batch-id="${escapeHtml(batch.id)}" data-page="${escapeHtml(currentPage + 1)}" ${currentPage >= pageCount ? 'disabled' : ''}>Next</button></div></div>`);
       }

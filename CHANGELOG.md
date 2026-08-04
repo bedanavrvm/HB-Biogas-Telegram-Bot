@@ -1,5 +1,51 @@
 # Changelog
 
+## Portal Reports mobile-first workspace - 04-August-2026
+
+- Made the IT-only report builder operate as a phone-first three-step wizard:
+  a safe-area-aware sticky action bar keeps Back/Continue/Save reachable, and
+  Telegram Back now returns through setup steps before leaving the report.
+- Made live charts defer rendering until they are near the visible viewport,
+  adapt their height on Telegram viewport changes, use Telegram theme colours,
+  and support ordinary touch interaction. Category-heavy bar charts use a
+  horizontal layout for readable labels.
+- Added compact phone result cards with the first report fields visible and
+  remaining selected fields under an explicit More fields disclosure. Wider
+  layouts retain the full, fixed-number-column table and XLSX export.
+
+  Migration note: no schema migration is included. To undo, redeploy the
+  prior application commit; report definitions, audit evidence, customer data,
+  Sheets, Drive, and workflow state remain unchanged.
+
+## Portal Reports recovery and live-rule reliability - 04-August-2026
+
+- Made Reports route loading and live-result execution settle into a visible
+  error-and-retry state if the client, network, API, or a stale screen swap
+  fails. A single Chart.js rendering problem can no longer block the report
+  rows or leave the screen on an indefinite loader.
+- Made report filter/operator and ordering changes persist immediately in the
+  browser draft. Date filters for Created at and Last updated now compare the
+  selected calendar day rather than only midnight, and numeric ordering is
+  covered by regression tests.
+- Preserved live report availability when an old invalid chart configuration
+  exists: the chart is marked for IT review while the approved rows remain
+  available.
+
+  Migration note: no schema migration is included. To undo, redeploy the
+  prior application commit; report definitions, audit events, customer data,
+  Sheets, Drive, and workflow state remain unchanged.
+
+## Portal import source-preserving review - 04-August-2026
+
+- Changed the IT-only FarmUp and SysUp review table to display the retained
+  uploaded columns and values in their original order. The table no longer
+  injects a number, status, match, cleaning, or other derived review column;
+  import/archive state remains outside the source data.
+
+  Migration note: no schema migration is included. To undo, redeploy the
+  prior application commit; staged imports, source archives, customer records,
+  and workflow state remain unchanged.
+
 ## JBL queue loader recovery - 04-August-2026
 
 - Made the JBL Visit Queue load one server-rendered queue fragment instead of

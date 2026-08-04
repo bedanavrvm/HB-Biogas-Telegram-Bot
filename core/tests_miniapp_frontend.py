@@ -46,18 +46,19 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertLess(html.index('miniapp/portal_requisitions.js'), html.index('miniapp/portal_payments.js'))
         self.assertLess(html.index('miniapp/portal_payments.js'), html.index('miniapp/portal.js'))
         self.assertLess(html.index('miniapp/portal_imports.js'), html.index('miniapp/portal.js'))
-        self.assertIn('miniapp/portal_queues.js?v=6', html)
+        self.assertIn('miniapp/portal_queues.js?v=7', html)
         self.assertIn('miniapp/portal_farmer_sheet.js?v=29', html)
         self.assertIn('miniapp/utils.js?v=4', html)
         self.assertIn('miniapp/portal.css?v=58', html)
         self.assertIn('miniapp/portal_filters.js?v=7', html)
-        self.assertIn('miniapp/portal_imports.js?v=4', html)
+        self.assertIn('miniapp/portal_imports.js?v=5', html)
         self.assertNotIn('portal-import-group', html)
         self.assertIn('miniapp/portal_requisitions.js?v=33', html)
-        self.assertIn('miniapp/portal_api.js?v=4', html)
+        self.assertIn('miniapp/portal_api.js?v=5', html)
         self.assertIn('miniapp/portal_invoices.js?v=14', html)
         self.assertIn('miniapp/portal_payments.js?v=7', html)
-        self.assertIn('miniapp/portal.js?v=56', html)
+        self.assertIn('miniapp/portal_reports.js?v=7', html)
+        self.assertIn('miniapp/portal.js?v=58', html)
 
         spin_response = self.client.get(reverse('spin_form') + '?group_id=-100spin&token=test-token')
         spin_html = spin_response.content.decode('utf-8')
@@ -102,13 +103,21 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn("const baseUrl = settings.baseUrl ||", utilities)
         self.assertIn("result['X-Request-ID'] = settings.requestId();", utilities)
 
+    def test_portal_import_review_uses_only_the_retained_source_table_columns(self):
+        source = Path('core/static/miniapp/portal_imports.js').read_text(encoding='utf-8')
+
+        self.assertIn('const sourceTable = batch.source_table || {};', source)
+        self.assertIn('const columns = Array.isArray(sourceTable.headers)', source)
+        self.assertIn('const rows = Array.isArray(sourceTable.rows)', source)
+        self.assertNotIn('<th class="table-number">No.</th>', source)
+
     def test_miniapp_navigation_maps_case_detail_route_to_case_history(self):
         source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
         response = self.client.get(reverse('portal_home'))
 
         self.assertIn('/\\/portal\\/cases\\/[^/]+\\//', source)
         self.assertIn("return 'case_history'", source)
-        self.assertContains(response, 'miniapp/miniapp-nav.js?v=14')
+        self.assertContains(response, 'miniapp/miniapp-nav.js?v=15')
 
     def test_telegram_back_never_uses_host_history_for_a_cold_portal_screen(self):
         source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
@@ -139,6 +148,7 @@ class MiniAppFrontendSmokeTests(TestCase):
     def test_portal_reports_use_route_backed_drill_down_screens(self):
         portal_source = Path('core/static/miniapp/portal.js').read_text(encoding='utf-8')
         reports_source = Path('core/static/miniapp/portal_reports.js').read_text(encoding='utf-8')
+        navigation_source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
         portal_template = Path('core/templates/portal/portal.html').read_text(encoding='utf-8')
 
         self.assertIn('data-report-view', portal_template)
@@ -156,6 +166,20 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('data-report-catalogue-search', reports_source)
         self.assertIn('data-report-action=\"discard\"', reports_source)
         self.assertIn('No.</th>', reports_source)
+        self.assertIn('function showLoadFailure', reports_source)
+        self.assertIn('function isCurrentLoad', reports_source)
+        self.assertIn('Preparing the live report...', reports_source)
+        self.assertIn("action = 'retry-load'", reports_source)
+        self.assertIn('chartFallbackMarkup', reports_source)
+        self.assertIn("'[data-report-filter-field], [data-report-filter-operator]'", reports_source)
+        self.assertIn('IntersectionObserver', reports_source)
+        self.assertIn('interaction: { mode: \'nearest\', intersect: false }', reports_source)
+        self.assertIn('themePalette(primary)', reports_source)
+        self.assertIn('renderMobileResultCards', reports_source)
+        self.assertIn('portal-report-wizard-actions', reports_source)
+        self.assertIn('canHandleBack', reports_source)
+        self.assertIn('portal:reports-route-change', navigation_source)
+        self.assertIn('reports?.canHandleBack?.()', navigation_source)
         self.assertIn('navigateUrl(url, options)', portal_source)
 
     def test_portal_invoices_use_route_backed_workspace_screens(self):
@@ -563,7 +587,7 @@ class MiniAppFrontendSmokeTests(TestCase):
                 'tatApi.postFragment',
             ),
             'core/static/miniapp/portal.js': (
-                'const rendered = await renderQueueFragment(qKey, page)',
+                'const rendered = await renderQueueFragment(qKey, page, loadVersion)',
                 'renderFarmerList(listEl, farmers, cfg, qKey)',
                 'renderBatchesList(listEl, batches, cfg)',
                 'function setButtonLoading(button, loading, label)',

@@ -2092,26 +2092,36 @@ def portal_import_detail(request, batch_id: str):
     batch = _portal_import_in_scope(request, batch_id)
     if batch is None:
         return JsonResponse({'ok': False, 'error': 'This staged import is unavailable in your scope.'}, status=404)
-    from core.services.portal_imports import archive_operation_ids, serialize_import_batch
+    from core.services.portal_imports import (
+        PortalImportError,
+        archive_operation_ids,
+        serialize_import_batch,
+        source_table_page,
+    )
 
     try:
         page = max(1, int(request.GET.get('page', '1')))
     except (TypeError, ValueError):
         page = 1
     page_size = 50
-    rows = list(batch.parsed_rows or [])
-    total_rows = len(rows)
+    # The Import review is deliberately source-preserving.  Do not build the
+    # displayed table from ``parsed_rows``: those rows include normalised
+    # values and internal matching/review metadata which are useful to command
+    # workflows, but are not part of the uploaded file.
+    total_rows = int(batch.total_rows or 0)
     start = (page - 1) * page_size
     if start >= total_rows and total_rows:
         page = max(1, (total_rows + page_size - 1) // page_size)
-        start = (page - 1) * page_size
+    try:
+        source_table = source_table_page(batch, page=page, page_size=page_size)
+    except PortalImportError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=409)
     review_pages = max(1, (total_rows + page_size - 1) // page_size)
     payload = serialize_import_batch(
         batch,
         archive_operation_id=archive_operation_ids([batch]).get(str(batch.pk), ''),
     )
-    payload['mapping'] = list(batch.mapping or [])
-    payload['rows'] = rows[start:start + page_size]
+    payload['source_table'] = source_table
     payload['review_pagination'] = {
         'page': page,
         'page_size': page_size,

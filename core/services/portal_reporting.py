@@ -7,6 +7,7 @@ from TAT, SPIN and Complaint Cases are not joined by mutable identifiers.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -39,6 +40,9 @@ MAX_CHARTS = 6
 MAX_TABLE_ROWS = 2_000
 PAGE_SIZE = 50
 MAX_CHART_BUCKETS = 100
+DATETIME_FILTER_FIELDS = frozenset({'created_at', 'updated_at'})
+
+logger = logging.getLogger(__name__)
 
 
 class PortalReportingError(ValueError):
@@ -291,7 +295,11 @@ def scoped_case_queryset(*, user, access: dict | None):
 def _apply_filters(queryset, filters: Iterable[dict[str, Any]]):
     for item in filters:
         field = _field(item['field'])
-        expression = field.expression
+        # The reporting editor intentionally accepts calendar dates.  Django
+        # would otherwise compare a date such as 04-August against midnight of
+        # a DateTimeField, which makes an "equals" filter appear to return no
+        # records created later that day.
+        expression = f'{field.expression}__date' if field.key in DATETIME_FILTER_FIELDS else field.expression
         operator = item['operator']
         value = item['value']
         if field.value_type == 'date':
@@ -502,7 +510,42 @@ def run_definition(*, definition: PortalReportDefinition, user, access: dict | N
         {field.key: _json_value(raw.get(field.expression)) for field in selected}
         for raw in queryset[(page - 1) * PAGE_SIZE:page * PAGE_SIZE].values(*expressions)
     ]
-    charts = [chart_payload(chart, queryset) for chart in definition.charts.order_by('position', 'created_at')]
+    charts = []
+    for chart in definition.charts.order_by('position', 'created_at'):
+        try:
+            charts.append(chart_payload(chart, queryset))
+        except PortalReportingError:
+            logger.warning(
+                'Portal report chart requires review chart=%s definition=%s',
+                chart.pk, definition.pk,
+            )
+            charts.append({
+                'id': str(chart.pk),
+                'title': chart.title or 'Unavailable chart',
+                'type': chart.chart_type,
+                'labels': [],
+                'values': [],
+                'dimension_label': '',
+                'metric_label': '',
+                'truncated': False,
+                'error': 'This chart configuration needs review. The report rows are still available.',
+            })
+        except Exception:
+            # A historical chart configuration must not make otherwise valid
+            # filtered rows unavailable.  The client displays a stable
+            # per-chart fallback while IT corrects the saved definition.
+            logger.exception('Could not run Portal report chart=%s definition=%s', chart.pk, definition.pk)
+            charts.append({
+                'id': str(chart.pk),
+                'title': chart.title or 'Unavailable chart',
+                'type': chart.chart_type,
+                'labels': [],
+                'values': [],
+                'dimension_label': '',
+                'metric_label': '',
+                'truncated': False,
+                'error': 'This chart configuration needs review. The report rows are still available.',
+            })
     return {
         'definition': definition_payload(definition),
         'columns': [{'key': field.key, 'label': field.label, 'type': field.value_type} for field in selected],

@@ -13,6 +13,7 @@ from core.services.portal_imports import (
     PortalImportError,
     attempt_import_archive,
     serialize_import_batch,
+    source_table_page,
     stage_portal_import,
 )
 
@@ -20,6 +21,11 @@ from core.services.portal_imports import (
 FARMUP_CSV = (
     'Full Name,ID NUMBER,HBG Hub,Mobile,Phone,Actual Receipts,Sign Date,Sales Person\n'
     'David Mugambi [23215888],,Embu,+254721997481,+254704408281,5000,01/05/2026,Jane Sales\n'
+).encode('utf-8')
+
+SYSUP_CSV = (
+    'Customer ID,Name,Mobile No,ID NO,Branch,Loan Officer,Product Name,LGF Balance\n'
+    '12345,MWANGI JANE,+254721997481,23215888,EMBU,Jane Officer,HomeBiogas,"5,000"\n'
 ).encode('utf-8')
 
 
@@ -60,6 +66,45 @@ class PortalImportStagingTests(TestCase):
         self.assertEqual(repeated_operation.pk, operation.pk)
         self.assertEqual(JawabuFarmerUploadBatch.objects.count(), 1)
         self.assertFalse(JawabuFarmerMaster.objects.exists())
+
+    def test_source_review_preserves_uploaded_columns_and_values_without_parser_fields(self):
+        batch, _operation, _replayed = self.stage(allowed_group_ids={self.group.group_id})
+
+        table = source_table_page(batch, page=1, page_size=50)
+
+        self.assertEqual(
+            table['headers'],
+            ['Full Name', 'ID NUMBER', 'HBG Hub', 'Mobile', 'Phone', 'Actual Receipts', 'Sign Date', 'Sales Person'],
+        )
+        self.assertEqual(
+            table['rows'],
+            [['David Mugambi [23215888]', '', 'Embu', '+254721997481', '+254704408281', '5000', '01/05/2026', 'Jane Sales']],
+        )
+        self.assertNotIn('Import Status', table['headers'])
+        self.assertNotIn('Cleaning Notes', table['headers'])
+
+    def test_sysup_source_review_preserves_export_headers_and_original_values(self):
+        batch, _operation, _replayed = stage_portal_import(
+            kind='sysup',
+            filename='customers-without-loans.csv',
+            content=SYSUP_CSV,
+            request_id='portal-import-sysup-source-review-0001',
+            actor=self.user,
+            allowed_group_ids={self.group.group_id},
+        )
+
+        table = source_table_page(batch, page=1, page_size=50)
+
+        self.assertEqual(
+            table['headers'],
+            ['Customer ID', 'Name', 'Mobile No', 'ID NO', 'Branch', 'Loan Officer', 'Product Name', 'LGF Balance'],
+        )
+        self.assertEqual(
+            table['rows'],
+            [['12345', 'MWANGI JANE', '+254721997481', '23215888', 'EMBU', 'Jane Officer', 'HomeBiogas', '5,000']],
+        )
+        self.assertNotIn('Match Basis', table['headers'])
+        self.assertNotIn('Matched Farmer ID', table['headers'])
 
     def test_configured_import_group_must_be_in_staff_scope(self):
         with self.assertRaisesMessage(PortalImportError, 'does not cover the configured Jawabu HomeBiogas workflow'):

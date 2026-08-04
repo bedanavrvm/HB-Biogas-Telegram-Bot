@@ -161,6 +161,19 @@
       tg.BackButton.show();
       return;
     }
+    // Report setup is a mobile wizard. Its internal steps are not separate
+    // business screens, so Telegram Back should move through the wizard
+    // before it falls back to Portal browser history or closes the Mini App.
+    const reports = window.PortalMiniAppReports;
+    if (reports?.canHandleBack?.()) {
+      clearBackHandler();
+      backHandler = () => {
+        if (!reports.handleBack?.()) navigateBackWithinPortal();
+      };
+      tg.BackButton.onClick(backHandler);
+      tg.BackButton.show();
+      return;
+    }
     const topLevel = document.querySelector('#content [data-top-level="true"]');
     if (topLevel) {
       clearBackHandler();
@@ -216,6 +229,7 @@
 
   window.addEventListener('pageshow', restoreTelegramViewport);
   window.addEventListener('focus', restoreTelegramViewport);
+  window.addEventListener('portal:reports-route-change', syncBackButton);
   window.addEventListener('resize', syncTelegramViewportHeight);
   window.visualViewport?.addEventListener('resize', syncTelegramViewportHeight);
   document.addEventListener('visibilitychange', () => {

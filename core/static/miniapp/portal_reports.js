@@ -12,6 +12,13 @@
     result: null,
     relationships: null,
     charts: [],
+    chartObserver: null,
+    chartResizeTimer: null,
+    viewportEventsBound: false,
+    viewportHandler: null,
+    themeHandler: null,
+    loadVersion: 0,
+    runError: '',
     tg: null,
     canManage: false,
     root: null,
@@ -29,6 +36,22 @@
     { className: `toast show ${type ? `${type}-toast` : ''}`, resetClassName: 'toast', timeout: 3500 },
   );
 
+  function requestShellNavigationSync() {
+    window.dispatchEvent(new Event('portal:reports-route-change'));
+  }
+
+  function telegramViewportHeight() {
+    return Number(state.tg?.viewportStableHeight)
+      || Number(state.tg?.viewportHeight)
+      || Number(window.visualViewport?.height)
+      || Number(window.innerHeight)
+      || 640;
+  }
+
+  function chartHeight() {
+    return Math.max(190, Math.min(300, Math.round(telegramViewportHeight() * 0.31)));
+  }
+
   function readRoute() {
     const screen = document.getElementById('portal-screen');
     const view = screen?.dataset.reportView || 'catalogue';
@@ -38,6 +61,24 @@
       reportId: screen?.dataset.reportId || '',
       step: EDITOR_STEPS.includes(reportStep) ? reportStep : (view === 'edit' ? 'fields' : ''),
     };
+  }
+
+  function loadingMarkup(message = 'Loading controlled reports...') {
+    return `<div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">${escapeHtml(message)}</div></div>`;
+  }
+
+  function retryMarkup(title, message, action = 'retry-load') {
+    return `<section class="portal-report-placeholder portal-report-retry-state"><h2>${escapeHtml(title)}</h2><p>${escapeHtml(message)}</p><div class="portal-report-actions"><button type="button" class="btn btn-primary" data-report-action="${escapeHtml(action)}">Try again</button><button type="button" class="btn btn-secondary" data-report-action="catalogue">Back to reports</button></div></section>`;
+  }
+
+  function showLoadFailure(message) {
+    const target = root();
+    if (!target) return;
+    target.innerHTML = retryMarkup('Reports unavailable', message || 'Check your connection and try again.');
+  }
+
+  function isCurrentLoad(version, target) {
+    return state.loadVersion === version && root() === target;
   }
 
   function routeUrl(view = 'catalogue', reportId = '', step = 'fields') {
@@ -239,7 +280,7 @@
     const currentIndex = editorStepIndex();
     const previous = EDITOR_STEPS[currentIndex - 1];
     const next = EDITOR_STEPS[currentIndex + 1];
-    return `<div class="portal-report-actions portal-report-editor-actions">
+    return `<div class="portal-report-actions portal-report-editor-actions portal-report-wizard-actions">
       <button type="button" class="btn btn-secondary" data-report-action="back">${previous ? `Back: ${escapeHtml(stepTitle(previous))}` : 'Back to reports'}</button>
       ${editable && currentIndex < EDITOR_STEPS.length - 1 ? `<button type="button" class="btn btn-primary" data-report-action="next">Continue: ${escapeHtml(stepTitle(next))}</button>` : ''}
       ${editable && currentIndex === EDITOR_STEPS.length - 1 ? `<button type="button" class="btn btn-primary" data-report-action="save">${current.is_new ? 'Save report' : 'Save changes'}</button>` : ''}
@@ -285,7 +326,11 @@
 
   function resultMarkup() {
     const result = state.result;
-    if (!result) return '<section class="portal-report-results portal-report-placeholder"><h2>Report could not run</h2><p>Refresh or return to the definition and try again.</p></section>';
+    if (!result) return retryMarkup(
+      'Report could not run',
+      state.runError || 'Refresh or return to the definition and try again.',
+      'rerun',
+    );
     const pageSize = Number(result.pagination?.page_size || result.rows.length || 1);
     const firstPosition = (Number(result.pagination?.page || 1) - 1) * pageSize;
     const table = `<div class="portal-report-table-wrap"><table class="portal-report-table"><thead><tr><th class="table-number">No.</th>${result.columns.map((item) => `<th>${escapeHtml(item.label)}</th>`).join('')}</tr></thead><tbody>${result.rows.length ? result.rows.map((row, index) => `<tr><td class="table-number">${firstPosition + index + 1}</td>${result.columns.map((column) => `<td>${escapeHtml(formatValue(row[column.key], column.type))}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${result.columns.length + 1}">No cases match this report.</td></tr>`}</tbody></table></div>`;
@@ -296,27 +341,200 @@
   function render() {
     state.root = root();
     if (!state.root) return;
+    state.chartObserver?.disconnect?.();
+    state.chartObserver = null;
     state.charts.forEach((chart) => chart.destroy?.());
     state.charts = [];
     if (state.route.view === 'edit') state.root.innerHTML = editorMarkup();
     else if (state.route.view === 'detail') state.root.innerHTML = detailMarkup();
     else if (state.route.view === 'run') state.root.innerHTML = `${resultMarkup()}<div class="portal-report-actions"><button type="button" class="btn btn-secondary" data-report-action="detail">Back to definition</button></div>`;
     else state.root.innerHTML = catalogueMarkup();
+    renderMobileResultCards();
     renderCharts();
+    scheduleChartResize();
+    requestShellNavigationSync();
+  }
+
+  function renderMobileResultCards() {
+    const result = state.result;
+    const target = root();
+    const table = target?.querySelector('.portal-report-table-wrap');
+    if (!result || !table) return;
+    const pageSize = Number(result.pagination?.page_size || result.rows.length || 1);
+    const firstPosition = (Number(result.pagination?.page || 1) - 1) * pageSize;
+    const primary = (result.columns || []).slice(0, 4);
+    const remaining = (result.columns || []).slice(4);
+    const cards = result.rows?.length ? result.rows.map((row, index) => {
+      const values = (columns) => columns.map((column) => `<div class="portal-report-row-field"><span>${escapeHtml(column.label)}</span><strong>${escapeHtml(formatValue(row[column.key], column.type))}</strong></div>`).join('');
+      const details = remaining.length ? `<details class="portal-report-row-more"><summary>More fields (${remaining.length})</summary><div class="portal-report-row-fields">${values(remaining)}</div></details>` : '';
+      return `<article class="portal-report-row-card"><header><span>Case row</span><strong>No. ${firstPosition + index + 1}</strong></header><div class="portal-report-row-fields">${values(primary)}</div>${details}</article>`;
+    }).join('') : '<div class="portal-report-empty-state"><strong>No cases match this report.</strong><span>Change a filter or run the report again when new work arrives.</span></div>';
+    table.insertAdjacentHTML('beforebegin', `<div class="portal-report-mobile-results" aria-label="Report results">${cards}</div>`);
   }
 
   function renderCharts() {
     const result = state.result;
-    if (!result || !window.Chart) return;
-    (result.charts || []).forEach((chart, index) => {
-      const canvas = document.getElementById(`portal-report-chart-${index}`);
-      if (!canvas) return;
+    if (!result) return;
+    const cards = [...(root()?.querySelectorAll('.portal-report-chart') || [])];
+    const mount = (container, index) => {
+      const chart = result.charts?.[index];
+      if (!chart || container.dataset.chartMounted === 'true') return;
+      container.dataset.chartMounted = 'true';
+      mountChart(container, chart, index);
+    };
+    if (!cards.length) return;
+    if (!window.IntersectionObserver) {
+      cards.forEach(mount);
+      return;
+    }
+    state.chartObserver = new window.IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        state.chartObserver?.unobserve(entry.target);
+        mount(entry.target, cards.indexOf(entry.target));
+      });
+    }, { rootMargin: '160px 0px' });
+    cards.forEach((card) => state.chartObserver.observe(card));
+  }
+
+  function mountChart(container, chart, index) {
+    if (chart.error) {
+      container.innerHTML = `<h3>${escapeHtml(chart.title)}</h3><p>${escapeHtml(chart.error)}</p>`;
+      return;
+    }
+    const canvas = document.getElementById(`portal-report-chart-${index}`);
+    if (!canvas) return;
+    canvas.style.height = `${chartHeight()}px`;
+    if (!window.Chart) {
+      container.innerHTML = chartFallbackMarkup(chart, 'Chart display is unavailable in this Mini App session.');
+      return;
+    }
+    try {
+      const colors = chartColors();
+      const horizontal = chart.type === 'bar' && (chart.labels || []).length > 4;
       state.charts.push(new window.Chart(canvas, {
         type: chart.type,
-        data: { labels: chart.labels, datasets: [{ label: chart.metric_label, data: chart.values, borderColor: '#078b86', backgroundColor: ['#078b86', '#1d91d1', '#f2a93b', '#7367d8', '#3ea56d', '#d55c5c'], borderWidth: 2, fill: chart.type === 'line' ? false : undefined }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: chart.type === 'doughnut' } }, scales: chart.type === 'doughnut' ? {} : { y: { beginAtZero: true, ticks: { precision: 0 } } } },
+        data: {
+          labels: chart.labels,
+          datasets: [{
+            label: chart.metric_label,
+            data: chart.values,
+            borderColor: colors.primary,
+            backgroundColor: chart.type === 'doughnut' ? colors.palette : colors.primary,
+            borderWidth: 2,
+            fill: chart.type === 'line' ? false : undefined,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          indexAxis: horizontal ? 'y' : 'x',
+          interaction: { mode: 'nearest', intersect: false },
+          plugins: {
+            legend: { display: chart.type === 'doughnut', labels: { color: colors.text } },
+            tooltip: { enabled: true },
+          },
+          scales: chart.type === 'doughnut' ? {} : {
+            x: { ticks: { color: colors.hint, autoSkip: true, maxRotation: 0 }, grid: { color: colors.grid } },
+            y: { beginAtZero: true, ticks: { color: colors.hint, precision: 0 }, grid: { color: colors.grid } },
+          },
+        },
       }));
+    } catch (error) {
+      console.warn('Portal report chart could not render.', error);
+      container.innerHTML = chartFallbackMarkup(chart, 'This chart could not be drawn. The live report rows remain available below.');
+    }
+  }
+
+  function chartColors() {
+    const params = state.tg?.themeParams || window.Telegram?.WebApp?.themeParams || {};
+    const style = window.getComputedStyle?.(document.documentElement);
+    const primary = params.button_color || params.link_color || style?.getPropertyValue('--color-primary').trim() || '#078b86';
+    const text = params.text_color || style?.getPropertyValue('--text-primary').trim() || '#17212b';
+    const hint = params.hint_color || style?.getPropertyValue('--text-muted').trim() || '#708499';
+    const grid = params.section_separator_color || params.secondary_bg_color || style?.getPropertyValue('--border-color').trim() || 'rgba(112,132,153,.25)';
+    return { primary, text, hint, grid, palette: themePalette(primary) };
+  }
+
+  function themePalette(color) {
+    const match = String(color || '').trim().match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i);
+    if (!match) return [color, color, color, color, color, color];
+    const [red, green, blue] = match.slice(1).map((value) => Number.parseInt(value, 16));
+    const max = Math.max(red, green, blue) / 255;
+    const min = Math.min(red, green, blue) / 255;
+    const delta = max - min;
+    const hue = !delta ? 180 : 60 * (((max === red / 255 ? (green - blue) / 255 / delta : max === green / 255 ? 2 + ((blue - red) / 255 / delta) : 4 + ((red - green) / 255 / delta))) % 6);
+    const lightness = (max + min) / 2;
+    const saturation = !delta ? 0 : delta / (1 - Math.abs(2 * lightness - 1));
+    return [-34, 0, 32, 64, 142, 205].map((offset) => hslColor(hue + offset, saturation, lightness));
+  }
+
+  function hslColor(hue, saturation, lightness) {
+    const normalizedHue = ((hue % 360) + 360) % 360;
+    const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
+    const segment = normalizedHue / 60;
+    const secondary = chroma * (1 - Math.abs((segment % 2) - 1));
+    const [red, green, blue] = segment < 1 ? [chroma, secondary, 0] : segment < 2 ? [secondary, chroma, 0] : segment < 3 ? [0, chroma, secondary] : segment < 4 ? [0, secondary, chroma] : segment < 5 ? [secondary, 0, chroma] : [chroma, 0, secondary];
+    const adjustment = lightness - chroma / 2;
+    return `rgb(${Math.round((red + adjustment) * 255)} ${Math.round((green + adjustment) * 255)} ${Math.round((blue + adjustment) * 255)})`;
+  }
+
+  function resizeChartsForViewport() {
+    const target = root();
+    if (target) {
+      const height = `${chartHeight()}px`;
+      target.style.setProperty('--portal-report-chart-height', height);
+      target.querySelectorAll('.portal-report-chart canvas').forEach((canvas) => { canvas.style.height = height; });
+    }
+    state.charts.forEach((chart) => {
+      try { chart.resize?.(); } catch (_) { /* Charts are optional visual enhancements. */ }
     });
+  }
+
+  function scheduleChartResize() {
+    window.clearTimeout(state.chartResizeTimer);
+    state.chartResizeTimer = window.setTimeout(resizeChartsForViewport, 80);
+  }
+
+  function refreshChartsForTheme() {
+    state.chartObserver?.disconnect?.();
+    state.chartObserver = null;
+    state.charts.forEach((chart) => chart.destroy?.());
+    state.charts = [];
+    root()?.querySelectorAll('.portal-report-chart').forEach((card) => { delete card.dataset.chartMounted; });
+    renderCharts();
+    scheduleChartResize();
+  }
+
+  function bindViewportEvents() {
+    if (state.viewportEventsBound) return;
+    state.viewportEventsBound = true;
+    state.viewportHandler = scheduleChartResize;
+    state.themeHandler = refreshChartsForTheme;
+    window.addEventListener('resize', state.viewportHandler);
+    window.visualViewport?.addEventListener('resize', state.viewportHandler);
+    state.tg?.onEvent?.('viewportChanged', state.viewportHandler);
+    state.tg?.onEvent?.('themeChanged', state.themeHandler);
+  }
+
+  function unbindViewportEvents() {
+    if (!state.viewportEventsBound) return;
+    window.removeEventListener('resize', state.viewportHandler);
+    window.visualViewport?.removeEventListener('resize', state.viewportHandler);
+    state.tg?.offEvent?.('viewportChanged', state.viewportHandler);
+    state.tg?.offEvent?.('themeChanged', state.themeHandler);
+    window.clearTimeout(state.chartResizeTimer);
+    state.chartResizeTimer = null;
+    state.viewportHandler = null;
+    state.themeHandler = null;
+    state.viewportEventsBound = false;
+  }
+
+  function chartFallbackMarkup(chart, message) {
+    const points = (chart.labels || []).slice(0, 8).map((labelValue, index) => (
+      `<li><span>${escapeHtml(labelValue)}</span><strong>${escapeHtml(chart.values?.[index] ?? 0)}</strong></li>`
+    )).join('');
+    return `<h3>${escapeHtml(chart.title)}</h3><p>${escapeHtml(message)}</p>${points ? `<ul class="portal-report-chart-fallback">${points}</ul>` : '<p>No chart values were returned.</p>'}`;
   }
 
   function readDraft() {
@@ -386,40 +604,53 @@
   }
 
   async function load() {
-    state.root = root();
-    if (!state.root) return;
+    const target = root();
+    if (!target) return;
+    const loadVersion = ++state.loadVersion;
+    state.root = target;
     state.route = readRoute();
-    state.root.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading controlled reports...</div></div>';
-    const [catalogueResult, reportsResult, relationshipResult] = await Promise.all([
-      api().apiFetch('/reports/catalogue/', {}, state.tg),
-      api().apiFetch('/reports/', {}, state.tg),
-      state.canManage ? api().apiFetch('/reports/relationships/', {}, state.tg) : Promise.resolve({ ok: true, data: { ok: true, relationship_summary: null } }),
-    ]);
-    if (!catalogueResult.ok || !catalogueResult.data?.ok || !reportsResult.ok || !reportsResult.data?.ok) {
-      state.root.innerHTML = `<div class="empty-state"><div class="es-title">Reports unavailable</div><div class="es-sub">${escapeHtml(catalogueResult.data?.error || reportsResult.data?.error || 'Check IT reporting access and try again.')}</div></div>`;
-      return;
-    }
-    state.catalogue = catalogueResult.data.catalogue;
-    state.definitions = reportsResult.data.reports || [];
-    state.relationships = relationshipResult.data?.relationship_summary || null;
     state.result = null;
-    if (state.route.view === 'edit' && !state.route.reportId) {
-      state.current = restoreLocalDraft(emptyDraft(), { isNew: true });
-    } else if (state.route.reportId) {
-      try {
-        await select(state.route.reportId, { render: false, restoreDraft: state.route.view === 'edit' });
-      } catch (error) {
-        state.current = null;
-        state.route = { view: 'catalogue', reportId: '', step: '' };
-        toast(error.message || 'This report is unavailable.', 'error');
+    state.runError = '';
+    target.innerHTML = loadingMarkup();
+    try {
+      const client = api();
+      if (typeof client.apiFetch !== 'function') throw new Error('The Portal reporting client did not initialise. Refresh and try again.');
+      const [catalogueResult, reportsResult, relationshipResult] = await Promise.all([
+        client.apiFetch('/reports/catalogue/', {}, state.tg),
+        client.apiFetch('/reports/', {}, state.tg),
+        state.canManage ? client.apiFetch('/reports/relationships/', {}, state.tg) : Promise.resolve({ ok: true, data: { ok: true, relationship_summary: null } }),
+      ]);
+      if (!isCurrentLoad(loadVersion, target)) return;
+      if (!catalogueResult.ok || !catalogueResult.data?.ok || !reportsResult.ok || !reportsResult.data?.ok) {
+        showLoadFailure(catalogueResult.data?.error || reportsResult.data?.error || 'Check IT reporting access and try again.');
+        return;
       }
-    } else {
-      state.current = null;
+      state.catalogue = catalogueResult.data.catalogue;
+      state.definitions = reportsResult.data.reports || [];
+      state.relationships = relationshipResult.data?.relationship_summary || null;
+      if (state.route.view === 'edit' && !state.route.reportId) {
+        state.current = restoreLocalDraft(emptyDraft(), { isNew: true });
+      } else if (state.route.reportId) {
+        try {
+          await select(state.route.reportId, { render: false, restoreDraft: state.route.view === 'edit' });
+        } catch (error) {
+          state.current = null;
+          state.route = { view: 'catalogue', reportId: '', step: '' };
+          toast(error.message || 'This report is unavailable.', 'error');
+        }
+      } else {
+        state.current = null;
+      }
+      if (!isCurrentLoad(loadVersion, target)) return;
+      if (state.route.view === 'run' && state.current?.id) {
+        try { await run(1, { render: false }); } catch (error) { state.result = null; state.runError = error.message || 'Could not run this report.'; }
+      }
+      if (!isCurrentLoad(loadVersion, target)) return;
+      render();
+    } catch (error) {
+      if (!isCurrentLoad(loadVersion, target)) return;
+      showLoadFailure(error.message || 'The reports screen could not be loaded.');
     }
-    if (state.route.view === 'run' && state.current?.id) {
-      try { await run(1, { render: false }); } catch (error) { state.result = null; toast(error.message || 'Could not run this report.', 'error'); }
-    }
-    render();
   }
 
   async function select(id, { render = true, restoreDraft = false } = {}) {
@@ -452,11 +683,21 @@
 
   async function run(page = 1, { render = true } = {}) {
     if (!state.current?.id) return;
-    const result = await api().postJson(`/reports/${encodeURIComponent(state.current.id)}/run/`, { page }, state.tg);
-    if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not run the report.');
-    state.result = result.data.result;
-    state.current = result.data.result.definition;
-    if (render) render();
+    const target = root();
+    state.runError = '';
+    if (render && target) target.innerHTML = loadingMarkup('Preparing the live report...');
+    try {
+      const result = await api().postJson(`/reports/${encodeURIComponent(state.current.id)}/run/`, { page }, state.tg);
+      if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not run the report.');
+      state.result = result.data.result;
+      state.current = result.data.result.definition;
+      if (render && root() === target) render();
+    } catch (error) {
+      state.result = null;
+      state.runError = error.message || 'Could not run the report.';
+      if (render && root() === target) target.innerHTML = `${resultMarkup()}<div class="portal-report-actions"><button type="button" class="btn btn-secondary" data-report-action="detail">Back to definition</button></div>`;
+      throw error;
+    }
   }
   async function archive() {
     if (!state.current?.id || !window.confirm('Archive this report definition? Its audit history remains available.')) return;
@@ -493,7 +734,10 @@
     snapshotDraft();
     const candidate = selectedReportFields((item) => item.filterable)[0];
     if (!candidate) throw new Error('Select a filterable report field first.');
-    state.current.configuration.filters.push({ field: candidate.key, operator: candidate.operators[0], value: '' });
+    state.current.configuration = {
+      ...(state.current.configuration || {}),
+      filters: [...(state.current.configuration?.filters || []), { field: candidate.key, operator: candidate.operators[0], value: '' }],
+    };
     persistDraft();
     render();
   }
@@ -526,6 +770,7 @@
         else if (action === 'open') navigate('detail', button.dataset.id);
         else if (action === 'run-card') navigate('run', button.dataset.id);
         else if (action === 'catalogue') navigate('catalogue');
+        else if (action === 'retry-load') await load();
         else if (action === 'detail') navigate('detail', state.current?.id || state.route.reportId);
         else if (action === 'back') {
           const previous = EDITOR_STEPS[editorStepIndex() - 1];
@@ -574,7 +819,25 @@
         render();
         return;
       }
-      if (event.target.matches('[data-report-chart-type], [data-report-chart-aggregation]')) {
+      if (event.target.matches('[data-report-filter-field], [data-report-filter-operator]')) {
+        const fieldChanged = event.target.matches('[data-report-filter-field]');
+        snapshotDraft();
+        const row = event.target.closest('[data-report-filter-row]');
+        const filter = state.current?.configuration?.filters?.[Number(row?.dataset.reportFilterRow)];
+        const reportField = field(filter?.field);
+        if (!filter || !reportField?.filterable) return;
+        if (!reportField.operators.includes(filter.operator)) filter.operator = reportField.operators[0] || '';
+        if (fieldChanged) filter.value = '';
+        persistDraft();
+        render();
+        return;
+      }
+      if (event.target.matches('#portal-report-order-field, #portal-report-order-direction')) {
+        snapshotDraft();
+        persistDraft();
+        return;
+      }
+      if (event.target.matches('[data-report-chart-type], [data-report-chart-aggregation], [data-report-chart-dimension], [data-report-chart-metric], [data-report-chart-bucket]')) {
         snapshotDraft();
         const row = event.target.closest('[data-report-chart-row]');
         const chart = state.current?.charts?.[Number(row?.dataset.reportChartRow)];
@@ -594,9 +857,31 @@
   }
 
   function unmount() {
+    state.loadVersion += 1;
+    state.chartObserver?.disconnect?.();
+    state.chartObserver = null;
     state.charts.forEach((chart) => chart.destroy?.());
     state.charts = [];
+    unbindViewportEvents();
     state.root = null;
+  }
+
+  function canHandleBack() {
+    return Boolean(root() && readRoute().view === 'edit');
+  }
+
+  function handleBack() {
+    if (!canHandleBack()) return false;
+    state.route = readRoute();
+    const index = editorStepIndex();
+    if (index > 0) {
+      navigate('edit', state.current?.id || state.route.reportId, EDITOR_STEPS[index - 1]);
+    } else if (state.current?.is_new || !state.route.reportId) {
+      navigate('catalogue');
+    } else {
+      navigate('detail', state.route.reportId);
+    }
+    return true;
   }
 
   window.PortalMiniAppReports = {
@@ -604,8 +889,11 @@
       state.tg = options.tg || state.tg;
       state.canManage = Boolean(options.canManage);
       bindEvents();
+      bindViewportEvents();
       return load();
     },
+    canHandleBack,
+    handleBack,
     unmount,
   };
 })();

@@ -8,7 +8,9 @@ maker-checker commit action without changing how files are staged or archived.
 
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import mimetypes
 import re
 from pathlib import PurePath
@@ -93,6 +95,137 @@ def _decode_farmup_csv(content: bytes) -> str:
         except UnicodeDecodeError:
             continue
     raise PortalImportError('FarmUp CSV must be UTF-8 encoded.')
+
+
+def _decode_sysup_csv(content: bytes) -> str:
+    """Decode the CSV encodings accepted by the existing SysUp parser."""
+    for encoding in ('utf-8-sig', 'utf-8', 'cp1252'):
+        try:
+            return content.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    raise PortalImportError('SysUp CSV could not be read. Export it as UTF-8 CSV and retry.')
+
+
+def _source_csv_table_page(
+    content: bytes,
+    *,
+    decoder,
+    page: int,
+    page_size: int,
+) -> dict[str, list[list[str]] | list[str]]:
+    """Return one raw CSV page without exposing parser or review-only fields.
+
+    ``parsed_rows`` deliberately contains normalized and matching metadata used
+    by the command workflows.  The Portal's review-only screen instead needs
+    to show the retained source exactly in its own column order, so it reads
+    the original CSV values as a table of lists rather than dictionaries.
+    Lists also preserve duplicate or blank source headers without inventing
+    replacement column names.
+    """
+    reader = csv.reader(io.StringIO(decoder(content)))
+    try:
+        headers = next(reader)
+    except StopIteration:
+        return {'headers': [], 'rows': []}
+
+    start = max(0, (max(1, page) - 1) * max(1, page_size))
+    end = start + max(1, page_size)
+    rows: list[list[str]] = []
+    visible_position = 0
+    for values in reader:
+        if not any(str(value or '').strip() for value in values):
+            continue
+        if start <= visible_position < end:
+            rows.append(list(values[:len(headers)]) + [''] * max(0, len(headers) - len(values)))
+        visible_position += 1
+        if visible_position >= end:
+            break
+    return {'headers': list(headers), 'rows': rows}
+
+
+def _source_xlsx_table_page(
+    content: bytes,
+    *,
+    page: int,
+    page_size: int,
+) -> dict[str, list[list[str]] | list[str]]:
+    """Return a raw SysUp workbook page using the same header detection rule.
+
+    This intentionally stops after the requested page.  It avoids loading an
+    entire workbook into the Portal response merely to render the source data
+    that an IT reviewer asked to inspect.
+    """
+    try:
+        from openpyxl import load_workbook
+        from core.services.system_export import REQUIRED_HEADER_KEYS, _cell_text, _header_key
+
+        workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    except Exception as exc:
+        raise PortalImportError('The retained SysUp workbook could not be read for review.') from exc
+
+    try:
+        sheet = workbook.active
+        header_row_number = None
+        headers: list[str] = []
+        for row_number, row in enumerate(sheet.iter_rows(min_row=1, max_row=25, values_only=True), start=1):
+            candidate = [_cell_text(value) for value in row]
+            keys = {_header_key(value) for value in candidate if value}
+            if set(REQUIRED_HEADER_KEYS).issubset(keys):
+                header_row_number = row_number
+                headers = candidate
+                break
+        if header_row_number is None:
+            raise PortalImportError('The retained SysUp workbook has no recognizable header row.')
+
+        start = max(0, (max(1, page) - 1) * max(1, page_size))
+        end = start + max(1, page_size)
+        rows: list[list[str]] = []
+        visible_position = 0
+        for row in sheet.iter_rows(min_row=header_row_number + 1, values_only=True):
+            values = [_cell_text(value) for value in row]
+            if not any(values):
+                continue
+            if start <= visible_position < end:
+                rows.append(values[:len(headers)] + [''] * max(0, len(headers) - len(values)))
+            visible_position += 1
+            if visible_position >= end:
+                break
+        return {'headers': headers, 'rows': rows}
+    finally:
+        workbook.close()
+
+
+def source_table_page(
+    batch: JawabuFarmerUploadBatch,
+    *,
+    page: int,
+    page_size: int,
+) -> dict[str, list[list[str]] | list[str]]:
+    """Return the original staged import columns and values for Portal review.
+
+    This is intentionally presentation-only.  It never re-runs matching,
+    normalization, or a customer-data commit and does not expose derived
+    parser fields such as Import Status, matched customer, or cleaning notes.
+    """
+    content = bytes(batch.source_content or b'')
+    if not content:
+        raise PortalImportError('The original source file is unavailable for this staged import.')
+    if batch.import_kind == 'farmers':
+        return _source_csv_table_page(
+            content,
+            decoder=_decode_farmup_csv,
+            page=page,
+            page_size=page_size,
+        )
+    if str(batch.source_filename or '').lower().endswith('.xlsx'):
+        return _source_xlsx_table_page(content, page=page, page_size=page_size)
+    return _source_csv_table_page(
+        content,
+        decoder=_decode_sysup_csv,
+        page=page,
+        page_size=page_size,
+    )
 
 
 def _existing_replay(request_id: str, *, kind: str, source_hash: str) -> JawabuFarmerUploadBatch | None:

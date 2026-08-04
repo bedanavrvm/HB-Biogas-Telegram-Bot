@@ -1327,10 +1327,14 @@
     else if (page === 'case_history') loadCaseHistory();
     else if (page === 'payments' && portalPayments.load) portalPayments.load();
     else if (page === 'imports' && portalImports.load) portalImports.load();
-    else if (page === 'reports' && portalReports.load) portalReports.load({
-      tg,
-      canManage: hasCapability('portal.reports.manage'),
-    });
+    else if (page === 'reports' && portalReports.load) {
+      Promise.resolve(portalReports.load({
+        tg,
+        canManage: hasCapability('portal.reports.manage'),
+      })).catch((error) => {
+        console.warn('Portal Reports load failed after route activation.', error);
+      });
+    }
     else if (page === 'settings') loadPortalSettings(true);
     else if (queueConfig[page]) loadQueue(page, 1);
   }
