@@ -13,9 +13,12 @@ from openpyxl import load_workbook
 from core.models import ComplianceAuditEvent, JawabuFarmerMaster, PortalReportChart
 from core.services.portal_reporting import (
     PortalReportingError,
+    catalogue_payload,
     create_definition,
     export_xlsx,
+    preview_chart,
     run_definition,
+    validate_charts,
     validate_configuration,
 )
 from core.services.reporting_relationships import portal_relationship_summary
@@ -91,6 +94,71 @@ class PortalReportingTests(TestCase):
         self.assertEqual(result['rows'][0]['customer_name'], self.emb_u_case.customer_name)
         self.assertEqual(result['charts'][0]['labels'], ['EMBU'])
         self.assertEqual(result['charts'][0]['values'], [1.0])
+
+    def test_chart_catalogue_is_curated_and_preview_is_branch_scoped_without_an_audit_write(self):
+        catalogue = catalogue_payload()
+        fields = {
+            item['key']: item
+            for category in catalogue['categories']
+            for item in category['fields']
+        }
+        self.assertTrue(fields['branch']['chart_dimension'])
+        self.assertTrue(fields['deposit_paid_hbg']['chart_metric'])
+        self.assertFalse(fields['customer_name']['chart_dimension'])
+        self.assertFalse(fields['village']['chart_dimension'])
+
+        audit_count = ComplianceAuditEvent.objects.count()
+        preview = preview_chart(
+            configuration=self.configuration,
+            chart={
+                'chart_type': 'bar', 'dimension_field': 'branch',
+                'aggregation': 'count', 'metric_field': '', 'date_bucket': '',
+            },
+            user=self.it_user,
+            access={'roles': ['IT'], 'branches': ['EMBU']},
+        )
+
+        self.assertEqual(preview['labels'], ['EMBU'])
+        self.assertEqual(preview['values'], [1.0])
+        self.assertEqual(preview['type'], 'bar')
+        self.assertEqual(ComplianceAuditEvent.objects.count(), audit_count)
+
+    def test_chart_rules_reject_unapproved_dimensions_and_incomplete_date_grouping(self):
+        with self.assertRaises(PortalReportingError):
+            validate_charts([{
+                'chart_type': 'bar', 'dimension_field': 'customer_name',
+                'aggregation': 'count', 'metric_field': '', 'date_bucket': '',
+            }], selected_fields=['customer_name'])
+        with self.assertRaises(PortalReportingError):
+            validate_charts([{
+                'chart_type': 'line', 'dimension_field': 'created_at',
+                'aggregation': 'count', 'metric_field': '', 'date_bucket': '',
+            }], selected_fields=['created_at'])
+        with self.assertRaises(PortalReportingError):
+            validate_charts([{
+                'chart_type': 'bar', 'dimension_field': 'branch',
+                'aggregation': 'count', 'metric_field': 'deposit_paid_hbg', 'date_bucket': '',
+            }], selected_fields=['branch', 'deposit_paid_hbg'])
+
+    def test_doughnut_preview_falls_back_to_a_bar_for_many_categories(self):
+        for index in range(3, 10):
+            JawabuFarmerMaster.objects.create(
+                customer_name=f'Branch reporting case {index}', national_id=f'1000000{index}',
+                primary_phone=f'2547000000{index:02d}', branch=f'BRANCH {index}', county='OTHER',
+                deposit_paid_hbg=Decimal('1000.00'), status='active',
+            )
+        preview = preview_chart(
+            configuration=self.configuration,
+            chart={
+                'chart_type': 'doughnut', 'dimension_field': 'branch',
+                'aggregation': 'count', 'metric_field': '', 'date_bucket': '',
+            },
+            user=self.it_user,
+            access={'roles': ['IT'], 'branches': []},
+        )
+        self.assertEqual(preview['requested_type'], 'doughnut')
+        self.assertEqual(preview['type'], 'bar')
+        self.assertIn('More than eight categories', preview['notice'])
 
     def test_catalogue_rejects_sensitive_or_arbitrary_fields_and_xlsx_is_local(self):
         with self.assertRaises(PortalReportingError):
@@ -192,3 +260,24 @@ class PortalReportingTests(TestCase):
         }
         self.assertIn('customer_name', all_keys)
         self.assertNotIn('comments', all_keys)
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
+    def test_chart_preview_endpoint_returns_only_a_scoped_aggregate_without_an_audit_write(self):
+        audit_count = ComplianceAuditEvent.objects.count()
+        response = self.client.post(
+            '/api/portal/reports/preview/',
+            data={
+                'configuration': self.configuration,
+                'chart': {
+                    'chart_type': 'bar', 'dimension_field': 'branch',
+                    'aggregation': 'count', 'metric_field': '', 'date_bucket': '',
+                },
+            },
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['ok'])
+        self.assertEqual(payload['preview']['labels'], ['EMBU', 'NAKURU'])
+        self.assertNotIn('rows', payload['preview'])
+        self.assertEqual(ComplianceAuditEvent.objects.count(), audit_count)

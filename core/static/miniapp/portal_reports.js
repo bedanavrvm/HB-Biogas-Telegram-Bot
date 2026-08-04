@@ -12,6 +12,12 @@
     result: null,
     relationships: null,
     charts: [],
+    editorPreviewChart: null,
+    editorPreview: { index: -1, key: '', status: 'idle', data: null, error: '' },
+    editorPreviewTimer: null,
+    editorPreviewController: null,
+    editorPreviewSequence: 0,
+    activeChartIndex: 0,
     chartObserver: null,
     chartResizeTimer: null,
     viewportEventsBound: false,
@@ -249,25 +255,119 @@
     }).join('');
   }
 
+  function charting() {
+    return state.catalogue?.charting || { types: [], aggregations: [], preview_buckets: 12 };
+  }
+  function chartTypeRule(key) { return charting().types.find((item) => item.key === key); }
+  function chartAggregationRule(key) { return charting().aggregations.find((item) => item.key === key); }
+  function chartDimensions() { return selectedReportFields((item) => item.chart_dimension); }
+  function chartTypesForDimension(dimension) {
+    return dimension ? charting().types.filter((item) => (item.dimension_types || []).includes(dimension.type)) : [];
+  }
+  function chartMetricsForAggregation(aggregation) {
+    return selectedReportFields((item) => item.chart_metric && (item.aggregations || []).includes(aggregation));
+  }
+  function chartAggregations() {
+    return charting().aggregations.filter((item) => !item.metric_required || chartMetricsForAggregation(item.key).length);
+  }
+  function chartTitle(chart) {
+    if (String(chart?.title || '').trim()) return String(chart.title).trim();
+    const aggregation = chartAggregationRule(chart?.aggregation)?.label || 'Case count';
+    return `${aggregation} by ${label(chart?.dimension_field || '')}`;
+  }
+  function normalizeChart(chart) {
+    const dimensions = chartDimensions();
+    if (!dimensions.length) return chart;
+    let dimension = dimensions.find((item) => item.key === chart.dimension_field);
+    if (!dimension) {
+      dimension = dimensions[0];
+      chart.dimension_field = dimension.key;
+    }
+    const types = chartTypesForDimension(dimension);
+    if (!types.some((item) => item.key === chart.chart_type)) chart.chart_type = types[0]?.key || '';
+    if (!chartAggregations().some((item) => item.key === chart.aggregation)) chart.aggregation = 'count';
+    const aggregation = chartAggregationRule(chart.aggregation);
+    if (aggregation?.metric_required) {
+      const metrics = chartMetricsForAggregation(chart.aggregation);
+      if (!metrics.some((item) => item.key === chart.metric_field)) chart.metric_field = metrics[0]?.key || '';
+    } else chart.metric_field = '';
+    if (chartTypeRule(chart.chart_type)?.requires_date_bucket) {
+      if (!['day', 'month'].includes(chart.date_bucket)) chart.date_bucket = '';
+    } else chart.date_bucket = '';
+    return chart;
+  }
+  function chartPreviewReadiness(chart) {
+    const dimension = field(chart?.dimension_field || '');
+    const type = chartTypeRule(chart?.chart_type || '');
+    const aggregation = chartAggregationRule(chart?.aggregation || '');
+    if (!dimension?.chart_dimension || !selectedFields().includes(dimension.key)) return 'Choose an approved operational field to compare.';
+    if (!type || !chartTypesForDimension(dimension).some((item) => item.key === type.key)) return 'Choose a chart display that fits the selected field.';
+    if (!aggregation) return 'Choose how this chart should measure cases.';
+    if (aggregation.metric_required) {
+      const metric = field(chart.metric_field || '');
+      if (!metric?.chart_metric || !chartMetricsForAggregation(chart.aggregation).some((item) => item.key === metric.key)) return 'Choose a compatible financial or derived metric.';
+    }
+    if (type.requires_date_bucket && !['day', 'month'].includes(chart.date_bucket)) return 'Choose whether this date trend is grouped by day or by month.';
+    return '';
+  }
+  function chartPreviewKey(chart) {
+    return JSON.stringify({ configuration: state.current?.configuration || {}, chart: {
+      chart_type: chart?.chart_type || '', dimension_field: chart?.dimension_field || '',
+      aggregation: chart?.aggregation || '', metric_field: chart?.metric_field || '',
+      date_bucket: chart?.date_bucket || '', title: chart?.title || '',
+    } });
+  }
+  function resetEditorPreview() {
+    window.clearTimeout(state.editorPreviewTimer);
+    state.editorPreviewTimer = null;
+    state.editorPreviewController?.abort?.();
+    state.editorPreviewController = null;
+    state.editorPreviewSequence += 1;
+    state.editorPreview = { index: -1, key: '', status: 'idle', data: null, error: '' };
+    state.editorPreviewChart?.destroy?.();
+    state.editorPreviewChart = null;
+  }
+  function editorPreviewMarkup(chart, index) {
+    const readiness = chartPreviewReadiness(chart);
+    if (readiness) return `<div class="portal-report-chart-preview is-awaiting"><strong>Live preview</strong><span>${escapeHtml(readiness)}</span></div>`;
+    const preview = state.editorPreview;
+    if (preview.index !== index || preview.key !== chartPreviewKey(chart) || preview.status === 'idle') return '<div class="portal-report-chart-preview is-loading"><span class="spinner-inline"></span><span>Preparing a live aggregate…</span></div>';
+    if (preview.status === 'loading') return '<div class="portal-report-chart-preview is-loading"><span class="spinner-inline"></span><span>Refreshing the live aggregate…</span></div>';
+    if (preview.status === 'error') return `<div class="portal-report-chart-preview is-error"><strong>Preview unavailable</strong><span>${escapeHtml(preview.error || 'Check the selected fields and try again.')}</span><button type="button" class="btn btn-secondary" data-report-action="retry-chart-preview">Try again</button></div>`;
+    const data = preview.data || {};
+    return `<div class="portal-report-chart-preview is-ready" data-report-editor-preview><div class="portal-report-chart-preview-heading"><div><strong>Live preview</strong><span>${escapeHtml(data.metric_label || '')} by ${escapeHtml(data.dimension_label || '')} · up to ${escapeHtml(charting().preview_buckets || 12)} groups</span></div></div>${data.notice ? `<p class="portal-report-chart-preview-notice">${escapeHtml(data.notice)}</p>` : ''}<canvas id="portal-report-editor-chart-preview" aria-label="${escapeHtml(data.title || chartTitle(chart))}"></canvas></div>`;
+  }
+
   function chartRowsMarkup() {
     const charts = state.current?.charts || [];
     if (!charts.length) return '<p class="portal-report-empty-copy">No charts yet. Reports remain useful without charts; add only a chart that supports an operational decision.</p>';
-    const dimensions = selectedReportFields((item) => item.groupable);
-    const metrics = selectedReportFields((item) => item.type === 'number');
+    const dimensions = chartDimensions();
+    if (state.activeChartIndex >= charts.length) state.activeChartIndex = Math.max(0, charts.length - 1);
     return charts.map((chart, index) => {
-      const metricRequired = chart.aggregation !== 'count';
-      const dateBucket = chart.chart_type === 'line'
-        ? `<select data-report-chart-bucket>${optionMarkup([{ key: 'day', label: 'By day' }, { key: 'month', label: 'By month' }], chart.date_bucket, 'Date grouping')}</select>`
+      normalizeChart(chart);
+      const dimension = field(chart.dimension_field);
+      const typeOptions = chartTypesForDimension(dimension);
+      const aggregation = chartAggregationRule(chart.aggregation);
+      const metrics = chartMetricsForAggregation(chart.aggregation);
+      const dateBucket = chartTypeRule(chart.chart_type)?.requires_date_bucket
+        ? `<label class="portal-report-chart-choice">Group date by<select data-report-chart-bucket>${optionMarkup([{ key: 'day', label: 'Day' }, { key: 'month', label: 'Month' }], chart.date_bucket, 'Choose')}</select></label>`
         : '';
-      return `<div class="portal-report-chart-row" data-report-chart-row="${index}"${metricRequired ? ' data-metric-required="true"' : ''}${dateBucket ? ' data-date-bucket="true"' : ''}>
-        <input data-report-chart-title value="${escapeHtml(chart.title || '')}" maxlength="100" placeholder="Chart title (optional)">
-        <select data-report-chart-type>${optionMarkup([{ key: 'bar', label: 'Bar' }, { key: 'doughnut', label: 'Doughnut' }, { key: 'line', label: 'Line' }], chart.chart_type, 'Chart type')}</select>
-        <select data-report-chart-dimension>${optionMarkup(dimensions, chart.dimension_field, 'Category/date')}</select>
-        <select data-report-chart-aggregation>${optionMarkup([{ key: 'count', label: 'Count cases' }, { key: 'sum', label: 'Sum amount' }, { key: 'average', label: 'Average amount' }], chart.aggregation, 'Aggregation')}</select>
-        ${metricRequired ? `<select data-report-chart-metric>${optionMarkup(metrics, chart.metric_field, 'Numeric field')}</select>` : ''}
-        ${dateBucket}
-        <button type="button" class="portal-report-icon-button" data-report-action="remove-chart" data-index="${index}" aria-label="Remove chart" title="Remove chart"><i data-lucide="trash-2" aria-hidden="true"></i></button>
-      </div>`;
+      return `<details class="portal-report-chart-card" data-report-chart-row="${index}"${index === state.activeChartIndex ? ' open' : ''}>
+        <summary><span><strong>${escapeHtml(chartTitle(chart))}</strong><small>${escapeHtml(label(chart.dimension_field))} · ${escapeHtml(aggregation?.label || chart.aggregation)}</small></span><em>Chart ${index + 1}</em></summary>
+        <div class="portal-report-chart-card-body">
+          <input type="hidden" data-report-chart-type value="${escapeHtml(chart.chart_type)}">
+          <label class="portal-report-chart-title">Chart title <small>Optional</small><input data-report-chart-title value="${escapeHtml(chart.title || '')}" maxlength="100" placeholder="Use the suggested title"></label>
+          <div class="portal-report-chart-choices">
+            <label class="portal-report-chart-choice">Compare by<select data-report-chart-dimension>${optionMarkup(dimensions, chart.dimension_field, 'Choose an operational field')}</select></label>
+            <label class="portal-report-chart-choice">Measure<select data-report-chart-aggregation>${optionMarkup(chartAggregations(), chart.aggregation, 'Choose')}</select></label>
+            ${aggregation?.metric_required ? `<label class="portal-report-chart-choice">Metric<select data-report-chart-metric>${optionMarkup(metrics, chart.metric_field, 'Choose a numeric field')}</select></label>` : ''}
+            ${dateBucket}
+          </div>
+          <div class="portal-report-chart-type-choice"><span>Show as</span><div>${typeOptions.map((item) => `<button type="button" data-report-chart-type-choice="${escapeHtml(item.key)}" data-index="${index}" class="${item.key === chart.chart_type ? 'is-active' : ''}">${escapeHtml(item.label)}</button>`).join('')}</div></div>
+          ${index === state.activeChartIndex ? editorPreviewMarkup(chart, index) : ''}
+          <div class="portal-report-chart-card-actions"><button type="button" class="portal-report-remove-chart" data-report-action="remove-chart" data-index="${index}"><i data-lucide="trash-2" aria-hidden="true"></i>Remove chart</button></div>
+        </div>
+      </details>`;
     }).join('');
   }
 
@@ -387,6 +487,8 @@
     state.chartObserver = null;
     state.charts.forEach((chart) => chart.destroy?.());
     state.charts = [];
+    state.editorPreviewChart?.destroy?.();
+    state.editorPreviewChart = null;
     if (state.route.view === 'edit') state.root.innerHTML = editorMarkup();
     else if (state.route.view === 'detail') state.root.innerHTML = detailMarkup();
     else if (state.route.view === 'run') state.root.innerHTML = `${resultMarkup()}<div class="portal-report-actions"><button type="button" class="btn btn-secondary" data-report-action="detail">Back to definition</button></div>`;
@@ -396,6 +498,10 @@
     window.lucide?.createIcons?.();
     renderMobileResultCards();
     renderCharts();
+    if (state.route.view === 'edit' && editorStep() === 'review') {
+      renderEditorChartPreview();
+      scheduleEditorChartPreview();
+    }
     scheduleChartResize();
     requestShellNavigationSync();
   }
@@ -455,40 +561,44 @@
       return;
     }
     try {
-      const colors = chartColors();
-      const horizontal = chart.type === 'bar' && (chart.labels || []).length > 4;
-      state.charts.push(new window.Chart(canvas, {
-        type: chart.type,
-        data: {
-          labels: chart.labels,
-          datasets: [{
-            label: chart.metric_label,
-            data: chart.values,
-            borderColor: colors.primary,
-            backgroundColor: chart.type === 'doughnut' ? colors.palette : colors.primary,
-            borderWidth: 2,
-            fill: chart.type === 'line' ? false : undefined,
-          }],
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          indexAxis: horizontal ? 'y' : 'x',
-          interaction: { mode: 'nearest', intersect: false },
-          plugins: {
-            legend: { display: chart.type === 'doughnut', labels: { color: colors.text } },
-            tooltip: { enabled: true },
-          },
-          scales: chart.type === 'doughnut' ? {} : {
-            x: { ticks: { color: colors.hint, autoSkip: true, maxRotation: 0 }, grid: { color: colors.grid } },
-            y: { beginAtZero: true, ticks: { color: colors.hint, precision: 0 }, grid: { color: colors.grid } },
-          },
-        },
-      }));
+      state.charts.push(createChartInstance(canvas, chart));
     } catch (error) {
       console.warn('Portal report chart could not render.', error);
       container.innerHTML = chartFallbackMarkup(chart, 'This chart could not be drawn. The live report rows remain available below.');
     }
+  }
+
+  function createChartInstance(canvas, chart) {
+    const colors = chartColors();
+    const horizontal = chart.type === 'bar' && (chart.labels || []).length > 4;
+    return new window.Chart(canvas, {
+      type: chart.type,
+      data: {
+        labels: chart.labels,
+        datasets: [{
+          label: chart.metric_label,
+          data: chart.values,
+          borderColor: colors.primary,
+          backgroundColor: chart.type === 'doughnut' ? colors.palette : colors.primary,
+          borderWidth: 2,
+          fill: chart.type === 'line' ? false : undefined,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        indexAxis: horizontal ? 'y' : 'x',
+        interaction: { mode: 'nearest', intersect: false },
+        plugins: {
+          legend: { display: chart.type === 'doughnut', labels: { color: colors.text } },
+          tooltip: { enabled: true },
+        },
+        scales: chart.type === 'doughnut' ? {} : {
+          x: { ticks: { color: colors.hint, autoSkip: true, maxRotation: 0 }, grid: { color: colors.grid } },
+          y: { beginAtZero: true, ticks: { color: colors.hint, precision: 0 }, grid: { color: colors.grid } },
+        },
+      },
+    });
   }
 
   function chartColors() {
@@ -530,10 +640,12 @@
       const height = `${chartHeight()}px`;
       target.style.setProperty('--portal-report-chart-height', height);
       target.querySelectorAll('.portal-report-chart canvas').forEach((canvas) => { canvas.style.height = height; });
+      target.querySelectorAll('.portal-report-chart-preview canvas').forEach((canvas) => { canvas.style.height = height; });
     }
     state.charts.forEach((chart) => {
       try { chart.resize?.(); } catch (_) { /* Charts are optional visual enhancements. */ }
     });
+    try { state.editorPreviewChart?.resize?.(); } catch (_) { /* Preview charts are optional. */ }
   }
 
   function scheduleChartResize() {
@@ -546,8 +658,11 @@
     state.chartObserver = null;
     state.charts.forEach((chart) => chart.destroy?.());
     state.charts = [];
+    state.editorPreviewChart?.destroy?.();
+    state.editorPreviewChart = null;
     root()?.querySelectorAll('.portal-report-chart').forEach((card) => { delete card.dataset.chartMounted; });
     renderCharts();
+    renderEditorChartPreview();
     scheduleChartResize();
   }
 
@@ -580,6 +695,82 @@
       `<li><span>${escapeHtml(labelValue)}</span><strong>${escapeHtml(chart.values?.[index] ?? 0)}</strong></li>`
     )).join('');
     return `<h3>${escapeHtml(chart.title)}</h3><p>${escapeHtml(message)}</p>${points ? `<ul class="portal-report-chart-fallback">${points}</ul>` : '<p>No chart values were returned.</p>'}`;
+  }
+
+  function activeEditorChart() {
+    const chart = state.current?.charts?.[state.activeChartIndex];
+    return chart ? { chart: normalizeChart(chart), index: state.activeChartIndex } : null;
+  }
+
+  function renderEditorChartPreview() {
+    const target = root()?.querySelector('[data-report-editor-preview]');
+    state.editorPreviewChart?.destroy?.();
+    state.editorPreviewChart = null;
+    if (!target || state.editorPreview.status !== 'ready' || !state.editorPreview.data) return;
+    const canvas = target.querySelector('#portal-report-editor-chart-preview');
+    if (!canvas) return;
+    canvas.style.height = `${chartHeight()}px`;
+    if (!window.Chart) {
+      target.innerHTML = chartFallbackMarkup(state.editorPreview.data, 'Chart display is unavailable in this Mini App session.');
+      return;
+    }
+    try {
+      state.editorPreviewChart = createChartInstance(canvas, state.editorPreview.data);
+    } catch (error) {
+      console.warn('Portal report editor preview could not render.', error);
+      target.innerHTML = chartFallbackMarkup(state.editorPreview.data, 'This preview could not be drawn. Check the live report after saving.');
+    }
+  }
+
+  function refreshEditorPreviewMarkup() {
+    const active = activeEditorChart();
+    const target = root()?.querySelector('[data-report-chart-row][open] .portal-report-chart-preview, [data-report-chart-row][open] [data-report-editor-preview]');
+    if (!active || !target) return;
+    target.outerHTML = editorPreviewMarkup(active.chart, active.index);
+    renderEditorChartPreview();
+  }
+
+  function scheduleEditorChartPreview({ force = false } = {}) {
+    if (state.route.view !== 'edit' || editorStep() !== 'review' || !state.canManage) return;
+    const active = activeEditorChart();
+    if (!active) return;
+    const readiness = chartPreviewReadiness(active.chart);
+    const key = chartPreviewKey(active.chart);
+    if (readiness) {
+      if (state.editorPreview.key !== key || state.editorPreview.status !== 'idle') {
+        resetEditorPreview();
+        state.editorPreview = { index: active.index, key, status: 'idle', data: null, error: '' };
+        refreshEditorPreviewMarkup();
+      }
+      return;
+    }
+    if (!force && state.editorPreview.index === active.index && state.editorPreview.key === key && ['loading', 'ready', 'error'].includes(state.editorPreview.status)) return;
+    resetEditorPreview();
+    const sequence = ++state.editorPreviewSequence;
+    state.editorPreview = { index: active.index, key, status: 'loading', data: null, error: '' };
+    refreshEditorPreviewMarkup();
+    state.editorPreviewTimer = window.setTimeout(async () => {
+      const controller = window.AbortController ? new AbortController() : null;
+      state.editorPreviewController = controller;
+      try {
+        const result = await api().postJson('/reports/preview/', {
+          configuration: state.current.configuration,
+          chart: active.chart,
+        }, state.tg, {}, controller ? { signal: controller.signal } : {});
+        if (sequence !== state.editorPreviewSequence || controller?.signal.aborted) return;
+        if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not prepare this chart preview.');
+        state.editorPreview = { index: active.index, key, status: 'ready', data: result.data.preview, error: '' };
+      } catch (error) {
+        if (sequence !== state.editorPreviewSequence || controller?.signal.aborted) return;
+        state.editorPreview = { index: active.index, key, status: 'error', data: null, error: error.message || 'Could not prepare this chart preview.' };
+      } finally {
+        if (sequence === state.editorPreviewSequence) {
+          state.editorPreviewController = null;
+          state.editorPreviewTimer = null;
+          refreshEditorPreviewMarkup();
+        }
+      }
+    }, 450);
   }
 
   function readDraft() {
@@ -826,9 +1017,24 @@
   }
   function addChart() {
     snapshotDraft();
-    const dimension = selectedReportFields((item) => item.groupable)[0];
-    if (!dimension) throw new Error('Select a category or date report field first.');
-    state.current.charts.push({ title: '', chart_type: 'bar', dimension_field: dimension.key, aggregation: 'count', metric_field: '', date_bucket: '' });
+    const dimension = chartDimensions()[0];
+    if (!dimension) throw new Error('Select an approved operational category or date field first.');
+    const chart = { title: '', chart_type: chartTypesForDimension(dimension)[0]?.key || '', dimension_field: dimension.key, aggregation: 'count', metric_field: '', date_bucket: '' };
+    normalizeChart(chart);
+    state.current.charts.push(chart);
+    state.activeChartIndex = state.current.charts.length - 1;
+    resetEditorPreview();
+    persistDraft();
+    render();
+  }
+  function updateChart(index, update) {
+    snapshotDraft();
+    const chart = state.current?.charts?.[index];
+    if (!chart) return;
+    update(chart);
+    normalizeChart(chart);
+    state.activeChartIndex = index;
+    resetEditorPreview();
     persistDraft();
     render();
   }
@@ -844,6 +1050,12 @@
     if (document.documentElement.dataset.portalReportsBound) return;
     document.documentElement.dataset.portalReportsBound = 'true';
     document.addEventListener('click', async (event) => {
+      const chartType = event.target.closest('[data-report-chart-type-choice]');
+      if (chartType && root()?.contains(chartType)) {
+        event.preventDefault();
+        updateChart(Number(chartType.dataset.index), (chart) => { chart.chart_type = chartType.dataset.reportChartTypeChoice || ''; });
+        return;
+      }
       const button = event.target.closest('[data-report-action]');
       if (!button || !root()?.contains(button)) return;
       event.preventDefault();
@@ -876,7 +1088,15 @@
         else if (action === 'add-filter') addFilter();
         else if (action === 'remove-filter') { snapshotDraft(); state.current.configuration.filters.splice(Number(button.dataset.index), 1); persistDraft(); render(); }
         else if (action === 'add-chart') addChart();
-        else if (action === 'remove-chart') { snapshotDraft(); state.current.charts.splice(Number(button.dataset.index), 1); persistDraft(); render(); }
+        else if (action === 'remove-chart') {
+          snapshotDraft();
+          state.current.charts.splice(Number(button.dataset.index), 1);
+          state.activeChartIndex = Math.max(0, Math.min(state.activeChartIndex, state.current.charts.length - 1));
+          resetEditorPreview();
+          persistDraft();
+          render();
+        }
+        else if (action === 'retry-chart-preview') { resetEditorPreview(); scheduleEditorChartPreview({ force: true }); }
         else if (action === 'save') await save();
         else if (action === 'run') navigate('run', state.current?.id || state.route.reportId);
         else if (action === 'rerun') await run(1);
@@ -904,6 +1124,7 @@
           toast(`Choose at most ${state.catalogue?.limits?.fields || 18} fields.`, 'error');
         }
         persistDraft();
+        resetEditorPreview();
         render();
         return;
       }
@@ -930,18 +1151,24 @@
         const row = event.target.closest('[data-report-chart-row]');
         const chart = state.current?.charts?.[Number(row?.dataset.reportChartRow)];
         if (!chart) return;
-        if (chart.aggregation === 'count') chart.metric_field = '';
-        if (chart.chart_type === 'line') {
-          const dateDimension = selectedReportFields((item) => item.type === 'date')[0];
-          if (dateDimension) chart.dimension_field = dateDimension.key;
-          chart.date_bucket = chart.date_bucket || 'day';
-        } else chart.date_bucket = '';
+        state.activeChartIndex = Number(row?.dataset.reportChartRow);
+        normalizeChart(chart);
+        resetEditorPreview();
         persistDraft();
         render();
         return;
       }
       if (state.route.view === 'edit') snapshotDraft();
     });
+    document.addEventListener('toggle', (event) => {
+      const card = event.target;
+      if (!card?.matches?.('[data-report-chart-row]') || !root()?.contains(card) || !card.open) return;
+      const index = Number(card.dataset.reportChartRow);
+      if (index === state.activeChartIndex) return;
+      state.activeChartIndex = index;
+      resetEditorPreview();
+      render();
+    }, true);
   }
 
   function unmount() {
@@ -950,6 +1177,7 @@
     state.chartObserver = null;
     state.charts.forEach((chart) => chart.destroy?.());
     state.charts = [];
+    resetEditorPreview();
     unbindViewportEvents();
     document.body.classList.remove('portal-report-editor-active');
     state.root = null;

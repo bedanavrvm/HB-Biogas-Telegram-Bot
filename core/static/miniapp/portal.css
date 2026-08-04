@@ -1737,8 +1737,39 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .portal-report-field-grid small { color: var(--text-muted); font-size: 8px; }
 .portal-report-section { display: grid; gap: 7px; padding-top: 10px; border-top: 1px solid var(--border-color); }
 .portal-report-section-heading { align-items: center; }
-.portal-report-filter-row, .portal-report-chart-row { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(110px, .7fr) minmax(140px, 1fr) auto; gap: 6px; align-items: center; }
-.portal-report-chart-row { grid-template-columns: minmax(120px, 1.2fr) repeat(4, minmax(98px, 1fr)) auto; }
+.portal-report-filter-row { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(110px, .7fr) minmax(140px, 1fr) auto; gap: 6px; align-items: center; }
+.portal-report-chart-row { display: block; overflow: hidden; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-muted); }
+.portal-report-chart-row + .portal-report-chart-row { margin-top: 8px; }
+.portal-report-chart-row summary { display: flex; align-items: center; justify-content: space-between; gap: 9px; min-height: 48px; padding: 8px 10px; color: var(--text-primary); cursor: pointer; list-style: none; }
+.portal-report-chart-row summary::-webkit-details-marker { display: none; }
+.portal-report-chart-row summary > span { display: grid; gap: 2px; min-width: 0; }
+.portal-report-chart-row summary strong { overflow: hidden; color: var(--text-primary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.portal-report-chart-row summary small { overflow: hidden; color: var(--text-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.portal-report-chart-row summary em { flex: 0 0 auto; color: var(--text-muted); font-size: 9px; font-style: normal; font-weight: 800; letter-spacing: .03em; text-transform: uppercase; }
+.portal-report-chart-card-body { display: grid; gap: 10px; padding: 10px; border-top: 1px solid var(--border-color); background: var(--bg-surface); }
+.portal-report-chart-title, .portal-report-chart-choice { display: grid; gap: 5px; color: var(--text-muted); font-size: 9px; font-weight: 800; letter-spacing: .03em; text-transform: uppercase; }
+.portal-report-chart-title small { color: var(--text-muted); font-size: 8px; font-weight: 650; letter-spacing: normal; text-transform: none; }
+.portal-report-chart-title input, .portal-report-chart-choice select { min-height: 38px; border: 1px solid var(--border-color); border-radius: 8px; padding: 7px 8px; background: var(--bg-surface); color: var(--text-primary); font: inherit; letter-spacing: normal; text-transform: none; }
+.portal-report-chart-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.portal-report-chart-type-choice { display: grid; gap: 6px; padding-top: 1px; }
+.portal-report-chart-type-choice > span { color: var(--text-muted); font-size: 9px; font-weight: 800; letter-spacing: .03em; text-transform: uppercase; }
+.portal-report-chart-type-choice > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.portal-report-chart-type-choice button { min-height: 36px; padding: 6px 10px; border: 1px solid var(--border-color); border-radius: 999px; background: var(--bg-muted); color: var(--text-primary); box-shadow: none; font-size: 10px; }
+.portal-report-chart-type-choice button.is-active { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 13%, var(--bg-surface)); color: var(--color-primary); font-weight: 800; }
+.portal-report-chart-preview { display: grid; gap: 7px; min-height: 86px; padding: 10px; border: 1px solid var(--border-color); border-radius: 9px; background: var(--bg-muted); color: var(--text-muted); font-size: 10px; line-height: 1.35; }
+.portal-report-chart-preview.is-loading { display: flex; align-items: center; justify-content: center; min-height: 116px; }
+.portal-report-chart-preview.is-awaiting { border-style: dashed; }
+.portal-report-chart-preview.is-error { border-color: color-mix(in srgb, var(--status-danger) 40%, var(--border-color)); }
+.portal-report-chart-preview.is-error .btn { justify-self: start; min-height: 34px; padding: 5px 8px; font-size: 10px; }
+.portal-report-chart-preview strong { color: var(--text-primary); font-size: 11px; }
+.portal-report-chart-preview-heading { display: flex; justify-content: space-between; gap: 8px; }
+.portal-report-chart-preview-heading > div { display: grid; gap: 2px; min-width: 0; }
+.portal-report-chart-preview-heading span, .portal-report-chart-preview-notice { margin: 0; color: var(--text-muted); font-size: 9px; }
+.portal-report-chart-preview-notice { padding: 6px 7px; border-radius: 7px; background: color-mix(in srgb, var(--status-warning) 10%, var(--bg-surface)); color: var(--text-primary); }
+.portal-report-chart-preview canvas { width: 100% !important; height: var(--portal-report-chart-height, 220px) !important; touch-action: manipulation; }
+.portal-report-chart-card-actions { display: flex; justify-content: flex-end; }
+.portal-report-remove-chart { display: inline-flex; align-items: center; gap: 5px; min-height: 32px; padding: 4px 6px; border: 0; background: transparent; color: var(--status-danger); box-shadow: none; font-size: 10px; }
+.portal-report-remove-chart svg { width: 14px; height: 14px; }
 .portal-report-ordering > div { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(120px, .5fr); gap: 7px; }
 .portal-report-actions { display: flex; flex-wrap: wrap; gap: 7px; padding-top: 1px; }
 .portal-report-actions .btn { min-height: 40px; }
@@ -1800,7 +1831,7 @@ body.portal-report-editor-active #bottom-tabs { display: none; }
   .portal-report-wizard-actions .btn-secondary { border-color: transparent; background: transparent; box-shadow: none; }
   .portal-report-chart-row .portal-report-icon-button { width: 38px; min-width: 38px; justify-self: end; }
 }
-@media (max-width: 420px) { .portal-report-catalogue-heading, .portal-report-detail-heading, .portal-report-results-heading { align-items: stretch; flex-direction: column; } .portal-report-stepper button { gap: 3px; font-size: 9px; } .portal-report-stepper button span { display: none; } .portal-report-field-grid, .portal-report-filter-row, .portal-report-chart-row, .portal-report-ordering > div { grid-template-columns: 1fr; } .portal-report-filter-row input, .portal-report-chart-row input { grid-column: auto; } .portal-report-pager { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 420px) { .portal-report-catalogue-heading, .portal-report-detail-heading, .portal-report-results-heading { align-items: stretch; flex-direction: column; } .portal-report-stepper button { gap: 3px; font-size: 9px; } .portal-report-stepper button span { display: none; } .portal-report-field-grid, .portal-report-filter-row, .portal-report-ordering > div, .portal-report-chart-choices { grid-template-columns: 1fr; } .portal-report-filter-row input, .portal-report-chart-row input { grid-column: auto; } .portal-report-pager { align-items: flex-start; flex-direction: column; } }
 @media (max-width: 420px) { .portal-report-stepper { align-items: center; } .portal-report-step-dots button span { display: block; } .portal-report-chart-row .portal-report-icon-button { justify-self: start; } .portal-report-review-summary > div { grid-template-columns: 64px minmax(0, 1fr); } }
 @media print {
   body.printing-document * { visibility: hidden !important; }

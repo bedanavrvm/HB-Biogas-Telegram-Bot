@@ -69,6 +69,7 @@ from .portal_views import (
     portal_import_detail,
     portal_import_archive_attempt,
     portal_reports_catalogue,
+    portal_report_preview,
     portal_reporting_relationships,
     portal_reports,
     portal_report_detail,
@@ -251,6 +252,7 @@ urlpatterns = [
     # IT-only, catalogue-constrained reports. These views are individually
     # Telegram-authenticated because report runs/export writes audit evidence.
     path('portal/reports/catalogue/', portal_reports_catalogue, name='portal_reports_catalogue'),
+    path('portal/reports/preview/', portal_report_preview, name='portal_report_preview'),
     path('portal/reports/relationships/', portal_reporting_relationships, name='portal_reporting_relationships'),
     path('portal/reports/', portal_reports, name='portal_reports'),
     path('portal/reports/<str:report_id>/', portal_report_detail, name='portal_report_detail'),

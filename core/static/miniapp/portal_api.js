@@ -142,11 +142,12 @@
     }
   }
 
-  async function postJson(path, payload, tg, extraHeaders) {
+  async function postJson(path, payload, tg, extraHeaders, requestOptions) {
     const body = payload || {};
     const key = body.client_request_id || body.request_id || requestId({ headers: extraHeaders || {} });
     if (!body.client_request_id) body.client_request_id = key;
     return apiFetch(path, {
+      ...(requestOptions || {}),
       method: 'POST',
       headers: { ...(extraHeaders || {}), 'X-Request-ID': key, 'Idempotency-Key': key },
       body: JSON.stringify(body),

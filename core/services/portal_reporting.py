@@ -40,6 +40,8 @@ MAX_CHARTS = 6
 MAX_TABLE_ROWS = 2_000
 PAGE_SIZE = 50
 MAX_CHART_BUCKETS = 100
+MAX_CHART_PREVIEW_BUCKETS = 12
+MAX_DOUGHNUT_BUCKETS = 8
 DATETIME_FILTER_FIELDS = frozenset({'created_at', 'updated_at'})
 
 logger = logging.getLogger(__name__)
@@ -60,6 +62,8 @@ class ReportField:
     aggregations: tuple[str, ...] = ()
     sortable: bool = True
     derived: bool = False
+    chart_dimension: bool = False
+    chart_metric: bool = False
 
     @property
     def filterable(self) -> bool:
@@ -68,6 +72,43 @@ class ReportField:
     @property
     def groupable(self) -> bool:
         return self.value_type in {'choice', 'text', 'date'}
+
+
+# Chart choices are deliberately more restrictive than generic grouping. The
+# report catalogue may expose a text field for filtering or rows without making
+# it suitable for a mobile chart (for example, customer names or invoice IDs).
+CHART_TYPE_RULES: dict[str, dict[str, Any]] = {
+    PortalReportChart.TYPE_BAR: {
+        'label': 'Bar',
+        'dimension_types': ('choice', 'text'),
+        'requires_date_bucket': False,
+    },
+    PortalReportChart.TYPE_DOUGHNUT: {
+        'label': 'Doughnut',
+        'dimension_types': ('choice', 'text'),
+        'requires_date_bucket': False,
+        'maximum_categories': MAX_DOUGHNUT_BUCKETS,
+    },
+    PortalReportChart.TYPE_LINE: {
+        'label': 'Line',
+        'dimension_types': ('date',),
+        'requires_date_bucket': True,
+    },
+}
+CHART_AGGREGATION_RULES: dict[str, dict[str, Any]] = {
+    PortalReportChart.AGGREGATE_COUNT: {
+        'label': 'Count cases',
+        'metric_required': False,
+    },
+    PortalReportChart.AGGREGATE_SUM: {
+        'label': 'Sum amount',
+        'metric_required': True,
+    },
+    PortalReportChart.AGGREGATE_AVERAGE: {
+        'label': 'Average amount',
+        'metric_required': True,
+    },
+}
 
 
 _TEXT = ('equals', 'contains', 'in')
@@ -84,31 +125,31 @@ PORTAL_REPORT_FIELDS: tuple[ReportField, ...] = (
     ReportField('national_id', 'National ID', 'national_id', 'text', 'Customer', _TEXT),
     ReportField('primary_phone', 'Primary phone', 'primary_phone', 'text', 'Customer', _TEXT),
     ReportField('customer_no', 'Customer number', 'customer_no', 'text', 'Customer', _TEXT),
-    ReportField('branch', 'Branch', 'branch', 'choice', 'Location', _CHOICE),
-    ReportField('county', 'County', 'county', 'choice', 'Location', _CHOICE),
-    ReportField('sub_county', 'Constituency / sub-county', 'sub_county', 'text', 'Location', _TEXT),
+    ReportField('branch', 'Branch', 'branch', 'choice', 'Location', _CHOICE, chart_dimension=True),
+    ReportField('county', 'County', 'county', 'choice', 'Location', _CHOICE, chart_dimension=True),
+    ReportField('sub_county', 'Constituency / sub-county', 'sub_county', 'text', 'Location', _TEXT, chart_dimension=True),
     ReportField('village', 'Village', 'village', 'text', 'Location', _TEXT),
-    ReportField('hbg_visit_date', 'HBG visit date', 'hbg_visit_date', 'date', 'Workflow', _DATE),
-    ReportField('jbl_visit_date', 'JBL visit date', 'jbl_visit_date', 'date', 'Workflow', _DATE),
-    ReportField('jbl_visit_status', 'JBL visit status', 'jbl_visit_status', 'choice', 'Workflow', _CHOICE),
-    ReportField('credit_decision', 'Credit decision', 'credit_decision', 'choice', 'Workflow', _CHOICE),
-    ReportField('final_decision', 'Final decision', 'final_decision', 'choice', 'Workflow', _CHOICE),
-    ReportField('workflow_state', 'Current pipeline state', 'workflow_state', 'choice', 'Workflow', _CHOICE),
-    ReportField('requisition_date', 'Requisition date', 'requisition_date', 'date', 'Operations', _DATE),
+    ReportField('hbg_visit_date', 'HBG visit date', 'hbg_visit_date', 'date', 'Workflow', _DATE, chart_dimension=True),
+    ReportField('jbl_visit_date', 'JBL visit date', 'jbl_visit_date', 'date', 'Workflow', _DATE, chart_dimension=True),
+    ReportField('jbl_visit_status', 'JBL visit status', 'jbl_visit_status', 'choice', 'Workflow', _CHOICE, chart_dimension=True),
+    ReportField('credit_decision', 'Credit decision', 'credit_decision', 'choice', 'Workflow', _CHOICE, chart_dimension=True),
+    ReportField('final_decision', 'Final decision', 'final_decision', 'choice', 'Workflow', _CHOICE, chart_dimension=True),
+    ReportField('workflow_state', 'Current pipeline state', 'workflow_state', 'choice', 'Workflow', _CHOICE, chart_dimension=True),
+    ReportField('requisition_date', 'Requisition date', 'requisition_date', 'date', 'Operations', _DATE, chart_dimension=True),
     ReportField('order_number', 'Order number', 'order_number', 'text', 'Operations', _TEXT),
     ReportField('invoice_number', 'Invoice number', 'invoice_number', 'text', 'Operations', _TEXT),
-    ReportField('invoice_date', 'Invoice date', 'invoice_date', 'date', 'Operations', _DATE),
-    ReportField('status', 'Record status', 'status', 'choice', 'Operations', _CHOICE),
-    ReportField('created_at', 'Created at', 'created_at', 'date', 'Operations', _DATE),
-    ReportField('updated_at', 'Last updated', 'updated_at', 'date', 'Operations', _DATE),
-    ReportField('deposit_paid_hbg', 'HBG deposit', 'deposit_paid_hbg', 'number', 'Finance', _NUMBER, ('sum', 'average')),
-    ReportField('system_deposit_paid_jbl', 'JBL deposit', 'system_deposit_paid_jbl', 'number', 'Finance', _NUMBER, ('sum', 'average')),
-    ReportField('invoice_amount', 'Invoice amount', 'invoice_amount', 'number', 'Finance', _NUMBER, ('sum', 'average')),
-    ReportField('discount', 'Discount', 'discount', 'number', 'Finance', _NUMBER, ('sum', 'average')),
-    ReportField('payment', 'HBG payment / deposit', 'payment', 'number', 'Finance', _NUMBER, ('sum', 'average')),
-    ReportField('balance_due', 'Balance due', 'balance_due', 'number', 'Finance', _NUMBER, ('sum', 'average')),
-    ReportField('matched_invoice_count', 'Matched invoice count', 'matched_invoice_count', 'number', 'Derived', _NUMBER, ('sum', 'average'), derived=True),
-    ReportField('jbl_media_count', 'JBL media count', 'jbl_media_count', 'number', 'Derived', _NUMBER, ('sum', 'average'), derived=True),
+    ReportField('invoice_date', 'Invoice date', 'invoice_date', 'date', 'Operations', _DATE, chart_dimension=True),
+    ReportField('status', 'Record status', 'status', 'choice', 'Operations', _CHOICE, chart_dimension=True),
+    ReportField('created_at', 'Created at', 'created_at', 'date', 'Operations', _DATE, chart_dimension=True),
+    ReportField('updated_at', 'Last updated', 'updated_at', 'date', 'Operations', _DATE, chart_dimension=True),
+    ReportField('deposit_paid_hbg', 'HBG deposit', 'deposit_paid_hbg', 'number', 'Finance', _NUMBER, ('sum', 'average'), chart_metric=True),
+    ReportField('system_deposit_paid_jbl', 'JBL deposit', 'system_deposit_paid_jbl', 'number', 'Finance', _NUMBER, ('sum', 'average'), chart_metric=True),
+    ReportField('invoice_amount', 'Invoice amount', 'invoice_amount', 'number', 'Finance', _NUMBER, ('sum', 'average'), chart_metric=True),
+    ReportField('discount', 'Discount', 'discount', 'number', 'Finance', _NUMBER, ('sum', 'average'), chart_metric=True),
+    ReportField('payment', 'HBG payment / deposit', 'payment', 'number', 'Finance', _NUMBER, ('sum', 'average'), chart_metric=True),
+    ReportField('balance_due', 'Balance due', 'balance_due', 'number', 'Finance', _NUMBER, ('sum', 'average'), chart_metric=True),
+    ReportField('matched_invoice_count', 'Matched invoice count', 'matched_invoice_count', 'number', 'Derived', _NUMBER, ('sum', 'average'), derived=True, chart_metric=True),
+    ReportField('jbl_media_count', 'JBL media count', 'jbl_media_count', 'number', 'Derived', _NUMBER, ('sum', 'average'), derived=True, chart_metric=True),
 )
 _FIELD_BY_KEY = {field.key: field for field in PORTAL_REPORT_FIELDS}
 
@@ -127,10 +168,33 @@ def catalogue_payload() -> dict[str, Any]:
             'operators': list(field.filter_operators),
             'aggregations': ['count', *field.aggregations] if field.value_type == 'number' else ['count'],
             'derived': field.derived,
+            'chart_dimension': field.chart_dimension,
+            'chart_metric': field.chart_metric,
         })
     return {
         'source': {'key': SOURCE_PORTAL_CASES, 'label': 'Portal customer cases'},
         'categories': [{'label': key, 'fields': values} for key, values in categories.items()],
+        'charting': {
+            'types': [
+                {
+                    'key': key,
+                    'label': rule['label'],
+                    'dimension_types': list(rule['dimension_types']),
+                    'requires_date_bucket': bool(rule.get('requires_date_bucket')),
+                    'maximum_categories': rule.get('maximum_categories'),
+                }
+                for key, rule in CHART_TYPE_RULES.items()
+            ],
+            'aggregations': [
+                {
+                    'key': key,
+                    'label': rule['label'],
+                    'metric_required': bool(rule['metric_required']),
+                }
+                for key, rule in CHART_AGGREGATION_RULES.items()
+            ],
+            'preview_buckets': MAX_CHART_PREVIEW_BUCKETS,
+        },
         'limits': {
             'fields': MAX_SELECTED_FIELDS,
             'filters': MAX_FILTERS,
@@ -229,27 +293,35 @@ def validate_charts(value: Any, *, selected_fields: Iterable[str]) -> list[dict[
         if not isinstance(item, dict):
             raise PortalReportingError('Each chart must be an object.')
         chart_type = str(item.get('chart_type') or '').strip()
-        if chart_type not in {PortalReportChart.TYPE_BAR, PortalReportChart.TYPE_DOUGHNUT, PortalReportChart.TYPE_LINE}:
+        type_rule = CHART_TYPE_RULES.get(chart_type)
+        if type_rule is None:
             raise PortalReportingError('Choose a supported chart type.')
         dimension = _field(item.get('dimension_field'))
         aggregation = str(item.get('aggregation') or PortalReportChart.AGGREGATE_COUNT).strip()
+        aggregation_rule = CHART_AGGREGATION_RULES.get(aggregation)
+        if aggregation_rule is None:
+            raise PortalReportingError('Choose a supported chart measurement.')
         metric_key = str(item.get('metric_field') or '').strip()
         date_bucket = str(item.get('date_bucket') or '').strip()
-        if dimension.key not in selected or not dimension.groupable:
-            raise PortalReportingError('Choose a selected category or date field for each chart.')
-        if chart_type == PortalReportChart.TYPE_LINE:
-            if dimension.value_type != 'date':
-                raise PortalReportingError('A line chart needs a date field.')
+        if dimension.key not in selected or not dimension.chart_dimension:
+            raise PortalReportingError('Choose a selected operational chart dimension.')
+        if dimension.value_type not in type_rule['dimension_types']:
+            raise PortalReportingError(f'{type_rule["label"]} charts do not support {dimension.label}.')
+        if type_rule.get('requires_date_bucket'):
             if date_bucket not in {PortalReportChart.BUCKET_DAY, PortalReportChart.BUCKET_MONTH}:
                 raise PortalReportingError('Choose day or month grouping for a line chart.')
         elif date_bucket:
             raise PortalReportingError('Date grouping is available only for line charts.')
-        if aggregation == PortalReportChart.AGGREGATE_COUNT:
+        if not aggregation_rule['metric_required']:
             if metric_key:
                 raise PortalReportingError('Count charts do not need a numeric metric field.')
         else:
             metric = _field(metric_key)
-            if metric.key not in selected or aggregation not in metric.aggregations:
+            if (
+                metric.key not in selected
+                or not metric.chart_metric
+                or aggregation not in metric.aggregations
+            ):
                 raise PortalReportingError('Choose a selected numeric metric supported by that aggregation.')
         title = str(item.get('title') or '').strip()[:100]
         normalized.append({
@@ -513,7 +585,20 @@ def run_definition(*, definition: PortalReportDefinition, user, access: dict | N
     charts = []
     for chart in definition.charts.order_by('position', 'created_at'):
         try:
-            charts.append(chart_payload(chart, queryset))
+            chart_config = validate_charts([{
+                'title': chart.title,
+                'chart_type': chart.chart_type,
+                'dimension_field': chart.dimension_field,
+                'metric_field': chart.metric_field,
+                'aggregation': chart.aggregation,
+                'date_bucket': chart.date_bucket,
+            }], selected_fields=config['fields'])[0]
+            charts.append(chart_payload_from_config(
+                chart_config,
+                queryset,
+                chart_id=str(chart.pk),
+                max_buckets=MAX_CHART_BUCKETS,
+            ))
         except PortalReportingError:
             logger.warning(
                 'Portal report chart requires review chart=%s definition=%s',
@@ -558,17 +643,27 @@ def run_definition(*, definition: PortalReportDefinition, user, access: dict | N
     }
 
 
-def chart_payload(chart: PortalReportChart, queryset) -> dict[str, Any]:
-    dimension = _field(chart.dimension_field)
-    metric = _field(chart.metric_field) if chart.metric_field else None
-    if chart.chart_type == PortalReportChart.TYPE_LINE:
-        bucket = TruncDay(dimension.expression) if chart.date_bucket == PortalReportChart.BUCKET_DAY else TruncMonth(dimension.expression)
+def chart_payload_from_config(
+    chart: dict[str, Any],
+    queryset,
+    *,
+    chart_id: str = '',
+    max_buckets: int = MAX_CHART_BUCKETS,
+) -> dict[str, Any]:
+    """Aggregate one already-validated chart without exposing case rows."""
+    dimension = _field(chart['dimension_field'])
+    metric = _field(chart['metric_field']) if chart.get('metric_field') else None
+    chart_type = chart['chart_type']
+    aggregation = chart['aggregation']
+    date_bucket = chart.get('date_bucket') or ''
+    if chart_type == PortalReportChart.TYPE_LINE:
+        bucket = TruncDay(dimension.expression) if date_bucket == PortalReportChart.BUCKET_DAY else TruncMonth(dimension.expression)
         grouped = queryset.exclude(**{f'{dimension.expression}__isnull': True}).annotate(_dimension=bucket).values('_dimension')
     else:
         grouped = queryset.exclude(**{f'{dimension.expression}': ''}).exclude(**{f'{dimension.expression}__isnull': True}).values(dimension.expression)
-    if chart.aggregation == PortalReportChart.AGGREGATE_COUNT:
+    if aggregation == PortalReportChart.AGGREGATE_COUNT:
         grouped = grouped.annotate(value=Count('id'))
-    elif chart.aggregation == PortalReportChart.AGGREGATE_SUM:
+    elif aggregation == PortalReportChart.AGGREGATE_SUM:
         decimal_output = DecimalField(max_digits=18, decimal_places=2)
         grouped = grouped.annotate(value=Coalesce(
             Sum(metric.expression),
@@ -577,26 +672,66 @@ def chart_payload(chart: PortalReportChart, queryset) -> dict[str, Any]:
         ))
     else:
         grouped = grouped.annotate(value=Avg(metric.expression))
-    grouped = grouped.order_by('-value')[:MAX_CHART_BUCKETS]
+    # A value-only ordering reshuffles equal-sized categories between database
+    # executions.  Keep the strongest values first while making ties stable for
+    # staff comparing a live preview with the subsequently saved report.
+    ordering = ('_dimension',) if chart_type == PortalReportChart.TYPE_LINE else ('-value', dimension.expression)
+    grouped_rows = list(grouped.order_by(*ordering)[:max_buckets + 1])
+    truncated = len(grouped_rows) > max_buckets
+    grouped_rows = grouped_rows[:max_buckets]
     labels, values = [], []
-    for row in grouped:
-        raw = row.get('_dimension') if chart.chart_type == PortalReportChart.TYPE_LINE else row.get(dimension.expression)
+    for row in grouped_rows:
+        raw = row.get('_dimension') if chart_type == PortalReportChart.TYPE_LINE else row.get(dimension.expression)
         labels.append(_json_value(raw) or 'Not recorded')
         value = row.get('value')
         values.append(float(value or 0))
-    if chart.chart_type == PortalReportChart.TYPE_LINE:
+    if chart_type == PortalReportChart.TYPE_LINE:
         pairs = sorted(zip(labels, values), key=lambda item: item[0])
         labels, values = map(list, zip(*pairs)) if pairs else ([], [])
+    effective_type = chart_type
+    notices = []
+    if chart_type == PortalReportChart.TYPE_DOUGHNUT and len(labels) > MAX_DOUGHNUT_BUCKETS:
+        effective_type = PortalReportChart.TYPE_BAR
+        notices.append('More than eight categories are clearer as a bar chart.')
+    if truncated:
+        notices.append(f'Showing the first {max_buckets} groups.')
     return {
-        'id': str(chart.pk),
-        'title': chart.title or f'{dimension.label} by {chart.get_aggregation_display()}',
-        'type': chart.chart_type,
+        'id': chart_id,
+        'title': chart.get('title') or f'{dimension.label} by {CHART_AGGREGATION_RULES[aggregation]["label"]}',
+        'type': effective_type,
+        'requested_type': chart_type,
         'labels': labels,
         'values': values,
         'dimension_label': dimension.label,
-        'metric_label': 'Case count' if chart.aggregation == PortalReportChart.AGGREGATE_COUNT else metric.label,
-        'truncated': len(labels) >= MAX_CHART_BUCKETS,
+        'metric_label': 'Case count' if aggregation == PortalReportChart.AGGREGATE_COUNT else metric.label,
+        'category_count': len(grouped_rows) + (1 if truncated else 0),
+        'truncated': truncated,
+        'notice': ' '.join(notices),
     }
+
+
+def chart_payload(chart: PortalReportChart, queryset) -> dict[str, Any]:
+    """Compatibility wrapper for callers holding a persisted chart model."""
+    return chart_payload_from_config({
+        'title': chart.title,
+        'chart_type': chart.chart_type,
+        'dimension_field': chart.dimension_field,
+        'metric_field': chart.metric_field,
+        'aggregation': chart.aggregation,
+        'date_bucket': chart.date_bucket,
+    }, queryset, chart_id=str(chart.pk))
+
+
+def preview_chart(*, configuration: Any, chart: Any, user, access: dict | None) -> dict[str, Any]:
+    """Return one bounded, live chart preview without saving or auditing it."""
+    config = validate_configuration(configuration)
+    normalized_chart = validate_charts([chart], selected_fields=config['fields'])[0]
+    queryset = _apply_filters(scoped_case_queryset(user=user, access=access), config['filters'])
+    return chart_payload_from_config(
+        normalized_chart,
+        queryset,
+        max_buckets=MAX_CHART_PREVIEW_BUCKETS,
+    )
 
 
 def export_xlsx(*, definition: PortalReportDefinition, user, access: dict | None) -> bytes:

@@ -1,5 +1,22 @@
 # Changelog
 
+## Portal Reports assisted live chart builder - 04-August-2026
+
+- Reworked chart setup around the operational question: choose an approved
+  comparison field, choose the measure, then choose from only chart displays
+  that fit that data. Customer identifiers, names, phones, villages, and
+  uncontrolled fields cannot become chart dimensions.
+- Added a debounced, cancellable, branch-scoped live aggregate preview before
+  saving. It returns at most twelve groups and never stores a report, emits a
+  reporting audit event, or exposes case rows. Date trends now require an
+  explicit Day or Month choice; crowded doughnuts clearly fall back to bars.
+- Collapsed multiple chart configurations into compact, one-open-at-a-time
+  cards so the active chart has room for its preview on a phone.
+
+  Migration note: no schema migration is included. To undo, redeploy the
+  prior application commit; saved reports, audit evidence, customer data,
+  Sheets, Drive, and workflow state remain unchanged.
+
 ## Portal Reports mobile-density pass - 04-August-2026
 
 - Reduced report-builder chrome on phones: a compact Step n of 3 indicator,

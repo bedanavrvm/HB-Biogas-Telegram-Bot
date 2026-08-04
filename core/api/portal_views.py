@@ -2202,6 +2202,34 @@ def portal_reports_catalogue(request):
 
 @portal_auth_required
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["POST"])
+def portal_report_preview(request):
+    """Return one scoped, unsaved chart aggregate for the IT report builder."""
+    access_error = _portal_read_access_error(request, capability='portal.reports.manage')
+    if access_error:
+        return access_error
+    from core.services.portal_reporting import PortalReportingError, preview_chart
+
+    payload = _portal_request_data(request)
+    try:
+        preview = preview_chart(
+            configuration=payload.get('configuration'),
+            chart=payload.get('chart'),
+            user=getattr(request, 'portal_user', None),
+            access=getattr(request, 'portal_access', None),
+        )
+    except PortalReportingError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    except Exception:
+        logger.exception('Could not preview Portal report chart request_id=%s', getattr(request, 'portal_request_id', ''))
+        return JsonResponse({'ok': False, 'error': 'The chart preview could not be prepared. Please retry.'}, status=500)
+    # Preview is an authenticated, read-only convenience. It intentionally
+    # creates no report definition or audit event; saved runs remain audited.
+    return JsonResponse({'ok': True, 'preview': preview})
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
 @require_http_methods(["GET"])
 def portal_reporting_relationships(request):
     """Expose the non-sensitive relationship map to IT; it never returns rows."""
