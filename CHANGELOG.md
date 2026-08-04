@@ -1,5 +1,21 @@
 # Changelog
 
+## JBL queue loader recovery - 04-August-2026
+
+- Made the JBL Visit Queue load one server-rendered queue fragment instead of
+  first fetching and serializing the same queue as JSON, then fetching it
+  again as HTML. Queue cards now omit approval and evidence metadata that is
+  only needed after opening an individual case, removing the per-card query
+  fan-out from list rendering.
+- Added latest-request protection so a delayed search/filter response cannot
+  overwrite a newer JBL queue request or strand the current list on a loader.
+  Timed-out/failed loads continue to show the visible Retry state. Bumped the
+  Portal asset versions so Telegram WebViews receive this loader immediately.
+
+  Migration note: no schema migration is included. To undo, redeploy the prior
+  application commit; no customer, visit, approval, Sheet, or Drive data is
+  changed.
+
 ## Portal Reports guided workspace - 03-August-2026
 
 - Reworked the IT-only Portal Reports workspace into a searchable catalogue,

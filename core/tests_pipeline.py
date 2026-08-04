@@ -216,6 +216,17 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(card['sign_date'], '15-May-2026')
         self.assertEqual(card['hbg_visit_date'], '2026-05-15')
 
+    @patch('core.services.jawabu_approvals.visit_evidence_status')
+    @patch('core.services.jawabu_approvals.approval_payload')
+    def test_queue_card_skips_case_detail_lookup_fanout(self, mock_approvals, mock_evidence):
+        """Queue rendering must not issue per-row evidence/approval queries."""
+        card = farmer_to_card(self.farmer_stage1, include_detail_metadata=False)
+
+        self.assertEqual(card['visit_evidence'], {})
+        self.assertEqual(card['approvals'], {})
+        mock_approvals.assert_not_called()
+        mock_evidence.assert_not_called()
+
     @patch('core.services.portal_publication.reserve_farmer_publication')
     def test_log_jbl_visit(self, mock_reserve_publication):
         """Verify Advance from Stage 1 to Stage 2."""

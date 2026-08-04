@@ -58,6 +58,7 @@
   };
   let historyKind = 'orders';
   let lastShellScreen = null;
+  const queueLoadVersions = new Map();
 
   function currentScreenRoot() {
     return document.getElementById('portal-screen');
@@ -66,6 +67,16 @@
   function isCurrentScreen(page) {
     const root = currentScreenRoot();
     return Boolean(root && state.activePage === page && root.dataset.screen === page);
+  }
+
+  function beginQueueLoad(page) {
+    const next = Number(queueLoadVersions.get(page) || 0) + 1;
+    queueLoadVersions.set(page, next);
+    return next;
+  }
+
+  function isCurrentQueueLoad(page, version) {
+    return isCurrentScreen(page) && queueLoadVersions.get(page) === version;
   }
 
   function unmountPreviousScreen() {
@@ -547,14 +558,33 @@
     if (!cfg) return;
     const listEl = el(cfg.listId);
     if (!listEl || !isCurrentScreen(qKey)) return;
+    const loadVersion = beginQueueLoad(qKey);
     listEl.innerHTML = '<div class="mini-skeleton-list" role="status" aria-label="Loading queue">'
       + (utils.skeletonCards ? utils.skeletonCards(3) : '<div class="empty-state"><div class="spinner-inline"></div></div>')
       + '</div>';
 
     try {
+      // The JBL queue is server-rendered for its compact mobile cards.  The
+      // former JSON-then-fragment path evaluated the same queryset twice and
+      // could leave staff waiting behind two slow requests.  Fetch the single
+      // authoritative fragment instead; a failed/timed-out request now lands
+      // on the normal retry state.
+      if (qKey === 'jbl' && cfg.fragmentEndpoint && window.htmx) {
+        const rendered = await renderQueueFragment(qKey, page, loadVersion);
+        if (!isCurrentQueueLoad(qKey, loadVersion)) return;
+        if (!rendered) {
+          renderQueueFailure(listEl, qKey, page, 'The JBL visit queue could not be loaded. Please try again.');
+          return;
+        }
+        state.queues[qKey] = [];
+        state.pagination[qKey] = {};
+        state.pages[qKey] = page;
+        updateFilterOptions([]);
+        return;
+      }
       const url = portalQueues.queueUrl ? portalQueues.queueUrl(qKey, page, state) : cfg.endpoint + '?page=' + page;
       const { ok, data, requestId } = await apiFetch(url);
-      if (!isCurrentScreen(qKey)) return;
+      if (!isCurrentQueueLoad(qKey, loadVersion)) return;
       if (!ok) {
         renderQueueFailure(listEl, qKey, page, data?.error, requestId);
         return;
@@ -566,7 +596,8 @@
         state.pagination[qKey] = data.pagination || {};
         state.pages[qKey] = page;
         if (window.htmx) {
-          const rendered = await renderQueueFragment(qKey, page);
+          const rendered = await renderQueueFragment(qKey, page, loadVersion);
+          if (!isCurrentQueueLoad(qKey, loadVersion)) return;
           if (rendered) {
             const pgEl = el('pg-batches');
             if (pgEl) pgEl.innerHTML = '';
@@ -589,7 +620,8 @@
       // Apply filtering
       if (cfg.fragmentEndpoint && window.htmx) {
         updateFilterOptions(farmers);
-        const rendered = await renderQueueFragment(qKey, page);
+        const rendered = await renderQueueFragment(qKey, page, loadVersion);
+        if (!isCurrentQueueLoad(qKey, loadVersion)) return;
         if (rendered) {
           const pgEl = el('pg-' + qKey);
           if (pgEl) pgEl.innerHTML = '';
@@ -612,12 +644,12 @@
         renderPagination(qKey, data.pagination);
       }
     } catch (error) {
-      if (!isCurrentScreen(qKey)) return;
+      if (!isCurrentQueueLoad(qKey, loadVersion)) return;
       renderQueueFailure(listEl, qKey, page, 'The queue could not be loaded. Please try again.');
     }
   }
 
-  async function renderQueueFragment(qKey, page = 1) {
+  async function renderQueueFragment(qKey, page = 1, loadVersion = null) {
     if (portalQueues.renderFragment) {
       return portalQueues.renderFragment(qKey, page, {
         el,
@@ -632,6 +664,7 @@
         portalApi,
         state,
         tg,
+        isCurrent: () => loadVersion === null || isCurrentQueueLoad(qKey, loadVersion),
       });
     }
     const cfg = queueConfig[qKey];

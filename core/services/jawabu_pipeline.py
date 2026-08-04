@@ -1561,8 +1561,19 @@ def assign_order(
     source_farmer.refresh_from_db()
     return True, ''
 
-def farmer_to_card(farmer: JawabuFarmerMaster) -> dict[str, Any]:
-    """Compact farmer representation for queue cards in the portal Mini App."""
+def farmer_to_card(
+    farmer: JawabuFarmerMaster,
+    *,
+    include_detail_metadata: bool = True,
+) -> dict[str, Any]:
+    """Return a Portal card, keeping expensive detail data opt-in.
+
+    Queue cards only show the current stage and basic customer details.  They
+    must not query visit evidence and approval history for every visible row:
+    that is an N+1 pattern which is especially costly on the free web worker.
+    The case-detail endpoint keeps the default enriched payload and loads this
+    metadata only after an officer opens a specific case.
+    """
     from core.services.jawabu_validation import normalize_date_text
 
     hbg_visit_date = farmer.hbg_visit_date
@@ -1638,8 +1649,8 @@ def farmer_to_card(farmer: JawabuFarmerMaster) -> dict[str, Any]:
         'longitude': farmer.longitude,
         'jbl_media_urls': farmer.jbl_media_urls,
         'jbl_media_count': len([line for line in str(farmer.jbl_media_urls or '').splitlines() if line.strip()]),
-        'visit_evidence': visit_evidence_status(farmer),
-        'approvals': approval_payload(farmer),
+        'visit_evidence': visit_evidence_status(farmer) if include_detail_metadata else {},
+        'approvals': approval_payload(farmer) if include_detail_metadata else {},
     }
 
 

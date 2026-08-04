@@ -322,7 +322,13 @@ def _paginate_qs(qs, request, page_size: int = 30):
     return list(qs[start:end]), pagination
 
 
-def _numbered_farmer_cards(items, pagination, *, review_map=None):
+def _numbered_farmer_cards(
+    items,
+    pagination,
+    *,
+    review_map=None,
+    include_detail_metadata: bool = False,
+):
     """Serialize one current page with ephemeral, human-facing positions.
 
     Queue positions are calculated from the active filter/page. They are never
@@ -333,7 +339,10 @@ def _numbered_farmer_cards(items, pagination, *, review_map=None):
     first_position = (int(pagination['page']) - 1) * int(pagination['page_size'])
     cards = []
     for offset, farmer in enumerate(items, start=1):
-        card = farmer_to_card(farmer)
+        card = farmer_to_card(
+            farmer,
+            include_detail_metadata=include_detail_metadata,
+        )
         if review_map is not None:
             card = _card_with_payment_review_metadata(farmer, card, review_map)
         card['display_number'] = first_position + offset

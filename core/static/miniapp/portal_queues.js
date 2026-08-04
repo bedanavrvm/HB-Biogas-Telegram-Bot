@@ -69,6 +69,10 @@
       const html = deps.portalApi && deps.portalApi.fetchHtml
         ? await deps.portalApi.fetchHtml(path, {}, deps.tg)
         : await deps.fetchHtml(path);
+      // A search, filter change, or route change may have started a newer
+      // request while this one was in transit. Do not let an old response
+      // replace the current queue (or leave its current loader behind).
+      if (deps.isCurrent && !deps.isCurrent()) return false;
       list.innerHTML = html;
       if (queueKey === 'batches') deps.hydrateBatchCards(list);
       else deps.hydrateFarmerCards(list);
