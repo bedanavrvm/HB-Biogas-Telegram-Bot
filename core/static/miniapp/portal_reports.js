@@ -23,6 +23,7 @@
     canManage: false,
     root: null,
     route: { view: 'catalogue', reportId: '', step: '' },
+    fieldSearch: '',
   };
 
   const api = () => window.PortalMiniAppApi || {};
@@ -38,6 +39,10 @@
 
   function requestShellNavigationSync() {
     window.dispatchEvent(new Event('portal:reports-route-change'));
+  }
+
+  function syncEditorShell() {
+    document.body.classList.toggle('portal-report-editor-active', state.route.view === 'edit');
   }
 
   function telegramViewportHeight() {
@@ -203,10 +208,24 @@
     if (type === 'number') return String(value).replace(/\.00$/, '');
     return String(value);
   }
-  function fieldChips(keys) {
+  function fieldChips(keys, { removable = false } = {}) {
     return keys.length
-      ? `<div class="portal-report-chips">${keys.map((key) => `<span>${escapeHtml(label(key))}</span>`).join('')}</div>`
+      ? `<div class="portal-report-chips">${keys.map((key) => removable
+        ? `<button type="button" data-report-action="remove-field" data-field="${escapeHtml(key)}" aria-label="Remove ${escapeHtml(label(key))}">${escapeHtml(label(key))}<span aria-hidden="true">×</span></button>`
+        : `<span>${escapeHtml(label(key))}</span>`).join('')}</div>`
       : '<p class="portal-report-empty-copy">No fields selected.</p>';
+  }
+
+  function compactFieldSummary(keys) {
+    const labels = keys.map(label);
+    if (!labels.length) return 'None';
+    const visible = labels.slice(0, 3).join(', ');
+    return `${visible}${labels.length > 3 ? ` +${labels.length - 3} more` : ''}`;
+  }
+
+  function compactFilterSummary(filters) {
+    if (!filters.length) return 'None';
+    return filters.map((filter) => `${label(filter.field)} ${filter.operator} ${valueToInput(filter.value) || '—'}`).join(' · ');
   }
   function filterSummary(filters) {
     if (!filters.length) return '<p class="portal-report-empty-copy">No filters. The report reads cases inside the viewer’s approved Portal scope.</p>';
@@ -236,17 +255,18 @@
     const dimensions = selectedReportFields((item) => item.groupable);
     const metrics = selectedReportFields((item) => item.type === 'number');
     return charts.map((chart, index) => {
+      const metricRequired = chart.aggregation !== 'count';
       const dateBucket = chart.chart_type === 'line'
         ? `<select data-report-chart-bucket>${optionMarkup([{ key: 'day', label: 'By day' }, { key: 'month', label: 'By month' }], chart.date_bucket, 'Date grouping')}</select>`
         : '';
-      return `<div class="portal-report-chart-row" data-report-chart-row="${index}">
+      return `<div class="portal-report-chart-row" data-report-chart-row="${index}"${metricRequired ? ' data-metric-required="true"' : ''}${dateBucket ? ' data-date-bucket="true"' : ''}>
         <input data-report-chart-title value="${escapeHtml(chart.title || '')}" maxlength="100" placeholder="Chart title (optional)">
         <select data-report-chart-type>${optionMarkup([{ key: 'bar', label: 'Bar' }, { key: 'doughnut', label: 'Doughnut' }, { key: 'line', label: 'Line' }], chart.chart_type, 'Chart type')}</select>
         <select data-report-chart-dimension>${optionMarkup(dimensions, chart.dimension_field, 'Category/date')}</select>
         <select data-report-chart-aggregation>${optionMarkup([{ key: 'count', label: 'Count cases' }, { key: 'sum', label: 'Sum amount' }, { key: 'average', label: 'Average amount' }], chart.aggregation, 'Aggregation')}</select>
-        <select data-report-chart-metric>${optionMarkup(metrics, chart.metric_field, 'Numeric field')}</select>
+        ${metricRequired ? `<select data-report-chart-metric>${optionMarkup(metrics, chart.metric_field, 'Numeric field')}</select>` : ''}
         ${dateBucket}
-        <button type="button" class="btn btn-secondary" data-report-action="remove-chart" data-index="${index}" aria-label="Remove chart">Remove</button>
+        <button type="button" class="portal-report-icon-button" data-report-action="remove-chart" data-index="${index}" aria-label="Remove chart" title="Remove chart"><i data-lucide="trash-2" aria-hidden="true"></i></button>
       </div>`;
     }).join('');
   }
@@ -262,33 +282,40 @@
 
   function stepperMarkup() {
     const active = editorStep();
-    return `<nav class="portal-report-stepper" aria-label="Report setup steps">${EDITOR_STEPS.map((step, index) => `<button type="button" class="${step === active ? 'is-active' : ''}" data-report-action="step" data-report-step="${step}"${!state.canManage ? ' disabled' : ''}><span>${index + 1}</span>${escapeHtml(stepTitle(step))}</button>`).join('')}</nav>`;
+    const activeIndex = editorStepIndex(active);
+    return `<nav class="portal-report-stepper" aria-label="Report setup steps"><div><strong>Step ${activeIndex + 1} of ${EDITOR_STEPS.length}</strong><span>${escapeHtml(stepTitle(active))}</span></div><div class="portal-report-step-dots">${EDITOR_STEPS.map((step, index) => `<button type="button" class="${step === active ? 'is-active' : ''}" data-report-action="step" data-report-step="${step}" aria-label="Go to step ${index + 1}: ${escapeHtml(stepTitle(step))}"${!state.canManage ? ' disabled' : ''}><span aria-hidden="true"></span></button>`).join('')}</div></nav>`;
   }
   function draftNoticeMarkup() {
     return '<p class="portal-report-draft-note">Draft changes stay only in this browser until you save or discard them. They are not yet a report definition or audit event.</p>';
   }
   function editorFieldsMarkup(current, editable) {
     const categories = state.catalogue?.categories || [];
+    const categoryMarkup = categories.map((category) => {
+      const selectedCount = category.fields.filter((item) => selectedFields().includes(item.key)).length;
+      return `<details class="portal-report-field-category" data-report-field-category data-selected-count="${selectedCount}"${selectedCount ? ' open' : ''}><summary><span>${escapeHtml(category.label)}</span><strong>${selectedCount}/${category.fields.length}</strong></summary><div>${category.fields.map((item) => `<label data-report-field-label data-search="${escapeHtml(`${item.label} ${category.label}`.toLowerCase())}"><input type="checkbox" data-report-field value="${escapeHtml(item.key)}" ${selectedFields().includes(item.key) ? 'checked' : ''} ${editable ? '' : 'disabled'}><span>${escapeHtml(item.label)}${item.derived ? ' <small>Derived</small>' : ''}</span></label>`).join('')}</div></details>`;
+    }).join('');
     return `<section class="portal-report-editor-step" data-report-editor-step="fields">
       <label class="portal-report-title">Report title<input id="portal-report-title" maxlength="100" value="${escapeHtml(current.title)}" ${editable ? '' : 'readonly'}></label>
       <div class="portal-report-section-heading"><div><h3>Report fields</h3><p>Choose the information that staff need to see. Sensitive comments, media, GPS, and cross-workflow data are excluded.</p></div><strong class="portal-report-selection-count">${escapeHtml(selectedFields().length)} / ${escapeHtml(state.catalogue?.limits?.fields || 18)}</strong></div>
-      <label class="portal-report-field-search">Find a field<input type="search" data-report-field-search placeholder="Search approved fields"></label>
-      <div class="portal-report-field-grid">${categories.map((category) => `<fieldset><legend>${escapeHtml(category.label)}</legend>${category.fields.map((item) => `<label data-report-field-label data-search="${escapeHtml(`${item.label} ${category.label}`.toLowerCase())}"><input type="checkbox" data-report-field value="${escapeHtml(item.key)}" ${selectedFields().includes(item.key) ? 'checked' : ''} ${editable ? '' : 'disabled'}><span>${escapeHtml(item.label)}${item.derived ? ' <small>Derived</small>' : ''}</span></label>`).join('')}</fieldset>`).join('')}</div>
+      <label class="portal-report-field-search">Find a field<input type="search" data-report-field-search value="${escapeHtml(state.fieldSearch)}" placeholder="Search approved fields"></label>
+      <div class="portal-report-selected-fields"><span>Selected</span>${fieldChips(selectedFields(), { removable: editable })}</div>
+      <div class="portal-report-field-grid">${categoryMarkup}</div><p class="portal-report-empty-copy" data-report-field-search-empty hidden>No approved field matches that search.</p>
     </section>`;
   }
   function editorFiltersMarkup(current, editable) {
+    const filters = current.configuration?.filters || [];
+    const filtersContent = filters.length
+      ? filterRowsMarkup()
+      : `<div class="portal-report-empty-inline"><span>No filters applied.</span>${editable ? '<button type="button" class="btn btn-secondary" data-report-action="add-filter">Add filter</button>' : ''}</div>`;
     return `<section class="portal-report-editor-step" data-report-editor-step="filters">
-      <section class="portal-report-section portal-report-section-first"><div class="portal-report-section-heading"><div><h3>Filters</h3><p>Filters narrow live Portal cases. They never broaden the viewer’s branch access.</p></div>${editable ? '<button type="button" class="btn btn-secondary" data-report-action="add-filter">Add filter</button>' : ''}</div>${filterRowsMarkup()}</section>
-      <section class="portal-report-section portal-report-ordering"><h3>Ordering</h3><p>Choose how the live rows should be arranged for staff.</p><div><select id="portal-report-order-field" ${editable ? '' : 'disabled'}>${optionMarkup(selectedReportFields((item) => item.sortable && !item.derived), current.configuration?.ordering?.field, 'Order field')}</select><select id="portal-report-order-direction" ${editable ? '' : 'disabled'}>${optionMarkup([{ key: 'asc', label: 'Ascending' }, { key: 'desc', label: 'Descending' }], current.configuration?.ordering?.direction, 'Direction')}</select></div></section>
+      <section class="portal-report-section portal-report-section-first"><div class="portal-report-section-heading"><div><h3>Filters</h3><p>Filters only narrow cases already inside your approved Portal scope.</p></div>${filters.length && editable ? '<button type="button" class="btn btn-secondary" data-report-action="add-filter">Add filter</button>' : ''}</div>${filtersContent}</section>
+      <section class="portal-report-section portal-report-ordering"><div class="portal-report-section-heading"><div><h3>Ordering</h3><p>Set the order staff will see in the live report.</p></div></div><div><select id="portal-report-order-field" ${editable ? '' : 'disabled'}>${optionMarkup(selectedReportFields((item) => item.sortable && !item.derived), current.configuration?.ordering?.field, 'Order field')}</select><select id="portal-report-order-direction" ${editable ? '' : 'disabled'}>${optionMarkup([{ key: 'asc', label: 'Ascending' }, { key: 'desc', label: 'Descending' }], current.configuration?.ordering?.direction, 'Direction')}</select></div></section>
     </section>`;
   }
   function editorReviewMarkup(current, editable) {
     return `<section class="portal-report-editor-step" data-report-editor-step="review">
-      <section class="portal-report-review-block"><span class="settings-eyebrow">INCLUDED FIELDS</span>${fieldChips(selectedFields())}</section>
-      <section class="portal-report-review-block"><span class="settings-eyebrow">FILTERS</span>${filterSummary(current.configuration?.filters || [])}</section>
-      <section class="portal-report-review-block"><span class="settings-eyebrow">ORDERING</span><p>${escapeHtml(label(current.configuration?.ordering?.field || ''))} · ${escapeHtml(current.configuration?.ordering?.direction || 'asc')}</p></section>
+      <section class="portal-report-review-summary" aria-label="Report definition summary"><div><span>Fields</span><strong>${escapeHtml(compactFieldSummary(selectedFields()))}</strong></div><div><span>Filters</span><strong>${escapeHtml(compactFilterSummary(current.configuration?.filters || []))}</strong></div><div><span>Ordering</span><strong>${escapeHtml(label(current.configuration?.ordering?.field || ''))} · ${escapeHtml(current.configuration?.ordering?.direction || 'asc')}</strong></div></section>
       <section class="portal-report-section portal-report-section-first"><div class="portal-report-section-heading"><div><h3>Charts</h3><p>Optional. Categories and metrics must be selected report fields.</p></div>${editable ? '<button type="button" class="btn btn-secondary" data-report-action="add-chart">Add chart</button>' : ''}</div>${chartRowsMarkup()}</section>
-      ${relationshipMarkup()}
     </section>`;
   }
   function editorActionsMarkup(current, editable) {
@@ -299,7 +326,7 @@
       <button type="button" class="btn btn-secondary" data-report-action="back">${previous ? `Back: ${escapeHtml(stepTitle(previous))}` : 'Back to reports'}</button>
       ${editable && currentIndex < EDITOR_STEPS.length - 1 ? `<button type="button" class="btn btn-primary" data-report-action="next">Continue: ${escapeHtml(stepTitle(next))}</button>` : ''}
       ${editable && currentIndex === EDITOR_STEPS.length - 1 ? `<button type="button" class="btn btn-primary" data-report-action="save">${current.is_new ? 'Save report' : 'Save changes'}</button>` : ''}
-      ${editable ? '<button type="button" class="btn btn-secondary" data-report-action="discard">Discard local draft</button>' : ''}
+      ${editable ? '<details class="portal-report-more-menu"><summary aria-label="More report actions" title="More report actions">⋯</summary><div><button type="button" data-report-action="discard">Discard local draft</button></div></details>' : ''}
     </div>`;
   }
   function editorMarkup() {
@@ -310,7 +337,7 @@
     const content = step === 'filters' ? editorFiltersMarkup(current, editable) : step === 'review' ? editorReviewMarkup(current, editable) : editorFieldsMarkup(current, editable);
     return `<section class="portal-report-editor">
       <div class="portal-report-editor-heading"><div><span class="settings-eyebrow">${current.is_new ? 'NEW DEFINITION' : `VERSION ${escapeHtml(current.version)}`}</span><h2>${escapeHtml(current.title)}</h2><p>Live data, results, and XLSX exports always respect the viewer’s current Portal scope.</p></div></div>
-      ${stepperMarkup()}${content}${editable ? draftNoticeMarkup() : ''}${editorActionsMarkup(current, editable)}
+      ${relationshipMarkup()}${stepperMarkup()}${content}${editable ? draftNoticeMarkup() : ''}${editorActionsMarkup(current, editable)}
     </section>`;
   }
 
@@ -364,6 +391,9 @@
     else if (state.route.view === 'detail') state.root.innerHTML = detailMarkup();
     else if (state.route.view === 'run') state.root.innerHTML = `${resultMarkup()}<div class="portal-report-actions"><button type="button" class="btn btn-secondary" data-report-action="detail">Back to definition</button></div>`;
     else state.root.innerHTML = catalogueMarkup();
+    syncEditorShell();
+    if (state.route.view === 'edit' && editorStep() === 'fields') applyFieldSearch(state.fieldSearch);
+    window.lucide?.createIcons?.();
     renderMobileResultCards();
     renderCharts();
     scheduleChartResize();
@@ -618,6 +648,26 @@
     if (empty) empty.hidden = visible !== 0;
   }
 
+  function applyFieldSearch(query) {
+    const normalized = String(query || '').trim().toLowerCase();
+    state.fieldSearch = normalized;
+    let visibleCategories = 0;
+    root()?.querySelectorAll('[data-report-field-category]').forEach((category) => {
+      const labels = [...category.querySelectorAll('[data-report-field-label]')];
+      const matching = labels.filter((item) => {
+        const match = !normalized || item.dataset.search.includes(normalized);
+        item.hidden = !match;
+        return match;
+      });
+      const visible = matching.length > 0;
+      category.hidden = !visible;
+      if (visible) visibleCategories += 1;
+      category.open = normalized ? visible : Number(category.dataset.selectedCount || 0) > 0;
+    });
+    const empty = root()?.querySelector('[data-report-field-search-empty]');
+    if (empty) empty.hidden = visibleCategories !== 0;
+  }
+
   async function load() {
     const target = root();
     if (!target) return;
@@ -637,6 +687,11 @@
     const loadVersion = ++state.loadVersion;
     state.root = target;
     state.route = nextRoute;
+    // Search is a short-lived field-picker aid. Preserve it while moving
+    // between this report's route-backed wizard steps, but never carry it
+    // into a separately opened report or a fresh report definition.
+    state.fieldSearch = '';
+    syncEditorShell();
     state.result = null;
     state.runError = '';
     target.innerHTML = loadingMarkup();
@@ -812,6 +867,12 @@
           navigate('edit', state.current?.id || '', targetStep);
         } else if (action === 'edit') navigate('edit', state.current?.id || state.route.reportId, 'fields');
         else if (action === 'discard') discardDraft();
+        else if (action === 'remove-field') {
+          snapshotDraft();
+          state.current.configuration.fields = state.current.configuration.fields.filter((fieldKey) => fieldKey !== button.dataset.field);
+          persistDraft();
+          render();
+        }
         else if (action === 'add-filter') addFilter();
         else if (action === 'remove-filter') { snapshotDraft(); state.current.configuration.filters.splice(Number(button.dataset.index), 1); persistDraft(); render(); }
         else if (action === 'add-chart') addChart();
@@ -828,8 +889,7 @@
       if (!root()?.contains(event.target)) return;
       if (event.target.matches('[data-report-catalogue-search]')) { filterCatalogue(event.target.value); return; }
       if (event.target.matches('[data-report-field-search]')) {
-        const query = event.target.value.trim().toLowerCase();
-        root()?.querySelectorAll('[data-report-field-label]').forEach((item) => { item.hidden = Boolean(query) && !item.dataset.search.includes(query); });
+        applyFieldSearch(event.target.value);
         return;
       }
       if (state.route.view === 'edit') snapshotDraft();
@@ -891,6 +951,7 @@
     state.charts.forEach((chart) => chart.destroy?.());
     state.charts = [];
     unbindViewportEvents();
+    document.body.classList.remove('portal-report-editor-active');
     state.root = null;
   }
 

@@ -1,5 +1,21 @@
 # Changelog
 
+## Portal Reports mobile-density pass - 04-August-2026
+
+- Reduced report-builder chrome on phones: a compact Step n of 3 indicator,
+  tappable progress dots, and one editor action bar now replace the bulky
+  segmented controls and competing bottom navigation.
+- Made report field selection quicker to scan: categories have natural-height
+  disclosures and selected counts, search filters the approved catalogue, and
+  selected fields appear as removable chips.
+- Compacted filters, ordering, and review; the chart editor now hides the
+  irrelevant numeric-field selector for case counts and makes chart removal a
+  secondary icon action.
+
+  Migration note: no schema migration is included. To undo, redeploy the
+  prior application commit; report definitions, audit evidence, customer data,
+  Sheets, Drive, and workflow state remain unchanged.
+
 ## Portal Reports wizard step activation - 04-August-2026
 
 - Fixed route-backed Filters and Charts/Review steps remaining on their loading
