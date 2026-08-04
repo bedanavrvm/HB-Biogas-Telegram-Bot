@@ -21,6 +21,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from core.models import GroupSheetConfiguration, IntegrationOperation, JawabuFarmerUploadBatch
+from core.services.compliance_audit import record_event
 from core.services.document_sync import mark_drive_attempt, mark_drive_failure, mark_drive_success
 from core.services.external_resilience import ExternalOperationError, execute_operation, reserve_operation
 
@@ -253,6 +254,67 @@ def _assert_replay_is_in_scope(
         raise PortalImportError('This staged import is unavailable in your scope.')
 
 
+def archive_portal_import_working_list(
+    *,
+    batch_id: str,
+    actor,
+    request_id: str,
+    allowed_group_ids: set[str] | None = None,
+) -> tuple[JawabuFarmerUploadBatch, bool]:
+    """Hide one retained staged import from the active Portal working list.
+
+    This deliberately does not call Google Drive or alter the underlying
+    FarmUp/SysUp workflow status.  It is safe for Mini App retries: once a
+    batch is archived, all later retries return the retained batch without
+    producing a second audit event.
+    """
+    request_id = str(request_id or '').strip()
+    if not request_id:
+        raise PortalImportError('This archive action needs a retry key. Reload Imports and try again.')
+    with transaction.atomic():
+        batch = JawabuFarmerUploadBatch.objects.select_for_update().filter(pk=batch_id).first()
+        if batch is None:
+            raise PortalImportError('This staged import is unavailable.')
+        _assert_replay_is_in_scope(batch, allowed_group_ids=allowed_group_ids)
+        if batch.is_portal_archived:
+            return batch, True
+
+        before = {
+            'working_list_active': True,
+            'status': batch.status,
+            'drive_archive_state': import_archive_state(batch),
+        }
+        archived_at = timezone.now()
+        batch.is_portal_archived = True
+        batch.portal_archived_at = archived_at
+        batch.portal_archived_by = actor
+        batch.save(update_fields=[
+            'is_portal_archived', 'portal_archived_at', 'portal_archived_by', 'updated_at',
+        ])
+        record_event(
+            workflow='portal',
+            action='portal.import.working_list_archived',
+            category='workflow',
+            subject_type='JawabuFarmerUploadBatch',
+            subject_id=str(batch.pk),
+            deduplication_key=f'portal-import-working-list-archive:{batch.pk}',
+            actor=actor,
+            request_id=request_id,
+            source_model='JawabuFarmerUploadBatch',
+            source_event_id=f'{batch.pk}:working-list-archive',
+            before_values=before,
+            after_values={
+                'working_list_active': False,
+                'status': batch.status,
+                'drive_archive_state': import_archive_state(batch),
+                'archived_at': archived_at,
+            },
+            metadata={'import_kind': batch.import_kind, 'group_id': batch.group_id},
+            sensitive=True,
+        )
+    return batch, False
+
+
 def reserve_import_archive(batch: JawabuFarmerUploadBatch, *, request_id: str, user=None) -> IntegrationOperation:
     """Reserve an idempotent Drive archive attempt without performing I/O."""
     operation, _ = reserve_operation(
@@ -467,6 +529,13 @@ def serialize_import_batch(
         'archive_last_attempt_at': batch.archive_last_sync_at.isoformat() if batch.archive_last_sync_at else None,
         'archive_next_retry_at': batch.archive_next_retry_at.isoformat() if batch.archive_next_retry_at else None,
         'archive_operation_id': str(archive_operation_id or ''),
+        'is_portal_archived': bool(batch.is_portal_archived),
+        'portal_archived_at': batch.portal_archived_at.isoformat() if batch.portal_archived_at else None,
+        'portal_archived_by': str(
+            getattr(batch.portal_archived_by, 'get_full_name', lambda: '')()
+            or getattr(batch.portal_archived_by, 'username', '')
+            or ''
+        ),
     }
     if include_rows:
         payload['mapping'] = list(batch.mapping or [])

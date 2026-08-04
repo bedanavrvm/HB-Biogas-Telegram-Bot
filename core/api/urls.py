@@ -67,6 +67,7 @@ from .portal_views import (
     portal_imports,
     portal_import_stage,
     portal_import_detail,
+    portal_import_archive,
     portal_import_archive_attempt,
     portal_reports_catalogue,
     portal_report_preview,
@@ -247,8 +248,9 @@ urlpatterns = [
     path('portal/meta/', portal_auth_required(portal_meta), name='portal_meta'),
     path('portal/imports/', portal_imports, name='portal_imports'),
     path('portal/imports/<str:kind>/stage/', portal_import_stage, name='portal_import_stage'),
-    path('portal/imports/<str:batch_id>/', portal_import_detail, name='portal_import_detail'),
     path('portal/imports/archive-attempt/', portal_import_archive_attempt, name='portal_import_archive_attempt'),
+    path('portal/imports/<str:batch_id>/archive/', portal_import_archive, name='portal_import_archive'),
+    path('portal/imports/<str:batch_id>/', portal_import_detail, name='portal_import_detail'),
     # IT-only, catalogue-constrained reports. These views are individually
     # Telegram-authenticated because report runs/export writes audit evidence.
     path('portal/reports/catalogue/', portal_reports_catalogue, name='portal_reports_catalogue'),

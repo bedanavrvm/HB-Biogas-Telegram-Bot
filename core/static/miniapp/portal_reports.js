@@ -445,7 +445,7 @@
     const reports = state.definitions;
     return `<section class="portal-report-catalogue"><div class="portal-report-catalogue-heading"><div><span class="settings-eyebrow">SAVED REPORTS</span><h2>Find and run</h2><p>Open a definition to review its fields, rules, and charts. Run uses current approved Portal data.</p></div>${state.canManage ? '<button type="button" class="btn btn-primary" data-report-action="new">New report</button>' : ''}</div>
       <label class="portal-report-search">Find a report<input type="search" data-report-catalogue-search value="${escapeHtml(state.catalogueSearch)}" placeholder="Search report title"></label>
-      <div class="portal-report-catalogue-list">${reports.length ? reports.map((report) => `<article class="portal-report-card" data-report-card data-search="${escapeHtml(report.title.toLowerCase())}"><div><span class="settings-eyebrow">VERSION ${escapeHtml(report.version)}</span><h3>${escapeHtml(report.title)}</h3><p>Updated ${escapeHtml(formatDateTime(report.updated_at || report.created_at))}</p></div><div class="portal-report-card-stats"><span>${escapeHtml(report.configuration?.fields?.length || 0)} fields</span><span>${escapeHtml(report.configuration?.filters?.length || 0)} filters</span><span>${escapeHtml(report.charts?.length || 0)} charts</span></div><div class="portal-report-actions"><button type="button" class="btn btn-secondary" data-report-action="open" data-id="${escapeHtml(report.id)}">Open</button><button type="button" class="btn btn-primary" data-report-action="run-card" data-id="${escapeHtml(report.id)}">Run</button></div></article>`).join('') : '<div class="portal-report-empty-state"><strong>No reports saved yet.</strong><span>Create a controlled report only when it answers a recurring operational question.</span></div>'}</div>
+      <div class="portal-report-catalogue-list">${reports.length ? reports.map((report) => `<article class="portal-report-card" data-report-card data-search="${escapeHtml(report.title.toLowerCase())}"><div><span class="settings-eyebrow">VERSION ${escapeHtml(report.version)}</span><h3>${escapeHtml(report.title)}</h3><p>Updated ${escapeHtml(formatDateTime(report.updated_at || report.created_at))}</p></div><div class="portal-report-card-stats"><span>${escapeHtml(report.configuration?.fields?.length || 0)} fields</span><span>${escapeHtml(report.configuration?.filters?.length || 0)} filters</span><span>${escapeHtml(report.charts?.length || 0)} charts</span></div><div class="portal-report-actions"><button type="button" class="btn btn-secondary" data-report-action="open" data-id="${escapeHtml(report.id)}">Open</button><button type="button" class="btn btn-primary" data-report-action="run-card" data-id="${escapeHtml(report.id)}">Run</button>${state.canManage ? `<button type="button" class="btn btn-secondary" data-report-action="archive-card" data-id="${escapeHtml(report.id)}">Archive</button>` : ''}</div></article>`).join('') : '<div class="portal-report-empty-state"><strong>No reports saved yet.</strong><span>Create a controlled report only when it answers a recurring operational question.</span></div>'}</div>
       <div class="portal-report-empty-state" data-report-search-empty hidden><strong>No report matches that title.</strong><span>Clear the search or create a new controlled report.</span></div>
     </section>`;
   }
@@ -906,7 +906,7 @@
         state.current = restoreLocalDraft(emptyDraft(), { isNew: true });
       } else if (state.route.reportId) {
         try {
-          await select(state.route.reportId, { render: false, restoreDraft: state.route.view === 'edit' });
+          await select(state.route.reportId, { shouldRender: false, restoreDraft: state.route.view === 'edit' });
         } catch (error) {
           state.current = null;
           state.route = { view: 'catalogue', reportId: '', step: '' };
@@ -917,7 +917,7 @@
       }
       if (!isCurrentLoad(loadVersion, target)) return;
       if (state.route.view === 'run' && state.current?.id) {
-        try { await run(1, { render: false }); } catch (error) { state.result = null; state.runError = error.message || 'Could not run this report.'; }
+        try { await run(1, { shouldRender: false }); } catch (error) { state.result = null; state.runError = error.message || 'Could not run this report.'; }
       }
       if (!isCurrentLoad(loadVersion, target)) return;
       render();
@@ -927,12 +927,12 @@
     }
   }
 
-  async function select(id, { render = true, restoreDraft = false } = {}) {
+  async function select(id, { shouldRender = true, restoreDraft = false } = {}) {
     const result = await api().apiFetch(`/reports/${encodeURIComponent(id)}/`, {}, state.tg);
     if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not load this report.');
     state.current = restoreDraft ? restoreLocalDraft(result.data.report) : result.data.report;
     state.result = null;
-    if (render) render();
+    if (shouldRender) render();
   }
 
   async function save() {
@@ -955,34 +955,40 @@
     navigate('detail', state.current.id);
   }
 
-  async function run(page = 1, { render = true } = {}) {
+  async function run(page = 1, { shouldRender = true } = {}) {
     if (!state.current?.id) return;
     const target = root();
     state.runError = '';
-    if (render && target) target.innerHTML = loadingMarkup('Preparing the live report...');
+    if (shouldRender && target) target.innerHTML = loadingMarkup('Preparing the live report...');
     try {
       const result = await api().postJson(`/reports/${encodeURIComponent(state.current.id)}/run/`, { page }, state.tg);
       if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not run the report.');
       state.result = result.data.result;
       state.current = result.data.result.definition;
-      if (render && root() === target) render();
+      if (shouldRender && root() === target) render();
     } catch (error) {
       state.result = null;
       state.runError = error.message || 'Could not run the report.';
-      if (render && root() === target) target.innerHTML = `${resultMarkup()}<div class="portal-report-actions"><button type="button" class="btn btn-secondary" data-report-action="detail">Back to definition</button></div>`;
+      if (shouldRender && root() === target) target.innerHTML = `${resultMarkup()}<div class="portal-report-actions"><button type="button" class="btn btn-secondary" data-report-action="detail">Back to definition</button></div>`;
       throw error;
     }
   }
-  async function archive() {
-    if (!state.current?.id || !window.confirm('Archive this report definition? Its audit history remains available.')) return;
-    const result = await api().postJson(`/reports/${encodeURIComponent(state.current.id)}/archive/`, { version: state.current.version }, state.tg);
+  async function archiveDefinition(definition, { returnToCatalogue = false } = {}) {
+    if (!definition?.id || !window.confirm('Archive this saved report? Its definition and audit history remain retained, but it will leave the active Reports list.')) return;
+    const result = await api().postJson(`/reports/${encodeURIComponent(definition.id)}/archive/`, { version: definition.version }, state.tg);
     if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not archive the report.');
-    clearLocalDraft(state.current);
-    state.definitions = state.definitions.filter((item) => item.id !== state.current.id);
-    state.current = null;
-    state.result = null;
-    toast('Report archived.', 'success');
-    navigate('catalogue');
+    clearLocalDraft(definition);
+    state.definitions = state.definitions.filter((item) => item.id !== definition.id);
+    if (state.current?.id === definition.id) {
+      state.current = null;
+      state.result = null;
+    }
+    toast('Report archived from the active list.', 'success');
+    if (returnToCatalogue) navigate('catalogue');
+    else render();
+  }
+  async function archive() {
+    return archiveDefinition(state.current, { returnToCatalogue: true });
   }
   async function exportXlsx() {
     if (!state.current?.id) return;
@@ -1102,6 +1108,10 @@
         else if (action === 'rerun') await run(1);
         else if (action === 'page') await run(Number(button.dataset.page || 1));
         else if (action === 'archive') await archive();
+        else if (action === 'archive-card') {
+          const definition = state.definitions.find((item) => item.id === button.dataset.id);
+          await archiveDefinition(definition);
+        }
         else if (action === 'export') await exportXlsx();
       } catch (error) { toast(error.message || 'That report action could not be completed.', 'error'); }
     });

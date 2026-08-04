@@ -2591,6 +2591,18 @@ class JawabuFarmerUploadBatch(models.Model):
     archive_sync_attempts = models.PositiveIntegerField(default=0)
     archive_last_sync_at = models.DateTimeField(null=True, blank=True)
     archive_next_retry_at = models.DateTimeField(null=True, blank=True)
+    # This is a Portal working-list lifecycle, not Drive archival.  The raw
+    # source, parser review metadata, integration operation, and Drive state
+    # stay retained after an IT user archives the batch from the active list.
+    is_portal_archived = models.BooleanField(default=False, db_index=True)
+    portal_archived_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    portal_archived_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='archived_portal_import_batches',
+    )
     import_kind = models.CharField(
         max_length=32,
         choices=IMPORT_KIND_CHOICES,
@@ -2621,6 +2633,7 @@ class JawabuFarmerUploadBatch(models.Model):
             models.Index(fields=['status', 'created_at']),
             models.Index(fields=['telegram_message_id']),
             models.Index(fields=['archive_next_retry_at']),
+            models.Index(fields=['is_portal_archived', 'group_id', 'created_at']),
         ]
         verbose_name = 'Jawabu farmer upload batch'
         verbose_name_plural = 'Jawabu farmer upload batches'

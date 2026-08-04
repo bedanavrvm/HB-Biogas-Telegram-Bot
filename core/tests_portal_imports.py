@@ -7,10 +7,12 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
+from django.urls import resolve
 
-from core.models import GroupSheetConfiguration, JawabuFarmerMaster, JawabuFarmerUploadBatch
+from core.models import ComplianceAuditEvent, GroupSheetConfiguration, JawabuFarmerMaster, JawabuFarmerUploadBatch
 from core.services.portal_imports import (
     PortalImportError,
+    archive_portal_import_working_list,
     attempt_import_archive,
     serialize_import_batch,
     source_table_page,
@@ -147,6 +149,88 @@ class PortalImportStagingTests(TestCase):
         request = SimpleNamespace(portal_access={'technical_override': True, 'grants': []})
 
         self.assertIsNone(_portal_import_group_ids(request))
+
+    def test_import_action_routes_precede_the_generic_batch_detail_route(self):
+        self.assertEqual(
+            resolve('/api/portal/imports/archive-attempt/').func.__name__,
+            'portal_import_archive_attempt',
+        )
+        self.assertEqual(
+            resolve('/api/portal/imports/example-batch/archive/').func.__name__,
+            'portal_import_archive',
+        )
+
+    def test_working_list_archive_is_idempotent_and_preserves_import_evidence(self):
+        batch, _operation, _replayed = self.stage(allowed_group_ids={self.group.group_id})
+        original_source = batch.source_content
+        original_rows = list(batch.parsed_rows)
+        original_status = batch.status
+
+        archived, replayed = archive_portal_import_working_list(
+            batch_id=str(batch.pk),
+            actor=self.user,
+            request_id='portal-import-working-list-archive-0001',
+            allowed_group_ids={self.group.group_id},
+        )
+        self.assertFalse(replayed)
+        self.assertTrue(archived.is_portal_archived)
+        self.assertEqual(archived.portal_archived_by, self.user)
+        self.assertIsNotNone(archived.portal_archived_at)
+        batch.refresh_from_db()
+        self.assertEqual(batch.source_content, original_source)
+        self.assertEqual(batch.parsed_rows, original_rows)
+        self.assertEqual(batch.status, original_status)
+        self.assertTrue(ComplianceAuditEvent.objects.filter(
+            action='portal.import.working_list_archived', subject_id=str(batch.pk),
+        ).exists())
+
+        repeated, replayed = archive_portal_import_working_list(
+            batch_id=str(batch.pk),
+            actor=self.user,
+            request_id='portal-import-working-list-archive-0002',
+            allowed_group_ids={self.group.group_id},
+        )
+        self.assertTrue(replayed)
+        self.assertEqual(repeated.pk, batch.pk)
+        self.assertEqual(ComplianceAuditEvent.objects.filter(
+            action='portal.import.working_list_archived', subject_id=str(batch.pk),
+        ).count(), 1)
+
+    def test_working_list_archive_never_crosses_group_scope(self):
+        batch, _operation, _replayed = self.stage(allowed_group_ids={self.group.group_id})
+
+        with self.assertRaisesMessage(PortalImportError, 'unavailable in your scope'):
+            archive_portal_import_working_list(
+                batch_id=str(batch.pk),
+                actor=self.user,
+                request_id='portal-import-working-list-scope-0001',
+                allowed_group_ids={'-100different-group'},
+            )
+        batch.refresh_from_db()
+        self.assertFalse(batch.is_portal_archived)
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
+    @patch('core.api.portal_views._portal_import_group_ids', return_value=None)
+    def test_import_archive_endpoint_removes_only_the_active_list_entry(self, _group_scope):
+        batch, _operation, _replayed = self.stage(allowed_group_ids={self.group.group_id})
+        request_id = 'portal-import-working-list-api-0001'
+
+        response = self.client.post(
+            f'/api/portal/imports/{batch.pk}/archive/',
+            data={'client_request_id': request_id},
+            content_type='application/json',
+            headers={'X-Request-ID': request_id, 'Idempotency-Key': request_id},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['ok'])
+        self.assertTrue(response.json()['batch']['is_portal_archived'])
+
+        active_list = self.client.get('/api/portal/imports/')
+        self.assertEqual(active_list.status_code, 200)
+        self.assertEqual(active_list.json()['batches'], [])
+        retained_detail = self.client.get(f'/api/portal/imports/{batch.pk}/')
+        self.assertEqual(retained_detail.status_code, 200)
+        self.assertEqual(len(retained_detail.json()['batch']['source_table']['rows']), 1)
 
     @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='test-shared-drive-root')
     @patch('core.services.order_approval.GoogleDriveMediaStorage.upload', return_value=('drive-file-1', 'https://drive.example/file-1'))

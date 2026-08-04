@@ -2000,7 +2000,7 @@ def _portal_import_group_ids(request):
     }
 
 
-def _portal_imports_queryset(request):
+def _portal_imports_queryset(request, *, include_archived: bool = False):
     """Return import batches inside the caller's explicit group scope.
 
     Import files contain source-system customer data and have no branch until
@@ -2009,15 +2009,20 @@ def _portal_imports_queryset(request):
     """
     from core.models import JawabuFarmerUploadBatch
 
-    queryset = JawabuFarmerUploadBatch.objects.select_related('created_by').order_by('-created_at')
+    queryset = JawabuFarmerUploadBatch.objects.select_related(
+        'created_by', 'portal_archived_by',
+    ).order_by('-created_at')
+    if not include_archived:
+        queryset = queryset.filter(is_portal_archived=False)
     allowed_groups = _portal_import_group_ids(request)
     if allowed_groups is None:
         return queryset
     return queryset.filter(group_id__in=allowed_groups) if allowed_groups else queryset.none()
 
 
-def _portal_import_in_scope(request, batch_id: str):
-    return _portal_imports_queryset(request).filter(pk=batch_id).first()
+def _portal_import_in_scope(request, batch_id: str, *, include_archived: bool = True):
+    """Find retained import evidence without allowing a cross-group lookup."""
+    return _portal_imports_queryset(request, include_archived=include_archived).filter(pk=batch_id).first()
 
 
 @portal_auth_required
@@ -2133,6 +2138,42 @@ def portal_import_detail(request, batch_id: str):
         'ok': True,
         'batch': payload,
         'review_only': True,
+    })
+
+
+@portal_auth_required
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(["POST"])
+def portal_import_archive(request, batch_id: str):
+    """Archive a retained staged import from the active Portal working list."""
+    access_error = _portal_read_access_error(request, capability='portal.imports.view')
+    if access_error:
+        return access_error
+    payload = _portal_request_data(request)
+    try:
+        from core.services.portal_imports import (
+            PortalImportError,
+            archive_portal_import_working_list,
+            serialize_import_batch,
+        )
+
+        batch, replayed = archive_portal_import_working_list(
+            batch_id=batch_id,
+            actor=getattr(request, 'portal_user', None),
+            request_id=_portal_request_id(request, payload),
+            allowed_group_ids=_portal_import_group_ids(request),
+        )
+    except PortalImportError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=404 if 'unavailable' in str(exc) else 400)
+    return JsonResponse({
+        'ok': True,
+        'replayed': replayed,
+        'batch': serialize_import_batch(batch),
+        'message': (
+            'This import is already archived from the active Imports list.'
+            if replayed else
+            'Import archived from the active list. Its source and review evidence remain retained.'
+        ),
     })
 
 

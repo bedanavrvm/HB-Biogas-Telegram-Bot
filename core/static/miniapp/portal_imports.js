@@ -5,6 +5,7 @@
   const utils = window.MiniAppUtils || {};
   const tg = window.Telegram?.WebApp;
   let importState = { batches: [], loaded: false };
+  let activeReviewBatchId = '';
 
   function node(id) { return document.getElementById(id); }
   function importsScreenIsActive() { return document.getElementById('portal-screen')?.dataset.screen === 'imports'; }
@@ -79,7 +80,7 @@
         <div class="portal-import-stats"><span><strong>${escapeHtml(batch.total_rows)}</strong> rows</span><span class="${issues ? 'warning' : ''}"><strong>${escapeHtml(issues)}</strong> review needed</span><span><strong>${escapeHtml(batch.committed_count)}</strong> committed outside Portal</span></div>
         ${batch.error ? `<p class="portal-import-error">${escapeHtml(batch.error)}</p>` : ''}
         ${batch.archive_error ? `<p class="portal-import-error">${escapeHtml(batch.archive_error)}</p>` : ''}
-        <div class="portal-import-actions"><button type="button" class="btn btn-primary portal-import-review-button" data-batch-id="${escapeHtml(batch.id)}">Review data</button>${retry}</div>
+        <div class="portal-import-actions"><button type="button" class="btn btn-primary portal-import-review-button" data-batch-id="${escapeHtml(batch.id)}">Review data</button>${retry}<button type="button" class="btn btn-secondary portal-import-working-list-archive" data-batch-id="${escapeHtml(batch.id)}">Archive from Imports</button></div>
       </article>`;
     }).join('');
   }
@@ -118,7 +119,7 @@
       fileInput.value = '';
       feedback(result.data.replayed ? 'This retry reopened the existing staged import.' : 'Import staged for review. Archiving its source to Drive…', 'success');
       await load({ silent: true });
-      if (result.data.archive_operation_id) await archive(result.data.archive_operation_id, { silent: true });
+      if (result.data.archive_operation_id) await attemptDriveArchive(result.data.archive_operation_id, { silent: true });
     } catch (error) {
       feedback(error.message || 'The import could not be staged.', 'error');
     } finally {
@@ -136,6 +137,7 @@
     if (!importsScreenIsActive()) return;
     const target = node('portal-import-review');
     if (!target) return;
+    activeReviewBatchId = String(batchId);
     target.hidden = false;
     target.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading review rows...</div></div>';
     try {
@@ -163,7 +165,7 @@
     }
   }
 
-  async function archive(operationId, { silent = false } = {}) {
+  async function attemptDriveArchive(operationId, { silent = false } = {}) {
     try {
       const result = await api.postJson('/imports/archive-attempt/', { operation_id: operationId }, tg);
       if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Drive archive needs attention.');
@@ -180,6 +182,25 @@
     // A failed archive gets a server-reserved retry operation when the list is
     // refreshed, so the review action remains local and access-controlled.
     return importState.batches.find(batch => String(batch.id) === String(batchId))?.archive_operation_id || '';
+  }
+
+  async function archiveFromWorkingList(batchId) {
+    const batch = importState.batches.find(item => String(item.id) === String(batchId));
+    if (!batch) {
+      feedback('This staged import is no longer in the active list. Refresh Imports and try again.', 'error');
+      return;
+    }
+    if (!window.confirm('Archive this staged import from the active Imports list? Its original source, review data, Drive archive state, and audit evidence will remain retained.')) return;
+    const result = await api.postJson(`/imports/${encodeURIComponent(batch.id)}/archive/`, {}, tg);
+    if (!result.ok || !result.data?.ok) throw new Error(result.data?.error || 'Could not archive this staged import.');
+    const reviewTarget = node('portal-import-review');
+    if (reviewTarget && activeReviewBatchId === String(batch.id)) {
+      reviewTarget.hidden = true;
+      reviewTarget.replaceChildren();
+      activeReviewBatchId = '';
+    }
+    feedback(result.data.message || 'Import archived from the active list. Source and review evidence remain retained.', 'success');
+    await load({ silent: true });
   }
 
   document.addEventListener('submit', event => {
@@ -210,6 +231,7 @@
       if (target) {
         target.hidden = true;
         target.replaceChildren();
+        activeReviewBatchId = '';
       }
       return;
     }
@@ -221,7 +243,15 @@
         return;
       }
       setLoading(archiveButton, true, 'Retrying');
-      archive(operationId).finally(() => setLoading(archiveButton, false));
+      attemptDriveArchive(operationId).finally(() => setLoading(archiveButton, false));
+      return;
+    }
+    const workingListArchiveButton = event.target.closest('.portal-import-working-list-archive');
+    if (workingListArchiveButton) {
+      setLoading(workingListArchiveButton, true, 'Archiving');
+      archiveFromWorkingList(workingListArchiveButton.dataset.batchId)
+        .catch(error => feedback(error.message || 'Could not archive this staged import.', 'error'))
+        .finally(() => setLoading(workingListArchiveButton, false));
     }
   });
 

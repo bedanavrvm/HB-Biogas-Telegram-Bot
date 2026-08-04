@@ -1,5 +1,23 @@
 # Changelog
 
+## Portal report and import archival - 04-August-2026
+
+- Added an Archive action to each saved-report card as well as the report
+  detail page. Archive is non-destructive: the definition and immutable audit
+  history stay retained, while the report leaves the active catalogue.
+- Added an IT-only **Archive from Imports** action for staged FarmUp/SysUp
+  uploads. It removes only the selected batch from the active Imports list;
+  the original source, raw review data, Drive archive status and audit history
+  remain retained. It never commits customer records or calls Drive.
+- Fixed repeat entry/run of Reports failing with `render is not a function` by
+  preventing route-load options from shadowing the Reports renderer.
+
+  Migration note: `core.0100_portal_import_working_list_archival` adds only
+  nullable archive metadata and an index; existing batches remain active and
+  no backfill or external action runs. To undo a non-production application:
+  `python manage.py migrate core 0099_portal_reporting`. Prefer a code rollback
+  after production use so retained audit evidence is preserved.
+
 ## Portal Reports assisted live chart builder - 04-August-2026
 
 - Reworked chart setup around the operational question: choose an approved
