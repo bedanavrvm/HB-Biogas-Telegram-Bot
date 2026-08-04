@@ -134,7 +134,16 @@ def can_authorize_delegation(*, user, access: dict | None) -> bool:
 
 
 def _has_global_branch_scope(access: dict | None) -> bool:
-    """Return whether an access snapshot contains an all-branch grant."""
+    """Return whether an access snapshot contains an all-branch grant.
+
+    An active Django Superuser is the documented technical break-glass
+    override.  ``user_access`` deliberately represents that override without
+    synthetic ``AccessGrant`` rows, so it must be treated as global here as
+    well; otherwise a Superuser can reach the delegation screen but cannot
+    delegate for any configured branch.
+    """
+    if bool((access or {}).get('technical_override')):
+        return True
     return any(not str(getattr(grant, 'branch', '') or '').strip() for grant in (access or {}).get('grants', []))
 
 

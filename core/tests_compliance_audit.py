@@ -40,6 +40,7 @@ class ComplianceAuditServiceTests(TestCase):
         self.user = get_user_model().objects.create_user('audit-user', password='not-used')
 
     def test_chain_is_idempotent_and_model_events_cannot_be_mutated(self):
+        baseline_position = ComplianceAuditChainState.objects.get(pk=1).last_position
         event, created = record_event(
             workflow='portal', action='portal.case.updated', subject_type='jawabu_farmer', subject_id='farmer-1',
             deduplication_key='portal:case:farmer-1:request-1', actor=self.user, request_id='request-1',
@@ -53,7 +54,10 @@ class ComplianceAuditServiceTests(TestCase):
         self.assertTrue(created)
         self.assertFalse(replay_created)
         self.assertEqual(event.pk, replay.pk)
-        self.assertEqual(event.chain_position, 1)
+        # Test databases may include immutable migration evidence.  The
+        # ledger contract is that this event occupies the next position, not
+        # that every test starts from an empty audit chain.
+        self.assertEqual(event.chain_position, baseline_position + 1)
         self.assertEqual(ComplianceAuditChainState.objects.get(pk=1).last_hash, event.integrity_hash)
         self.assertTrue(verify_integrity().ok)
 
@@ -105,9 +109,9 @@ class ComplianceAuditServiceTests(TestCase):
             after_values={'import_status': 'imported'},
         )
 
-        self.assertSetEqual(
-            set(ComplianceAuditEvent.objects.values_list('workflow', flat=True)),
-            {'portal', 'tat_tracker', 'complaint_cases', 'spin'},
+        workflows = set(ComplianceAuditEvent.objects.values_list('workflow', flat=True))
+        self.assertTrue(
+            {'portal', 'tat_tracker', 'complaint_cases', 'spin'}.issubset(workflows)
         )
         self.assertTrue(verify_integrity().ok)
 
@@ -124,7 +128,9 @@ class ComplianceAuditServiceTests(TestCase):
         self.assertFalse(replay_created)
         self.assertEqual(checkpoint.pk, replay.pk)
         self.assertEqual(checkpoint.status, ComplianceAuditCheckpoint.STATUS_DISABLED)
-        self.assertTrue(ComplianceAuditEvent.objects.get().sensitive)
+        self.assertTrue(
+            ComplianceAuditEvent.objects.get(action='portal.crb_report.view').sensitive
+        )
         self.assertIn('portal.crb_report.view', evidence_csv(ComplianceAuditEvent.objects.all()))
 
     def test_read_only_commands_report_integrity_and_sampling(self):

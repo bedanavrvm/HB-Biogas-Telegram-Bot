@@ -1,5 +1,18 @@
 # Changelog
 
+## Workflow reliability test-contract repair - 04-August-2026
+
+- Corrected Portal approval delegation so the documented active Django
+  Superuser break-glass override is treated as all-branch authority, including
+  when delegating an approval gate. The actor remains identified and audited.
+- Updated workflow tests to assert the current contracts: immutable migration
+  audit evidence may precede test events, invoice reconciliation reserves a
+  durable register publication instead of blocking on Google Sheets, and each
+  Portal role is offered only its permitted queues and saved views.
+
+  Migration note: no schema migration, data backfill, or external integration
+  action is included. To undo, redeploy the prior application commit.
+
 ## Portal report and import archival - 04-August-2026
 
 - Added an Archive action to each saved-report card as well as the report

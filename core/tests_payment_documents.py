@@ -359,8 +359,8 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         reasons = data['duplicates'][0]['duplicate_reasons']
         self.assertTrue({'Same invoice no', 'Same ID', 'Same phone'} & set(reasons))
 
-    @patch('core.services.invoice_parser.sync_farmer_to_master_sheet', return_value=True)
-    def test_manual_invoice_match_endpoint_links_invoice_to_farmer(self, mock_sync):
+    @patch('core.services.invoice_parser.reserve_farmer_publication')
+    def test_manual_invoice_match_endpoint_links_invoice_to_farmer(self, mock_reserve_publication):
         farmer = self.farmer(
             order_number='ORDER-MANUAL',
             invoice_number='',
@@ -391,10 +391,18 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         event = invoice.events.filter(action='matched').latest('created_at')
         self.assertEqual(event.note, 'Verified by phone')
         self.assertEqual(event.metadata['order_number'], 'ORDER-MANUAL')
-        mock_sync.assert_called_once_with(farmer)
+        # Invoice reconciliation commits canonical Django state first; the
+        # register publication is a durable follow-up rather than a request
+        # blocking Google Sheets write.
+        mock_reserve_publication.assert_called_once()
+        self.assertEqual(mock_reserve_publication.call_args.args[0].pk, farmer.pk)
+        self.assertEqual(
+            mock_reserve_publication.call_args.kwargs['request_id'],
+            f'invoice-match:{invoice.id}:{farmer.id}',
+        )
 
-    @patch('core.services.invoice_parser.sync_farmer_to_master_sheet', return_value=True)
-    def test_manual_invoice_unmatch_endpoint_clears_linked_farmer_invoice_fields(self, mock_sync):
+    @patch('core.services.invoice_parser.reserve_farmer_publication')
+    def test_manual_invoice_unmatch_endpoint_clears_linked_farmer_invoice_fields(self, mock_reserve_publication):
         farmer = self.farmer(order_number='ORDER-MATCHED')
         batch = self.invoice_batch(farmer)
         invoice = batch.invoices.get()
@@ -415,7 +423,12 @@ class InvoicePoolAndPaymentDocumentTests(TestCase):
         self.assertIsNone(farmer.balance_due)
         self.assertIn('Wrong household', invoice.review_notes)
         self.assertTrue(invoice.events.filter(action='unmatched', note='Wrong household').exists())
-        mock_sync.assert_called_once_with(farmer)
+        mock_reserve_publication.assert_called_once()
+        self.assertEqual(mock_reserve_publication.call_args.args[0].pk, farmer.pk)
+        self.assertEqual(
+            mock_reserve_publication.call_args.kwargs['request_id'],
+            f'invoice-unmatch:{invoice.id}:{farmer.id}',
+        )
 
     def test_manual_invoice_ignore_endpoint_marks_invoice_ignored(self):
         batch = self.invoice_batch()

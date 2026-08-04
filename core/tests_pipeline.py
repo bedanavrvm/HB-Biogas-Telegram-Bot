@@ -1023,7 +1023,11 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertTrue(settings_data['operations']['health'])
         self.assertTrue(settings_data['operations']['delegation'])
         self.assertEqual(settings_data['branches'], ['Embu'])
-        self.assertIn('jbl', {item['key'] for item in settings_data['queues']})
+        # Head of Rural sees the final-review queue, not the JBL officer's
+        # visit queue.  Settings must only offer queues the current role can
+        # actually open.
+        self.assertIn('final', {item['key'] for item in settings_data['queues']})
+        self.assertNotIn('jbl', {item['key'] for item in settings_data['queues']})
         self.assertEqual(settings_data['account']['workflow'], 'jawabu_portal')
         self.assertEqual(settings_data['account']['roles'][0]['key'], 'BUSINESS_ADMIN')
         self.assertEqual(settings_data['account']['branches'], ['EMBU'])
@@ -1032,7 +1036,7 @@ class PortalMiniAppAuthTestCase(TestCase):
             reverse('portal_settings'),
             data=json.dumps({'preferences': {
                 'default_screen': 'dashboard',
-                'default_filters': {'queue': 'jbl', 'branch': 'EMBU', 'status': 'decision'},
+                'default_filters': {'queue': 'final', 'branch': 'EMBU', 'status': 'decision'},
                 'compact_cards': True,
                 'alert_mode': 'quiet',
             }}),
@@ -1043,7 +1047,7 @@ class PortalMiniAppAuthTestCase(TestCase):
 
         self.assertEqual(response.status_code, 200)
         personal = response.json()['data']
-        self.assertEqual(personal['default_filters']['queue'], 'jbl')
+        self.assertEqual(personal['default_filters']['queue'], 'final')
         self.assertEqual(personal['default_filters']['branch'], 'Embu')
         self.assertTrue(personal['compact_cards'])
 
@@ -1053,9 +1057,9 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.grant_portal_it_access(user, branches=['EMBU'])
         headers = {'HTTP_X_TELEGRAM_INIT_DATA': self._signed_init_data()}
         payload = {
-            'name': 'Embu visit queue',
-            'screen': 'jbl',
-            'queue': 'jbl',
+            'name': 'Embu final review queue',
+            'screen': 'final',
+            'queue': 'final',
             'filters': {'branch': 'EMBU'},
             'ordering': 'newest',
         }
@@ -1083,7 +1087,7 @@ class PortalMiniAppAuthTestCase(TestCase):
         workspace = self.client.get(reverse('portal_workspace'), {'summary': '1'}, **headers)
         self.assertEqual(workspace.status_code, 200)
         self.assertEqual(workspace.json()['data']['startup_view']['id'], saved_view['id'])
-        self.assertEqual(workspace.json()['data']['summary']['default_view_label'], 'Embu visit queue')
+        self.assertEqual(workspace.json()['data']['summary']['default_view_label'], 'Embu final review queue')
         self.assertTrue(ComplianceAuditEvent.objects.filter(
             workflow='portal', action='portal.workspace.view.created', actor_id=user.pk,
         ).exists())
@@ -1295,8 +1299,50 @@ class PortalMiniAppAuthTestCase(TestCase):
             primary_phone='254700000003', branch='Kiambu', order_number='OUTSIDE-1',
             status='active',
         )
+        RequisitionBatch.objects.create(
+            order_number='OUTSIDE-1', file_content=b'xlsx-bytes',
+            farmer_ids=[str(farmer.id)], farmer_count=1,
+        )
+
+        response = self.client.get(
+            reverse('portal_requisition_batch_download', args=['OUTSIDE-1']),
+            HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
+        )
+
+        self.assertEqual(response.status_code, 403)
 
     def test_current_pipeline_state_labels_cover_halts_and_finance_lifecycle(self):
+        # This auth-suite test owns its fixtures instead of relying on the
+        # unrelated service-suite ``setUp`` method.
+        self.farmer_stage1 = JawabuFarmerMaster.objects.create(
+            customer_name='State One', national_id='55555111', primary_phone='254755555111',
+            sign_date='24-June-2026', status='active',
+        )
+        self.farmer_stage2 = JawabuFarmerMaster.objects.create(
+            customer_name='State Two', national_id='55555222', primary_phone='254755555222',
+            sign_date='24-June-2026', jbl_visit_date=date(2026, 6, 25),
+            jbl_visit_status='Awaiting Analysis', status='active',
+        )
+        self.farmer_stage_review = JawabuFarmerMaster.objects.create(
+            customer_name='State Review', national_id='55555333', primary_phone='254755555333',
+            sign_date='24-June-2026', jbl_visit_date=date(2026, 6, 25),
+            jbl_visit_status='Approved', credit_decision='Approved', imab_created='Yes',
+            customer_no='15118', status='active',
+        )
+        self.farmer_stage3 = JawabuFarmerMaster.objects.create(
+            customer_name='State Three', national_id='55555444', primary_phone='254755555444',
+            sign_date='24-June-2026', jbl_visit_date=date(2026, 6, 25),
+            jbl_visit_status='Approved', credit_decision='Approved', imab_created='Yes',
+            customer_no='15119', final_decision='Approved', status='active',
+        )
+        self.farmer_stage4 = JawabuFarmerMaster.objects.create(
+            customer_name='State Four', national_id='55555555', primary_phone='254755555555',
+            sign_date='24-June-2026', jbl_visit_date=date(2026, 6, 25),
+            jbl_visit_status='Approved', credit_decision='Approved', imab_created='Yes',
+            customer_no='15120', final_decision='Approved', order_number='JBL-2026-004',
+            requisition_date=date(2026, 6, 26), status='active',
+        )
+
         self.assertEqual(current_pipeline_state_label(self.farmer_stage1), 'Awaiting JBL Visit')
         self.assertEqual(current_pipeline_state_label(self.farmer_stage2), 'Awaiting Credit Analysis')
         self.assertEqual(current_pipeline_state_label(self.farmer_stage_review), 'Awaiting Head of Rural Review')
@@ -1325,17 +1371,6 @@ class PortalMiniAppAuthTestCase(TestCase):
         self.assertEqual(current_pipeline_state_label(self.farmer_stage4), 'Payment Processing')
         JawabuPipelineEvent.objects.create(farmer=self.farmer_stage4, action='payment_finalized', stage_key='payment')
         self.assertEqual(current_pipeline_state_label(self.farmer_stage4), 'Payment Finalized')
-        RequisitionBatch.objects.create(
-            order_number='OUTSIDE-1', file_content=b'xlsx-bytes',
-            farmer_ids=[str(farmer.id)], farmer_count=1,
-        )
-
-        response = self.client.get(
-            reverse('portal_requisition_batch_download', args=['OUTSIDE-1']),
-            HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(),
-        )
-
-        self.assertEqual(response.status_code, 403)
 
 @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False, SECURE_SSL_REDIRECT=False)
 class JblPipelineApiTestCase(TestCase):

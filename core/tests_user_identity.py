@@ -435,18 +435,19 @@ class TelegramUserAuthenticationTests(TestCase):
         self.assertEqual(active_roles, {'BRO', 'FINANCE'})
         self.assertEqual(user_access(self.user, 'tat_tracker')['roles'], ['BRO', 'FINANCE'])
 
-    def test_superuser_requires_explicit_miniapp_grant(self):
+    def test_superuser_is_global_miniapp_break_glass_override(self):
         from core.services.telegram_identity import user_access
+        from core.services.access_policies import WORKFLOW_ROLES
 
         superuser = get_user_model().objects.create_superuser(
             username='global-superuser', email='super@example.test', password='test-password',
         )
 
-        self.assertFalse(user_access(superuser, 'jawabu_portal')['authorized'])
-        self.assertEqual(user_access(superuser, 'jawabu_portal')['roles'], [])
-        AccessGrant.objects.create(
-            user=superuser, workflow='jawabu_portal', role='BUSINESS_ADMIN', branch='EMBU',
-        )
         access = user_access(superuser, 'jawabu_portal')
         self.assertTrue(access['authorized'])
-        self.assertEqual(access['roles'], ['BUSINESS_ADMIN'])
+        self.assertTrue(access['technical_override'])
+        self.assertEqual(
+            access['roles'],
+            [role for role, _label in WORKFLOW_ROLES['jawabu_portal']],
+        )
+        self.assertEqual(access['branches'], [])
