@@ -2147,7 +2147,10 @@
     activate(page) {
       if (!page) return;
       const root = currentScreenRoot();
-      const screenSignature = `${page}:${root?.dataset.caseFarmerId || ''}:${root?.dataset.reportView || ''}:${root?.dataset.reportId || ''}:${root?.dataset.invoiceView || ''}:${root?.dataset.invoiceId || ''}`;
+      // A Reports editor step is a route-backed nested screen. Include it in
+      // the activation signature so Fields -> Filters -> Review always loads
+      // the newly swapped root instead of leaving its static placeholder.
+      const screenSignature = `${page}:${root?.dataset.caseFarmerId || ''}:${root?.dataset.reportView || ''}:${root?.dataset.reportId || ''}:${root?.dataset.reportStep || ''}:${root?.dataset.invoiceView || ''}:${root?.dataset.invoiceId || ''}`;
       const changed = lastShellScreen !== screenSignature;
       lastShellScreen = screenSignature;
       switchPage(page);

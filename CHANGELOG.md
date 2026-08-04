@@ -1,5 +1,15 @@
 # Changelog
 
+## Portal Reports wizard step activation - 04-August-2026
+
+- Fixed route-backed Filters and Charts/Review steps remaining on their loading
+  placeholder: the Portal route signature now distinguishes the report editor
+  step and therefore initialises each newly swapped root.
+
+  Migration note: no schema migration is included. To undo, redeploy the
+  prior application commit; report definitions, audit evidence, customer data,
+  Sheets, Drive, and workflow state remain unchanged.
+
 ## Portal Reports wizard-route reliability - 04-August-2026
 
 - Kept the live Reports controller mounted while moving between the Fields,

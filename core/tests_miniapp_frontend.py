@@ -58,7 +58,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('miniapp/portal_invoices.js?v=14', html)
         self.assertIn('miniapp/portal_payments.js?v=7', html)
         self.assertIn('miniapp/portal_reports.js?v=8', html)
-        self.assertIn('miniapp/portal.js?v=59', html)
+        self.assertIn('miniapp/portal.js?v=60', html)
 
         spin_response = self.client.get(reverse('spin_form') + '?group_id=-100spin&token=test-token')
         spin_html = spin_response.content.decode('utf-8')
@@ -146,6 +146,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('portalReports.unmount?.()', portal_source)
         self.assertIn("state.activePage === 'reports' && nextPage !== 'reports'", portal_source)
         self.assertIn('window.htmx.config.timeout = 20000', portal_source)
+        self.assertIn("root?.dataset.reportStep || ''", portal_source)
         self.assertIn("document.body.addEventListener('htmx:timeout'", navigation_source)
 
     def test_portal_reports_use_route_backed_drill_down_screens(self):
