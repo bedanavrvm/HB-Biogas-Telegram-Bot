@@ -85,6 +85,7 @@ from .portal_views import (
     portal_queue_fragment,
     portal_log_jbl_visit,
     portal_jbl_visit_draft,
+    portal_case_workflow_draft,
     portal_complete_jbl_visit,
     portal_upload_jbl_media,
     portal_jbl_media,
@@ -284,8 +285,10 @@ urlpatterns = [
     # Stage 3 - Credit Decision
     path('portal/credit-queue/', portal_auth_required(portal_credit_queue), name='portal_credit_queue'),
     path('portal/credit-queue/<str:farmer_id>/', portal_auth_required(portal_set_credit_decision), name='portal_set_credit_decision'),
+    path('portal/credit-queue/<str:farmer_id>/draft/', portal_auth_required(portal_case_workflow_draft), {'workflow': 'credit'}, name='portal_credit_decision_draft'),
     path('portal/final-review-queue/', portal_auth_required(portal_final_review_queue), name='portal_final_review_queue'),
     path('portal/final-review-queue/<str:farmer_id>/', portal_auth_required(portal_set_final_decision), name='portal_set_final_decision'),
+    path('portal/final-review-queue/<str:farmer_id>/draft/', portal_auth_required(portal_case_workflow_draft), {'workflow': 'final_review'}, name='portal_final_review_draft'),
     path('portal/cases/<str:farmer_id>/return-for-rework/', portal_auth_required(portal_return_for_rework), name='portal_return_for_rework'),
     # Stage 4 - Requisition / Order (GATED)
     path('portal/requisition-queue/', portal_auth_required(portal_requisition_queue), name='portal_requisition_queue'),

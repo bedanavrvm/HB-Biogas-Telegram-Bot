@@ -46,11 +46,12 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertLess(html.index('miniapp/portal_requisitions.js'), html.index('miniapp/portal_payments.js'))
         self.assertLess(html.index('miniapp/portal_payments.js'), html.index('miniapp/portal.js'))
         self.assertLess(html.index('miniapp/portal_imports.js'), html.index('miniapp/portal.js'))
-        self.assertIn('miniapp/portal_queues.js?v=7', html)
-        self.assertIn('miniapp/portal_farmer_sheet.js?v=29', html)
+        self.assertIn('miniapp/portal_queues.js?v=8', html)
+        self.assertIn('miniapp/portal_farmer_sheet.js?v=30', html)
         self.assertIn('miniapp/utils.js?v=4', html)
+        self.assertIn('miniapp/portal_helpers.js?v=5', html)
         self.assertIn('miniapp/portal.css?v=60', html)
-        self.assertIn('miniapp/portal_filters.js?v=7', html)
+        self.assertIn('miniapp/portal_filters.js?v=8', html)
         self.assertIn('miniapp/portal_imports.js?v=6', html)
         self.assertNotIn('portal-import-group', html)
         self.assertIn('miniapp/portal_requisitions.js?v=33', html)
@@ -58,7 +59,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('miniapp/portal_invoices.js?v=14', html)
         self.assertIn('miniapp/portal_payments.js?v=7', html)
         self.assertIn('miniapp/portal_reports.js?v=11', html)
-        self.assertIn('miniapp/portal.js?v=60', html)
+        self.assertIn('miniapp/portal.js?v=61', html)
 
         spin_response = self.client.get(reverse('spin_form') + '?group_id=-100spin&token=test-token')
         spin_html = spin_response.content.decode('utf-8')
@@ -120,7 +121,7 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         self.assertIn('/\\/portal\\/cases\\/[^/]+\\//', source)
         self.assertIn("return 'case_history'", source)
-        self.assertContains(response, 'miniapp/miniapp-nav.js?v=17')
+        self.assertContains(response, 'miniapp/miniapp-nav.js?v=18')
 
     def test_telegram_back_never_uses_host_history_for_a_cold_portal_screen(self):
         source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
@@ -253,6 +254,31 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('.sheet-panel {', portal_css)
         self.assertIn('max-height: var(--miniapp-viewport-height, 100dvh);', portal_css)
         self.assertIn('--miniapp-viewport-height', portal_css)
+
+    def test_portal_nested_media_and_case_history_have_terminal_navigation_states(self):
+        navigation = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
+        portal = Path('core/static/miniapp/portal.js').read_text(encoding='utf-8')
+
+        self.assertIn('window.getComputedStyle(overlay).zIndex', navigation)
+        self.assertIn('caseHistoryLoadVersion', portal)
+        self.assertIn('case-history-retry', portal)
+        self.assertIn("typeof portalFarmerSheet.renderCase360 !== 'function'", portal)
+
+    def test_portal_cards_filters_imab_and_workflow_drafts_are_consistent(self):
+        template = Path('core/templates/portal/portal.html').read_text(encoding='utf-8')
+        card = Path('core/templates/portal/partials/farmer_card.html').read_text(encoding='utf-8')
+        sheet = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')
+        queues = Path('core/static/miniapp/portal_queues.js').read_text(encoding='utf-8')
+
+        self.assertNotIn('id="portal-filter-bar"', template)
+        self.assertNotIn('portal-preference-default-branch', template)
+        self.assertIn('farmer.location_label', card)
+        self.assertIn('JBL visit:', card)
+        self.assertNotIn("params.set('county'", queues)
+        self.assertNotIn("params.set('branch'", queues)
+        self.assertIn("farmer.imab_created || 'Pending'", sheet)
+        self.assertIn('WORKFLOW_DRAFT_CONFIG', sheet)
+        self.assertIn('clearWorkflowDraft', sheet)
 
     def test_requisition_generation_waits_for_the_current_drive_workbook(self):
         requisitions = Path('core/static/miniapp/portal_requisitions.js').read_text(encoding='utf-8')
@@ -389,20 +415,19 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('Could not load invoices', invoice_source)
         self.assertIn('Could not load invoiced cases', payment_source)
 
-    def test_portal_filters_expose_filter_primitives(self):
+    def test_portal_queue_renderer_has_no_hidden_location_filter_bindings(self):
         source = Path('core/static/miniapp/portal_filters.js').read_text(encoding='utf-8')
 
         for expected in (
             'window.PortalMiniAppFilters',
             'init',
-            'updateFilterOptions',
             'applyFilters',
             'renderFilteredFarmerList',
-            'filter-county',
-            'filter-branch',
-            'btn-clear-filters',
         ):
             self.assertIn(expected, source)
+        self.assertNotIn('filter-county', source)
+        self.assertNotIn('filter-branch', source)
+        self.assertNotIn('btn-clear-filters', source)
 
     def test_portal_queue_empty_states_use_the_compact_completion_treatment(self):
         queue_source = Path('core/static/miniapp/portal_queues.js').read_text(encoding='utf-8')

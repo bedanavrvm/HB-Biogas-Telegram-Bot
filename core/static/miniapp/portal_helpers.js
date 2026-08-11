@@ -16,11 +16,18 @@
   // operational access/routing value, not part of the customer's physical
   // location, so it must not be appended to this compact card line.
   function locationText(farmer) {
+    if (farmer && String(farmer.location_label || '').trim()) return String(farmer.location_label).trim();
+    const seen = new Set();
     const parts = [
       farmer && farmer.county,
       farmer && farmer.sub_county,
       farmer && farmer.village,
-    ].map(value => String(value || '').trim()).filter(Boolean);
+    ].map(value => String(value || '').trim()).filter(value => {
+      const normalized = value.toLocaleLowerCase();
+      if (!value || seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
     return parts.join(' | ') || '-';
   }
 

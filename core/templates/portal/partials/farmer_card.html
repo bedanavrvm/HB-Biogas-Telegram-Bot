@@ -13,12 +13,13 @@
   {% endif %}
   <div style="flex: 1;">
     <div class="fc-name">{% if farmer.display_number %}<span class="farmer-card-number" aria-label="Queue position {{ farmer.display_number }}">{{ farmer.display_number }}</span>{% endif %}{{ farmer.customer_name|default:farmer.national_id|default:farmer.primary_phone|default:"Unknown" }}</div>
-    <div class="fc-sub">
-      {{ farmer.county|default:"-" }}{% if farmer.sub_county %} | {{ farmer.sub_county }}{% endif %}{% if farmer.village %} | {{ farmer.village }}{% endif %}{% if farmer.branch %} | {{ farmer.branch }}{% endif %}
-    </div>
+    <div class="fc-sub">{{ farmer.location_label|default:"-" }}</div>
     <div class="fc-sub">{{ farmer.primary_phone|default:"" }}</div>
     {% if queue_key == "jbl" and farmer.sign_date %}
       <div class="fc-sub fc-visit-date">HB visit: {{ farmer.sign_date }}</div>
+    {% endif %}
+    {% if queue_key == "my_visits" and farmer.jbl_visit_date %}
+      <div class="fc-sub fc-visit-date">JBL visit: {{ farmer.jbl_visit_date_label }}</div>
     {% endif %}
     <div class="fc-badges">
       {% if review_stage == 'payment' and farmer.payment_review_payment_number %}

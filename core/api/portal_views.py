@@ -2802,6 +2802,98 @@ def portal_jbl_visit_draft(request, farmer_id: str):
     }})
 
 
+_PORTAL_CASE_DRAFT_CONFIG = {
+    'credit': {
+        'workflow': 'portal_credit_decision',
+        'fields': {'credit-decision': 80, 'credit-imab': 32, 'credit-customer-no': 80},
+    },
+    'final_review': {
+        'workflow': 'portal_final_review',
+        'fields': {
+            'final-decision': 80,
+            'final-repayment-date': 80,
+            'final-repayment-tenor': 80,
+            'final-comment': 2_000,
+        },
+    },
+}
+
+
+@csrf_exempt  # Verified Portal identity plus workflow authority and branch scope authorize this personal draft.
+@require_http_methods(["GET", "POST", "DELETE"])
+def portal_case_workflow_draft(request, farmer_id: str, workflow: str):
+    """Persist field-only Credit or Final Review recovery state."""
+    from core.models import JawabuFarmerMaster
+    from core.services.miniapp_drafts import (
+        MiniAppDraftConflict,
+        MiniAppDraftError,
+        delete_draft,
+        get_draft,
+        save_draft,
+    )
+
+    config = _PORTAL_CASE_DRAFT_CONFIG.get(workflow)
+    if config is None:
+        return JsonResponse({'ok': False, 'error': 'Unsupported Portal draft workflow.'}, status=404)
+    farmer = JawabuFarmerMaster.objects.filter(pk=farmer_id).first()
+    if farmer is None:
+        return JsonResponse({'ok': False, 'error': 'This case is no longer available.'}, status=404)
+    authority_error = _portal_approval_authority_error(request, farmer, workflow)
+    if authority_error:
+        return authority_error
+    user = getattr(request, 'portal_user', None)
+    if user is None:
+        return JsonResponse({'ok': False, 'error': 'Your Portal staff account could not be resolved.'}, status=403)
+
+    draft_workflow = config['workflow']
+    context_key = f'farmer:{farmer.pk}'
+    if request.method == 'GET':
+        draft = get_draft(user=user, workflow=draft_workflow, context_key=context_key)
+        return JsonResponse({'ok': True, 'draft': None if draft is None else {
+            'payload': draft.payload,
+            'revision': draft.revision,
+            'updated_at': draft.updated_at.isoformat(),
+            'expires_at': draft.expires_at.isoformat(),
+        }})
+    if request.method == 'DELETE':
+        delete_draft(user=user, workflow=draft_workflow, context_key=context_key)
+        return JsonResponse({'ok': True})
+
+    body = _portal_request_data(request)
+    raw_payload = body.get('payload')
+    values = raw_payload.get('values') if isinstance(raw_payload, dict) else None
+    if not isinstance(values, dict) or set(values).difference(config['fields']):
+        return JsonResponse({'ok': False, 'error': 'Draft contains unsupported fields.'}, status=400)
+    cleaned = {}
+    try:
+        for field, limit in config['fields'].items():
+            value = values.get(field, '')
+            if not isinstance(value, (str, int, float)):
+                raise ValueError('Draft values must be text.')
+            cleaned[field] = str(value)
+            if len(cleaned[field]) > limit:
+                raise ValueError(f'Draft value for {field} is too long.')
+        saved_at = max(0, int(raw_payload.get('saved_at') or 0))
+        revision = body.get('revision')
+        expected_revision = int(revision) if revision not in (None, '') else None
+        draft = save_draft(
+            user=user,
+            workflow=draft_workflow,
+            context_key=context_key,
+            payload={'values': cleaned, 'saved_at': saved_at},
+            expected_revision=expected_revision,
+        )
+    except MiniAppDraftConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except (MiniAppDraftError, TypeError, ValueError) as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({'ok': True, 'draft': {
+        'revision': draft.revision,
+        'updated_at': draft.updated_at.isoformat(),
+        'expires_at': draft.expires_at.isoformat(),
+    }})
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def portal_complete_jbl_visit(request, farmer_id: str):

@@ -48,8 +48,8 @@
     selectedFarmer: null,
     activeMode: null, // 'jbl_visit' | 'credit' | 'final_review' | 'requisition'
     filters: {
-      county: String(restoredPortalUi.county || ''),
-      branch: String(restoredPortalUi.branch || ''),
+      county: '',
+      branch: '',
       reviewStage: String(restoredPortalUi.reviewStage || 'decision'),
     },
     selectedRequisitions: new Set(),
@@ -59,6 +59,7 @@
   let historyKind = 'orders';
   let lastShellScreen = null;
   const queueLoadVersions = new Map();
+  let caseHistoryLoadVersion = 0;
 
   function currentScreenRoot() {
     return document.getElementById('portal-screen');
@@ -95,8 +96,6 @@
       activePage: state.activePage,
       search: state.search,
       jblSearch: state.jblSearch,
-      county: state.filters.county,
-      branch: state.filters.branch,
       reviewStage: state.filters.reviewStage,
     });
   }
@@ -408,18 +407,6 @@
       updateBatchPanel();
     }
 
-    // Show filter bar on farmer list views.
-    const filterBar = el('portal-filter-bar');
-    if (filterBar) {
-      if (page === 'dashboard' || page === 'batches' || page === 'invoices' || page === 'payments' || page === 'history' || page === 'case_history' || page === 'imports' || page === 'settings') {
-        filterBar.style.display = 'none';
-      } else {
-        filterBar.style.display = 'flex';
-        // Populate options based on new page's queues
-        updateFilterOptions(state.queues[page] || []);
-      }
-    }
-
     const pageElement = document.getElementById('page-' + page);
     if (pageElement) {
       pageElement.style.display = 'block';
@@ -680,8 +667,6 @@
     if (!cfg?.fragmentEndpoint || !window.htmx || !list) return false;
     const params = new URLSearchParams({ page: String(page) });
     if (qKey === 'all' && state.search) params.set('search', state.search);
-    if (state.filters.county) params.set('county', state.filters.county);
-    if (state.filters.branch) params.set('branch', state.filters.branch);
     // Keep the payment/decision lens in the legacy fragment fallback too.
     // A stale or blocked queue helper must not silently revert HOR to the
     // final-decision queue after the user has changed the selector.
@@ -1141,7 +1126,6 @@
     state.capabilities = new Set(data.capabilities || []);
     applyCapabilityVisibility();
     applyWorkspaceVisibility();
-    portalFilters.updateFilterOptions(state.queues[state.activePage] || []);
   }
 
   function paymentHistoryScope(document) {
@@ -1283,17 +1267,23 @@
       navigateToUrl(caseHistoryUrl(farmerId));
       return;
     }
+    const loadVersion = ++caseHistoryLoadVersion;
     content.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading complete case history...</div></div>';
     const requestOptions = canManagePortalWorkspace()
       ? { headers: { 'X-Portal-Workspace-Open-Key': newWorkspaceOpenKey() } }
       : undefined;
-    const { ok, data } = await apiFetch('/farmers/' + encodeURIComponent(farmerId) + '/', requestOptions);
-    if (!isCurrentScreen('case_history') || currentScreenRoot()?.dataset.caseFarmerId !== farmerId) return;
-    if (!ok || !data?.ok) {
-      content.innerHTML = `<div class="batch-warning">${escapeHtml(data?.error || 'Could not load case history.')}</div>`;
-      return;
+    try {
+      const { ok, data } = await apiFetch('/farmers/' + encodeURIComponent(farmerId) + '/', requestOptions);
+      if (loadVersion !== caseHistoryLoadVersion || !isCurrentScreen('case_history') || currentScreenRoot()?.dataset.caseFarmerId !== String(farmerId)) return;
+      if (!ok || !data?.ok) throw new Error(data?.error || 'Could not load case history.');
+      if (!data.case360 || typeof portalFarmerSheet.renderCase360 !== 'function') {
+        throw new Error('The complete case history could not be displayed.');
+      }
+      portalFarmerSheet.renderCase360(data.case360, content);
+    } catch (error) {
+      if (loadVersion !== caseHistoryLoadVersion || !isCurrentScreen('case_history')) return;
+      content.innerHTML = `<div class="batch-warning"><strong>Could not load complete case history</strong><p>${escapeHtml(error.message || 'Check your connection and try again.')}</p><button type="button" class="btn btn-secondary case-history-retry" data-farmer-id="${escapeHtml(farmerId)}">Retry</button></div>`;
     }
-    portalFarmerSheet.renderCase360?.(data.case360, content);
   }
 
   async function searchCaseHistory(query) {
@@ -1540,7 +1530,6 @@
     if (el('portal-settings-release')) el('portal-settings-release').textContent = data.data?.account?.app_release || 'Current release';
     populatePortalSettingScreens(data.data?.screens || [], personal.default_screen);
     populatePortalSettingSelect('portal-preference-default-queue', data.data?.queues || [], personal.default_filters?.queue, 'Use landing screen');
-    populatePortalSettingSelect('portal-preference-default-branch', data.data?.branches || [], personal.default_filters?.branch, 'All permitted branches');
     populatePortalSettingSelect('portal-preference-review-status', data.data?.review_statuses || [], personal.default_filters?.status, 'Final decisions');
     if (el('portal-preference-compact-cards')) el('portal-preference-compact-cards').checked = Boolean(personal.compact_cards);
     document.body.classList.toggle('portal-compact-cards', Boolean(personal.compact_cards));
@@ -1713,13 +1702,9 @@
     const isRootLanding = /\/portal\/?$/.test(window.location.pathname);
     const savedFilters = state.personalPreference?.default_filters || {};
     const startupView = isRootLanding ? state.workspace?.startup_view : null;
-    const hasRestoredBranch = Object.prototype.hasOwnProperty.call(restoredPortalUi, 'branch');
     const hasRestoredReviewStage = Object.prototype.hasOwnProperty.call(restoredPortalUi, 'reviewStage');
     const workspaceFilters = startupView?.filters || {};
     if (startupView) state.workspaceOrdering = startupView.ordering === 'newest' ? 'newest' : 'queue_default';
-    if (isRootLanding && !hasRestoredBranch && (workspaceFilters.branch || savedFilters.branch)) {
-      state.filters.branch = workspaceFilters.branch || savedFilters.branch;
-    }
     if (isRootLanding && !hasRestoredReviewStage && ['decision', 'payment'].includes(workspaceFilters.status || savedFilters.status)) {
       state.filters.reviewStage = workspaceFilters.status || savedFilters.status;
     }
@@ -1884,6 +1869,12 @@
       navigateToUrl(caseHistoryUrl(openCaseHistoryButton.dataset.farmerId));
       return;
     }
+    const retryCaseHistoryButton = event.target.closest('.case-history-retry');
+    if (retryCaseHistoryButton) {
+      event.preventDefault();
+      loadCaseHistoryFarmer(retryCaseHistoryButton.dataset.farmerId || '');
+      return;
+    }
     if (event.target.closest('#case-history-back, .case-history-back')) {
       event.preventDefault();
       navigateTo('case_history');
@@ -2001,12 +1992,7 @@
     selectFinalReviewStage(reviewTab.dataset.finalReviewStage);
   });
 
-  // The filter module deliberately owns filtering mechanics. Persisting this
-  // harmless view context here keeps all Portal navigation state in one place.
   document.addEventListener('change', event => {
-    if (event.target.matches('#filter-county, #filter-branch')) {
-      window.setTimeout(rememberPortalUi, 0);
-    }
     if (event.target.matches('#portal-preference-compact-cards')) {
       document.body.classList.toggle('portal-compact-cards', Boolean(event.target.checked));
     }
@@ -2093,7 +2079,6 @@
           default_screen: el('portal-preference-default-screen')?.value || '',
           default_filters: {
             queue: el('portal-preference-default-queue')?.value || '',
-            branch: el('portal-preference-default-branch')?.value || '',
             status: el('portal-preference-review-status')?.value || '',
           },
           compact_cards: Boolean(el('portal-preference-compact-cards')?.checked),

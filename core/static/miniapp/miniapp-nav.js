@@ -195,7 +195,13 @@
 
   function syncBackButton() {
     if (!tg?.BackButton) return;
-    const openOverlay = document.querySelector('#content .sheet-overlay.open');
+    const openOverlay = [...document.querySelectorAll('#content .sheet-overlay.open')]
+      .map((overlay, index) => ({
+        overlay,
+        index,
+        zIndex: Number.parseInt(window.getComputedStyle(overlay).zIndex, 10) || 0,
+      }))
+      .sort((left, right) => right.zIndex - left.zIndex || right.index - left.index)[0]?.overlay;
     if (openOverlay) {
       clearBackHandler();
       backHandler = () => {

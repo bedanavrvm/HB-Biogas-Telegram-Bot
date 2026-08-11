@@ -1582,6 +1582,15 @@ def farmer_to_card(
         hbg_visit_date = parse_business_date(farmer.sign_date)
     from core.services.jawabu_approvals import approval_payload, visit_evidence_status
 
+    location_parts = []
+    seen_location_parts = set()
+    for raw_value in (farmer.county, farmer.sub_county, farmer.village):
+        value = str(raw_value or '').strip()
+        normalized = value.casefold()
+        if value and normalized not in seen_location_parts:
+            location_parts.append(value)
+            seen_location_parts.add(normalized)
+
     return {
         'id': str(farmer.id),
         'workflow_state': current_workflow_state(farmer),
@@ -1596,6 +1605,7 @@ def farmer_to_card(
         'sub_county': farmer.sub_county,
         'village': farmer.village,
         'branch': farmer.branch,
+        'location_label': ' | '.join(location_parts) or '-',
         'hb_sales_person': farmer.hb_sales_person,
         # Keep the legacy text field for compatibility, but never expose a
         # spreadsheet text marker such as ``'15-May-2026`` to the Mini App.
@@ -1603,6 +1613,7 @@ def farmer_to_card(
         'hbg_visit_date': hbg_visit_date.isoformat() if hbg_visit_date else None,
         # Stage 2
         'jbl_visit_date': farmer.jbl_visit_date.isoformat() if farmer.jbl_visit_date else None,
+        'jbl_visit_date_label': farmer.jbl_visit_date.strftime('%d-%B-%Y') if farmer.jbl_visit_date else None,
         'jbl_officer': farmer.jbl_officer,
         'jbl_visit_status': farmer.jbl_visit_status,
         'jbl_visit_comment': farmer.jbl_visit_comment,

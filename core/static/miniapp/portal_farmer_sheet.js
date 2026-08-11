@@ -9,6 +9,9 @@
   let jblServerDraft = null;
   let jblServerDraftFarmerId = '';
   let jblDraftInputVersion = 0;
+  let workflowServerDraft = null;
+  let workflowServerDraftKey = '';
+  let workflowDraftInputVersion = 0;
 
   const MODE_WRITE_CAPABILITIES = {
     jbl_visit: 'portal.jbl_visit.write',
@@ -249,6 +252,8 @@
 
     const formEl = el('sheet-form');
     const footerEl = el('sheet-footer');
+    formEl.oninput = null;
+    formEl.onchange = null;
     formEl.innerHTML = '';
     footerEl.innerHTML = '';
     el('sheet-gate-warning').style.display = 'none';
@@ -268,11 +273,13 @@
       footerEl.innerHTML = '<button class="primary" id="btn-submit-credit">Set Credit Decision</button>';
       el('btn-submit-credit').addEventListener('click', submitCreditDecision);
       wireCreditImabFields();
+      wireWorkflowDraft(farmer, mode);
     } else if (mode === 'final_review') {
       formEl.innerHTML = buildFinalReviewForm(farmer);
       footerEl.innerHTML = '<button class="primary" id="btn-submit-final">Save Final Review</button>';
       el('btn-submit-final').addEventListener('click', submitFinalDecision);
       el('btn-view-client-media')?.addEventListener('click', () => loadClientMedia(farmer.id));
+      wireWorkflowDraft(farmer, mode);
     } else if (mode === 'requisition') {
       formEl.innerHTML = buildRequisitionBatchNotice();
     }
@@ -590,14 +597,151 @@
         saveJblVisitDraft(farmer);
       });
     });
-    el('sheet-form')?.addEventListener('input', () => {
+    const form = el('sheet-form');
+    if (form) form.oninput = () => {
       jblDraftInputVersion += 1;
       saveJblVisitDraft(farmer);
-    });
-    el('sheet-form')?.addEventListener('change', () => {
+    };
+    if (form) form.onchange = () => {
       jblDraftInputVersion += 1;
       saveJblVisitDraft(farmer);
+    };
+  }
+
+  const PORTAL_ACTIVE_WORKFLOW_DRAFT_KEY = 'portal:case-workflow-active';
+  const WORKFLOW_DRAFT_CONFIG = {
+    credit: {
+      fields: ['credit-decision', 'credit-imab', 'credit-customer-no'],
+      endpoint: farmerId => `/api/portal/credit-queue/${encodeURIComponent(farmerId)}/draft/`,
+    },
+    final_review: {
+      fields: ['final-decision', 'final-repayment-date', 'final-repayment-tenor', 'final-comment'],
+      endpoint: farmerId => `/api/portal/final-review-queue/${encodeURIComponent(farmerId)}/draft/`,
+    },
+  };
+
+  function workflowDraftKey(mode, farmerId) { return `portal:${mode}-draft:${farmerId}`; }
+
+  function workflowDraftValues(mode) {
+    const values = {};
+    (WORKFLOW_DRAFT_CONFIG[mode]?.fields || []).forEach(id => { values[id] = el(id)?.value || ''; });
+    return values;
+  }
+
+  function setWorkflowDraftState(message, stateName) {
+    const status = el('workflow-draft-state');
+    if (!status) return;
+    status.textContent = message;
+    status.dataset.state = stateName || '';
+  }
+
+  function localWorkflowDraft(farmer, mode) {
+    const key = workflowDraftKey(mode, farmer.id);
+    try {
+      const draft = JSON.parse(sessionStorage.getItem(key) || 'null');
+      return draft?.values ? draft : null;
+    } catch (_error) {
+      sessionStorage.removeItem(key);
+      return null;
+    }
+  }
+
+  function applyWorkflowDraft(draft, mode) {
+    if (!draft?.values) return false;
+    Object.entries(draft.values).forEach(([id, value]) => {
+      const field = el(id);
+      if (field) field.value = value;
     });
+    if (mode === 'credit') el('credit-imab')?.dispatchEvent(new Event('change'));
+    return true;
+  }
+
+  function ensureWorkflowServerDraft(farmer, mode) {
+    const config = WORKFLOW_DRAFT_CONFIG[mode];
+    if (!config || !farmer?.id || !window.MiniAppUtils?.createServerDraft) return null;
+    const key = `${mode}:${farmer.id}`;
+    if (workflowServerDraft && workflowServerDraftKey === key) return workflowServerDraft;
+    workflowServerDraftKey = key;
+    workflowServerDraft = window.MiniAppUtils.createServerDraft({
+      workflow: `portal_${mode}`,
+      contextKey: String(farmer.id),
+      baseUrl: config.endpoint(farmer.id),
+      initData: () => deps.tg?.initData || '',
+      requestId,
+      onSaving: () => setWorkflowDraftState('Saving draft…', 'saving'),
+      onSaved: () => setWorkflowDraftState('Draft saved securely.', 'saved'),
+      onError: () => setWorkflowDraftState('Draft is kept on this device. Keep the form open and retry when connected.', 'local-only'),
+      onCleared: () => setWorkflowDraftState('', ''),
+    });
+    return workflowServerDraft;
+  }
+
+  function saveWorkflowDraft(farmer, mode, { immediate = false } = {}) {
+    const config = WORKFLOW_DRAFT_CONFIG[mode];
+    if (!config || !farmer?.id || !el(config.fields[0])) return null;
+    const draft = { farmer_id: farmer.id, mode, values: workflowDraftValues(mode), saved_at: Date.now() };
+    try {
+      sessionStorage.setItem(workflowDraftKey(mode, farmer.id), JSON.stringify(draft));
+      sessionStorage.setItem(PORTAL_ACTIVE_WORKFLOW_DRAFT_KEY, JSON.stringify({ farmer_id: farmer.id, mode }));
+    } catch (_error) {}
+    const serverDraft = ensureWorkflowServerDraft(farmer, mode);
+    if (!serverDraft || !navigator.onLine) return draft;
+    const save = immediate ? serverDraft.save(draft) : serverDraft.schedule(draft);
+    if (immediate && save?.catch) save.catch(() => {});
+    return draft;
+  }
+
+  async function restoreWorkflowServerDraft(farmer, mode, localDraft, inputVersion) {
+    const serverDraft = ensureWorkflowServerDraft(farmer, mode);
+    if (!serverDraft) return;
+    try {
+      const remote = (await serverDraft.load())?.payload;
+      if (
+        remote?.values
+        && workflowServerDraftKey === `${mode}:${farmer.id}`
+        && String(state().selectedFarmer?.id || '') === String(farmer.id)
+        && state().activeMode === mode
+        && workflowDraftInputVersion === inputVersion
+        && Number(remote.saved_at || 0) > Number(localDraft?.saved_at || 0)
+      ) {
+        applyWorkflowDraft(remote, mode);
+        sessionStorage.setItem(workflowDraftKey(mode, farmer.id), JSON.stringify(remote));
+        setWorkflowDraftState('Details restored from your secure draft.', 'restored');
+      } else if (!localDraft) {
+        setWorkflowDraftState('Draft saves automatically.', 'ready');
+      }
+    } catch (_error) {
+      if (!localDraft) setWorkflowDraftState('Draft will save when your connection is available.', 'offline');
+    }
+  }
+
+  function wireWorkflowDraft(farmer, mode) {
+    workflowDraftInputVersion = 0;
+    const localDraft = localWorkflowDraft(farmer, mode);
+    if (applyWorkflowDraft(localDraft, mode)) setWorkflowDraftState('Details restored on this device.', 'restored');
+    restoreWorkflowServerDraft(farmer, mode, localDraft, workflowDraftInputVersion);
+    const recordEdit = () => {
+      workflowDraftInputVersion += 1;
+      saveWorkflowDraft(farmer, mode);
+    };
+    const form = el('sheet-form');
+    if (form) {
+      form.oninput = recordEdit;
+      form.onchange = recordEdit;
+    }
+  }
+
+  async function clearWorkflowDraft(farmer, mode) {
+    if (farmer?.id) sessionStorage.removeItem(workflowDraftKey(mode, farmer.id));
+    sessionStorage.removeItem(PORTAL_ACTIVE_WORKFLOW_DRAFT_KEY);
+    if (workflowServerDraftKey === `${mode}:${farmer?.id || ''}`) {
+      const draft = workflowServerDraft;
+      workflowServerDraft = null;
+      workflowServerDraftKey = '';
+      if (draft) {
+        try { await draft.clear(); } catch (_error) {}
+      }
+    }
   }
 
   function wireGpsButton() {
@@ -664,10 +808,13 @@
     const decisionOptions = state().metaDecisions.filter(decision => decision !== 'Pending').map(decision =>
       `<option value="${deps.escapeHtml(decision)}"${currentDecision === decision ? ' selected' : ''}>${deps.escapeHtml(decision)}</option>`
     ).join('');
-    const imabOptions = (state().metaImabOptions.length ? state().metaImabOptions : ['Yes', 'No', 'Pending']).map(value =>
-      `<option value="${deps.escapeHtml(value)}"${farmer.imab_created === value ? ' selected' : ''}>${deps.escapeHtml(value)}</option>`
+    const currentImabStatus = farmer.imab_created || 'Pending';
+    const imabValues = state().metaImabOptions.length ? [...state().metaImabOptions] : ['Yes', 'No', 'Pending'];
+    if (!imabValues.includes('Pending')) imabValues.push('Pending');
+    const imabOptions = imabValues.map(value =>
+      `<option value="${deps.escapeHtml(value)}"${currentImabStatus === value ? ' selected' : ''}>${deps.escapeHtml(value)}</option>`
     ).join('');
-    const customerNoDisabled = farmer.imab_created !== 'Yes';
+    const customerNoDisabled = currentImabStatus !== 'Yes';
     const spinReferences = (farmer.spin_references || []).map((reference, index) => {
       const links = (reference.links || []).map(link => `<a class="media-link" href="${deps.escapeHtml(link.url)}" target="_blank" rel="noopener">${deps.escapeHtml(link.label)}</a>`).join('');
       const names = (reference.attachment_names || []).map(name => deps.escapeHtml(name)).join(', ');
@@ -677,12 +824,13 @@
       <div class="form-section">
         ${spinReferences ? `<div class="credit-reference-panel"><div class="field-help"><strong>SPIN / CRB reference</strong> · reports already uploaded for this customer</div>${spinReferences}</div>` : ''}
         <div class="form-row"><label>Credit decision</label><select id="credit-decision"><option value="">- Select a decision -</option>${decisionOptions}</select></div>
-        <div class="form-row"><label>IS CUSTOMER CREATED ON IMAB?</label><select id="credit-imab"><option value="">- Select -</option>${imabOptions}</select></div>
+        <div class="form-row"><label>IS CUSTOMER CREATED ON IMAB?</label><select id="credit-imab">${imabOptions}</select></div>
         <div class="form-row">
           <label>CUSTOMER NO</label>
           <input type="text" id="credit-customer-no" inputmode="numeric" pattern="[0-9]*" placeholder="IMAB customer number" value="${deps.escapeHtml(customerNoDisabled ? '' : (farmer.customer_no || ''))}"${customerNoDisabled ? ' disabled' : ''}>
           <small id="credit-imab-help" class="field-help">${customerNoDisabled ? 'Select Yes after IMAB creation before entering a customer number.' : 'Required before this case can move to Head of Rural review.'}</small>
         </div>
+        <p id="workflow-draft-state" class="field-help jbl-draft-state" aria-live="polite">Draft saves automatically.</p>
       </div>
       ${farmer.jbl_visit_comment ? `<div class="info-row"><span class="ir-label">JBL Comment</span><span class="ir-value">${deps.escapeHtml(farmer.jbl_visit_comment)}</span></div>` : ''}
     `;
@@ -733,6 +881,7 @@
         <div class="form-row"><label>Repayment Dates</label><input type="text" id="final-repayment-date" placeholder="e.g. 10TH" value="${deps.escapeHtml(farmer.repayment_date || '')}"></div>
         <div class="form-row"><label>Tenor</label><input type="text" id="final-repayment-tenor" placeholder="e.g. 6 months" value="${deps.escapeHtml(farmer.repayment_tenor || '')}"></div>
         <div class="form-row form-row-wide"><label>After-call Comments</label><textarea id="final-comment" rows="4" placeholder="Summarize the call and decision...">${deps.escapeHtml(farmer.final_decision_comment || '')}</textarea></div>
+        <p id="workflow-draft-state" class="field-help jbl-draft-state form-row-wide" aria-live="polite">Draft saves automatically.</p>
       </div>
       ${farmer.jbl_visit_comment ? `<div class="info-row"><span class="ir-label">BRO Comment</span><span class="ir-value">${deps.escapeHtml(farmer.jbl_visit_comment)}</span></div>` : ''}
     `;
@@ -886,7 +1035,9 @@
     // this WebView must never discard unfinished visit fields. Successful
     // submission is the sole path that clears this private recovery draft.
     if (saveDraft && state().activeMode === 'jbl_visit') saveJblVisitDraft(farmer, { immediate: true });
+    if (saveDraft && WORKFLOW_DRAFT_CONFIG[state().activeMode]) saveWorkflowDraft(farmer, state().activeMode, { immediate: true });
     sessionStorage.removeItem(JBL_ACTIVE_DRAFT_KEY);
+    sessionStorage.removeItem(PORTAL_ACTIVE_WORKFLOW_DRAFT_KEY);
     el('sheet-overlay')?.classList.remove('open');
     state().selectedFarmer = null;
     state().activeMode = null;
@@ -978,7 +1129,8 @@
     deps.setButtonLoading(btn, false);
     if (!ok) return deps.showToast(data.error || 'Save failed', 'error');
     deps.showToast('Credit decision saved', 'success');
-    closeSheet();
+    await clearWorkflowDraft(farmer, 'credit');
+    closeSheet({ saveDraft: false });
     deps.reloadCurrentQueue();
     deps.loadDashboard();
   }
@@ -1008,7 +1160,8 @@
     deps.setButtonLoading(btn, false);
     if (!ok) return deps.showToast(data.error || 'Save failed', 'error');
     deps.showToast('Final review saved', 'success');
-    closeSheet();
+    await clearWorkflowDraft(farmer, 'final_review');
+    closeSheet({ saveDraft: false });
     deps.reloadCurrentQueue();
     deps.loadDashboard();
   }
@@ -1048,6 +1201,20 @@
     }
   }
 
+  async function restoreWorkflowDraftAfterWebViewReturn() {
+    if (state().selectedFarmer) return;
+    let active;
+    try { active = JSON.parse(sessionStorage.getItem(PORTAL_ACTIVE_WORKFLOW_DRAFT_KEY) || 'null'); } catch (_error) { active = null; }
+    if (!active?.farmer_id || !WORKFLOW_DRAFT_CONFIG[active.mode]) return;
+    try {
+      const { ok, data } = await deps.apiFetch(`/farmers/${encodeURIComponent(active.farmer_id)}/`);
+      if (!ok || !data?.ok || !data.farmer) throw new Error('The draft case is no longer available.');
+      openFarmerSheet(data.farmer, active.mode);
+    } catch (_error) {
+      sessionStorage.removeItem(PORTAL_ACTIVE_WORKFLOW_DRAFT_KEY);
+    }
+  }
+
   function init(initialDeps) {
     deps = initialDeps;
     bindEvents();
@@ -1055,12 +1222,20 @@
       if (document.visibilityState === 'hidden' && state().activeMode === 'jbl_visit') {
         saveJblVisitDraft(state().selectedFarmer, { immediate: true });
       }
+      if (document.visibilityState === 'hidden' && WORKFLOW_DRAFT_CONFIG[state().activeMode]) {
+        saveWorkflowDraft(state().selectedFarmer, state().activeMode, { immediate: true });
+      }
     });
     window.addEventListener('pagehide', () => {
       if (state().activeMode === 'jbl_visit') saveJblVisitDraft(state().selectedFarmer, { immediate: true });
+      if (WORKFLOW_DRAFT_CONFIG[state().activeMode]) saveWorkflowDraft(state().selectedFarmer, state().activeMode, { immediate: true });
     });
-    window.addEventListener('pageshow', () => { restoreJblVisitAfterWebViewReturn(); });
+    window.addEventListener('pageshow', () => {
+      restoreJblVisitAfterWebViewReturn();
+      restoreWorkflowDraftAfterWebViewReturn();
+    });
     window.setTimeout(restoreJblVisitAfterWebViewReturn, 0);
+    window.setTimeout(restoreWorkflowDraftAfterWebViewReturn, 0);
   }
 
   window.PortalMiniAppFarmerSheet = {

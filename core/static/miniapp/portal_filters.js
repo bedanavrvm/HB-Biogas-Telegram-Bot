@@ -6,52 +6,14 @@
   function el(id) { return deps.el(id); }
   function state() { return deps.state; }
 
-  function updateFilterOptions(farmers) {
-    const countySelect = el('filter-county');
-    const branchSelect = el('filter-branch');
-    if (!countySelect || !branchSelect) return;
-
-    const currentCounty = state().filters.county;
-    const currentBranch = state().filters.branch;
-    const counties = new Set(state().metaCounties || []);
-    const branches = new Set(state().metaBranches || []);
-
-    (farmers || []).forEach(farmer => {
-      const county = String(farmer.county || '').trim();
-      const branch = String(farmer.branch || '').trim();
-      if (county && !counties.size) counties.add(county);
-      if ((!currentCounty || county === currentCounty) && branch && !branches.size) branches.add(branch);
-    });
-
-    countySelect.innerHTML = '<option value="">All Counties</option>' +
-      Array.from(counties).sort().map(county => (
-        `<option value="${deps.escapeHtml(county)}"${county === currentCounty ? ' selected' : ''}>${deps.escapeHtml(county)}</option>`
-      )).join('');
-
-    branchSelect.innerHTML = '<option value="">All Branches</option>' +
-      Array.from(branches).sort().map(branch => (
-        `<option value="${deps.escapeHtml(branch)}"${branch === currentBranch ? ' selected' : ''}>${deps.escapeHtml(branch)}</option>`
-      )).join('');
-
-    const clearBtn = el('btn-clear-filters');
-    if (clearBtn) clearBtn.style.display = (currentCounty || currentBranch) ? 'inline-flex' : 'none';
-  }
+  function updateFilterOptions() {}
 
   function applyFilters() {
     const qKey = state().activePage;
     const cfg = deps.queueConfig[qKey];
     if (!cfg) return;
 
-    const originalFarmers = state().queues[qKey] || [];
-    const filteredFarmers = originalFarmers.filter(farmer => {
-      const county = String(farmer.county || '').trim();
-      const branch = String(farmer.branch || '').trim();
-      const matchCounty = !state().filters.county || county === state().filters.county;
-      const matchBranch = !state().filters.branch || branch === state().filters.branch;
-      return matchCounty && matchBranch;
-    });
-
-    renderFilteredFarmerList(el(cfg.listId), filteredFarmers, cfg, qKey);
+    renderFilteredFarmerList(el(cfg.listId), state().queues[qKey] || [], cfg, qKey);
   }
 
   function renderFilteredFarmerList(listEl, farmers, cfg, qKey) {
@@ -73,6 +35,7 @@
             <div class="fc-sub">${deps.escapeHtml(deps.locationText(farmer))}</div>
             <div class="fc-sub">${deps.escapeHtml(farmer.primary_phone || '')}</div>
             ${qKey === 'jbl' && farmer.sign_date ? `<div class="fc-sub fc-visit-date">HB visit: ${deps.escapeHtml(deps.fmtDate(farmer.sign_date))}</div>` : ''}
+            ${qKey === 'my_visits' && farmer.jbl_visit_date ? `<div class="fc-sub fc-visit-date">JBL visit: ${deps.escapeHtml(farmer.jbl_visit_date_label || deps.fmtDate(farmer.jbl_visit_date))}</div>` : ''}
             <div class="fc-badges">
               ${farmer.reappraisal_required ? `<span class="badge badge-red">Reappraisal required since ${deps.escapeHtml(farmer.deferred_until || '')}</span>` : ''}
               ${farmer.unit_number ? `<span class="badge badge-grey">Unit ${deps.escapeHtml(farmer.unit_number)}</span>` : ''}
@@ -118,42 +81,8 @@
     }
   }
 
-  async function refreshFilteredQueue(qKey) {
-    if (qKey === 'all') {
-      deps.loadQueue('all', 1);
-      return;
-    }
-    if (deps.queueConfig[qKey]?.fragmentEndpoint && window.htmx) {
-      updateFilterOptions(state().queues[qKey] || []);
-      if (!(await deps.renderQueueFragment(qKey, 1))) applyFilters();
-      return;
-    }
-    updateFilterOptions(state().queues[qKey] || []);
-    applyFilters();
-  }
-
-  function bindEvents() {
-    el('filter-county')?.addEventListener('change', async event => {
-      state().filters.county = event.target.value;
-      state().filters.branch = '';
-      await refreshFilteredQueue(state().activePage);
-    });
-
-    el('filter-branch')?.addEventListener('change', async event => {
-      state().filters.branch = event.target.value;
-      await refreshFilteredQueue(state().activePage);
-    });
-
-    el('btn-clear-filters')?.addEventListener('click', async () => {
-      state().filters.county = '';
-      state().filters.branch = '';
-      await refreshFilteredQueue(state().activePage);
-    });
-  }
-
   function init(initialDeps) {
     deps = initialDeps;
-    bindEvents();
   }
 
   window.PortalMiniAppFilters = {

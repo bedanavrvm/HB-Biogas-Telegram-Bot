@@ -216,6 +216,17 @@ class JblPipelineServiceTestCase(TestCase):
         self.assertEqual(card['sign_date'], '15-May-2026')
         self.assertEqual(card['hbg_visit_date'], '2026-05-15')
 
+    def test_farmer_card_location_excludes_branch_and_collapses_repeated_places(self):
+        self.farmer_stage1.county = 'Kiambu'
+        self.farmer_stage1.sub_county = 'kiambu'
+        self.farmer_stage1.village = 'Kahawa West'
+        self.farmer_stage1.branch = 'Ruiru'
+
+        card = farmer_to_card(self.farmer_stage1)
+
+        self.assertEqual(card['location_label'], 'Kiambu | Kahawa West')
+        self.assertNotIn('Ruiru', card['location_label'])
+
     @patch('core.services.jawabu_approvals.visit_evidence_status')
     @patch('core.services.jawabu_approvals.approval_payload')
     def test_queue_card_skips_case_detail_lookup_fanout(self, mock_approvals, mock_evidence):
@@ -914,6 +925,55 @@ class PortalMiniAppAuthTestCase(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()['ok'], False)
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
+    def test_credit_recovery_draft_is_field_only_and_staff_owned(self):
+        user = self.grant_portal_access(role='CREDIT_ANALYST', branches=['Ruiru'])
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Credit draft farmer', national_id='49999113',
+            primary_phone='254799991113', branch='Ruiru', status='active',
+            sign_date='01-August-2026', jbl_visit_date=date(2026, 8, 2),
+            jbl_visit_status='Approved',
+        )
+        url = reverse('portal_credit_decision_draft', kwargs={'farmer_id': farmer.id})
+        headers = {'HTTP_X_TELEGRAM_INIT_DATA': self._signed_init_data(), 'HTTP_X_REQUEST_ID': 'credit-draft-1'}
+
+        saved = self.client.post(url, data=json.dumps({'payload': {
+            'saved_at': 1_754_000_000_001,
+            'values': {'credit-decision': 'Approved', 'credit-imab': 'Pending', 'credit-customer-no': ''},
+        }}), content_type='application/json', **headers)
+
+        self.assertEqual(saved.status_code, 200)
+        restored = self.client.get(url, HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data())
+        self.assertEqual(restored.json()['draft']['payload']['values']['credit-imab'], 'Pending')
+        self.assertEqual(user.miniapp_drafts.filter(workflow='portal_credit_decision').count(), 1)
+        rejected = self.client.post(url, data=json.dumps({'payload': {
+            'values': {'credit-decision': 'Approved', 'files': 'data:application/pdf;base64,no'},
+        }}), content_type='application/json', **headers)
+        self.assertEqual(rejected.status_code, 400)
+
+    @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
+    def test_final_review_recovery_draft_uses_final_approval_authority(self):
+        user = self.grant_portal_access(role='BUSINESS_ADMIN', branches=['Ruiru'])
+        farmer = JawabuFarmerMaster.objects.create(
+            customer_name='Final draft farmer', national_id='49999114',
+            primary_phone='254799991114', branch='Ruiru', status='active',
+            sign_date='01-August-2026', jbl_visit_date=date(2026, 8, 2),
+            jbl_visit_status='Approved', credit_decision='Approved',
+            imab_created='Yes', customer_no='15124',
+        )
+        url = reverse('portal_final_review_draft', kwargs={'farmer_id': farmer.id})
+
+        saved = self.client.post(url, data=json.dumps({'payload': {
+            'saved_at': 1_754_000_000_002,
+            'values': {
+                'final-decision': 'Approved', 'final-repayment-date': '10TH',
+                'final-repayment-tenor': '6 months', 'final-comment': 'Customer confirmed terms.',
+            },
+        }}), content_type='application/json', HTTP_X_TELEGRAM_INIT_DATA=self._signed_init_data(), HTTP_X_REQUEST_ID='final-draft-1')
+
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(user.miniapp_drafts.filter(workflow='portal_final_review').count(), 1)
 
     @override_settings(PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=True, TELEGRAM_BOT_TOKEN='test-token', SECURE_SSL_REDIRECT=False)
     def test_portal_api_generates_request_id_when_client_does_not_supply_one(self):
@@ -1625,7 +1685,8 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'portal/partials/farmer_list.html')
         self.assertContains(response, 'Pipeline test farmer')
-        self.assertContains(response, 'Kiambu | Kieni | Mweiga | Ruiru')
+        self.assertContains(response, 'Kiambu | Kieni | Mweiga')
+        self.assertNotContains(response, 'Kiambu | Kieni | Mweiga | Ruiru')
         self.assertContains(response, 'htmx-farmer-card')
         self.assertContains(response, 'HB visit: 24-June-2026')
         self.assertContains(response, 'aria-label="Queue position 1"')

@@ -1,24 +1,6 @@
 {% if not portal_fragment_only %}
 <div id="portal-shell">
   <div id="portal-offline-banner" style="display:none; position:sticky; top:0; z-index:80; margin:0 0 10px; padding:10px 12px; border:1px solid rgba(255,59,48,.25); border-radius:8px; background:#ffe5e5; color:#b42318; font-size:13px; font-weight:600;">Offline. You can view already loaded data, but uploads and updates need a connection.</div>
-  <!-- Shared Filter Bar -->
-  <div class="filter-bar" id="portal-filter-bar" style="display: none;">
-    <div class="filter-item">
-      <label for="filter-county">County</label>
-      <select id="filter-county">
-        <option value="">All Counties</option>
-      </select>
-    </div>
-    <div class="filter-item">
-      <label for="filter-branch">Branch</label>
-      <select id="filter-branch">
-        <option value="">All Branches</option>
-      </select>
-    </div>
-    <button class="btn-clear-filters" id="btn-clear-filters" title="Clear Filters" style="display:none">
-      -
-    </button>
-  </div>
 {% endif %}
 
 <div id="portal-screen" data-screen="{{ active_screen }}" data-case-farmer-id="{{ case_history_farmer_id|default:'' }}" data-report-view="{{ report_view|default:'' }}" data-report-id="{{ report_id|default:'' }}" data-report-step="{{ report_step|default:'' }}" data-invoice-view="{{ invoice_view|default:'' }}" data-invoice-id="{{ invoice_id|default:'' }}" data-top-level="{% if case_history_farmer_id %}false{% elif report_view and report_view != 'catalogue' %}false{% elif invoice_view and invoice_view != 'inbox' %}false{% else %}true{% endif %}">
@@ -480,7 +462,6 @@
       <div class="portal-settings-grid">
         <label>Start on<select id="portal-preference-default-screen"></select></label>
         <label>Open work queue first<select id="portal-preference-default-queue"></select><span class="field-help">When selected, this queue opens instead of the landing screen.</span></label>
-        <label>Default branch<select id="portal-preference-default-branch"></select></label>
         <label>Review list<select id="portal-preference-review-status"></select><span class="field-help">Used when the Review queue opens.</span></label>
         <label class="portal-settings-check"><input id="portal-preference-compact-cards" type="checkbox"><span>Use compact case cards<span class="field-help">Keep the next action and essential status visible; open a case for full detail.</span></span></label>
       </div>
