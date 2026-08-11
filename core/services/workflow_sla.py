@@ -28,7 +28,6 @@ from core.services.tat_tracker import (
     product_by_key,
     stage_target_minutes,
     stage_target_minutes_for_case,
-    stage_business_tat_minutes,
     stage_tat_minutes,
     stage_completed_at,
 )
@@ -168,7 +167,7 @@ def tat_sla_candidates(*, now=None) -> list[WorkflowSlaCandidate]:
                 continue
             product = product_by_key(case.product_key)
             target = stage_target_minutes_for_case(case, workflow, product, stage)
-            elapsed = stage_business_tat_minutes(case, stage, now=now)
+            elapsed = stage_tat_minutes(case, stage, now=now)
             target_value = _positive_minutes(target)
             elapsed_value = _positive_minutes(elapsed)
             if not target_value or elapsed_value is None or elapsed_value <= target_value:
@@ -335,8 +334,8 @@ def collect_tat_daily_metrics(*, metric_date=None, now=None) -> list[dict]:
         ):
             product = product_by_key(case.product_key)
             for stage in product.stages:
-                sla_minutes = stage_business_tat_minutes(case, stage, now=now)
                 wall_clock_minutes = stage_tat_minutes(case, stage, now=now)
+                sla_minutes = wall_clock_minutes
                 if sla_minutes is None:
                     continue
                 bucket = _metric_bucket(

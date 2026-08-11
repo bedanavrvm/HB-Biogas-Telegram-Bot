@@ -963,6 +963,9 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
   color: var(--tat-danger);
   border-color: transparent;
 }
+.tat-business-time { margin-top: 5px; color: var(--text-muted); font-size: 11px; }
+.tat-business-time summary { cursor: pointer; font-weight: 700; }
+.tat-business-time[open] summary { margin-bottom: 3px; }
 .tat-target {
   color: var(--tat-muted);
   font-size: 10px;

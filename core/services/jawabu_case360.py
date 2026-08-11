@@ -358,15 +358,16 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None) -> dict[str, Any
             'started_at': start_event.occurred_at.isoformat() if start_event else None,
             'completed_at': end_event.occurred_at.isoformat() if end_event else None,
             # ``minutes`` is the historical wall-clock-compatible value.
-            # New consumers must use ``sla_minutes`` for official status.
+            # Wall-clock time is the official TAT. Business-hours time remains
+            # available as an optional diagnostic view.
             'minutes': str(minutes) if minutes is not None else None,
             'wall_clock_minutes': str(minutes) if minutes is not None else None,
             'business_minutes': str(business_minutes) if business_minutes is not None else None,
-            'sla_minutes': str(sla_minutes) if sla_minutes is not None else None,
+            'sla_minutes': str(minutes) if minutes is not None else None,
             'excluded_deferred_minutes': str(excluded),
             'excluded_business_minutes': str(excluded_business_minutes),
             'target_minutes': str(target) if target not in (None, '') else None,
-            'status': _sla_status(sla_minutes, target),
+            'status': _sla_status(minutes, target),
         })
     overall_target = targets.get('overall')
     return {
@@ -377,11 +378,11 @@ def calculate_case_tat(farmer: JawabuFarmerMaster, *, now=None) -> dict[str, Any
         'total_minutes': str(total_minutes) if milestone_events else None,
         'wall_clock_minutes': str(total_minutes) if milestone_events else None,
         'business_minutes': str(total_business_minutes) if milestone_events else None,
-        'sla_minutes': str(total_sla_minutes) if milestone_events else None,
+        'sla_minutes': str(total_minutes) if milestone_events else None,
         'excluded_deferred_minutes': str(sum(Decimal(stage['excluded_deferred_minutes']) for stage in stages)),
         'excluded_business_minutes': str(sum(Decimal(stage['excluded_business_minutes']) for stage in stages)),
         'target_minutes': str(overall_target) if overall_target not in (None, '') else None,
-        'status': _sla_status(total_sla_minutes if milestone_events else None, overall_target),
+        'status': _sla_status(total_minutes if milestone_events else None, overall_target),
         'completed_stage_count': complete_stage_count,
         'stages': stages,
     }

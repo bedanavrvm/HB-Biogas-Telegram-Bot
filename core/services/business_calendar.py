@@ -2,7 +2,7 @@
 
 The service deliberately has no workflow state or notification side effects.
 It is the one place that turns an elapsed timestamp range into official staff
-SLA time so Portal and TAT cannot drift into different definitions.
+optional business-hours time so Portal and TAT cannot drift in that secondary view.
 """
 
 from __future__ import annotations

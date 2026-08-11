@@ -137,7 +137,7 @@
     const invoiceNameChanges = data.invoice_name_changes || [];
     const documents = data.documents || {};
     const validation = data.validation || [];
-    const stageRows = (tat.stages || []).map((stage, index) => `<article class="case360-tat-row"><span class="case360-stage-number">${index + 1}</span><div><strong>${deps.escapeHtml(stage.label)}</strong><small>${stage.completed_at ? 'Completed' : stage.started_at ? 'In progress' : 'Not tracked'}${stage.wall_clock_minutes != null ? ` · Wall clock ${deps.escapeHtml(formatTatMinutes(stage.wall_clock_minutes))}` : ''}</small></div><div><strong>${stage.sla_minutes == null ? '-' : deps.escapeHtml(formatTatMinutes(stage.sla_minutes))}</strong><span class="case360-sla ${deps.escapeHtml(stage.status || '')}">${deps.escapeHtml(humanLabel(stage.status || ''))}</span></div></article>`).join('');
+    const stageRows = (tat.stages || []).map((stage, index) => `<article class="case360-tat-row"><span class="case360-stage-number">${index + 1}</span><div><strong>${deps.escapeHtml(stage.label)}</strong><small>${stage.completed_at ? 'Completed' : stage.started_at ? 'In progress' : 'Not tracked'}</small>${stage.business_minutes != null ? `<details class="tat-business-time"><summary>Show business-hours time</summary><small>${deps.escapeHtml(formatTatMinutes(stage.business_minutes))}</small></details>` : ''}</div><div><strong>${stage.wall_clock_minutes == null ? '-' : deps.escapeHtml(formatTatMinutes(stage.wall_clock_minutes))}</strong><span class="case360-sla ${deps.escapeHtml(stage.status || '')}">${deps.escapeHtml(humanLabel(stage.status || ''))}</span></div></article>`).join('');
     const docLinks = [
       ...(documents.visit_media || []).map((url, index) => ({ name: `Visit media ${index + 1}`, url })),
       documents.requisition,
@@ -172,7 +172,7 @@
       <section class="case360-panel" role="tabpanel" data-case360-panel="tat" hidden>
         <div class="case360-panel-heading"><div><h3>Turnaround Time</h3><p>Time spent at each tracked workflow stage</p></div></div>
         ${tat.historical_timestamps_available ? '' : '<div class="batch-warning">Historical stage timestamps were not inferred. TAT begins with exact events recorded after tracking was enabled.</div>'}
-        <div class="case360-tat-total"><div><span>Official SLA TAT (business hours)</span><strong>${tat.sla_minutes == null ? '-' : deps.escapeHtml(formatTatMinutes(tat.sla_minutes))}</strong><small>Wall clock: ${tat.wall_clock_minutes == null ? '-' : deps.escapeHtml(formatTatMinutes(tat.wall_clock_minutes))}</small></div><span class="case360-sla ${deps.escapeHtml(tat.status || '')}">${deps.escapeHtml(humanLabel(tat.status || ''))}</span></div><div class="case360-tat-list">${stageRows}</div>
+        <div class="case360-tat-total"><div><span>Official TAT (wall clock)</span><strong>${tat.wall_clock_minutes == null ? '-' : deps.escapeHtml(formatTatMinutes(tat.wall_clock_minutes))}</strong>${tat.business_minutes != null ? `<details class="tat-business-time"><summary>Show business-hours time</summary><small>${deps.escapeHtml(formatTatMinutes(tat.business_minutes))}</small></details>` : ''}</div><span class="case360-sla ${deps.escapeHtml(tat.status || '')}">${deps.escapeHtml(humanLabel(tat.status || ''))}</span></div><div class="case360-tat-list">${stageRows}</div>
       </section>
       <section class="case360-panel" role="tabpanel" data-case360-panel="documents" hidden><div class="case360-panel-heading"><div><h3>Case Documents</h3><p>Files connected to this customer and order</p></div></div><div class="case360-documents">${docLinks.length ? docLinks.map(doc => `<a class="case360-document" href="${deps.escapeHtml(doc.url)}" target="_blank" rel="noopener"><span>DOC</span><strong>${deps.escapeHtml(doc.name || 'Document')}</strong><b>Open</b></a>`).join('') : '<div class="empty-state">No linked documents.</div>'}</div></section>
       <section class="case360-panel" role="tabpanel" data-case360-panel="quality" hidden><div class="case360-panel-heading"><div><h3>Data Quality</h3><p>Validation checks requiring staff attention</p></div></div>${validation.length ? `<div class="case360-quality-list">${validation.map(issue => `<article><span>!</span><div><strong>${deps.escapeHtml(humanLabel(issue.field))}</strong><p>${deps.escapeHtml(issue.message)}</p></div></article>`).join('')}</div>` : '<div class="case360-valid"><strong>All checks passed</strong><span>All monitored business fields are valid.</span></div>'}</section>`;
@@ -246,13 +246,18 @@
     const infoFields = summaryFields(farmer, mode);
 
     const mediaCount = Number(farmer.jbl_media_count || 0);
-    const mediaSummary = hasCapability('portal.jbl_media.view') && mediaCount >= 1
-      ? `<li class="info-row sheet-media-summary"><span class="ir-label">Client media</span><span class="ir-value"><button type="button" class="secondary" id="btn-view-client-media">View ${mediaCount} media files</button><div id="final-client-media" class="media-links client-media-links" hidden></div></span></li>`
-      : '';
     el('sheet-info').innerHTML = infoFields.map(([label, value]) =>
       `<li class="info-row"><span class="ir-label">${deps.escapeHtml(label)}</span><span class="ir-value">${value}</span></li>`
-    ).join('') + mediaSummary;
-    el('btn-view-client-media')?.addEventListener('click', () => loadClientMedia(farmer.id));
+    ).join('');
+    const mediaSection = el('sheet-client-media');
+    if (mediaSection) {
+      const canViewMedia = hasCapability('portal.jbl_media.view') && mediaCount >= 1;
+      mediaSection.hidden = !canViewMedia;
+      mediaSection.innerHTML = canViewMedia
+        ? `<button type="button" class="btn btn-secondary sheet-client-media-toggle" id="btn-view-client-media" aria-expanded="false" data-collapsed-label="View ${mediaCount} media file${mediaCount === 1 ? '' : 's'}">View ${mediaCount} media file${mediaCount === 1 ? '' : 's'}</button><div id="final-client-media" class="media-links client-media-links" hidden></div>`
+        : '';
+      el('btn-view-client-media')?.addEventListener('click', () => toggleClientMedia(farmer.id));
+    }
     const caseToggle = el('case360-toggle');
     caseToggle.textContent = 'Open Case History';
     caseToggle.onclick = () => {
@@ -890,12 +895,32 @@
     `;
   }
 
+  function toggleClientMedia(farmerId) {
+    const button = el('btn-view-client-media');
+    const target = el('final-client-media');
+    if (!farmerId || !target) return;
+    if (!target.hidden) {
+      target.hidden = true;
+      if (button) {
+        button.setAttribute('aria-expanded', 'false');
+        button.textContent = button.dataset.collapsedLabel || 'View client media';
+      }
+      return;
+    }
+    target.hidden = false;
+    if (button) {
+      button.setAttribute('aria-expanded', 'true');
+      button.textContent = 'Hide client media';
+    }
+    if (target.dataset.loaded === 'true') return;
+    loadClientMedia(farmerId);
+  }
+
   async function loadClientMedia(farmerId) {
     const button = el('btn-view-client-media');
     const target = el('final-client-media');
     if (!farmerId || !target) return;
     button && (button.disabled = true);
-    target.hidden = false;
     target.innerHTML = '<span class="field-help">Loading client media...</span>';
     try {
       const result = await deps.apiFetch('/jbl-queue/' + encodeURIComponent(farmerId) + '/media/list/');
@@ -909,6 +934,7 @@
         item.name = `${category} — ${item.name || `${category} ${index + 1}`}`;
       });
       target.dataset.farmerId = farmerId;
+      target.dataset.loaded = 'true';
       renderClientMediaLinks(media, target);
       return;
     } catch (error) {

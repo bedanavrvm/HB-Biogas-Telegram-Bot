@@ -860,9 +860,9 @@
           <span>${escapeHtml(summary.next_stage || 'No pending action')}</span>
         </div>
         <div class="fact">
-          <small>Official SLA TAT</small>
-          <span class="tat-badge ${escapeHtml(summary.sla_status || '')}">${escapeHtml(formatMinutes(summary.sla_minutes || summary.tat_minutes) || 'Not started')}</span>
-          <small>Wall clock: ${escapeHtml(formatMinutes(summary.wall_clock_minutes || summary.tat_minutes) || '-')}</small>
+          <small>Official TAT (wall clock)</small>
+          <span class="tat-badge ${escapeHtml(summary.sla_status || '')}">${escapeHtml(formatMinutes(summary.wall_clock_minutes || summary.tat_minutes) || 'Not started')}</span>
+          ${summary.business_minutes ? `<details class="tat-business-time"><summary>Show business-hours time</summary><small>${escapeHtml(formatMinutes(summary.business_minutes))}</small></details>` : ''}
         </div>
         <div class="fact fact-activity">
           <small>Activity</small>
@@ -892,8 +892,8 @@
       }
 
       const valueText = field.value || (field.locked_reason ? 'Pending previous stages' : 'Not started');
-      const tatText = formatMinutes(field.sla_minutes || field.tat_minutes);
-      const wallClockText = formatMinutes(field.wall_clock_minutes || field.tat_minutes);
+      const tatText = formatMinutes(field.wall_clock_minutes || field.tat_minutes);
+      const businessText = formatMinutes(field.business_minutes);
       const targetText = formatMinutes(field.target_minutes);
       const slaText = slaLabel(field.sla_status);
       const tatMeta = tatText ? `
@@ -901,7 +901,7 @@
           <span class="tat-badge ${escapeHtml(field.sla_status || '')}">${escapeHtml(tatText)}</span>
           ${targetText ? `<span class="tat-target">Target ${escapeHtml(targetText)}</span>` : ''}
           ${slaText ? `<span class="tat-target">${escapeHtml(slaText)}</span>` : ''}
-          ${wallClockText && wallClockText !== tatText ? `<span class="tat-target">Wall clock ${escapeHtml(wallClockText)}</span>` : ''}
+          ${businessText ? `<details class="tat-business-time"><summary>Business-hours time</summary><span class="tat-target">${escapeHtml(businessText)}</span></details>` : ''}
         </div>
       ` : '';
       const certificateMeta = field.certificate_status ? `<div class="stage-tat-row"><span class="tat-target">Certificate: ${escapeHtml(field.certificate_status.replace(/_/g, ' '))}</span></div>` : '';
