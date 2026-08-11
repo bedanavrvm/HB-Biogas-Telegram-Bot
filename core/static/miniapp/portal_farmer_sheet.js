@@ -17,6 +17,7 @@
   let voiceChunks = [];
   let voiceStartedAt = 0;
   let voiceStopTimer = null;
+  let voiceReleaseTimer = null;
   let discardVoiceOnStop = false;
   let activeVoiceAttempt = null;
   const acceptedVoiceAttempts = {};
@@ -40,10 +41,10 @@
   function voiceWidget(fieldName, inputId) {
     if (!state().voiceInput?.enabled || !state().voiceInput?.fields?.includes(fieldName)) return '';
     return `<div class="voice-input" data-voice-field="${fieldName}" data-input-id="${inputId}">
-      <button type="button" class="voice-record-button" data-voice-action="record" aria-pressed="false">
-        <span aria-hidden="true">&#127908;</span><span class="voice-record-label">Dictate</span>
+      <button type="button" class="voice-record-button" data-voice-action="record" aria-pressed="false" aria-label="Dictate comment" title="Dictate comment">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg><span class="voice-record-label sr-only">Dictate</span>
       </button>
-      <small class="voice-status" aria-live="polite">Tap to record up to ${Number(state().voiceInput.maxSeconds || 30)} seconds. Audio is externally transcribed and must be reviewed.</small>
+      <small class="voice-status" aria-live="polite" hidden></small>
       <div class="voice-review" hidden>
         <strong>Review transcription</strong><p class="voice-transcript"></p>
         <div class="voice-review-actions">
@@ -63,15 +64,28 @@
 
   function setVoiceStatus(widget, message, stateName = '') {
     const status = widget?.querySelector('.voice-status');
-    if (status) { status.textContent = message; status.dataset.state = stateName; }
+    if (status) { status.textContent = message; status.dataset.state = stateName; status.hidden = !message; }
   }
 
-  function stopVoiceTracks() {
+  function releaseVoiceStream() {
     window.clearTimeout(voiceStopTimer);
+    window.clearTimeout(voiceReleaseTimer);
     voiceStopTimer = null;
+    voiceReleaseTimer = null;
     voiceStream?.getTracks?.().forEach(track => track.stop());
     voiceStream = null;
     voiceRecorder = null;
+  }
+
+  function parkVoiceStream() {
+    window.clearTimeout(voiceStopTimer);
+    window.clearTimeout(voiceReleaseTimer);
+    voiceStopTimer = null;
+    voiceRecorder = null;
+    voiceStream?.getTracks?.().forEach(track => { track.enabled = false; });
+    // Retain the current WebView grant only for quick corrections. The audio
+    // track is disabled while parked and fully released after one minute.
+    voiceReleaseTimer = window.setTimeout(releaseVoiceStream, 60000);
   }
 
   async function transcribeVoice(widget, blob, durationMs, retryAttemptId = '') {
@@ -119,7 +133,11 @@
       return;
     }
     try {
-      voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      window.clearTimeout(voiceReleaseTimer);
+      voiceReleaseTimer = null;
+      const reusableStream = voiceStream?.getAudioTracks?.().some(track => track.readyState === 'live');
+      if (!reusableStream) voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      voiceStream.getTracks().forEach(track => { track.enabled = true; });
       const mimeType = voiceMimeType();
       voiceRecorder = mimeType ? new MediaRecorder(voiceStream, { mimeType }) : new MediaRecorder(voiceStream);
       discardVoiceOnStop = false;
@@ -129,20 +147,26 @@
       voiceRecorder.addEventListener('stop', () => {
         const duration = Math.max(1, Date.now() - voiceStartedAt);
         const blob = new Blob(voiceChunks, { type: voiceRecorder?.mimeType || mimeType || 'audio/webm' });
-        stopVoiceTracks();
-        if (discardVoiceOnStop) { discardVoiceOnStop = false; return; }
+        if (discardVoiceOnStop) {
+          discardVoiceOnStop = false;
+          releaseVoiceStream();
+          return;
+        }
+        parkVoiceStream();
         transcribeVoice(widget, blob, duration);
       }, { once: true });
       voiceRecorder.start();
       const button = widget.querySelector('[data-voice-action="record"]');
       button?.setAttribute('aria-pressed', 'true');
-      widget.querySelector('.voice-record-label').textContent = 'Stop';
+      widget.querySelector('.voice-record-label').textContent = 'Stop recording';
+      button?.setAttribute('aria-label', 'Stop recording');
+      button?.setAttribute('title', 'Stop recording');
       widget.classList.add('recording');
       setVoiceStatus(widget, 'Recording... tap Stop when finished.', 'recording');
       voiceStopTimer = window.setTimeout(() => stopVoiceRecording(widget), Number(state().voiceInput.maxSeconds || 30) * 1000);
     } catch (_error) {
-      stopVoiceTracks();
-      setVoiceStatus(widget, 'Microphone permission was not granted. Use keyboard dictation or type.', 'error');
+      releaseVoiceStream();
+      setVoiceStatus(widget, 'Microphone unavailable. Allow Telegram microphone access in phone Settings, then reopen this Mini App.', 'error');
     }
   }
 
@@ -151,6 +175,8 @@
     const button = widget.querySelector('[data-voice-action="record"]');
     button?.setAttribute('aria-pressed', 'false');
     widget.querySelector('.voice-record-label').textContent = 'Dictate';
+    button?.setAttribute('aria-label', 'Dictate comment');
+    button?.setAttribute('title', 'Dictate comment');
     widget.classList.remove('recording');
   }
 
@@ -1250,7 +1276,7 @@
     sessionStorage.removeItem(JBL_ACTIVE_DRAFT_KEY);
     sessionStorage.removeItem(PORTAL_ACTIVE_WORKFLOW_DRAFT_KEY);
     if (voiceRecorder?.state === 'recording') { discardVoiceOnStop = true; voiceRecorder.stop(); }
-    else stopVoiceTracks();
+    else releaseVoiceStream();
     if (activeVoiceAttempt) cancelVoiceAttempt(activeVoiceAttempt);
     Object.entries(acceptedVoiceAttempts).forEach(([fieldName, id]) => {
       cancelVoiceAttempt({ id, fieldName });

@@ -1887,12 +1887,14 @@ body.portal-report-editor-active #bottom-tabs { display: none; }
   .batch-summary-grid { grid-template-columns: 1fr 1fr; }
 }
 
-.voice-input { display: grid; gap: 7px; margin-top: 8px; padding: 9px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-muted); }
-.voice-record-button { display: inline-flex; width: fit-content; min-height: 40px; align-items: center; gap: 7px; padding: 7px 12px; border: 1px solid var(--color-primary); border-radius: 999px; background: var(--bg-surface); color: var(--color-primary); font-weight: 750; }
+.voice-input { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 5px; }
+.voice-record-button { display: inline-grid; width: 36px; min-width: 36px; height: 36px; min-height: 36px; place-items: center; padding: 0; border: 1px solid var(--border-color); border-radius: 50%; background: var(--bg-surface); color: var(--color-primary); box-shadow: none; }
+.voice-record-button svg { width: 18px; height: 18px; }
 .voice-input.recording .voice-record-button { border-color: var(--status-danger); background: color-mix(in srgb, var(--status-danger) 12%, var(--bg-surface)); color: var(--status-danger); }
-.voice-status { color: var(--text-muted); font-size: 10px; line-height: 1.4; }
+.voice-status { flex: 1 1 180px; color: var(--text-muted); font-size: 10px; line-height: 1.4; }
 .voice-status[data-state="error"] { color: var(--status-danger); }
-.voice-review { display: grid; gap: 7px; padding-top: 7px; border-top: 1px solid var(--border-color); }
+.voice-review { flex: 1 0 100%; display: grid; gap: 7px; padding: 8px; border: 1px solid var(--border-color); border-radius: 9px; background: var(--bg-muted); }
+.voice-review[hidden] { display: none; }
 .voice-review p { margin: 0; padding: 8px; border-radius: 7px; background: var(--bg-surface); color: var(--text-primary); font-size: 12px; line-height: 1.45; white-space: pre-wrap; }
 .voice-review-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .voice-review-actions button { min-height: 36px; padding: 6px 10px; font-size: 10px; }
