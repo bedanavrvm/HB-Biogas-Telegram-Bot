@@ -889,6 +889,7 @@
         : `<span class="jbl-media-preview-placeholder" aria-hidden="true">${isImage ? cameraIcon() : 'PDF'}</span>`;
       return `<div class="jbl-media-preview-item" data-media-category="${category}" data-media-item-id="${item.id}" role="button" tabindex="0" aria-label="Preview ${safeName}">
         ${visual}<span class="jbl-media-preview-name" title="${safeName}">${safeName}</span>
+        <button type="button" class="jbl-media-preview-open" data-media-item-id="${item.id}" aria-label="Preview ${safeName}" title="Preview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg><span class="sr-only">Preview</span></button>
         <button type="button" class="jbl-media-remove" data-media-category="${category}" data-media-item-id="${item.id}" aria-label="Remove ${safeName}" title="Remove">${removeIcon()}<span class="sr-only">Remove</span></button>
       </div>`;
     }).join('');
@@ -1021,6 +1022,7 @@
     const visual = String(item.file.type || '').startsWith('image/')
       ? `<img class="media-viewer-image jbl-selection-viewer-image" src="${activeMediaObjectUrl}" alt="${safeName}">`
       : `<iframe class="media-viewer-document" sandbox="" src="${activeMediaObjectUrl}" title="${safeName}"></iframe>`;
+    content.classList.add('jbl-selection-preview-active');
     content.innerHTML = `<div class="jbl-selection-viewer">
       <div class="jbl-selection-viewer-stage">${visual}</div>
       <div class="jbl-selection-viewer-actions">
@@ -1228,10 +1230,16 @@
     });
     el('sheet-form')?.querySelector('.media-upload-control')?.addEventListener('click', event => {
       if (event.target.closest('.jbl-media-remove, [data-camera-category], .jbl-media-icon-button')) return;
+      const previewButton = event.target.closest('.jbl-media-preview-open');
+      if (previewButton) {
+        openSelectedJblMediaPreview(previewButton.dataset.mediaItemId);
+        return;
+      }
       const previewItem = event.target.closest('.jbl-media-preview-item');
       if (previewItem) openSelectedJblMediaPreview(previewItem.dataset.mediaItemId);
     });
     el('sheet-form')?.querySelector('.media-upload-control')?.addEventListener('keydown', event => {
+      if (event.target.closest('button')) return;
       const previewItem = event.target.closest('.jbl-media-preview-item');
       if (previewItem && ['Enter', ' '].includes(event.key)) {
         event.preventDefault();
@@ -1636,7 +1644,10 @@
   function closeMediaViewer() {
     el('media-viewer-overlay')?.classList.remove('open');
     const content = el('media-viewer-content');
-    if (content) content.replaceChildren();
+    if (content) {
+      content.replaceChildren();
+      content.classList.remove('jbl-selection-preview-active');
+    }
     if (activeMediaObjectUrl) {
       URL.revokeObjectURL(activeMediaObjectUrl);
       activeMediaObjectUrl = '';
@@ -1752,7 +1763,7 @@
     formData.set('location_unavailable_reason', el('jbl-location-unavailable')?.value || '');
     jblMediaSelections.LAF.forEach(item => formData.append('laf_files', item.file));
     jblMediaSelections.JBL_VISIT_PHOTO.forEach(item => formData.append('jbl_visit_photo_files', item.file));
-    el('sheet-form')?.querySelectorAll('.jbl-media-icon-button, .jbl-media-remove').forEach(control => {
+    el('sheet-form')?.querySelectorAll('.jbl-media-icon-button, .jbl-media-preview-open, .jbl-media-remove').forEach(control => {
       control.classList.add('is-disabled');
       control.setAttribute('aria-disabled', 'true');
       if (control.matches('button')) control.disabled = true;
@@ -1778,7 +1789,7 @@
     } finally {
       window.clearTimeout(slowUploadNotice);
       deps.setButtonLoading(btn, false);
-      el('sheet-form')?.querySelectorAll('.jbl-media-icon-button, .jbl-media-remove').forEach(control => {
+      el('sheet-form')?.querySelectorAll('.jbl-media-icon-button, .jbl-media-preview-open, .jbl-media-remove').forEach(control => {
         control.classList.remove('is-disabled');
         control.removeAttribute('aria-disabled');
         if (control.matches('button')) control.disabled = false;
