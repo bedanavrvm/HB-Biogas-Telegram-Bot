@@ -1212,7 +1212,9 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
   padding:4px;
   border-radius:8px;
   background:var(--bg-muted);
+  cursor:pointer;
 }
+.jbl-media-preview-item:focus-visible { outline:2px solid var(--link-color, var(--brand-primary)); outline-offset:2px; }
 .jbl-media-preview-item > img,
 .jbl-media-preview-placeholder { width:38px; height:38px; border-radius:6px; }
 .jbl-media-preview-item > img { display:block; object-fit:cover; background:var(--bg-surface); }
@@ -1242,6 +1244,15 @@ button[aria-busy="true"] .spinner-inline, .btn[aria-busy="true"] .spinner-inline
 .jbl-camera-shutter { width:48px; height:48px; justify-self:center; display:flex; align-items:center; justify-content:center; padding:0; border:2px solid #fff; border-radius:50%; background:transparent; }
 .jbl-camera-shutter > span[aria-hidden="true"] { width:34px; height:34px; border-radius:50%; background:#fff; }
 .jbl-camera-shutter:disabled { opacity:.45; }
+.jbl-selection-viewer { width:100%; height:100%; min-height:0; display:grid; grid-template-rows:minmax(0,1fr) auto; }
+.jbl-selection-viewer-stage { min-height:0; display:flex; align-items:center; justify-content:center; overflow:hidden; background:#0b1220; }
+.jbl-selection-viewer-stage .media-viewer-image { width:100%; height:100%; max-height:calc(100vh - 190px); object-fit:contain; }
+.jbl-selection-viewer-stage .media-viewer-document { width:100%; height:calc(100vh - 190px); min-height:320px; border:0; }
+.jbl-selection-viewer-actions { display:grid; grid-template-columns:repeat(3, 44px); justify-content:center; gap:14px; padding:10px; border-top:1px solid var(--border-color); background:var(--bg-surface); }
+.jbl-selection-viewer-actions button { width:44px; height:40px; display:flex; align-items:center; justify-content:center; padding:0; border:1px solid var(--border-color); border-radius:10px; background:var(--bg-muted); color:var(--text-primary); }
+.jbl-selection-viewer-actions button:disabled { opacity:.35; }
+.jbl-selection-viewer-actions svg { width:20px; height:20px; }
+.jbl-selection-viewer-actions .jbl-selection-delete { color:var(--color-danger, #b42318); }
 .media-upload-control input.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .media-upload-control small {
   color: var(--text-muted);

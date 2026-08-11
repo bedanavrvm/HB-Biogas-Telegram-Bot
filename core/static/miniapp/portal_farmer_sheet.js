@@ -6,6 +6,7 @@
   let mapMarker = null;
   let currentMapLocation = null;
   let activeMediaObjectUrl = '';
+  let activeJblSelectionPreviewId = '';
   let jblServerDraft = null;
   let jblServerDraftFarmerId = '';
   let jblDraftInputVersion = 0;
@@ -665,7 +666,7 @@
               accept: 'image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp',
             })}
             ${jblLiveCameraMarkup()}
-            <small class="form-row-wide jbl-media-limit-help">Up to ${Number(state().jblVisitMediaMaxFiles || 6)} files and ${Math.round(Number(state().jblVisitMediaMaxTotalBytes || 40 * 1024 * 1024) / (1024 * 1024))} MB combined.</small>
+            <small class="form-row-wide jbl-media-limit-help">Up to ${Number(state().jblVisitMediaMaxFiles || 6)} files and ${Math.round(Number(state().jblVisitMediaMaxTotalBytes || 40 * 1024 * 1024) / (1024 * 1024))} MB combined. Tap a selected item to review it full-size.</small>
             ${farmer.jbl_media_count ? `<small class="form-row-wide">${farmer.jbl_media_count} existing Drive link${farmer.jbl_media_count === 1 ? '' : 's'} on this record.</small>` : ''}
           </div>
         </div>` : '';
@@ -886,7 +887,7 @@
       const visual = item.thumbnailUrl
         ? `<img src="${item.thumbnailUrl}" alt="">`
         : `<span class="jbl-media-preview-placeholder" aria-hidden="true">${isImage ? cameraIcon() : 'PDF'}</span>`;
-      return `<div class="jbl-media-preview-item" data-media-item-id="${item.id}">
+      return `<div class="jbl-media-preview-item" data-media-category="${category}" data-media-item-id="${item.id}" role="button" tabindex="0" aria-label="Preview ${safeName}">
         ${visual}<span class="jbl-media-preview-name" title="${safeName}">${safeName}</span>
         <button type="button" class="jbl-media-remove" data-media-category="${category}" data-media-item-id="${item.id}" aria-label="Remove ${safeName}" title="Remove">${removeIcon()}<span class="sr-only">Remove</span></button>
       </div>`;
@@ -993,6 +994,61 @@
     revokeJblThumbnail(items[index]);
     items.splice(index, 1);
     renderJblMediaSelections();
+  }
+
+  function selectedJblPreviewEntries() {
+    return ['LAF', 'JBL_VISIT_PHOTO'].flatMap(category =>
+      (jblMediaSelections[category] || []).map(item => ({ category, item }))
+    );
+  }
+
+  function openSelectedJblMediaPreview(itemId) {
+    const entries = selectedJblPreviewEntries();
+    const index = entries.findIndex(entry => entry.item.id === itemId);
+    if (index < 0) return;
+    const { category, item } = entries[index];
+    const overlay = el('media-viewer-overlay');
+    const title = el('media-viewer-title');
+    const sub = el('media-viewer-sub');
+    const content = el('media-viewer-content');
+    if (!overlay || !content) return;
+    closeMediaViewer();
+    activeJblSelectionPreviewId = item.id;
+    activeMediaObjectUrl = URL.createObjectURL(item.file);
+    if (title) title.textContent = category === 'LAF' ? 'Review LAF evidence' : 'Review visit photo';
+    if (sub) sub.textContent = `${index + 1} of ${entries.length} · ${item.file.name}`;
+    const safeName = deps.escapeHtml(item.file.name || 'Selected evidence');
+    const visual = String(item.file.type || '').startsWith('image/')
+      ? `<img class="media-viewer-image jbl-selection-viewer-image" src="${activeMediaObjectUrl}" alt="${safeName}">`
+      : `<iframe class="media-viewer-document" sandbox="" src="${activeMediaObjectUrl}" title="${safeName}"></iframe>`;
+    content.innerHTML = `<div class="jbl-selection-viewer">
+      <div class="jbl-selection-viewer-stage">${visual}</div>
+      <div class="jbl-selection-viewer-actions">
+        <button type="button" class="jbl-selection-nav" data-selection-preview-action="previous" aria-label="Previous selected file" title="Previous" ${index === 0 ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg><span class="sr-only">Previous</span></button>
+        <button type="button" class="jbl-selection-delete" data-selection-preview-action="remove" data-media-category="${category}" data-media-item-id="${item.id}" aria-label="Remove this selected file" title="Remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 10v6M14 10v6"/></svg><span class="sr-only">Remove</span></button>
+        <button type="button" class="jbl-selection-nav" data-selection-preview-action="next" aria-label="Next selected file" title="Next" ${index === entries.length - 1 ? 'disabled' : ''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg><span class="sr-only">Next</span></button>
+      </div>
+    </div>`;
+    overlay.classList.add('open');
+  }
+
+  function navigateSelectedJblPreview(offset) {
+    const entries = selectedJblPreviewEntries();
+    const currentIndex = entries.findIndex(entry => entry.item.id === activeJblSelectionPreviewId);
+    const target = entries[currentIndex + offset];
+    if (target) openSelectedJblMediaPreview(target.item.id);
+  }
+
+  function removeActiveJblPreview(category, itemId) {
+    const entries = selectedJblPreviewEntries();
+    const index = entries.findIndex(entry => entry.item.id === itemId);
+    removeJblMediaItem(category, itemId);
+    const remaining = selectedJblPreviewEntries();
+    if (!remaining.length) {
+      closeMediaViewer();
+      return;
+    }
+    openSelectedJblMediaPreview(remaining[Math.min(index, remaining.length - 1)].item.id);
   }
 
   function jblVisitDraftValues() {
@@ -1168,8 +1224,20 @@
       const removeButton = event.target.closest('.jbl-media-remove');
       if (!removeButton) return;
       removeJblMediaItem(removeButton.dataset.mediaCategory, removeButton.dataset.mediaItemId);
+      return;
+    });
+    el('sheet-form')?.querySelector('.media-upload-control')?.addEventListener('click', event => {
+      if (event.target.closest('.jbl-media-remove, [data-camera-category], .jbl-media-icon-button')) return;
+      const previewItem = event.target.closest('.jbl-media-preview-item');
+      if (previewItem) openSelectedJblMediaPreview(previewItem.dataset.mediaItemId);
     });
     el('sheet-form')?.querySelector('.media-upload-control')?.addEventListener('keydown', event => {
+      const previewItem = event.target.closest('.jbl-media-preview-item');
+      if (previewItem && ['Enter', ' '].includes(event.key)) {
+        event.preventDefault();
+        openSelectedJblMediaPreview(previewItem.dataset.mediaItemId);
+        return;
+      }
       const sourceButton = event.target.closest('.jbl-media-icon-button');
       if (!sourceButton || !['Enter', ' '].includes(event.key)) return;
       event.preventDefault();
@@ -1573,6 +1641,7 @@
       URL.revokeObjectURL(activeMediaObjectUrl);
       activeMediaObjectUrl = '';
     }
+    activeJblSelectionPreviewId = '';
   }
 
   function mediaPreviewHeaders() {
@@ -1642,6 +1711,7 @@
       delete acceptedVoiceAttempts[fieldName];
     });
     stopJblLiveCamera();
+    closeMediaViewer();
     resetJblMediaSelections();
     el('sheet-overlay')?.classList.remove('open');
     state().selectedFarmer = null;
@@ -1796,6 +1866,16 @@
       }
       if (event.target.closest('#media-viewer-close')) {
         closeMediaViewer();
+        return;
+      }
+      const selectionAction = event.target.closest('[data-selection-preview-action]');
+      if (selectionAction) {
+        const action = selectionAction.dataset.selectionPreviewAction;
+        if (action === 'previous') navigateSelectedJblPreview(-1);
+        if (action === 'next') navigateSelectedJblPreview(1);
+        if (action === 'remove') {
+          removeActiveJblPreview(selectionAction.dataset.mediaCategory, selectionAction.dataset.mediaItemId);
+        }
         return;
       }
       if (event.target.closest('#sheet-map-refresh')) {
