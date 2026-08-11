@@ -21,6 +21,9 @@
   let discardVoiceOnStop = false;
   let activeVoiceAttempt = null;
   const acceptedVoiceAttempts = {};
+  const VOICE_LANGUAGE_KEY = 'portal:voice-language';
+  const VOICE_LANGUAGE_ORDER = ['auto', 'sw', 'en'];
+  const VOICE_LANGUAGE_LABELS = { auto: 'Auto language', sw: 'Swahili', en: 'English' };
 
   const MODE_WRITE_CAPABILITIES = {
     jbl_visit: 'portal.jbl_visit.write',
@@ -38,11 +41,28 @@
   }
   function requestId() { return window.crypto?.randomUUID?.() || `portal-${Date.now()}-${Math.random().toString(16).slice(2)}`; }
 
+  function savedVoiceLanguage() {
+    try {
+      const value = localStorage.getItem(VOICE_LANGUAGE_KEY) || 'auto';
+      return VOICE_LANGUAGE_ORDER.includes(value) ? value : 'auto';
+    } catch (_error) {
+      return 'auto';
+    }
+  }
+
+  function voiceLanguageBadge(language) {
+    return language === 'auto' ? 'A' : language.toUpperCase();
+  }
+
   function voiceWidget(fieldName, inputId) {
     if (!state().voiceInput?.enabled || !state().voiceInput?.fields?.includes(fieldName)) return '';
-    return `<div class="voice-input" data-voice-field="${fieldName}" data-input-id="${inputId}">
+    const language = savedVoiceLanguage();
+    return `<div class="voice-input" data-voice-field="${fieldName}" data-input-id="${inputId}" data-language-mode="${language}">
       <button type="button" class="voice-record-button" data-voice-action="record" aria-pressed="false" aria-label="Dictate comment" title="Dictate comment">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg><span class="voice-record-label sr-only">Dictate</span>
+      </button>
+      <button type="button" class="voice-language-button" data-voice-action="language" aria-label="Language: ${VOICE_LANGUAGE_LABELS[language]}" title="Language: ${VOICE_LANGUAGE_LABELS[language]}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg><span class="voice-language-badge">${voiceLanguageBadge(language)}</span>
       </button>
       <small class="voice-status" aria-live="polite" hidden></small>
       <div class="voice-review" hidden>
@@ -96,6 +116,7 @@
     formData.set('client_request_id', key);
     formData.set('field_name', widget.dataset.voiceField);
     formData.set('duration_ms', String(Math.max(1, Math.round(durationMs))));
+    formData.set('language_mode', widget.dataset.languageMode || 'auto');
     if (retryAttemptId) formData.set('retry_attempt_id', retryAttemptId);
     if (blob) formData.set('audio', blob, blob.type.includes('mp4') ? 'recording.m4a' : 'recording.webm');
     setVoiceStatus(widget, 'Transcribing...', 'loading');
@@ -111,6 +132,7 @@
         id: data.transcription_id, fieldName: widget.dataset.voiceField,
         inputId: widget.dataset.inputId, transcript: data.text,
         retryAvailable: Boolean(data.retry_available), durationMs,
+        requestedLanguage: data.requested_language || widget.dataset.languageMode || 'auto',
       };
       widget.querySelector('.voice-transcript').textContent = data.text;
       widget.querySelector('.voice-review').hidden = false;
@@ -197,6 +219,21 @@
     widget.addEventListener('click', event => {
       const action = event.target.closest('[data-voice-action]')?.dataset.voiceAction;
       if (!action) return;
+      if (action === 'language') {
+        const current = widget.dataset.languageMode || 'auto';
+        const next = VOICE_LANGUAGE_ORDER[(VOICE_LANGUAGE_ORDER.indexOf(current) + 1) % VOICE_LANGUAGE_ORDER.length];
+        widget.dataset.languageMode = next;
+        const languageButton = widget.querySelector('[data-voice-action="language"]');
+        const label = VOICE_LANGUAGE_LABELS[next];
+        languageButton?.setAttribute('aria-label', `Language: ${label}`);
+        languageButton?.setAttribute('title', `Language: ${label}`);
+        const badge = languageButton?.querySelector('.voice-language-badge');
+        if (badge) badge.textContent = voiceLanguageBadge(next);
+        try { localStorage.setItem(VOICE_LANGUAGE_KEY, next); } catch (_error) {}
+        setVoiceStatus(widget, '', 'language');
+        deps.showToast(`${label} voice mode`, 'info');
+        return;
+      }
       if (action === 'record') {
         if (voiceRecorder?.state === 'recording') stopVoiceRecording(widget);
         else startVoiceRecording(widget);

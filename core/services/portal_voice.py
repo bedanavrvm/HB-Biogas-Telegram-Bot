@@ -31,6 +31,12 @@ ALLOWED_MIME_TYPES = {
 }
 MAX_AUDIO_BYTES = 5 * 1024 * 1024
 GROQ_TRANSCRIPTION_URL = 'https://api.groq.com/openai/v1/audio/transcriptions'
+ALLOWED_LANGUAGE_MODES = {'auto', 'en', 'sw'}
+LANGUAGE_PROMPTS = {
+    'auto': 'JBL, HomeBiogas, IMAB.',
+    'en': 'JBL HomeBiogas field visit comment. Terms: JBL, HomeBiogas, IMAB, farmer, installation, deposit, loan.',
+    'sw': 'Maoni ya ziara ya JBL HomeBiogas. Istilahi: JBL, HomeBiogas, IMAB, mkulima, mtambo wa biogas, amana, mkopo.',
+}
 
 
 class VoiceInputError(ValueError):
@@ -117,19 +123,22 @@ def _trash_drive_file(file_id: str) -> None:
     ).execute()
 
 
-def _call_groq(audio: bytes, mime_type: str) -> tuple[str, int, str]:
+def _call_groq(audio: bytes, mime_type: str, language_mode: str) -> tuple[str, int, str, str, float | None]:
     extension = ALLOWED_MIME_TYPES[mime_type]
+    request_data = {
+        'model': settings.PORTAL_VOICE_MODEL,
+        'response_format': 'verbose_json',
+        'temperature': '0',
+        'prompt': LANGUAGE_PROMPTS[language_mode],
+    }
+    if language_mode != 'auto':
+        request_data['language'] = language_mode
     try:
         response = requests.post(
             GROQ_TRANSCRIPTION_URL,
             headers={'Authorization': f'Bearer {settings.GROQ_API_KEY}'},
             files={'file': (f'recording{extension}', audio, mime_type)},
-            data={
-                'model': settings.PORTAL_VOICE_MODEL,
-                'response_format': 'verbose_json',
-                'temperature': '0',
-                'prompt': 'JBL HomeBiogas field visit and final review comments in English or Swahili.',
-            },
+            data=request_data,
             timeout=max(10, int(getattr(settings, 'API_REQUEST_TIMEOUT', 10) or 10) * 3),
         )
     except requests.RequestException as exc:
@@ -147,6 +156,15 @@ def _call_groq(audio: bytes, mime_type: str) -> tuple[str, int, str]:
         payload = response.json()
         transcript = str(payload.get('text') or '').strip()
         provider_duration_ms = max(0, int(float(payload.get('duration') or 0) * 1000))
+        detected_language = str(payload.get('language') or '')[:16].lower()
+        log_probabilities = [
+            float(segment['avg_logprob'])
+            for segment in (payload.get('segments') or [])
+            if isinstance(segment, dict) and segment.get('avg_logprob') is not None
+        ]
+        average_log_probability = (
+            sum(log_probabilities) / len(log_probabilities) if log_probabilities else None
+        )
     except (TypeError, ValueError, requests.JSONDecodeError) as exc:
         raise VoiceInputError('The transcription service returned an invalid response. Please retry.', code='invalid_provider_response', status=502) from exc
     if not transcript:
@@ -154,14 +172,20 @@ def _call_groq(audio: bytes, mime_type: str) -> tuple[str, int, str]:
     if provider_duration_ms > (max(1, int(settings.PORTAL_VOICE_MAX_SECONDS)) + 1) * 1000:
         raise VoiceInputError(f'Recordings are limited to {settings.PORTAL_VOICE_MAX_SECONDS} seconds.', code='audio_too_long')
     provider_id = str((payload.get('x_groq') or {}).get('id') or response.headers.get('x-request-id') or '')[:128]
-    return transcript, provider_duration_ms, provider_id
+    return transcript, provider_duration_ms, provider_id, detected_language, average_log_probability
 
 
-def create_transcription(*, user, farmer, field_name: str, request_id: str, duration_ms: int, audio: bytes | None = None, mime_type: str = '', source_attempt=None):
+def create_transcription(*, user, farmer, field_name: str, request_id: str, duration_ms: int, audio: bytes | None = None, mime_type: str = '', source_attempt=None, language_mode: str = 'auto'):
     if not voice_enabled():
         raise VoiceInputError('Voice input is not available. Please type the comment.', code='disabled', status=503)
     if field_name not in ALLOWED_FIELDS:
         raise VoiceInputError('Voice input is not enabled for this field.', code='unsupported_field')
+    language_mode = str(language_mode or '').strip().lower()
+    if not language_mode and source_attempt is not None:
+        language_mode = source_attempt.requested_language
+    language_mode = language_mode or 'auto'
+    if language_mode not in ALLOWED_LANGUAGE_MODES:
+        raise VoiceInputError('Select Auto, English, or Swahili for voice input.', code='unsupported_language')
     request_id = str(request_id or '').strip()
     if not request_id:
         raise VoiceInputError('A retry key is required.', code='idempotency_key_required', status=428)
@@ -184,6 +208,7 @@ def create_transcription(*, user, farmer, field_name: str, request_id: str, dura
         audio_hash=hashlib.sha256(audio).hexdigest(), audio_size=len(audio),
         audio_mime_type=mime, duration_ms=duration_ms,
         provider=settings.PORTAL_VOICE_PROVIDER, model_name=settings.PORTAL_VOICE_MODEL,
+        requested_language=language_mode,
         expires_at=timezone.now() + timedelta(minutes=max(1, int(settings.PORTAL_VOICE_RETRY_RETENTION_MINUTES))),
         source_attempt=source_attempt,
     )
@@ -198,7 +223,9 @@ def create_transcription(*, user, farmer, field_name: str, request_id: str, dura
             logger.exception('Temporary voice upload failed attempt_id=%s', attempt.id)
             attempt.deletion_status = 'not_stored'
     try:
-        transcript, provider_duration_ms, provider_id = _call_groq(audio, mime)
+        transcript, provider_duration_ms, provider_id, detected_language, average_log_probability = _call_groq(
+            audio, mime, language_mode,
+        )
     except VoiceInputError as exc:
         attempt.status = PortalVoiceTranscriptionAttempt.STATUS_FAILED
         attempt.error_code = exc.code
@@ -206,9 +233,11 @@ def create_transcription(*, user, farmer, field_name: str, request_id: str, dura
         raise
     attempt.transcript = transcript[:2000]
     attempt.provider_request_id = provider_id
+    attempt.detected_language = detected_language
+    attempt.average_log_probability = average_log_probability
     attempt.duration_ms = provider_duration_ms or duration_ms
     attempt.status = PortalVoiceTranscriptionAttempt.STATUS_TRANSCRIBED
-    attempt.save(update_fields=['drive_file_id', 'deletion_status', 'transcript', 'provider_request_id', 'duration_ms', 'status', 'updated_at'])
+    attempt.save(update_fields=['drive_file_id', 'deletion_status', 'transcript', 'provider_request_id', 'detected_language', 'average_log_probability', 'duration_ms', 'status', 'updated_at'])
     return attempt, False
 
 

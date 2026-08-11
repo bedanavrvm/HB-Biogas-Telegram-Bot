@@ -2664,10 +2664,10 @@ class InvoiceUploadBatchAdmin(ReadOnlyAuditAdmin):
 @admin.register(PortalVoiceTranscriptionAttempt)
 class PortalVoiceTranscriptionAttemptAdmin(ReadOnlyAuditAdmin):
     list_display = (
-        'farmer', 'field_name', 'user', 'status', 'duration_ms', 'provider',
+        'farmer', 'field_name', 'user', 'requested_language', 'detected_language', 'status', 'duration_ms', 'provider',
         'model_name', 'deletion_status', 'created_at', 'expires_at',
     )
-    list_filter = ('field_name', 'status', 'provider', 'model_name', 'deletion_status', 'created_at')
+    list_filter = ('field_name', 'requested_language', 'detected_language', 'status', 'provider', 'model_name', 'deletion_status', 'created_at')
     search_fields = ('farmer__customer_name', 'request_id', 'provider_request_id', 'user__username')
 
 

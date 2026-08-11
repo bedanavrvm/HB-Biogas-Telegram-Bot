@@ -1,12 +1,12 @@
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from core.models import JawabuFarmerMaster, PortalVoiceTranscriptionAttempt
-from core.services.portal_voice import VoiceInputError, create_transcription, resolve_transcription
+from core.services.portal_voice import VoiceInputError, _call_groq, create_transcription, resolve_transcription
 
 
 VOICE_SETTINGS = {
@@ -29,7 +29,7 @@ class PortalVoiceServiceTests(TestCase):
         self.other_user = get_user_model().objects.create_user(username='other-officer')
         self.farmer = JawabuFarmerMaster.objects.create(customer_name='Synthetic Farmer')
 
-    @patch('core.services.portal_voice._call_groq', return_value=('Visit completed successfully.', 2100, 'groq-test'))
+    @patch('core.services.portal_voice._call_groq', return_value=('Visit completed successfully.', 2100, 'groq-test', 'en', -0.1))
     @patch('core.services.portal_voice._drive_upload', return_value='drive-test')
     def test_create_is_idempotent_for_user_request_key(self, drive_upload, call_groq):
         first, replayed = create_transcription(
@@ -46,6 +46,7 @@ class PortalVoiceServiceTests(TestCase):
         self.assertTrue(second_replayed)
         self.assertEqual(first.pk, second.pk)
         self.assertEqual(call_groq.call_count, 1)
+        call_groq.assert_called_once_with(b'synthetic-audio', 'audio/webm', 'auto')
         self.assertEqual(drive_upload.call_count, 1)
 
     @patch('core.services.portal_voice._trash_drive_file')
@@ -83,7 +84,7 @@ class PortalVoiceServiceTests(TestCase):
         self.assertEqual(caught.exception.status, 404)
 
     @override_settings(PORTAL_VOICE_USER_DAILY_REQUEST_LIMIT=1)
-    @patch('core.services.portal_voice._call_groq', return_value=('First note.', 1000, 'groq-test'))
+    @patch('core.services.portal_voice._call_groq', return_value=('First note.', 1000, 'groq-test', 'en', -0.2))
     @patch('core.services.portal_voice._drive_upload', return_value='drive-test')
     def test_daily_user_limit_uses_durable_attempts(self, _drive_upload, _call_groq):
         create_transcription(
@@ -98,3 +99,77 @@ class PortalVoiceServiceTests(TestCase):
                 audio=b'second-audio', mime_type='audio/webm',
             )
         self.assertEqual(caught.exception.code, 'rate_limited')
+
+    @patch('core.services.portal_voice._call_groq', return_value=('Ziara imekamilika.', 1500, 'groq-sw', 'sw', -0.08))
+    @patch('core.services.portal_voice._drive_upload', return_value='drive-sw')
+    def test_swahili_mode_is_passed_to_provider_and_audited(self, _drive_upload, call_groq):
+        attempt, replayed = create_transcription(
+            user=self.user, farmer=self.farmer, field_name='jbl_visit_comment',
+            request_id='voice-request-sw', duration_ms=1600,
+            audio=b'swahili-audio', mime_type='audio/webm', language_mode='sw',
+        )
+        self.assertFalse(replayed)
+        call_groq.assert_called_once_with(b'swahili-audio', 'audio/webm', 'sw')
+        self.assertEqual(attempt.requested_language, 'sw')
+        self.assertEqual(attempt.detected_language, 'sw')
+        self.assertEqual(attempt.average_log_probability, -0.08)
+
+    @patch('core.services.portal_voice._call_groq', return_value=('Ziara imerudiwa.', 1400, 'groq-retry', 'sw', -0.05))
+    @patch('core.services.portal_voice._drive_download', return_value=b'retained-audio')
+    def test_retry_can_change_retained_audio_from_auto_to_swahili(self, drive_download, call_groq):
+        source = PortalVoiceTranscriptionAttempt.objects.create(
+            user=self.user, farmer=self.farmer, field_name='jbl_visit_comment',
+            request_id='voice-source-auto', audio_hash='c' * 64, audio_size=14,
+            audio_mime_type='audio/webm', duration_ms=1500, status='transcribed',
+            transcript='Poor automatic result.', drive_file_id='drive-retained',
+            deletion_status='pending', requested_language='auto',
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+
+        retried, replayed = create_transcription(
+            user=self.user, farmer=self.farmer, field_name='jbl_visit_comment',
+            request_id='voice-retry-sw', duration_ms=0, source_attempt=source,
+            language_mode='sw',
+        )
+
+        self.assertFalse(replayed)
+        self.assertEqual(retried.source_attempt, source)
+        self.assertEqual(retried.requested_language, 'sw')
+        drive_download.assert_called_once_with('drive-retained')
+        call_groq.assert_called_once_with(b'retained-audio', 'audio/webm', 'sw')
+
+    def test_unsupported_language_is_rejected_before_provider_call(self):
+        with self.assertRaises(VoiceInputError) as caught:
+            create_transcription(
+                user=self.user, farmer=self.farmer, field_name='jbl_visit_comment',
+                request_id='voice-request-unsupported', duration_ms=1000,
+                audio=b'audio', mime_type='audio/webm', language_mode='fr',
+            )
+        self.assertEqual(caught.exception.code, 'unsupported_language')
+
+    @patch('core.services.portal_voice.requests.post')
+    def test_groq_request_forces_swahili_and_uses_swahili_prompt(self, post):
+        response = Mock(status_code=200, headers={'x-request-id': 'groq-request'})
+        response.json.return_value = {
+            'text': 'Mkulima amelipa amana.', 'duration': 1.2, 'language': 'sw',
+            'segments': [{'avg_logprob': -0.12}, {'avg_logprob': -0.08}],
+        }
+        post.return_value = response
+
+        result = _call_groq(b'swahili-audio', 'audio/webm', 'sw')
+
+        request_data = post.call_args.kwargs['data']
+        self.assertEqual(request_data['language'], 'sw')
+        self.assertIn('mkulima', request_data['prompt'])
+        self.assertEqual(result[3], 'sw')
+        self.assertAlmostEqual(result[4], -0.1)
+
+    @patch('core.services.portal_voice.requests.post')
+    def test_groq_auto_mode_omits_language_parameter(self, post):
+        response = Mock(status_code=200, headers={})
+        response.json.return_value = {'text': 'Mixed language note.', 'duration': 1, 'segments': []}
+        post.return_value = response
+
+        _call_groq(b'code-switched-audio', 'audio/webm', 'auto')
+
+        self.assertNotIn('language', post.call_args.kwargs['data'])

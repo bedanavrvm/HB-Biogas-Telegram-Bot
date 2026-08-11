@@ -1890,6 +1890,10 @@ body.portal-report-editor-active #bottom-tabs { display: none; }
 .voice-input { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 5px; }
 .voice-record-button { display: inline-grid; width: 36px; min-width: 36px; height: 36px; min-height: 36px; place-items: center; padding: 0; border: 1px solid var(--border-color); border-radius: 50%; background: var(--bg-surface); color: var(--color-primary); box-shadow: none; }
 .voice-record-button svg { width: 18px; height: 18px; }
+.voice-language-button { position: relative; display: inline-grid; width: 32px; min-width: 32px; height: 32px; min-height: 32px; place-items: center; padding: 0; border: 1px solid var(--border-color); border-radius: 50%; background: var(--bg-surface); color: var(--text-muted); box-shadow: none; }
+.voice-language-button svg { width: 16px; height: 16px; }
+.voice-language-badge { position: absolute; right: -3px; bottom: -3px; min-width: 16px; height: 16px; padding: 0 3px; border: 1px solid var(--bg-surface); border-radius: 8px; background: var(--color-primary); color: white; font-size: 8px; font-weight: 800; line-height: 14px; text-align: center; }
+.voice-input[data-language-mode="sw"] .voice-language-button { border-color: var(--color-primary); color: var(--color-primary); }
 .voice-input.recording .voice-record-button { border-color: var(--status-danger); background: color-mix(in srgb, var(--status-danger) 12%, var(--bg-surface)); color: var(--status-danger); }
 .voice-status { flex: 1 1 180px; color: var(--text-muted); font-size: 10px; line-height: 1.4; }
 .voice-status[data-state="error"] { color: var(--status-danger); }

@@ -2059,6 +2059,7 @@ def portal_voice_transcription(request, farmer_id: str):
             audio=uploaded.read() if uploaded is not None else None,
             mime_type=(getattr(uploaded, 'content_type', '') if uploaded is not None else ''),
             source_attempt=source_attempt,
+            language_mode=str(request.POST.get('language_mode') or ''),
         )
     except (TypeError, ValueError) as exc:
         if isinstance(exc, VoiceInputError):
@@ -2069,6 +2070,8 @@ def portal_voice_transcription(request, farmer_id: str):
         'transcription_id': str(attempt.id),
         'text': attempt.transcript,
         'status': attempt.status,
+        'requested_language': attempt.requested_language,
+        'detected_language': attempt.detected_language,
         'retry_available': bool(attempt.drive_file_id and attempt.expires_at > timezone.now()),
         'expires_at': attempt.expires_at.isoformat(),
         'idempotent_replay': replayed,
