@@ -50,7 +50,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('miniapp/portal_farmer_sheet.js?v=32', html)
         self.assertIn('miniapp/utils.js?v=4', html)
         self.assertIn('miniapp/portal_helpers.js?v=5', html)
-        self.assertIn('miniapp/portal.css?v=61', html)
+        self.assertIn('miniapp/portal.css?v=63', html)
         self.assertIn('miniapp/portal_filters.js?v=8', html)
         self.assertIn('miniapp/portal_imports.js?v=6', html)
         self.assertNotIn('portal-import-group', html)
@@ -58,8 +58,10 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('miniapp/portal_api.js?v=6', html)
         self.assertIn('miniapp/portal_invoices.js?v=15', html)
         self.assertIn('miniapp/portal_payments.js?v=7', html)
-        self.assertIn('miniapp/portal_reports.js?v=11', html)
-        self.assertIn('miniapp/portal.js?v=63', html)
+        self.assertIn('miniapp/portal_reports.js?v=13', html)
+        self.assertIn('miniapp/portal.js?v=64', html)
+        self.assertIn('miniapp/portal_case_history.js?v=1', html)
+        self.assertLess(html.index('miniapp/portal_case_history.js'), html.index('miniapp/portal.js'))
 
         spin_response = self.client.get(reverse('spin_form') + '?group_id=-100spin&token=test-token')
         spin_html = spin_response.content.decode('utf-8')
@@ -281,11 +283,13 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn("typeof portalFarmerSheet.renderCase360 !== 'function'", portal)
         self.assertIn('CASE_HISTORY_WATCHDOG_MS = 22000', portal)
         self.assertIn('content.dataset.caseHistoryLoadToken === loadToken', portal)
-        self.assertIn('if (initialCaseHistoryId) loadCaseHistoryFarmer(initialCaseHistoryId);', portal)
-        self.assertLess(
-            portal.index('if (initialCaseHistoryId) loadCaseHistoryFarmer(initialCaseHistoryId);'),
-            portal.index('  init();'),
-        )
+        self.assertIn('window.PortalCaseHistoryLoader.load(farmerId)', portal)
+
+        case_history = Path('core/static/miniapp/portal_case_history.js').read_text(encoding='utf-8')
+        self.assertIn('TIMEOUT_MS = 22000', case_history)
+        self.assertIn("document.addEventListener('htmx:afterSwap', loadCurrent)", case_history)
+        self.assertIn('case-history-independent-retry', case_history)
+        self.assertIn('window.Telegram?.WebApp', case_history)
 
         farmer_sheet = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')
         self.assertIn("hasCapability('portal.jbl_media.view') && mediaCount >= 1", farmer_sheet)

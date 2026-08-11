@@ -474,9 +474,13 @@
       'rerun',
     );
     const pageSize = Number(result.pagination?.page_size || result.rows.length || 1);
-    const firstPosition = (Number(result.pagination?.page || 1) - 1) * pageSize;
+    const currentPage = Number(result.pagination?.page || 1);
+    const totalPages = Number(result.pagination?.pages || 1);
+    const firstPosition = (currentPage - 1) * pageSize;
+    const rangeStart = result.rows.length ? firstPosition + 1 : 0;
+    const rangeEnd = firstPosition + result.rows.length;
     const table = `<div class="portal-report-table-wrap"><table class="portal-report-table"><thead><tr><th class="table-number">No.</th>${result.columns.map((item) => `<th>${escapeHtml(item.label)}</th>`).join('')}</tr></thead><tbody>${result.rows.length ? result.rows.map((row, index) => `<tr><td class="table-number">${firstPosition + index + 1}</td>${result.columns.map((column) => `<td>${escapeHtml(formatValue(row[column.key], column.type))}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${result.columns.length + 1}">No cases match this report.</td></tr>`}</tbody></table></div>`;
-    const pagination = result.pagination?.pages > 1 ? `<div class="portal-report-pager"><span>Page ${escapeHtml(result.pagination.page)} of ${escapeHtml(result.pagination.pages)} · ${escapeHtml(result.total_rows)} rows</span><div><button type="button" class="btn btn-secondary" data-report-action="page" data-page="${Math.max(1, result.pagination.page - 1)}" ${result.pagination.page <= 1 ? 'disabled' : ''}>Previous</button><button type="button" class="btn btn-secondary" data-report-action="page" data-page="${Math.min(result.pagination.pages, result.pagination.page + 1)}" ${result.pagination.page >= result.pagination.pages ? 'disabled' : ''}>Next</button></div></div>` : `<p class="portal-report-result-copy">${escapeHtml(result.total_rows)} live row${result.total_rows === 1 ? '' : 's'}${result.total_rows > result.shown_rows_limit ? `; table is limited to the first ${escapeHtml(result.shown_rows_limit)}` : ''}.</p>`;
+    const pagination = `<div class="portal-report-pager" aria-label="Report table pagination"><span>Rows ${escapeHtml(rangeStart)}-${escapeHtml(rangeEnd)} of ${escapeHtml(result.total_rows)} | Page ${escapeHtml(currentPage)} of ${escapeHtml(totalPages)}</span><div><button type="button" class="btn btn-secondary" data-report-action="page" data-page="${Math.max(1, currentPage - 1)}" ${currentPage <= 1 ? 'disabled' : ''}>Previous</button><button type="button" class="btn btn-secondary" data-report-action="page" data-page="${Math.min(totalPages, currentPage + 1)}" ${currentPage >= totalPages ? 'disabled' : ''}>Next</button></div></div>`;
     return `<section class="portal-report-results"><div class="portal-report-results-heading"><div><span class="settings-eyebrow">LIVE RESULT</span><h2>${escapeHtml(result.definition?.title || 'Report')}</h2><p>Generated ${escapeHtml(formatDateTime(result.run_at))}. This preview does not save a data snapshot.</p></div><div class="portal-report-actions"><button type="button" class="btn btn-primary" data-report-action="rerun">Run again</button><button type="button" class="btn btn-secondary" data-report-action="export">Download XLSX</button></div></div><div class="portal-report-summary-grid"><div class="portal-report-summary-item"><span>Rows</span><strong>${escapeHtml(result.total_rows || 0)}</strong></div><div class="portal-report-summary-item"><span>Shown</span><strong>${escapeHtml(result.rows?.length || 0)}</strong></div><div class="portal-report-summary-item"><span>Charts</span><strong>${escapeHtml(result.charts?.length || 0)}</strong></div></div><div id="portal-report-charts" class="portal-report-charts">${(result.charts || []).map((chart, index) => `<article class="portal-report-chart"><h3>${escapeHtml(chart.title)}</h3><p>${escapeHtml(chart.metric_label)} by ${escapeHtml(chart.dimension_label)}${chart.truncated ? ' · first 100 groups' : ''}</p><canvas id="portal-report-chart-${index}" aria-label="${escapeHtml(chart.title)}"></canvas></article>`).join('')}</div>${table}${pagination}</section>`;
   }
 
@@ -496,7 +500,6 @@
     syncEditorShell();
     if (state.route.view === 'edit' && editorStep() === 'fields') applyFieldSearch(state.fieldSearch);
     window.lucide?.createIcons?.();
-    renderMobileResultCards();
     renderCharts();
     if (state.route.view === 'edit' && editorStep() === 'review') {
       renderEditorChartPreview();
@@ -504,23 +507,6 @@
     }
     scheduleChartResize();
     requestShellNavigationSync();
-  }
-
-  function renderMobileResultCards() {
-    const result = state.result;
-    const target = root();
-    const table = target?.querySelector('.portal-report-table-wrap');
-    if (!result || !table) return;
-    const pageSize = Number(result.pagination?.page_size || result.rows.length || 1);
-    const firstPosition = (Number(result.pagination?.page || 1) - 1) * pageSize;
-    const primary = (result.columns || []).slice(0, 4);
-    const remaining = (result.columns || []).slice(4);
-    const cards = result.rows?.length ? result.rows.map((row, index) => {
-      const values = (columns) => columns.map((column) => `<div class="portal-report-row-field"><span>${escapeHtml(column.label)}</span><strong>${escapeHtml(formatValue(row[column.key], column.type))}</strong></div>`).join('');
-      const details = remaining.length ? `<details class="portal-report-row-more"><summary>More fields (${remaining.length})</summary><div class="portal-report-row-fields">${values(remaining)}</div></details>` : '';
-      return `<article class="portal-report-row-card"><header><span>Case row</span><strong>No. ${firstPosition + index + 1}</strong></header><div class="portal-report-row-fields">${values(primary)}</div>${details}</article>`;
-    }).join('') : '<div class="portal-report-empty-state"><strong>No cases match this report.</strong><span>Change a filter or run the report again when new work arrives.</span></div>';
-    table.insertAdjacentHTML('beforebegin', `<div class="portal-report-mobile-results" aria-label="Report results">${cards}</div>`);
   }
 
   function renderCharts() {

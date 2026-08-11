@@ -1345,6 +1345,9 @@
       navigateToUrl(caseHistoryUrl(farmerId));
       return;
     }
+    if (window.PortalCaseHistoryLoader?.load) {
+      return window.PortalCaseHistoryLoader.load(farmerId);
+    }
     const loadVersion = ++caseHistoryLoadVersion;
     const loadToken = `${loadVersion}:${farmerId}`;
     content.dataset.caseHistoryLoadToken = loadToken;
@@ -2370,10 +2373,6 @@
   // optional Portal bootstrap calls (metadata, settings, and workspace). Those
   // calls each have their own network timeout and used to leave this server-
   // rendered spinner visible while they ran sequentially.
-  const initialCaseHistoryId = currentScreenRoot()?.dataset.screen === 'case_history'
-    ? currentScreenRoot()?.dataset.caseFarmerId
-    : '';
-  if (initialCaseHistoryId) loadCaseHistoryFarmer(initialCaseHistoryId);
   init();
 
 })();
