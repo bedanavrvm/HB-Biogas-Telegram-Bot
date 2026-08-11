@@ -1868,6 +1868,47 @@ class JblPipelineApiTestCase(TestCase):
         self.assertEqual(len(categorized['LAF']), 1)
         self.assertEqual(len(categorized['JBL_VISIT_PHOTO']), 1)
 
+    @override_settings(PORTAL_JBL_VISIT_MAX_FILES=6)
+    @patch('core.services.jawabu_pipeline.complete_jbl_visit')
+    def test_atomic_jbl_visit_completion_rejects_too_many_files_before_service(self, mock_complete):
+        files = [
+            SimpleUploadedFile(f'visit-{index}.jpg', b'x' * 5000, content_type='image/jpeg')
+            for index in range(7)
+        ]
+        response = self.client.post(
+            reverse('portal_complete_jbl_visit', args=[self.farmer.id]),
+            {
+                'client_request_id': 'atomic-visit-file-limit',
+                'workflow_revision': self.farmer.workflow_revision,
+                'visit_status': 'Awaiting Analysis',
+                'jbl_visit_photo_files': files,
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['code'], 'jbl_visit_file_count_exceeded')
+        mock_complete.assert_not_called()
+
+    @override_settings(PORTAL_JBL_VISIT_MAX_TOTAL_UPLOAD_MB=1)
+    @patch('core.services.jawabu_pipeline.complete_jbl_visit')
+    def test_atomic_jbl_visit_completion_rejects_large_combined_upload_before_service(self, mock_complete):
+        laf = SimpleUploadedFile('laf.pdf', b'x' * 600000, content_type='application/pdf')
+        photo = SimpleUploadedFile('visit.jpg', b'x' * 600000, content_type='image/jpeg')
+        response = self.client.post(
+            reverse('portal_complete_jbl_visit', args=[self.farmer.id]),
+            {
+                'client_request_id': 'atomic-visit-total-limit',
+                'workflow_revision': self.farmer.workflow_revision,
+                'visit_status': 'Awaiting Analysis',
+                'laf_files': laf,
+                'jbl_visit_photo_files': photo,
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['code'], 'jbl_visit_total_upload_exceeded')
+        mock_complete.assert_not_called()
+
     def test_portal_workflow_write_requires_the_case_revision(self):
         response = self.client.post(
             reverse('portal_complete_jbl_visit', args=[self.farmer.id]),

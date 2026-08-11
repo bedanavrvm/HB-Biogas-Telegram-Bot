@@ -630,6 +630,9 @@ def complete_jbl_visit(
         for category, files in (categorized_files or {}).items()
         if files
     }
+    valid_batch, batch_error, batch_code = validate_jbl_visit_upload_batch(categories)
+    if not valid_batch:
+        return False, batch_error, {'evidence_saved': False, 'code': batch_code}
     for category, files in categories.items():
         if category not in JBL_MEDIA_CATEGORIES:
             return False, 'Choose a valid visit media category.', {'evidence_saved': False}
@@ -1148,6 +1151,38 @@ def _validate_jbl_media_files(uploaded_files: list, media_category: str) -> str:
             maximum_mb = maximum_bytes // (1024 * 1024)
             return f'{filename or JBL_MEDIA_CATEGORIES[media_category]} is larger than the {maximum_mb} MB evidence limit.'
     return ''
+
+
+def validate_jbl_visit_upload_batch(categorized_files: dict[str, list]) -> tuple[bool, str, str]:
+    """Bound one atomic visit upload before any evidence storage is attempted."""
+    uploaded_files = [
+        file_obj
+        for category_files in (categorized_files or {}).values()
+        for file_obj in (category_files or [])
+    ]
+    maximum_files = max(1, int(getattr(settings, 'PORTAL_JBL_VISIT_MAX_FILES', 6) or 6))
+    if len(uploaded_files) > maximum_files:
+        return (
+            False,
+            f'A JBL visit can include at most {maximum_files} evidence files.',
+            'jbl_visit_file_count_exceeded',
+        )
+    maximum_total_bytes = max(
+        1,
+        int(getattr(settings, 'PORTAL_JBL_VISIT_MAX_TOTAL_UPLOAD_MB', 40) or 40),
+    ) * 1024 * 1024
+    total_upload_bytes = sum(
+        max(0, int(getattr(file_obj, 'size', 0) or 0))
+        for file_obj in uploaded_files
+    )
+    if total_upload_bytes > maximum_total_bytes:
+        maximum_total_mb = maximum_total_bytes // (1024 * 1024)
+        return (
+            False,
+            f'JBL visit evidence cannot exceed {maximum_total_mb} MB in one submission.',
+            'jbl_visit_total_upload_exceeded',
+        )
+    return True, '', ''
 
 
 def append_jbl_media_links(

@@ -1990,6 +1990,11 @@ def portal_meta(request):
         'capabilities': _portal_capabilities(request),
         'access_policy_version': policy_version(),
         'jbl_visit_media_max_bytes': int(getattr(settings, 'MEDIA_MAX_FILE_SIZE_MB', 20) or 20) * 1024 * 1024,
+        'jbl_visit_media_max_files': max(1, int(getattr(settings, 'PORTAL_JBL_VISIT_MAX_FILES', 6) or 6)),
+        'jbl_visit_media_max_total_bytes': max(
+            1,
+            int(getattr(settings, 'PORTAL_JBL_VISIT_MAX_TOTAL_UPLOAD_MB', 40) or 40),
+        ) * 1024 * 1024,
         'voice_input': {
             'enabled': bool(
                 getattr(settings, 'PORTAL_VOICE_INPUT_ENABLED', False)
@@ -3033,6 +3038,7 @@ def portal_complete_jbl_visit(request, farmer_id: str):
         JBL_FORWARD_STATUSES,
         complete_jbl_visit,
         farmer_to_card,
+        validate_jbl_visit_upload_batch,
     )
 
     try:
@@ -3083,6 +3089,9 @@ def portal_complete_jbl_visit(request, farmer_id: str):
         media_error = _portal_capability_error(request, 'portal.jbl_media.write', farmer)
         if media_error:
             return media_error
+    valid_batch, batch_error, batch_code = validate_jbl_visit_upload_batch(categorized_files)
+    if not valid_batch:
+        return JsonResponse({'ok': False, 'error': batch_error, 'code': batch_code}, status=400)
     sender = _portal_sender_from_request(request)
     try:
         ok, error, result = complete_jbl_visit(

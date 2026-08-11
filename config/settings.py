@@ -278,6 +278,12 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 MEDIA_STORAGE_PROVIDER = config('MEDIA_STORAGE_PROVIDER', default='google_drive')
 MEDIA_MAX_FILE_SIZE_MB = config('MEDIA_MAX_FILE_SIZE_MB', default=20, cast=int)
+PORTAL_JBL_VISIT_MAX_FILES = config('PORTAL_JBL_VISIT_MAX_FILES', default=6, cast=int)
+PORTAL_JBL_VISIT_MAX_TOTAL_UPLOAD_MB = config(
+    'PORTAL_JBL_VISIT_MAX_TOTAL_UPLOAD_MB',
+    default=40,
+    cast=int,
+)
 ORDER_APPROVAL_MAX_FILES_PER_SLOT = config(
     'ORDER_APPROVAL_MAX_FILES_PER_SLOT',
     default=10,
