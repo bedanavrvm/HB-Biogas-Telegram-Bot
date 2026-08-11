@@ -123,7 +123,7 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         self.assertIn('/\\/portal\\/cases\\/[^/]+\\//', source)
         self.assertIn("return 'case_history'", source)
-        self.assertContains(response, 'miniapp/miniapp-nav.js?v=19')
+        self.assertContains(response, 'miniapp/miniapp-nav.js?v=20')
 
     def test_telegram_back_never_uses_host_history_for_a_cold_portal_screen(self):
         source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
@@ -252,20 +252,18 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn("event.target.closest('#invoice-pool-upload-form')", source)
         self.assertIn('invoiceBulkActionsBound', source)
 
-    def test_portal_sheets_restore_a_stable_viewport_after_external_activity_return(self):
+    def test_portal_sheets_do_not_reexpand_during_external_media_activity_return(self):
         navigation_source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
         portal_css = Path('core/static/miniapp/portal.css').read_text(encoding='utf-8')
 
-        self.assertIn('restoreTelegramViewport', navigation_source)
-        self.assertIn('visibilitychange', navigation_source)
-        self.assertIn("tg.onEvent?.('activated', handleTelegramActivated)", navigation_source)
+        self.assertNotIn('restoreTelegramViewport', navigation_source)
+        self.assertNotIn('visibilitychange', navigation_source)
+        self.assertNotIn("tg.onEvent?.('activated'", navigation_source)
         self.assertIn('viewportChanged', navigation_source)
         self.assertIn('viewportStableHeight', navigation_source)
         self.assertIn('event.isStateStable === false', navigation_source)
         self.assertIn('--miniapp-viewport-height', navigation_source)
-        self.assertIn('tg?.expand?.()', navigation_source)
-        self.assertNotIn("window.addEventListener('focus', restoreTelegramViewport)", navigation_source)
-        self.assertNotIn("window.addEventListener('pageshow', restoreTelegramViewport)", navigation_source)
+        self.assertEqual(navigation_source.count('tg.expand?.();'), 1)
         self.assertNotIn("input[type=\"file\"]", navigation_source)
         self.assertIn('inset: 0;', portal_css)
         self.assertIn('height: var(--miniapp-viewport-height, 100dvh);', portal_css)

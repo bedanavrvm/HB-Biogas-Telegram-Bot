@@ -5,10 +5,6 @@
   let mainHandler = null;
   let lastFocusedElement = null;
   let portalHistoryDepth = 0;
-  let viewportRestoreScheduled = false;
-  let viewportRestoreFallback = null;
-  let activationFallback = null;
-  let lastViewportRestoreAt = 0;
 
   function isPortalRoute(pathname = window.location.pathname) {
     return /^\/portal\/(?:s\/[^/]+\/|cases\/[^/]+\/)/.test(pathname);
@@ -135,56 +131,7 @@
 
   function handleTelegramViewportChanged(event = {}) {
     if (event.isStateStable === false) return;
-    if (viewportRestoreFallback) {
-      window.clearTimeout(viewportRestoreFallback);
-      viewportRestoreFallback = null;
-    }
     syncTelegramViewportHeight();
-  }
-
-  function restoreTelegramViewport() {
-    // Android may return from an external viewer with the WebView contracted.
-    // Activity and visibility events often arrive together, so coalesce them
-    // into one expansion and wait for Telegram's stable viewport notification.
-    const now = Date.now();
-    if (viewportRestoreScheduled || now - lastViewportRestoreAt < 250) return;
-    viewportRestoreScheduled = true;
-    window.requestAnimationFrame(() => {
-      viewportRestoreScheduled = false;
-      lastViewportRestoreAt = Date.now();
-      tg?.expand?.();
-      if (viewportRestoreFallback) window.clearTimeout(viewportRestoreFallback);
-      // Older Telegram clients may not emit viewportChanged when they already
-      // consider the Mini App expanded. Measure once after their animation.
-      viewportRestoreFallback = window.setTimeout(() => {
-        viewportRestoreFallback = null;
-        syncTelegramViewportHeight();
-      }, 300);
-    });
-  }
-
-  function handleTelegramActivated() {
-    if (activationFallback) {
-      window.clearTimeout(activationFallback);
-      activationFallback = null;
-    }
-    restoreTelegramViewport();
-  }
-
-  function scheduleVisibilityRestore() {
-    if (document.visibilityState !== 'visible') {
-      if (activationFallback) window.clearTimeout(activationFallback);
-      activationFallback = null;
-      return;
-    }
-    if (activationFallback) return;
-    // Modern clients emit activated as well as visibilitychange. Give that
-    // authoritative event time to arrive; this remains a fallback for older
-    // clients that only expose document visibility.
-    activationFallback = window.setTimeout(() => {
-      activationFallback = null;
-      restoreTelegramViewport();
-    }, 200);
   }
 
   function currentScreen() {
@@ -282,10 +229,14 @@
 
   if (tg) {
     tg.ready();
-    restoreTelegramViewport();
+    // Expand only during initial Mini App startup. Native file pickers and
+    // media viewers emit activated/visibility events while Telegram is still
+    // restoring its WebView; calling expand again in that transition produces
+    // a Telegram viewport error on Android.
+    tg.expand?.();
+    syncTelegramViewportHeight();
     tg.onEvent?.('themeChanged', syncTheme);
     tg.onEvent?.('viewportChanged', handleTelegramViewportChanged);
-    tg.onEvent?.('activated', handleTelegramActivated);
   }
   syncTheme();
   markPortalHistoryEntry();
@@ -293,7 +244,6 @@
   window.addEventListener('portal:reports-route-change', syncBackButton);
   window.addEventListener('resize', syncBrowserViewportHeight);
   window.visualViewport?.addEventListener('resize', syncBrowserViewportHeight);
-  document.addEventListener('visibilitychange', scheduleVisibilityRestore);
 
   document.body.addEventListener('htmx:configRequest', event => {
     if (tg?.initData) event.detail.headers['X-Telegram-Init-Data'] = tg.initData;
