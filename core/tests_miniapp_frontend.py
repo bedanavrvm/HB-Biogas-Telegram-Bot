@@ -59,7 +59,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('miniapp/portal_invoices.js?v=15', html)
         self.assertIn('miniapp/portal_payments.js?v=7', html)
         self.assertIn('miniapp/portal_reports.js?v=11', html)
-        self.assertIn('miniapp/portal.js?v=62', html)
+        self.assertIn('miniapp/portal.js?v=63', html)
 
         spin_response = self.client.get(reverse('spin_form') + '?group_id=-100spin&token=test-token')
         spin_html = spin_response.content.decode('utf-8')
@@ -279,6 +279,13 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('caseHistoryLoadVersion', portal)
         self.assertIn('case-history-retry', portal)
         self.assertIn("typeof portalFarmerSheet.renderCase360 !== 'function'", portal)
+        self.assertIn('CASE_HISTORY_WATCHDOG_MS = 22000', portal)
+        self.assertIn('content.dataset.caseHistoryLoadToken === loadToken', portal)
+        self.assertIn('if (initialCaseHistoryId) loadCaseHistoryFarmer(initialCaseHistoryId);', portal)
+        self.assertLess(
+            portal.index('if (initialCaseHistoryId) loadCaseHistoryFarmer(initialCaseHistoryId);'),
+            portal.index('  init();'),
+        )
 
     def test_portal_cards_filters_imab_and_workflow_drafts_are_consistent(self):
         template = Path('core/templates/portal/portal.html').read_text(encoding='utf-8')

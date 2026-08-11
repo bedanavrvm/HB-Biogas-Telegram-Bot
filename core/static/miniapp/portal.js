@@ -61,6 +61,7 @@
   let lastShellScreen = null;
   const queueLoadVersions = new Map();
   let caseHistoryLoadVersion = 0;
+  const CASE_HISTORY_WATCHDOG_MS = 22000;
 
   function currentScreenRoot() {
     return document.getElementById('portal-screen');
@@ -1345,21 +1346,39 @@
       return;
     }
     const loadVersion = ++caseHistoryLoadVersion;
+    const loadToken = `${loadVersion}:${farmerId}`;
+    content.dataset.caseHistoryLoadToken = loadToken;
     content.innerHTML = '<div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading complete case history...</div></div>';
+    const ownsCurrentContent = () => (
+      document.body.contains(content)
+      && content.dataset.caseHistoryLoadToken === loadToken
+      && currentScreenRoot()?.dataset.screen === 'case_history'
+      && currentScreenRoot()?.dataset.caseFarmerId === String(farmerId)
+    );
+    const renderFailure = message => {
+      if (!ownsCurrentContent()) return;
+      content.dataset.caseHistoryLoadState = 'error';
+      content.innerHTML = `<div class="batch-warning"><strong>Could not load complete case history</strong><p>${escapeHtml(message || 'Check your connection and try again.')}</p><button type="button" class="btn btn-secondary case-history-retry" data-farmer-id="${escapeHtml(farmerId)}">Retry</button></div>`;
+    };
+    const watchdog = window.setTimeout(() => {
+      renderFailure('The case history took too long to load. Check your connection and try again.');
+    }, CASE_HISTORY_WATCHDOG_MS);
     const requestOptions = canManagePortalWorkspace()
       ? { headers: { 'X-Portal-Workspace-Open-Key': newWorkspaceOpenKey() } }
       : undefined;
     try {
       const { ok, data } = await apiFetch('/farmers/' + encodeURIComponent(farmerId) + '/', requestOptions);
-      if (loadVersion !== caseHistoryLoadVersion || !isCurrentScreen('case_history') || currentScreenRoot()?.dataset.caseFarmerId !== String(farmerId)) return;
+      if (!ownsCurrentContent()) return;
       if (!ok || !data?.ok) throw new Error(data?.error || 'Could not load case history.');
       if (!data.case360 || typeof portalFarmerSheet.renderCase360 !== 'function') {
         throw new Error('The complete case history could not be displayed.');
       }
+      content.dataset.caseHistoryLoadState = 'loaded';
       portalFarmerSheet.renderCase360(data.case360, content);
     } catch (error) {
-      if (loadVersion !== caseHistoryLoadVersion || !isCurrentScreen('case_history')) return;
-      content.innerHTML = `<div class="batch-warning"><strong>Could not load complete case history</strong><p>${escapeHtml(error.message || 'Check your connection and try again.')}</p><button type="button" class="btn btn-secondary case-history-retry" data-farmer-id="${escapeHtml(farmerId)}">Retry</button></div>`;
+      renderFailure(error.message);
+    } finally {
+      window.clearTimeout(watchdog);
     }
   }
 
@@ -2347,6 +2366,14 @@
   }
 
   updateConnectionBanner();
+  // A case-history deep link is operationally important and must not wait for
+  // optional Portal bootstrap calls (metadata, settings, and workspace). Those
+  // calls each have their own network timeout and used to leave this server-
+  // rendered spinner visible while they ran sequentially.
+  const initialCaseHistoryId = currentScreenRoot()?.dataset.screen === 'case_history'
+    ? currentScreenRoot()?.dataset.caseFarmerId
+    : '';
+  if (initialCaseHistoryId) loadCaseHistoryFarmer(initialCaseHistoryId);
   init();
 
 })();
