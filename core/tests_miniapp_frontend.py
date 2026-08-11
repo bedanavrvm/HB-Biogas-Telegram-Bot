@@ -47,7 +47,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertLess(html.index('miniapp/portal_payments.js'), html.index('miniapp/portal.js'))
         self.assertLess(html.index('miniapp/portal_imports.js'), html.index('miniapp/portal.js'))
         self.assertIn('miniapp/portal_queues.js?v=8', html)
-        self.assertIn('miniapp/portal_farmer_sheet.js?v=31', html)
+        self.assertIn('miniapp/portal_farmer_sheet.js?v=32', html)
         self.assertIn('miniapp/utils.js?v=4', html)
         self.assertIn('miniapp/portal_helpers.js?v=5', html)
         self.assertIn('miniapp/portal.css?v=61', html)
@@ -286,6 +286,10 @@ class MiniAppFrontendSmokeTests(TestCase):
             portal.index('if (initialCaseHistoryId) loadCaseHistoryFarmer(initialCaseHistoryId);'),
             portal.index('  init();'),
         )
+
+        farmer_sheet = Path('core/static/miniapp/portal_farmer_sheet.js').read_text(encoding='utf-8')
+        self.assertIn("hasCapability('portal.jbl_media.view') && mediaCount >= 1", farmer_sheet)
+        self.assertIn('View ${mediaCount} media files', farmer_sheet)
 
     def test_portal_cards_filters_imab_and_workflow_drafts_are_consistent(self):
         template = Path('core/templates/portal/portal.html').read_text(encoding='utf-8')

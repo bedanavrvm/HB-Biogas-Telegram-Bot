@@ -245,9 +245,14 @@
 
     const infoFields = summaryFields(farmer, mode);
 
+    const mediaCount = Number(farmer.jbl_media_count || 0);
+    const mediaSummary = hasCapability('portal.jbl_media.view') && mediaCount >= 1
+      ? `<li class="info-row sheet-media-summary"><span class="ir-label">Client media</span><span class="ir-value"><button type="button" class="secondary" id="btn-view-client-media">View ${mediaCount} media files</button><div id="final-client-media" class="media-links client-media-links" hidden></div></span></li>`
+      : '';
     el('sheet-info').innerHTML = infoFields.map(([label, value]) =>
       `<li class="info-row"><span class="ir-label">${deps.escapeHtml(label)}</span><span class="ir-value">${value}</span></li>`
-    ).join('');
+    ).join('') + mediaSummary;
+    el('btn-view-client-media')?.addEventListener('click', () => loadClientMedia(farmer.id));
     const caseToggle = el('case360-toggle');
     caseToggle.textContent = 'Open Case History';
     caseToggle.onclick = () => {
@@ -282,7 +287,6 @@
       formEl.innerHTML = buildFinalReviewForm(farmer);
       footerEl.innerHTML = '<button class="primary" id="btn-submit-final">Save Final Review</button>';
       el('btn-submit-final').addEventListener('click', submitFinalDecision);
-      el('btn-view-client-media')?.addEventListener('click', () => loadClientMedia(farmer.id));
       wireWorkflowDraft(farmer, mode);
     } else if (mode === 'requisition') {
       formEl.innerHTML = buildRequisitionBatchNotice();
@@ -877,11 +881,6 @@
           </div>
         </div>
         <div class="form-row"><label>Final Decision</label><select id="final-decision"><option value="">- Select -</option>${decisionOptions}</select></div>
-        ${hasCapability('portal.jbl_media.view') ? `<div class="form-row form-row-wide">
-          <label>Client media</label>
-          <button type="button" class="secondary" id="btn-view-client-media">View client media</button>
-          <div id="final-client-media" class="media-links client-media-links" hidden></div>
-        </div>` : ''}
         <div class="form-row"><label>Repayment Dates</label><input type="text" id="final-repayment-date" placeholder="e.g. 10TH" value="${deps.escapeHtml(farmer.repayment_date || '')}"></div>
         <div class="form-row"><label>Tenor</label><input type="text" id="final-repayment-tenor" placeholder="e.g. 6 months" value="${deps.escapeHtml(farmer.repayment_tenor || '')}"></div>
         <div class="form-row form-row-wide"><label>After-call Comments</label><textarea id="final-comment" rows="4" placeholder="Summarize the call and decision...">${deps.escapeHtml(farmer.final_decision_comment || '')}</textarea></div>
