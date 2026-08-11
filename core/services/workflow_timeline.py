@@ -125,7 +125,10 @@ def jawabu_case_timeline(farmer: JawabuFarmerMaster) -> dict[str, Any]:
     """Return the unified internal history for a Jawabu application."""
     redactions, annotations = _annotations('jawabu_pipeline', str(farmer.pk))
     entries: list[dict[str, Any]] = []
-    for event in farmer.pipeline_events.select_related('actor_user', 'authority_user').order_by('-occurred_at', '-created_at'):
+    # Keep a pathological event history from holding a mobile request open
+    # indefinitely. The complete append-only ledger remains in Django/Admin;
+    # Case History is a bounded operational projection.
+    for event in farmer.pipeline_events.select_related('actor_user', 'authority_user').order_by('-occurred_at', '-created_at')[:500]:
         source_id = f'jawabu:{event.id}'
         entries.append(_entry(
             source_id=source_id,

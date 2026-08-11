@@ -335,6 +335,8 @@ body.portal-compact-cards .farmer-card .badge { padding: 2px 6px; font-size: 10p
   gap: 6px;
   cursor: pointer;
   transition: transform 0.15s, box-shadow 0.15s;
+  color: inherit;
+  text-decoration: none;
 }
 .count-card:active { transform: scale(0.97); }
 .count-card [data-lucide],
@@ -369,6 +371,34 @@ body.portal-compact-cards .farmer-card .badge { padding: 2px 6px; font-size: 10p
 .count-card.danger .count-num { color: var(--color-danger); }
 .count-card.success .count-num { color: var(--color-success); }
 .count-card.warning .count-num { color: var(--color-warning); }
+
+.dashboard-action-section { margin: 18px 0; }
+.dashboard-action-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.dashboard-action-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  min-height: 68px; padding: 12px; border: 1px solid var(--border-color);
+  border-radius: var(--radius-md); background: var(--bg-surface); color: inherit; text-decoration: none;
+}
+.dashboard-action-card strong, .dashboard-action-card span { display: block; }
+.dashboard-action-card strong { font-size: 14px; }
+.dashboard-action-card span { margin-top: 3px; color: var(--text-muted); font-size: 11px; }
+.dashboard-action-card b { display: grid; min-width: 34px; height: 34px; place-items: center; border-radius: 999px; background: var(--color-soft); color: var(--brand-primary); }
+.dashboard-action-card.urgent { border-color: rgba(220, 38, 38, .28); }
+.dashboard-action-card.urgent b { background: rgba(220, 38, 38, .1); color: var(--color-danger); }
+.dashboard-activity-layout { display: grid; grid-template-columns: minmax(110px, .35fr) 1fr; gap: 10px; }
+.dashboard-today { display: grid; align-content: center; padding: 14px; border-radius: var(--radius-md); background: var(--brand-primary); color: #fff; }
+.dashboard-today strong { font-size: 32px; line-height: 1; }
+.dashboard-today span { margin-top: 5px; font-size: 11px; opacity: .86; }
+.dashboard-metric-list { display: grid; gap: 7px; }
+.dashboard-metric-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 11px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-surface); }
+.dashboard-metric-row span { overflow: hidden; color: var(--text-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.dashboard-metric-row strong { font-variant-numeric: tabular-nums; }
+.dashboard-case-link { color: inherit; text-decoration: none; }
+.dashboard-case-link .fc-top { align-items: center; }
+.dashboard-case-reason { color: var(--brand-primary); font-size: 11px; font-weight: 700; }
+@media (max-width: 540px) {
+  .dashboard-action-grid, .dashboard-activity-layout { grid-template-columns: 1fr; }
+}
 
 /* ── Farmer list cards ──────────────────────────────────────────────────────── */
 .farmer-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }

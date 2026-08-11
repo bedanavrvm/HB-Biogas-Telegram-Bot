@@ -1923,13 +1923,16 @@ def portal_workspace_recents_clear(request):
 @csrf_exempt
 @require_http_methods(["GET"])
 def portal_dashboard(request):
+    """GET /api/portal/dashboard/ — scoped operational action dashboard."""
     access_error = _portal_read_access_error(request, capability='portal.dashboard.view')
     if access_error:
         return access_error
-    """GET /api/portal/dashboard/ — pipeline queue counts."""
-    from core.services.jawabu_pipeline import pipeline_counts
-    counts = pipeline_counts()
-    return JsonResponse({'ok': True, 'counts': counts})
+    from core.services.portal_dashboard import dashboard_payload
+    payload = dashboard_payload(
+        getattr(request, 'portal_user', None),
+        access=getattr(request, 'portal_access', None),
+    )
+    return JsonResponse({'ok': True, **payload})
 
 
 # ── Meta / dropdown lists ─────────────────────────────────────────────────────
@@ -3765,8 +3768,10 @@ def portal_farmer_detail(request, farmer_id: str):
     from core.services.jawabu_pipeline import farmer_to_card
     from django.db.models import Q
     from core.models import SpinCreditRequest
+    started_at = time.monotonic()
+    request_id = str(request.headers.get('X-Request-ID') or '').strip()
     try:
-        farmer = JawabuFarmerMaster.objects.get(pk=farmer_id)
+        farmer = JawabuFarmerMaster.objects.select_related('customer').get(pk=farmer_id)
     except JawabuFarmerMaster.DoesNotExist:
         return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
     access_error = _portal_read_access_error(request, farmer)
@@ -3825,7 +3830,12 @@ def portal_farmer_detail(request, farmer_id: str):
                 'attachment_names': record.attachment_names or [],
             })
     card['spin_references'] = spin_references
-    return JsonResponse({'ok': True, 'farmer': card, 'case360': serialize_case360(farmer)})
+    case360 = serialize_case360(farmer)
+    logger.info(
+        'Portal Case History serialized farmer_id=%s request_id=%s duration_ms=%s',
+        farmer.id, request_id or '-', int((time.monotonic() - started_at) * 1000),
+    )
+    return JsonResponse({'ok': True, 'farmer': card, 'case360': case360})
 
 
 

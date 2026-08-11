@@ -1830,6 +1830,10 @@ class JblPipelineApiTestCase(TestCase):
         data = response.json()
         self.assertTrue(data['ok'])
         self.assertEqual(data['counts']['jbl_queue'], 1)
+        self.assertIn('queues', data)
+        self.assertIn('attention', data)
+        self.assertIn('activity_7d', data)
+        self.assertIn('recent_cases', data)
 
     def test_legacy_jbl_visit_write_route_requires_the_atomic_client(self):
         """Cached two-step clients cannot create an evidence/visit split."""

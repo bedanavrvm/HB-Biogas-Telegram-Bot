@@ -139,6 +139,7 @@ Key modules:
 - `workflow_timeline.py` — read-only, append-only-event timeline projections for Portal and TAT case history
 - `workflow_escalations.py` — scoped read models for current in-app escalation context
 - `portal_workspace.py` — retained but currently IT-restricted Portal saved views, pins, recents, and their bounded retention
+- `portal_dashboard.py` — capability- and branch-scoped Portal action-dashboard queues, attention signals, activity, and recent cases
 - `portal_maintenance.py` — IT-controlled Portal read-only maintenance state and audit evidence
 - `portal_reporting.py` — IT-only, catalogue-constrained live Portal reports, chart aggregates, XLSX exports, and reporting audit events
 - `reporting_relationships.py` — read-only model-relationship inventory used to govern future report-source expansion; it never creates cross-workflow customer joins

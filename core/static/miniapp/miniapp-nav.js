@@ -260,14 +260,24 @@
   }
 
   function activateScreen() {
-    const screen = currentScreen();
-    document.querySelectorAll('.shell-nav-link').forEach(link => {
-      link.classList.toggle('active', link.dataset.screen === screen);
-    });
-    window.PortalAppShell?.activate(screen);
-    syncBackButton();
-    syncMainButton();
-    window.lucide?.createIcons();
+    try {
+      const screen = currentScreen();
+      document.querySelectorAll('.shell-nav-link').forEach(link => {
+        link.classList.toggle('active', link.dataset.screen === screen);
+      });
+      if (!window.PortalAppShell?.activate) throw new Error('Portal screen loader is unavailable.');
+      window.PortalAppShell.activate(screen);
+      syncBackButton();
+      syncMainButton();
+      window.lucide?.createIcons();
+    } catch (error) {
+      console.warn('Portal route activation failed.', error);
+      const target = document.getElementById('portal-screen');
+      if (target) {
+        target.innerHTML = '<section class="shell-error" role="alert"><h2>Screen could not start</h2>'
+          + '<p>Refresh the Portal or choose the screen again from the menu.</p></section>';
+      }
+    }
   }
 
   if (tg) {
@@ -292,6 +302,8 @@
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   });
   document.body.addEventListener('htmx:afterSwap', activateScreen);
+  document.body.addEventListener('htmx:afterSettle', activateScreen);
+  document.body.addEventListener('htmx:historyRestore', activateScreen);
   document.body.addEventListener('htmx:pushedIntoHistory', () => {
     // htmx owns browser history for in-shell links. Stamp its new entry with
     // a Portal-only depth so Telegram Back never crosses into the host app.

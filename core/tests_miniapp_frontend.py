@@ -47,19 +47,19 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertLess(html.index('miniapp/portal_payments.js'), html.index('miniapp/portal.js'))
         self.assertLess(html.index('miniapp/portal_imports.js'), html.index('miniapp/portal.js'))
         self.assertIn('miniapp/portal_queues.js?v=8', html)
-        self.assertIn('miniapp/portal_farmer_sheet.js?v=30', html)
+        self.assertIn('miniapp/portal_farmer_sheet.js?v=31', html)
         self.assertIn('miniapp/utils.js?v=4', html)
         self.assertIn('miniapp/portal_helpers.js?v=5', html)
-        self.assertIn('miniapp/portal.css?v=60', html)
+        self.assertIn('miniapp/portal.css?v=61', html)
         self.assertIn('miniapp/portal_filters.js?v=8', html)
         self.assertIn('miniapp/portal_imports.js?v=6', html)
         self.assertNotIn('portal-import-group', html)
         self.assertIn('miniapp/portal_requisitions.js?v=33', html)
         self.assertIn('miniapp/portal_api.js?v=6', html)
-        self.assertIn('miniapp/portal_invoices.js?v=14', html)
+        self.assertIn('miniapp/portal_invoices.js?v=15', html)
         self.assertIn('miniapp/portal_payments.js?v=7', html)
         self.assertIn('miniapp/portal_reports.js?v=11', html)
-        self.assertIn('miniapp/portal.js?v=61', html)
+        self.assertIn('miniapp/portal.js?v=62', html)
 
         spin_response = self.client.get(reverse('spin_form') + '?group_id=-100spin&token=test-token')
         spin_html = spin_response.content.decode('utf-8')
@@ -121,7 +121,7 @@ class MiniAppFrontendSmokeTests(TestCase):
 
         self.assertIn('/\\/portal\\/cases\\/[^/]+\\//', source)
         self.assertIn("return 'case_history'", source)
-        self.assertContains(response, 'miniapp/miniapp-nav.js?v=18')
+        self.assertContains(response, 'miniapp/miniapp-nav.js?v=19')
 
     def test_telegram_back_never_uses_host_history_for_a_cold_portal_screen(self):
         source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')
@@ -152,6 +152,22 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('window.htmx.config.timeout = 20000', portal_source)
         self.assertIn("root?.dataset.reportStep || ''", portal_source)
         self.assertIn("document.body.addEventListener('htmx:timeout'", navigation_source)
+        self.assertIn("document.body.addEventListener('htmx:afterSettle'", navigation_source)
+        self.assertIn("document.body.addEventListener('htmx:historyRestore'", navigation_source)
+        self.assertIn('runScreenLoader(page)', portal_source)
+        self.assertIn('renderScreenLoadFailure', portal_source)
+
+    def test_dashboard_links_and_sections_are_route_backed_and_terminal(self):
+        template = Path('core/templates/portal/portal.html').read_text(encoding='utf-8')
+        source = Path('core/static/miniapp/portal.js').read_text(encoding='utf-8')
+
+        self.assertIn('id="dashboard-attention"', template)
+        self.assertIn('id="dashboard-activity"', template)
+        self.assertIn('id="dashboard-recent"', template)
+        self.assertIn('id="dashboard-pipeline-distribution"', template)
+        self.assertIn('href="{% url \'portal_screen\' screen=\'jbl\' %}"', template)
+        self.assertIn('dashboard-route-link', source)
+        self.assertIn('portal-screen-retry', source)
 
     def test_portal_reports_use_route_backed_drill_down_screens(self):
         portal_source = Path('core/static/miniapp/portal.js').read_text(encoding='utf-8')

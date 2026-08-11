@@ -25,6 +25,7 @@
   let state = {
     activePage: document.getElementById('portal-screen')?.dataset.screen || 'dashboard',
     counts: {},
+    dashboard: null,
     queues: { jbl: [], my_visits: [], credit: [], final: [], requisition: [], deferred: [], all: [], batches: [] },
     pagination: {},
     pages: { jbl: 1, my_visits: 1, credit: 1, final: 1, requisition: 1, deferred: 1, all: 1, batches: 1 },
@@ -65,9 +66,40 @@
     return document.getElementById('portal-screen');
   }
 
+  function routeSignature(page, root = currentScreenRoot()) {
+    return `${page}:${root?.dataset.caseFarmerId || ''}:${root?.dataset.reportView || ''}:${root?.dataset.reportId || ''}:${root?.dataset.reportStep || ''}:${root?.dataset.invoiceView || ''}:${root?.dataset.invoiceId || ''}`;
+  }
+
   function isCurrentScreen(page) {
     const root = currentScreenRoot();
     return Boolean(root && state.activePage === page && root.dataset.screen === page);
+  }
+
+  function renderScreenLoadFailure(page, error) {
+    if (!isCurrentScreen(page)) return;
+    const root = currentScreenRoot();
+    if (!root) return;
+    const target = page === 'case_history'
+      ? el('case-history-content')
+      : root.querySelector('.page.active') || root;
+    if (!target) return;
+    target.innerHTML = '<section class="shell-error" role="alert"><h2>Screen could not finish loading</h2><p>'
+      + escapeHtml(error?.message || 'The Portal could not prepare this screen.')
+      + '</p><button type="button" class="btn btn-secondary portal-screen-retry" data-page="'
+      + escapeHtml(page) + '">Retry</button></section>';
+  }
+
+  function runScreenLoader(page) {
+    try {
+      return Promise.resolve(loadPage(page)).catch(error => {
+        console.warn(`Portal ${page} load failed.`, error);
+        renderScreenLoadFailure(page, error);
+      });
+    } catch (error) {
+      console.warn(`Portal ${page} activation failed.`, error);
+      renderScreenLoadFailure(page, error);
+      return Promise.resolve();
+    }
   }
 
   function beginQueueLoad(page) {
@@ -437,6 +469,7 @@
     loading.setAttribute('aria-busy', 'false');
     loading.style.display = 'none';
     state.counts = data.counts || {};
+    state.dashboard = data || {};
     renderDashboard();
     if (canManagePortalWorkspace()) {
       try { await loadPortalWorkspace({ includeSummary: true }); } catch (_) { /* Workspace shortcuts are non-critical to queue work. */ }
@@ -457,6 +490,38 @@
     setBadge('tab-badge-final', c.final_review_queue);
     setBadge('tab-badge-req', c.requisition_queue);
     el('dash-counts').style.display = 'grid';
+    const dashboard = state.dashboard || {};
+    const scope = el('dash-scope');
+    if (scope) scope.textContent = `${dashboard.scope?.label || 'Your authorized workload'} · Updated ${fmtDate(dashboard.as_of)}`;
+    const attention = dashboard.attention || [];
+    const attentionSection = el('dashboard-attention');
+    const attentionList = el('dashboard-attention-list');
+    if (attentionSection && attentionList) {
+      attentionSection.hidden = !attention.length;
+      attentionList.innerHTML = attention.map(item => `<a class="dashboard-action-card dashboard-route-link ${item.severity === 'urgent' ? 'urgent' : ''}" href="${escapeHtml(item.url || '#')}"><span><strong>${escapeHtml(item.label || 'Needs attention')}</strong><span>${escapeHtml(item.severity || 'review')}</span></span><b>${escapeHtml(item.count || 0)}</b></a>`).join('');
+    }
+    const activity = dashboard.activity_7d || [];
+    const activitySection = el('dashboard-activity');
+    if (activitySection) activitySection.hidden = false;
+    if (el('dashboard-today-count')) el('dashboard-today-count').textContent = dashboard.activity_today?.completed_actions ?? 0;
+    if (el('dashboard-activity-list')) {
+      el('dashboard-activity-list').innerHTML = activity.length
+        ? activity.map(item => `<div class="dashboard-metric-row"><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.count)}</strong></div>`).join('')
+        : '<div class="empty-state"><div class="es-sub">No recorded workflow activity in the last 7 days.</div></div>';
+    }
+    const distribution = dashboard.pipeline_distribution || [];
+    if (el('dashboard-pipeline-distribution')) {
+      el('dashboard-pipeline-distribution').innerHTML = distribution.length
+        ? distribution.map(item => `<div class="dashboard-metric-row"><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(item.count)}</strong></div>`).join('')
+        : '<div class="empty-state"><div class="es-sub">No actionable queues for this role.</div></div>';
+    }
+    const recent = dashboard.recent_cases || [];
+    const recentSection = el('dashboard-recent');
+    const recentList = el('dashboard-recent-list');
+    if (recentSection && recentList) {
+      recentSection.hidden = !recent.length;
+      recentList.innerHTML = recent.map(item => `<a class="farmer-card dashboard-case-link dashboard-route-link" href="${escapeHtml(item.url)}"><div class="fc-top"><div><div class="fc-name">${escapeHtml(item.customer_name || 'Unnamed customer')}</div><div class="fc-sub">${escapeHtml([item.branch, item.stage].filter(Boolean).join(' · '))}</div></div><i data-lucide="arrow-up-right"></i></div><div class="dashboard-case-reason">${escapeHtml(item.reason || 'Recently updated')}</div></a>`).join('');
+    }
     if (window.lucide) {
       window.lucide.createIcons();
     }
@@ -480,6 +545,18 @@
     if (!card) return;
     event.preventDefault();
     navigateTo(card.dataset.page);
+  });
+  document.addEventListener('click', event => {
+    const refresh = event.target.closest('#dashboard-refresh');
+    if (refresh) {
+      event.preventDefault();
+      loadDashboard();
+      return;
+    }
+    const routeLink = event.target.closest('.dashboard-route-link');
+    if (!routeLink) return;
+    event.preventDefault();
+    navigateToUrl(routeLink.href);
   });
   // Generic queue loader
   const queueConfig = portalQueues.config ? portalQueues.config() : {
@@ -1313,28 +1390,28 @@
 
   function loadCaseHistory() {
     const farmerId = document.getElementById('portal-screen')?.dataset.caseFarmerId;
-    if (farmerId) loadCaseHistoryFarmer(farmerId);
-    else showCaseHistorySearch();
+    if (farmerId) return loadCaseHistoryFarmer(farmerId);
+    showCaseHistorySearch();
+    return Promise.resolve();
   }
 
   // Page router
   function loadPage(page) {
-    if (page === 'dashboard') loadDashboard();
-    else if (page === 'invoices' && portalInvoices.load) portalInvoices.load(1);
-    else if (page === 'history') loadHistory();
-    else if (page === 'case_history') loadCaseHistory();
-    else if (page === 'payments' && portalPayments.load) portalPayments.load();
-    else if (page === 'imports' && portalImports.load) portalImports.load();
+    if (page === 'dashboard') return loadDashboard();
+    if (page === 'invoices' && portalInvoices.load) return portalInvoices.load(1);
+    if (page === 'history') return loadHistory();
+    if (page === 'case_history') return loadCaseHistory();
+    if (page === 'payments' && portalPayments.load) return portalPayments.load();
+    if (page === 'imports' && portalImports.load) return portalImports.load();
     else if (page === 'reports' && portalReports.load) {
-      Promise.resolve(portalReports.load({
+      return portalReports.load({
         tg,
         canManage: hasCapability('portal.reports.manage'),
-      })).catch((error) => {
-        console.warn('Portal Reports load failed after route activation.', error);
       });
     }
-    else if (page === 'settings') loadPortalSettings(true);
-    else if (queueConfig[page]) loadQueue(page, 1);
+    if (page === 'settings') return loadPortalSettings(true);
+    if (queueConfig[page]) return loadQueue(page, 1);
+    throw new Error(`No loader is registered for ${page}.`);
   }
 
   function populatePortalSettingScreens(screens, selected) {
@@ -1727,9 +1804,9 @@
       navigateTo(initialPage);
       return;
     }
-    lastShellScreen = shellScreen;
+    lastShellScreen = routeSignature(shellScreen);
     switchPage(shellScreen);
-    loadPage(shellScreen);
+    runScreenLoader(shellScreen);
     if (window.lucide) {
       window.lucide.createIcons();
     }
@@ -1968,6 +2045,13 @@
     if (viewButton.dataset.kind === 'payments') portalRequisitions.openFinalPaymentHistory?.(viewButton.dataset.id);
     else portalRequisitions.openFinalOrderHistory?.(viewButton.dataset.order);
   });
+
+  document.addEventListener('click', event => {
+    const retry = event.target.closest('.portal-screen-retry');
+    if (!retry) return;
+    event.preventDefault();
+    runScreenLoader(retry.dataset.page || state.activePage);
+  });
   let jblSearchTimer;
   document.addEventListener('input', e => {
     if (!e.target.matches('#jbl-search')) return;
@@ -2135,11 +2219,12 @@
       // A Reports editor step is a route-backed nested screen. Include it in
       // the activation signature so Fields -> Filters -> Review always loads
       // the newly swapped root instead of leaving its static placeholder.
-      const screenSignature = `${page}:${root?.dataset.caseFarmerId || ''}:${root?.dataset.reportView || ''}:${root?.dataset.reportId || ''}:${root?.dataset.reportStep || ''}:${root?.dataset.invoiceView || ''}:${root?.dataset.invoiceId || ''}`;
+      const screenSignature = routeSignature(page, root);
       const changed = lastShellScreen !== screenSignature;
       lastShellScreen = screenSignature;
       switchPage(page);
-      if (changed) loadPage(page);
+      applyCapabilityVisibility();
+      if (changed) runScreenLoader(page);
       if (window.lucide) window.lucide.createIcons();
     },
     openCaseHistory(farmerId) {

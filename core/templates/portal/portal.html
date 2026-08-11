@@ -13,7 +13,7 @@
         <p class="eyebrow">Pipeline overview</p>
         <h2>Work waiting for your team</h2>
       </div>
-      <p>Open a queue to continue the next valid step.</p>
+      <div><p id="dash-scope">Your authorized workload</p><button type="button" class="btn btn-secondary" id="dashboard-refresh">Refresh</button></div>
     </div>
 
     <div id="dash-loading" class="dashboard-loading" aria-live="polite" aria-busy="true">
@@ -23,68 +23,81 @@
       </div>
     </div>
     <div id="dash-counts" class="count-grid" style="display:none">
-      <button type="button" class="count-card priority-queue" data-page="jbl" id="card-jbl" data-required-capability="portal.jbl_queue.view">
+      <a class="count-card priority-queue" data-page="jbl" id="card-jbl" data-required-capability="portal.jbl_queue.view" href="{% url 'portal_screen' screen='jbl' %}" hx-get="{% url 'portal_screen' screen='jbl' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">
         <span class="queue-card-icon"><i data-lucide="home"></i></span>
         <span class="queue-card-body">
           <span class="count-num" id="cnt-jbl">-</span>
           <span class="count-label">Awaiting JBL visit</span>
         </span>
         <span class="queue-card-action">Open <i data-lucide="arrow-up-right"></i></span>
-      </button>
-      <button type="button" class="count-card" data-page="credit" id="card-credit" data-required-capability="portal.credit_queue.view">
+      </a>
+      <a class="count-card" data-page="credit" id="card-credit" data-required-capability="portal.credit_queue.view" href="{% url 'portal_screen' screen='credit' %}" hx-get="{% url 'portal_screen' screen='credit' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">
         <span class="queue-card-icon"><i data-lucide="shield-check"></i></span>
         <span class="queue-card-body">
           <span class="count-num" id="cnt-credit">-</span>
           <span class="count-label">Credit analysis</span>
         </span>
         <span class="queue-card-action">Open <i data-lucide="arrow-up-right"></i></span>
-      </button>
-      <button type="button" class="count-card" data-page="final" id="card-final" data-required-capability="portal.final_review.view">
+      </a>
+      <a class="count-card" data-page="final" id="card-final" data-required-capability="portal.final_review.view" href="{% url 'portal_screen' screen='final' %}" hx-get="{% url 'portal_screen' screen='final' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">
         <span class="queue-card-icon"><i data-lucide="phone-call"></i></span>
         <span class="queue-card-body">
           <span class="count-num" id="cnt-final">-</span>
           <span class="count-label">Head of Rural review</span>
         </span>
         <span class="queue-card-action">Open <i data-lucide="arrow-up-right"></i></span>
-      </button>
-      <button type="button" class="count-card success" data-page="requisition" id="card-requisition" data-required-capability="portal.requisition.view">
+      </a>
+      <a class="count-card success" data-page="requisition" id="card-requisition" data-required-capability="portal.requisition.view" href="{% url 'portal_screen' screen='requisition' %}" hx-get="{% url 'portal_screen' screen='requisition' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">
         <span class="queue-card-icon"><i data-lucide="shopping-bag"></i></span>
         <span class="queue-card-body">
           <span class="count-num" id="cnt-requisition">-</span>
           <span class="count-label">Ready for order</span>
         </span>
         <span class="queue-card-action">Open <i data-lucide="arrow-up-right"></i></span>
-      </button>
-      <button type="button" class="count-card warning" data-page="deferred" id="card-deferred" data-required-capability="portal.deferred.view">
+      </a>
+      <a class="count-card warning" data-page="deferred" id="card-deferred" data-required-capability="portal.deferred.view" href="{% url 'portal_screen' screen='deferred' %}" hx-get="{% url 'portal_screen' screen='deferred' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">
         <span class="queue-card-icon"><i data-lucide="clock"></i></span>
         <span class="queue-card-body">
           <span class="count-num" id="cnt-deferred">-</span>
           <span class="count-label">Deferred or flagged</span>
         </span>
         <span class="queue-card-action">Review <i data-lucide="arrow-up-right"></i></span>
-      </button>
+      </a>
     </div>
 
-    <button type="button" class="dashboard-total" data-page="all" data-required-capability="portal.case.read">
+    <section id="dashboard-attention" class="dashboard-action-section" hidden>
+      <div class="stage-summary-heading"><h2>Needs your attention</h2><span>Urgent and blocked work</span></div>
+      <div id="dashboard-attention-list" class="dashboard-action-grid"></div>
+    </section>
+
+    <section id="dashboard-activity" class="dashboard-action-section" hidden>
+      <div class="stage-summary-heading"><h2>Activity</h2><span>Today and the last 7 days</span></div>
+      <div class="dashboard-activity-layout">
+        <article class="dashboard-today"><strong id="dashboard-today-count">0</strong><span>actions recorded today</span></article>
+        <div id="dashboard-activity-list" class="dashboard-metric-list"></div>
+      </div>
+    </section>
+
+    <section id="dashboard-recent" class="dashboard-action-section" hidden>
+      <div class="stage-summary-heading"><h2>Recent and urgent cases</h2><span>Scoped to your access</span></div>
+      <div id="dashboard-recent-list" class="farmer-list dashboard-recent-list"></div>
+    </section>
+
+    <a class="dashboard-total" data-page="all" data-required-capability="portal.case.read" href="{% url 'portal_screen' screen='all' %}" hx-get="{% url 'portal_screen' screen='all' %}" hx-target="#portal-screen" hx-swap="outerHTML transition:true" hx-push-url="true">
       <span class="queue-card-icon"><i data-lucide="database"></i></span>
       <span class="queue-card-body">
         <span class="count-num" id="cnt-total">-</span>
         <span class="count-label">Farmer records in the system</span>
       </span>
       <span class="queue-card-action">Browse all <i data-lucide="arrow-up-right"></i></span>
-    </button>
+    </a>
 
     <section class="portal-stage-summary" aria-labelledby="workflow-stages-title">
       <div class="stage-summary-heading">
-        <h2 id="workflow-stages-title">Workflow path</h2>
-        <span>Where each record moves next</span>
+        <h2 id="workflow-stages-title">Current pipeline</h2>
+        <span>Actionable records by stage</span>
       </div>
-      <ol>
-        <li><b>1</b><span>HB upload</span></li>
-        <li><b>2</b><span>JBL site visit</span></li>
-        <li><b>3</b><span>Credit analysis</span></li>
-        <li><b>4</b><span>Order assigned</span></li>
-      </ol>
+      <div id="dashboard-pipeline-distribution" class="dashboard-metric-list"></div>
     </section>
   </section>
   {% endif %}
