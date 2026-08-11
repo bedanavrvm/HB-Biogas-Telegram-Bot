@@ -76,6 +76,7 @@ from .models import (
     JawabuRelatedPerson,
     JawabuHouseholdRelationship,
     ParsedInvoice,
+    PortalVoiceTranscriptionAttempt,
     PaymentDocument,
     PaymentDocumentTemplate,
     RawMessage,
@@ -2658,6 +2659,16 @@ class InvoiceUploadBatchAdmin(ReadOnlyAuditAdmin):
     )
     list_filter = ('status', 'created_at')
     search_fields = ('original_filename', 'uploaded_by', 'drive_file_id', 'drive_url')
+
+
+@admin.register(PortalVoiceTranscriptionAttempt)
+class PortalVoiceTranscriptionAttemptAdmin(ReadOnlyAuditAdmin):
+    list_display = (
+        'farmer', 'field_name', 'user', 'status', 'duration_ms', 'provider',
+        'model_name', 'deletion_status', 'created_at', 'expires_at',
+    )
+    list_filter = ('field_name', 'status', 'provider', 'model_name', 'deletion_status', 'created_at')
+    search_fields = ('farmer__customer_name', 'request_id', 'provider_request_id', 'user__username')
 
 
 @admin.register(ParsedInvoice)

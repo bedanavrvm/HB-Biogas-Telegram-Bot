@@ -1990,8 +1990,116 @@ def portal_meta(request):
         'capabilities': _portal_capabilities(request),
         'access_policy_version': policy_version(),
         'jbl_visit_media_max_bytes': int(getattr(settings, 'MEDIA_MAX_FILE_SIZE_MB', 20) or 20) * 1024 * 1024,
+        'voice_input': {
+            'enabled': bool(
+                getattr(settings, 'PORTAL_VOICE_INPUT_ENABLED', False)
+                and getattr(settings, 'PORTAL_VOICE_PROVIDER', '') == 'groq'
+                and getattr(settings, 'GROQ_API_KEY', '')
+            ),
+            'max_seconds': max(1, int(getattr(settings, 'PORTAL_VOICE_MAX_SECONDS', 30) or 30)),
+            'fields': ['jbl_visit_comment', 'final_decision_comment'],
+        },
         'due_publication_operation_ids': _portal_due_publication_ids(request),
     })
+
+
+def _portal_voice_error_response(exc):
+    payload = {'ok': False, 'error': str(exc), 'code': getattr(exc, 'code', 'invalid_request')}
+    retry_after = getattr(exc, 'retry_after', None)
+    if retry_after:
+        payload['retry_after'] = retry_after
+    return JsonResponse(payload, status=getattr(exc, 'status', 400))
+
+
+@csrf_exempt  # The shared Portal wrapper verifies Telegram initData and resolves the staff user.
+@require_http_methods(['POST'])
+def portal_voice_transcription(request, farmer_id: str):
+    """Create a transcription from a new recording or an owned retry recording."""
+    from core.models import JawabuFarmerMaster, PortalVoiceTranscriptionAttempt
+    from core.services.portal_voice import VoiceInputError, create_transcription
+
+    farmer = JawabuFarmerMaster.objects.filter(pk=farmer_id).first()
+    if farmer is None:
+        return JsonResponse({'ok': False, 'error': 'Farmer not found.'}, status=404)
+    field_name = str(request.POST.get('field_name') or '').strip()
+    if field_name == PortalVoiceTranscriptionAttempt.FIELD_JBL_VISIT_COMMENT:
+        access_error = _portal_capability_error(request, 'portal.jbl_visit.write', farmer)
+    elif field_name == PortalVoiceTranscriptionAttempt.FIELD_FINAL_DECISION_COMMENT:
+        access_error = _portal_approval_authority_error(request, farmer, 'final_review')
+    else:
+        return JsonResponse({'ok': False, 'error': 'Voice input is not enabled for this field.', 'code': 'unsupported_field'}, status=400)
+    if access_error:
+        return access_error
+    user = getattr(request, 'portal_user', None)
+    if user is None:
+        return JsonResponse({'ok': False, 'error': 'Your Portal staff account could not be resolved.'}, status=403)
+    try:
+        from core.services.portal_voice import cleanup_expired_transcriptions
+        if PortalVoiceTranscriptionAttempt.objects.filter(expires_at__lte=timezone.now()).exclude(deletion_status='deleted').exists():
+            cleanup_expired_transcriptions(limit=5)
+    except Exception:
+        logger.exception('Request-assisted Portal voice cleanup failed')
+    request_id = _portal_request_id(request, request.POST.dict())
+    source_attempt = None
+    source_id = str(request.POST.get('retry_attempt_id') or '').strip()
+    if source_id:
+        source_attempt = PortalVoiceTranscriptionAttempt.objects.filter(pk=source_id).first()
+        if source_attempt is None:
+            return JsonResponse({'ok': False, 'error': 'That retry recording is no longer available.', 'code': 'not_found'}, status=404)
+    uploaded = request.FILES.get('audio')
+    if source_attempt is None and uploaded is None:
+        return JsonResponse({'ok': False, 'error': 'A recording is required.', 'code': 'empty_audio'}, status=400)
+    if uploaded is not None and uploaded.size > 5 * 1024 * 1024:
+        return JsonResponse({'ok': False, 'error': 'The recording is too large.', 'code': 'audio_too_large'}, status=413)
+    try:
+        duration_ms = int(request.POST.get('duration_ms') or 0)
+        attempt, replayed = create_transcription(
+            user=user, farmer=farmer, field_name=field_name, request_id=request_id,
+            duration_ms=duration_ms,
+            audio=uploaded.read() if uploaded is not None else None,
+            mime_type=(getattr(uploaded, 'content_type', '') if uploaded is not None else ''),
+            source_attempt=source_attempt,
+        )
+    except (TypeError, ValueError) as exc:
+        if isinstance(exc, VoiceInputError):
+            return _portal_voice_error_response(exc)
+        return JsonResponse({'ok': False, 'error': 'Recording duration is invalid.', 'code': 'invalid_duration'}, status=400)
+    return JsonResponse({
+        'ok': attempt.status == attempt.STATUS_TRANSCRIBED,
+        'transcription_id': str(attempt.id),
+        'text': attempt.transcript,
+        'status': attempt.status,
+        'retry_available': bool(attempt.drive_file_id and attempt.expires_at > timezone.now()),
+        'expires_at': attempt.expires_at.isoformat(),
+        'idempotent_replay': replayed,
+    })
+
+
+@csrf_exempt  # The shared Portal wrapper verifies Telegram initData and ownership is checked below.
+@require_http_methods(['POST'])
+def portal_voice_transcription_cancel(request, attempt_id: str):
+    from core.models import PortalVoiceTranscriptionAttempt
+    from core.services.portal_voice import VoiceInputError, resolve_transcription
+
+    attempt = PortalVoiceTranscriptionAttempt.objects.select_related('farmer').filter(pk=attempt_id).first()
+    if attempt is None:
+        return JsonResponse({'ok': False, 'error': 'Voice transcription not found.'}, status=404)
+    field_name = attempt.field_name
+    farmer = attempt.farmer
+    if field_name == attempt.FIELD_JBL_VISIT_COMMENT:
+        access_error = _portal_capability_error(request, 'portal.jbl_visit.write', farmer)
+    else:
+        access_error = _portal_approval_authority_error(request, farmer, 'final_review')
+    if access_error:
+        return access_error
+    try:
+        resolve_transcription(
+            attempt_id=attempt_id, user=getattr(request, 'portal_user', None),
+            farmer=farmer, field_name=field_name, accepted=False,
+        )
+    except VoiceInputError as exc:
+        return _portal_voice_error_response(exc)
+    return JsonResponse({'ok': True, 'status': 'cancelled'})
 
 
 # ── Staged FarmUp / SysUp imports ────────────────────────────────────────────
@@ -2932,6 +3040,16 @@ def portal_complete_jbl_visit(request, farmer_id: str):
     if role_error:
         return role_error
     body = request.POST.dict()
+    voice_attempt_id = str(body.get('voice_transcription_id') or '').strip()
+    if voice_attempt_id:
+        try:
+            from core.services.portal_voice import validate_transcription_reference
+            validate_transcription_reference(
+                attempt_id=voice_attempt_id, user=getattr(request, 'portal_user', None),
+                farmer=farmer, field_name='jbl_visit_comment',
+            )
+        except ValueError as exc:
+            return _portal_voice_error_response(exc)
     try:
         expected_revision = _portal_workflow_revision(body)
     except ValueError as exc:
@@ -2988,10 +3106,23 @@ def portal_complete_jbl_visit(request, farmer_id: str):
     if not ok:
         return JsonResponse({'ok': False, 'error': error, **result}, status=409 if result.get('evidence_saved') else 400)
     farmer.refresh_from_db()
+    voice_cleanup_pending = False
+    if voice_attempt_id:
+        try:
+            from core.services.portal_voice import resolve_transcription
+            resolve_transcription(
+                attempt_id=voice_attempt_id, user=getattr(request, 'portal_user', None),
+                farmer=farmer, field_name='jbl_visit_comment',
+                accepted_text=str(body.get('comment') or '').strip(),
+            )
+        except Exception:
+            logger.exception('Voice resolution failed after JBL visit commit farmer_id=%s', farmer.pk)
+            voice_cleanup_pending = True
     return JsonResponse({
         'ok': True,
         'farmer': farmer_to_card(farmer),
         'publication': _portal_publication_payload(farmer),
+        'voice_cleanup_pending': voice_cleanup_pending,
         **result,
     })
 
@@ -3587,6 +3718,16 @@ def portal_set_final_decision(request, farmer_id: str):
     except ValueError as exc:
         response = _portal_workflow_error(exc)
         return response or JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    voice_attempt_id = str(body.get('voice_transcription_id') or '').strip()
+    if voice_attempt_id:
+        try:
+            from core.services.portal_voice import validate_transcription_reference
+            validate_transcription_reference(
+                attempt_id=voice_attempt_id, user=getattr(request, 'portal_user', None),
+                farmer=farmer, field_name='final_decision_comment',
+            )
+        except ValueError as exc:
+            return _portal_voice_error_response(exc)
 
     final_decision = str(body.get('final_decision') or '').strip()
     decision_comment = str(body.get('decision_comment') or '').strip()
@@ -3619,10 +3760,22 @@ def portal_set_final_decision(request, farmer_id: str):
     if not ok:
         return JsonResponse({'ok': False, 'error': error}, status=400)
     farmer.refresh_from_db()
+    voice_cleanup_pending = False
+    if voice_attempt_id:
+        try:
+            from core.services.portal_voice import resolve_transcription
+            resolve_transcription(
+                attempt_id=voice_attempt_id, user=getattr(request, 'portal_user', None),
+                farmer=farmer, field_name='final_decision_comment', accepted_text=decision_comment,
+            )
+        except Exception:
+            logger.exception('Voice resolution failed after final review commit farmer_id=%s', farmer.pk)
+            voice_cleanup_pending = True
     return JsonResponse({
         'ok': True,
         'farmer': farmer_to_card(farmer),
         'publication': _portal_publication_payload(farmer),
+        'voice_cleanup_pending': voice_cleanup_pending,
     })
 
 

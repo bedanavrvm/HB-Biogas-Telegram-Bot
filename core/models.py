@@ -2547,6 +2547,79 @@ class MiniAppDraft(models.Model):
         return self.expires_at <= timezone.now()
 
 
+class PortalVoiceTranscriptionAttempt(models.Model):
+    """Append-oriented audit and retry state for bounded Portal dictation."""
+
+    FIELD_JBL_VISIT_COMMENT = 'jbl_visit_comment'
+    FIELD_FINAL_DECISION_COMMENT = 'final_decision_comment'
+    FIELD_CHOICES = [
+        (FIELD_JBL_VISIT_COMMENT, 'JBL visit comment'),
+        (FIELD_FINAL_DECISION_COMMENT, 'Final decision after-call comment'),
+    ]
+    STATUS_PROCESSING = 'processing'
+    STATUS_TRANSCRIBED = 'transcribed'
+    STATUS_ACCEPTED = 'accepted'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_FAILED = 'failed'
+    STATUS_EXPIRED = 'expired'
+    STATUS_CHOICES = [
+        (STATUS_PROCESSING, 'Processing'),
+        (STATUS_TRANSCRIBED, 'Transcribed'),
+        (STATUS_ACCEPTED, 'Accepted'),
+        (STATUS_CANCELLED, 'Cancelled'),
+        (STATUS_FAILED, 'Failed'),
+        (STATUS_EXPIRED, 'Expired'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='portal_voice_transcription_attempts',
+    )
+    farmer = models.ForeignKey(
+        'JawabuFarmerMaster',
+        on_delete=models.CASCADE,
+        related_name='voice_transcription_attempts',
+    )
+    field_name = models.CharField(max_length=64, choices=FIELD_CHOICES)
+    request_id = models.CharField(max_length=128)
+    audio_hash = models.CharField(max_length=64, db_index=True)
+    audio_size = models.PositiveIntegerField(default=0)
+    audio_mime_type = models.CharField(max_length=80, blank=True, default='')
+    duration_ms = models.PositiveIntegerField(default=0)
+    provider = models.CharField(max_length=32, default='groq')
+    model_name = models.CharField(max_length=80, default='whisper-large-v3')
+    status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_PROCESSING, db_index=True)
+    transcript = models.TextField(blank=True, default='')
+    provider_request_id = models.CharField(max_length=128, blank=True, default='')
+    drive_file_id = models.CharField(max_length=255, blank=True, default='')
+    expires_at = models.DateTimeField(db_index=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    edit_distance = models.PositiveIntegerField(null=True, blank=True)
+    deletion_status = models.CharField(max_length=24, blank=True, default='not_stored', db_index=True)
+    deletion_error = models.CharField(max_length=255, blank=True, default='')
+    error_code = models.CharField(max_length=64, blank=True, default='')
+    source_attempt = models.ForeignKey(
+        'self', null=True, blank=True, on_delete=models.SET_NULL, related_name='retries',
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'request_id'],
+                name='unique_portal_voice_request_per_user',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['user', 'created_at'], name='portal_voice_user_day_idx'),
+            models.Index(fields=['status', 'expires_at'], name='portal_voice_status_exp_idx'),
+            models.Index(fields=['farmer', 'field_name', 'created_at'], name='portal_voice_case_field_idx'),
+        ]
+
+
 class JawabuFarmerUploadBatch(models.Model):
     """Staged FarmUp/system-export upload awaiting staff review and commit.
 

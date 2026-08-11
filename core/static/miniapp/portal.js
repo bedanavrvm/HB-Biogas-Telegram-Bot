@@ -39,6 +39,7 @@
     metaBranches: [],
     metaCounties: [],
     jblVisitMediaMaxBytes: 20 * 1024 * 1024,
+    voiceInput: { enabled: false, maxSeconds: 30, fields: [] },
     personalPreference: null,
     portalSettings: null,
     portalDelegationOptions: null,
@@ -1192,6 +1193,7 @@
     state.metaBranches = data.branches || [];
     state.metaCounties = data.counties || [];
     state.jblVisitMediaMaxBytes = Number(data.jbl_visit_media_max_bytes || state.jblVisitMediaMaxBytes);
+    state.voiceInput = data.voice_input || state.voiceInput;
     if (portalApi.schedulePublication && Array.isArray(data.due_publication_operation_ids)) {
       portalApi.schedulePublication({ pending_operation_ids: data.due_publication_operation_ids }, tg);
     }

@@ -235,6 +235,9 @@ This is a template of variables this class of system typically needs. Treat it a
 | `COMPLAINT_CASES_WEBAPP_REQUIRE_TELEGRAM_AUTH` | Requires verified Telegram Mini App identity for complaint case APIs | No |
 | `TELEGRAM_AUTH_MAX_AGE_SECONDS` | Maximum age accepted by the shared Telegram-to-Django authentication backend | No |
 | `COMPLAINT_CASE_MAX_FILES_PER_UPDATE` / `COMPLAINT_CASE_MAX_TOTAL_UPLOAD_MB` | Limits complaint evidence uploads | No |
+| `PORTAL_VOICE_INPUT_ENABLED` / `PORTAL_VOICE_PROVIDER` / `PORTAL_VOICE_MODEL` | Disabled-by-default Portal dictation pilot and approved transcription provider/model | No |
+| `GROQ_API_KEY` | Server-only Groq transcription credential; enable Zero Data Retention before operational use | Yes |
+| `PORTAL_VOICE_MAX_SECONDS` / `PORTAL_VOICE_DAILY_REQUEST_LIMIT` / `PORTAL_VOICE_DAILY_AUDIO_SECONDS` / `PORTAL_VOICE_USER_DAILY_REQUEST_LIMIT` / `PORTAL_VOICE_RETRY_RETENTION_MINUTES` | Recording, free-tier quota, and temporary Drive retry limits | No |
 
 When adding a new configuration value, add it to `.env.example` with a placeholder (never a real value) in the same change, and add it to this table.
 

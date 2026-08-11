@@ -12,6 +12,14 @@
   let workflowServerDraft = null;
   let workflowServerDraftKey = '';
   let workflowDraftInputVersion = 0;
+  let voiceRecorder = null;
+  let voiceStream = null;
+  let voiceChunks = [];
+  let voiceStartedAt = 0;
+  let voiceStopTimer = null;
+  let discardVoiceOnStop = false;
+  let activeVoiceAttempt = null;
+  const acceptedVoiceAttempts = {};
 
   const MODE_WRITE_CAPABILITIES = {
     jbl_visit: 'portal.jbl_visit.write',
@@ -28,6 +36,176 @@
     return Boolean(gateByMode[mode] && state().approvalDelegationGates?.includes(gateByMode[mode]));
   }
   function requestId() { return window.crypto?.randomUUID?.() || `portal-${Date.now()}-${Math.random().toString(16).slice(2)}`; }
+
+  function voiceWidget(fieldName, inputId) {
+    if (!state().voiceInput?.enabled || !state().voiceInput?.fields?.includes(fieldName)) return '';
+    return `<div class="voice-input" data-voice-field="${fieldName}" data-input-id="${inputId}">
+      <button type="button" class="voice-record-button" data-voice-action="record" aria-pressed="false">
+        <span aria-hidden="true">&#127908;</span><span class="voice-record-label">Dictate</span>
+      </button>
+      <small class="voice-status" aria-live="polite">Tap to record up to ${Number(state().voiceInput.maxSeconds || 30)} seconds. Audio is externally transcribed and must be reviewed.</small>
+      <div class="voice-review" hidden>
+        <strong>Review transcription</strong><p class="voice-transcript"></p>
+        <div class="voice-review-actions">
+          <button type="button" class="secondary" data-voice-action="append">Append</button>
+          <button type="button" class="secondary" data-voice-action="replace">Replace</button>
+          <button type="button" class="secondary" data-voice-action="retry">Retry</button>
+          <button type="button" class="secondary" data-voice-action="cancel">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function voiceMimeType() {
+    const candidates = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus'];
+    return candidates.find(value => window.MediaRecorder?.isTypeSupported?.(value)) || '';
+  }
+
+  function setVoiceStatus(widget, message, stateName = '') {
+    const status = widget?.querySelector('.voice-status');
+    if (status) { status.textContent = message; status.dataset.state = stateName; }
+  }
+
+  function stopVoiceTracks() {
+    window.clearTimeout(voiceStopTimer);
+    voiceStopTimer = null;
+    voiceStream?.getTracks?.().forEach(track => track.stop());
+    voiceStream = null;
+    voiceRecorder = null;
+  }
+
+  async function transcribeVoice(widget, blob, durationMs, retryAttemptId = '') {
+    const farmer = state().selectedFarmer;
+    if (!farmer) return;
+    const key = requestId();
+    const formData = new FormData();
+    formData.set('client_request_id', key);
+    formData.set('field_name', widget.dataset.voiceField);
+    formData.set('duration_ms', String(Math.max(1, Math.round(durationMs))));
+    if (retryAttemptId) formData.set('retry_attempt_id', retryAttemptId);
+    if (blob) formData.set('audio', blob, blob.type.includes('mp4') ? 'recording.m4a' : 'recording.webm');
+    setVoiceStatus(widget, 'Transcribing...', 'loading');
+    const button = widget.querySelector('[data-voice-action="record"]');
+    if (button) button.disabled = true;
+    try {
+      const { ok, data } = await deps.portalApi.postForm(
+        `/farmers/${encodeURIComponent(farmer.id)}/voice-transcriptions/`, formData, deps.tg,
+        { 'X-CSRFToken': deps.getCookie('csrftoken') || '', 'X-Request-ID': key, 'Idempotency-Key': key },
+      );
+      if (!ok || !data?.text) throw new Error(data?.error || 'Transcription failed.');
+      activeVoiceAttempt = {
+        id: data.transcription_id, fieldName: widget.dataset.voiceField,
+        inputId: widget.dataset.inputId, transcript: data.text,
+        retryAvailable: Boolean(data.retry_available), durationMs,
+      };
+      widget.querySelector('.voice-transcript').textContent = data.text;
+      widget.querySelector('.voice-review').hidden = false;
+      widget.querySelector('[data-voice-action="retry"]').disabled = !data.retry_available;
+      setVoiceStatus(widget, 'Choose Append or Replace after checking the text.', 'review');
+    } catch (error) {
+      setVoiceStatus(widget, error.message || 'Transcription is unavailable. Please type the comment.', 'error');
+      if (retryAttemptId && activeVoiceAttempt?.id === retryAttemptId) {
+        widget.querySelector('.voice-review').hidden = false;
+      }
+      deps.showToast(error.message || 'Transcription is unavailable. Please type the comment.', 'error');
+    } finally {
+      if (button) button.disabled = false;
+    }
+  }
+
+  async function startVoiceRecording(widget) {
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+      setVoiceStatus(widget, 'Voice recording is unavailable on this phone. Use keyboard dictation or type.', 'error');
+      return;
+    }
+    try {
+      voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = voiceMimeType();
+      voiceRecorder = mimeType ? new MediaRecorder(voiceStream, { mimeType }) : new MediaRecorder(voiceStream);
+      discardVoiceOnStop = false;
+      voiceChunks = [];
+      voiceStartedAt = Date.now();
+      voiceRecorder.addEventListener('dataavailable', event => { if (event.data?.size) voiceChunks.push(event.data); });
+      voiceRecorder.addEventListener('stop', () => {
+        const duration = Math.max(1, Date.now() - voiceStartedAt);
+        const blob = new Blob(voiceChunks, { type: voiceRecorder?.mimeType || mimeType || 'audio/webm' });
+        stopVoiceTracks();
+        if (discardVoiceOnStop) { discardVoiceOnStop = false; return; }
+        transcribeVoice(widget, blob, duration);
+      }, { once: true });
+      voiceRecorder.start();
+      const button = widget.querySelector('[data-voice-action="record"]');
+      button?.setAttribute('aria-pressed', 'true');
+      widget.querySelector('.voice-record-label').textContent = 'Stop';
+      widget.classList.add('recording');
+      setVoiceStatus(widget, 'Recording... tap Stop when finished.', 'recording');
+      voiceStopTimer = window.setTimeout(() => stopVoiceRecording(widget), Number(state().voiceInput.maxSeconds || 30) * 1000);
+    } catch (_error) {
+      stopVoiceTracks();
+      setVoiceStatus(widget, 'Microphone permission was not granted. Use keyboard dictation or type.', 'error');
+    }
+  }
+
+  function stopVoiceRecording(widget) {
+    if (voiceRecorder?.state === 'recording') voiceRecorder.stop();
+    const button = widget.querySelector('[data-voice-action="record"]');
+    button?.setAttribute('aria-pressed', 'false');
+    widget.querySelector('.voice-record-label').textContent = 'Dictate';
+    widget.classList.remove('recording');
+  }
+
+  async function cancelVoiceAttempt(attempt = activeVoiceAttempt) {
+    if (!attempt?.id) return;
+    const id = attempt.id;
+    if (activeVoiceAttempt?.id === id) activeVoiceAttempt = null;
+    try {
+      await deps.apiFetch(`/voice-transcriptions/${encodeURIComponent(id)}/cancel/`, {
+        method: 'POST', body: JSON.stringify({ request_id: requestId() }),
+      });
+    } catch (_error) {}
+  }
+
+  function wireVoiceWidget(fieldName) {
+    const widget = document.querySelector(`.voice-input[data-voice-field="${fieldName}"]`);
+    if (!widget) return;
+    widget.addEventListener('click', event => {
+      const action = event.target.closest('[data-voice-action]')?.dataset.voiceAction;
+      if (!action) return;
+      if (action === 'record') {
+        if (voiceRecorder?.state === 'recording') stopVoiceRecording(widget);
+        else startVoiceRecording(widget);
+        return;
+      }
+      const attempt = activeVoiceAttempt;
+      if (!attempt || attempt.fieldName !== fieldName) return;
+      if (action === 'retry') {
+        widget.querySelector('.voice-review').hidden = true;
+        transcribeVoice(widget, null, attempt.durationMs, attempt.id);
+        return;
+      }
+      if (action === 'cancel') {
+        widget.querySelector('.voice-review').hidden = true;
+        setVoiceStatus(widget, 'Transcription cancelled. Your typed text is unchanged.', '');
+        cancelVoiceAttempt(attempt);
+        return;
+      }
+      const input = el(attempt.inputId);
+      if (!input) return;
+      input.value = action === 'append' && input.value.trim()
+        ? `${input.value.trim()} ${attempt.transcript}`
+        : attempt.transcript;
+      const previousAcceptedId = acceptedVoiceAttempts[fieldName];
+      if (previousAcceptedId && previousAcceptedId !== attempt.id) {
+        cancelVoiceAttempt({ id: previousAcceptedId, fieldName });
+      }
+      acceptedVoiceAttempts[fieldName] = attempt.id;
+      activeVoiceAttempt = null;
+      widget.querySelector('.voice-review').hidden = true;
+      setVoiceStatus(widget, 'Transcription inserted. Edit it if needed, then save the form.', 'accepted');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.focus();
+    });
+  }
 
   function humanLabel(value) {
     return String(value || '').replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
@@ -238,6 +416,8 @@
   function openFarmerSheet(farmer, mode) {
     state().selectedFarmer = farmer;
     state().activeMode = mode;
+    activeVoiceAttempt = null;
+    Object.keys(acceptedVoiceAttempts).forEach(key => delete acceptedVoiceAttempts[key]);
 
     el('sheet-name').textContent = farmer.customer_name || 'Unknown Farmer';
     const location = deps.locationText(farmer);
@@ -281,6 +461,7 @@
       el('btn-submit-jbl').addEventListener('click', submitJblVisit);
       wireGpsButton();
       wireJblVisitDraft(farmer);
+      wireVoiceWidget('jbl_visit_comment');
       sessionStorage.setItem(JBL_ACTIVE_DRAFT_KEY, farmer.id);
     } else if (mode === 'credit') {
       formEl.innerHTML = buildCreditForm(farmer);
@@ -288,6 +469,7 @@
       el('btn-submit-credit').addEventListener('click', submitCreditDecision);
       wireCreditImabFields();
       wireWorkflowDraft(farmer, mode);
+      wireVoiceWidget('final_decision_comment');
     } else if (mode === 'final_review') {
       formEl.innerHTML = buildFinalReviewForm(farmer);
       footerEl.innerHTML = '<button class="primary" id="btn-submit-final">Save Final Review</button>';
@@ -423,7 +605,7 @@
         <div class="form-row"><label>County</label><input type="text" id="jbl-county" list="jbl-county-options" placeholder="County" value="${deps.escapeHtml(farmer.county || '')}"><datalist id="jbl-county-options">${countyOptions}</datalist></div>
         <div class="form-row"><label>Constituency</label><input type="text" id="jbl-sub-county" placeholder="Constituency / sub-county" value="${deps.escapeHtml(farmer.sub_county || '')}"></div>
         <div class="form-row"><label>Village</label><input type="text" id="jbl-village" placeholder="Village / area" value="${deps.escapeHtml(farmer.village || '')}"></div>
-        <div class="form-row form-row-wide"><label>Comment (optional)</label><textarea id="jbl-comment" rows="2" placeholder="Additional notes...">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea></div>
+        <div class="form-row form-row-wide"><label>Comment (optional)</label><textarea id="jbl-comment" rows="2" placeholder="Additional notes...">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea>${voiceWidget('jbl_visit_comment', 'jbl-comment')}</div>
         ${mediaFields}
         <div class="form-row form-row-wide gps-capture-row">
           <button type="button" id="btn-gps" class="secondary">Capture GPS Location</button>
@@ -888,7 +1070,7 @@
         <div class="form-row"><label>Final Decision</label><select id="final-decision"><option value="">- Select -</option>${decisionOptions}</select></div>
         <div class="form-row"><label>Repayment Dates</label><input type="text" id="final-repayment-date" placeholder="e.g. 10TH" value="${deps.escapeHtml(farmer.repayment_date || '')}"></div>
         <div class="form-row"><label>Tenor</label><input type="text" id="final-repayment-tenor" placeholder="e.g. 6 months" value="${deps.escapeHtml(farmer.repayment_tenor || '')}"></div>
-        <div class="form-row form-row-wide"><label>After-call Comments</label><textarea id="final-comment" rows="4" placeholder="Summarize the call and decision...">${deps.escapeHtml(farmer.final_decision_comment || '')}</textarea></div>
+        <div class="form-row form-row-wide"><label>After-call Comments</label><textarea id="final-comment" rows="4" placeholder="Summarize the call and decision...">${deps.escapeHtml(farmer.final_decision_comment || '')}</textarea>${voiceWidget('final_decision_comment', 'final-comment')}</div>
         <p id="workflow-draft-state" class="field-help jbl-draft-state form-row-wide" aria-live="polite">Draft saves automatically.</p>
       </div>
       ${farmer.jbl_visit_comment ? `<div class="info-row"><span class="ir-label">BRO Comment</span><span class="ir-value">${deps.escapeHtml(farmer.jbl_visit_comment)}</span></div>` : ''}
@@ -1067,6 +1249,13 @@
     if (saveDraft && WORKFLOW_DRAFT_CONFIG[state().activeMode]) saveWorkflowDraft(farmer, state().activeMode, { immediate: true });
     sessionStorage.removeItem(JBL_ACTIVE_DRAFT_KEY);
     sessionStorage.removeItem(PORTAL_ACTIVE_WORKFLOW_DRAFT_KEY);
+    if (voiceRecorder?.state === 'recording') { discardVoiceOnStop = true; voiceRecorder.stop(); }
+    else stopVoiceTracks();
+    if (activeVoiceAttempt) cancelVoiceAttempt(activeVoiceAttempt);
+    Object.entries(acceptedVoiceAttempts).forEach(([fieldName, id]) => {
+      cancelVoiceAttempt({ id, fieldName });
+      delete acceptedVoiceAttempts[fieldName];
+    });
     el('sheet-overlay')?.classList.remove('open');
     state().selectedFarmer = null;
     state().activeMode = null;
@@ -1099,6 +1288,7 @@
     formData.set('sub_county', el('jbl-sub-county')?.value || '');
     formData.set('village', el('jbl-village')?.value || '');
     formData.set('comment', el('jbl-comment')?.value || '');
+    if (acceptedVoiceAttempts.jbl_visit_comment) formData.set('voice_transcription_id', acceptedVoiceAttempts.jbl_visit_comment);
     formData.set('capture_latitude', el('jbl-lat')?.value || '');
     formData.set('capture_longitude', el('jbl-lng')?.value || '');
     formData.set('location_unavailable_reason', el('jbl-location-unavailable')?.value || '');
@@ -1182,6 +1372,7 @@
         workflow_revision: Number(farmer.workflow_revision || 1),
         final_decision: finalDecision,
         decision_comment: decisionComment,
+        voice_transcription_id: acceptedVoiceAttempts.final_decision_comment || '',
         repayment_date: repaymentDate,
         repayment_tenor: repaymentTenor,
       }),
