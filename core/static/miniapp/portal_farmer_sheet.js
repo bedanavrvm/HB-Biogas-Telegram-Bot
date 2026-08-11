@@ -11,6 +11,9 @@
   let jblDraftInputVersion = 0;
   let jblMediaSelections = { LAF: [], JBL_VISIT_PHOTO: [] };
   let jblThumbnailQueue = Promise.resolve();
+  let jblCameraStream = null;
+  let jblCameraCategory = '';
+  let jblCameraRequestId = 0;
   let workflowServerDraft = null;
   let workflowServerDraftKey = '';
   let workflowDraftInputVersion = 0;
@@ -521,6 +524,7 @@
     if (writeCapability && !canUpdateMode(mode, writeCapability)) {
       formEl.innerHTML = '<div class="field-help">Your role can view this case but is not assigned to update this workflow stage.</div>';
     } else if (mode === 'jbl_visit') {
+      stopJblLiveCamera();
       resetJblMediaSelections();
       formEl.innerHTML = buildJblForm(farmer);
       footerEl.innerHTML = '<button class="primary" id="btn-submit-jbl">Log JBL Visit</button>';
@@ -660,6 +664,7 @@
               pickerId: 'jbl-visit-photo-media', cameraId: 'jbl-visit-photo-camera',
               accept: 'image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp',
             })}
+            ${jblLiveCameraMarkup()}
             <small class="form-row-wide jbl-media-limit-help">Up to ${Number(state().jblVisitMediaMaxFiles || 6)} files and ${Math.round(Number(state().jblVisitMediaMaxTotalBytes || 40 * 1024 * 1024) / (1024 * 1024))} MB combined.</small>
             ${farmer.jbl_media_count ? `<small class="form-row-wide">${farmer.jbl_media_count} existing Drive link${farmer.jbl_media_count === 1 ? '' : 's'} on this record.</small>` : ''}
           </div>
@@ -710,16 +715,132 @@
       <div class="jbl-media-category-heading">
         <span>${safeTitle}</span>
         <div class="jbl-media-source-actions">
-          <label class="jbl-media-icon-button" for="${cameraId}" data-input-id="${cameraId}" role="button" tabindex="0" aria-label="Take a photo for ${safeTitle}" title="Take photo">${cameraIcon()}<span class="sr-only">Take photo</span></label>
+          <button type="button" class="jbl-media-icon-button" id="${cameraId}" data-camera-category="${category}" aria-label="Open live camera for ${safeTitle}" title="Open camera">${cameraIcon()}<span class="sr-only">Open camera</span></button>
           <label class="jbl-media-icon-button" for="${pickerId}" data-input-id="${pickerId}" role="button" tabindex="0" aria-label="Choose files for ${safeTitle}" title="Choose files">${pickerIcon()}<span class="sr-only">Choose files</span></label>
         </div>
       </div>
       <small>${deps.escapeHtml(help)}</small>
       <strong class="jbl-media-selection-summary" id="${pickerId}-name" aria-live="polite">No files selected</strong>
       <div class="jbl-media-preview-list" id="${pickerId}-previews"></div>
-      <input class="sr-only" type="file" id="${cameraId}" data-media-category="${category}" accept="image/jpeg,image/png,.jpg,.jpeg,.png" capture="environment">
       <input class="sr-only" type="file" id="${pickerId}" data-media-category="${category}" multiple accept="${accept}">
     </section>`;
+  }
+
+  function jblLiveCameraMarkup() {
+    return `<section class="jbl-live-camera" id="jbl-live-camera" hidden aria-label="Live camera">
+      <div class="jbl-live-camera-heading"><strong id="jbl-live-camera-title">Take evidence photo</strong><button type="button" class="jbl-camera-close" id="jbl-camera-close" aria-label="Close camera" title="Close">${removeIcon()}<span class="sr-only">Close camera</span></button></div>
+      <div class="jbl-camera-viewport"><video id="jbl-camera-video" autoplay muted playsinline></video><div class="jbl-camera-status" id="jbl-camera-status" role="status">Starting camera…</div></div>
+      <button type="button" class="jbl-camera-shutter" id="jbl-camera-shutter" aria-label="Take photo" title="Take photo" disabled><span aria-hidden="true"></span><span class="sr-only">Take photo</span></button>
+    </section>`;
+  }
+
+  function stopJblLiveCamera() {
+    jblCameraRequestId += 1;
+    jblCameraStream?.getTracks?.().forEach(track => track.stop());
+    jblCameraStream = null;
+    jblCameraCategory = '';
+    const video = el('jbl-camera-video');
+    if (video) {
+      video.pause?.();
+      video.srcObject = null;
+    }
+    const panel = el('jbl-live-camera');
+    if (panel) panel.hidden = true;
+    const shutter = el('jbl-camera-shutter');
+    if (shutter) shutter.disabled = true;
+  }
+
+  async function startJblLiveCamera(category) {
+    const panel = el('jbl-live-camera');
+    const video = el('jbl-camera-video');
+    const status = el('jbl-camera-status');
+    const shutter = el('jbl-camera-shutter');
+    if (!panel || !video || !navigator.mediaDevices?.getUserMedia) {
+      deps.showToast('Live camera is not available in this Telegram WebView. Use the folder icon to choose a photo.', 'error');
+      return;
+    }
+    if (jblMediaItems().length >= Number(state().jblVisitMediaMaxFiles || 6)) {
+      deps.showToast(`A JBL visit can include at most ${Number(state().jblVisitMediaMaxFiles || 6)} evidence files.`, 'error');
+      return;
+    }
+    if (jblCameraStream) stopJblLiveCamera();
+    const cameraRequestId = ++jblCameraRequestId;
+    jblCameraCategory = category;
+    panel.hidden = false;
+    if (status) { status.hidden = false; status.textContent = 'Starting camera…'; }
+    if (shutter) shutter.disabled = true;
+    const title = el('jbl-live-camera-title');
+    if (title) title.textContent = category === 'LAF' ? 'Photograph LAF document' : 'Take JBL visit photo';
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+      });
+      if (cameraRequestId !== jblCameraRequestId || !jblCameraCategory || !el('jbl-live-camera')) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      jblCameraStream = stream;
+      video.srcObject = stream;
+      await video.play();
+      if (status) status.hidden = true;
+      if (shutter) shutter.disabled = false;
+      panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } catch (error) {
+      if (cameraRequestId !== jblCameraRequestId) return;
+      stopJblLiveCamera();
+      const denied = error?.name === 'NotAllowedError' || error?.name === 'PermissionDeniedError';
+      deps.showToast(
+        denied
+          ? 'Camera permission was denied. Enable Camera for Telegram in your phone settings, reopen the Mini App, and retry.'
+          : 'The live camera could not start. Close other camera apps and retry, or use the folder icon.',
+        'error',
+      );
+    }
+  }
+
+  function capturedJblPhotoBlob(video) {
+    const sourceWidth = Number(video.videoWidth || 0);
+    const sourceHeight = Number(video.videoHeight || 0);
+    if (!sourceWidth || !sourceHeight) return Promise.resolve(null);
+    const scale = Math.min(1, 1920 / Math.max(sourceWidth, sourceHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+    canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+    const context = canvas.getContext('2d');
+    if (!context) return Promise.resolve(null);
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return new Promise(resolve => canvas.toBlob(blob => {
+      canvas.width = 1;
+      canvas.height = 1;
+      resolve(blob);
+    }, 'image/jpeg', 0.86));
+  }
+
+  async function captureJblLivePhoto() {
+    const video = el('jbl-camera-video');
+    const shutter = el('jbl-camera-shutter');
+    if (!video || !jblCameraStream || !jblCameraCategory || shutter?.disabled) return;
+    if (shutter) shutter.disabled = true;
+    try {
+      const blob = await capturedJblPhotoBlob(video);
+      if (!blob) throw new Error('empty camera frame');
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const prefix = jblCameraCategory === 'LAF' ? 'laf-photo' : 'visit-photo';
+      const file = new File([blob], `${prefix}-${timestamp}.jpg`, {
+        type: 'image/jpeg',
+        lastModified: Date.now(),
+      });
+      addJblMediaFiles(jblCameraCategory, [file]);
+    } catch (_error) {
+      deps.showToast('The photo could not be captured. Keep the camera open and retry.', 'error');
+    } finally {
+      if (shutter && jblCameraStream) shutter.disabled = false;
+    }
   }
 
   function jblMediaFingerprint(file) {
@@ -1029,7 +1150,7 @@
     jblDraftInputVersion = 0;
     const localDraft = restoreJblVisitDraft(farmer);
     restoreJblVisitServerDraft(farmer, localDraft, jblDraftInputVersion);
-    ['jbl-laf-media', 'jbl-laf-camera', 'jbl-visit-photo-media', 'jbl-visit-photo-camera'].forEach(id => {
+    ['jbl-laf-media', 'jbl-visit-photo-media'].forEach(id => {
       el(id)?.addEventListener('change', () => {
         const input = el(id);
         addJblMediaFiles(input?.dataset.mediaCategory, input?.files);
@@ -1039,6 +1160,11 @@
       });
     });
     el('sheet-form')?.querySelector('.media-upload-control')?.addEventListener('click', event => {
+      const cameraButton = event.target.closest('[data-camera-category]');
+      if (cameraButton) {
+        startJblLiveCamera(cameraButton.dataset.cameraCategory);
+        return;
+      }
       const removeButton = event.target.closest('.jbl-media-remove');
       if (!removeButton) return;
       removeJblMediaItem(removeButton.dataset.mediaCategory, removeButton.dataset.mediaItemId);
@@ -1049,6 +1175,8 @@
       event.preventDefault();
       if (sourceButton.getAttribute('aria-disabled') !== 'true') el(sourceButton.dataset.inputId)?.click();
     });
+    el('jbl-camera-close')?.addEventListener('click', stopJblLiveCamera);
+    el('jbl-camera-shutter')?.addEventListener('click', captureJblLivePhoto);
     const form = el('sheet-form');
     if (form) form.oninput = () => {
       jblDraftInputVersion += 1;
@@ -1513,6 +1641,7 @@
       cancelVoiceAttempt({ id, fieldName });
       delete acceptedVoiceAttempts[fieldName];
     });
+    stopJblLiveCamera();
     resetJblMediaSelections();
     el('sheet-overlay')?.classList.remove('open');
     state().selectedFarmer = null;
@@ -1529,6 +1658,7 @@
       return;
     }
 
+    stopJblLiveCamera();
     if (!selectedJblFilesAreValid()) return;
     if (!navigator.onLine) {
       deps.showToast('You are offline. Keep the form open and retry when connected.', 'error');
@@ -1555,6 +1685,7 @@
     el('sheet-form')?.querySelectorAll('.jbl-media-icon-button, .jbl-media-remove').forEach(control => {
       control.classList.add('is-disabled');
       control.setAttribute('aria-disabled', 'true');
+      if (control.matches('button')) control.disabled = true;
     });
     el('sheet-form')?.querySelectorAll('input[type="file"]').forEach(input => { input.disabled = true; });
     deps.setButtonLoading(btn, true, 'Saving visit and evidence…');
@@ -1580,6 +1711,7 @@
       el('sheet-form')?.querySelectorAll('.jbl-media-icon-button, .jbl-media-remove').forEach(control => {
         control.classList.remove('is-disabled');
         control.removeAttribute('aria-disabled');
+        if (control.matches('button')) control.disabled = false;
       });
       el('sheet-form')?.querySelectorAll('input[type="file"]').forEach(input => { input.disabled = false; });
     }
@@ -1709,13 +1841,17 @@
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden' && state().activeMode === 'jbl_visit') {
         saveJblVisitDraft(state().selectedFarmer, { immediate: true });
+        stopJblLiveCamera();
       }
       if (document.visibilityState === 'hidden' && WORKFLOW_DRAFT_CONFIG[state().activeMode]) {
         saveWorkflowDraft(state().selectedFarmer, state().activeMode, { immediate: true });
       }
     });
     window.addEventListener('pagehide', () => {
-      if (state().activeMode === 'jbl_visit') saveJblVisitDraft(state().selectedFarmer, { immediate: true });
+      if (state().activeMode === 'jbl_visit') {
+        saveJblVisitDraft(state().selectedFarmer, { immediate: true });
+        stopJblLiveCamera();
+      }
       if (WORKFLOW_DRAFT_CONFIG[state().activeMode]) saveWorkflowDraft(state().selectedFarmer, state().activeMode, { immediate: true });
     });
     window.addEventListener('pageshow', () => {
