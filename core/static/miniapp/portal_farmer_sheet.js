@@ -46,12 +46,12 @@
       </button>
       <small class="voice-status" aria-live="polite" hidden></small>
       <div class="voice-review" hidden>
-        <strong>Review transcription</strong><p class="voice-transcript"></p>
-        <div class="voice-review-actions">
-          <button type="button" class="secondary" data-voice-action="append">Append</button>
-          <button type="button" class="secondary" data-voice-action="replace">Replace</button>
-          <button type="button" class="secondary" data-voice-action="retry">Retry</button>
-          <button type="button" class="secondary" data-voice-action="cancel">Cancel</button>
+        <p class="voice-transcript" aria-label="Transcription to review"></p>
+        <div class="voice-review-actions" aria-label="Transcription actions">
+          <button type="button" class="voice-action-button" data-voice-action="append" aria-label="Append transcription" title="Append"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span class="sr-only">Append</span></button>
+          <button type="button" class="voice-action-button" data-voice-action="replace" aria-label="Replace field with transcription" title="Replace"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7h-9a4 4 0 0 0-4 4v1M4 17h9a4 4 0 0 0 4-4v-1"/><path d="m17 4 3 3-3 3M7 14l-3 3 3 3"/></svg><span class="sr-only">Replace</span></button>
+          <button type="button" class="voice-action-button" data-voice-action="retry" aria-label="Transcribe recording again" title="Retry"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg><span class="sr-only">Retry</span></button>
+          <button type="button" class="voice-action-button voice-action-cancel" data-voice-action="cancel" aria-label="Cancel transcription" title="Cancel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg><span class="sr-only">Cancel</span></button>
         </div>
       </div>
     </div>`;
@@ -115,7 +115,7 @@
       widget.querySelector('.voice-transcript').textContent = data.text;
       widget.querySelector('.voice-review').hidden = false;
       widget.querySelector('[data-voice-action="retry"]').disabled = !data.retry_available;
-      setVoiceStatus(widget, 'Choose Append or Replace after checking the text.', 'review');
+      setVoiceStatus(widget, '', 'review');
     } catch (error) {
       setVoiceStatus(widget, error.message || 'Transcription is unavailable. Please type the comment.', 'error');
       if (retryAttemptId && activeVoiceAttempt?.id === retryAttemptId) {
