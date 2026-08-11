@@ -625,21 +625,34 @@ def _portal_queue_queryset(queue_key: str, request, *, params=None):
         # JBL officers need a follow-up view without re-opening the visit
         # queue.  The latest completion event is the durable ownership record;
         # a mutable name/phone/branch must never decide who submitted a visit.
-        from django.db.models import OuterRef, Subquery
+        from django.db.models import Case, IntegerField, OuterRef, Q, Subquery, Value, When
         from core.models import JawabuFarmerMaster, JawabuPipelineEvent
 
         actor = getattr(request, 'portal_user', None)
         if actor is None:
             return JawabuFarmerMaster.objects.none(), config
-        latest_actor = JawabuPipelineEvent.objects.filter(
+        latest_visit = JawabuPipelineEvent.objects.filter(
             farmer_id=OuterRef('pk'), action='jbl_visit_completed',
-        ).order_by('-occurred_at', '-created_at').values('actor_user_id')[:1]
+        ).order_by('-occurred_at', '-created_at')
         qs = JawabuFarmerMaster.objects.filter(
             status='active', jbl_visit_date__isnull=False,
-        ).annotate(_latest_jbl_visit_actor=Subquery(latest_actor)).filter(
+        ).annotate(
+            _latest_jbl_visit_actor=Subquery(latest_visit.values('actor_user_id')[:1]),
+            _latest_jbl_visit_at=Subquery(latest_visit.values('occurred_at')[:1]),
+            # Within equally recent visits, surface cases with the most
+            # downstream work remaining before already ordered/invoiced work.
+            _followup_lifecycle_order=Case(
+                When(Q(credit_decision__isnull=True) | Q(credit_decision=''), then=Value(0)),
+                When(Q(final_decision__isnull=True) | Q(final_decision=''), then=Value(1)),
+                When(Q(order_number__isnull=True) | Q(order_number=''), then=Value(2)),
+                When(Q(invoice_number__isnull=True) | Q(invoice_number=''), then=Value(3)),
+                default=Value(4), output_field=IntegerField(),
+            ),
+        ).filter(
             _latest_jbl_visit_actor=actor.pk,
         )
         qs = _apply_county_branch_filters(qs, request, params=params)
+        qs = qs.order_by('-_latest_jbl_visit_at', '_followup_lifecycle_order', '-updated_at', '-pk')
     elif queue_key == 'all':
         qs = jawabu_pipeline.all_cases(
             search=params.get('search', '').strip(),
@@ -660,6 +673,8 @@ def _portal_queue_queryset(queue_key: str, request, *, params=None):
             service = getattr(jawabu_pipeline, config['service'])
             qs = service(params.get('search', '').strip()) if queue_key == 'jbl' else service()
         qs = _apply_county_branch_filters(qs, request, params=params)
+    if queue_key == 'my_visits':
+        return qs, config
     return _apply_portal_ordering(qs, params=params), config
 
 
