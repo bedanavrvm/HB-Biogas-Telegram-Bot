@@ -70,6 +70,11 @@ from .models import (
     OperationalProduct,
     OrderApprovalUpdate,
     InvoiceUploadBatch,
+    InvoiceIdentityReview,
+    InvoiceNameChangeBatch,
+    InvoiceNameChangeItem,
+    JawabuRelatedPerson,
+    JawabuHouseholdRelationship,
     ParsedInvoice,
     PaymentDocument,
     PaymentDocumentTemplate,
@@ -2666,6 +2671,40 @@ class ParsedInvoiceAdmin(ReadOnlyAuditAdmin):
         'invoice_no', 'customer_name', 'customer_id', 'customer_phone',
         'matched_order_number', 'batch__original_filename',
     )
+
+
+@admin.register(InvoiceIdentityReview)
+class InvoiceIdentityReviewAdmin(ReadOnlyAuditAdmin):
+    list_display = ('invoice', 'farmer', 'status', 'decided_by', 'decided_at', 'created_at')
+    list_filter = ('status', 'created_at')
+    search_fields = ('invoice__invoice_no', 'farmer__customer_name', 'decided_by', 'decision_note')
+
+
+@admin.register(JawabuRelatedPerson)
+class JawabuRelatedPersonAdmin(ReadOnlyAuditAdmin):
+    list_display = ('full_name', 'national_id', 'primary_phone', 'linked_customer', 'created_by', 'created_at')
+    search_fields = ('full_name', 'national_id', 'primary_phone')
+
+
+@admin.register(JawabuHouseholdRelationship)
+class JawabuHouseholdRelationshipAdmin(ReadOnlyAuditAdmin):
+    list_display = ('farmer', 'related_person', 'relationship_type', 'status', 'confirmed_by', 'confirmed_at')
+    list_filter = ('relationship_type', 'status', 'created_at')
+    search_fields = ('farmer__customer_name', 'related_person__full_name', 'confirmed_by')
+
+
+@admin.register(InvoiceNameChangeBatch)
+class InvoiceNameChangeBatchAdmin(ReadOnlyAuditAdmin):
+    list_display = ('reference', 'status', 'created_by', 'sent_by', 'sent_at', 'created_at')
+    list_filter = ('status', 'created_at')
+    search_fields = ('reference', 'created_by', 'sent_reference')
+
+
+@admin.register(InvoiceNameChangeItem)
+class InvoiceNameChangeItemAdmin(ReadOnlyAuditAdmin):
+    list_display = ('batch', 'farmer', 'original_invoice', 'replacement_invoice', 'status', 'completed_at')
+    list_filter = ('status', 'created_at')
+    search_fields = ('farmer__customer_name', 'original_invoice__invoice_no', 'replacement_invoice__invoice_no')
 
 
 @admin.register(PaymentDocument)

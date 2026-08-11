@@ -57,6 +57,8 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **`initData`** | Telegram's signed payload proving a Mini App session belongs to a specific Telegram user; must be HMAC-verified server-side before trust. |
 | **Portal** | The aggregated staff-facing view across pipeline/workflow data, served by `core/api/portal_views.py`. |
 | **Portal report** | An IT-only, catalogue-constrained live report over canonical Portal cases. It is not a generic SQL/ORM builder and has no cross-workflow identity join. |
+| **Change of invoice name** | Pre-payment Portal workflow used when an HB invoice carries a confirmed different national ID, commonly a spouse's. It preserves the applicant and original invoice, records the household relationship and letter, and requires a corrected replacement invoice before payment. |
+| **Household relationship** | An Operations-verified link between a JBL applicant and a distinct spouse/household person, supported by attestation and evidence; it never merges their legal customer identities. |
 | **Head of Rural** | The Portal label for the stable scoped Mini App role (`BUSINESS_ADMIN`), responsible for final/payment approvals. It is distinct from Django `is_staff`. |
 | **Operations Administrator** | A scoped Portal role (`OPERATIONS_ADMIN`) for operational processing such as orders, invoices, and payment preparation; it does not grant Head of Rural approvals or JBL visit logging. |
 | **Django Superuser** | Active `is_superuser` is the explicitly approved technical break-glass override across Mini App capabilities and scopes. It is auditable and is not the same staff business role as Head of Rural or Operations Administrator. |
@@ -108,6 +110,7 @@ Key modules:
 - `group_config.py` — Telegram-group/workflow configuration
 - `group_reset.py` — controlled group data resets
 - `invoice_parser.py` — invoice extraction and parsing
+- `invoice_identity.py` — national-ID-led invoice identity verification, confirmed household links, and pre-payment invoice-name changes
 - `jawabu.py` — Jawabu message processing
 - `jawabu_customer_quality.py` — canonical customer matching, phone history, product checks, and field provenance
 - `jawabu_data_quality.py` — read-only active-case and staged `/sysup` reconciliation reports

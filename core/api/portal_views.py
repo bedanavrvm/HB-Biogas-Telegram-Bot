@@ -4584,6 +4584,11 @@ def _serialize_parsed_invoice(
         'created_at': invoice.created_at.isoformat() if invoice.created_at else None,
         'updated_at': invoice.updated_at.isoformat() if invoice.updated_at else None,
     }
+    if farmer:
+        from core.services.invoice_identity import identity_gate
+        data['identity'] = identity_gate(invoice, farmer)
+    else:
+        data['identity'] = None
     if include_duplicate_summary:
         data['duplicate_count'] = _invoice_duplicate_count(invoice)
     return data
@@ -5049,6 +5054,150 @@ def portal_invoice_match(request, invoice_id: str):
         'invoice': _serialize_parsed_invoice(invoice),
         'publication': _portal_publication_payload(farmer),
     })
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_invoice_identity_review(request, invoice_id: str):
+    """Record the Operations verification without treating spelling as an identity change."""
+    from core.models import ParsedInvoice
+    from core.services.invoice_identity import decide_identity_review, ensure_identity_review, serialize_review
+
+    body = _json_body(request)
+    try:
+        invoice = ParsedInvoice.objects.select_related('matched_farmer').get(pk=invoice_id)
+    except ParsedInvoice.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Invoice not found.'}, status=404)
+    if not invoice.matched_farmer_id:
+        return JsonResponse({'ok': False, 'error': 'Match the invoice to an applicant before verifying identity.'}, status=400)
+    role_error = _portal_role_error(request, 'invoice_identity.manage', invoice.matched_farmer)
+    if role_error:
+        return role_error
+    try:
+        review = ensure_identity_review(
+            invoice, invoice.matched_farmer,
+            client_request_id=str(body.get('client_request_id') or request.headers.get('Idempotency-Key') or '').strip(),
+        )
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=409)
+    if review is None:
+        return JsonResponse({'ok': True, 'review': None, 'message': 'Invoice identity already matches the applicant.'})
+    try:
+        review = decide_identity_review(
+            review,
+            outcome=str(body.get('outcome') or '').strip(),
+            actor=_portal_sender_from_request(request),
+            note=str(body.get('note') or '').strip(),
+        )
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    invoice.refresh_from_db()
+    return JsonResponse({'ok': True, 'review': serialize_review(review), 'invoice': _serialize_parsed_invoice(invoice)})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_invoice_name_change_create(request, invoice_id: str):
+    from core.models import InvoiceNameChangeBatch, ParsedInvoice
+    from core.services.invoice_identity import create_name_change, serialize_name_change_item
+
+    body = _json_body(request)
+    try:
+        invoice = ParsedInvoice.objects.select_related('matched_farmer').get(pk=invoice_id)
+    except ParsedInvoice.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Invoice not found.'}, status=404)
+    if not invoice.matched_farmer_id:
+        return JsonResponse({'ok': False, 'error': 'Match the invoice first.'}, status=400)
+    role_error = _portal_role_error(request, 'invoice_identity.manage', invoice.matched_farmer)
+    if role_error:
+        return role_error
+    review = invoice.identity_reviews.filter(status='different_person_confirmed').order_by('-created_at').first()
+    if not review:
+        return JsonResponse({'ok': False, 'error': 'Confirm that the invoice belongs to a different person first.'}, status=400)
+    batch = None
+    batch_id = str(body.get('batch_id') or '').strip()
+    if batch_id:
+        batch = InvoiceNameChangeBatch.objects.prefetch_related('items__farmer').filter(pk=batch_id).first()
+        if not batch:
+            return JsonResponse({'ok': False, 'error': 'Draft change-letter batch not found.'}, status=404)
+        for existing_item in batch.items.all():
+            scope_error = _portal_branch_scope_error(request, existing_item.farmer)
+            if scope_error:
+                return scope_error
+    try:
+        item = create_name_change(
+            review,
+            actor=_portal_sender_from_request(request),
+            relationship_type=str(body.get('relationship_type') or 'spouse'),
+            related_name=str(body.get('related_name') or invoice.customer_name),
+            related_national_id=str(body.get('related_national_id') or invoice.customer_id),
+            related_phone=str(body.get('related_phone') or invoice.customer_phone),
+            attestation_note=str(body.get('attestation_note') or ''),
+            evidence_reference=str(body.get('evidence_reference') or ''),
+            client_request_id=str(body.get('client_request_id') or request.headers.get('Idempotency-Key') or '').strip(),
+            batch=batch,
+        )
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({'ok': True, 'name_change': serialize_name_change_item(item)}, status=201)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_invoice_name_change_sent(request, batch_id: str):
+    from core.models import InvoiceNameChangeBatch
+    from core.services.invoice_identity import mark_name_change_sent
+
+    body = _json_body(request)
+    try:
+        batch = InvoiceNameChangeBatch.objects.prefetch_related('items__farmer').get(pk=batch_id)
+    except InvoiceNameChangeBatch.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Invoice-name-change batch not found.'}, status=404)
+    items = list(batch.items.all())
+    farmer = items[0].farmer if items else None
+    role_error = _portal_role_error(request, 'invoice_identity.manage', farmer)
+    if role_error:
+        return role_error
+    for item in items:
+        scope_error = _portal_branch_scope_error(request, item.farmer)
+        if scope_error:
+            return scope_error
+    try:
+        batch = mark_name_change_sent(
+            batch, actor=_portal_sender_from_request(request),
+            letter_reference=str(body.get('letter_reference') or ''),
+            sent_reference=str(body.get('sent_reference') or ''),
+        )
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({'ok': True, 'batch': {'id': str(batch.id), 'status': batch.status, 'sent_at': batch.sent_at.isoformat()}})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_invoice_name_change_replacement(request, item_id: str):
+    from core.models import InvoiceNameChangeItem, ParsedInvoice
+    from core.services.invoice_identity import confirm_replacement, serialize_name_change_item
+
+    body = _json_body(request)
+    try:
+        item = InvoiceNameChangeItem.objects.select_related('farmer').get(pk=item_id)
+        replacement = ParsedInvoice.objects.get(pk=str(body.get('replacement_invoice_id') or '').strip())
+    except InvoiceNameChangeItem.DoesNotExist:
+        return JsonResponse({'ok': False, 'error': 'Invoice-name-change item not found.'}, status=404)
+    except (ParsedInvoice.DoesNotExist, ValueError):
+        return JsonResponse({'ok': False, 'error': 'Replacement invoice not found.'}, status=404)
+    role_error = _portal_role_error(request, 'invoice_identity.manage', item.farmer)
+    if role_error:
+        return role_error
+    try:
+        item = confirm_replacement(
+            item, replacement, actor=_portal_sender_from_request(request),
+            verification_note=str(body.get('verification_note') or ''),
+        )
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({'ok': True, 'name_change': serialize_name_change_item(item)})
 
 
 @csrf_exempt

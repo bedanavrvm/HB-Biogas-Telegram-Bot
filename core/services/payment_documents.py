@@ -304,6 +304,15 @@ def _row_payload(
         missing.append('Cust No')
     if not invoice:
         missing.append('Matched invoice')
+    else:
+        from core.services.invoice_identity import identity_gate
+        identity = identity_gate(invoice, farmer)
+        if identity.get('blocker') == 'invoice_name_change_pending':
+            missing.append('Invoice name change pending')
+        elif identity.get('blocker') == 'invoice_name_change_required':
+            missing.append('Invoice name change required')
+        elif identity.get('blocker'):
+            missing.append('Invoice identity verification pending')
     if farmer.balance_due is None:
         missing.append('Balance Due')
     if not farmer.repayment_date:
@@ -388,8 +397,13 @@ def payment_readiness(
             # Kept beside (not in) the payment COL so reviewers can compare
             # the earlier order decision without confusing the two comments.
             'order_call_up_comments': str(farmer.final_decision_comment or '').strip(),
+            'blocker_codes': [],
         }
         if invoice:
+            from core.services.invoice_identity import identity_gate
+            identity_blocker = identity_gate(invoice, farmer).get('blocker')
+            if identity_blocker:
+                item['blocker_codes'].append(identity_blocker)
             invoice_batch_ids.add(str(invoice.batch_id))
             item['invoice_id'] = str(invoice.id)
             item['invoice_number'] = invoice.invoice_no

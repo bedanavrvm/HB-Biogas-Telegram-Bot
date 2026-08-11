@@ -403,6 +403,12 @@ def serialize_case360(farmer: JawabuFarmerMaster) -> dict[str, Any]:
     payments = _latest_payment_documents(
         [document for document in payment_documents if document.status == 'final']
     )
+    household_relationships = farmer.household_relationships.select_related(
+        'related_person', 'related_person__linked_customer',
+    ).order_by('-created_at')
+    invoice_name_changes = farmer.invoice_name_changes.select_related(
+        'batch', 'original_invoice', 'replacement_invoice',
+    ).order_by('-created_at')
     return {
         # The current canonical state, rather than historical non-empty
         # fields, owns the case-progress strip. A returned JBL visit can still
@@ -420,6 +426,26 @@ def serialize_case360(farmer: JawabuFarmerMaster) -> dict[str, Any]:
             'order': {'order_number': farmer.order_number, 'requisition_date': _case_date(farmer.requisition_date), 'payment_product': farmer.payment_product},
             'invoice': {'number': farmer.invoice_number, 'date': _case_date(farmer.invoice_date), 'amount': _case_amount(farmer.invoice_amount), 'discount': _case_amount(farmer.discount), 'payment': _case_amount(farmer.payment), 'balance_due': _case_amount(farmer.balance_due)},
         },
+        'household_relationships': [{
+                'id': str(relationship.id),
+                'relationship_type': relationship.relationship_type,
+                'status': relationship.status,
+                'name': relationship.related_person.full_name,
+                'national_id': relationship.related_person.national_id,
+                'phone': relationship.related_person.primary_phone,
+                'linked_customer_id': str(relationship.related_person.linked_customer_id or ''),
+                'confirmed_by': relationship.confirmed_by,
+                'confirmed_at': _case_datetime(relationship.confirmed_at),
+        } for relationship in household_relationships],
+        'invoice_name_changes': [{
+                'id': str(item.id),
+                'batch_reference': item.batch.reference,
+                'status': item.status,
+                'original_invoice': item.original_invoice.invoice_no,
+                'replacement_invoice': item.replacement_invoice.invoice_no if item.replacement_invoice_id else '',
+                'created_at': _case_datetime(item.created_at),
+                'completed_at': _case_datetime(item.completed_at),
+        } for item in invoice_name_changes],
         'timeline': timeline_projection['entries'],
         'related_cases': timeline_projection['related_cases'],
         'tat': calculate_case_tat(farmer),

@@ -63,6 +63,9 @@ def record_invoice_match_result(batch: InvoiceUploadBatch, result: dict) -> Invo
         parsed.save(update_fields=[
             'status', 'matched_farmer', 'matched_order_number', 'review_notes', 'updated_at',
         ])
+        if parsed.status == 'matched' and parsed.matched_farmer_id:
+            from core.services.invoice_identity import ensure_identity_review
+            ensure_identity_review(parsed, parsed.matched_farmer)
         record_invoice_event(
             parsed,
             event_action,
@@ -912,6 +915,8 @@ def confirm_invoice_batch(batch: InvoiceUploadBatch, *, actor: str = '') -> Invo
             invoice.matched_order_number = farmer.order_number or batch.order_number
             invoice.save(update_fields=['status', 'matched_farmer', 'matched_order_number', 'updated_at'])
             record_invoice_event(invoice, 'matched', actor=actor, note='Confirmed from editable extraction review.')
+            from core.services.invoice_identity import ensure_identity_review
+            ensure_identity_review(invoice, farmer)
             affected.append(farmer)
             reserve_farmer_publication(
                 farmer,
@@ -1002,6 +1007,8 @@ def manually_match_invoice(invoice: ParsedInvoice, farmer: JawabuFarmerMaster, *
                 'customer_name': farmer.customer_name or '',
             },
         )
+        from core.services.invoice_identity import ensure_identity_review
+        ensure_identity_review(invoice, farmer)
         refresh_invoice_batch_counts(invoice.batch)
     return invoice
 

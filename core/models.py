@@ -3261,6 +3261,7 @@ class ParsedInvoice(models.Model):
         ('matched', 'Matched'),
         ('ambiguous', 'Ambiguous'),
         ('ignored', 'Ignored'),
+        ('superseded', 'Superseded'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -3349,6 +3350,169 @@ class ParsedInvoiceEvent(models.Model):
 
     def __str__(self):
         return f"{self.invoice_id} {self.action} by {self.actor or 'system'}"
+
+
+class InvoiceIdentityReview(models.Model):
+    """Append-oriented decision about invoice identity versus the JBL applicant."""
+
+    STATUS_PENDING = 'pending'
+    STATUS_SAME_PERSON = 'same_person_confirmed'
+    STATUS_DIFFERENT_PERSON = 'different_person_confirmed'
+    STATUS_INSUFFICIENT = 'insufficient_information'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending verification'),
+        (STATUS_SAME_PERSON, 'Same person confirmed'),
+        (STATUS_DIFFERENT_PERSON, 'Different person confirmed'),
+        (STATUS_INSUFFICIENT, 'Insufficient information'),
+        (STATUS_CANCELLED, 'Cancelled'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    invoice = models.ForeignKey(ParsedInvoice, on_delete=models.CASCADE, related_name='identity_reviews')
+    farmer = models.ForeignKey(JawabuFarmerMaster, on_delete=models.CASCADE, related_name='invoice_identity_reviews')
+    status = models.CharField(max_length=40, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    discrepancy_codes = models.JSONField(blank=True, default=list)
+    invoice_identity = models.JSONField(blank=True, default=dict)
+    applicant_identity = models.JSONField(blank=True, default=dict)
+    decision_note = models.TextField(blank=True, default='')
+    decided_by = models.CharField(max_length=255, blank=True, default='')
+    decided_at = models.DateTimeField(null=True, blank=True)
+    client_request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['invoice'],
+                condition=models.Q(status='pending'),
+                name='unique_pending_invoice_identity_review',
+            ),
+            models.UniqueConstraint(
+                fields=['client_request_id'],
+                condition=~models.Q(client_request_id=''),
+                name='unique_invoice_identity_review_request',
+            ),
+        ]
+
+
+class JawabuRelatedPerson(models.Model):
+    """A spouse/household member kept distinct from the applicant identity."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    linked_customer = models.ForeignKey(
+        JawabuCustomer, on_delete=models.SET_NULL, null=True, blank=True, related_name='related_person_profiles'
+    )
+    full_name = models.CharField(max_length=255)
+    national_id = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    primary_phone = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    source = models.CharField(max_length=255, blank=True, default='operations_verification')
+    created_by = models.CharField(max_length=255, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class JawabuHouseholdRelationship(models.Model):
+    """Verified relationship used to explain an invoice issued to another person."""
+
+    STATUS_CONFIRMED = 'confirmed'
+    STATUS_REVOKED = 'revoked'
+    STATUS_CHOICES = [(STATUS_CONFIRMED, 'Confirmed'), (STATUS_REVOKED, 'Revoked')]
+    TYPE_CHOICES = [('spouse', 'Spouse'), ('household_member', 'Household member')]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    farmer = models.ForeignKey(JawabuFarmerMaster, on_delete=models.CASCADE, related_name='household_relationships')
+    related_person = models.ForeignKey(JawabuRelatedPerson, on_delete=models.PROTECT, related_name='relationships')
+    relationship_type = models.CharField(max_length=32, choices=TYPE_CHOICES, default='spouse')
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_CONFIRMED, db_index=True)
+    attestation_note = models.TextField()
+    evidence_reference = models.CharField(max_length=1000)
+    confirmed_by = models.CharField(max_length=255)
+    confirmed_at = models.DateTimeField(default=timezone.now)
+    revoked_by = models.CharField(max_length=255, blank=True, default='')
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    revocation_reason = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['farmer', 'related_person', 'relationship_type'],
+                condition=models.Q(status='confirmed'),
+                name='unique_confirmed_household_relationship',
+            ),
+        ]
+
+
+class InvoiceNameChangeBatch(models.Model):
+    """One manual/generated letter covering one or more invoice corrections."""
+
+    STATUS_CHOICES = [
+        ('draft', 'Draft'),
+        ('sent_to_hb', 'Sent to HB'),
+        ('awaiting_replacements', 'Awaiting replacements'),
+        ('completed', 'Completed'),
+        ('cancelled', 'Cancelled'),
+    ]
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    reference = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='draft', db_index=True)
+    letter_file_reference = models.CharField(max_length=1000, blank=True, default='')
+    letter_checksum = models.CharField(max_length=128, blank=True, default='')
+    sent_reference = models.CharField(max_length=255, blank=True, default='')
+    created_by = models.CharField(max_length=255)
+    sent_by = models.CharField(max_length=255, blank=True, default='')
+    sent_at = models.DateTimeField(null=True, blank=True)
+    client_request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['client_request_id'], condition=~models.Q(client_request_id=''),
+                name='unique_invoice_name_change_batch_request',
+            ),
+        ]
+
+
+class InvoiceNameChangeItem(models.Model):
+    """A case-level correction preserving original and replacement invoices."""
+
+    STATUS_CHOICES = [
+        ('draft', 'Draft'),
+        ('awaiting_replacement', 'Awaiting replacement'),
+        ('completed', 'Completed'),
+        ('cancelled', 'Cancelled'),
+    ]
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    batch = models.ForeignKey(InvoiceNameChangeBatch, on_delete=models.PROTECT, related_name='items')
+    review = models.OneToOneField(InvoiceIdentityReview, on_delete=models.PROTECT, related_name='name_change_item')
+    farmer = models.ForeignKey(JawabuFarmerMaster, on_delete=models.PROTECT, related_name='invoice_name_changes')
+    relationship = models.ForeignKey(JawabuHouseholdRelationship, on_delete=models.PROTECT, related_name='invoice_name_changes')
+    original_invoice = models.ForeignKey(ParsedInvoice, on_delete=models.PROTECT, related_name='name_change_requests')
+    replacement_invoice = models.ForeignKey(
+        ParsedInvoice, on_delete=models.PROTECT, null=True, blank=True, related_name='replacement_for_name_changes'
+    )
+    status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='draft', db_index=True)
+    original_identity = models.JSONField(blank=True, default=dict)
+    requested_identity = models.JSONField(blank=True, default=dict)
+    completed_by = models.CharField(max_length=255, blank=True, default='')
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['original_invoice'],
+                condition=models.Q(status__in=['draft', 'awaiting_replacement']),
+                name='unique_open_invoice_name_change',
+            ),
+        ]
 
 
 class PaymentDocument(models.Model):

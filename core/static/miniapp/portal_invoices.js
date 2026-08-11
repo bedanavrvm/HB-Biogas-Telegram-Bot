@@ -69,6 +69,14 @@
     return !deps.state || deps.state.capabilities?.has('portal.invoice.write');
   }
 
+  function requestId() {
+    return window.crypto?.randomUUID?.() || 'invoice-identity-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+  }
+
+  function canManageInvoiceIdentity() {
+    return !deps.state || deps.state.capabilities?.has('portal.invoice_identity.manage');
+  }
+
   function money(value) {
     if (value === null || value === undefined || value === '') return '-';
     const raw = String(value).replace(/,/g, '').trim();
@@ -372,6 +380,38 @@
     const sourceLink = data.source_pdf_url
       ? '<button class="btn btn-secondary invoice-drive-link" data-url="' + escapeHtml(data.source_pdf_url) + '">Open source PDF</button>'
       : '<span class="badge badge-grey">No source PDF link</span>';
+    const identity = invoice.identity || {};
+    const identityActions = [];
+    if (canManageInvoiceIdentity() && identity.blocker === 'invoice_identity_verification_pending') {
+      identityActions.push('<button type="button" class="btn btn-secondary invoice-identity-same">Confirm same person</button>');
+      identityActions.push('<button type="button" class="btn btn-primary invoice-identity-different">Confirm different person</button>');
+    }
+    if (canManageInvoiceIdentity() && identity.blocker === 'invoice_name_change_required') {
+      identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-start">Start change of invoice name</button>');
+    }
+    if (canManageInvoiceIdentity() && identity.name_change?.batch_status === 'draft') {
+      identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-sent">Record letter sent</button>');
+    }
+    if (canManageInvoiceIdentity() && identity.name_change?.status === 'awaiting_replacement') {
+      identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-replacement">Confirm replacement invoice</button>');
+    }
+    const identityPanel = identity.invoice_identity ? [
+      '<div class="form-section">',
+      '<h3 style="font-size:14px;margin:0 0 8px;">Invoice identity verification</h3>',
+      '<div class="invoice-detail-grid">',
+      kv('Invoice name', identity.invoice_identity.name),
+      kv('Applicant name', identity.applicant_identity?.name),
+      kv('Invoice ID', identity.invoice_identity.national_id),
+      kv('Applicant ID', identity.applicant_identity?.national_id),
+      kv('Invoice phone', identity.invoice_identity.phone),
+      kv('Applicant phone', identity.applicant_identity?.phone),
+      '</div>',
+      identity.discrepancy_codes?.length ? '<div class="invoice-card-warning">Verify: ' + escapeHtml(identity.discrepancy_codes.join(', ')) + '</div>' : '<span class="badge badge-green">Identity matches</span>',
+      identity.review ? '<div class="meta">Review: ' + escapeHtml(identity.review.status) + (identity.review.decision_note ? ' — ' + escapeHtml(identity.review.decision_note) : '') + '</div>' : '',
+      identity.name_change ? '<div class="meta">Change request: ' + escapeHtml(identity.name_change.status) + '</div>' : '',
+      '<div class="invoice-detail-actions">' + identityActions.join('') + '</div>',
+      '</div>',
+    ].join('') : '';
     const actionButtons = [
       routeMode ? '<button type="button" class="btn btn-secondary invoice-detail-back">Back to invoices</button>' : '',
       canWriteInvoices() && ['draft', 'unmatched', 'ambiguous'].includes(invoice.status) ? '<button type="button" class="btn btn-primary invoice-detail-match-action">Match invoice</button>' : '',
@@ -415,6 +455,7 @@
       kv('Balance check', invoice.balance_due_check),
       '</div>',
       '</div>',
+      identityPanel,
       '<details class="form-section"' + (duplicates.length ? ' open' : '') + '>',
       '<summary>Duplicate check' + (duplicates.length ? ' (' + escapeHtml(duplicates.length) + ')' : '') + '</summary>',
       duplicateHtml,
@@ -435,6 +476,69 @@
     target.querySelector('.invoice-detail-unmatch-action')?.addEventListener('click', function () { unmatchInvoice(invoice.id); });
     target.querySelector('.invoice-detail-ignore-action')?.addEventListener('click', function () { ignoreInvoice(invoice.id); });
     target.querySelector('.invoice-detail-restore-action')?.addEventListener('click', function () { restoreInvoice(invoice.id); });
+    target.querySelector('.invoice-identity-same')?.addEventListener('click', function () { decideInvoiceIdentity(invoice.id, 'same_person_confirmed'); });
+    target.querySelector('.invoice-identity-different')?.addEventListener('click', function () { decideInvoiceIdentity(invoice.id, 'different_person_confirmed'); });
+    target.querySelector('.invoice-name-change-start')?.addEventListener('click', function () { startInvoiceNameChange(invoice); });
+    target.querySelector('.invoice-name-change-sent')?.addEventListener('click', function () { markInvoiceNameChangeSent(identity.name_change); });
+    target.querySelector('.invoice-name-change-replacement')?.addEventListener('click', function () { confirmInvoiceReplacement(identity.name_change); });
+  }
+
+  async function decideInvoiceIdentity(invoiceId, outcome) {
+    const note = window.prompt(outcome === 'same_person_confirmed' ? 'Verification note (explain the spelling/phone difference):' : 'Verification note (explain why this is a different person):');
+    if (!note?.trim()) return;
+    const response = await deps.apiFetch('/invoice-pool/' + encodeURIComponent(invoiceId) + '/identity-review/', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...csrfHeader() },
+      body: JSON.stringify({ outcome: outcome, note: note.trim(), client_request_id: requestId() }),
+    });
+    if (!response.ok || !response.data?.ok) return window.alert(response.data?.error || 'Identity verification failed.');
+    loadDetail(invoiceId);
+  }
+
+  async function startInvoiceNameChange(invoice) {
+    const relationshipType = window.prompt('Relationship type: spouse or household_member', 'spouse');
+    if (!relationshipType) return;
+    const attestation = window.prompt('Operations attestation note:');
+    if (!attestation?.trim()) return;
+    const evidence = window.prompt('Supporting evidence reference or approved Drive link:');
+    if (!evidence?.trim()) return;
+    const batchId = window.prompt('Existing draft letter batch ID (leave blank to start a new letter):', '') || '';
+    const response = await deps.apiFetch('/invoice-pool/' + encodeURIComponent(invoice.id) + '/name-change/', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...csrfHeader() },
+      body: JSON.stringify({
+        relationship_type: relationshipType, related_name: invoice.customer_name,
+        related_national_id: invoice.customer_id, related_phone: invoice.customer_phone,
+        attestation_note: attestation.trim(), evidence_reference: evidence.trim(),
+        batch_id: batchId.trim(),
+        client_request_id: requestId(),
+      }),
+    });
+    if (!response.ok || !response.data?.ok) return window.alert(response.data?.error || 'Could not start the invoice-name change.');
+    loadDetail(invoice.id);
+  }
+
+  async function markInvoiceNameChangeSent(change) {
+    const letter = window.prompt('Approved Drive reference for the sent letter:');
+    if (!letter?.trim()) return;
+    const sentReference = window.prompt('HB send reference (email/message/reference number):');
+    if (!sentReference?.trim()) return;
+    const response = await deps.apiFetch('/invoice-name-changes/' + encodeURIComponent(change.batch_id) + '/sent/', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...csrfHeader() },
+      body: JSON.stringify({ letter_reference: letter.trim(), sent_reference: sentReference.trim() }),
+    });
+    if (!response.ok || !response.data?.ok) return window.alert(response.data?.error || 'Could not record the sent letter.');
+    window.location.reload();
+  }
+
+  async function confirmInvoiceReplacement(change) {
+    const replacementId = window.prompt('Replacement parsed-invoice ID:');
+    if (!replacementId?.trim()) return;
+    const note = window.prompt('If its name/phone spelling differs, enter the verification note:', '') || '';
+    const response = await deps.apiFetch('/invoice-name-change-items/' + encodeURIComponent(change.id) + '/replacement/', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...csrfHeader() },
+      body: JSON.stringify({ replacement_invoice_id: replacementId.trim(), verification_note: note.trim() }),
+    });
+    if (!response.ok || !response.data?.ok) return window.alert(response.data?.error || 'Could not confirm the replacement invoice.');
+    window.location.reload();
   }
 
   async function openInvoiceDetail(invoiceId) {
