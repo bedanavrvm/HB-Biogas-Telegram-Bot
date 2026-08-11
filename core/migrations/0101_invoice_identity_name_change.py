@@ -29,6 +29,7 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='parsedinvoice', name='status',
             field=models.CharField(choices=[('draft', 'Draft'), ('unmatched', 'Unmatched'), ('matched', 'Matched'), ('ambiguous', 'Ambiguous'), ('ignored', 'Ignored'), ('superseded', 'Superseded')], db_index=True, default='unmatched', max_length=32),
+        ),
         migrations.CreateModel(
             name='InvoiceIdentityReview',
             fields=[
