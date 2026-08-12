@@ -35,6 +35,15 @@
 
   function populateContextKeys() {
     $('cal-context').innerHTML = contextKeys.map(item => `<option value="${escapeHtml(item.key)}">${escapeHtml(item.label)}</option>`).join('');
+    populateGlobalFormatting();
+  }
+  function populateGlobalFormatting() {
+    const defaults = configuration?.field_overlay_manifest?.defaults || {};
+    const firstText = Object.values(fields()).find(spec => (spec.render_as || 'text') !== 'checkbox') || {};
+    const seed = { ...firstText, ...defaults };
+    $('global-font').value = seed.font || 'Helvetica'; $('global-font-size').value = seed.font_size || 8; $('global-min-font-size').value = seed.min_font_size || 5;
+    $('global-text-case').value = seed.text_case || 'none'; $('global-align').value = seed.align || 'left'; $('global-vertical').value = seed.vertical_align || 'bottom'; $('global-fit').value = seed.fit || 'shrink';
+    const padding = typeof seed.padding === 'object' ? seed.padding : { x: seed.padding || 0, y: seed.padding || 0 }; $('global-padding-x').value = padding.x || 0; $('global-padding-y').value = padding.y || 0;
   }
   function escapeHtml(value) { const node = document.createElement('div'); node.textContent = value || ''; return node.innerHTML; }
   function renderFieldList() {
@@ -111,7 +120,7 @@
   function select(key) { selectedKey = key; renderFieldList(); inspect(); }
   function inspect() {
     const spec = fields()[selectedKey], panel = $('calibration-inspector'); panel.hidden = !spec; if (!spec) return;
-    const box = boxFor(spec); $('cal-context').value = spec.context_key || ''; $('cal-x').value = box.x; $('cal-y').value = box.y; $('cal-width').value = box.width; $('cal-height').value = box.height;
+    const box = boxFor(spec); $('cal-context').value = spec.context_key || ''; $('cal-x').value = box.x; $('cal-y').value = box.y; $('cal-width').value = box.width; $('cal-height').value = box.height; $('cal-font').value = spec.font || 'Helvetica';
     $('cal-font-size').value = spec.font_size || 8; $('cal-min-font-size').value = spec.min_font_size || 5; $('cal-render-as').value = spec.render_as || 'text'; $('cal-checked-when').value = spec.checked_when ?? '';
     const padding = typeof spec.padding === 'object' ? spec.padding : { x: spec.padding || 0, y: spec.padding || 0 }; $('cal-padding-x').value = padding.x || 0; $('cal-padding-y').value = padding.y || 0; $('cal-text-case').value = spec.text_case || 'none';
     $('cal-align').value = spec.align || 'left'; $('cal-vertical').value = spec.vertical_align || 'bottom'; $('cal-fit').value = spec.fit || 'shrink'; $('cal-checked-wrap').hidden = $('cal-render-as').value !== 'checkbox';
@@ -119,16 +128,24 @@
   function markDirty() { dirty = true; status('Unsaved calibration changes'); if (mode === 'filled') { window.clearTimeout(previewTimer); previewTimer = window.setTimeout(() => renderPage().catch(error => status(error.message, true)), 500); } }
   function updateSelected() {
     const spec = fields()[selectedKey]; if (!spec) return; const next = { x: Number($('cal-x').value), y: Number($('cal-y').value), width: Number($('cal-width').value), height: Number($('cal-height').value) };
-    setBox(spec, next); spec.context_key = $('cal-context').value; spec.font_size = Number($('cal-font-size').value); spec.min_font_size = Number($('cal-min-font-size').value); spec.render_as = $('cal-render-as').value;
+    setBox(spec, next); spec.context_key = $('cal-context').value; spec.font = $('cal-font').value; spec.font_size = Number($('cal-font-size').value); spec.min_font_size = Number($('cal-min-font-size').value); spec.render_as = $('cal-render-as').value;
     spec.padding = { x: Number($('cal-padding-x').value), y: Number($('cal-padding-y').value) }; spec.text_case = $('cal-text-case').value;
     spec.checked_when = $('cal-checked-when').value; spec.align = $('cal-align').value; spec.vertical_align = $('cal-vertical').value; spec.fit = $('cal-fit').value; markDirty(); renderFieldList(); inspect();
   }
-  ['cal-context','cal-x','cal-y','cal-width','cal-height','cal-font-size','cal-min-font-size','cal-padding-x','cal-padding-y','cal-text-case','cal-render-as','cal-checked-when','cal-align','cal-vertical','cal-fit'].forEach(id => $(id).addEventListener('change', updateSelected));
+  ['cal-context','cal-x','cal-y','cal-width','cal-height','cal-font','cal-font-size','cal-min-font-size','cal-padding-x','cal-padding-y','cal-text-case','cal-render-as','cal-checked-when','cal-align','cal-vertical','cal-fit'].forEach(id => $(id).addEventListener('change', updateSelected));
   $('calibration-fields').onchange = event => select(event.target.value); $('calibration-search').oninput = renderFieldList;
   $('calibration-add').onclick = () => { const context = contextKeys.find(item => !Object.values(fields()).some(spec => spec.context_key === item.key))?.key || contextKeys[0]?.key || 'field'; let key = context, index = 2; while (fields()[key]) key = `${context}_${index++}`; fields()[key] = { context_key: context, units: 'pt', page_number: page, box: { x: 40, y: 40, width: 120, height: 14 }, allowed_area: { x: 40, y: 40, width: 120, height: 14 }, font_size: 8, min_font_size: 5, vertical_align: 'bottom', fit: 'shrink', padding: { x: 0, y: 0 } }; selectedKey = key; markDirty(); renderFieldList(); inspect(); };
   $('calibration-draw').onclick = () => { if (!selectedKey) $('calibration-add').click(); drawing = true; $('calibration-overlays').style.cursor = 'crosshair'; $('calibration-draw').classList.add('selected'); status('Drag on the document to draw the selected field area.'); };
   $('calibration-duplicate').onclick = () => { if (!selectedKey) return; const source = fields()[selectedKey]; let key = `${selectedKey}_copy`, i = 2; while (fields()[key]) key = `${selectedKey}_copy_${i++}`; fields()[key] = copy(source); fields()[key].box.x += 8; fields()[key].allowed_area = copy(fields()[key].box); selectedKey = key; markDirty(); renderFieldList(); inspect(); };
   $('calibration-delete').onclick = () => { if (!selectedKey || !confirm(`Delete ${selectedKey}?`)) return; delete fields()[selectedKey]; selectedKey = Object.keys(fields())[0] || ''; markDirty(); renderFieldList(); inspect(); };
+  $('global-apply').onclick = () => {
+    const values = { font: $('global-font').value, font_size: Number($('global-font-size').value), min_font_size: Number($('global-min-font-size').value), text_case: $('global-text-case').value, align: $('global-align').value, vertical_align: $('global-vertical').value, fit: $('global-fit').value, padding: { x: Number($('global-padding-x').value), y: Number($('global-padding-y').value) } };
+    if (values.min_font_size > values.font_size) return status('Minimum font size cannot exceed font size.', true);
+    configuration.field_overlay_manifest.defaults = copy(values);
+    Object.values(fields()).forEach(spec => { if ((spec.render_as || 'text') !== 'checkbox') Object.assign(spec, copy(values)); });
+    markDirty(); inspect(); renderFieldList();
+    status('Global formatting applied. Preview, then save the draft.');
+  };
   $('cal-prev').onclick = async () => { if (page > 1) { page--; await renderPage(); } }; $('cal-next').onclick = async () => { if (page < pageSizes.length) { page++; await renderPage(); } };
   $('cal-zoom-out').onclick = () => { zoom = Math.max(.5, zoom - .25); applyZoom(); renderOverlays(); }; $('cal-zoom-in').onclick = () => { zoom = Math.min(3, zoom + .25); applyZoom(); renderOverlays(); };
   $('cal-source').onclick = async () => { mode = 'source'; $('cal-source').classList.add('selected'); $('cal-filled').classList.remove('selected'); await renderPage(); };

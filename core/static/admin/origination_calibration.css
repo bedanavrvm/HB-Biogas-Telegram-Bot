@@ -93,6 +93,10 @@ body #content, body #content-main { max-width: none !important; background: #f8f
 .calibration-sidebar select option { background: #fff !important; color: #172033 !important; }
 #calibration-fields { min-height: 150px !important; padding: 2px !important; }
 #calibration-fields option { padding: 5px 6px; }
+.global-formatting { border: 1px solid #cbd5e1; border-radius: 7px; background: #fff; }
+.global-formatting summary { padding: 7px 8px; color: #172033; font-size: 12px; font-weight: 750; cursor: pointer; }
+.global-formatting-body { display: grid; gap: 6px; padding: 0 8px 8px; }
+.global-formatting-body .cal-button { width: 100%; }
 #calibration-inspector { display: grid; gap: 6px; }
 #calibration-inspector[hidden] { display: none; }
 .calibration-sidebar h2 { margin: 2px 0 0; color: #172033; font-size: 13px; }

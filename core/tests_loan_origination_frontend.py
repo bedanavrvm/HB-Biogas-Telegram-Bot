@@ -24,5 +24,7 @@ class LoanOriginationFrontendTests(SimpleTestCase):
         source = Path('core/static/admin/origination_calibration.js').read_text(encoding='utf-8')
         for control in ('calibration-canvas', 'calibration-save', 'calibration-publish', 'calibration-filled'):
             self.assertIn(control, template)
+        self.assertIn('global-apply', template)
+        self.assertIn('global-font', template)
         self.assertIn('preview_format', Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8'))
         self.assertIn('beforeunload', source)
