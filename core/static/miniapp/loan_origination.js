@@ -22,6 +22,8 @@
   let previewUrl = '';
   let previewPage = 1;
   let previewZoom = 100;
+  let previewPageCount = 1;
+  let previewRequestId = '';
   let previewedRevision = null;
   let dirty = false;
 
@@ -45,7 +47,7 @@
         },
       });
       const contentType = String(response.headers.get('Content-Type') || '');
-      if (contentType.startsWith('application/pdf')) return { ok: response.ok, status: response.status, blob: await response.blob() };
+      if (contentType.startsWith('application/pdf') || contentType.startsWith('image/')) return { ok: response.ok, status: response.status, blob: await response.blob(), pageCount: Number(response.headers.get('X-Preview-Page-Count') || 1) };
       return { ok: response.ok, status: response.status, data: await response.json().catch(() => ({})) };
     } catch (error) {
       return { ok: false, status: 0, data: { error: error?.name === 'AbortError' ? 'The request timed out. Try again.' : 'Could not connect. Check your signal and try again.' } };
@@ -245,34 +247,43 @@
 
   async function openPreview() {
     if (['draft', 'correction_required'].includes(current.status) && !(await saveDraft(true))) return;
-    showToast('Generating filled PDF…');
-    const key = requestKey('preview');
-    const result = await apiFetch(`/applications/${current.id}/preview/`, { method: 'POST', headers: { 'Idempotency-Key': key, 'X-Request-ID': key }, body: JSON.stringify({ revision: current.revision, request_id: key }) });
-    if (!result.ok || !result.blob) return showToast(result.data?.error || 'Could not generate the filled document.', true);
-    closePreview();
-    previewUrl = URL.createObjectURL(result.blob);
     previewedRevision = current.revision;
-    previewPage = 1; previewZoom = 100;
+    previewPage = 1; previewZoom = 100; previewPageCount = 1;
+    previewRequestId = requestKey('preview');
     const overlay = document.getElementById('document-preview-overlay');
     overlay.hidden = false;
     overlay.setAttribute('aria-hidden', 'false');
-    updatePreviewFrame();
     tg?.BackButton?.show();
+    await loadPreviewPage();
+  }
+
+  async function loadPreviewPage() {
+    showToast('Generating filled PDF…');
+    const key = previewRequestId || requestKey('preview');
+    const result = await apiFetch(`/applications/${current.id}/preview/`, { method: 'POST', headers: { 'Idempotency-Key': key, 'X-Request-ID': key }, body: JSON.stringify({ revision: current.revision, request_id: key, preview_format: 'image', page: previewPage }) });
+    if (!result.ok || !result.blob) { closePreview(); return showToast(result.data?.error || 'Could not generate the filled document.', true); }
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = URL.createObjectURL(result.blob);
+    previewPageCount = Math.max(1, result.pageCount || 1);
+    updatePreviewFrame();
   }
 
   function updatePreviewFrame() {
-    const frame = document.getElementById('document-preview-frame');
-    if (frame && previewUrl) frame.src = `${previewUrl}#page=${previewPage}&zoom=${previewZoom}`;
-    const page = document.getElementById('preview-page'); if (page) page.textContent = `Page ${previewPage} of 2`;
+    const image = document.getElementById('document-preview-image');
+    if (image && previewUrl) { image.src = previewUrl; image.style.width = `${previewZoom}%`; }
+    const page = document.getElementById('preview-page'); if (page) page.textContent = `Page ${previewPage} of ${previewPageCount}`;
     const zoom = document.getElementById('preview-zoom'); if (zoom) zoom.textContent = `${previewZoom}%`;
+    const previous = document.getElementById('preview-previous'); if (previous) previous.disabled = previewPage <= 1;
+    const next = document.getElementById('preview-next'); if (next) next.disabled = previewPage >= previewPageCount;
   }
 
   function closePreview() {
     const overlay = document.getElementById('document-preview-overlay');
     if (overlay) { overlay.hidden = true; overlay.setAttribute('aria-hidden', 'true'); }
-    const frame = document.getElementById('document-preview-frame'); if (frame) frame.removeAttribute('src');
+    const image = document.getElementById('document-preview-image'); if (image) image.removeAttribute('src');
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     previewUrl = '';
+    previewRequestId = '';
   }
 
   function showToast(message, error) {
@@ -301,8 +312,8 @@
   }
 
   document.getElementById('preview-close').onclick = closePreview;
-  document.getElementById('preview-previous').onclick = () => { previewPage = Math.max(1, previewPage - 1); updatePreviewFrame(); };
-  document.getElementById('preview-next').onclick = () => { previewPage = Math.min(2, previewPage + 1); updatePreviewFrame(); };
+  document.getElementById('preview-previous').onclick = async () => { if (previewPage > 1) { previewPage -= 1; await loadPreviewPage(); } };
+  document.getElementById('preview-next').onclick = async () => { if (previewPage < previewPageCount) { previewPage += 1; await loadPreviewPage(); } };
   document.getElementById('preview-zoom-out').onclick = () => { previewZoom = Math.max(50, previewZoom - 25); updatePreviewFrame(); };
   document.getElementById('preview-zoom-in').onclick = () => { previewZoom = Math.min(200, previewZoom + 25); updatePreviewFrame(); };
   document.getElementById('preview-open').onclick = () => { if (previewUrl) window.open(previewUrl, '_blank', 'noopener'); };

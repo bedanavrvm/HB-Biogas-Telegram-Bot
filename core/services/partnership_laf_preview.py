@@ -100,3 +100,27 @@ def render_partnership_laf(
 ) -> bytes:
     source, config = _approved_assets(version=version, expected_sha256=expected_sha256)
     return render_template(source, config, context)
+
+
+def render_pdf_page(pdf_data: bytes, *, page_number: int, scale: float = 1.5) -> tuple[bytes, int]:
+    """Render one populated page for Telegram WebViews that cannot paint PDF blobs."""
+    try:
+        import pypdfium2 as pdfium
+
+        document = pdfium.PdfDocument(pdf_data)
+        total_pages = len(document)
+        try:
+            if page_number < 1 or page_number > total_pages:
+                raise PartnershipLafPreviewError('The requested preview page does not exist.')
+            page = document[page_number - 1]
+            bitmap = page.render(scale=max(0.75, min(float(scale), 2.5)))
+            image = bitmap.to_pil().convert('RGB')
+            output = BytesIO()
+            image.save(output, format='JPEG', quality=86, optimize=True)
+            return output.getvalue(), total_pages
+        finally:
+            document.close()
+    except PartnershipLafPreviewError:
+        raise
+    except Exception as exc:
+        raise PartnershipLafPreviewError('The populated preview page could not be rendered.') from exc

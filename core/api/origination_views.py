@@ -198,6 +198,7 @@ def portal_origination_preview(request, application_id: str):
         if int(body.get('revision')) != application.revision:
             raise OriginationConflict('This application changed. Refresh before previewing it.')
         preview = render_application_preview(application)
+        preview_format = str(body.get('preview_format') or 'pdf').strip().lower()
         request_id = _request_id(request, body)
         if request_id and not application.events.filter(request_id=request_id).exists():
             from core.services.loan_origination import _record_event
@@ -206,8 +207,19 @@ def portal_origination_preview(request, application_id: str):
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
     except (OriginationError, TypeError, ValueError) as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
-    response = HttpResponse(preview, content_type='application/pdf')
-    response['Content-Disposition'] = f'inline; filename="{application.reference_number}-preview.pdf"'
+    if preview_format == 'image':
+        try:
+            from core.services.partnership_laf_preview import PartnershipLafPreviewError, render_pdf_page
+            page_number = int(body.get('page') or 1)
+            rendered, total_pages = render_pdf_page(preview, page_number=page_number)
+        except (OriginationError, PartnershipLafPreviewError, TypeError, ValueError) as exc:
+            return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        response = HttpResponse(rendered, content_type='image/jpeg')
+        response['Content-Disposition'] = f'inline; filename="{application.reference_number}-page-{page_number}.jpg"'
+        response['X-Preview-Page-Count'] = str(total_pages)
+    else:
+        response = HttpResponse(preview, content_type='application/pdf')
+        response['Content-Disposition'] = f'inline; filename="{application.reference_number}-preview.pdf"'
     response['Cache-Control'] = 'no-store, private'
     response['X-Content-Type-Options'] = 'nosniff'
     response['X-Application-Revision'] = str(application.revision)

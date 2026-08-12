@@ -15,6 +15,7 @@ from core.services.origination_templates import (
     load_active_template,
     validate_template_files,
 )
+from core.services.partnership_laf_preview import PartnershipLafPreviewError, render_pdf_page
 
 
 def synthetic_pdf() -> bytes:
@@ -51,6 +52,15 @@ class OriginationTemplateValidationTests(SimpleTestCase):
         config['field_overlay_manifest']['fields']['applicant']['page_number'] = 2
         with self.assertRaises(OriginationTemplateError):
             validate_template_files(synthetic_pdf(), json.dumps(config).encode())
+
+    def test_renders_webview_safe_preview_page(self):
+        rendered, page_count = render_pdf_page(synthetic_pdf(), page_number=1)
+        self.assertEqual(page_count, 1)
+        self.assertTrue(rendered.startswith(b'\xff\xd8\xff'))
+
+    def test_rejects_preview_page_outside_document(self):
+        with self.assertRaises(PartnershipLafPreviewError):
+            render_pdf_page(synthetic_pdf(), page_number=2)
 
 
 @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='shared-drive-root')
