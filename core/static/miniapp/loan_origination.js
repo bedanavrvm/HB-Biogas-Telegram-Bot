@@ -27,6 +27,7 @@
   let previewedRevision = null;
   let dirty = false;
   let previewPinch = null;
+  let previewSwipe = null;
   const previewPointers = new Map();
 
   function pointDistance(points) {
@@ -313,8 +314,18 @@
     if (!stage) return;
     stage.addEventListener('pointerdown', event => {
       previewPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (previewPointers.size === 1) {
+        previewSwipe = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startY: event.clientY,
+          startedAt: Date.now(),
+          cancelled: false,
+        };
+      }
       try { stage.setPointerCapture(event.pointerId); } catch (_) { /* WebView may already own capture. */ }
       if (previewPointers.size === 2) {
+        if (previewSwipe) previewSwipe.cancelled = true;
         const points = [...previewPointers.values()];
         previewPinch = { distance: pointDistance(points), zoom: previewZoom };
       }
@@ -337,12 +348,32 @@
       event.preventDefault();
     });
     const finishPointer = event => {
+      const swipe = previewSwipe;
+      if (event.type === 'pointerup' && swipe && swipe.pointerId === event.pointerId && !swipe.cancelled && previewPointers.size === 1) {
+        const deltaX = event.clientX - swipe.startX;
+        const deltaY = event.clientY - swipe.startY;
+        const threshold = Math.max(56, stage.clientWidth * .16);
+        const deliberateHorizontalSwipe = Math.abs(deltaX) >= threshold
+          && Math.abs(deltaX) > Math.abs(deltaY) * 1.35
+          && Date.now() - swipe.startedAt <= 900;
+        if (deliberateHorizontalSwipe) navigatePreviewPage(deltaX < 0 ? 1 : -1);
+      }
       previewPointers.delete(event.pointerId);
       previewPinch = null;
+      if (!previewPointers.size || swipe?.pointerId === event.pointerId) previewSwipe = null;
     };
     stage.addEventListener('pointerup', finishPointer);
     stage.addEventListener('pointercancel', finishPointer);
     stage.addEventListener('lostpointercapture', finishPointer);
+  }
+
+  async function navigatePreviewPage(direction) {
+    const requestedPage = previewPage + direction;
+    if (requestedPage < 1 || requestedPage > previewPageCount) return;
+    previewPage = requestedPage;
+    await loadPreviewPage();
+    const stage = document.getElementById('document-preview-stage');
+    if (stage) { stage.scrollLeft = 0; stage.scrollTop = 0; }
   }
 
   function closePreview() {
@@ -353,6 +384,7 @@
     previewUrl = '';
     previewRequestId = '';
     previewPinch = null;
+    previewSwipe = null;
     previewPointers.clear();
   }
 
@@ -382,8 +414,8 @@
   }
 
   document.getElementById('preview-close').onclick = closePreview;
-  document.getElementById('preview-previous').onclick = async () => { if (previewPage > 1) { previewPage -= 1; await loadPreviewPage(); } };
-  document.getElementById('preview-next').onclick = async () => { if (previewPage < previewPageCount) { previewPage += 1; await loadPreviewPage(); } };
+  document.getElementById('preview-previous').onclick = () => navigatePreviewPage(-1);
+  document.getElementById('preview-next').onclick = () => navigatePreviewPage(1);
   document.getElementById('preview-regenerate').onclick = async () => {
     if (['draft', 'correction_required'].includes(current?.status) && !(await saveDraft(true))) return;
     previewedRevision = current.revision;
