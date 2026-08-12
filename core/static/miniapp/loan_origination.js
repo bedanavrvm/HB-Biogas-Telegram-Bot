@@ -26,6 +26,20 @@
   let previewRequestId = '';
   let previewedRevision = null;
   let dirty = false;
+  let previewPinch = null;
+
+  function touchDistance(touches) {
+    const x = touches[0].clientX - touches[1].clientX;
+    const y = touches[0].clientY - touches[1].clientY;
+    return Math.hypot(x, y);
+  }
+
+  function touchMidpoint(touches) {
+    return {
+      x: (touches[0].clientX + touches[1].clientX) / 2,
+      y: (touches[0].clientY + touches[1].clientY) / 2,
+    };
+  }
 
   function requestKey(prefix) {
     return `${prefix}-${window.crypto?.randomUUID ? window.crypto.randomUUID() : Date.now()}`;
@@ -277,6 +291,45 @@
     const next = document.getElementById('preview-next'); if (next) next.disabled = previewPage >= previewPageCount;
   }
 
+  function setPreviewZoom(value, focalPoint) {
+    const stage = document.getElementById('document-preview-stage');
+    const previousZoom = previewZoom;
+    const nextZoom = Math.max(50, Math.min(300, Math.round(value)));
+    if (!stage || nextZoom === previousZoom) return;
+    const bounds = stage.getBoundingClientRect();
+    const localX = (focalPoint?.x ?? (bounds.left + bounds.width / 2)) - bounds.left;
+    const localY = (focalPoint?.y ?? (bounds.top + bounds.height / 2)) - bounds.top;
+    const ratio = nextZoom / previousZoom;
+    previewZoom = nextZoom;
+    updatePreviewFrame();
+    // Retain the document point beneath the user's fingers after resizing.
+    stage.scrollLeft = (stage.scrollLeft + localX) * ratio - localX;
+    stage.scrollTop = (stage.scrollTop + localY) * ratio - localY;
+  }
+
+  function bindPreviewPinch() {
+    const stage = document.getElementById('document-preview-stage');
+    if (!stage) return;
+    stage.addEventListener('touchstart', event => {
+      if (event.touches.length !== 2) return;
+      previewPinch = {
+        distance: touchDistance(event.touches),
+        zoom: previewZoom,
+      };
+      event.preventDefault();
+    }, { passive: false });
+    stage.addEventListener('touchmove', event => {
+      if (!previewPinch || event.touches.length !== 2) return;
+      const distance = touchDistance(event.touches);
+      if (!previewPinch.distance) return;
+      setPreviewZoom(previewPinch.zoom * (distance / previewPinch.distance), touchMidpoint(event.touches));
+      event.preventDefault();
+    }, { passive: false });
+    const finishPinch = () => { previewPinch = null; };
+    stage.addEventListener('touchend', finishPinch, { passive: true });
+    stage.addEventListener('touchcancel', finishPinch, { passive: true });
+  }
+
   function closePreview() {
     const overlay = document.getElementById('document-preview-overlay');
     if (overlay) { overlay.hidden = true; overlay.setAttribute('aria-hidden', 'true'); }
@@ -284,6 +337,7 @@
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     previewUrl = '';
     previewRequestId = '';
+    previewPinch = null;
   }
 
   function showToast(message, error) {
@@ -320,9 +374,10 @@
     previewRequestId = requestKey('preview');
     await loadPreviewPage();
   };
-  document.getElementById('preview-zoom-out').onclick = () => { previewZoom = Math.max(50, previewZoom - 25); updatePreviewFrame(); };
-  document.getElementById('preview-zoom-in').onclick = () => { previewZoom = Math.min(200, previewZoom + 25); updatePreviewFrame(); };
+  document.getElementById('preview-zoom-out').onclick = () => setPreviewZoom(previewZoom - 25);
+  document.getElementById('preview-zoom-in').onclick = () => setPreviewZoom(previewZoom + 25);
   document.getElementById('preview-open').onclick = () => { if (previewUrl) window.open(previewUrl, '_blank', 'noopener'); };
+  bindPreviewPinch();
   window.addEventListener('beforeunload', closePreview);
   tg?.ready(); tg?.expand();
   tg?.BackButton?.onClick(async () => {
