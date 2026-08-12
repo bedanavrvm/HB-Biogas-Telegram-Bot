@@ -8,7 +8,12 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from pypdf import PdfWriter
 
-from core.models import OriginationDocumentTemplate, OriginationDocumentTemplateEvent
+from core.models import (
+    LoanOriginationApplication,
+    OriginationDocumentTemplate,
+    OriginationDocumentTemplateEvent,
+    OriginationProductDefinition,
+)
 from core.services.origination_templates import (
     OriginationTemplateError,
     activate_template,
@@ -19,6 +24,7 @@ from core.services.origination_templates import (
     validate_template_files,
 )
 from core.services.partnership_laf_preview import PartnershipLafPreviewError, render_pdf_page
+from core.services.loan_origination import render_application_preview
 
 
 def synthetic_pdf() -> bytes:
@@ -158,3 +164,39 @@ class OriginationTemplateLifecycleTests(TestCase):
         )
         self.client.force_login(ordinary_staff)
         self.assertIn(self.client.get(url).status_code, {302, 403})
+
+    @patch('core.services.partnership_laf_preview.render_partnership_laf', return_value=b'%PDF-preview')
+    def test_editable_application_preview_refreshes_published_calibration(self, renderer):
+        digest = hashlib.sha256(self.pdf).hexdigest()
+        product = OriginationProductDefinition.objects.create(
+            product_key='calibration-refresh', name='Calibration refresh', version=1,
+            form_schema={'fields': [{'key': 'applicant_first_name', 'label': 'Name'}]},
+            signer_rules=[{'role': 'borrower'}], document_type='partnership_loan_application',
+            document_template_name='template.pdf', document_template_version=1,
+            document_template_sha256=digest, is_active=True,
+        )
+        template = OriginationDocumentTemplate.objects.create(
+            document_type=product.document_type, name='Template', version=1,
+            source_filename='template.pdf', source_sha256=digest,
+            source_byte_size=len(self.pdf), page_count=1,
+            placement_config=json.loads(synthetic_config()), drive_file_id='drive-refresh',
+            status=OriginationDocumentTemplate.STATUS_ACTIVE, created_by=self.maker,
+        )
+        published_config = json.loads(synthetic_config())
+        published_config['field_overlay_manifest']['fields']['applicant']['box']['x'] = 44
+        published = template.configuration_revisions.create(
+            revision=1, configuration=published_config, is_published=True, created_by=self.maker,
+        )
+        template.published_configuration_revision = published
+        template.save(update_fields=['published_configuration_revision'])
+        application = LoanOriginationApplication.objects.create(
+            reference_number='ORG-SYNTHETIC-REFRESH', product_definition=product,
+            officer=self.maker, status=LoanOriginationApplication.STATUS_DRAFT,
+            template_configuration_snapshot=json.loads(synthetic_config()),
+        )
+
+        render_application_preview(application)
+
+        application.refresh_from_db()
+        self.assertEqual(application.template_configuration_snapshot, published_config)
+        self.assertEqual(renderer.call_args.kwargs['configuration'], published_config)

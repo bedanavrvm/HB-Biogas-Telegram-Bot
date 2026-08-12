@@ -1,6 +1,6 @@
 {% extends "admin/base_site.html" %}
 {% load static %}
-{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_calibration.css' %}?v=4">{% endblock %}
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_calibration.css' %}?v=5">{% endblock %}
 {% block breadcrumbs %}{% endblock %}
 {% block content_title %}{% endblock %}
 {% block content_subtitle %}{% endblock %}
@@ -13,7 +13,7 @@
   data-publish-url="{% url 'admin:core_originationdocumenttemplate_calibration_publish' template_record.pk %}">
   <header class="calibration-topbar">
     <div class="calibration-heading"><a href="{% url 'admin:core_originationdocumenttemplate_changelist' %}" aria-label="Back to templates">←</a><div><h1>{{ template_record.name }}</h1><p>Align fields, inspect the sample, save and publish.</p></div></div>
-    <div class="calibration-actions"><span id="calibration-status">Loading…</span><button type="button" class="cal-button" id="calibration-save">Save draft</button><button type="button" class="cal-button cal-button-primary" id="calibration-publish">Publish alignment</button></div>
+    <div class="calibration-actions"><span id="calibration-status">Loading…</span><button type="button" class="cal-button" id="calibration-save">Save draft</button><button type="button" class="cal-button cal-button-primary" id="calibration-publish">Publish to Mini App</button></div>
   </header>
   <div class="calibration-workspace">
     <aside class="calibration-sidebar">
@@ -60,5 +60,5 @@
     </main>
   </div>
 </div>
-<script src="{% static 'admin/origination_calibration.js' %}?v=4"></script>
+<script src="{% static 'admin/origination_calibration.js' %}?v=5"></script>
 {% endblock %}

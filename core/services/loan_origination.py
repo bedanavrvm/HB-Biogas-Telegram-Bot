@@ -133,6 +133,14 @@ def render_application_preview(application: LoanOriginationApplication) -> bytes
     definition = application.product_definition
     if definition.document_type != 'partnership_loan_application':
         raise OriginationError('This application does not reference the approved Partnership LAF.')
+    if application.status in {
+        LoanOriginationApplication.STATUS_DRAFT,
+        LoanOriginationApplication.STATUS_CORRECTION_REQUIRED,
+    }:
+        latest_configuration = _published_template_configuration(definition)
+        if latest_configuration and latest_configuration != application.template_configuration_snapshot:
+            application.template_configuration_snapshot = latest_configuration
+            application.save(update_fields=['template_configuration_snapshot', 'updated_at'])
     try:
         from core.services.partnership_laf_preview import PartnershipLafPreviewError, render_partnership_laf
         return render_partnership_laf(
