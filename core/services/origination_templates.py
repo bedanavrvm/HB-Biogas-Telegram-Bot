@@ -139,8 +139,6 @@ def activate_template(template: OriginationDocumentTemplate, *, actor) -> Origin
     template = OriginationDocumentTemplate.objects.select_for_update().get(pk=template.pk)
     if not template.drive_file_id or template.status == template.STATUS_UPLOAD_FAILED:
         raise OriginationTemplateError('Only a successfully uploaded template can be activated.')
-    if template.created_by_id == getattr(actor, 'pk', None):
-        raise OriginationTemplateError('A different administrator must review and activate this template.')
     try:
         from core.services.order_approval import GoogleDriveMediaStorage
         folder_id = str(getattr(settings, 'GOOGLE_DRIVE_MEDIA_FOLDER_ID', '') or '').strip()

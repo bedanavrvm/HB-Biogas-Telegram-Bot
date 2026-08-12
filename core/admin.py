@@ -4030,9 +4030,9 @@ class OriginationDocumentTemplateAdmin(ModelAdmin):
         if obj.status == OriginationDocumentTemplate.STATUS_UPLOAD_FAILED:
             messages.error(request, obj.upload_error)
         else:
-            messages.success(request, 'Template uploaded to Drive. A different administrator must activate it.')
+            messages.success(request, 'Template uploaded to Drive and is ready for activation.')
 
-    @admin.action(description='Activate selected template (independent review)')
+    @admin.action(description='Activate selected template')
     def activate_selected_templates(self, request, queryset):
         if not request.user.is_superuser:
             raise PermissionDenied

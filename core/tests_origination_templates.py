@@ -77,10 +77,7 @@ class OriginationTemplateLifecycleTests(TestCase):
         )
         self.assertEqual(template.status, OriginationDocumentTemplate.STATUS_READY)
         self.assertEqual(template.drive_file_id, 'drive-template-1')
-        with self.assertRaises(OriginationTemplateError):
-            activate_template(template, actor=self.maker)
-
-        activated = activate_template(template, actor=self.checker)
+        activated = activate_template(template, actor=self.maker)
         self.assertEqual(activated.status, OriginationDocumentTemplate.STATUS_ACTIVE)
         source, config = load_active_template(
             activated.document_type, version=1, expected_sha256=activated.source_sha256,
