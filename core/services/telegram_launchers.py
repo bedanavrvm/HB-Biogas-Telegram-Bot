@@ -22,6 +22,7 @@ SPIN_LAUNCHER = 'spin_credit'
 ORDER_APPROVAL_LAUNCHER = 'order_approval'
 PIPELINE_PORTAL_LAUNCHER = 'pipeline_portal'
 COMPLAINT_CASES_LAUNCHER = 'complaint_cases'
+LOAN_ORIGINATION_LAUNCHER = 'loan_origination'
 
 MINI_APP_LAUNCHER_CHOICES = (
     (TAT_TRACKER_LAUNCHER, 'TAT Tracker'),
@@ -29,6 +30,7 @@ MINI_APP_LAUNCHER_CHOICES = (
     (ORDER_APPROVAL_LAUNCHER, 'Order Approval'),
     (PIPELINE_PORTAL_LAUNCHER, 'Pipeline Portal'),
     (COMPLAINT_CASES_LAUNCHER, 'Complaint Cases'),
+    (LOAN_ORIGINATION_LAUNCHER, 'Loan Origination'),
 )
 
 _LAUNCHER_LABELS = dict(MINI_APP_LAUNCHER_CHOICES)
@@ -89,6 +91,15 @@ def _pipeline_portal_url() -> str:
     return f'{base_url}/api/portal/' if base_url else ''
 
 
+def loan_origination_launcher_url() -> str:
+    bot_username = str(getattr(settings, 'TELEGRAM_BOT_USERNAME', '') or '').strip().lstrip('@')
+    short_name = str(getattr(settings, 'ORIGINATION_MINI_APP_SHORT_NAME', '') or '').strip().strip('/')
+    if bot_username and short_name:
+        return f'https://t.me/{bot_username}/{short_name}'
+    base_url = str(getattr(settings, 'APP_BASE_URL', '') or '').rstrip('/')
+    return f'{base_url}/origination/' if base_url else ''
+
+
 def build_launcher_url(launcher_key: str, group_id: str) -> str:
     """Build a durable Mini App URL for a pinned group launcher.
 
@@ -110,6 +121,8 @@ def build_launcher_url(launcher_key: str, group_id: str) -> str:
     if launcher_key == COMPLAINT_CASES_LAUNCHER:
         from core.services.complaint_cases import build_complaint_cases_launcher_url
         return build_complaint_cases_launcher_url(group_id)
+    if launcher_key == LOAN_ORIGINATION_LAUNCHER:
+        return loan_origination_launcher_url()
     return ''
 
 

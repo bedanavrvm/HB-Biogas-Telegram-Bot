@@ -59,6 +59,10 @@ TAT_TRACKER_BOT_COMMANDS = [
     {'command': 'batch', 'description': 'Upload TAT cases in batch'},
 ]
 
+ORIGINATION_BOT_COMMANDS = [
+    {'command': 'origination', 'description': 'Open the Loan Origination Mini App'},
+]
+
 
 def unique_commands(commands: list[dict]) -> list[dict]:
     seen = set()
@@ -77,6 +81,7 @@ PRIVATE_BOT_COMMANDS = unique_commands(
     + JAWABU_BOT_COMMANDS
     + SPIN_BOT_COMMANDS
     + TAT_TRACKER_BOT_COMMANDS
+    + ORIGINATION_BOT_COMMANDS
     + CASE_BOT_COMMANDS
     + SHARED_GROUP_BOT_COMMANDS
 )
@@ -84,13 +89,13 @@ PRIVATE_BOT_COMMANDS = unique_commands(
 
 def bot_commands_for_workflow(workflow_type: str = '') -> list[dict]:
     if workflow_type == 'order_approval':
-        return ORDER_APPROVAL_BOT_COMMANDS + SHARED_GROUP_BOT_COMMANDS
+        return ORDER_APPROVAL_BOT_COMMANDS + ORIGINATION_BOT_COMMANDS + SHARED_GROUP_BOT_COMMANDS
     if workflow_type == 'jawabu_homebiogas':
-        return JAWABU_BOT_COMMANDS + SHARED_GROUP_BOT_COMMANDS
+        return JAWABU_BOT_COMMANDS + ORIGINATION_BOT_COMMANDS + SHARED_GROUP_BOT_COMMANDS
     if workflow_type == 'spin_credit_analysis':
-        return SPIN_BOT_COMMANDS + SHARED_GROUP_BOT_COMMANDS
+        return SPIN_BOT_COMMANDS + ORIGINATION_BOT_COMMANDS + SHARED_GROUP_BOT_COMMANDS
     if workflow_type == 'tat_tracker':
-        return TAT_TRACKER_BOT_COMMANDS + SHARED_GROUP_BOT_COMMANDS
+        return TAT_TRACKER_BOT_COMMANDS + ORIGINATION_BOT_COMMANDS + SHARED_GROUP_BOT_COMMANDS
     return CASE_BOT_COMMANDS + SHARED_GROUP_BOT_COMMANDS
 
 

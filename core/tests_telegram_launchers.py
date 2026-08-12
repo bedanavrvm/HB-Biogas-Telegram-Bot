@@ -6,7 +6,12 @@ from django.core.management import call_command
 from django.test import TestCase, override_settings
 
 from core.models import GroupSheetConfiguration
-from core.services.telegram_launchers import preview_group_launcher, publish_group_launcher
+from core.services.telegram_command_menu import bot_commands_for_workflow, private_chat_bot_commands
+from core.services.telegram_launchers import (
+    build_launcher_url,
+    preview_group_launcher,
+    publish_group_launcher,
+)
 
 
 def telegram_response(payload, status_code=200):
@@ -22,6 +27,7 @@ def telegram_response(payload, status_code=200):
     SPIN_MINI_APP_SHORT_NAME='spin',
     ORDER_APPROVAL_MINI_APP_SHORT_NAME='orders',
     PORTAL_MINI_APP_SHORT_NAME='portal',
+    ORIGINATION_MINI_APP_SHORT_NAME='origination',
 )
 class TelegramLauncherTests(TestCase):
     def setUp(self):
@@ -38,6 +44,7 @@ class TelegramLauncherTests(TestCase):
                     'spin_credit',
                     'order_approval',
                     'pipeline_portal',
+                    'loan_origination',
                 ],
             },
         )
@@ -51,9 +58,9 @@ class TelegramLauncherTests(TestCase):
             for button in row
         ]
         self.assertEqual([button['text'] for button in buttons], [
-            'TAT Tracker', 'SPIN / CRB', 'Order Approval', 'Pipeline Portal',
+            'TAT Tracker', 'SPIN / CRB', 'Order Approval', 'Pipeline Portal', 'Loan Origination',
         ])
-        self.assertEqual(len(preview['reply_markup']['inline_keyboard']), 2)
+        self.assertEqual(len(preview['reply_markup']['inline_keyboard']), 3)
 
         from core.services.order_approval import decode_order_approval_start_param
         from core.services.spin_credit import decode_spin_start_param
@@ -63,6 +70,23 @@ class TelegramLauncherTests(TestCase):
         for button, decoder in zip(buttons[:3], decoders):
             start_param = parse_qs(urlsplit(button['url']).query)['startapp'][0]
             self.assertEqual(decoder(start_param), {'group_id': '-100launcher', 'token': ''})
+
+        self.assertEqual(
+            buttons[-1]['url'],
+            'https://t.me/jbl_bot/origination',
+        )
+
+    def test_origination_is_exposed_in_private_and_relevant_group_commands(self):
+        self.assertIn('origination', {item['command'] for item in private_chat_bot_commands()})
+        for workflow in ('jawabu_homebiogas', 'order_approval', 'spin_credit_analysis', 'tat_tracker'):
+            self.assertIn('origination', {item['command'] for item in bot_commands_for_workflow(workflow)})
+
+    @override_settings(TELEGRAM_BOT_USERNAME='', ORIGINATION_MINI_APP_SHORT_NAME='', APP_BASE_URL='https://app.example.test')
+    def test_origination_launcher_has_deployed_url_fallback(self):
+        self.assertEqual(
+            build_launcher_url('loan_origination', '-100launcher'),
+            'https://app.example.test/origination/',
+        )
 
     @override_settings(TELEGRAM_BOT_TOKEN='token', API_REQUEST_TIMEOUT=5)
     @patch('core.services.telegram_launchers.requests.post')
@@ -117,14 +141,14 @@ class TelegramLauncherTests(TestCase):
             'workflow': '{}',
             'parser_rules': '{}',
             'metadata': '{}',
-            'mini_app_launchers': ['tat_tracker', 'pipeline_portal'],
+            'mini_app_launchers': ['tat_tracker', 'pipeline_portal', 'loan_origination'],
         }
         form = GroupSheetConfigurationAdminForm(data=data, instance=self.config)
 
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(
             form.generated_workflow()['mini_app_launchers'],
-            ['tat_tracker', 'pipeline_portal'],
+            ['tat_tracker', 'pipeline_portal', 'loan_origination'],
         )
 
     def test_sync_command_dry_run_does_not_need_token(self):

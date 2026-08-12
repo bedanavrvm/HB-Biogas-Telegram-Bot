@@ -315,6 +315,7 @@ ORDER_APPROVAL_MINI_APP_SHORT_NAME = config('ORDER_APPROVAL_MINI_APP_SHORT_NAME'
 FARMUP_MINI_APP_SHORT_NAME = config('FARMUP_MINI_APP_SHORT_NAME', default='').strip().strip('/')
 FCAUP_MINI_APP_SHORT_NAME = config('FCAUP_MINI_APP_SHORT_NAME', default='').strip().strip('/')
 PORTAL_MINI_APP_SHORT_NAME = config('PORTAL_MINI_APP_SHORT_NAME', default='').strip().strip('/')
+ORIGINATION_MINI_APP_SHORT_NAME = config('ORIGINATION_MINI_APP_SHORT_NAME', default='').strip().strip('/')
 PORTAL_VOICE_INPUT_ENABLED = config('PORTAL_VOICE_INPUT_ENABLED', default=False, cast=bool)
 PORTAL_VOICE_PROVIDER = config('PORTAL_VOICE_PROVIDER', default='groq').strip().lower()
 GROQ_API_KEY = config('GROQ_API_KEY', default='').strip()

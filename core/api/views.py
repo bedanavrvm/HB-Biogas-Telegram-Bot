@@ -2067,6 +2067,10 @@ def _process_telegram_message(message_data: dict) -> dict:
             logger.info("Routing /portal command for group %s from message %s", group_id, telegram_message_id)
             return _process_portal_command(group_config, sender, telegram_message_id)
 
+        if _looks_like_origination_command(command_content):
+            logger.info("Routing /origination command for group %s from message %s", group_id, telegram_message_id)
+            return _process_origination_command()
+
         if not group_config and _looks_like_fcaup_command(command_content):
             logger.warning(
                 "Ignoring /fcaup command for unconfigured group %s message %s",
@@ -4517,6 +4521,25 @@ def _split_if_batch(
 
 def _looks_like_portal_command(content: str) -> bool:
     return bool(re.match(r'^/portal(?:@\w+)?(?:\s|$)', str(content or '').strip(), re.IGNORECASE))
+
+
+def _looks_like_origination_command(content: str) -> bool:
+    return bool(re.match(r'^/origination(?:@\w+)?(?:\s|$)', str(content or '').strip(), re.IGNORECASE))
+
+
+def _process_origination_command() -> dict:
+    from core.services.telegram_launchers import loan_origination_launcher_url
+    launch_url = loan_origination_launcher_url()
+    if not launch_url:
+        return {
+            'status': 'command',
+            'reply_text': 'Loan Origination is not configured. Ask an administrator to set APP_BASE_URL.',
+        }
+    return {
+        'status': 'command',
+        'reply_text': 'JBL Loan Origination is ready. Staff access and branch scope are checked when the app opens.',
+        'reply_markup': {'inline_keyboard': [[{'text': 'Open Loan Origination', 'url': launch_url}]]},
+    }
 
 
 def _process_portal_command(
