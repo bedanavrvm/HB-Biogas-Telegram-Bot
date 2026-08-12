@@ -29,9 +29,10 @@ class LoanOriginationFrontendTests(SimpleTestCase):
         self.assertIn('font-size: 16px !important', css)
         self.assertIn('position: sticky', css)
         self.assertIn('class="header-icon"', template)
-        self.assertIn('data-ui-version="20260812-2"', template)
-        self.assertIn("stage.addEventListener('touchmove'", source)
-        self.assertIn('touch-action: pan-x pan-y', css)
+        self.assertIn('data-ui-version="20260812-3"', template)
+        self.assertIn("stage.addEventListener('pointermove'", source)
+        self.assertIn('setPointerCapture', source)
+        self.assertIn('touch-action: none', css)
         self.assertIn('Math.min(300', source)
 
     def test_superuser_template_calibration_workspace_is_present(self):

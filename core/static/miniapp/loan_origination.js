@@ -27,17 +27,18 @@
   let previewedRevision = null;
   let dirty = false;
   let previewPinch = null;
+  const previewPointers = new Map();
 
-  function touchDistance(touches) {
-    const x = touches[0].clientX - touches[1].clientX;
-    const y = touches[0].clientY - touches[1].clientY;
+  function pointDistance(points) {
+    const x = points[0].x - points[1].x;
+    const y = points[0].y - points[1].y;
     return Math.hypot(x, y);
   }
 
-  function touchMidpoint(touches) {
+  function pointMidpoint(points) {
     return {
-      x: (touches[0].clientX + touches[1].clientX) / 2,
-      y: (touches[0].clientY + touches[1].clientY) / 2,
+      x: (points[0].x + points[1].x) / 2,
+      y: (points[0].y + points[1].y) / 2,
     };
   }
 
@@ -310,24 +311,38 @@
   function bindPreviewPinch() {
     const stage = document.getElementById('document-preview-stage');
     if (!stage) return;
-    stage.addEventListener('touchstart', event => {
-      if (event.touches.length !== 2) return;
-      previewPinch = {
-        distance: touchDistance(event.touches),
-        zoom: previewZoom,
-      };
+    stage.addEventListener('pointerdown', event => {
+      previewPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      try { stage.setPointerCapture(event.pointerId); } catch (_) { /* WebView may already own capture. */ }
+      if (previewPointers.size === 2) {
+        const points = [...previewPointers.values()];
+        previewPinch = { distance: pointDistance(points), zoom: previewZoom };
+      }
       event.preventDefault();
-    }, { passive: false });
-    stage.addEventListener('touchmove', event => {
-      if (!previewPinch || event.touches.length !== 2) return;
-      const distance = touchDistance(event.touches);
-      if (!previewPinch.distance) return;
-      setPreviewZoom(previewPinch.zoom * (distance / previewPinch.distance), touchMidpoint(event.touches));
+    });
+    stage.addEventListener('pointermove', event => {
+      const previous = previewPointers.get(event.pointerId);
+      if (!previous) return;
+      previewPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (previewPointers.size === 2 && previewPinch) {
+        const points = [...previewPointers.values()];
+        const distance = pointDistance(points);
+        if (previewPinch.distance) {
+          setPreviewZoom(previewPinch.zoom * (distance / previewPinch.distance), pointMidpoint(points));
+        }
+      } else if (previewPointers.size === 1) {
+        stage.scrollLeft -= event.clientX - previous.x;
+        stage.scrollTop -= event.clientY - previous.y;
+      }
       event.preventDefault();
-    }, { passive: false });
-    const finishPinch = () => { previewPinch = null; };
-    stage.addEventListener('touchend', finishPinch, { passive: true });
-    stage.addEventListener('touchcancel', finishPinch, { passive: true });
+    });
+    const finishPointer = event => {
+      previewPointers.delete(event.pointerId);
+      previewPinch = null;
+    };
+    stage.addEventListener('pointerup', finishPointer);
+    stage.addEventListener('pointercancel', finishPointer);
+    stage.addEventListener('lostpointercapture', finishPointer);
   }
 
   function closePreview() {
@@ -338,6 +353,7 @@
     previewUrl = '';
     previewRequestId = '';
     previewPinch = null;
+    previewPointers.clear();
   }
 
   function showToast(message, error) {

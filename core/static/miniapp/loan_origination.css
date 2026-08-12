@@ -155,7 +155,9 @@ input:focus, select:focus { border-color: var(--laf-green) !important; box-shado
 .preview-toolbar { display: flex; align-items: center; justify-content: center; gap: 5px; padding: 6px; overflow-x: auto; background: #edf2ef; scrollbar-width: none; }
 .preview-toolbar button { flex: 0 0 auto; min-width: 36px; min-height: 36px !important; padding: 5px 8px !important; border: 1px solid #c9d5d0 !important; border-radius: 8px !important; background: #fff !important; color: #172d25 !important; font-size: .7rem; }
 .preview-toolbar span { min-width: 42px; color: #172d25; text-align: center; font-size: .68rem; font-weight: 750; }
-.preview-stage { min-height: 0; overflow: auto; padding: 9px; background: #59625e; text-align: center; touch-action: pan-x pan-y; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.preview-stage { min-height: 0; overflow: auto; padding: 9px; background: #59625e; text-align: center; touch-action: none; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; cursor: grab; }
+.preview-stage:active { cursor: grabbing; }
+#document-preview-image { user-select: none; -webkit-user-drag: none; }
 #document-preview-image { display: block; width: auto; max-width: none; margin: 0 auto; background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.3); transform-origin: top center; }
 .preview-toolbar .preview-icon-action { padding: 4px !important; font-size: 1rem !important; font-weight: 800; }
 
