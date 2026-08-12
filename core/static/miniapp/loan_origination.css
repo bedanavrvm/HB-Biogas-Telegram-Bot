@@ -1,0 +1,115 @@
+:root {
+  color-scheme: light;
+}
+
+body.origination-app {
+  min-height: 100dvh;
+  margin: 0;
+  background: #f4f7f6;
+  color: #16251f;
+}
+
+.origination-shell {
+  width: min(100%, 760px);
+  margin: 0 auto;
+  padding: max(16px, env(safe-area-inset-top)) 14px max(28px, env(safe-area-inset-bottom));
+}
+
+.origination-header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.origination-header .workflow-brand {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+}
+
+.origination-header h1,
+.origination-header p {
+  margin: 0;
+}
+
+.origination-header h1 {
+  font-size: 1.3rem;
+}
+
+.origination-header p:last-child {
+  margin-top: 2px;
+  color: #5f7069;
+  font-size: .78rem;
+}
+
+#origination-root .form-section,
+#origination-root .farmer-card,
+#origination-root .batch-warning,
+#origination-root .empty-state {
+  border: 1px solid #dce6e1;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 4px 18px rgba(21, 54, 42, .06);
+}
+
+#origination-root .form-section {
+  padding: 16px;
+}
+
+#origination-root .form-row {
+  display: grid;
+  gap: 6px;
+  margin: 13px 0;
+  font-weight: 650;
+}
+
+#origination-root input,
+#origination-root select {
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 1px solid #bdcbc5;
+  border-radius: 10px;
+  background: #fff;
+  font: inherit;
+}
+
+#origination-root .form-actions,
+#origination-root .section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+#origination-root .farmer-list {
+  display: grid;
+  gap: 10px;
+}
+
+#origination-root .farmer-card {
+  padding: 14px;
+}
+
+#origination-root .fc-name {
+  font-weight: 750;
+}
+
+#origination-root .fc-sub {
+  margin-top: 4px;
+  color: #627169;
+}
+
+@media (max-width: 520px) {
+  .origination-header {
+    grid-template-columns: auto 1fr;
+  }
+
+  .origination-header > button {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+  }
+}

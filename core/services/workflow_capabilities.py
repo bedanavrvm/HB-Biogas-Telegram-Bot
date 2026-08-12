@@ -57,6 +57,10 @@ _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     CapabilityDefinition('portal.documents.view', 'jawabu_portal', 'View generated documents', 'Documents', _roles('HB_STAFF', OPERATIONS_ADMIN_ROLE, BUSINESS_ADMIN_ROLE)),
     CapabilityDefinition('portal.documents.regenerate', 'jawabu_portal', 'Regenerate generated documents', 'Documents', _roles('HB_STAFF', OPERATIONS_ADMIN_ROLE), ('portal.documents.view',)),
     CapabilityDefinition('portal.documents.sign', 'jawabu_portal', 'Upload and attest physically signed documents', 'Documents', _roles(OPERATIONS_ADMIN_ROLE, BUSINESS_ADMIN_ROLE), ('portal.documents.view',)),
+    CapabilityDefinition('portal.origination.view', 'jawabu_portal', 'View loan origination applications', 'Origination', _roles('JBL_OFFICER', OPERATIONS_ADMIN_ROLE, BUSINESS_ADMIN_ROLE)),
+    CapabilityDefinition('portal.origination.create', 'jawabu_portal', 'Create and edit loan origination applications', 'Origination', _roles('JBL_OFFICER'), ('portal.origination.view',)),
+    CapabilityDefinition('portal.origination.review', 'jawabu_portal', 'Review loan origination applications', 'Origination', _roles(OPERATIONS_ADMIN_ROLE, BUSINESS_ADMIN_ROLE), ('portal.origination.view',)),
+    CapabilityDefinition('portal.origination.signing.start', 'jawabu_portal', 'Start approved origination signing packages', 'Origination', _roles(OPERATIONS_ADMIN_ROLE), ('portal.origination.review',)),
     # Imports stage raw operational files but deliberately cannot commit them
     # to customer records from the Portal in this release.
     CapabilityDefinition('portal.imports.view', 'jawabu_portal', 'Stage and review FarmUp and SysUp imports', 'Imports', _roles('IT')),

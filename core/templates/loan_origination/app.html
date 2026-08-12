@@ -1,0 +1,32 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="JBL paperless loan origination">
+  <title>Loan Origination</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
+  <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=16">
+  <link rel="stylesheet" href="{% static 'miniapp/loan_origination.css' %}?v=1">
+</head>
+<body class="workflow-standard origination-app" data-miniapp="loan-origination">
+  <main class="origination-shell">
+    <header class="origination-header">
+      <img class="workflow-brand" src="{% static 'miniapp/jawabu-logo.png' %}" alt="Jawabu">
+      <div>
+        <p class="eyebrow">JBL field workflow</p>
+        <h1>Loan Origination</h1>
+        <p>Capture, review and prepare paperless applications</p>
+      </div>
+      <button type="button" class="btn btn-secondary" id="origination-refresh" aria-label="Refresh applications">Refresh</button>
+    </header>
+    <div id="origination-root" aria-live="polite" aria-busy="true">
+      <div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading applications...</div></div>
+    </div>
+  </main>
+  <script src="{% static 'miniapp/utils.js' %}?v=4"></script>
+  <script src="{% static 'miniapp/loan_origination.js' %}?v=1"></script>
+</body>
+</html>

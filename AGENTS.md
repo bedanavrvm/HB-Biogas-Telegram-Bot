@@ -57,6 +57,7 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **`initData`** | Telegram's signed payload proving a Mini App session belongs to a specific Telegram user; must be HMAC-verified server-side before trust. |
 | **Portal** | The aggregated staff-facing view across pipeline/workflow data, served by `core/api/portal_views.py`. |
 | **Portal report** | An IT-only, catalogue-constrained live report over canonical Portal cases. It is not a generic SQL/ORM builder and has no cross-workflow identity join. |
+| **Loan origination application** | A revision-controlled, product-schema snapshot captured by a field officer, independently reviewed, and frozen into a local signing package before any e-sign dispatch. |
 | **Change of invoice name** | Pre-payment Portal workflow used when an HB invoice carries a confirmed different national ID, commonly a spouse's. It preserves the applicant and original invoice, records the household relationship and letter, and requires a corrected replacement invoice before payment. |
 | **Household relationship** | An Operations-verified link between a JBL applicant and a distinct spouse/household person, supported by attestation and evidence; it never merges their legal customer identities. |
 | **Head of Rural** | The Portal label for the stable scoped Mini App role (`BUSINESS_ADMIN`), responsible for final/payment approvals. It is distinct from Django `is_staff`. |
@@ -142,6 +143,7 @@ Key modules:
 - `portal_dashboard.py` — capability- and branch-scoped Portal action-dashboard queues, attention signals, activity, and recent cases
 - `portal_maintenance.py` — IT-controlled Portal read-only maintenance state and audit evidence
 - `portal_reporting.py` — IT-only, catalogue-constrained live Portal reports, chart aggregates, XLSX exports, and reporting audit events
+- `loan_origination.py` — product-neutral origination schemas, revision-aware drafts, maker-checker review, append-only events, and local signing-package preparation
 - `reporting_relationships.py` — read-only model-relationship inventory used to govern future report-source expansion; it never creates cross-workflow customer joins
 - `workflow_capabilities.py` — centrally defined Mini App capabilities and role policy resolution
 - `miniapp_requests.py` — shared Mini App retry-key compatibility and strict-mode policy
@@ -193,6 +195,7 @@ The Mini Apps use Django templates and mostly vanilla JavaScript. Preserve Teleg
 - `core/tests_reliability.py`
 - `core/tests_portal_approval_controls.py`
 - `core/tests_portal_reporting.py`
+- `core/tests_loan_origination.py`
 
 - `core/tests_portal_imports.py`
 

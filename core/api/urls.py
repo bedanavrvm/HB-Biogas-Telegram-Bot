@@ -156,8 +156,18 @@ from .complaint_case_views import (
     complaint_cases_detail,
     complaint_cases_update,
 )
+from .origination_views import (
+    origination_app,
+    portal_origination_application_detail,
+    portal_origination_applications,
+    portal_origination_products,
+    portal_origination_prepare_signing,
+    portal_origination_review,
+    portal_origination_submit,
+)
 
 urlpatterns = [
+    path('origination/', origination_app, name='loan_origination_app'),
     path('auth/telegram/', telegram_session_login, name='telegram_session_login'),
     path('health/', health_check, name='health_check'),
     path('readiness/', readiness_check, name='readiness_check'),
@@ -165,6 +175,12 @@ urlpatterns = [
     path('jawabu-farmers/review/', jawabu_farmers_review, name='jawabu_farmers_review'),
     path('jawabu-farmers/review/commit/', jawabu_farmers_review_commit, name='jawabu_farmers_review_commit'),
     path('miniapp-drafts/<str:workflow>/<str:context_key>/', miniapp_draft, name='miniapp_draft'),
+    path('origination/api/products/', portal_auth_required(portal_origination_products), name='loan_origination_products'),
+    path('origination/api/applications/', portal_auth_required(portal_origination_applications), name='loan_origination_applications'),
+    path('origination/api/applications/<str:application_id>/', portal_auth_required(portal_origination_application_detail), name='loan_origination_application_detail'),
+    path('origination/api/applications/<str:application_id>/submit/', portal_auth_required(portal_origination_submit), name='loan_origination_submit'),
+    path('origination/api/applications/<str:application_id>/review/', portal_auth_required(portal_origination_review), name='loan_origination_review'),
+    path('origination/api/applications/<str:application_id>/prepare-signing/', portal_auth_required(portal_origination_prepare_signing), name='loan_origination_prepare_signing'),
     path('fca/review/', fca_review, name='fca_review'),
     path('fca/review/commit/', fca_review_commit, name='fca_review_commit'),
     path('spin/', spin_form, name='spin_form'),

@@ -2547,6 +2547,226 @@ class MiniAppDraft(models.Model):
         return self.expires_at <= timezone.now()
 
 
+class OriginationProductDefinition(models.Model):
+    """Versioned, inactive-by-default contract for one loan-origination form."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    product_key = models.SlugField(max_length=80, db_index=True)
+    name = models.CharField(max_length=160)
+    version = models.PositiveIntegerField(default=1)
+    form_schema = models.JSONField(default=dict)
+    signer_rules = models.JSONField(default=list)
+    document_type = models.CharField(max_length=80)
+    is_active = models.BooleanField(default=False, db_index=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='created_origination_product_definitions',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['product_key', '-version']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['product_key', 'version'], name='unique_origination_product_version',
+            ),
+            models.UniqueConstraint(
+                fields=['product_key'], condition=models.Q(is_active=True),
+                name='one_active_origination_product_version',
+            ),
+        ]
+        indexes = [models.Index(
+            fields=['product_key', 'is_active'], name='core_origin_product_67c040_idx',
+        )]
+
+    def __str__(self):
+        return f'{self.name} v{self.version}'
+
+    def clean(self):
+        super().clean()
+        if self.is_active:
+            from core.services.loan_origination import OriginationError, validate_product_definition
+            try:
+                validate_product_definition(self)
+            except OriginationError as exc:
+                raise ValidationError(str(exc)) from exc
+
+
+class LoanOriginationApplication(models.Model):
+    """Canonical, revision-controlled application captured by a field officer."""
+
+    STATUS_DRAFT = 'draft'
+    STATUS_READY_FOR_REVIEW = 'ready_for_review'
+    STATUS_REVIEWED = 'reviewed'
+    STATUS_SIGNING_PENDING = 'signing_pending'
+    STATUS_PARTIALLY_SIGNED = 'partially_signed'
+    STATUS_FULLY_SIGNED = 'fully_signed'
+    STATUS_CORRECTION_REQUIRED = 'correction_required'
+    STATUS_DECLINED = 'declined'
+    STATUS_EXPIRED = 'expired'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, 'Draft'),
+        (STATUS_READY_FOR_REVIEW, 'Ready for review'),
+        (STATUS_REVIEWED, 'Reviewed'),
+        (STATUS_SIGNING_PENDING, 'Signing pending'),
+        (STATUS_PARTIALLY_SIGNED, 'Partially signed'),
+        (STATUS_FULLY_SIGNED, 'Fully signed'),
+        (STATUS_CORRECTION_REQUIRED, 'Correction required'),
+        (STATUS_DECLINED, 'Declined'),
+        (STATUS_EXPIRED, 'Expired'),
+        (STATUS_CANCELLED, 'Cancelled'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    reference_number = models.CharField(max_length=80, unique=True, db_index=True)
+    product_definition = models.ForeignKey(
+        OriginationProductDefinition, on_delete=models.PROTECT, related_name='applications',
+    )
+    customer = models.ForeignKey(
+        'JawabuCustomer', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='origination_applications',
+    )
+    officer = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='loan_origination_applications',
+    )
+    branch = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    status = models.CharField(
+        max_length=32, choices=STATUS_CHOICES, default=STATUS_DRAFT, db_index=True,
+    )
+    revision = models.PositiveIntegerField(default=1)
+    form_payload = models.JSONField(default=dict)
+    schema_snapshot = models.JSONField(default=dict)
+    signer_rules_snapshot = models.JSONField(default=list)
+    identity_snapshot = models.JSONField(default=dict, blank=True)
+    client_request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='reviewed_loan_origination_applications',
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['officer', 'client_request_id'],
+                condition=~models.Q(client_request_id=''),
+                name='unique_origination_create_request_per_officer',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['officer', 'status', 'updated_at'], name='core_loanor_officer_3c905e_idx',
+            ),
+            models.Index(
+                fields=['branch', 'status', 'updated_at'], name='core_loanor_branch_8c321c_idx',
+            ),
+        ]
+
+    def __str__(self):
+        return self.reference_number
+
+
+class OriginationApplicationEvent(models.Model):
+    """Append-only operational history for an origination application."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    application = models.ForeignKey(
+        LoanOriginationApplication, on_delete=models.PROTECT, related_name='events',
+    )
+    action = models.CharField(max_length=80, db_index=True)
+    revision = models.PositiveIntegerField()
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='loan_origination_events',
+    )
+    request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    before_values = models.JSONField(default=dict, blank=True)
+    after_values = models.JSONField(default=dict, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    occurred_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ['occurred_at', 'id']
+        indexes = [models.Index(
+            fields=['application', 'occurred_at'], name='core_origin_applica_ea7e72_idx',
+        )]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['application', 'request_id'], condition=~models.Q(request_id=''),
+                name='unique_origination_event_request',
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError('Origination application events are append-only.')
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Origination application events cannot be deleted.')
+
+
+class OriginationSigningPackage(models.Model):
+    """Stable cross-system link from one frozen revision to e-signatures."""
+
+    STATUS_PENDING = 'pending'
+    STATUS_IN_PROGRESS = 'in_progress'
+    STATUS_FULLY_SIGNED = 'fully_signed'
+    STATUS_DECLINED = 'declined'
+    STATUS_EXPIRED = 'expired'
+    STATUS_CANCELLED = 'cancelled'
+    STATUS_FAILED = 'failed'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_IN_PROGRESS, 'In progress'),
+        (STATUS_FULLY_SIGNED, 'Fully signed'),
+        (STATUS_DECLINED, 'Declined'),
+        (STATUS_EXPIRED, 'Expired'),
+        (STATUS_CANCELLED, 'Cancelled'),
+        (STATUS_FAILED, 'Failed'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    application = models.ForeignKey(
+        LoanOriginationApplication, on_delete=models.PROTECT, related_name='signing_packages',
+    )
+    application_revision = models.PositiveIntegerField()
+    external_reference = models.CharField(max_length=80, unique=True, db_index=True)
+    document_type = models.CharField(max_length=80)
+    template_version = models.PositiveIntegerField(null=True, blank=True)
+    context_snapshot = models.JSONField(default=dict)
+    participants_snapshot = models.JSONField(default=list)
+    status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
+    unsigned_document_hash = models.CharField(max_length=64, blank=True, default='')
+    signed_document_hash = models.CharField(max_length=64, blank=True, default='')
+    final_document_reference = models.TextField(blank=True, default='')
+    remote_error = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['application', 'application_revision'],
+                name='one_signing_package_per_origination_revision',
+            ),
+        ]
+        indexes = [models.Index(
+            fields=['application', 'status', 'updated_at'], name='core_origin_applica_3a6bd3_idx',
+        )]
+
+    def __str__(self):
+        return self.external_reference
+
+
 class PortalVoiceTranscriptionAttempt(models.Model):
     """Append-oriented audit and retry state for bounded Portal dictation."""
 

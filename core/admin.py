@@ -77,6 +77,10 @@ from .models import (
     JawabuHouseholdRelationship,
     ParsedInvoice,
     PortalVoiceTranscriptionAttempt,
+    OriginationProductDefinition,
+    LoanOriginationApplication,
+    OriginationApplicationEvent,
+    OriginationSigningPackage,
     PaymentDocument,
     PaymentDocumentTemplate,
     RawMessage,
@@ -3915,6 +3919,61 @@ class UnfoldGroupAdmin(ModelAdmin, DjangoGroupAdmin):
     compressed_fields = True
     list_filter_submit = True
     list_fullwidth = True
+
+
+@admin.register(OriginationProductDefinition)
+class OriginationProductDefinitionAdmin(ModelAdmin):
+    list_display = ('product_key', 'name', 'version', 'document_type', 'is_active', 'updated_at')
+    list_filter = ('is_active', 'document_type')
+    search_fields = ('product_key', 'name', 'document_type')
+
+    def save_model(self, request, obj, form, change):
+        if not obj.created_by_id:
+            obj.created_by = request.user
+        obj.full_clean()
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(LoanOriginationApplication)
+class LoanOriginationApplicationAdmin(ModelAdmin):
+    list_display = ('reference_number', 'product_definition', 'officer', 'branch', 'status', 'revision', 'updated_at')
+    list_filter = ('status', 'branch', 'product_definition')
+    search_fields = ('reference_number', 'officer__username')
+    readonly_fields = tuple(field.name for field in LoanOriginationApplication._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class _AppendOnlyOriginationAdmin(ModelAdmin):
+    def get_readonly_fields(self, request, obj=None):
+        return tuple(field.name for field in self.model._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return True
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(OriginationApplicationEvent)
+class OriginationApplicationEventAdmin(_AppendOnlyOriginationAdmin):
+    list_display = ('application', 'action', 'revision', 'actor', 'occurred_at')
+    list_filter = ('action',)
+    search_fields = ('application__reference_number', 'request_id')
+
+
+@admin.register(OriginationSigningPackage)
+class OriginationSigningPackageAdmin(_AppendOnlyOriginationAdmin):
+    list_display = ('external_reference', 'application', 'application_revision', 'status', 'updated_at')
+    list_filter = ('status', 'document_type')
+    search_fields = ('external_reference', 'application__reference_number')
 
 
 try:
