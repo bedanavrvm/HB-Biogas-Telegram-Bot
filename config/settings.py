@@ -266,6 +266,7 @@ API_AUTH_TOKEN = config('API_AUTH_TOKEN', default='')
 ESIGNATURES_BASE_URL = config('ESIGNATURES_BASE_URL', default='')
 ESIGNATURES_API_KEY = config('ESIGNATURES_API_KEY', default='')
 ESIGNATURES_WEBHOOK_SECRET = config('ESIGNATURES_WEBHOOK_SECRET', default='')
+ORIGINATION_PREVIEW_MAX_BYTES = config('ORIGINATION_PREVIEW_MAX_BYTES', default=10 * 1024 * 1024, cast=int)
 
 # Google Sheets Configuration
 GOOGLE_SHEET_ID = config('GOOGLE_SHEET_ID', default='')

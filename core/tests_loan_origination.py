@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from core.models import (
     LoanOriginationApplication,
@@ -15,6 +15,7 @@ from core.services.loan_origination import (
     create_application,
     prepare_signing_package,
     review_application,
+    render_application_preview,
     save_application_fields,
     submit_for_review,
 )
@@ -110,6 +111,10 @@ class LoanOriginationServiceTests(TestCase):
             expected_revision=1,
             request_id='save-flow',
         )
+        OriginationApplicationEvent.objects.create(
+            application=application, action='document_previewed', revision=application.revision,
+            actor=self.officer, request_id='preview-flow',
+        )
         application = submit_for_review(
             application_id=application.pk,
             actor=self.officer,
@@ -148,7 +153,7 @@ class LoanOriginationServiceTests(TestCase):
         self.assertTrue(replayed_again)
         self.assertEqual(repeated.pk, package.pk)
         self.assertEqual(application.status, LoanOriginationApplication.STATUS_SIGNING_PENDING)
-        self.assertEqual(OriginationApplicationEvent.objects.filter(application=application).count(), 5)
+        self.assertEqual(OriginationApplicationEvent.objects.filter(application=application).count(), 6)
 
     def test_non_approval_review_requires_reason(self):
         application, _ = create_application(
@@ -168,3 +173,33 @@ class LoanOriginationServiceTests(TestCase):
                 request_id='correction-review',
                 decision='request_correction',
             )
+
+    @override_settings(
+        ESIGNATURES_BASE_URL='https://esign.example.test',
+        ESIGNATURES_API_KEY='synthetic-key',
+        ORIGINATION_PREVIEW_MAX_BYTES=1024,
+    )
+    @patch('core.services.loan_origination.requests.post')
+    def test_preview_uses_approved_template_contract_and_rejects_non_pdf(self, mock_post):
+        application, _ = create_application(
+            product_key=self.product.product_key, officer=self.officer,
+            branch='Synthetic Branch', client_request_id='create-preview',
+        )
+        application.form_payload = {'customer_name': 'Synthetic Customer', 'consent': True}
+        application.save(update_fields=['form_payload'])
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.headers = {'Content-Type': 'application/pdf'}
+        mock_post.return_value.content = b'%PDF-synthetic'
+
+        content = render_application_preview(application)
+
+        self.assertEqual(content, b'%PDF-synthetic')
+        payload = mock_post.call_args.kwargs['json']
+        self.assertEqual(payload['document_type'], 'synthetic_loan_agreement')
+        self.assertEqual(payload['template_version'], 1)
+        self.assertEqual(payload['template_sha256'], 'a' * 64)
+        self.assertEqual(payload['context']['branch_code'], 'Synthetic Branch')
+
+        mock_post.return_value.headers = {'Content-Type': 'text/html'}
+        with self.assertRaises(OriginationError):
+            render_application_preview(application)

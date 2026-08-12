@@ -236,6 +236,7 @@ This is a template of variables this class of system typically needs. Treat it a
 | `TAT_REPAIR_CASE_DELAY_SECONDS` | Delay between Admin TAT repair case writes to stay below Google Sheets per-minute quotas | No |
 | `COMPLAINT_CASES_MINI_APP_SHORT_NAME` | Telegram Mini App short name for complaint cases | No |
 | `ORIGINATION_MINI_APP_SHORT_NAME` | BotFather short name for the standalone Loan Origination Mini App | No |
+| `ORIGINATION_PREVIEW_MAX_BYTES` | Maximum transient populated-PDF preview size accepted from the e-sign service | No |
 | `COMPLAINT_CASES_WEBAPP_REQUIRE_TELEGRAM_AUTH` | Requires verified Telegram Mini App identity for complaint case APIs | No |
 | `TELEGRAM_AUTH_MAX_AGE_SECONDS` | Maximum age accepted by the shared Telegram-to-Django authentication backend | No |
 | `COMPLAINT_CASE_MAX_FILES_PER_UPDATE` / `COMPLAINT_CASE_MAX_TOTAL_UPLOAD_MB` | Limits complaint evidence uploads | No |

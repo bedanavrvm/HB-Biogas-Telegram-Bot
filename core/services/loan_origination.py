@@ -8,6 +8,8 @@ from typing import Any
 
 from django.db import IntegrityError, transaction
 from django.utils import timezone
+from django.conf import settings
+import requests
 
 from core.models import (
     LoanOriginationApplication,
@@ -118,6 +120,46 @@ def _record_event(application, action: str, *, actor, request_id: str = '', befo
     )
 
 
+def preview_context(application: LoanOriginationApplication) -> dict[str, Any]:
+    return {
+        **application.form_payload,
+        'reference_number': application.reference_number,
+        'branch_code': application.branch,
+        'loan_officer_name': application.officer.get_full_name() or application.officer.get_username(),
+        'application_date': timezone.localdate(application.created_at).isoformat(),
+    }
+
+
+def render_application_preview(application: LoanOriginationApplication) -> bytes:
+    """Fetch a transient preview from e-sign; no signing package is created."""
+    base_url = str(getattr(settings, 'ESIGNATURES_BASE_URL', '') or '').rstrip('/')
+    api_key = str(getattr(settings, 'ESIGNATURES_API_KEY', '') or '').strip()
+    if not base_url or not api_key:
+        raise OriginationError('Document preview is not configured.')
+    try:
+        response = requests.post(
+            f'{base_url}/api/v1/integrations/document-previews/',
+            headers={'Authorization': f'Bearer {api_key}'},
+            json={
+                'document_type': application.product_definition.document_type,
+                'template_version': application.product_definition.document_template_version,
+                'template_sha256': application.product_definition.document_template_sha256,
+                'context': preview_context(application),
+            },
+            timeout=20,
+        )
+    except requests.RequestException as exc:
+        raise OriginationError('The document preview service could not be reached. Try again.') from exc
+    if response.status_code >= 400:
+        raise OriginationError('The filled document could not be generated. Try again or contact support.')
+    if str(response.headers.get('Content-Type') or '').split(';', 1)[0].lower() != 'application/pdf':
+        raise OriginationError('The preview service returned an invalid document.')
+    max_bytes = int(getattr(settings, 'ORIGINATION_PREVIEW_MAX_BYTES', 10 * 1024 * 1024))
+    if len(response.content) > max_bytes or not response.content.startswith(b'%PDF'):
+        raise OriginationError('The preview document is invalid or too large.')
+    return response.content
+
+
 @transaction.atomic
 def create_application(*, product_key: str, officer, branch: str, client_request_id: str) -> tuple[LoanOriginationApplication, bool]:
     client_request_id = _require_request_id(client_request_id)
@@ -198,6 +240,8 @@ def submit_for_review(*, application_id, actor, expected_revision: int, request_
     result = validate_form_payload(application.schema_snapshot, application.form_payload, require_complete=True)
     if not result.valid:
         raise OriginationError('Complete all required application fields before review.')
+    if not application.events.filter(action='document_previewed', revision=application.revision).exists():
+        raise OriginationError('Preview the filled document for this saved revision before submitting.')
     application.status = LoanOriginationApplication.STATUS_READY_FOR_REVIEW
     application.revision += 1
     application.submitted_at = timezone.now()
@@ -273,13 +317,7 @@ def prepare_signing_package(
         external_reference=f'ESIGN-{str(package_id)[:12].upper()}',
         document_type=application.product_definition.document_type,
         template_version=application.product_definition.document_template_version,
-        context_snapshot={
-            **application.form_payload,
-            'reference_number': application.reference_number,
-            'branch_code': application.branch,
-            'loan_officer_name': application.officer.get_full_name() or application.officer.get_username(),
-            'application_date': timezone.localdate(application.created_at).isoformat(),
-        },
+        context_snapshot=preview_context(application),
         participants_snapshot=application.signer_rules_snapshot,
     )
     application.status = LoanOriginationApplication.STATUS_SIGNING_PENDING

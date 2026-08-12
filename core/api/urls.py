@@ -162,6 +162,7 @@ from .origination_views import (
     portal_origination_applications,
     portal_origination_products,
     portal_origination_prepare_signing,
+    portal_origination_preview,
     portal_origination_review,
     portal_origination_submit,
 )
@@ -179,6 +180,7 @@ urlpatterns = [
     path('origination/api/applications/', portal_auth_required(portal_origination_applications), name='loan_origination_applications'),
     path('origination/api/applications/<str:application_id>/', portal_auth_required(portal_origination_application_detail), name='loan_origination_application_detail'),
     path('origination/api/applications/<str:application_id>/submit/', portal_auth_required(portal_origination_submit), name='loan_origination_submit'),
+    path('origination/api/applications/<str:application_id>/preview/', portal_auth_required(portal_origination_preview), name='loan_origination_preview'),
     path('origination/api/applications/<str:application_id>/review/', portal_auth_required(portal_origination_review), name='loan_origination_review'),
     path('origination/api/applications/<str:application_id>/prepare-signing/', portal_auth_required(portal_origination_prepare_signing), name='loan_origination_prepare_signing'),
     path('fca/review/', fca_review, name='fca_review'),

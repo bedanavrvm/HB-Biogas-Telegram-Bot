@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from django.db.models import Q
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -16,6 +16,7 @@ from core.services.loan_origination import (
     OriginationError,
     create_application,
     prepare_signing_package,
+    render_application_preview,
     review_application,
     save_application_fields,
     serialize_application,
@@ -181,6 +182,36 @@ def portal_origination_submit(request, application_id: str):
     except (OriginationError, TypeError, ValueError) as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     return JsonResponse({'ok': True, 'application': serialize_application(submitted)})
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_origination_preview(request, application_id: str):
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    error = _capability_error(request, 'portal.origination.view', application)
+    if error:
+        return error
+    try:
+        body = _body(request)
+        if int(body.get('revision')) != application.revision:
+            raise OriginationConflict('This application changed. Refresh before previewing it.')
+        preview = render_application_preview(application)
+        request_id = _request_id(request, body)
+        if request_id and not application.events.filter(request_id=request_id).exists():
+            from core.services.loan_origination import _record_event
+            _record_event(application, 'document_previewed', actor=request.portal_user, request_id=request_id)
+    except OriginationConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except (OriginationError, TypeError, ValueError) as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    response = HttpResponse(preview, content_type='application/pdf')
+    response['Content-Disposition'] = f'inline; filename="{application.reference_number}-preview.pdf"'
+    response['Cache-Control'] = 'no-store, private'
+    response['X-Content-Type-Options'] = 'nosniff'
+    response['X-Application-Revision'] = str(application.revision)
+    return response
 
 
 @csrf_exempt
