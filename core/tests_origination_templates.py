@@ -200,3 +200,29 @@ class OriginationTemplateLifecycleTests(TestCase):
         application.refresh_from_db()
         self.assertEqual(application.template_configuration_snapshot, published_config)
         self.assertEqual(renderer.call_args.kwargs['configuration'], published_config)
+
+    @patch('core.services.partnership_laf_preview.render_partnership_laf', return_value=b'%PDF-updated')
+    @patch('core.services.loan_origination._published_template_configuration')
+    def test_pre_signing_review_preview_refreshes_published_configuration(self, published, renderer):
+        product = OriginationProductDefinition.objects.create(
+            product_key='review-calibration-refresh', name='Review calibration refresh', version=1,
+            form_schema={'fields': [{'key': 'applicant_first_name', 'label': 'Name'}]},
+            signer_rules=[{'role': 'borrower'}], document_type='partnership_loan_application',
+            document_template_name='template.pdf', document_template_version=1,
+            document_template_sha256='b' * 64, is_active=True,
+        )
+        application = LoanOriginationApplication.objects.create(
+            reference_number='ORG-SYNTHETIC-REVIEW', product_definition=product,
+            officer=self.maker, branch='Synthetic Branch',
+            schema_snapshot=product.form_schema, signer_rules_snapshot=product.signer_rules,
+            template_configuration_snapshot={'old': True},
+            status=LoanOriginationApplication.STATUS_READY_FOR_REVIEW,
+            client_request_id='synthetic-review-refresh',
+        )
+        published.return_value = {'new': True}
+
+        render_application_preview(application)
+
+        application.refresh_from_db()
+        self.assertEqual(application.template_configuration_snapshot, {'new': True})
+        self.assertEqual(renderer.call_args.kwargs['configuration'], {'new': True})

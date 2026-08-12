@@ -133,9 +133,14 @@ def render_application_preview(application: LoanOriginationApplication) -> bytes
     definition = application.product_definition
     if definition.document_type != 'partnership_loan_application':
         raise OriginationError('This application does not reference the approved Partnership LAF.')
+    # Until a signing package is prepared this endpoint is a live preview, so
+    # it must reflect the latest published Admin calibration.  The signing
+    # package remains immutable and continues to use its captured snapshot.
     if application.status in {
         LoanOriginationApplication.STATUS_DRAFT,
         LoanOriginationApplication.STATUS_CORRECTION_REQUIRED,
+        LoanOriginationApplication.STATUS_READY_FOR_REVIEW,
+        LoanOriginationApplication.STATUS_REVIEWED,
     }:
         latest_configuration = _published_template_configuration(definition)
         if latest_configuration and latest_configuration != application.template_configuration_snapshot:

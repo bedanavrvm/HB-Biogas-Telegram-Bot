@@ -4,6 +4,13 @@ from django.test import SimpleTestCase
 
 
 class LoanOriginationFrontendTests(SimpleTestCase):
+    def test_miniapp_shell_is_not_cached_by_telegram_webview(self):
+        response = self.client.get('/origination/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('no-store', response['Cache-Control'])
+        self.assertEqual(response['Pragma'], 'no-cache')
+
     def test_wizard_and_preview_contract_are_present(self):
         source = Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8')
         template = Path('core/templates/loan_origination/app.html').read_text(encoding='utf-8')
@@ -22,6 +29,7 @@ class LoanOriginationFrontendTests(SimpleTestCase):
         self.assertIn('font-size: 16px !important', css)
         self.assertIn('position: sticky', css)
         self.assertIn('class="header-icon"', template)
+        self.assertIn('data-ui-version="20260812-1"', template)
 
     def test_superuser_template_calibration_workspace_is_present(self):
         template = Path('core/templates/admin/core/originationdocumenttemplate/calibrate.html').read_text(encoding='utf-8')

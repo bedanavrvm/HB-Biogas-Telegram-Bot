@@ -27,7 +27,14 @@ from core.services.loan_origination import (
 @require_http_methods(['GET', 'HEAD'])
 def origination_app(request):
     """Standalone Telegram Mini App shell; authenticated APIs load its data."""
-    return render(request, 'loan_origination/app.html')
+    response = render(request, 'loan_origination/app.html')
+    # Telegram WebViews can retain the HTML shell between launches.  The shell
+    # contains the versioned static URLs, so caching it also prevents a newly
+    # deployed CSS/JS version from ever being requested.
+    response['Cache-Control'] = 'no-store, no-cache, must-revalidate, private'
+    response['Pragma'] = 'no-cache'
+    response['Expires'] = '0'
+    return response
 
 
 def _body(request) -> dict:
