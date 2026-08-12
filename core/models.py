@@ -2557,6 +2557,9 @@ class OriginationProductDefinition(models.Model):
     form_schema = models.JSONField(default=dict)
     signer_rules = models.JSONField(default=list)
     document_type = models.CharField(max_length=80)
+    document_template_name = models.CharField(max_length=180, blank=True, default='')
+    document_template_version = models.PositiveIntegerField(default=1)
+    document_template_sha256 = models.CharField(max_length=64, blank=True, default='')
     is_active = models.BooleanField(default=False, db_index=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,

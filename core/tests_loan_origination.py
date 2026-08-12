@@ -35,6 +35,9 @@ class LoanOriginationServiceTests(TestCase):
             ]},
             signer_rules=[{'role': 'customer'}, {'role': 'officer'}],
             document_type='synthetic_loan_agreement',
+            document_template_name='Synthetic Agreement.pdf',
+            document_template_version=1,
+            document_template_sha256='a' * 64,
             is_active=True,
         )
         self.audit_patch = patch('core.services.compliance_audit.record_event')
@@ -45,6 +48,8 @@ class LoanOriginationServiceTests(TestCase):
         definition = OriginationProductDefinition(
             product_key='invalid', name='Invalid', version=1, is_active=True,
             form_schema={}, signer_rules=[], document_type='',
+            document_template_name='', document_template_sha256='',
+            document_template_version=1,
         )
         with self.assertRaises(ValidationError):
             definition.full_clean()

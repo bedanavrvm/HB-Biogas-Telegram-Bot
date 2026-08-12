@@ -6,6 +6,83 @@ import django.db.models.deletion
 import django.utils.timezone
 
 
+PARTNERSHIP_LAF_FIELDS = (
+    'acknowledgement_amount', 'acknowledgement_recipient_name', 'amount_advanced',
+    'applicant_dob', 'applicant_email', 'applicant_first_name', 'applicant_id_number',
+    'applicant_middle_name', 'applicant_next_of_kin', 'applicant_next_of_kin_id',
+    'applicant_next_of_kin_phone', 'applicant_other_phone', 'applicant_phone',
+    'applicant_postal_address', 'applicant_postal_code', 'applicant_residence_address',
+    'applicant_surname', 'applicant_town', 'approval_amount', 'borrower_full_name',
+    'branch_manager_name', 'bro_1_name', 'bro_2_name', 'business_location', 'business_type',
+    'commissioner_location', 'commissioner_oath_day', 'commissioner_oath_month',
+    'commissioner_oath_year', 'deponent_full_name', 'deponent_id_number',
+    'employer_business_address', 'guarantor_1_business_location', 'guarantor_1_employer',
+    'guarantor_1_id_number', 'guarantor_1_name', 'guarantor_1_phone',
+    'guarantor_1_relationship', 'guarantor_1_residence_location', 'guarantor_1_years_known',
+    'guarantor_2_id_number', 'guarantor_2_name', 'guarantor_2_phone',
+    'guarantor_2_relationship', 'installment_amount', 'interest_rate',
+    'loan_agreement_repayment_period', 'loan_amount', 'loan_product', 'loan_product_other',
+    'loan_purpose', 'monthly_expenses', 'monthly_household_expenses', 'monthly_income',
+    'net_income', 'number_of_weeks', 'own_contribution', 'penalty_rate', 'project_cost',
+    'repayment_period', 'security_1_current_value', 'security_1_description',
+    'security_1_serial_number', 'security_1_year_of_purchase',
+)
+
+
+def seed_partnership_laf(apps, schema_editor):
+    product_model = apps.get_model('core', 'OriginationProductDefinition')
+    money_fields = {
+        'acknowledgement_amount', 'amount_advanced', 'approval_amount', 'installment_amount',
+        'loan_amount', 'monthly_expenses', 'monthly_household_expenses', 'monthly_income',
+        'net_income', 'own_contribution', 'project_cost', 'security_1_current_value',
+    }
+    required_fields = {
+        'applicant_first_name', 'applicant_surname', 'applicant_id_number', 'applicant_phone',
+        'applicant_residence_address', 'business_location', 'business_type', 'loan_amount',
+        'loan_product', 'loan_purpose', 'repayment_period', 'guarantor_1_name',
+        'guarantor_1_id_number', 'guarantor_1_phone', 'borrower_full_name',
+    }
+    fields = []
+    for key in PARTNERSHIP_LAF_FIELDS:
+        field_type = 'money' if key in money_fields else 'text'
+        if key.endswith('_phone') or key in {'applicant_phone', 'applicant_other_phone'}:
+            field_type = 'phone'
+        elif key.endswith('_id_number') or key in {'applicant_id_number', 'applicant_next_of_kin_id', 'deponent_id_number'}:
+            field_type = 'national_id'
+        elif key == 'applicant_dob':
+            field_type = 'date'
+        field = {
+            'key': key,
+            'label': key.replace('_', ' ').title().replace('Bro ', 'BRO '),
+            'type': field_type,
+            'required': key in required_fields,
+        }
+        if key == 'loan_product':
+            field.update({'type': 'choice', 'options': ['Jawabu Express', 'Jawabu Advantage', 'Almasi', 'Landlord', 'Other']})
+        fields.append(field)
+    product_model.objects.update_or_create(
+        product_key='partnership_laf', version=1,
+        defaults={
+            'name': 'JBL Partnership Loan Application',
+            'form_schema': {'fields': fields},
+            'signer_rules': [
+                {'role': 'borrower', 'required': True, 'slots': ['loan_request', 'loan_agreement_signature', 'affidavit_deponent_signature', 'acknowledgement_signature']},
+                {'role': 'guarantor_1', 'required': True},
+                {'role': 'guarantor_2', 'required': False},
+                {'role': 'bro_1', 'required': True},
+                {'role': 'bro_2', 'required': False},
+                {'role': 'branch_manager', 'required': True},
+                {'role': 'commissioner_for_oaths', 'required': False, 'slot_type': 'stamp'},
+            ],
+            'document_type': 'partnership_loan_application',
+            'document_template_name': 'Jawabu Partnership LAF.pdf',
+            'document_template_version': 1,
+            'document_template_sha256': '5e7d264c0cf3e4264e9ab768fd89a4fd1dab131eedd733cce439ce11c6e345f1',
+            'is_active': True,
+        },
+    )
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -24,6 +101,9 @@ class Migration(migrations.Migration):
                 ('form_schema', models.JSONField(default=dict)),
                 ('signer_rules', models.JSONField(default=list)),
                 ('document_type', models.CharField(max_length=80)),
+                ('document_template_name', models.CharField(blank=True, default='', max_length=180)),
+                ('document_template_version', models.PositiveIntegerField(default=1)),
+                ('document_template_sha256', models.CharField(blank=True, default='', max_length=64)),
                 ('is_active', models.BooleanField(db_index=True, default=False)),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('updated_at', models.DateTimeField(auto_now=True)),
@@ -102,4 +182,5 @@ class Migration(migrations.Migration):
         migrations.AddIndex(model_name='originationapplicationevent', index=models.Index(fields=['application', 'occurred_at'], name='core_origin_applica_ea7e72_idx')),
         migrations.AddConstraint(model_name='originationsigningpackage', constraint=models.UniqueConstraint(fields=('application', 'application_revision'), name='one_signing_package_per_origination_revision')),
         migrations.AddIndex(model_name='originationsigningpackage', index=models.Index(fields=['application', 'status', 'updated_at'], name='core_origin_applica_3a6bd3_idx')),
+        migrations.RunPython(seed_partnership_laf, migrations.RunPython.noop),
     ]

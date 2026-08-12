@@ -91,6 +91,8 @@ def portal_origination_products(request):
         'product_key': item.product_key, 'name': item.name, 'version': item.version,
         'form_schema': item.form_schema, 'signer_rules': item.signer_rules,
         'document_type': item.document_type,
+        'document_template_name': item.document_template_name,
+        'document_template_version': item.document_template_version,
     } for item in products]})
 
 

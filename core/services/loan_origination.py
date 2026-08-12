@@ -55,6 +55,11 @@ def validate_product_definition(definition: OriginationProductDefinition) -> Non
         raise OriginationError('Every origination field requires a unique key.')
     if not definition.document_type.strip():
         raise OriginationError('An active origination product requires an e-sign document type.')
+    if not definition.document_template_name.strip():
+        raise OriginationError('An active origination product requires an approved document template.')
+    digest = definition.document_template_sha256.strip().lower()
+    if len(digest) != 64 or any(character not in '0123456789abcdef' for character in digest):
+        raise OriginationError('The approved document template requires a valid SHA-256 digest.')
     if not isinstance(definition.signer_rules, list) or not definition.signer_rules:
         raise OriginationError('An active origination product requires signer rules.')
 
@@ -267,7 +272,14 @@ def prepare_signing_package(
         application_revision=application.revision,
         external_reference=f'ESIGN-{str(package_id)[:12].upper()}',
         document_type=application.product_definition.document_type,
-        context_snapshot=application.form_payload,
+        template_version=application.product_definition.document_template_version,
+        context_snapshot={
+            **application.form_payload,
+            'reference_number': application.reference_number,
+            'branch_code': application.branch,
+            'loan_officer_name': application.officer.get_full_name() or application.officer.get_username(),
+            'application_date': timezone.localdate(application.created_at).isoformat(),
+        },
         participants_snapshot=application.signer_rules_snapshot,
     )
     application.status = LoanOriginationApplication.STATUS_SIGNING_PENDING

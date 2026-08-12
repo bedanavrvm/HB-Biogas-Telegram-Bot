@@ -3923,7 +3923,7 @@ class UnfoldGroupAdmin(ModelAdmin, DjangoGroupAdmin):
 
 @admin.register(OriginationProductDefinition)
 class OriginationProductDefinitionAdmin(ModelAdmin):
-    list_display = ('product_key', 'name', 'version', 'document_type', 'is_active', 'updated_at')
+    list_display = ('product_key', 'name', 'version', 'document_type', 'document_template_name', 'is_active', 'updated_at')
     list_filter = ('is_active', 'document_type')
     search_fields = ('product_key', 'name', 'document_type')
 

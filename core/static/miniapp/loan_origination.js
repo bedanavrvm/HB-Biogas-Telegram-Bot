@@ -137,7 +137,7 @@
       <button type="button" class="btn btn-secondary" id="origination-back">Back to applications</button>
       <article class="form-section" style="margin-top:12px">
         <div class="section-head"><div><h3>${escapeHtml(application.product_name)}</h3><p>${escapeHtml(application.reference_number)} · ${escapeHtml(application.status.replaceAll('_', ' '))}</p></div><span id="origination-save-status">${local ? 'Recovered from this phone' : 'Saved'}</span></div>
-        <div id="origination-fields">${fields.map(field => fieldInput(field, values?.[field.key], !editable)).join('')}</div>
+        <div id="origination-fields">${fields.map(field => fieldInput(field, values?.[field.key], !editable || field.editable === false)).join('')}</div>
         <div class="form-actions">${actions}</div>
       </article>`;
     document.getElementById('origination-back').onclick = renderList;
