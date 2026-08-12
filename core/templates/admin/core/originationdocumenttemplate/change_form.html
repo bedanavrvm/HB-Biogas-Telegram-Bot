@@ -1,0 +1,12 @@
+{% extends "admin/change_form.html" %}
+{% block object-tools-items %}
+  {{ block.super }}
+  {% if original and original.drive_file_id and request.user.is_superuser %}
+    <li>
+      <a href="{% url 'admin:core_originationdocumenttemplate_calibrate' original.pk %}"
+         style="display:inline-flex;align-items:center;min-height:38px;padding:0 14px;border-radius:7px;background:#2563eb;color:#fff;font-weight:700">
+        Open visual calibration
+      </a>
+    </li>
+  {% endif %}
+{% endblock %}

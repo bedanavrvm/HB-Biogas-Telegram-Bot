@@ -1,0 +1,10 @@
+{% extends "admin/change_list.html" %}
+{% block content %}
+  {% if request.user.is_superuser %}
+    <section style="margin-bottom:12px;padding:11px 13px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#172033">
+      <strong style="display:block;font-size:14px">Origination template alignment</strong>
+      <p style="margin:3px 0 0;color:#64748b;font-size:12px">Upload a template, then use its blue <b>Calibrate fields</b> link before activation. Open an existing record if the link is outside your visible table columns.</p>
+    </section>
+  {% endif %}
+  {{ block.super }}
+{% endblock %}

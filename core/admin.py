@@ -3979,13 +3979,15 @@ class OriginationProductDefinitionAdmin(ModelAdmin):
 @admin.register(OriginationDocumentTemplate)
 class OriginationDocumentTemplateAdmin(ModelAdmin):
     form = OriginationDocumentTemplateForm
+    change_form_template = 'admin/core/originationdocumenttemplate/change_form.html'
+    change_list_template = 'admin/core/originationdocumenttemplate/change_list.html'
     list_display = ('name', 'document_type', 'version', 'status', 'calibrate_link', 'page_count', 'created_by', 'activated_by', 'updated_at')
     list_filter = ('status', 'document_type')
     search_fields = ('name', 'document_type', 'source_filename', 'source_sha256')
     actions = ('activate_selected_templates',)
     readonly_fields = (
         'document_type', 'version', 'status', 'source_filename', 'source_sha256',
-        'source_byte_size', 'page_count', 'placement_config', 'drive_link',
+        'source_byte_size', 'page_count', 'calibration_link', 'placement_config', 'drive_link',
         'published_configuration_revision', 'upload_error', 'created_by', 'activated_by',
         'activated_at', 'created_at', 'updated_at',
     )
@@ -4023,6 +4025,17 @@ class OriginationDocumentTemplateAdmin(ModelAdmin):
             return 'Unavailable'
         url = reverse('admin:core_originationdocumenttemplate_calibrate', args=[obj.pk])
         return format_html('<a href="{}">Calibrate fields</a>', url)
+
+    @admin.display(description='Visual alignment editor')
+    def calibration_link(self, obj):
+        if not obj or not obj.pk or not obj.drive_file_id:
+            return 'Available after the PDF is uploaded to Drive.'
+        url = reverse('admin:core_originationdocumenttemplate_calibrate', args=[obj.pk])
+        return format_html(
+            '<a class="button" style="display:inline-flex;background:#2563eb;color:#fff;'
+            'padding:8px 14px;border-radius:7px;font-weight:700" href="{}">'
+            'Open visual calibration</a>', url,
+        )
 
     def calibrate_view(self, request, object_id):
         obj = self._calibration_template(request, object_id)

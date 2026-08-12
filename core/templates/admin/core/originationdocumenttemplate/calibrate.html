@@ -1,6 +1,6 @@
 {% extends "admin/base_site.html" %}
 {% load static %}
-{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_calibration.css' %}?v=1">{% endblock %}
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_calibration.css' %}?v=2">{% endblock %}
 {% block content %}
 <div id="calibration-app"
   data-state-url="{% url 'admin:core_originationdocumenttemplate_calibration_state' template_record.pk %}"
@@ -10,11 +10,11 @@
   data-publish-url="{% url 'admin:core_originationdocumenttemplate_calibration_publish' template_record.pk %}">
   <header class="calibration-topbar">
     <div><h1>{{ template_record.name }}</h1><p>Move and resize fill areas, inspect a filled sample, then publish when aligned.</p></div>
-    <div class="calibration-actions"><span id="calibration-status">Loading…</span><button type="button" id="calibration-save">Save draft</button><button type="button" class="button default" id="calibration-publish">Publish alignment</button></div>
+    <div class="calibration-actions"><span id="calibration-status">Loading…</span><button type="button" class="cal-button" id="calibration-save">Save draft</button><button type="button" class="cal-button cal-button-primary" id="calibration-publish">Publish alignment</button></div>
   </header>
   <div class="calibration-workspace">
     <aside class="calibration-sidebar">
-      <div class="tool-row"><button type="button" id="calibration-add">+ Add field</button><button type="button" id="calibration-draw">Draw area</button><button type="button" id="calibration-duplicate">Duplicate</button><button type="button" class="deletelink" id="calibration-delete">Delete</button></div>
+      <div class="tool-row"><button type="button" class="cal-button" id="calibration-add">+ Add</button><button type="button" class="cal-button" id="calibration-draw">Draw</button><button type="button" class="cal-button" id="calibration-duplicate">Duplicate</button><button type="button" class="cal-button cal-button-danger" id="calibration-delete">Delete</button></div>
       <label>Find field<input id="calibration-search" type="search" placeholder="Name or data key"></label>
       <select id="calibration-fields" size="12" aria-label="Calibrated fields"></select>
       <section id="calibration-inspector" hidden>
@@ -36,13 +36,13 @@
     </aside>
     <main class="calibration-main">
       <div class="calibration-toolbar">
-        <button type="button" id="cal-prev">← Page</button><strong id="cal-page-label">Page 1</strong><button type="button" id="cal-next">Page →</button>
-        <button type="button" id="cal-zoom-out">−</button><span id="cal-zoom-label">100%</span><button type="button" id="cal-zoom-in">+</button>
-        <button type="button" id="cal-source" class="selected">Template</button><button type="button" id="cal-filled">Filled sample</button>
+        <button type="button" class="cal-button" id="cal-prev">← Page</button><strong id="cal-page-label">Page 1</strong><button type="button" class="cal-button" id="cal-next">Page →</button>
+        <button type="button" class="cal-button cal-button-icon" id="cal-zoom-out">−</button><span id="cal-zoom-label">100%</span><button type="button" class="cal-button cal-button-icon" id="cal-zoom-in">+</button>
+        <button type="button" class="cal-button selected" id="cal-source">Template</button><button type="button" class="cal-button" id="cal-filled">Filled sample</button>
       </div>
       <div class="calibration-scroll"><div id="calibration-canvas" class="calibration-canvas"><img id="calibration-page" alt="Template page"><div id="calibration-overlays" class="calibration-overlays"></div></div></div>
     </main>
   </div>
 </div>
-<script src="{% static 'admin/origination_calibration.js' %}?v=1"></script>
+<script src="{% static 'admin/origination_calibration.js' %}?v=2"></script>
 {% endblock %}
