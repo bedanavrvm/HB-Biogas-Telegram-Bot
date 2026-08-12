@@ -29,6 +29,8 @@
   let previewPinch = null;
   let previewSwipe = null;
   const previewPointers = new Map();
+  const previewPageUrls = new Map();
+  const previewPageLoads = new Map();
 
   function pointDistance(points) {
     const x = points[0].x - points[1].x;
@@ -264,6 +266,7 @@
   async function openPreview() {
     if (['draft', 'correction_required'].includes(current.status) && !(await saveDraft(true))) return;
     previewedRevision = current.revision;
+    clearPreviewPageCache();
     previewPage = 1; previewZoom = 100; previewPageCount = 1;
     previewRequestId = requestKey('preview');
     const overlay = document.getElementById('document-preview-overlay');
@@ -273,15 +276,61 @@
     await loadPreviewPage();
   }
 
-  async function loadPreviewPage() {
-    showToast('Generating filled PDF…');
+  async function fetchPreviewPage(pageNumber) {
+    if (previewPageUrls.has(pageNumber)) {
+      const cached = previewPageUrls.get(pageNumber);
+      previewPageUrls.delete(pageNumber);
+      previewPageUrls.set(pageNumber, cached);
+      return cached;
+    }
+    if (previewPageLoads.has(pageNumber)) return previewPageLoads.get(pageNumber);
     const key = previewRequestId || requestKey('preview');
-    const result = await apiFetch(`/applications/${current.id}/preview/`, { method: 'POST', headers: { 'Idempotency-Key': key, 'X-Request-ID': key }, body: JSON.stringify({ revision: current.revision, request_id: key, preview_format: 'image', page: previewPage }) });
-    if (!result.ok || !result.blob) { closePreview(); return showToast(result.data?.error || 'Could not generate the filled document.', true); }
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    previewUrl = URL.createObjectURL(result.blob);
-    previewPageCount = Math.max(1, result.pageCount || 1);
+    const applicationId = current.id;
+    const revision = current.revision;
+    const pending = apiFetch(`/applications/${applicationId}/preview/`, {
+      method: 'POST', headers: { 'Idempotency-Key': key, 'X-Request-ID': key },
+      body: JSON.stringify({ revision, request_id: key, preview_format: 'image', page: pageNumber }),
+    }).then(result => {
+      if (!result.ok || !result.blob) return { error: result.data?.error || 'Could not generate the filled document.' };
+      if (key !== previewRequestId || current?.id !== applicationId) return { stale: true };
+      const entry = { url: URL.createObjectURL(result.blob), pageCount: Math.max(1, result.pageCount || 1) };
+      previewPageUrls.set(pageNumber, entry);
+      while (previewPageUrls.size > 3) {
+        const discardPage = [...previewPageUrls.keys()].find(item => item !== previewPage);
+        if (discardPage == null) break;
+        URL.revokeObjectURL(previewPageUrls.get(discardPage).url);
+        previewPageUrls.delete(discardPage);
+      }
+      return entry;
+    }).finally(() => {
+      if (previewPageLoads.get(pageNumber) === pending) previewPageLoads.delete(pageNumber);
+    });
+    previewPageLoads.set(pageNumber, pending);
+    return pending;
+  }
+
+  async function loadPreviewPage() {
+    const requestedPage = previewPage;
+    const wasCached = previewPageUrls.has(requestedPage);
+    if (!wasCached) showToast('Generating filled PDF…');
+    const entry = await fetchPreviewPage(requestedPage);
+    if (entry?.error) { closePreview(); return showToast(entry.error, true); }
+    if (!entry || entry.stale || requestedPage !== previewPage) return;
+    previewUrl = entry.url;
+    previewPageCount = entry.pageCount;
     updatePreviewFrame();
+    const toast = document.getElementById('origination-toast');
+    if (!wasCached && toast) toast.hidden = true;
+    [requestedPage - 1, requestedPage + 1]
+      .filter(pageNumber => pageNumber >= 1 && pageNumber <= previewPageCount)
+      .forEach(pageNumber => { void fetchPreviewPage(pageNumber); });
+  }
+
+  function clearPreviewPageCache() {
+    previewPageUrls.forEach(entry => URL.revokeObjectURL(entry.url));
+    previewPageUrls.clear();
+    previewPageLoads.clear();
+    previewUrl = '';
   }
 
   function updatePreviewFrame() {
@@ -380,8 +429,7 @@
     const overlay = document.getElementById('document-preview-overlay');
     if (overlay) { overlay.hidden = true; overlay.setAttribute('aria-hidden', 'true'); }
     const image = document.getElementById('document-preview-image'); if (image) image.removeAttribute('src');
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    previewUrl = '';
+    clearPreviewPageCache();
     previewRequestId = '';
     previewPinch = null;
     previewSwipe = null;
@@ -419,6 +467,7 @@
   document.getElementById('preview-regenerate').onclick = async () => {
     if (['draft', 'correction_required'].includes(current?.status) && !(await saveDraft(true))) return;
     previewedRevision = current.revision;
+    clearPreviewPageCache();
     previewRequestId = requestKey('preview');
     await loadPreviewPage();
   };
