@@ -236,7 +236,7 @@ This is a template of variables this class of system typically needs. Treat it a
 | `TAT_REPAIR_CASE_DELAY_SECONDS` | Delay between Admin TAT repair case writes to stay below Google Sheets per-minute quotas | No |
 | `COMPLAINT_CASES_MINI_APP_SHORT_NAME` | Telegram Mini App short name for complaint cases | No |
 | `ORIGINATION_MINI_APP_SHORT_NAME` | BotFather short name for the standalone Loan Origination Mini App | No |
-| `ORIGINATION_TEMPLATE_DRIVE_FOLDER_ID` / `ORIGINATION_TEMPLATE_MAX_FILE_SIZE_MB` | Restricted Drive parent and PDF size limit for versioned Origination legal templates managed in Django Admin | Treat folder ID as sensitive |
+| `ORIGINATION_TEMPLATE_MAX_FILE_SIZE_MB` | PDF size limit for versioned Origination legal templates managed in Django Admin; templates use the existing `GOOGLE_DRIVE_MEDIA_FOLDER_ID` root | No |
 | `COMPLAINT_CASES_WEBAPP_REQUIRE_TELEGRAM_AUTH` | Requires verified Telegram Mini App identity for complaint case APIs | No |
 | `TELEGRAM_AUTH_MAX_AGE_SECONDS` | Maximum age accepted by the shared Telegram-to-Django authentication backend | No |
 | `COMPLAINT_CASE_MAX_FILES_PER_UPDATE` / `COMPLAINT_CASE_MAX_TOTAL_UPLOAD_MB` | Limits complaint evidence uploads | No |

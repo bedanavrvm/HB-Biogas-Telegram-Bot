@@ -105,9 +105,9 @@ def create_template(*, pdf_file, config_file, name: str, actor) -> OriginationDo
 
 def upload_template_record(template: OriginationDocumentTemplate, *, pdf_data: bytes, actor) -> OriginationDocumentTemplate:
     """Upload a validated, already-persisted template record and retain failures for audit."""
-    folder_id = str(getattr(settings, 'ORIGINATION_TEMPLATE_DRIVE_FOLDER_ID', '') or '').strip()
+    folder_id = str(getattr(settings, 'GOOGLE_DRIVE_MEDIA_FOLDER_ID', '') or '').strip()
     if not folder_id:
-        error = 'ORIGINATION_TEMPLATE_DRIVE_FOLDER_ID is not configured.'
+        error = 'GOOGLE_DRIVE_MEDIA_FOLDER_ID is not configured.'
         template.status = template.STATUS_UPLOAD_FAILED
         template.upload_error = error
         template.save(update_fields=['status', 'upload_error', 'updated_at'])
@@ -143,9 +143,9 @@ def activate_template(template: OriginationDocumentTemplate, *, actor) -> Origin
         raise OriginationTemplateError('A different administrator must review and activate this template.')
     try:
         from core.services.order_approval import GoogleDriveMediaStorage
-        folder_id = str(getattr(settings, 'ORIGINATION_TEMPLATE_DRIVE_FOLDER_ID', '') or '').strip()
+        folder_id = str(getattr(settings, 'GOOGLE_DRIVE_MEDIA_FOLDER_ID', '') or '').strip()
         if not folder_id:
-            raise OriginationTemplateError('ORIGINATION_TEMPLATE_DRIVE_FOLDER_ID is not configured.')
+            raise OriginationTemplateError('GOOGLE_DRIVE_MEDIA_FOLDER_ID is not configured.')
         source = GoogleDriveMediaStorage(parent_folder_id=folder_id).download(template.drive_file_id)
     except Exception as exc:
         raise OriginationTemplateError('The template could not be retrieved from Drive for review.') from exc
@@ -184,9 +184,9 @@ def load_active_template(
     if source is None:
         try:
             from core.services.order_approval import GoogleDriveMediaStorage
-            folder_id = str(getattr(settings, 'ORIGINATION_TEMPLATE_DRIVE_FOLDER_ID', '') or '').strip()
+            folder_id = str(getattr(settings, 'GOOGLE_DRIVE_MEDIA_FOLDER_ID', '') or '').strip()
             if not folder_id:
-                raise OriginationTemplateError('ORIGINATION_TEMPLATE_DRIVE_FOLDER_ID is not configured.')
+                raise OriginationTemplateError('GOOGLE_DRIVE_MEDIA_FOLDER_ID is not configured.')
             source = GoogleDriveMediaStorage(parent_folder_id=folder_id).download(template.drive_file_id)
         except Exception as exc:
             raise OriginationTemplateError('The active document template could not be retrieved from Drive.') from exc

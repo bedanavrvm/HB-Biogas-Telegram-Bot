@@ -53,7 +53,7 @@ class OriginationTemplateValidationTests(SimpleTestCase):
             validate_template_files(synthetic_pdf(), json.dumps(config).encode())
 
 
-@override_settings(ORIGINATION_TEMPLATE_DRIVE_FOLDER_ID='restricted-folder')
+@override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='shared-drive-root')
 class OriginationTemplateLifecycleTests(TestCase):
     def setUp(self):
         user_model = get_user_model()
