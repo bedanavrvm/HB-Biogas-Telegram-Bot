@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.test import TestCase, override_settings
+from django.test import TestCase
 
 from core.models import (
     LoanOriginationApplication,
@@ -174,32 +174,23 @@ class LoanOriginationServiceTests(TestCase):
                 decision='request_correction',
             )
 
-    @override_settings(
-        ESIGNATURES_BASE_URL='https://esign.example.test',
-        ESIGNATURES_API_KEY='synthetic-key',
-        ORIGINATION_PREVIEW_MAX_BYTES=1024,
-    )
-    @patch('core.services.loan_origination.requests.post')
-    def test_preview_uses_approved_template_contract_and_rejects_non_pdf(self, mock_post):
+    @patch('core.services.partnership_laf_preview.render_partnership_laf')
+    def test_preview_uses_approved_local_template_contract(self, renderer):
+        self.product.document_type = 'partnership_loan_application'
+        self.product.document_template_name = 'Jawabu Partnership LAF.pdf'
+        self.product.document_template_sha256 = '5e7d264c0cf3e4264e9ab768fd89a4fd1dab131eedd733cce439ce11c6e345f1'
+        self.product.save(update_fields=['document_type', 'document_template_name', 'document_template_sha256'])
         application, _ = create_application(
             product_key=self.product.product_key, officer=self.officer,
             branch='Synthetic Branch', client_request_id='create-preview',
         )
         application.form_payload = {'customer_name': 'Synthetic Customer', 'consent': True}
         application.save(update_fields=['form_payload'])
-        mock_post.return_value.status_code = 200
-        mock_post.return_value.headers = {'Content-Type': 'application/pdf'}
-        mock_post.return_value.content = b'%PDF-synthetic'
+        renderer.return_value = b'%PDF-synthetic'
 
         content = render_application_preview(application)
 
         self.assertEqual(content, b'%PDF-synthetic')
-        payload = mock_post.call_args.kwargs['json']
-        self.assertEqual(payload['document_type'], 'synthetic_loan_agreement')
-        self.assertEqual(payload['template_version'], 1)
-        self.assertEqual(payload['template_sha256'], 'a' * 64)
-        self.assertEqual(payload['context']['branch_code'], 'Synthetic Branch')
-
-        mock_post.return_value.headers = {'Content-Type': 'text/html'}
-        with self.assertRaises(OriginationError):
-            render_application_preview(application)
+        context = renderer.call_args.args[0]
+        self.assertEqual(context['branch_code'], 'Synthetic Branch')
+        self.assertEqual(context['customer_name'], 'Synthetic Customer')

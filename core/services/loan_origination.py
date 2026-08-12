@@ -8,8 +8,6 @@ from typing import Any
 
 from django.db import IntegrityError, transaction
 from django.utils import timezone
-from django.conf import settings
-import requests
 
 from core.models import (
     LoanOriginationApplication,
@@ -131,33 +129,19 @@ def preview_context(application: LoanOriginationApplication) -> dict[str, Any]:
 
 
 def render_application_preview(application: LoanOriginationApplication) -> bytes:
-    """Fetch a transient preview from e-sign; no signing package is created."""
-    base_url = str(getattr(settings, 'ESIGNATURES_BASE_URL', '') or '').rstrip('/')
-    api_key = str(getattr(settings, 'ESIGNATURES_API_KEY', '') or '').strip()
-    if not base_url or not api_key:
-        raise OriginationError('Document preview is not configured.')
+    """Render the approved PDF locally; no signing package or file is persisted."""
+    definition = application.product_definition
+    if (
+        definition.document_type != 'partnership_loan_application'
+        or definition.document_template_version != 1
+        or definition.document_template_sha256 != '5e7d264c0cf3e4264e9ab768fd89a4fd1dab131eedd733cce439ce11c6e345f1'
+    ):
+        raise OriginationError('This application does not reference the approved Partnership LAF.')
     try:
-        response = requests.post(
-            f'{base_url}/api/v1/integrations/document-previews/',
-            headers={'Authorization': f'Bearer {api_key}'},
-            json={
-                'document_type': application.product_definition.document_type,
-                'template_version': application.product_definition.document_template_version,
-                'template_sha256': application.product_definition.document_template_sha256,
-                'context': preview_context(application),
-            },
-            timeout=20,
-        )
-    except requests.RequestException as exc:
-        raise OriginationError('The document preview service could not be reached. Try again.') from exc
-    if response.status_code >= 400:
-        raise OriginationError('The filled document could not be generated. Try again or contact support.')
-    if str(response.headers.get('Content-Type') or '').split(';', 1)[0].lower() != 'application/pdf':
-        raise OriginationError('The preview service returned an invalid document.')
-    max_bytes = int(getattr(settings, 'ORIGINATION_PREVIEW_MAX_BYTES', 10 * 1024 * 1024))
-    if len(response.content) > max_bytes or not response.content.startswith(b'%PDF'):
-        raise OriginationError('The preview document is invalid or too large.')
-    return response.content
+        from core.services.partnership_laf_preview import PartnershipLafPreviewError, render_partnership_laf
+        return render_partnership_laf(preview_context(application))
+    except PartnershipLafPreviewError as exc:
+        raise OriginationError(str(exc)) from exc
 
 
 @transaction.atomic
