@@ -5,21 +5,30 @@
   --cal-control: #f8fafc;
   --cal-text: #172033;
   display: grid;
-  gap: 8px;
+  gap: 6px;
+  width: 100%;
+  max-width: none;
+  min-height: 0;
+  color-scheme: light !important;
+  forced-color-adjust: none;
   color: var(--cal-text);
+  background: #f8fafc;
 }
+body #content, body #content-main { max-width: none !important; background: #f8fafc !important; color: #172033 !important; }
+.calibration-heading { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.calibration-heading > a { display: grid; place-items: center; flex: 0 0 32px; width: 32px; height: 32px; border: 1px solid #cbd5e1; border-radius: 7px; background: #fff; color: #172033 !important; text-decoration: none; }
 .calibration-topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 9px 11px;
+  padding: 7px 9px;
   border: 1px solid var(--cal-border);
   border-radius: 8px;
   background: var(--cal-surface);
 }
-.calibration-topbar h1 { margin: 0; color: var(--cal-text); font-size: 18px; line-height: 1.2; }
-.calibration-topbar p { margin: 2px 0 0; color: var(--cal-muted); font-size: 12px; }
+.calibration-topbar h1 { overflow: hidden; margin: 0; color: #172033 !important; font-size: 15px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
+.calibration-topbar p { margin: 1px 0 0; color: #64748b !important; font-size: 11px; }
 .calibration-actions, .tool-row, .calibration-toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .cal-button {
   display: inline-flex !important;
@@ -36,6 +45,8 @@
   font: 600 12px/1.2 system-ui, sans-serif !important;
   opacity: 1 !important;
   cursor: pointer;
+  appearance: none !important;
+  -webkit-appearance: none !important;
 }
 .cal-button:hover { background: #f1f5f9 !important; border-color: #94a3b8 !important; }
 .cal-button:disabled { background: #e5e7eb !important; color: #94a3b8 !important; cursor: not-allowed; }
@@ -47,22 +58,22 @@
 .calibration-workspace {
   display: grid;
   grid-template-columns: 270px minmax(0, 1fr);
-  height: min(76vh, 820px);
-  min-height: 560px;
+  height: calc(100dvh - 126px);
+  min-height: 480px;
   overflow: hidden;
   border: 1px solid var(--cal-border);
   border-radius: 8px;
-  background: var(--cal-surface);
+  background: #fff !important;
 }
 .calibration-sidebar {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 5px;
   min-height: 0;
-  padding: 9px;
+  padding: 7px;
   overflow-y: auto;
   border-right: 1px solid var(--cal-border);
-  background: #f8fafc;
+  background: #f8fafc !important;
 }
 .calibration-sidebar label { display: grid; gap: 2px; margin: 0; color: #334155; font-size: 11px; font-weight: 650; }
 .calibration-sidebar input, .calibration-sidebar select {
@@ -75,8 +86,11 @@
   border-radius: 6px !important;
   background: #fff !important;
   color: #172033 !important;
+  -webkit-text-fill-color: #172033 !important;
+  color-scheme: light !important;
   font-size: 12px !important;
 }
+.calibration-sidebar select option { background: #fff !important; color: #172033 !important; }
 #calibration-fields { min-height: 150px !important; padding: 2px !important; }
 #calibration-fields option { padding: 5px 6px; }
 #calibration-inspector { display: grid; gap: 6px; }
@@ -88,10 +102,10 @@
   justify-content: center;
   padding: 6px 8px;
   border-bottom: 1px solid var(--cal-border);
-  background: #eef2f6;
+  background: #eef2f6 !important;
 }
 .calibration-toolbar strong, .calibration-toolbar span { color: #172033; font-size: 12px; }
-.calibration-scroll { min-height: 0; overflow: auto; padding: 10px; background: #4b5652; }
+.calibration-scroll { min-height: 0; overflow: auto; padding: 6px; background: #4b5652 !important; }
 .calibration-canvas { position: relative; width: max-content; margin: auto; transform-origin: top left; }
 .calibration-canvas img { display: block; width: auto; height: auto; max-width: none; user-select: none; }
 .calibration-overlays { position: absolute; inset: 0; }
@@ -101,15 +115,12 @@
 .calibration-box.selected span { background: #e65100; }
 .calibration-box i { position: absolute; right: -6px; bottom: -6px; width: 11px; height: 11px; border: 2px solid currentColor; background: #fff; cursor: nwse-resize; }
 .calibration-actions #calibration-status { color: var(--cal-muted); font-size: 11px; }
-@media (prefers-color-scheme: dark) {
-  #calibration-app { --cal-border: #475569; --cal-surface: #111827; --cal-text: #f8fafc; --cal-muted: #cbd5e1; }
-  .calibration-sidebar { background: #182233; }
-  .calibration-sidebar label, .calibration-sidebar h2 { color: #e2e8f0; }
-  .calibration-toolbar { background: #1e293b; }
-  .calibration-toolbar strong, .calibration-toolbar span { color: #f8fafc; }
+@media (min-width: 851px) {
+  .tool-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tool-row .cal-button { width: 100%; }
 }
 @media (max-width: 850px) {
   .calibration-topbar { align-items: flex-start; flex-direction: column; }
-  .calibration-workspace { grid-template-columns: 230px minmax(520px, 1fr); height: 72vh; min-height: 520px; overflow: auto; }
+  .calibration-workspace { grid-template-columns: 220px minmax(500px, 1fr); height: calc(100dvh - 150px); min-height: 460px; overflow: auto; }
   .calibration-sidebar { position: sticky; left: 0; z-index: 3; }
 }
