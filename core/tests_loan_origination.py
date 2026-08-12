@@ -174,6 +174,32 @@ class LoanOriginationServiceTests(TestCase):
                 decision='request_correction',
             )
 
+    def test_superuser_may_review_own_submission_as_break_glass_override(self):
+        self.officer.is_superuser = True
+        self.officer.is_staff = True
+        self.officer.save(update_fields=['is_superuser', 'is_staff'])
+        application, _ = create_application(
+            product_key=self.product.product_key, officer=self.officer,
+            branch='Synthetic Branch', client_request_id='superuser-correction',
+        )
+        application.status = LoanOriginationApplication.STATUS_READY_FOR_REVIEW
+        application.save(update_fields=['status'])
+        corrected = review_application(
+            application_id=application.pk, actor=self.officer,
+            expected_revision=application.revision, request_id='superuser-correction-review',
+            decision='request_correction', reason='Correct the preview alignment.',
+        )
+        self.assertEqual(corrected.status, LoanOriginationApplication.STATUS_CORRECTION_REQUIRED)
+
+        corrected.status = LoanOriginationApplication.STATUS_READY_FOR_REVIEW
+        corrected.save(update_fields=['status'])
+        approved = review_application(
+            application_id=corrected.pk, actor=self.officer,
+            expected_revision=corrected.revision, request_id='superuser-approve-review',
+            decision='approve',
+        )
+        self.assertEqual(approved.status, LoanOriginationApplication.STATUS_REVIEWED)
+
     @patch('core.services.partnership_laf_preview.render_partnership_laf')
     def test_preview_uses_approved_local_template_contract(self, renderer):
         self.product.document_type = 'partnership_loan_application'

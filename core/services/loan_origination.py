@@ -257,8 +257,6 @@ def review_application(
     application = LoanOriginationApplication.objects.select_for_update().select_related('product_definition').get(pk=application_id)
     if request_id and application.events.filter(request_id=request_id).exists():
         return application
-    if application.officer_id == actor.pk:
-        raise OriginationError('The submitting officer cannot review their own application.')
     if int(expected_revision) != application.revision:
         raise OriginationConflict('This application changed on another device. Refresh before reviewing.')
     if application.status != LoanOriginationApplication.STATUS_READY_FOR_REVIEW:
@@ -266,6 +264,8 @@ def review_application(
     normalized = str(decision or '').strip().casefold()
     if normalized not in {'approve', 'request_correction', 'decline'}:
         raise OriginationError('Choose approve, request_correction, or decline.')
+    if application.officer_id == actor.pk and not getattr(actor, 'is_superuser', False):
+        raise OriginationError('The submitting officer cannot review their own application.')
     reason = str(reason or '').strip()
     if normalized != 'approve' and not reason:
         raise OriginationError('A reason is required for corrections or decline.')

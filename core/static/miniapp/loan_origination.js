@@ -314,6 +314,12 @@
   document.getElementById('preview-close').onclick = closePreview;
   document.getElementById('preview-previous').onclick = async () => { if (previewPage > 1) { previewPage -= 1; await loadPreviewPage(); } };
   document.getElementById('preview-next').onclick = async () => { if (previewPage < previewPageCount) { previewPage += 1; await loadPreviewPage(); } };
+  document.getElementById('preview-regenerate').onclick = async () => {
+    if (['draft', 'correction_required'].includes(current?.status) && !(await saveDraft(true))) return;
+    previewedRevision = current.revision;
+    previewRequestId = requestKey('preview');
+    await loadPreviewPage();
+  };
   document.getElementById('preview-zoom-out').onclick = () => { previewZoom = Math.max(50, previewZoom - 25); updatePreviewFrame(); };
   document.getElementById('preview-zoom-in').onclick = () => { previewZoom = Math.min(200, previewZoom + 25); updatePreviewFrame(); };
   document.getElementById('preview-open').onclick = () => { if (previewUrl) window.open(previewUrl, '_blank', 'noopener'); };

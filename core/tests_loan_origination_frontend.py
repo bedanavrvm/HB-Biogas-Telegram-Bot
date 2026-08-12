@@ -17,6 +17,7 @@ class LoanOriginationFrontendTests(SimpleTestCase):
         self.assertIn('previewedRevision !== current.revision', source)
         self.assertIn('URL.revokeObjectURL', source)
         self.assertIn('document-preview-overlay', template)
+        self.assertIn('preview-regenerate', template)
 
     def test_superuser_template_calibration_workspace_is_present(self):
         template = Path('core/templates/admin/core/originationdocumenttemplate/calibrate.html').read_text(encoding='utf-8')

@@ -28,11 +28,11 @@
   </main>
   <div id="document-preview-overlay" class="preview-overlay" role="dialog" aria-modal="true" aria-hidden="true" hidden>
     <header class="preview-header"><div><strong>Filled Partnership LAF</strong><small id="preview-page">Loading preview…</small></div><button id="preview-close" class="icon-button" type="button" aria-label="Close preview">×</button></header>
-    <div class="preview-toolbar"><button id="preview-previous" type="button">← Page</button><button id="preview-next" type="button">Page →</button><button id="preview-zoom-out" type="button">−</button><span id="preview-zoom">100%</span><button id="preview-zoom-in" type="button">+</button><button id="preview-open" type="button">Open</button></div>
+    <div class="preview-toolbar"><button id="preview-previous" type="button">← Page</button><button id="preview-next" type="button">Page →</button><button id="preview-regenerate" type="button" class="preview-icon-action" aria-label="Regenerate preview" title="Regenerate preview">↻</button><button id="preview-zoom-out" type="button">−</button><span id="preview-zoom">100%</span><button id="preview-zoom-in" type="button">+</button><button id="preview-open" type="button">Open</button></div>
     <div id="document-preview-stage" class="preview-stage"><img id="document-preview-image" alt="Filled loan application preview"></div>
   </div>
   <div id="origination-toast" class="origination-toast" role="status" aria-live="polite" hidden></div>
   <script src="{% static 'miniapp/utils.js' %}?v=4"></script>
-  <script src="{% static 'miniapp/loan_origination.js' %}?v=2"></script>
+  <script src="{% static 'miniapp/loan_origination.js' %}?v=3"></script>
 </body>
 </html>
