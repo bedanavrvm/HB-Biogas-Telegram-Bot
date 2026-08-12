@@ -80,6 +80,7 @@ from .models import (
     OriginationProductDefinition,
     OriginationDocumentTemplate,
     OriginationDocumentTemplateEvent,
+    OriginationTemplateConfigurationRevision,
     LoanOriginationApplication,
     OriginationApplicationEvent,
     OriginationSigningPackage,
@@ -3978,14 +3979,15 @@ class OriginationProductDefinitionAdmin(ModelAdmin):
 @admin.register(OriginationDocumentTemplate)
 class OriginationDocumentTemplateAdmin(ModelAdmin):
     form = OriginationDocumentTemplateForm
-    list_display = ('name', 'document_type', 'version', 'status', 'page_count', 'created_by', 'activated_by', 'updated_at')
+    list_display = ('name', 'document_type', 'version', 'status', 'calibrate_link', 'page_count', 'created_by', 'activated_by', 'updated_at')
     list_filter = ('status', 'document_type')
     search_fields = ('name', 'document_type', 'source_filename', 'source_sha256')
     actions = ('activate_selected_templates',)
     readonly_fields = (
         'document_type', 'version', 'status', 'source_filename', 'source_sha256',
         'source_byte_size', 'page_count', 'placement_config', 'drive_link',
-        'upload_error', 'created_by', 'activated_by', 'activated_at', 'created_at', 'updated_at',
+        'published_configuration_revision', 'upload_error', 'created_by', 'activated_by',
+        'activated_at', 'created_at', 'updated_at',
     )
 
     def get_form(self, request, obj=None, **kwargs):
@@ -3994,6 +3996,122 @@ class OriginationDocumentTemplateAdmin(ModelAdmin):
                 OriginationDocumentTemplate, fields=(),
             )
         return super().get_form(request, obj, **kwargs)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path('<path:object_id>/calibrate/', self.admin_site.admin_view(self.calibrate_view), name='core_originationdocumenttemplate_calibrate'),
+            path('<path:object_id>/calibration-state/', self.admin_site.admin_view(self.calibration_state_view), name='core_originationdocumenttemplate_calibration_state'),
+            path('<path:object_id>/calibration-page/', self.admin_site.admin_view(self.calibration_page_view), name='core_originationdocumenttemplate_calibration_page'),
+            path('<path:object_id>/calibration-preview/', self.admin_site.admin_view(self.calibration_preview_view), name='core_originationdocumenttemplate_calibration_preview'),
+            path('<path:object_id>/calibration-save/', self.admin_site.admin_view(self.calibration_save_view), name='core_originationdocumenttemplate_calibration_save'),
+            path('<path:object_id>/calibration-publish/', self.admin_site.admin_view(self.calibration_publish_view), name='core_originationdocumenttemplate_calibration_publish'),
+        ]
+        return custom + urls
+
+    def _calibration_template(self, request, object_id):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        obj = self.get_object(request, object_id)
+        if not obj:
+            raise PermissionDenied
+        return obj
+
+    @admin.display(description='Alignment')
+    def calibrate_link(self, obj):
+        if not obj.drive_file_id:
+            return 'Unavailable'
+        url = reverse('admin:core_originationdocumenttemplate_calibrate', args=[obj.pk])
+        return format_html('<a href="{}">Calibrate fields</a>', url)
+
+    def calibrate_view(self, request, object_id):
+        obj = self._calibration_template(request, object_id)
+        return TemplateResponse(request, 'admin/core/originationdocumenttemplate/calibrate.html', {
+            **self.admin_site.each_context(request), 'opts': self.model._meta,
+            'title': f'Calibrate fields: {obj}', 'template_record': obj,
+        })
+
+    def calibration_state_view(self, request, object_id):
+        obj = self._calibration_template(request, object_id)
+        latest = obj.configuration_revisions.order_by('-revision').first()
+        config = latest.configuration if latest else obj.placement_config
+        from pypdf import PdfReader
+        from io import BytesIO
+        from core.services.origination_templates import load_template_source
+        reader = PdfReader(BytesIO(load_template_source(obj)))
+        page_sizes = [{'page_number': i + 1, 'width': float(page.mediabox.width), 'height': float(page.mediabox.height)} for i, page in enumerate(reader.pages)]
+        fields = obj.document_type and OriginationProductDefinition.objects.filter(document_type=obj.document_type, is_active=True).values_list('form_schema', flat=True).first() or {}
+        context_keys = [{'key': item.get('key'), 'label': item.get('label') or item.get('key')} for item in (fields.get('fields') or []) if item.get('key')]
+        context_keys.extend([{'key': key, 'label': key.replace('_', ' ').title()} for key in ('reference_number', 'branch_code', 'loan_officer_name', 'application_date') if key not in {item['key'] for item in context_keys}])
+        return JsonResponse({'ok': True, 'revision': latest.revision if latest else 0, 'published': bool(latest and latest.is_published), 'configuration': config, 'page_sizes': page_sizes, 'context_keys': context_keys})
+
+    def calibration_page_view(self, request, object_id):
+        obj = self._calibration_template(request, object_id)
+        from core.services.origination_templates import load_template_source
+        from core.services.partnership_laf_preview import render_pdf_page
+        try:
+            content, total = render_pdf_page(load_template_source(obj), page_number=int(request.GET.get('page') or 1), scale=2)
+        except Exception as exc:
+            return self._calibration_error_response(exc)
+        response = HttpResponse(content, content_type='image/jpeg')
+        response['X-Preview-Page-Count'] = str(total)
+        response['Cache-Control'] = 'private, no-store'
+        return response
+
+    def _json_body(self, request):
+        try:
+            return json.loads(request.body.decode('utf-8'))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise ValidationError('Invalid JSON request.')
+
+    def _calibration_error_response(self, exc):
+        from core.services.origination_templates import OriginationTemplateError
+        if isinstance(exc, (OriginationTemplateError, ValidationError)):
+            return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        logger.exception('Origination template calibration request failed.')
+        return JsonResponse({'ok': False, 'error': 'The calibration request could not be completed.'}, status=500)
+
+    def calibration_preview_view(self, request, object_id):
+        obj = self._calibration_template(request, object_id)
+        if request.method != 'POST':
+            return JsonResponse({'ok': False, 'error': 'POST required.'}, status=405)
+        try:
+            from core.services.origination_templates import load_template_source, validate_template_configuration
+            from core.services.partnership_laf_preview import render_pdf_page, render_template
+            body = self._json_body(request)
+            config = validate_template_configuration(body.get('configuration'), template=obj)
+            pdf = render_template(load_template_source(obj), config, config.get('sample_context') or {})
+            content, total = render_pdf_page(pdf, page_number=int(body.get('page') or 1), scale=2)
+        except Exception as exc:
+            return self._calibration_error_response(exc)
+        response = HttpResponse(content, content_type='image/jpeg')
+        response['X-Preview-Page-Count'] = str(total)
+        response['Cache-Control'] = 'private, no-store'
+        return response
+
+    def calibration_save_view(self, request, object_id):
+        obj = self._calibration_template(request, object_id)
+        if request.method != 'POST':
+            return JsonResponse({'ok': False, 'error': 'POST required.'}, status=405)
+        try:
+            from core.services.origination_templates import save_calibration_draft
+            body = self._json_body(request)
+            saved = save_calibration_draft(template=obj, configuration=body.get('configuration'), actor=request.user, expected_revision=int(body.get('revision')))
+        except Exception as exc:
+            return self._calibration_error_response(exc)
+        return JsonResponse({'ok': True, 'revision': saved.revision})
+
+    def calibration_publish_view(self, request, object_id):
+        obj = self._calibration_template(request, object_id)
+        if request.method != 'POST':
+            return JsonResponse({'ok': False, 'error': 'POST required.'}, status=405)
+        try:
+            from core.services.origination_templates import publish_calibration
+            body = self._json_body(request)
+            published = publish_calibration(template=obj, revision=int(body.get('revision')), actor=request.user)
+        except Exception as exc:
+            return self._calibration_error_response(exc)
+        return JsonResponse({'ok': True, 'revision': published.revision})
 
     @admin.display(description='Drive file')
     def drive_link(self, obj):
@@ -4030,7 +4148,12 @@ class OriginationDocumentTemplateAdmin(ModelAdmin):
         if obj.status == OriginationDocumentTemplate.STATUS_UPLOAD_FAILED:
             messages.error(request, obj.upload_error)
         else:
-            messages.success(request, 'Template uploaded to Drive and is ready for activation.')
+            messages.success(request, 'Template uploaded to Drive. Calibrate and publish its alignment before activation.')
+
+    def response_add(self, request, obj, post_url_continue=None):
+        if obj.drive_file_id and obj.status != OriginationDocumentTemplate.STATUS_UPLOAD_FAILED:
+            return HttpResponseRedirect(reverse('admin:core_originationdocumenttemplate_calibrate', args=[obj.pk]))
+        return super().response_add(request, obj, post_url_continue)
 
     @admin.action(description='Activate selected template')
     def activate_selected_templates(self, request, queryset):
@@ -4080,6 +4203,13 @@ class _AppendOnlyOriginationAdmin(ModelAdmin):
 class OriginationDocumentTemplateEventAdmin(_AppendOnlyOriginationAdmin):
     list_display = ('template', 'action', 'actor', 'occurred_at')
     list_filter = ('action',)
+    search_fields = ('template__name', 'template__document_type')
+
+
+@admin.register(OriginationTemplateConfigurationRevision)
+class OriginationTemplateConfigurationRevisionAdmin(_AppendOnlyOriginationAdmin):
+    list_display = ('template', 'revision', 'is_published', 'created_by', 'created_at', 'published_at')
+    list_filter = ('is_published', 'template__document_type')
     search_fields = ('template__name', 'template__document_type')
 
 

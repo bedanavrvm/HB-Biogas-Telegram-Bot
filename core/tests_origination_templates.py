@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.urls import reverse
 from pypdf import PdfWriter
 
 from core.models import OriginationDocumentTemplate, OriginationDocumentTemplateEvent
@@ -13,6 +14,8 @@ from core.services.origination_templates import (
     activate_template,
     create_template,
     load_active_template,
+    publish_calibration,
+    save_calibration_draft,
     validate_template_files,
 )
 from core.services.partnership_laf_preview import PartnershipLafPreviewError, render_pdf_page
@@ -87,6 +90,7 @@ class OriginationTemplateLifecycleTests(TestCase):
         )
         self.assertEqual(template.status, OriginationDocumentTemplate.STATUS_READY)
         self.assertEqual(template.drive_file_id, 'drive-template-1')
+        published = publish_calibration(template=template, revision=1, actor=self.maker)
         activated = activate_template(template, actor=self.maker)
         self.assertEqual(activated.status, OriginationDocumentTemplate.STATUS_ACTIVE)
         source, config = load_active_template(
@@ -96,14 +100,14 @@ class OriginationTemplateLifecycleTests(TestCase):
         self.assertEqual(config['version'], 1)
         self.assertEqual(
             list(OriginationDocumentTemplateEvent.objects.filter(template=template).values_list('action', flat=True)),
-            ['created', 'uploaded', 'activated'],
+            ['created', 'uploaded', 'calibration_published', 'activated'],
         )
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_activation_rejects_changed_drive_content(self, storage_class):
         storage = storage_class.return_value
         storage.upload.return_value = ('drive-template-1', 'https://drive.test/template-1')
-        storage.download.return_value = b'%PDF-changed'
+        storage.download.return_value = self.pdf
         pdf_file = BytesIO(self.pdf)
         pdf_file.name = 'template.pdf'
         config_file = BytesIO(synthetic_config())
@@ -111,5 +115,46 @@ class OriginationTemplateLifecycleTests(TestCase):
         template = create_template(
             pdf_file=pdf_file, config_file=config_file, name='Template', actor=self.maker,
         )
+        publish_calibration(template=template, revision=1, actor=self.maker)
+        storage.download.return_value = b'%PDF-changed'
         with self.assertRaises(OriginationTemplateError):
             activate_template(template, actor=self.checker)
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_draft_does_not_replace_published_configuration_until_publish(self, storage_class):
+        storage = storage_class.return_value
+        storage.upload.return_value = ('drive-template-2', 'https://drive.test/template-2')
+        storage.download.return_value = self.pdf
+        pdf_file = BytesIO(self.pdf); pdf_file.name = 'template.pdf'
+        config_file = BytesIO(synthetic_config()); config_file.name = 'config.json'
+        template = create_template(pdf_file=pdf_file, config_file=config_file, name='Template', actor=self.maker)
+        first = publish_calibration(template=template, revision=1, actor=self.maker)
+        changed = synthetic_config()
+        changed_config = json.loads(changed)
+        changed_config['field_overlay_manifest']['fields']['applicant']['box']['x'] = 25
+        draft = save_calibration_draft(template=template, configuration=changed_config, actor=self.maker, expected_revision=first.revision)
+        replayed = save_calibration_draft(template=template, configuration=changed_config, actor=self.maker, expected_revision=first.revision)
+        self.assertEqual(replayed.pk, draft.pk)
+        template.refresh_from_db()
+        self.assertNotEqual(template.placement_config, draft.configuration)
+        published = publish_calibration(template=template, revision=draft.revision, actor=self.maker)
+        replayed_publish = publish_calibration(template=template, revision=draft.revision, actor=self.maker)
+        self.assertEqual(replayed_publish.pk, published.pk)
+        template.refresh_from_db()
+        self.assertEqual(template.placement_config, published.configuration)
+
+    def test_calibration_workspace_is_superuser_only(self):
+        template = OriginationDocumentTemplate.objects.create(
+            document_type='partnership_loan_application', name='Template', version=8,
+            source_filename='template.pdf', source_sha256='a' * 64,
+            source_byte_size=100, page_count=1, placement_config=json.loads(synthetic_config()),
+            drive_file_id='drive-template-admin', created_by=self.maker,
+        )
+        url = reverse('admin:core_originationdocumenttemplate_calibrate', args=[template.pk])
+        self.client.force_login(self.maker)
+        self.assertEqual(self.client.get(url).status_code, 200)
+        ordinary_staff = get_user_model().objects.create_user(
+            'ordinary-staff', 'staff@example.test', 'x', is_staff=True,
+        )
+        self.client.force_login(ordinary_staff)
+        self.assertIn(self.client.get(url).status_code, {302, 403})

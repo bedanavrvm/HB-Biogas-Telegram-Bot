@@ -139,6 +139,7 @@ def render_application_preview(application: LoanOriginationApplication) -> bytes
             preview_context(application),
             version=definition.document_template_version,
             expected_sha256=definition.document_template_sha256,
+            configuration=application.template_configuration_snapshot or None,
         )
     except PartnershipLafPreviewError as exc:
         raise OriginationError(str(exc)) from exc
@@ -169,6 +170,7 @@ def create_application(*, product_key: str, officer, branch: str, client_request
                 branch=str(branch or '').strip(),
                 schema_snapshot=definition.form_schema,
                 signer_rules_snapshot=definition.signer_rules,
+                template_configuration_snapshot=_published_template_configuration(definition),
                 client_request_id=client_request_id,
             )
     except IntegrityError:
@@ -182,6 +184,18 @@ def create_application(*, product_key: str, officer, branch: str, client_request
     return application, False
 
 
+def _published_template_configuration(definition: OriginationProductDefinition) -> dict[str, Any]:
+    from core.models import OriginationDocumentTemplate
+    template = OriginationDocumentTemplate.objects.filter(
+        document_type=definition.document_type,
+        version=definition.document_template_version,
+        source_sha256=definition.document_template_sha256,
+        status=OriginationDocumentTemplate.STATUS_ACTIVE,
+    ).first()
+    if not template:
+        return {}
+    revision = template.published_configuration_revision
+    return (revision.configuration if revision else template.placement_config) or {}
 @transaction.atomic
 def save_application_fields(*, application_id, actor, payload: Any, expected_revision: int, request_id: str) -> LoanOriginationApplication:
     request_id = _require_request_id(request_id)

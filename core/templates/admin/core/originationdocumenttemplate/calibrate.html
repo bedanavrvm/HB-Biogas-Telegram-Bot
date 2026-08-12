@@ -1,0 +1,48 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_calibration.css' %}?v=1">{% endblock %}
+{% block content %}
+<div id="calibration-app"
+  data-state-url="{% url 'admin:core_originationdocumenttemplate_calibration_state' template_record.pk %}"
+  data-page-url="{% url 'admin:core_originationdocumenttemplate_calibration_page' template_record.pk %}"
+  data-preview-url="{% url 'admin:core_originationdocumenttemplate_calibration_preview' template_record.pk %}"
+  data-save-url="{% url 'admin:core_originationdocumenttemplate_calibration_save' template_record.pk %}"
+  data-publish-url="{% url 'admin:core_originationdocumenttemplate_calibration_publish' template_record.pk %}">
+  <header class="calibration-topbar">
+    <div><h1>{{ template_record.name }}</h1><p>Move and resize fill areas, inspect a filled sample, then publish when aligned.</p></div>
+    <div class="calibration-actions"><span id="calibration-status">Loading…</span><button type="button" id="calibration-save">Save draft</button><button type="button" class="button default" id="calibration-publish">Publish alignment</button></div>
+  </header>
+  <div class="calibration-workspace">
+    <aside class="calibration-sidebar">
+      <div class="tool-row"><button type="button" id="calibration-add">+ Add field</button><button type="button" id="calibration-draw">Draw area</button><button type="button" id="calibration-duplicate">Duplicate</button><button type="button" class="deletelink" id="calibration-delete">Delete</button></div>
+      <label>Find field<input id="calibration-search" type="search" placeholder="Name or data key"></label>
+      <select id="calibration-fields" size="12" aria-label="Calibrated fields"></select>
+      <section id="calibration-inspector" hidden>
+        <h2>Selected field</h2>
+        <label>Data field<select id="cal-context"></select></label>
+        <div class="coordinate-grid">
+          <label>X<input id="cal-x" type="number" step="0.5"></label><label>Y<input id="cal-y" type="number" step="0.5"></label>
+          <label>Width<input id="cal-width" type="number" min="1" step="0.5"></label><label>Height<input id="cal-height" type="number" min="1" step="0.5"></label>
+        </div>
+        <div class="coordinate-grid"><label>Font size<input id="cal-font-size" type="number" min="4" max="20" step="0.25"></label><label>Minimum<input id="cal-min-font-size" type="number" min="3" max="20" step="0.25"></label></div>
+        <div class="coordinate-grid"><label>Padding X<input id="cal-padding-x" type="number" min="0" step="0.5"></label><label>Padding Y<input id="cal-padding-y" type="number" min="0" step="0.5"></label></div>
+        <label>Capitalization<select id="cal-text-case"><option value="none">Keep original</option><option value="uppercase">UPPERCASE</option><option value="lowercase">lowercase</option><option value="titlecase">Title Case</option></select></label>
+        <label>Render as<select id="cal-render-as"><option value="text">Text</option><option value="checkbox">Checkbox tick</option></select></label>
+        <label id="cal-checked-wrap">Checked when<input id="cal-checked-when" type="text"></label>
+        <label>Horizontal alignment<select id="cal-align"><option value="left">Left</option><option value="center">Centre</option><option value="right">Right</option></select></label>
+        <label>Vertical alignment<select id="cal-vertical"><option value="bottom">Above line</option><option value="center">Middle</option><option value="top">Top</option></select></label>
+        <label>Overflow<select id="cal-fit"><option value="shrink">Shrink to fit</option><option value="truncate">Truncate</option><option value="overflow">Allow overflow</option></select></label>
+      </section>
+    </aside>
+    <main class="calibration-main">
+      <div class="calibration-toolbar">
+        <button type="button" id="cal-prev">← Page</button><strong id="cal-page-label">Page 1</strong><button type="button" id="cal-next">Page →</button>
+        <button type="button" id="cal-zoom-out">−</button><span id="cal-zoom-label">100%</span><button type="button" id="cal-zoom-in">+</button>
+        <button type="button" id="cal-source" class="selected">Template</button><button type="button" id="cal-filled">Filled sample</button>
+      </div>
+      <div class="calibration-scroll"><div id="calibration-canvas" class="calibration-canvas"><img id="calibration-page" alt="Template page"><div id="calibration-overlays" class="calibration-overlays"></div></div></div>
+    </main>
+  </div>
+</div>
+<script src="{% static 'admin/origination_calibration.js' %}?v=1"></script>
+{% endblock %}

@@ -2620,6 +2620,10 @@ class OriginationDocumentTemplate(models.Model):
     source_byte_size = models.PositiveBigIntegerField()
     page_count = models.PositiveIntegerField()
     placement_config = models.JSONField(default=dict)
+    published_configuration_revision = models.ForeignKey(
+        'OriginationTemplateConfigurationRevision', null=True, blank=True,
+        on_delete=models.PROTECT, related_name='+',
+    )
     drive_file_id = models.CharField(max_length=255, blank=True, default='')
     drive_url = models.URLField(max_length=1000, blank=True, default='')
     upload_error = models.TextField(blank=True, default='')
@@ -2677,6 +2681,37 @@ class OriginationDocumentTemplateEvent(models.Model):
         return super().save(*args, **kwargs)
 
 
+class OriginationTemplateConfigurationRevision(models.Model):
+    """Append-only saved calibration revision for one immutable source PDF."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    template = models.ForeignKey(
+        OriginationDocumentTemplate, on_delete=models.PROTECT, related_name='configuration_revisions',
+    )
+    revision = models.PositiveIntegerField()
+    configuration = models.JSONField(default=dict)
+    is_published = models.BooleanField(default=False, db_index=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='origination_template_configuration_revisions',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['template', '-revision']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['template', 'revision'], name='unique_origination_template_config_revision',
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError('Origination template configuration revisions are append-only.')
+        return super().save(*args, **kwargs)
+
+
 class LoanOriginationApplication(models.Model):
     """Canonical, revision-controlled application captured by a field officer."""
 
@@ -2724,6 +2759,7 @@ class LoanOriginationApplication(models.Model):
     form_payload = models.JSONField(default=dict)
     schema_snapshot = models.JSONField(default=dict)
     signer_rules_snapshot = models.JSONField(default=list)
+    template_configuration_snapshot = models.JSONField(default=dict, blank=True)
     identity_snapshot = models.JSONField(default=dict, blank=True)
     client_request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
     reviewed_by = models.ForeignKey(
