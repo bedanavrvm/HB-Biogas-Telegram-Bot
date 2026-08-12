@@ -194,3 +194,8 @@ class LoanOriginationServiceTests(TestCase):
         context = renderer.call_args.args[0]
         self.assertEqual(context['branch_code'], 'Synthetic Branch')
         self.assertEqual(context['customer_name'], 'Synthetic Customer')
+        self.assertEqual(renderer.call_args.kwargs['version'], self.product.document_template_version)
+        self.assertEqual(
+            renderer.call_args.kwargs['expected_sha256'],
+            self.product.document_template_sha256,
+        )

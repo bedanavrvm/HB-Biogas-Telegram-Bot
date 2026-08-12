@@ -131,15 +131,15 @@ def preview_context(application: LoanOriginationApplication) -> dict[str, Any]:
 def render_application_preview(application: LoanOriginationApplication) -> bytes:
     """Render the approved PDF locally; no signing package or file is persisted."""
     definition = application.product_definition
-    if (
-        definition.document_type != 'partnership_loan_application'
-        or definition.document_template_version != 1
-        or definition.document_template_sha256 != '5e7d264c0cf3e4264e9ab768fd89a4fd1dab131eedd733cce439ce11c6e345f1'
-    ):
+    if definition.document_type != 'partnership_loan_application':
         raise OriginationError('This application does not reference the approved Partnership LAF.')
     try:
         from core.services.partnership_laf_preview import PartnershipLafPreviewError, render_partnership_laf
-        return render_partnership_laf(preview_context(application))
+        return render_partnership_laf(
+            preview_context(application),
+            version=definition.document_template_version,
+            expected_sha256=definition.document_template_sha256,
+        )
     except PartnershipLafPreviewError as exc:
         raise OriginationError(str(exc)) from exc
 

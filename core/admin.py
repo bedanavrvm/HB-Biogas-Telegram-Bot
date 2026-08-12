@@ -78,6 +78,8 @@ from .models import (
     ParsedInvoice,
     PortalVoiceTranscriptionAttempt,
     OriginationProductDefinition,
+    OriginationDocumentTemplate,
+    OriginationDocumentTemplateEvent,
     LoanOriginationApplication,
     OriginationApplicationEvent,
     OriginationSigningPackage,
@@ -119,6 +121,45 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class OriginationDocumentTemplateForm(forms.ModelForm):
+    pdf_file = forms.FileField(help_text='Approved PDF. It is stored in the configured restricted Drive folder.')
+    configuration_file = forms.FileField(help_text='UTF-8 JSON placement configuration for this exact PDF version.')
+
+    class Meta:
+        model = OriginationDocumentTemplate
+        fields = ('name', 'pdf_file', 'configuration_file')
+
+    def clean(self):
+        cleaned = super().clean()
+        pdf_file = cleaned.get('pdf_file')
+        config_file = cleaned.get('configuration_file')
+        if not pdf_file or not config_file:
+            return cleaned
+        if not str(pdf_file.name).lower().endswith('.pdf'):
+            self.add_error('pdf_file', 'Upload a PDF file.')
+            return cleaned
+        if not str(config_file.name).lower().endswith('.json'):
+            self.add_error('configuration_file', 'Upload a JSON configuration file.')
+            return cleaned
+        from core.services.origination_templates import OriginationTemplateError, validate_template_files
+        pdf_data, config_data = pdf_file.read(), config_file.read()
+        pdf_file.seek(0)
+        config_file.seek(0)
+        try:
+            config, digest, page_count = validate_template_files(pdf_data, config_data)
+        except OriginationTemplateError as exc:
+            raise forms.ValidationError(str(exc)) from exc
+        self.instance.document_type = str(config['document_type']).strip()
+        self.instance.version = int(config['version'])
+        self.instance.source_filename = str(pdf_file.name)[:255]
+        self.instance.source_sha256 = digest
+        self.instance.source_byte_size = len(pdf_data)
+        self.instance.page_count = page_count
+        self.instance.placement_config = config
+        self._pdf_data = pdf_data
+        return cleaned
 
 
 class CompactModelAdmin(ModelAdmin):
@@ -3934,6 +3975,79 @@ class OriginationProductDefinitionAdmin(ModelAdmin):
         super().save_model(request, obj, form, change)
 
 
+@admin.register(OriginationDocumentTemplate)
+class OriginationDocumentTemplateAdmin(ModelAdmin):
+    form = OriginationDocumentTemplateForm
+    list_display = ('name', 'document_type', 'version', 'status', 'page_count', 'created_by', 'activated_by', 'updated_at')
+    list_filter = ('status', 'document_type')
+    search_fields = ('name', 'document_type', 'source_filename', 'source_sha256')
+    actions = ('activate_selected_templates',)
+    readonly_fields = (
+        'document_type', 'version', 'status', 'source_filename', 'source_sha256',
+        'source_byte_size', 'page_count', 'placement_config', 'drive_link',
+        'upload_error', 'created_by', 'activated_by', 'activated_at', 'created_at', 'updated_at',
+    )
+
+    def get_form(self, request, obj=None, **kwargs):
+        if obj is not None:
+            kwargs['form'] = forms.modelform_factory(
+                OriginationDocumentTemplate, fields=(),
+            )
+        return super().get_form(request, obj, **kwargs)
+
+    @admin.display(description='Drive file')
+    def drive_link(self, obj):
+        if not obj or not obj.drive_url:
+            return 'Not uploaded'
+        return format_html('<a href="{}" target="_blank" rel="noopener">Open approved PDF</a>', obj.drive_url)
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_add_permission(self, request):
+        return request.user.is_superuser
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def save_model(self, request, obj, form, change):
+        if change:
+            return
+        obj.created_by = request.user
+        obj.status = OriginationDocumentTemplate.STATUS_READY
+        obj.full_clean()
+        super().save_model(request, obj, form, change)
+        OriginationDocumentTemplateEvent.objects.create(
+            template=obj, action='created', actor=request.user,
+            metadata={
+                'sha256': obj.source_sha256,
+                'byte_size': obj.source_byte_size,
+                'page_count': obj.page_count,
+            },
+        )
+        from core.services.origination_templates import upload_template_record
+        upload_template_record(obj, pdf_data=form._pdf_data, actor=request.user)
+        if obj.status == OriginationDocumentTemplate.STATUS_UPLOAD_FAILED:
+            messages.error(request, obj.upload_error)
+        else:
+            messages.success(request, 'Template uploaded to Drive. A different administrator must activate it.')
+
+    @admin.action(description='Activate selected template (independent review)')
+    def activate_selected_templates(self, request, queryset):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        if queryset.count() != 1:
+            self.message_user(request, 'Select exactly one template to activate.', level=messages.ERROR)
+            return
+        from core.services.origination_templates import OriginationTemplateError, activate_template
+        try:
+            template = activate_template(queryset.first(), actor=request.user)
+        except OriginationTemplateError as exc:
+            self.message_user(request, str(exc), level=messages.ERROR)
+            return
+        self.message_user(request, f'{template} is now active.', level=messages.SUCCESS)
+
+
 @admin.register(LoanOriginationApplication)
 class LoanOriginationApplicationAdmin(ModelAdmin):
     list_display = ('reference_number', 'product_definition', 'officer', 'branch', 'status', 'revision', 'updated_at')
@@ -3960,6 +4074,13 @@ class _AppendOnlyOriginationAdmin(ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(OriginationDocumentTemplateEvent)
+class OriginationDocumentTemplateEventAdmin(_AppendOnlyOriginationAdmin):
+    list_display = ('template', 'action', 'actor', 'occurred_at')
+    list_filter = ('action',)
+    search_fields = ('template__name', 'template__document_type')
 
 
 @admin.register(OriginationApplicationEvent)

@@ -2596,6 +2596,87 @@ class OriginationProductDefinition(models.Model):
                 raise ValidationError(str(exc)) from exc
 
 
+class OriginationDocumentTemplate(models.Model):
+    """Immutable Drive-backed PDF/config pair approved for origination rendering."""
+
+    STATUS_READY = 'ready'
+    STATUS_ACTIVE = 'active'
+    STATUS_RETIRED = 'retired'
+    STATUS_UPLOAD_FAILED = 'upload_failed'
+    STATUS_CHOICES = [
+        (STATUS_READY, 'Ready for review'),
+        (STATUS_ACTIVE, 'Active'),
+        (STATUS_RETIRED, 'Retired'),
+        (STATUS_UPLOAD_FAILED, 'Upload failed'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    document_type = models.SlugField(max_length=80, db_index=True)
+    name = models.CharField(max_length=180)
+    version = models.PositiveIntegerField()
+    status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_READY, db_index=True)
+    source_filename = models.CharField(max_length=255)
+    source_sha256 = models.CharField(max_length=64, db_index=True)
+    source_byte_size = models.PositiveBigIntegerField()
+    page_count = models.PositiveIntegerField()
+    placement_config = models.JSONField(default=dict)
+    drive_file_id = models.CharField(max_length=255, blank=True, default='')
+    drive_url = models.URLField(max_length=1000, blank=True, default='')
+    upload_error = models.TextField(blank=True, default='')
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='created_origination_document_templates',
+    )
+    activated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='activated_origination_document_templates',
+    )
+    activated_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['document_type', '-version']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['document_type', 'version'],
+                condition=~models.Q(status='upload_failed'),
+                name='unique_origination_document_version',
+            ),
+            models.UniqueConstraint(
+                fields=['document_type'], condition=models.Q(status='active'),
+                name='one_active_origination_document',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.name} v{self.version}'
+
+
+class OriginationDocumentTemplateEvent(models.Model):
+    """Append-only audit trail for legal template lifecycle changes."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    template = models.ForeignKey(
+        OriginationDocumentTemplate, on_delete=models.PROTECT, related_name='events',
+    )
+    action = models.CharField(max_length=40, db_index=True)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='origination_document_template_events',
+    )
+    metadata = models.JSONField(default=dict, blank=True)
+    occurred_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ['occurred_at', 'id']
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError('Origination document template events are append-only.')
+        return super().save(*args, **kwargs)
+
+
 class LoanOriginationApplication(models.Model):
     """Canonical, revision-controlled application captured by a field officer."""
 

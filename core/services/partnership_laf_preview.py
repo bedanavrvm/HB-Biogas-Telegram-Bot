@@ -2,54 +2,26 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-from functools import lru_cache
 from io import BytesIO
-from pathlib import Path
 from typing import Any
 
-from django.conf import settings
 from pypdf import PdfReader, PdfWriter
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
-
-
-APPROVED_TEMPLATE_SHA256 = '5e7d264c0cf3e4264e9ab768fd89a4fd1dab131eedd733cce439ce11c6e345f1'
 
 
 class PartnershipLafPreviewError(RuntimeError):
     pass
 
 
-def _asset_paths() -> tuple[Path, Path]:
-    source = Path(getattr(
-        settings, 'ORIGINATION_LAF_TEMPLATE_PATH',
-        settings.BASE_DIR / 'e-signatures' / 'JBL' / 'Jawabu Partnership LAF.pdf',
-    ))
-    config = Path(getattr(
-        settings, 'ORIGINATION_LAF_CONFIG_PATH',
-        settings.BASE_DIR / 'e-signatures' / 'JBL' / 'partnership_laf_template_config.json',
-    ))
-    return source, config
-
-
-@lru_cache(maxsize=1)
-def _approved_assets() -> tuple[bytes, dict[str, Any]]:
-    source_path, config_path = _asset_paths()
-    if not source_path.is_file() or not config_path.is_file():
-        raise PartnershipLafPreviewError('The approved Partnership LAF template assets are unavailable.')
-    source = source_path.read_bytes()
-    digest = hashlib.sha256(source).hexdigest()
-    if digest != APPROVED_TEMPLATE_SHA256:
-        raise PartnershipLafPreviewError('The Partnership LAF template failed integrity verification.')
+def _approved_assets(*, version: int = 1, expected_sha256: str = '') -> tuple[bytes, dict[str, Any]]:
     try:
-        config = json.loads(config_path.read_text(encoding='utf-8'))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise PartnershipLafPreviewError('The Partnership LAF placement configuration is invalid.') from exc
-    if config.get('document_type') != 'partnership_loan_application' or int(config.get('version') or 0) != 1:
-        raise PartnershipLafPreviewError('The Partnership LAF placement configuration is not approved.')
-    return source, config
+        from core.services.origination_templates import OriginationTemplateError, load_active_template
+        return load_active_template(
+            'partnership_loan_application', version=version, expected_sha256=expected_sha256,
+        )
+    except OriginationTemplateError as exc:
+        raise PartnershipLafPreviewError(str(exc)) from exc
 
 
 def _display_value(value: Any) -> str:
@@ -98,8 +70,7 @@ def _overlay_page(width: float, height: float, fields: list[tuple[dict, str]]) -
     return output.getvalue()
 
 
-def render_partnership_laf(context: dict[str, Any]) -> bytes:
-    source, config = _approved_assets()
+def render_template(source: bytes, config: dict[str, Any], context: dict[str, Any]) -> bytes:
     reader = PdfReader(BytesIO(source))
     fields_by_page: dict[int, list[tuple[dict, str]]] = {}
     manifest = (config.get('field_overlay_manifest') or {}).get('fields') or {}
@@ -122,3 +93,10 @@ def render_partnership_laf(context: dict[str, Any]) -> bytes:
     if not result.startswith(b'%PDF'):
         raise PartnershipLafPreviewError('The populated Partnership LAF could not be generated.')
     return result
+
+
+def render_partnership_laf(
+    context: dict[str, Any], *, version: int = 1, expected_sha256: str = '',
+) -> bytes:
+    source, config = _approved_assets(version=version, expected_sha256=expected_sha256)
+    return render_template(source, config, context)
