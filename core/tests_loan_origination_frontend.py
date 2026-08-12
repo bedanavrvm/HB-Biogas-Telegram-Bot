@@ -18,6 +18,10 @@ class LoanOriginationFrontendTests(SimpleTestCase):
         self.assertIn('URL.revokeObjectURL', source)
         self.assertIn('document-preview-overlay', template)
         self.assertIn('preview-regenerate', template)
+        self.assertIn('@media (max-width: 390px)', css)
+        self.assertIn('font-size: 16px !important', css)
+        self.assertIn('position: sticky', css)
+        self.assertIn('class="header-icon"', template)
 
     def test_superuser_template_calibration_workspace_is_present(self):
         template = Path('core/templates/admin/core/originationdocumenttemplate/calibrate.html').read_text(encoding='utf-8')
