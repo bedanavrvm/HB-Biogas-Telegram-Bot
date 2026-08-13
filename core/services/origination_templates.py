@@ -350,6 +350,94 @@ def create_template(
     return upload_template_record(template, pdf_data=pdf_data, actor=actor)
 
 
+def _source_template_for_product(
+    product: OriginationProductDefinition,
+) -> OriginationDocumentTemplate | None:
+    template = (
+        product.document_templates.filter(
+            status__in=[
+                OriginationDocumentTemplate.STATUS_ACTIVE,
+                OriginationDocumentTemplate.STATUS_READY,
+            ],
+        )
+        .select_related('published_configuration_revision')
+        .order_by('-created_at')
+        .first()
+    )
+    if template:
+        return template
+    if not product.document_template_sha256:
+        return None
+    return (
+        OriginationDocumentTemplate.objects.filter(
+            document_type=product.document_type,
+            version=product.document_template_version,
+            source_sha256=product.document_template_sha256,
+        )
+        .exclude(status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED)
+        .select_related('published_configuration_revision')
+        .order_by('-created_at')
+        .first()
+    )
+
+
+def _inherit_template_for_product_version(
+    *, source: OriginationProductDefinition,
+    successor: OriginationProductDefinition,
+    actor,
+) -> OriginationDocumentTemplate | None:
+    existing = successor.document_templates.filter(
+        status__in=[
+            OriginationDocumentTemplate.STATUS_READY,
+            OriginationDocumentTemplate.STATUS_ACTIVE,
+        ],
+    ).order_by('-created_at').first()
+    if existing:
+        return existing
+    source_template = _source_template_for_product(source)
+    if not source_template or not source_template.drive_file_id:
+        return None
+    source_revision = source_template.published_configuration_revision
+    configuration = json.loads(json.dumps(
+        source_revision.configuration if source_revision else source_template.placement_config,
+    ))
+    configuration['document_type'] = successor.document_type
+    configuration['version'] = successor.version
+    inherited = OriginationDocumentTemplate.objects.create(
+        product_definition=successor,
+        document_type=successor.document_type,
+        name=f'{successor.name} LAF v{successor.version}',
+        version=successor.version,
+        status=OriginationDocumentTemplate.STATUS_READY,
+        source_filename=source_template.source_filename,
+        source_sha256=source_template.source_sha256,
+        source_byte_size=source_template.source_byte_size,
+        page_count=source_template.page_count,
+        placement_config=configuration,
+        drive_file_id=source_template.drive_file_id,
+        drive_url=source_template.drive_url,
+        created_by=actor,
+    )
+    OriginationTemplateConfigurationRevision.objects.create(
+        template=inherited,
+        revision=1,
+        configuration=configuration,
+        created_by=actor,
+    )
+    OriginationDocumentTemplateEvent.objects.create(
+        template=inherited,
+        action='version_inherited',
+        actor=actor,
+        metadata={
+            'source_template_id': str(source_template.pk),
+            'source_product_definition_id': str(source.pk),
+            'source_product_version': source.version,
+            'sha256': source_template.source_sha256,
+        },
+    )
+    return inherited
+
+
 @transaction.atomic
 def clone_product_version(
     product: OriginationProductDefinition, *, actor,
@@ -360,6 +448,9 @@ def clone_product_version(
         product_key=source.product_key, lifecycle_status=OriginationProductDefinition.STATUS_DRAFT,
     ).order_by('-version').first()
     if existing:
+        _inherit_template_for_product_version(
+            source=source, successor=existing, actor=actor,
+        )
         return existing
     global_version = source.product_version
     next_version = (
@@ -382,42 +473,71 @@ def clone_product_version(
         supersedes=source,
         created_by=actor,
     )
+    inherited_template = _inherit_template_for_product_version(
+        source=source, successor=clone, actor=actor,
+    )
     OriginationProductDefinitionEvent.objects.create(
         product_definition=clone, action='version_created', actor=actor,
-        metadata={'supersedes_id': str(source.pk), 'version': next_version},
+        metadata={
+            'supersedes_id': str(source.pk),
+            'version': next_version,
+            'inherited_template_id': (
+                str(inherited_template.pk) if inherited_template else ''
+            ),
+        },
     )
     from core.services.origination_fields import create_conflict_review_issues
     create_conflict_review_issues(clone)
     return clone
 
 
-def upload_template_record(template: OriginationDocumentTemplate, *, pdf_data: bytes, actor) -> OriginationDocumentTemplate:
-    """Upload a validated, already-persisted template record and retain failures for audit."""
+def _upload_template_bytes(
+    template: OriginationDocumentTemplate, *, pdf_data: bytes,
+) -> tuple[str, str]:
     folder_id = str(getattr(settings, 'GOOGLE_DRIVE_MEDIA_FOLDER_ID', '') or '').strip()
     if not folder_id:
-        error = 'GOOGLE_DRIVE_MEDIA_FOLDER_ID is not configured.'
-        template.status = template.STATUS_UPLOAD_FAILED
-        template.upload_error = error
-        template.save(update_fields=['status', 'upload_error', 'updated_at'])
-        OriginationDocumentTemplateEvent.objects.create(template=template, action='upload_failed', actor=actor)
-        return template
+        raise OriginationTemplateError('GOOGLE_DRIVE_MEDIA_FOLDER_ID is not configured.')
+    from core.services.order_approval import GoogleDriveMediaStorage
+    return GoogleDriveMediaStorage(parent_folder_id=folder_id).upload(
+        pdf_data, template.source_filename, 'application/pdf', template.document_type,
+        timezone.now(), workflow_key='Loan Origination/Templates',
+        record_type=template.document_type,
+        record_key=f'v{template.version}-{template.source_sha256[:12]}',
+    )
+
+
+def _record_template_upload_failure(
+    template: OriginationDocumentTemplate, *, actor, message: str,
+) -> OriginationDocumentTemplate:
+    template.status = template.STATUS_UPLOAD_FAILED
+    template.upload_error = message
+    template.save(update_fields=['status', 'upload_error', 'updated_at'])
+    OriginationDocumentTemplateEvent.objects.create(
+        template=template, action='upload_failed', actor=actor,
+    )
+    return template
+
+
+def upload_template_record(template: OriginationDocumentTemplate, *, pdf_data: bytes, actor) -> OriginationDocumentTemplate:
+    """Upload a validated, already-persisted template record and retain failures for audit."""
     try:
-        from core.services.order_approval import GoogleDriveMediaStorage
-        file_id, url = GoogleDriveMediaStorage(parent_folder_id=folder_id).upload(
-            pdf_data, template.source_filename, 'application/pdf', template.document_type, timezone.now(),
-            workflow_key='Loan Origination/Templates', record_type=template.document_type,
-            record_key=f'v{template.version}-{template.source_sha256[:12]}',
+        file_id, url = _upload_template_bytes(template, pdf_data=pdf_data)
+    except OriginationTemplateError as exc:
+        return _record_template_upload_failure(
+            template, actor=actor, message=str(exc),
         )
-    except Exception as exc:
-        template.status = template.STATUS_UPLOAD_FAILED
-        template.upload_error = 'Drive upload failed; retry with a new template version.'
-        template.save(update_fields=['status', 'upload_error', 'updated_at'])
-        OriginationDocumentTemplateEvent.objects.create(template=template, action='upload_failed', actor=actor)
-        return template
+    except Exception:
+        return _record_template_upload_failure(
+            template, actor=actor,
+            message='Drive upload failed; retry the PDF upload from the draft product.',
+        )
+    template.status = template.STATUS_READY
     template.drive_file_id = file_id
     template.drive_url = url
     template.upload_error = ''
-    template.save(update_fields=['drive_file_id', 'drive_url', 'upload_error', 'updated_at'])
+    template.save(update_fields=[
+        'status', 'drive_file_id', 'drive_url', 'upload_error', 'updated_at',
+    ])
     OriginationDocumentTemplateEvent.objects.create(template=template, action='uploaded', actor=actor)
     OriginationTemplateConfigurationRevision.objects.get_or_create(
         template=template, revision=1,
@@ -456,6 +576,129 @@ def activate_template(template: OriginationDocumentTemplate, *, actor) -> Origin
     template.save(update_fields=['status', 'activated_by', 'activated_at', 'updated_at'])
     OriginationDocumentTemplateEvent.objects.create(template=template, action='activated', actor=actor)
     return template
+
+
+def replace_draft_template(
+    *, product_definition: OriginationProductDefinition, pdf_file, name: str, actor,
+) -> OriginationDocumentTemplate:
+    """Replace a draft's PDF without mutating or hiding its previous template record."""
+    pdf_data = pdf_file.read()
+    digest, page_count = validate_template_pdf(pdf_data)
+    filename = str(
+        getattr(pdf_file, 'name', '')
+        or f'{product_definition.document_type}-v{product_definition.version}.pdf'
+    )[:255]
+    with transaction.atomic():
+        product = OriginationProductDefinition.objects.select_for_update().get(
+            pk=product_definition.pk,
+        )
+        if product.lifecycle_status != product.STATUS_DRAFT:
+            raise OriginationTemplateError(
+                'Templates can only be replaced for a draft product version.',
+            )
+        current = product.document_templates.filter(
+            status__in=[
+                OriginationDocumentTemplate.STATUS_READY,
+                OriginationDocumentTemplate.STATUS_ACTIVE,
+            ],
+        ).order_by('-created_at').first()
+        if current and current.source_sha256 == digest:
+            return current
+        candidate = OriginationDocumentTemplate.objects.create(
+            product_definition=product,
+            document_type=product.document_type,
+            name=str(name or filename).strip()[:180],
+            version=product.version,
+            status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
+            source_filename=filename,
+            source_sha256=digest,
+            source_byte_size=len(pdf_data),
+            page_count=page_count,
+            placement_config=initial_template_configuration(product),
+            upload_error='Replacement upload pending.',
+            created_by=actor,
+        )
+        OriginationDocumentTemplateEvent.objects.create(
+            template=candidate,
+            action='replacement_created',
+            actor=actor,
+            metadata={
+                'replaces_template_id': str(current.pk) if current else '',
+                'sha256': digest,
+                'byte_size': len(pdf_data),
+                'page_count': page_count,
+            },
+        )
+    try:
+        file_id, url = _upload_template_bytes(candidate, pdf_data=pdf_data)
+    except OriginationTemplateError as exc:
+        return _record_template_upload_failure(
+            candidate, actor=actor, message=str(exc),
+        )
+    except Exception:
+        return _record_template_upload_failure(
+            candidate, actor=actor,
+            message='Drive upload failed; the current draft template remains available.',
+        )
+    with transaction.atomic():
+        product = OriginationProductDefinition.objects.select_for_update().get(
+            pk=product_definition.pk,
+        )
+        candidate = OriginationDocumentTemplate.objects.select_for_update().get(
+            pk=candidate.pk,
+        )
+        if product.lifecycle_status != product.STATUS_DRAFT:
+            candidate.drive_file_id = file_id
+            candidate.drive_url = url
+            candidate.upload_error = (
+                'The product changed while the replacement uploaded. Its current '
+                'published template was left unchanged.'
+            )
+            candidate.save(update_fields=[
+                'drive_file_id', 'drive_url', 'upload_error', 'updated_at',
+            ])
+            OriginationDocumentTemplateEvent.objects.create(
+                template=candidate,
+                action='replacement_abandoned',
+                actor=actor,
+                metadata={'product_status': product.lifecycle_status},
+            )
+            return candidate
+        previous = list(product.document_templates.select_for_update().filter(
+            status__in=[
+                OriginationDocumentTemplate.STATUS_READY,
+                OriginationDocumentTemplate.STATUS_ACTIVE,
+            ],
+        ).exclude(pk=candidate.pk))
+        for old in previous:
+            old.status = old.STATUS_RETIRED
+            old.save(update_fields=['status', 'updated_at'])
+            OriginationDocumentTemplateEvent.objects.create(
+                template=old,
+                action='retired_for_replacement',
+                actor=actor,
+                metadata={'replacement_template_id': str(candidate.pk)},
+            )
+        candidate.status = candidate.STATUS_READY
+        candidate.drive_file_id = file_id
+        candidate.drive_url = url
+        candidate.upload_error = ''
+        candidate.save(update_fields=[
+            'status', 'drive_file_id', 'drive_url', 'upload_error', 'updated_at',
+        ])
+        OriginationDocumentTemplateEvent.objects.create(
+            template=candidate,
+            action='uploaded',
+            actor=actor,
+            metadata={'replaced_template_ids': [str(item.pk) for item in previous]},
+        )
+        OriginationTemplateConfigurationRevision.objects.create(
+            template=candidate,
+            revision=1,
+            configuration=candidate.placement_config,
+            created_by=actor,
+        )
+    return candidate
 
 
 @transaction.atomic

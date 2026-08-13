@@ -178,14 +178,16 @@ class OriginationProductDefinitionForm(forms.ModelForm):
             # A version may change its presentation contract while it is a
             # draft, but it must not move into another product's version line.
             self.fields['product_key'].disabled = True
-            if self.instance.document_templates.exclude(
-                status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
+            if self.instance.document_templates.filter(
+                status__in=[
+                    OriginationDocumentTemplate.STATUS_READY,
+                    OriginationDocumentTemplate.STATUS_ACTIVE,
+                ],
             ).exists():
-                # The source PDF is immutable. Replacing it requires the next
-                # product-definition version rather than silently overwriting
-                # the legal document attached to this one.
-                self.fields['laf_pdf'].disabled = True
-                self.fields['laf_pdf'].widget = forms.HiddenInput()
+                self.fields['laf_pdf'].help_text = (
+                    'Optional replacement PDF. The current draft template is retained '
+                    'as immutable history and the new PDF starts with a fresh alignment.'
+                )
 
     def clean(self):
         cleaned = super().clean()
@@ -4600,9 +4602,10 @@ class OriginationFieldReviewIssueAdmin(CompactModelAdmin):
 class OriginationProductDefinitionAdmin(CompactModelAdmin):
     form = OriginationProductDefinitionForm
     change_form_template = 'admin/core/originationproductdefinition/change_form.html'
+    change_list_template = 'admin/core/originationproductdefinition/change_list.html'
     list_display = (
-        'product_key', 'name', 'version', 'lifecycle_status', 'template_readiness',
-        'is_active', 'updated_at',
+        'product_key', 'name', 'version_state', 'template_readiness',
+        'version_history_link', 'updated_at',
     )
     list_filter = ('lifecycle_status', 'is_active', 'document_type')
     search_fields = ('product_key', 'name', 'document_type')
@@ -4612,6 +4615,69 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
         'document_template_sha256', 'lifecycle_status', 'is_active', 'supersedes',
         'created_by', 'published_by', 'published_at', 'created_at', 'updated_at',
     )
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                '<path:object_id>/create-next-version/',
+                self.admin_site.admin_view(self.create_next_version_view),
+                name='core_originationproductdefinition_create_next_version',
+            ),
+            path(
+                '<path:object_id>/version-history/',
+                self.admin_site.admin_view(self.version_history_view),
+                name='core_originationproductdefinition_version_history',
+            ),
+        ]
+        return custom + urls
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request).select_related(
+            'created_by', 'published_by', 'supersedes',
+        )
+        resolver = getattr(request, 'resolver_match', None)
+        if not resolver or resolver.url_name != 'core_originationproductdefinition_changelist':
+            return queryset
+        latest_version = (
+            OriginationProductDefinition.objects.filter(
+                product_key=models.OuterRef('product_key'),
+            )
+            .order_by('-version')
+            .values('version')[:1]
+        )
+        live_version = (
+            OriginationProductDefinition.objects.filter(
+                product_key=models.OuterRef('product_key'), is_active=True,
+            )
+            .values('version')[:1]
+        )
+        return queryset.annotate(
+            _latest_version=models.Subquery(latest_version),
+            _live_version=models.Subquery(live_version),
+        ).filter(version=models.F('_latest_version'))
+
+    @admin.display(description='Version state', ordering='version')
+    def version_state(self, obj):
+        live_version = getattr(obj, '_live_version', None)
+        if obj.lifecycle_status == obj.STATUS_DRAFT:
+            return (
+                f'Draft v{obj.version} · Live v{live_version}'
+                if live_version else f'Draft v{obj.version} · Not published'
+            )
+        if obj.is_active:
+            return f'Published v{obj.version}'
+        return f'{obj.get_lifecycle_status_display()} v{obj.version}'
+
+    @admin.display(description='Versions')
+    def version_history_link(self, obj):
+        return format_html(
+            '<a href="{}">Version history</a>',
+            reverse(
+                'admin:core_originationproductdefinition_version_history',
+                args=[obj.pk],
+            ),
+        )
 
     def get_readonly_fields(self, request, obj=None):
         if obj is None:
@@ -4627,14 +4693,21 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
         product = self.get_object(request, object_id) if object_id else None
         template = None
         failed_template = None
+        existing_successor = None
         if product is not None:
             templates = product.document_templates.order_by('-created_at')
-            template = templates.exclude(
-                status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
-            ).first()
+            template = templates.filter(status__in=[
+                OriginationDocumentTemplate.STATUS_READY,
+                OriginationDocumentTemplate.STATUS_ACTIVE,
+            ]).first()
             failed_template = templates.filter(
                 status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
             ).first()
+            if product.lifecycle_status != product.STATUS_DRAFT:
+                existing_successor = OriginationProductDefinition.objects.filter(
+                    product_key=product.product_key,
+                    lifecycle_status=OriginationProductDefinition.STATUS_DRAFT,
+                ).order_by('-version').first()
         context = {
             **(extra_context or {}),
             'origination_signer_roles': [
@@ -4646,6 +4719,19 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
             ),
             'origination_document_template': template,
             'origination_failed_template': failed_template,
+            'origination_existing_successor': existing_successor,
+            'origination_version_history_url': (
+                reverse(
+                    'admin:core_originationproductdefinition_version_history',
+                    args=[product.pk],
+                ) if product else ''
+            ),
+            'origination_create_next_version_url': (
+                reverse(
+                    'admin:core_originationproductdefinition_create_next_version',
+                    args=[product.pk],
+                ) if product and product.lifecycle_status == product.STATUS_PUBLISHED else ''
+            ),
             'origination_calibration_url': (
                 reverse(
                     'admin:core_originationdocumenttemplate_calibrate',
@@ -4670,15 +4756,23 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
 
     @admin.display(description='Template')
     def template_readiness(self, obj):
-        template = obj.document_templates.order_by('-created_at').first()
+        template = obj.document_templates.filter(status__in=[
+            OriginationDocumentTemplate.STATUS_READY,
+            OriginationDocumentTemplate.STATUS_ACTIVE,
+        ]).order_by('-created_at').first()
         if not template:
+            failed = obj.document_templates.filter(
+                status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
+            ).exists()
+            if failed:
+                return 'Upload failed'
             return 'PDF required'
-        if template.status == template.STATUS_UPLOAD_FAILED:
-            return 'Upload failed'
         if obj.is_active and template.status == template.STATUS_ACTIVE:
             return 'Published'
         if template.published_configuration_revision_id:
             return 'Ready to publish'
+        if template.events.filter(action='version_inherited').exists():
+            return 'Alignment copied'
         return 'Calibration required'
 
     def save_model(self, request, obj, form, change):
@@ -4708,12 +4802,17 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
         )
         laf_pdf = form.cleaned_data.get('laf_pdf')
         if laf_pdf:
-            from core.services.origination_templates import create_template
-            template = create_template(
-                pdf_file=laf_pdf,
-                product_definition=obj,
-                name=f'{obj.name} LAF v{obj.version}',
-                actor=request.user,
+            from core.services.origination_templates import (
+                create_template, replace_draft_template,
+            )
+            current_template = obj.document_templates.filter(status__in=[
+                OriginationDocumentTemplate.STATUS_READY,
+                OriginationDocumentTemplate.STATUS_ACTIVE,
+            ]).order_by('-created_at').first()
+            creator = replace_draft_template if current_template else create_template
+            template = creator(
+                pdf_file=laf_pdf, product_definition=obj,
+                name=f'{obj.name} LAF v{obj.version}', actor=request.user,
             )
             obj._uploaded_laf_template_id = template.pk
             if template.status == OriginationDocumentTemplate.STATUS_UPLOAD_FAILED:
@@ -4721,6 +4820,8 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
             else:
                 messages.success(
                     request,
+                    'Replacement LAF uploaded; the previous PDF remains in version history.'
+                    if current_template else
                     'LAF uploaded. Assign each form variable and signer slot on the PDF.',
                 )
 
@@ -4755,7 +4856,111 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
         from core.services.origination_templates import clone_product_version
         clone = clone_product_version(queryset.first(), actor=request.user)
         self.message_user(request, f'Product version {clone.version} is ready to edit.', level=messages.SUCCESS)
-        return HttpResponseRedirect(reverse('admin:core_originationproductdefinition_change', args=[clone.pk]))
+        return self._successor_response(clone)
+
+    def _successor_response(self, successor):
+        template = successor.document_templates.filter(
+            status=OriginationDocumentTemplate.STATUS_READY,
+            drive_file_id__gt='',
+        ).order_by('-created_at').first()
+        if template:
+            return HttpResponseRedirect(reverse(
+                'admin:core_originationdocumenttemplate_calibrate', args=[template.pk],
+            ))
+        return HttpResponseRedirect(reverse(
+            'admin:core_originationproductdefinition_change', args=[successor.pk],
+        ))
+
+    def create_next_version_view(self, request, object_id):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        if request.method != 'POST':
+            response = HttpResponse(status=405)
+            response['Allow'] = 'POST'
+            return response
+        source = OriginationProductDefinition.objects.filter(pk=object_id).first()
+        if not source:
+            return HttpResponse(status=404)
+        if source.lifecycle_status != source.STATUS_PUBLISHED:
+            self.message_user(
+                request, 'Only a published product can create a successor.',
+                level=messages.ERROR,
+            )
+            return HttpResponseRedirect(reverse(
+                'admin:core_originationproductdefinition_change', args=[source.pk],
+            ))
+        from core.services.origination_templates import clone_product_version
+        successor = clone_product_version(source, actor=request.user)
+        self.message_user(
+            request,
+            f'Editable version {successor.version} is ready with the existing PDF and alignment.',
+            level=messages.SUCCESS,
+        )
+        return self._successor_response(successor)
+
+    def version_history_view(self, request, object_id):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        selected = OriginationProductDefinition.objects.filter(pk=object_id).first()
+        if not selected:
+            return HttpResponse(status=404)
+        versions = list(
+            OriginationProductDefinition.objects.filter(
+                product_key=selected.product_key,
+            ).select_related(
+                'created_by', 'published_by', 'supersedes',
+            ).prefetch_related('document_templates').order_by('-version')
+        )
+        rows = []
+        for version in versions:
+            templates = sorted(
+                version.document_templates.all(),
+                key=lambda candidate: candidate.created_at,
+                reverse=True,
+            )
+            template = next((
+                item for item in templates
+                if item.status in [
+                    OriginationDocumentTemplate.STATUS_READY,
+                    OriginationDocumentTemplate.STATUS_ACTIVE,
+                ]
+            ), None)
+            rows.append({
+                'version': version,
+                'template': template,
+                'templates': [{
+                    'template': item,
+                    'change_url': reverse(
+                        'admin:core_originationdocumenttemplate_change',
+                        args=[item.pk],
+                    ),
+                } for item in templates],
+                'change_url': reverse(
+                    'admin:core_originationproductdefinition_change', args=[version.pk],
+                ),
+                'calibration_url': (
+                    reverse(
+                        'admin:core_originationdocumenttemplate_calibrate',
+                        args=[template.pk],
+                    )
+                    if template and version.lifecycle_status == version.STATUS_DRAFT
+                    else ''
+                ),
+            })
+        return TemplateResponse(
+            request,
+            'admin/core/originationproductdefinition/version_history.html',
+            {
+                **self.admin_site.each_context(request),
+                'opts': self.model._meta,
+                'title': f'{selected.name} version history',
+                'selected': selected,
+                'rows': rows,
+                'changelist_url': reverse(
+                    'admin:core_originationproductdefinition_changelist',
+                ),
+            },
+        )
 
     def has_add_permission(self, request):
         return request.user.is_superuser

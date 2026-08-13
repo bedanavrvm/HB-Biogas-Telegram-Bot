@@ -1,0 +1,57 @@
+{% extends "admin/base_site.html" %}
+
+{% block breadcrumbs %}
+  <div class="px-4 lg:px-8">
+    <div class="container mb-6 mx-auto -my-3 lg:mb-12">
+      <ul class="flex flex-wrap">
+        <li><a href="{% url 'admin:index' %}">Home</a></li>
+        <li><span class="mx-2">/</span><a href="{{ changelist_url }}">Origination product definitions</a></li>
+        <li><span class="mx-2">/</span>{{ selected.name }} history</li>
+      </ul>
+    </div>
+  </div>
+{% endblock %}
+
+{% block content %}
+  <section style="margin-bottom:16px;padding:14px 16px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;color:#172033">
+    <h1 style="margin:0 0 4px;font-size:20px">{{ selected.name }}</h1>
+    <p style="margin:0;color:#64748b">One product identity with immutable form and LAF versions. The main list shows only the latest operational version.</p>
+  </section>
+  <div style="overflow:auto;border:1px solid #cbd5e1;border-radius:10px;background:#fff">
+    <table style="width:100%;min-width:900px;border-collapse:collapse;color:#172033">
+      <thead style="background:#f8fafc;text-align:left">
+        <tr>
+          <th style="padding:11px">Version</th>
+          <th style="padding:11px">State</th>
+          <th style="padding:11px">Template</th>
+          <th style="padding:11px">Created</th>
+          <th style="padding:11px">Published</th>
+          <th style="padding:11px">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr style="border-top:1px solid #e2e8f0">
+            <td style="padding:11px"><strong>v{{ row.version.version }}</strong>{% if row.version.supersedes %}<br><small>Supersedes v{{ row.version.supersedes.version }}</small>{% endif %}</td>
+            <td style="padding:11px">{{ row.version.get_lifecycle_status_display }}{% if row.version.is_active %} · Live{% endif %}</td>
+            <td style="padding:11px">
+              {% for template_row in row.templates %}
+                {% if not forloop.first %}<hr style="margin:7px 0;border:0;border-top:1px solid #e2e8f0">{% endif %}
+                <a href="{{ template_row.change_url }}">{{ template_row.template.name }}</a><br>
+                <small>{{ template_row.template.get_status_display }} · {{ template_row.template.source_sha256|slice:":12" }}</small>
+              {% empty %}No template{% endfor %}
+            </td>
+            <td style="padding:11px">{{ row.version.created_at|date:"d-M-Y H:i" }}<br><small>{{ row.version.created_by|default:"System" }}</small></td>
+            <td style="padding:11px">{% if row.version.published_at %}{{ row.version.published_at|date:"d-M-Y H:i" }}<br><small>{{ row.version.published_by|default:"System" }}</small>{% else %}—{% endif %}</td>
+            <td style="padding:11px">
+              <a href="{{ row.change_url }}">View form</a>
+              {% if row.calibration_url %} · <a href="{{ row.calibration_url }}"><strong>Edit alignment</strong></a>{% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" style="padding:20px;text-align:center">No versions found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

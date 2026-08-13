@@ -3554,8 +3554,8 @@ class OriginationDocumentTemplate(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=['document_type', 'version'],
-                condition=~models.Q(status='upload_failed'),
-                name='unique_origination_document_version',
+                condition=models.Q(status__in=['ready', 'active']),
+                name='unique_ready_active_orig_document_version',
             ),
             models.UniqueConstraint(
                 fields=['document_type'], condition=models.Q(status='active'),

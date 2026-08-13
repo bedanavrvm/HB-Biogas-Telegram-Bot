@@ -11,6 +11,7 @@ from django.db import connection
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
+from django.utils import timezone
 from pypdf import PdfReader, PdfWriter
 from unfold.widgets import UnfoldAdminFileFieldWidget, UnfoldAdminSelectWidget
 
@@ -19,6 +20,7 @@ from core.models import (
     OriginationDocumentTemplate,
     OriginationDocumentTemplateEvent,
     OriginationProductDefinition,
+    OriginationTemplateConfigurationRevision,
 )
 from core.services.origination_templates import (
     OriginationTemplateError,
@@ -29,6 +31,7 @@ from core.services.origination_templates import (
     load_active_template,
     publish_calibration,
     publish_product_template,
+    replace_draft_template,
     save_calibration_draft,
     validate_template_configuration,
     validate_template_files,
@@ -462,7 +465,7 @@ class MultiProductOriginationTemplateTests(TestCase):
             },
         )
 
-    def test_admin_product_builder_links_existing_laf_without_allowing_overwrite(self):
+    def test_admin_product_builder_allows_audited_draft_laf_replacement(self):
         template = OriginationDocumentTemplate.objects.create(
             product_definition=self.product,
             document_type=self.product.document_type,
@@ -484,9 +487,10 @@ class MultiProductOriginationTemplateTests(TestCase):
         ))
 
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.context['adminform'].form.fields['laf_pdf'].disabled)
-        self.assertTrue(
-            response.context['adminform'].form.fields['laf_pdf'].widget.is_hidden,
+        self.assertFalse(response.context['adminform'].form.fields['laf_pdf'].disabled)
+        self.assertContains(
+            response,
+            'current draft template is retained as immutable history',
         )
         self.assertContains(response, 'Open alignment builder')
         self.assertContains(response, reverse(
@@ -688,6 +692,233 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.product.refresh_from_db()
         self.assertTrue(self.product.is_active)
 
+    def test_clone_inherits_published_pdf_and_alignment_idempotently(self):
+        config = self.calibrated_configuration()
+        template = OriginationDocumentTemplate.objects.create(
+            product_definition=self.product,
+            document_type=self.product.document_type,
+            name='Dairy v1',
+            version=1,
+            status=OriginationDocumentTemplate.STATUS_ACTIVE,
+            source_filename='dairy-v1.pdf',
+            source_sha256='a' * 64,
+            source_byte_size=len(self.pdf),
+            page_count=1,
+            placement_config=config,
+            drive_file_id='drive-shared-pdf',
+            drive_url='https://drive.test/shared-pdf',
+            created_by=self.user,
+        )
+        source_revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=template,
+            revision=1,
+            configuration=config,
+            is_published=True,
+            created_by=self.user,
+            published_at=timezone.now(),
+        )
+        template.published_configuration_revision = source_revision
+        template.save(update_fields=['published_configuration_revision'])
+        self.product.lifecycle_status = self.product.STATUS_PUBLISHED
+        self.product.is_active = True
+        self.product.document_template_version = 1
+        self.product.document_template_sha256 = template.source_sha256
+        self.product.save()
+
+        clone = clone_product_version(self.product, actor=self.user)
+        replay = clone_product_version(self.product, actor=self.user)
+
+        self.assertEqual(replay.pk, clone.pk)
+        self.assertEqual(clone.document_templates.count(), 1)
+        inherited = clone.document_templates.get()
+        self.assertEqual(inherited.status, inherited.STATUS_READY)
+        self.assertEqual(inherited.drive_file_id, template.drive_file_id)
+        self.assertEqual(inherited.source_sha256, template.source_sha256)
+        self.assertEqual(inherited.placement_config['version'], 2)
+        self.assertEqual(
+            inherited.placement_config['field_overlay_manifest']['fields'],
+            config['field_overlay_manifest']['fields'],
+        )
+        self.assertIsNone(inherited.published_configuration_revision_id)
+        self.assertEqual(inherited.configuration_revisions.get().revision, 1)
+        self.assertEqual(
+            list(inherited.events.values_list('action', flat=True)),
+            ['version_inherited'],
+        )
+
+    def test_compact_admin_list_and_history_keep_old_versions_accessible(self):
+        self.product.lifecycle_status = self.product.STATUS_PUBLISHED
+        self.product.is_active = True
+        self.product.save(update_fields=['lifecycle_status', 'is_active'])
+        clone = clone_product_version(self.product, actor=self.user)
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse(
+            'admin:core_originationproductdefinition_changelist',
+        ))
+
+        self.assertEqual(response.status_code, 200)
+        product_rows = list(response.context['cl'].queryset.filter(
+            product_key=self.product.product_key,
+        ))
+        self.assertEqual(product_rows, [clone])
+        self.assertContains(response, 'Draft v2 · Live v1')
+        history = self.client.get(reverse(
+            'admin:core_originationproductdefinition_version_history',
+            args=[clone.pk],
+        ))
+        self.assertEqual(history.status_code, 200)
+        self.assertEqual(len(history.context['rows']), 2)
+        self.assertContains(history, 'v2')
+        self.assertContains(history, 'v1')
+        historical = self.client.get(reverse(
+            'admin:core_originationproductdefinition_change', args=[self.product.pk],
+        ))
+        self.assertEqual(historical.status_code, 200)
+
+    def test_direct_successor_action_is_post_only_and_opens_inherited_alignment(self):
+        config = self.calibrated_configuration()
+        template = OriginationDocumentTemplate.objects.create(
+            product_definition=self.product,
+            document_type=self.product.document_type,
+            name='Dairy v1', version=1,
+            status=OriginationDocumentTemplate.STATUS_ACTIVE,
+            source_filename='dairy.pdf', source_sha256='c' * 64,
+            source_byte_size=len(self.pdf), page_count=1,
+            placement_config=config, drive_file_id='drive-current',
+            drive_url='https://drive.test/current', created_by=self.user,
+        )
+        revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=template, revision=1, configuration=config,
+            is_published=True, created_by=self.user, published_at=timezone.now(),
+        )
+        template.published_configuration_revision = revision
+        template.save(update_fields=['published_configuration_revision'])
+        self.product.lifecycle_status = self.product.STATUS_PUBLISHED
+        self.product.is_active = True
+        self.product.document_template_sha256 = template.source_sha256
+        self.product.save()
+        self.client.force_login(self.user)
+        url = reverse(
+            'admin:core_originationproductdefinition_create_next_version',
+            args=[self.product.pk],
+        )
+
+        self.assertEqual(self.client.get(url).status_code, 405)
+        response = self.client.post(url)
+
+        clone = OriginationProductDefinition.objects.get(
+            product_key=self.product.product_key, lifecycle_status='draft',
+        )
+        inherited = clone.document_templates.get()
+        self.assertRedirects(
+            response,
+            reverse(
+                'admin:core_originationdocumenttemplate_calibrate',
+                args=[inherited.pk],
+            ),
+            fetch_redirect_response=False,
+        )
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_replacing_inherited_pdf_retires_old_only_after_upload(self, storage_class):
+        inherited = OriginationDocumentTemplate.objects.create(
+            product_definition=self.product,
+            document_type=self.product.document_type,
+            name='Inherited', version=1,
+            source_filename='old.pdf', source_sha256='d' * 64,
+            source_byte_size=100, page_count=1,
+            placement_config=self.calibrated_configuration(),
+            drive_file_id='drive-old', drive_url='https://drive.test/old',
+            created_by=self.user,
+        )
+        storage_class.return_value.upload.return_value = (
+            'drive-new', 'https://drive.test/new',
+        )
+        replacement_pdf = BytesIO(synthetic_pdf())
+        replacement_pdf.name = 'replacement.pdf'
+
+        replacement = replace_draft_template(
+            product_definition=self.product, pdf_file=replacement_pdf,
+            name='Replacement', actor=self.user,
+        )
+
+        inherited.refresh_from_db()
+        self.assertEqual(inherited.status, inherited.STATUS_RETIRED)
+        self.assertEqual(replacement.status, replacement.STATUS_READY)
+        self.assertEqual(replacement.drive_file_id, 'drive-new')
+        self.assertEqual(
+            replacement.placement_config['field_overlay_manifest']['fields'], {},
+        )
+        self.client.force_login(self.user)
+        history = self.client.get(reverse(
+            'admin:core_originationproductdefinition_version_history',
+            args=[self.product.pk],
+        ))
+        self.assertContains(history, 'Inherited')
+        self.assertContains(history, 'Replacement')
+        self.assertContains(history, 'Retired')
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_failed_replacement_keeps_inherited_pdf_ready(self, storage_class):
+        inherited = OriginationDocumentTemplate.objects.create(
+            product_definition=self.product,
+            document_type=self.product.document_type,
+            name='Inherited', version=1,
+            source_filename='old.pdf', source_sha256='e' * 64,
+            source_byte_size=100, page_count=1,
+            placement_config=self.calibrated_configuration(),
+            drive_file_id='drive-old', drive_url='https://drive.test/old',
+            created_by=self.user,
+        )
+        storage_class.return_value.upload.side_effect = RuntimeError('Drive unavailable')
+        replacement_pdf = BytesIO(synthetic_pdf())
+        replacement_pdf.name = 'replacement.pdf'
+
+        failed = replace_draft_template(
+            product_definition=self.product, pdf_file=replacement_pdf,
+            name='Replacement', actor=self.user,
+        )
+
+        inherited.refresh_from_db()
+        self.assertEqual(inherited.status, inherited.STATUS_READY)
+        self.assertEqual(failed.status, failed.STATUS_UPLOAD_FAILED)
+        self.assertIn('current draft template remains available', failed.upload_error)
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_replacement_does_not_retire_template_if_product_changes_during_upload(self, storage_class):
+        inherited = OriginationDocumentTemplate.objects.create(
+            product_definition=self.product,
+            document_type=self.product.document_type,
+            name='Inherited', version=1,
+            source_filename='old.pdf', source_sha256='f' * 64,
+            source_byte_size=100, page_count=1,
+            placement_config=self.calibrated_configuration(),
+            drive_file_id='drive-old', drive_url='https://drive.test/old',
+            created_by=self.user,
+        )
+
+        def publish_while_uploading(*_args, **_kwargs):
+            OriginationProductDefinition.objects.filter(pk=self.product.pk).update(
+                lifecycle_status=OriginationProductDefinition.STATUS_PUBLISHED,
+            )
+            return 'drive-candidate', 'https://drive.test/candidate'
+
+        storage_class.return_value.upload.side_effect = publish_while_uploading
+        replacement_pdf = BytesIO(synthetic_pdf())
+        replacement_pdf.name = 'replacement.pdf'
+
+        abandoned = replace_draft_template(
+            product_definition=self.product, pdf_file=replacement_pdf,
+            name='Replacement', actor=self.user,
+        )
+
+        inherited.refresh_from_db()
+        self.assertEqual(inherited.status, inherited.STATUS_READY)
+        self.assertEqual(abandoned.status, abandoned.STATUS_UPLOAD_FAILED)
+        self.assertIn('published template was left unchanged', abandoned.upload_error)
+        self.assertTrue(abandoned.events.filter(action='replacement_abandoned').exists())
+
     @patch('core.services.compliance_audit.record_event')
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_retired_template_remains_available_to_exact_pinned_application_contract(self, storage_class, _audit):
@@ -712,7 +943,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         )
         successor = clone_product_version(first_product, actor=self.user)
         second_file = BytesIO(self.pdf); second_file.name = 'dairy-v2.pdf'
-        second_template = create_template(
+        second_template = replace_draft_template(
             pdf_file=second_file, product_definition=successor,
             name='Dairy v2', actor=self.user,
         )

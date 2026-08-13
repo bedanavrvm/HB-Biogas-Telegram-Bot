@@ -6,6 +6,23 @@
   <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=3">
 {% endblock %}
 
+{% block object-tools-items %}
+  {{ block.super }}
+  {% if original and origination_version_history_url %}
+    <li><a href="{{ origination_version_history_url }}">Version history</a></li>
+  {% endif %}
+  {% if original and origination_create_next_version_url %}
+    <li>
+      <form method="post" action="{{ origination_create_next_version_url }}" style="display:inline">
+        {% csrf_token %}
+        <button type="submit" class="button" style="min-height:38px;padding:0 14px;border:0;border-radius:7px;background:#2563eb;color:#fff;font-weight:700;cursor:pointer">
+          {% if origination_existing_successor %}Open editable v{{ origination_existing_successor.version }}{% else %}Create editable next version{% endif %}
+        </button>
+      </form>
+    </li>
+  {% endif %}
+{% endblock %}
+
 {% block field_sets %}
   {% if not original or original.lifecycle_status == 'draft' %}
     <nav class="opb-workflow" aria-label="Loan form setup steps">
@@ -47,7 +64,7 @@
   {% elif original %}
     <section class="opb-shell opb-published">
       <h2>Published product version</h2>
-      <p>This contract is immutable. Select it in the product list and use <b>Create editable next version</b> to make changes without altering existing applications.</p>
+      <p>This contract is immutable. Use <b>Create editable next version</b> above to copy its fields, PDF, and alignment into a safe draft without altering existing applications.</p>
     </section>
   {% endif %}
 {% endblock %}
