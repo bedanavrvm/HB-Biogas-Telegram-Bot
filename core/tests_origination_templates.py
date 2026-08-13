@@ -9,7 +9,7 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
-from pypdf import PdfWriter
+from pypdf import PdfReader, PdfWriter
 from unfold.widgets import UnfoldAdminFileFieldWidget, UnfoldAdminSelectWidget
 
 from core.models import (
@@ -32,7 +32,11 @@ from core.services.origination_templates import (
     validate_template_files,
     validate_template_pdf,
 )
-from core.services.partnership_laf_preview import PartnershipLafPreviewError, render_pdf_page
+from core.services.partnership_laf_preview import (
+    PartnershipLafPreviewError,
+    render_pdf_page,
+    render_template,
+)
 from core.services.loan_origination import render_application_preview
 
 
@@ -79,6 +83,26 @@ class OriginationTemplateValidationTests(SimpleTestCase):
     def test_rejects_preview_page_outside_document(self):
         with self.assertRaises(PartnershipLafPreviewError):
             render_pdf_page(synthetic_pdf(), page_number=2)
+
+    def test_renderer_uses_global_formatting_when_field_has_no_override(self):
+        config = json.loads(synthetic_config())
+        config['field_overlay_manifest']['defaults'] = {
+            'font': 'Helvetica',
+            'font_size': 12,
+            'min_font_size': 6,
+            'text_case': 'uppercase',
+            'align': 'center',
+            'vertical_align': 'center',
+            'fit': 'shrink',
+            'padding': {'x': 1, 'y': 1},
+        }
+
+        rendered = render_template(
+            synthetic_pdf(), config, {'applicant_first_name': 'Mixed Case'},
+        )
+        text = PdfReader(BytesIO(rendered)).pages[0].extract_text()
+
+        self.assertIn('MIXED CASE', text)
 
 
 @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='shared-drive-root')
@@ -301,6 +325,23 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertIn('x: rounded((pageWidth - boxWidth) / 2)', source)
         self.assertIn('y: rounded((pageHeight - boxHeight) / 2)', source)
         self.assertNotIn('box: { x: 40, y: 40', source)
+
+    def test_global_formatting_applies_to_current_and_future_fields_with_preview(self):
+        source = (
+            Path(settings.BASE_DIR) / 'core/static/admin/origination_calibration.js'
+        ).read_text(encoding='utf-8')
+        template = (
+            Path(settings.BASE_DIR)
+            / 'core/templates/admin/core/originationdocumenttemplate/calibrate.html'
+        ).read_text(encoding='utf-8')
+
+        self.assertIn('const globalFieldFormatting = () =>', source)
+        self.assertIn("render_as: 'text', ...globalFieldFormatting()", source)
+        self.assertIn('configuration.field_overlay_manifest.defaults = copy(values)', source)
+        self.assertIn("mode = 'filled'", source)
+        self.assertIn('await renderPage()', source)
+        self.assertIn('default for fields added later', template)
+        self.assertIn('origination_calibration.js\' %}?v=9', template)
 
     def test_pdf_only_onboarding_derives_product_contract(self):
         digest, pages = validate_template_pdf(self.pdf)

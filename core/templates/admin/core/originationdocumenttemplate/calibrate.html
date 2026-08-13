@@ -24,6 +24,7 @@
       <details class="global-formatting">
         <summary>Global formatting</summary>
         <div class="global-formatting-body">
+          <p class="help">Applies to every current text field and becomes the default for fields added later. Individual field settings can still override it.</p>
           <label>Font<select id="global-font"><option value="Helvetica">Helvetica</option><option value="Helvetica-Bold">Helvetica Bold</option><option value="Times-Roman">Times</option><option value="Times-Bold">Times Bold</option><option value="Courier">Courier</option><option value="Courier-Bold">Courier Bold</option></select></label>
           <div class="coordinate-grid"><label>Font size<input id="global-font-size" type="number" min="4" max="20" step="0.25"></label><label>Minimum<input id="global-min-font-size" type="number" min="3" max="20" step="0.25"></label></div>
           <label>Capitalization<select id="global-text-case"><option value="none">Keep original</option><option value="uppercase">UPPERCASE</option><option value="lowercase">lowercase</option><option value="titlecase">Title Case</option></select></label>
@@ -91,5 +92,5 @@
     </form>
   </dialog>
 </div>
-<script src="{% static 'admin/origination_calibration.js' %}?v=8"></script>
+<script src="{% static 'admin/origination_calibration.js' %}?v=9"></script>
 {% endblock %}

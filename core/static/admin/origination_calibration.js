@@ -29,6 +29,21 @@
   const pageSize = () => pageSizes.find(item => item.page_number === page);
   const unitsScale = spec => spec.units === 'mm' ? 72 / 25.4 : 1;
   const boxFor = spec => spec?.allowed_area || spec?.box;
+  const baseFieldFormatting = {
+    font: 'Helvetica', font_size: 8, min_font_size: 5,
+    text_case: 'none', align: 'left', vertical_align: 'bottom',
+    fit: 'shrink', padding: { x: 0, y: 0 },
+  };
+  const globalFieldFormatting = () => {
+    const stored = configuration?.field_overlay_manifest?.defaults || {};
+    const storedPadding = typeof stored.padding === 'object'
+      ? stored.padding
+      : { x: stored.padding || 0, y: stored.padding || 0 };
+    return {
+      ...copy(baseFieldFormatting), ...copy(stored),
+      padding: { ...baseFieldFormatting.padding, ...storedPadding },
+    };
+  };
   const centeredBox = (width, height) => {
     const size = pageSize();
     if (!size) return null;
@@ -100,7 +115,7 @@
   }
 
   function populateGlobalFormatting() {
-    const defaults = configuration?.field_overlay_manifest?.defaults || {};
+    const defaults = globalFieldFormatting();
     const firstText = Object.values(fields()).find(spec => (spec.render_as || 'text') !== 'checkbox') || {};
     const seed = { ...firstText, ...defaults };
     $('global-font').value = seed.font || 'Helvetica';
@@ -438,7 +453,7 @@
     fields()[key] = {
       context_key: context, units: 'pt', page_number: page,
       box: copy(box), allowed_area: copy(box),
-      font: 'Helvetica', font_size: 8, min_font_size: 5, vertical_align: 'bottom', fit: 'shrink', padding: { x: 0, y: 0 },
+      render_as: 'text', ...globalFieldFormatting(),
     };
     const catalogueField = contextKeys.find(item => item.key === context);
     configuration.sample_context[context] ||= catalogueField?.label || context.replaceAll('_', ' ');
@@ -541,16 +556,36 @@
     markDirty(); renderItemList(); inspect();
   };
 
-  $('global-apply').onclick = () => {
+  $('global-apply').onclick = async () => {
     const values = {
       font: $('global-font').value, font_size: Number($('global-font-size').value), min_font_size: Number($('global-min-font-size').value),
       text_case: $('global-text-case').value, align: $('global-align').value, vertical_align: $('global-vertical').value,
       fit: $('global-fit').value, padding: { x: Number($('global-padding-x').value), y: Number($('global-padding-y').value) },
     };
+    if (![values.font_size, values.min_font_size, values.padding.x, values.padding.y].every(Number.isFinite)) {
+      return status('Global formatting values must be valid numbers.', true);
+    }
     if (values.min_font_size > values.font_size) return status('Minimum font size cannot exceed font size.', true);
     configuration.field_overlay_manifest.defaults = copy(values);
-    Object.values(fields()).forEach(spec => { if ((spec.render_as || 'text') !== 'checkbox') Object.assign(spec, copy(values)); });
-    markDirty(); inspect(); renderItemList(); status('Global formatting applied. Preview, then save the draft.');
+    let applied = 0;
+    Object.values(fields()).forEach(spec => {
+      if ((spec.render_as || 'text') === 'checkbox') return;
+      Object.assign(spec, copy(values));
+      applied += 1;
+    });
+    markDirty();
+    window.clearTimeout(previewTimer);
+    mode = 'filled';
+    $('cal-filled').classList.add('selected');
+    $('cal-source').classList.remove('selected');
+    inspect();
+    renderItemList();
+    try {
+      await renderPage();
+      status(`Global formatting applied to ${applied} text field${applied === 1 ? '' : 's'} and set as the default for new fields. Save the draft to keep it.`);
+    } catch (error) {
+      status(`Formatting was applied but the filled preview failed: ${error.message}`, true);
+    }
   };
 
   $('cal-prev').onclick = async () => { if (page > 1) { page--; await renderPage(); } };
