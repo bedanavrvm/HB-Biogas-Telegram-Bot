@@ -386,6 +386,8 @@ def clone_product_version(
         product_definition=clone, action='version_created', actor=actor,
         metadata={'supersedes_id': str(source.pk), 'version': next_version},
     )
+    from core.services.origination_fields import create_conflict_review_issues
+    create_conflict_review_issues(clone)
     return clone
 
 
@@ -480,6 +482,15 @@ def publish_product_template(
         return product, template, template.published_configuration_revision
     if product.lifecycle_status != product.STATUS_DRAFT:
         raise OriginationTemplateError('Only a draft product version can be published.')
+    from core.services.origination_fields import bind_compatible_schema_fields, unresolved_review_keys
+    bind_compatible_schema_fields(product, create_issues=True)
+    unresolved_fields = unresolved_review_keys(product)
+    if unresolved_fields:
+        raise OriginationTemplateError(
+            'Resolve legacy data fields before publishing: '
+            + ', '.join(unresolved_fields)
+            + '.',
+        )
 
     selected = template.configuration_revisions.get(revision=revision)
     validate_template_configuration(

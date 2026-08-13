@@ -93,8 +93,16 @@ def validate_product_form_contract(form_schema: dict[str, Any], signer_rules: An
             raise OriginationError(f'Field {field.get("key")} has an unsupported control type.')
         if field_type == 'choice':
             options = field.get('options')
-            if not isinstance(options, list) or not [item for item in options if str(item).strip()]:
+            if not isinstance(options, list) or not options:
                 raise OriginationError(f'Choice field {field.get("key")} requires at least one option.')
+            codes = [
+                str(item.get('code') if isinstance(item, dict) else item).strip()
+                for item in options
+            ]
+            if any(not code for code in codes) or len(codes) != len(set(codes)):
+                raise OriginationError(
+                    f'Choice field {field.get("key")} requires unique option codes.',
+                )
     known_roles = {key for key, _label in SIGNER_ROLE_CATALOG}
     if not isinstance(signer_rules, list) or not signer_rules:
         raise OriginationError('An active origination product requires signer rules.')
@@ -157,9 +165,41 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
         elif field_type in {'money', 'number'}:
             from decimal import Decimal, InvalidOperation
             try:
-                Decimal(str(value))
+                decimal_value = Decimal(str(value))
             except (InvalidOperation, TypeError, ValueError):
                 errors[key] = 'Enter a valid amount.'
+            else:
+                if not decimal_value.is_finite():
+                    errors[key] = 'Enter a valid amount.'
+                elif str(field.get('reporting_use') or 'unavailable') != 'unavailable':
+                    digits = len(decimal_value.as_tuple().digits)
+                    exponent = decimal_value.as_tuple().exponent
+                    integer_digits = digits + exponent if exponent >= 0 else max(digits + exponent, 0)
+                    decimal_places = max(-exponent, 0)
+                    if integer_digits > 20 or decimal_places > 4:
+                        errors[key] = 'Enter at most 20 whole-number digits and 4 decimal places.'
+        if key in errors:
+            continue
+        if (
+            field_type in {'text', 'textarea', 'phone', 'national_id'}
+            and str(field.get('reporting_use') or 'unavailable') != 'unavailable'
+            and len(value) > 500
+        ):
+            errors[key] = 'Enter no more than 500 characters for this reportable field.'
+            continue
+        if field_type == 'choice':
+            allowed = {
+                str(item.get('code') if isinstance(item, dict) else item).strip()
+                for item in (field.get('options') or [])
+            }
+            if value not in allowed:
+                errors[key] = 'Choose an available option.'
+        elif field_type == 'date':
+            from datetime import date
+            try:
+                date.fromisoformat(value)
+            except ValueError:
+                errors[key] = 'Enter a valid date.'
     return ValidationResult(not errors, errors)
 
 
@@ -188,13 +228,25 @@ def _record_event(application, action: str, *, actor, request_id: str = '', befo
 
 
 def preview_context(application: LoanOriginationApplication) -> dict[str, Any]:
-    return {
+    context = {
         **application.form_payload,
         'reference_number': application.reference_number,
         'branch_code': application.branch,
         'loan_officer_name': application.officer.get_full_name() or application.officer.get_username(),
         'application_date': timezone.localdate(application.created_at).isoformat(),
     }
+    for field in _schema_fields(application.schema_snapshot):
+        if str(field.get('type') or '') != 'choice':
+            continue
+        key = str(field.get('key') or '')
+        stored = context.get(key)
+        for option in field.get('options') or []:
+            if not isinstance(option, dict):
+                continue
+            if str(option.get('code') or '') == stored:
+                context[key] = str(option.get('label') or stored)
+                break
+    return context
 
 
 def render_application_preview(application: LoanOriginationApplication) -> bytes:
@@ -267,6 +319,7 @@ def create_application(*, product_key: str, officer, branch: str, client_request
     application_id = uuid.uuid4()
     try:
         with transaction.atomic():
+            from core.services.origination_fields import snapshot_form_schema
             application = LoanOriginationApplication.objects.create(
                 id=application_id,
                 reference_number=f'ORG-{timezone.localdate():%Y}-{str(application_id)[:8].upper()}',
@@ -274,7 +327,7 @@ def create_application(*, product_key: str, officer, branch: str, client_request
                 product_version=definition.product_version,
                 officer=officer,
                 branch=str(branch or '').strip(),
-                schema_snapshot=definition.form_schema,
+                schema_snapshot=snapshot_form_schema(definition.form_schema),
                 signer_rules_snapshot=definition.signer_rules,
                 template_configuration_snapshot=_published_template_configuration(definition),
                 product_terms_snapshot=terms_snapshot,
@@ -463,11 +516,15 @@ def prepare_signing_package(
     if application.status == LoanOriginationApplication.STATUS_SIGNING_PENDING:
         existing = application.signing_packages.order_by('-created_at').first()
         if existing:
+            from core.services.origination_fields import project_reporting_values
+            project_reporting_values(application)
             return existing, True
     existing = OriginationSigningPackage.objects.filter(
         application=application, application_revision=application.revision,
     ).first()
     if existing:
+        from core.services.origination_fields import project_reporting_values
+        project_reporting_values(application)
         return existing, True
     if int(expected_revision) != application.revision:
         raise OriginationConflict('This application changed on another device. Refresh before preparing signing.')
@@ -493,6 +550,8 @@ def prepare_signing_package(
         context_snapshot=preview_context(application),
         participants_snapshot=application.signer_rules_snapshot,
     )
+    from core.services.origination_fields import project_reporting_values
+    project_reporting_values(application)
     application.status = LoanOriginationApplication.STATUS_SIGNING_PENDING
     application.revision += 1
     application.save(update_fields=['status', 'revision', 'updated_at'])

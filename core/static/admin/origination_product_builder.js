@@ -7,6 +7,9 @@
   if (!root || !schemaInput || !signersInput) return;
 
   const roles = JSON.parse(document.getElementById('origination-signer-role-data')?.textContent || '[]');
+  const catalogue = JSON.parse(document.getElementById('origination-data-field-data')?.textContent || '[]');
+  const inputCatalogue = catalogue.filter(item => item.source_type === 'user_input' && item.active !== false);
+  const catalogueById = new Map(inputCatalogue.map(item => [String(item.id), item]));
   const fieldTypes = [
     ['text', 'Short text'], ['textarea', 'Long text'], ['number', 'Number'],
     ['money', 'Money'], ['date', 'Date'], ['phone', 'Phone'],
@@ -16,6 +19,16 @@
   const escapeHtml = value => { const node = document.createElement('div'); node.textContent = String(value ?? ''); return node.innerHTML; };
   const slug = value => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'item';
   const optionMarkup = (items, selected) => items.map(([value, label]) => `<option value="${escapeHtml(value)}"${value === selected ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('');
+  const canonicalOptions = field => {
+    const selectedId = String(field.data_field_id || '');
+    const legacy = !catalogueById.has(selectedId) && field.key
+      ? `<option value="" selected>Legacy: ${escapeHtml(field.label || field.key)} (${escapeHtml(field.key)})</option>`
+      : '<option value="">Choose a canonical field</option>';
+    return legacy + inputCatalogue.map(item => {
+      const search = [item.category, item.label, item.key, ...(item.aliases || [])].filter(Boolean).join(' · ');
+      return `<option value="${escapeHtml(item.id)}"${String(item.id) === selectedId ? ' selected' : ''}>${escapeHtml(search)}</option>`;
+    }).join('');
+  };
 
   let schema = parse(schemaInput.value, {});
   let signers = parse(signersInput.value, []);
@@ -70,17 +83,21 @@
   }
 
   function fieldMarkup(field, fieldIndex) {
-    const choiceOptions = (field.options || []).join('\n');
+    const choiceOptions = (field.options || []).map(option => {
+      if (option && typeof option === 'object') return `${option.code} | ${option.label || option.code}`;
+      return String(option || '');
+    }).filter(Boolean).join('\n');
     return `<article class="opb-field" data-field-index="${fieldIndex}">
       <div class="opb-row">
-        <label>Variable key<input data-prop="key" value="${escapeHtml(field.key)}" pattern="[a-z0-9_]+" required></label>
+        <label class="opb-wide">Canonical data field<select data-prop="data_field_id">${canonicalOptions(field)}</select></label>
+        <label>Stable key<input data-prop="key" value="${escapeHtml(field.key)}" readonly></label>
         <label>Label<input data-prop="label" value="${escapeHtml(field.label || '')}" required></label>
-        <label>Control<select data-prop="type">${optionMarkup(fieldTypes, field.type)}</select></label>
+        <label>Control<input value="${escapeHtml(fieldTypes.find(item => item[0] === field.type)?.[1] || field.type)}" readonly></label>
         <label class="opb-small">Width<select data-prop="width">${optionMarkup([['half', 'Half'], ['full', 'Full']], field.width)}</select></label>
         <label class="opb-check opb-small"><input data-prop="required" type="checkbox"${field.required ? ' checked' : ''}> Required</label>
         <label class="opb-wide">Help text<input data-prop="help_text" value="${escapeHtml(field.help_text || '')}"></label>
-        <label class="opb-wide"${field.type === 'choice' ? '' : ' hidden'}>Choice options<textarea data-prop="options_text" placeholder="One option per line">${escapeHtml(choiceOptions)}</textarea></label>
-        <div class="opb-tools"><button type="button" data-action="field-up">Move up</button><button type="button" data-action="field-down">Move down</button><button type="button" data-action="duplicate-field">Duplicate</button><button type="button" data-action="remove-field">Remove</button></div>
+        <label class="opb-wide"${field.type === 'choice' ? '' : ' hidden'}>Product choices <small>Canonical code | display label; reorder or remove lines as needed.</small><textarea data-prop="options_text" placeholder="canonical_code | Display label">${escapeHtml(choiceOptions)}</textarea></label>
+        <div class="opb-tools"><button type="button" data-action="field-up">Move up</button><button type="button" data-action="field-down">Move down</button><button type="button" data-action="remove-field">Remove</button></div>
       </div>
     </article>`;
   }
@@ -139,7 +156,12 @@
     } else if (fieldNode && event.target.dataset.prop) {
       const field = schema.fields[Number(fieldNode.dataset.fieldIndex)];
       const prop = event.target.dataset.prop;
-      field[prop === 'options_text' ? 'options' : prop] = prop === 'options_text' ? event.target.value.split(/\r?\n/).map(item => item.trim()).filter(Boolean) : event.target.type === 'checkbox' ? event.target.checked : event.target.value;
+      field[prop === 'options_text' ? 'options' : prop] = prop === 'options_text'
+        ? event.target.value.split(/\r?\n/).map(item => item.trim()).filter(Boolean).map(item => {
+          const [code, ...label] = item.split('|');
+          return { code: code.trim(), label: label.join('|').trim() || code.trim() };
+        })
+        : event.target.type === 'checkbox' ? event.target.checked : event.target.value;
     } else if (sectionNode && event.target.dataset.sectionProp) {
       const section = schema.sections[Number(sectionNode.dataset.sectionIndex)];
       const prop = event.target.dataset.sectionProp;
@@ -153,7 +175,23 @@
   });
 
   root.addEventListener('change', event => {
-    if (event.target.dataset.prop === 'type') renderSections();
+    if (event.target.dataset.prop === 'data_field_id') {
+      const fieldNode = event.target.closest('[data-field-index]');
+      const field = schema.fields[Number(fieldNode.dataset.fieldIndex)];
+      const canonical = catalogueById.get(String(event.target.value));
+      if (!canonical) return;
+      Object.assign(field, {
+        data_field_id: canonical.id, key: canonical.key, label: canonical.label,
+        type: canonical.type, help_text: canonical.help_text || '',
+        sensitivity: canonical.sensitivity, masking_policy: canonical.masking_policy,
+        reporting_use: canonical.reporting_use, export_allowed: canonical.export_allowed,
+        source_type: canonical.source_type,
+        options: canonical.type === 'choice'
+          ? (canonical.choice_options || []).filter(item => item.active !== false).map(item => ({ code: item.code, label: item.label }))
+          : [],
+      });
+      renderSections();
+    }
   });
 
   root.addEventListener('click', event => {
@@ -174,13 +212,23 @@
     } else if (action === 'section-up') move(schema.sections, sectionIndex, -1);
     else if (action === 'section-down') move(schema.sections, sectionIndex, 1);
     else if (action === 'add-field') {
-      const key = uniqueKey('field', schema.fields.map(item => item.key));
-      schema.fields.push({ key, label: `Field ${schema.fields.length + 1}`, type: 'text', section_key: schema.sections[sectionIndex].key, required: false, width: 'half', help_text: '', options: [] });
+      const used = new Set(schema.fields.map(item => String(item.data_field_id || '')));
+      const usedKeys = new Set(schema.fields.map(item => String(item.key || '')));
+      const canonical = inputCatalogue.find(item => !used.has(String(item.id)) && !usedKeys.has(String(item.key)));
+      if (!canonical) return window.alert('Every active canonical input field is already attached. Create another field in the catalogue, then reload this page.');
+      schema.fields.push({
+        data_field_id: canonical.id, key: canonical.key, label: canonical.label,
+        type: canonical.type, section_key: schema.sections[sectionIndex].key,
+        required: false, width: 'half', help_text: canonical.help_text || '',
+        sensitivity: canonical.sensitivity, masking_policy: canonical.masking_policy,
+        reporting_use: canonical.reporting_use, export_allowed: canonical.export_allowed,
+        source_type: canonical.source_type,
+        options: canonical.type === 'choice'
+          ? (canonical.choice_options || []).filter(item => item.active !== false).map(item => ({ code: item.code, label: item.label }))
+          : [],
+      });
     } else if (action === 'remove-field') schema.fields.splice(fieldIndex, 1);
-    else if (action === 'duplicate-field') {
-      const copy = JSON.parse(JSON.stringify(schema.fields[fieldIndex]));
-      copy.key = uniqueKey(`${copy.key}_copy`, schema.fields.map(item => item.key)); copy.label = `${copy.label} copy`; schema.fields.splice(fieldIndex + 1, 0, copy);
-    } else if (action === 'field-up' || action === 'field-down') {
+    else if (action === 'field-up' || action === 'field-down') {
       const sectionKey = schema.fields[fieldIndex].section_key;
       const indexes = schema.fields.map((field, index) => field.section_key === sectionKey ? index : -1).filter(index => index >= 0);
       const position = indexes.indexOf(fieldIndex), target = indexes[position + (action === 'field-up' ? -1 : 1)];
@@ -209,6 +257,8 @@
     if (!signers.length) errors.push('Add at least one signer.');
     const keys = schema.fields.map(field => slug(field.key));
     if (new Set(keys).size !== keys.length) errors.push('Field variable keys must be unique.');
+    const canonicalIds = schema.fields.map(field => String(field.data_field_id || '')).filter(Boolean);
+    if (new Set(canonicalIds).size !== canonicalIds.length) errors.push('A canonical data field can appear only once in the application form. Duplicate its PDF box in the alignment builder when the same value must be printed twice.');
     const output = document.getElementById('opb-errors');
     output.hidden = !errors.length; output.textContent = errors.join(' ');
     if (errors.length) { event.preventDefault(); root.scrollIntoView({ behavior: 'smooth', block: 'start' }); }

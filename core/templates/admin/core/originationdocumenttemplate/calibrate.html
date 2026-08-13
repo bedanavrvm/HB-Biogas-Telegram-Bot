@@ -1,6 +1,6 @@
 {% extends "admin/base_site.html" %}
 {% load static %}
-{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_calibration.css' %}?v=5">{% endblock %}
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_calibration.css' %}?v=6">{% endblock %}
 {% block breadcrumbs %}{% endblock %}
 {% block content_title %}{% endblock %}
 {% block content_subtitle %}{% endblock %}
@@ -10,6 +10,7 @@
   data-page-url="{% url 'admin:core_originationdocumenttemplate_calibration_page' template_record.pk %}"
   data-preview-url="{% url 'admin:core_originationdocumenttemplate_calibration_preview' template_record.pk %}"
   data-save-url="{% url 'admin:core_originationdocumenttemplate_calibration_save' template_record.pk %}"
+  data-field-url="{% url 'admin:core_originationdocumenttemplate_calibration_field' template_record.pk %}"
   data-publish-url="{% url 'admin:core_originationdocumenttemplate_calibration_publish' template_record.pk %}">
   <header class="calibration-topbar">
     <div class="calibration-heading"><a href="{% url 'admin:core_originationdocumenttemplate_changelist' %}" aria-label="Back to templates">←</a><div><h1>{{ template_record.name }}</h1><p>Draw fields and signer slots, inspect the sample, then publish the product.</p></div></div>
@@ -67,6 +68,28 @@
       <div class="calibration-scroll"><div id="calibration-canvas" class="calibration-canvas"><img id="calibration-page" alt="Template page"><div id="calibration-overlays" class="calibration-overlays"></div></div></div>
     </main>
   </div>
+  <dialog id="calibration-field-dialog" class="calibration-field-dialog">
+    <form method="dialog" id="calibration-field-form">
+      <header><div><h2>Add a data field</h2><p>Choose a canonical variable, configure how it appears on this product form, and map it to the PDF.</p></div><button type="button" class="cal-button" id="cal-field-cancel">Close</button></header>
+      <div id="cal-field-error" class="cal-field-error" hidden></div>
+      <label>Find canonical field<input id="cal-field-search" type="search" placeholder="Label, key, alias, or category"></label>
+      <label>Canonical data field<select id="cal-field-catalogue" size="8"></select></label>
+      <label class="cal-field-check"><input type="checkbox" id="cal-field-custom"> No suitable field — create a reusable custom field</label>
+      <section id="cal-field-create" hidden>
+        <div class="coordinate-grid"><label>Canonical label<input id="cal-new-label" maxlength="160"></label><label>Stable key<input id="cal-new-key" maxlength="120" pattern="[a-z0-9_]+" placeholder="generated_from_label"></label></div>
+        <div class="coordinate-grid"><label>Data type<select id="cal-new-type"><option value="text">Short text</option><option value="textarea">Long text</option><option value="number">Number</option><option value="money">Money</option><option value="date">Date</option><option value="phone">Phone</option><option value="national_id">National ID</option><option value="choice">Choice</option><option value="boolean">Yes / No</option></select></label><label>Sensitivity<select id="cal-new-sensitivity"><option value="pii">Personal data (PII)</option><option value="financial">Financial</option><option value="internal">Internal</option><option value="restricted">Restricted</option><option value="public">Public</option></select></label></div>
+        <div class="coordinate-grid"><label>Category<input id="cal-new-category" value="Application" maxlength="80"></label><label>Aliases<input id="cal-new-aliases" placeholder="Applicant ID, ID Number"></label></div>
+        <label id="cal-new-options-wrap" hidden>Canonical choices<textarea id="cal-new-options" placeholder="One display option per line"></textarea></label>
+      </section>
+      <section id="cal-field-presentation">
+        <div class="coordinate-grid"><label>Form section<select id="cal-field-section"></select></label><label>Display label<input id="cal-field-label" maxlength="160"></label></div>
+        <div class="coordinate-grid"><label>Form width<select id="cal-field-width"><option value="half">Half</option><option value="full">Full</option></select></label><label class="cal-field-check"><input type="checkbox" id="cal-field-required"> Required on this product</label></div>
+        <label>Help text<input id="cal-field-help" maxlength="500"></label>
+        <label id="cal-field-options-wrap" hidden>Product choices<textarea id="cal-field-options" placeholder="canonical_code | Display label"></textarea></label>
+      </section>
+      <footer><button type="button" class="cal-button" id="cal-field-dismiss">Cancel</button><button type="submit" class="cal-button cal-button-primary" id="cal-field-confirm">Add to form and PDF</button></footer>
+    </form>
+  </dialog>
 </div>
-<script src="{% static 'admin/origination_calibration.js' %}?v=6"></script>
+<script src="{% static 'admin/origination_calibration.js' %}?v=8"></script>
 {% endblock %}

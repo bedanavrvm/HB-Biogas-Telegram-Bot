@@ -11,6 +11,8 @@
   let revision = 0;
   let pageSizes = [];
   let contextKeys = [];
+  let schemaRevision = 0;
+  let formSections = [];
   let signatureCatalog = [];
   let selectedKind = 'field';
   let selectedKey = '';
@@ -27,6 +29,21 @@
   const pageSize = () => pageSizes.find(item => item.page_number === page);
   const unitsScale = spec => spec.units === 'mm' ? 72 / 25.4 : 1;
   const boxFor = spec => spec?.allowed_area || spec?.box;
+  const centeredBox = (width, height) => {
+    const size = pageSize();
+    if (!size) return null;
+    const pageWidth = Number(size.width);
+    const pageHeight = Number(size.height);
+    const boxWidth = Math.min(Number(width), pageWidth);
+    const boxHeight = Math.min(Number(height), pageHeight);
+    const rounded = value => Math.round(value * 100) / 100;
+    return {
+      x: rounded((pageWidth - boxWidth) / 2),
+      y: rounded((pageHeight - boxHeight) / 2),
+      width: rounded(boxWidth),
+      height: rounded(boxHeight),
+    };
+  };
   const currentCollection = () => selectedKind === 'signature' ? signatures() : fields();
   const currentSpec = () => currentCollection()[selectedKey];
   const status = (message, error) => {
@@ -56,6 +73,8 @@
       revision = state.revision;
       pageSizes = state.page_sizes || [];
       contextKeys = state.context_keys || [];
+      schemaRevision = state.schema_revision || 0;
+      formSections = state.form_sections || [];
       signatureCatalog = state.signature_slots || [];
       const firstField = Object.keys(fields())[0];
       const firstSignature = Object.keys(signatures())[0];
@@ -73,7 +92,7 @@
   }
 
   function populateCatalogs() {
-    $('cal-context').innerHTML = contextKeys.map(item => `<option value="${escapeHtml(item.key)}">${escapeHtml(item.label)}</option>`).join('');
+    $('cal-context').innerHTML = contextKeys.map(item => `<option value="${escapeHtml(item.key)}">${escapeHtml(item.label)} · ${escapeHtml(item.key)}${item.attached ? '' : ' · catalogue'}</option>`).join('');
     $('cal-signature-slot').innerHTML = signatureCatalog.map(item => {
       const identity = `${item.role}.${item.slot_key}`;
       return `<option value="${escapeHtml(identity)}">${escapeHtml(item.label)} · ${escapeHtml(item.role)}</option>`;
@@ -297,33 +316,194 @@
     markDirty(); renderItemList(); inspect();
   }
 
-  ['cal-x', 'cal-y', 'cal-width', 'cal-height'].forEach(id => $(id).addEventListener('change', updateGeometry));
-  ['cal-context', 'cal-font', 'cal-font-size', 'cal-min-font-size', 'cal-padding-x', 'cal-padding-y', 'cal-text-case', 'cal-render-as', 'cal-checked-when', 'cal-align', 'cal-vertical', 'cal-fit'].forEach(id => $(id).addEventListener('change', updateSelectedField));
-  $('calibration-fields').onchange = event => { const [kind, ...key] = event.target.value.split(':'); select(kind, key.join(':')); };
-  $('calibration-search').oninput = renderItemList;
+  function selectedCatalogueField(id) {
+    return contextKeys.find(item => String(item.id || '') === String(id || ''));
+  }
 
-  $('calibration-add').onclick = () => {
-    const context = contextKeys.find(item => !Object.values(fields()).some(spec => spec.context_key === item.key))?.key || contextKeys[0]?.key;
-    if (!context) return status('Add fields to the product before calibrating its PDF.', true);
+  function fieldOptionLines(item) {
+    return (item?.choice_options || []).filter(option => option.active !== false).map(option => `${option.code} | ${option.label || option.code}`).join('\n');
+  }
+
+  function populateFieldDialog(query = '') {
+    const normalized = String(query || '').trim().toLowerCase();
+    const matches = contextKeys.filter(item => {
+      const haystack = [item.label, item.key, item.category, ...(item.aliases || [])].join(' ').toLowerCase();
+      return !normalized || haystack.includes(normalized);
+    });
+    $('cal-field-catalogue').innerHTML = matches.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.category || 'Application')} · ${escapeHtml(item.label)} · ${escapeHtml(item.key)}${item.attached ? ' · on form' : ''}</option>`).join('');
+    if (!$('cal-field-catalogue').value && matches.length) $('cal-field-catalogue').value = matches[0].id;
+    populateFieldDefaults();
+  }
+
+  function populateFieldDefaults() {
+    const item = selectedCatalogueField($('cal-field-catalogue').value);
+    if (!item || $('cal-field-custom').checked) return;
+    $('cal-field-label').value = item.label || '';
+    $('cal-field-help').value = item.help_text || '';
+    $('cal-field-presentation').hidden = item.source_type === 'system';
+    $('cal-field-options-wrap').hidden = item.type !== 'choice';
+    $('cal-field-options').value = fieldOptionLines(item);
+  }
+
+  function openFieldDialog(preselectedKey = '') {
+    const dialog = $('calibration-field-dialog');
+    $('cal-field-error').hidden = true;
+    $('cal-field-custom').checked = false;
+    $('cal-field-create').hidden = true;
+    $('cal-field-presentation').hidden = false;
+    $('cal-field-required').checked = false;
+    $('cal-field-width').value = 'half';
+    $('cal-new-label').value = '';
+    $('cal-new-key').value = '';
+    delete $('cal-new-key').dataset.touched;
+    $('cal-new-type').value = 'text';
+    $('cal-new-sensitivity').value = 'pii';
+    $('cal-new-category').value = 'Application';
+    $('cal-new-aliases').value = '';
+    $('cal-new-options').value = '';
+    $('cal-new-options-wrap').hidden = true;
+    $('cal-field-section').innerHTML = formSections.map(section => `<option value="${escapeHtml(section.key)}">${escapeHtml(section.label || section.key)}</option>`).join('');
+    $('cal-field-search').value = '';
+    populateFieldDialog();
+    const selected = contextKeys.find(item => item.key === preselectedKey);
+    if (selected?.id) $('cal-field-catalogue').value = selected.id;
+    populateFieldDefaults();
+    dialog.showModal();
+  }
+
+  function closeFieldDialog() { $('calibration-field-dialog').close(); }
+
+  function parseProductOptions(value) {
+    return String(value || '').split(/\r?\n/).map(item => item.trim()).filter(Boolean).map(item => {
+      const [code, ...label] = item.split('|');
+      return { code: code.trim(), label: label.join('|').trim() || code.trim() };
+    });
+  }
+
+  async function submitFieldDialog(event) {
+    event.preventDefault();
+    const custom = $('cal-field-custom').checked;
+    const selected = selectedCatalogueField($('cal-field-catalogue').value);
+    const type = custom ? $('cal-new-type').value : selected?.type;
+    const body = {
+      schema_revision: schemaRevision,
+      data_field_id: custom ? '' : selected?.id,
+      presentation: {
+        section_key: $('cal-field-section').value,
+        label: $('cal-field-label').value,
+        required: $('cal-field-required').checked,
+        width: $('cal-field-width').value,
+        help_text: $('cal-field-help').value,
+        options: type === 'choice' ? parseProductOptions($('cal-field-options').value) : [],
+      },
+    };
+    if (custom) {
+      body.create_field = {
+        label: $('cal-new-label').value,
+        key: $('cal-new-key').value,
+        type,
+        sensitivity: $('cal-new-sensitivity').value,
+        category: $('cal-new-category').value,
+        aliases: $('cal-new-aliases').value.split(',').map(item => item.trim()).filter(Boolean),
+        choice_options: type === 'choice'
+          ? $('cal-new-options').value.split(/\r?\n/).map(item => item.trim()).filter(Boolean)
+          : [],
+      };
+    }
+    const error = $('cal-field-error');
+    try {
+      $('cal-field-confirm').disabled = true;
+      const data = await jsonRequest(app.dataset.fieldUrl, { method: 'POST', body: JSON.stringify(body) });
+      contextKeys = data.context_keys || contextKeys;
+      schemaRevision = data.schema_revision;
+      formSections = data.form_sections || formSections;
+      populateCatalogs();
+      closeFieldDialog();
+      addFieldOverlay(data.field.key);
+      status(data.replayed ? `${data.field.label} mapped to the PDF.` : `${data.field.label} added to the form and PDF.`);
+    } catch (requestError) {
+      error.textContent = requestError.message;
+      error.hidden = false;
+    } finally {
+      $('cal-field-confirm').disabled = false;
+    }
+  }
+
+  function addFieldOverlay(context) {
+    if (!context) return status('Choose a canonical data field.', true);
+    const box = centeredBox(120, 14);
+    if (!box) return status('The current PDF page is not ready yet.', true);
     let key = context, index = 2;
     while (fields()[key]) key = `${context}_${index++}`;
     fields()[key] = {
       context_key: context, units: 'pt', page_number: page,
-      box: { x: 40, y: 40, width: 120, height: 14 }, allowed_area: { x: 40, y: 40, width: 120, height: 14 },
+      box: copy(box), allowed_area: copy(box),
       font: 'Helvetica', font_size: 8, min_font_size: 5, vertical_align: 'bottom', fit: 'shrink', padding: { x: 0, y: 0 },
     };
+    const catalogueField = contextKeys.find(item => item.key === context);
+    configuration.sample_context[context] ||= catalogueField?.label || context.replaceAll('_', ' ');
     select('field', key); markDirty();
+  }
+
+  ['cal-x', 'cal-y', 'cal-width', 'cal-height'].forEach(id => $(id).addEventListener('change', updateGeometry));
+  ['cal-font', 'cal-font-size', 'cal-min-font-size', 'cal-padding-x', 'cal-padding-y', 'cal-text-case', 'cal-render-as', 'cal-checked-when', 'cal-align', 'cal-vertical', 'cal-fit'].forEach(id => $(id).addEventListener('change', updateSelectedField));
+  $('cal-context').addEventListener('change', event => {
+    const item = contextKeys.find(candidate => candidate.key === event.target.value);
+    if (item && !item.attached && item.source_type === 'user_input') {
+      event.target.value = currentSpec()?.context_key || '';
+      openFieldDialog(item.key);
+      return;
+    }
+    updateSelectedField();
+  });
+  $('calibration-fields').onchange = event => { const [kind, ...key] = event.target.value.split(':'); select(kind, key.join(':')); };
+  $('calibration-search').oninput = renderItemList;
+
+  $('calibration-add').onclick = () => {
+    if (!contextKeys.length) return status('No canonical data fields are available.', true);
+    openFieldDialog();
   };
+
+  $('cal-field-search').oninput = event => populateFieldDialog(event.target.value);
+  $('cal-field-catalogue').onchange = populateFieldDefaults;
+  $('cal-field-custom').onchange = event => {
+    $('cal-field-create').hidden = !event.target.checked;
+    if (event.target.checked) {
+      $('cal-field-presentation').hidden = false;
+      $('cal-new-label').focus();
+      $('cal-field-label').value = '';
+      $('cal-field-help').value = '';
+      $('cal-field-options-wrap').hidden = true;
+    } else {
+      populateFieldDefaults();
+    }
+  };
+  $('cal-new-label').oninput = event => {
+    if (!$('cal-new-key').dataset.touched) {
+      $('cal-new-key').value = event.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    }
+    if (!$('cal-field-label').value) $('cal-field-label').value = event.target.value;
+  };
+  $('cal-new-key').oninput = () => { $('cal-new-key').dataset.touched = '1'; };
+  $('cal-new-type').onchange = event => {
+    const choice = event.target.value === 'choice';
+    $('cal-new-options-wrap').hidden = !choice;
+    $('cal-field-options-wrap').hidden = !choice;
+  };
+  $('calibration-field-form').onsubmit = submitFieldDialog;
+  $('cal-field-cancel').onclick = closeFieldDialog;
+  $('cal-field-dismiss').onclick = closeFieldDialog;
 
   $('calibration-add-signature').onclick = () => {
     const slot = signatureCatalog.find(item => !signatures()[`${item.role}.${item.slot_key}`]);
     if (!slot) return status('Every configured signer slot is already placed.', true);
     const key = `${slot.role}.${slot.slot_key}`;
+    const box = centeredBox(140, slot.slot_type === 'stamp' ? 55 : 28);
+    if (!box) return status('The current PDF page is not ready yet.', true);
     signatures()[key] = {
       role: slot.role, slot_key: slot.slot_key, label: slot.label, slot_type: slot.slot_type,
       units: 'pt', page_number: page,
-      box: { x: 40, y: 40, width: 140, height: slot.slot_type === 'stamp' ? 55 : 28 },
-      allowed_area: { x: 40, y: 40, width: 140, height: slot.slot_type === 'stamp' ? 55 : 28 },
+      box: copy(box), allowed_area: copy(box),
     };
     select('signature', key); markDirty();
   };
@@ -341,7 +521,7 @@
   });
 
   $('calibration-draw').onclick = () => {
-    if (!currentSpec()) $('calibration-add').click();
+    if (!currentSpec()) { $('calibration-add').click(); return; }
     drawing = true; $('calibration-overlays').style.cursor = 'crosshair'; $('calibration-draw').classList.add('selected');
     status('Drag on the document to draw the selected area.');
   };

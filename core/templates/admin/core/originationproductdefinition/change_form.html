@@ -17,6 +17,7 @@
   {{ block.super }}
   {% if not original or original.lifecycle_status == 'draft' %}
     {{ origination_signer_roles|json_script:"origination-signer-role-data" }}
+    {{ origination_data_fields|json_script:"origination-data-field-data" }}
     <section id="origination-product-builder" class="opb-shell">
       <header class="opb-header">
         <div>
@@ -24,6 +25,7 @@
           <p>Define the Mini App sections, variables, and signer slots. These become the available fields in the LAF alignment builder.</p>
         </div>
         <div class="opb-actions">
+          <a class="opb-secondary-link" href="{{ origination_data_field_add_url }}" target="_blank" rel="noopener">Create canonical field</a>
           <button type="button" class="button" data-action="add-section">Add section</button>
           <button type="button" class="button" data-action="add-signer">Add signer</button>
         </div>
@@ -41,7 +43,7 @@
         </aside>
       </div>
     </section>
-    <script src="{% static 'admin/origination_product_builder.js' %}?v=1" defer></script>
+    <script src="{% static 'admin/origination_product_builder.js' %}?v=2" defer></script>
   {% elif original %}
     <section class="opb-shell opb-published">
       <h2>Published product version</h2>

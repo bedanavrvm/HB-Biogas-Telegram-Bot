@@ -123,6 +123,33 @@ body #content, body #content-main { max-width: none !important; background: #f8f
 .calibration-box.signature.selected span { background: #db2777; }
 .calibration-box i { position: absolute; right: -6px; bottom: -6px; width: 11px; height: 11px; border: 2px solid currentColor; background: #fff; cursor: nwse-resize; }
 .calibration-actions #calibration-status { color: var(--cal-muted); font-size: 11px; }
+.calibration-field-dialog {
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  overflow: auto;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+  color: #172033;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, .28);
+}
+.calibration-field-dialog::backdrop { background: rgba(15, 23, 42, .55); }
+.calibration-field-dialog form { display: grid; gap: 12px; padding: 18px; }
+.calibration-field-dialog header, .calibration-field-dialog footer { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.calibration-field-dialog header h2 { margin: 0 0 3px; font-size: 18px; }
+.calibration-field-dialog header p { margin: 0; color: #64748b; font-size: 12px; }
+.calibration-field-dialog footer { justify-content: flex-end; padding-top: 4px; }
+.calibration-field-dialog label { display: grid; gap: 4px; margin: 0; color: #334155; font-size: 12px; font-weight: 650; }
+.calibration-field-dialog input:not([type="checkbox"]), .calibration-field-dialog select, .calibration-field-dialog textarea {
+  width: 100%; min-height: 36px; box-sizing: border-box; padding: 7px 9px;
+  border: 1px solid #cbd5e1; border-radius: 6px; background: #fff; color: #172033;
+}
+.calibration-field-dialog textarea { min-height: 80px; resize: vertical; }
+.calibration-field-dialog section { display: grid; gap: 10px; padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; }
+.calibration-field-dialog [hidden] { display: none !important; }
+.calibration-field-dialog .cal-field-check { display: flex; flex-direction: row; align-items: center; gap: 7px; }
+.cal-field-error { padding: 9px 11px; border: 1px solid #fecaca; border-radius: 7px; background: #fef2f2; color: #991b1b; font-size: 12px; }
 @media (min-width: 851px) {
   .tool-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tool-row .cal-button { width: 100%; }

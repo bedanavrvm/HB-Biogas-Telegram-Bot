@@ -3149,6 +3149,188 @@ class MiniAppDraft(models.Model):
         return self.expires_at <= timezone.now()
 
 
+class OriginationDataField(models.Model):
+    """Global semantic field used by product forms and legal PDF mappings."""
+
+    TYPE_TEXT = 'text'
+    TYPE_TEXTAREA = 'textarea'
+    TYPE_NUMBER = 'number'
+    TYPE_MONEY = 'money'
+    TYPE_DATE = 'date'
+    TYPE_PHONE = 'phone'
+    TYPE_NATIONAL_ID = 'national_id'
+    TYPE_CHOICE = 'choice'
+    TYPE_BOOLEAN = 'boolean'
+    TYPE_CHOICES = [
+        (TYPE_TEXT, 'Short text'), (TYPE_TEXTAREA, 'Long text'),
+        (TYPE_NUMBER, 'Number'), (TYPE_MONEY, 'Money'), (TYPE_DATE, 'Date'),
+        (TYPE_PHONE, 'Phone'), (TYPE_NATIONAL_ID, 'National ID'),
+        (TYPE_CHOICE, 'Choice'), (TYPE_BOOLEAN, 'Yes / No'),
+    ]
+
+    SOURCE_USER_INPUT = 'user_input'
+    SOURCE_SYSTEM = 'system'
+    SOURCE_CHOICES = [
+        (SOURCE_USER_INPUT, 'User input'),
+        (SOURCE_SYSTEM, 'System derived'),
+    ]
+
+    SENSITIVITY_PUBLIC = 'public'
+    SENSITIVITY_INTERNAL = 'internal'
+    SENSITIVITY_PII = 'pii'
+    SENSITIVITY_FINANCIAL = 'financial'
+    SENSITIVITY_RESTRICTED = 'restricted'
+    SENSITIVITY_CHOICES = [
+        (SENSITIVITY_PUBLIC, 'Public'), (SENSITIVITY_INTERNAL, 'Internal'),
+        (SENSITIVITY_PII, 'Personal data (PII)'),
+        (SENSITIVITY_FINANCIAL, 'Financial'),
+        (SENSITIVITY_RESTRICTED, 'Restricted'),
+    ]
+
+    MASK_NONE = 'none'
+    MASK_PARTIAL = 'partial'
+    MASK_FULL = 'full'
+    MASK_CHOICES = [
+        (MASK_NONE, 'No masking'), (MASK_PARTIAL, 'Partial masking'),
+        (MASK_FULL, 'Full masking'),
+    ]
+
+    REPORT_UNAVAILABLE = 'unavailable'
+    REPORT_FILTER = 'filter'
+    REPORT_DIMENSION = 'dimension'
+    REPORT_METRIC = 'metric'
+    REPORT_CHOICES = [
+        (REPORT_UNAVAILABLE, 'Not reportable'), (REPORT_FILTER, 'Filter only'),
+        (REPORT_DIMENSION, 'Dimension'), (REPORT_METRIC, 'Metric'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    key = models.SlugField(max_length=120, unique=True)
+    label = models.CharField(max_length=160)
+    aliases = models.JSONField(default=list, blank=True)
+    category = models.CharField(max_length=80, blank=True, default='Application')
+    data_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    source_type = models.CharField(
+        max_length=20, choices=SOURCE_CHOICES, default=SOURCE_USER_INPUT,
+    )
+    sensitivity = models.CharField(
+        max_length=20, choices=SENSITIVITY_CHOICES, default=SENSITIVITY_PII,
+    )
+    masking_policy = models.CharField(
+        max_length=16, choices=MASK_CHOICES, default=MASK_PARTIAL,
+    )
+    reporting_use = models.CharField(
+        max_length=16, choices=REPORT_CHOICES, default=REPORT_UNAVAILABLE,
+    )
+    export_allowed = models.BooleanField(default=False)
+    help_text = models.CharField(max_length=500, blank=True, default='')
+    choice_options = models.JSONField(default=list, blank=True)
+    active = models.BooleanField(default=True, db_index=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='created_origination_data_fields',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['category', 'label', 'key']
+        indexes = [models.Index(fields=['active', 'category', 'label'])]
+
+    def __str__(self):
+        return f'{self.label} ({self.key})'
+
+    def clean(self):
+        super().clean()
+        aliases = self.aliases or []
+        if not isinstance(aliases, list) or any(not isinstance(item, str) for item in aliases):
+            raise ValidationError({'aliases': 'Aliases must be a list of text values.'})
+        normalized_aliases = [item.strip() for item in aliases if item.strip()]
+        if len({item.casefold() for item in normalized_aliases}) != len(normalized_aliases):
+            raise ValidationError({'aliases': 'Aliases cannot contain duplicates.'})
+        self.aliases = normalized_aliases
+        options = self.choice_options or []
+        if self.data_type == self.TYPE_CHOICE:
+            if not isinstance(options, list) or not options:
+                raise ValidationError({'choice_options': 'Choice fields require canonical options.'})
+            codes = []
+            for option in options:
+                if not isinstance(option, dict):
+                    raise ValidationError({'choice_options': 'Each choice requires a code and label.'})
+                code = str(option.get('code') or '').strip()
+                label = str(option.get('label') or '').strip()
+                if not code or not label:
+                    raise ValidationError({'choice_options': 'Each choice requires a code and label.'})
+                codes.append(code)
+            if len(codes) != len(set(codes)):
+                raise ValidationError({'choice_options': 'Canonical choice codes must be unique.'})
+        elif options:
+            raise ValidationError({'choice_options': 'Only choice fields may define choice options.'})
+        for option in options:
+            code = str(option.get('code') or '')
+            if not re.fullmatch(r'[a-z0-9_]+', code):
+                raise ValidationError({
+                    'choice_options': 'Canonical choice codes may contain only lowercase letters, numbers, and underscores.',
+                })
+        if self.reporting_use == self.REPORT_METRIC and self.data_type not in {
+            self.TYPE_NUMBER, self.TYPE_MONEY,
+        }:
+            raise ValidationError({'reporting_use': 'Only numeric or money fields may be report metrics.'})
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            original = type(self).objects.filter(pk=self.pk).values(
+                'key', 'data_type', 'choice_options',
+            ).first()
+            if original and (original['key'] != self.key or original['data_type'] != self.data_type):
+                raise ValidationError('Canonical field keys and data types are immutable.')
+            if original and self.data_type == self.TYPE_CHOICE:
+                previous_codes = {
+                    str(item.get('code') or '') for item in (original['choice_options'] or [])
+                    if isinstance(item, dict)
+                }
+                current_codes = {
+                    str(item.get('code') or '') for item in (self.choice_options or [])
+                    if isinstance(item, dict)
+                }
+                if previous_codes - current_codes:
+                    raise ValidationError(
+                        'Canonical choice codes cannot be removed; mark obsolete options inactive.',
+                    )
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Canonical origination fields cannot be deleted; deactivate them instead.')
+
+
+class OriginationDataFieldEvent(models.Model):
+    """Append-only, value-free audit trail for catalogue governance."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    data_field = models.ForeignKey(
+        OriginationDataField, on_delete=models.PROTECT, related_name='events',
+    )
+    action = models.CharField(max_length=40, db_index=True)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='origination_data_field_events',
+    )
+    metadata = models.JSONField(default=dict, blank=True)
+    occurred_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ['occurred_at', 'id']
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError('Origination data-field events are append-only.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Origination data-field events cannot be deleted.')
+
+
 class OriginationProductDefinition(models.Model):
     """Versioned, inactive-by-default contract for one loan-origination form."""
 
@@ -3253,6 +3435,71 @@ class OriginationProductDefinitionEvent(models.Model):
 
     def delete(self, *args, **kwargs):
         raise ValidationError('Origination product events cannot be deleted.')
+
+
+class OriginationFieldReviewIssue(models.Model):
+    """Tracked exit path for a legacy schema field without a safe catalogue binding."""
+
+    STATUS_OPEN = 'open'
+    STATUS_RESOLVED = 'resolved'
+    STATUS_ACCEPTED = 'accepted_legacy'
+    STATUS_CHOICES = [
+        (STATUS_OPEN, 'Needs review'), (STATUS_RESOLVED, 'Resolved'),
+        (STATUS_ACCEPTED, 'Accepted as legacy'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    product_definition = models.ForeignKey(
+        OriginationProductDefinition, on_delete=models.PROTECT,
+        related_name='field_review_issues',
+    )
+    legacy_key = models.CharField(max_length=120)
+    legacy_type = models.CharField(max_length=20, blank=True, default='text')
+    legacy_label = models.CharField(max_length=160, blank=True, default='')
+    reason = models.CharField(max_length=80, blank=True, default='missing_catalogue_field')
+    suggested_field = models.ForeignKey(
+        OriginationDataField, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='suggested_legacy_reviews',
+    )
+    resolution_field = models.ForeignKey(
+        OriginationDataField, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='resolved_legacy_reviews',
+    )
+    status = models.CharField(
+        max_length=24, choices=STATUS_CHOICES, default=STATUS_OPEN, db_index=True,
+    )
+    assigned_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='assigned_origination_field_reviews',
+    )
+    resolution_notes = models.TextField(blank=True, default='')
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='resolved_origination_field_reviews',
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['status', '-created_at']
+        constraints = [models.UniqueConstraint(
+            fields=['product_definition', 'legacy_key'],
+            name='unique_origination_field_review_key',
+        )]
+        indexes = [models.Index(fields=['status', 'updated_at'])]
+
+    def __str__(self):
+        return f'{self.product_definition}: {self.legacy_key}'
+
+    def clean(self):
+        super().clean()
+        if self.status == self.STATUS_RESOLVED and not self.resolution_field_id:
+            raise ValidationError({'resolution_field': 'Choose the canonical resolution field.'})
+        if self.status == self.STATUS_ACCEPTED and not self.resolution_notes.strip():
+            raise ValidationError({'resolution_notes': 'Explain why this field remains legacy.'})
+        if self.resolution_field_id and self.resolution_field.data_type != self.legacy_type:
+            raise ValidationError({'resolution_field': 'The canonical field must use the same data type.'})
 
 
 class OriginationDocumentTemplate(models.Model):
@@ -3463,6 +3710,89 @@ class LoanOriginationApplication(models.Model):
 
     def __str__(self):
         return self.reference_number
+
+
+class OriginationReportingValue(models.Model):
+    """Rebuildable typed projection of explicitly reportable application values."""
+
+    application = models.ForeignKey(
+        LoanOriginationApplication, on_delete=models.CASCADE,
+        related_name='reporting_values',
+    )
+    data_field = models.ForeignKey(
+        OriginationDataField, on_delete=models.PROTECT,
+        related_name='reporting_values',
+    )
+    field_key = models.CharField(max_length=120)
+    value_type = models.CharField(max_length=20, choices=OriginationDataField.TYPE_CHOICES)
+    sensitivity = models.CharField(
+        max_length=20, choices=OriginationDataField.SENSITIVITY_CHOICES,
+    )
+    masking_policy = models.CharField(
+        max_length=16, choices=OriginationDataField.MASK_CHOICES,
+    )
+    reporting_use = models.CharField(
+        max_length=16, choices=OriginationDataField.REPORT_CHOICES,
+    )
+    export_allowed = models.BooleanField(default=False)
+    text_value = models.CharField(max_length=500, null=True, blank=True)
+    decimal_value = models.DecimalField(
+        max_digits=24, decimal_places=4, null=True, blank=True,
+    )
+    date_value = models.DateField(null=True, blank=True)
+    boolean_value = models.BooleanField(null=True, blank=True)
+    choice_code = models.CharField(max_length=120, null=True, blank=True)
+    projected_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['application', 'field_key']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['application', 'data_field'],
+                name='unique_origination_reporting_value',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        value_type__in=['text', 'textarea', 'phone', 'national_id'],
+                        text_value__isnull=False, decimal_value__isnull=True,
+                        date_value__isnull=True, boolean_value__isnull=True,
+                        choice_code__isnull=True,
+                    )
+                    | models.Q(
+                        value_type__in=['number', 'money'], text_value__isnull=True,
+                        decimal_value__isnull=False, date_value__isnull=True,
+                        boolean_value__isnull=True, choice_code__isnull=True,
+                    )
+                    | models.Q(
+                        value_type='date', text_value__isnull=True,
+                        decimal_value__isnull=True, date_value__isnull=False,
+                        boolean_value__isnull=True, choice_code__isnull=True,
+                    )
+                    | models.Q(
+                        value_type='boolean', text_value__isnull=True,
+                        decimal_value__isnull=True, date_value__isnull=True,
+                        boolean_value__isnull=False, choice_code__isnull=True,
+                    )
+                    | models.Q(
+                        value_type='choice', text_value__isnull=True,
+                        decimal_value__isnull=True, date_value__isnull=True,
+                        boolean_value__isnull=True, choice_code__isnull=False,
+                    )
+                ),
+                name='orig_reporting_matching_typed_value',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['data_field', 'text_value'], name='orig_report_field_text_idx'),
+            models.Index(fields=['data_field', 'decimal_value'], name='orig_report_field_num_idx'),
+            models.Index(fields=['data_field', 'date_value'], name='orig_report_field_date_idx'),
+            models.Index(fields=['data_field', 'boolean_value'], name='orig_report_field_bool_idx'),
+            models.Index(fields=['data_field', 'choice_code'], name='orig_report_field_choice_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.application.reference_number}: {self.field_key}'
 
 
 class OriginationApplicationEvent(models.Model):

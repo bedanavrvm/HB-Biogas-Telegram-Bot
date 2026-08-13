@@ -1,8 +1,10 @@
 import hashlib
 import json
 from io import BytesIO
+from pathlib import Path
 from unittest.mock import patch
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -289,6 +291,16 @@ class MultiProductOriginationTemplateTests(TestCase):
             },
         }
         return config
+
+    def test_calibration_new_items_use_page_center_instead_of_bottom_corner(self):
+        source = (
+            Path(settings.BASE_DIR) / 'core/static/admin/origination_calibration.js'
+        ).read_text(encoding='utf-8')
+
+        self.assertIn('const centeredBox = (width, height) =>', source)
+        self.assertIn('x: rounded((pageWidth - boxWidth) / 2)', source)
+        self.assertIn('y: rounded((pageHeight - boxHeight) / 2)', source)
+        self.assertNotIn('box: { x: 40, y: 40', source)
 
     def test_pdf_only_onboarding_derives_product_contract(self):
         digest, pages = validate_template_pdf(self.pdf)

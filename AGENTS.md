@@ -59,6 +59,7 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **Portal** | The aggregated staff-facing view across pipeline/workflow data, served by `core/api/portal_views.py`. |
 | **Portal report** | An IT-only, catalogue-constrained live report over canonical Portal cases. It is not a generic SQL/ORM builder and has no cross-workflow identity join. |
 | **Loan origination application** | A revision-controlled, product-schema snapshot captured by a field officer, independently reviewed, and frozen into a local signing package before any e-sign dispatch. |
+| **Origination data field** | A global canonical variable shared by product forms and LAF templates. Its key and type are immutable; product versions may customize presentation while applications retain governed schema snapshots. |
 | **Change of invoice name** | Pre-payment Portal workflow used when an HB invoice carries a confirmed different national ID, commonly a spouse's. It preserves the applicant and original invoice, records the household relationship and letter, and requires a corrected replacement invoice before payment. |
 | **Household relationship** | An Operations-verified link between a JBL applicant and a distinct spouse/household person, supported by attestation and evidence; it never merges their legal customer identities. |
 | **Head of Rural** | The Portal label for the stable scoped Mini App role (`BUSINESS_ADMIN`), responsible for final/payment approvals. It is distinct from Django `is_staff`. |

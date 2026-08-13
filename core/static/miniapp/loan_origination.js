@@ -192,7 +192,11 @@
     const required = field.required ? '<span class="required-mark" aria-label="required">*</span>' : '';
     let control = '';
     if (field.type === 'choice') {
-      const options = (field.options || []).map(option => `<option value="${escapeHtml(option)}"${value === option ? ' selected' : ''}>${escapeHtml(option)}</option>`).join('');
+      const options = (field.options || []).map(option => {
+        const code = option && typeof option === 'object' ? option.code : option;
+        const label = option && typeof option === 'object' ? (option.label || option.code) : option;
+        return `<option value="${escapeHtml(code)}"${value === code ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+      }).join('');
       control = `<select data-field="${key}"${disabled ? ' disabled' : ''}><option value="">Choose</option>${options}</select>`;
     } else if (field.type === 'boolean') {
       control = `<select data-field="${key}"${disabled ? ' disabled' : ''}><option value="">Choose</option><option value="true"${value === true ? ' selected' : ''}>Yes</option><option value="false"${value === false ? ' selected' : ''}>No</option></select>`;

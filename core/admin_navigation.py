@@ -240,6 +240,8 @@ def get_admin_navigation(request) -> list[dict]:
         _model_item("core.ProductVersion", "Product terms and requirements", "price_change"),
         _model_item("core.OriginationProductDefinition", "Loan form definitions", "dynamic_form"),
         _model_item("core.OriginationDocumentTemplate", "Origination PDF templates", "picture_as_pdf"),
+        _model_item("core.OriginationDataField", "Origination data fields", "data_object"),
+        _model_item("core.OriginationFieldReviewIssue", "Legacy fields needing review", "rule"),
         _model_item("core.ProductMappingIssue", "Unmapped product values", "rule"),
         _model_item("core.GroupSheetConfiguration", "Workflow groups", "hub"),
         _custom_item("Mini App access matrix", "admin:core_workflowrolecapability_matrix", "admin_panel_settings", _superuser),
@@ -261,6 +263,7 @@ def get_admin_navigation(request) -> list[dict]:
         _model_item("core.FcaImportRecord", "FCA import records", "input"),
         _model_item("core.JawabuPipelineEvent", "Pipeline events", "event_note"),
         _model_item("core.TatTrackerApprovalCertificate", "Approval certificates", "verified"),
+        _model_item("core.OriginationDataFieldEvent", "Origination field audit", "history"),
     ]
 
     configured_workflows = _configured_workflow_groups()

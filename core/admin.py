@@ -87,6 +87,9 @@ from .models import (
     JawabuHouseholdRelationship,
     ParsedInvoice,
     PortalVoiceTranscriptionAttempt,
+    OriginationDataField,
+    OriginationDataFieldEvent,
+    OriginationFieldReviewIssue,
     OriginationProductDefinition,
     OriginationProductDefinitionEvent,
     OriginationDocumentTemplate,
@@ -4476,6 +4479,123 @@ class UnfoldGroupAdmin(ModelAdmin, DjangoGroupAdmin):
     list_fullwidth = True
 
 
+@admin.register(OriginationDataField)
+class OriginationDataFieldAdmin(CompactModelAdmin):
+    list_display = (
+        'key', 'label', 'data_type', 'category', 'source_type', 'sensitivity',
+        'reporting_use', 'active', 'updated_at',
+    )
+    list_filter = (
+        'active', 'data_type', 'source_type', 'sensitivity', 'reporting_use',
+        'export_allowed', 'category',
+    )
+    search_fields = ('key', 'label', 'category')
+    readonly_fields = ('created_by', 'created_at', 'updated_at')
+    fieldsets = (
+        ('Canonical identity', {'fields': (('key', 'label'), 'aliases', ('category', 'data_type'))}),
+        ('Governance', {'fields': (
+            ('source_type', 'sensitivity'), ('masking_policy', 'reporting_use'),
+            ('export_allowed', 'active'),
+        )}),
+        ('Input contract', {'fields': ('help_text', 'choice_options')}),
+        ('Audit', {'fields': (('created_by', 'created_at'), 'updated_at'), 'classes': ('collapse',)}),
+    )
+
+    def save_model(self, request, obj, form, change):
+        before = None
+        if change:
+            before = OriginationDataField.objects.filter(pk=obj.pk).values(
+                'label', 'aliases', 'category', 'sensitivity', 'masking_policy',
+                'reporting_use', 'export_allowed', 'help_text', 'choice_options', 'active',
+            ).first()
+        if not obj.created_by_id:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+        after = {
+            'label': obj.label, 'aliases': obj.aliases, 'category': obj.category,
+            'sensitivity': obj.sensitivity, 'masking_policy': obj.masking_policy,
+            'reporting_use': obj.reporting_use, 'export_allowed': obj.export_allowed,
+            'help_text': obj.help_text, 'choice_options': obj.choice_options,
+            'active': obj.active,
+        }
+        action = 'created' if not change else ('deactivated' if before and before['active'] and not obj.active else 'updated')
+        OriginationDataFieldEvent.objects.create(
+            data_field=obj, action=action, actor=request.user,
+            metadata={
+                'key': obj.key, 'type': obj.data_type,
+                'changed_fields': sorted(
+                    key for key, value in after.items() if not before or before.get(key) != value
+                ),
+            },
+        )
+
+    def has_module_permission(self, request):
+        return request.user.is_superuser
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_add_permission(self, request):
+        return request.user.is_superuser
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(OriginationFieldReviewIssue)
+class OriginationFieldReviewIssueAdmin(CompactModelAdmin):
+    list_display = (
+        'legacy_key', 'legacy_type', 'product_definition', 'reason', 'status',
+        'assigned_to', 'updated_at',
+    )
+    list_filter = ('status', 'reason', 'legacy_type')
+    search_fields = (
+        'legacy_key', 'legacy_label', 'product_definition__product_key',
+        'product_definition__name',
+    )
+    readonly_fields = (
+        'product_definition', 'legacy_key', 'legacy_type', 'legacy_label', 'reason',
+        'suggested_field', 'resolved_by', 'resolved_at', 'created_at', 'updated_at',
+    )
+    fields = (
+        'product_definition', ('legacy_key', 'legacy_type'), 'legacy_label', 'reason',
+        'suggested_field', 'assigned_to', 'status', 'resolution_field',
+        'resolution_notes', ('resolved_by', 'resolved_at'), ('created_at', 'updated_at'),
+    )
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            raise PermissionDenied
+        original = OriginationFieldReviewIssue.objects.get(pk=obj.pk)
+        if obj.status == OriginationFieldReviewIssue.STATUS_OPEN:
+            original.assigned_to = obj.assigned_to
+            original.save(update_fields=['assigned_to', 'updated_at'])
+            return
+        from core.services.origination_fields import resolve_review_issue
+        resolve_review_issue(
+            issue=original, status=obj.status, resolution_field=obj.resolution_field,
+            notes=obj.resolution_notes, actor=request.user,
+        )
+
+    def has_module_permission(self, request):
+        return request.user.is_superuser
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(OriginationProductDefinition)
 class OriginationProductDefinitionAdmin(CompactModelAdmin):
     form = OriginationProductDefinitionForm
@@ -4503,6 +4623,7 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
 
     def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
         from core.services.loan_origination import SIGNER_ROLE_CATALOG
+        from core.services.origination_fields import catalogue_for_product
         product = self.get_object(request, object_id) if object_id else None
         template = None
         failed_template = None
@@ -4519,6 +4640,10 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
             'origination_signer_roles': [
                 {'key': key, 'label': label} for key, label in SIGNER_ROLE_CATALOG
             ],
+            'origination_data_fields': catalogue_for_product(product),
+            'origination_data_field_add_url': reverse(
+                'admin:core_originationdatafield_add',
+            ),
             'origination_document_template': template,
             'origination_failed_template': failed_template,
             'origination_calibration_url': (
@@ -4575,6 +4700,8 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
         from core.services.loan_origination import validate_product_form_contract
         validate_product_form_contract(obj.form_schema, obj.signer_rules)
         super().save_model(request, obj, form, change)
+        from core.services.origination_fields import bind_compatible_schema_fields
+        bind_compatible_schema_fields(obj, create_issues=True)
         OriginationProductDefinitionEvent.objects.create(
             product_definition=obj, action='draft_updated' if change else 'created',
             actor=request.user, metadata={'version': obj.version},
@@ -4733,6 +4860,7 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
             path('<path:object_id>/calibration-page/', self.admin_site.admin_view(self.calibration_page_view), name='core_originationdocumenttemplate_calibration_page'),
             path('<path:object_id>/calibration-preview/', self.admin_site.admin_view(self.calibration_preview_view), name='core_originationdocumenttemplate_calibration_preview'),
             path('<path:object_id>/calibration-save/', self.admin_site.admin_view(self.calibration_save_view), name='core_originationdocumenttemplate_calibration_save'),
+            path('<path:object_id>/calibration-field/', self.admin_site.admin_view(self.calibration_field_view), name='core_originationdocumenttemplate_calibration_field'),
             path('<path:object_id>/calibration-publish/', self.admin_site.admin_view(self.calibration_publish_view), name='core_originationdocumenttemplate_calibration_publish'),
         ]
         return custom + urls
@@ -4782,9 +4910,9 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
         product = obj.product_definition or OriginationProductDefinition.objects.filter(
             document_type=obj.document_type, is_active=True,
         ).order_by('-version').first()
+        from core.services.origination_fields import catalogue_for_product, product_schema_revision
         fields = product.form_schema if product else {}
-        context_keys = [{'key': item.get('key'), 'label': item.get('label') or item.get('key')} for item in (fields.get('fields') or []) if item.get('key')]
-        context_keys.extend([{'key': key, 'label': key.replace('_', ' ').title()} for key in ('reference_number', 'branch_code', 'loan_officer_name', 'application_date') if key not in {item['key'] for item in context_keys}])
+        context_keys = catalogue_for_product(product)
         from core.services.origination_templates import _expected_signature_slots
         return JsonResponse({
             'ok': True,
@@ -4794,6 +4922,8 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
             'configuration': config,
             'page_sizes': page_sizes,
             'context_keys': context_keys,
+            'schema_revision': product_schema_revision(product) if product else 0,
+            'form_sections': list(fields.get('sections') or []),
             'signature_slots': list(_expected_signature_slots(product).values()),
         })
 
@@ -4818,7 +4948,8 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
 
     def _calibration_error_response(self, exc):
         from core.services.origination_templates import OriginationTemplateError
-        if isinstance(exc, (OriginationTemplateError, ValidationError)):
+        from core.services.origination_fields import OriginationFieldError
+        if isinstance(exc, (OriginationTemplateError, OriginationFieldError, ValidationError)):
             return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
         logger.exception('Origination template calibration request failed.')
         return JsonResponse({'ok': False, 'error': 'The calibration request could not be completed.'}, status=500)
@@ -4856,6 +4987,49 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
         except Exception as exc:
             return self._calibration_error_response(exc)
         return JsonResponse({'ok': True, 'revision': saved.revision})
+
+    def calibration_field_view(self, request, object_id):
+        obj = self._calibration_template(request, object_id)
+        if request.method != 'POST':
+            return JsonResponse({'ok': False, 'error': 'POST required.'}, status=405)
+        if not obj.product_definition_id:
+            return JsonResponse({
+                'ok': False, 'error': 'This template is not linked to an editable product form.',
+            }, status=400)
+        try:
+            from core.services.origination_fields import (
+                attach_data_field, catalogue_for_product, create_data_field,
+                product_schema_revision,
+            )
+            body = self._json_body(request)
+            with transaction.atomic():
+                create_payload = body.get('create_field')
+                if create_payload:
+                    data_field, _replayed = create_data_field(
+                        payload=create_payload, actor=request.user,
+                    )
+                else:
+                    data_field = OriginationDataField.objects.filter(
+                        pk=body.get('data_field_id'), active=True,
+                    ).first()
+                    if not data_field:
+                        raise ValidationError('Choose an active canonical data field.')
+                product, replayed = attach_data_field(
+                    product=obj.product_definition, data_field=data_field,
+                    presentation=body.get('presentation') or {}, actor=request.user,
+                    expected_schema_revision=int(body.get('schema_revision') or 0),
+                )
+        except Exception as exc:
+            return self._calibration_error_response(exc)
+        return JsonResponse({
+            'ok': True, 'field': next(
+                item for item in catalogue_for_product(product) if item['key'] == data_field.key
+            ),
+            'context_keys': catalogue_for_product(product),
+            'schema_revision': product_schema_revision(product),
+            'form_sections': list((product.form_schema or {}).get('sections') or []),
+            'replayed': replayed,
+        })
 
     def calibration_publish_view(self, request, object_id):
         obj = self._calibration_template(request, object_id)
@@ -4968,6 +5142,22 @@ class _AppendOnlyOriginationAdmin(ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(OriginationDataFieldEvent)
+class OriginationDataFieldEventAdmin(_AppendOnlyOriginationAdmin):
+    list_display = ('data_field', 'action', 'actor', 'occurred_at')
+    list_filter = ('action',)
+    search_fields = ('data_field__key', 'data_field__label')
+
+    def has_module_permission(self, request):
+        return request.user.is_superuser
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_superuser
 
 
 @admin.register(OriginationDocumentTemplateEvent)
