@@ -969,6 +969,9 @@ def save_spin_request(
     year = timezone.localtime(request_dt).year if timezone.is_aware(request_dt) else request_dt.year
     parsed_fields_value = dict(parsed.parsed_fields or {})
     parsed_fields_value['branch'] = parsed_fields_value.get('branch') or spin_default_branch(group_config)
+    requirement_evidence = parsed_fields_value.pop('_product_requirement_evidence', {})
+    custom_values = parsed_fields_value.pop('_product_custom_values', {})
+    selected_fee_keys = parsed_fields_value.pop('_product_selected_fee_keys', [])
     with transaction.atomic():
         sequence, _ = SpinRequestSequence.objects.select_for_update().get_or_create(
             group_id=str(group_config.group_id),
@@ -1006,6 +1009,9 @@ def save_spin_request(
             attachment_names=parsed.attachment_names,
             raw_message=parsed.raw_message,
             parsed_fields=parsed_fields_value,
+            product_requirement_evidence=requirement_evidence,
+            product_custom_values=custom_values,
+            product_selected_fee_keys=selected_fee_keys,
             missing_fields=parsed.missing_fields,
             import_status=import_status,
         )
@@ -1023,6 +1029,20 @@ def save_spin_request(
                 'branch': parsed_fields_value.get('branch', ''),
             },
         )
+        if record.product_version_id and record.requested_amount is not None:
+            tenor_match = re.search(r'\d+', str(record.tenor or ''))
+            tenor_unit = 'week' if re.search(r'\bweeks?\b', str(record.tenor or ''), re.I) else (
+                'month' if re.search(r'\bmonths?\b', str(record.tenor or ''), re.I) else ''
+            )
+            if tenor_match and tenor_unit == record.product_version.tenor_unit:
+                from core.services.product_quotes import calculate_product_quote
+                record.product_quote_snapshot = calculate_product_quote(
+                    record.product_version,
+                    amount=record.requested_amount,
+                    tenor=tenor_match.group(0),
+                    optional_fee_keys=record.product_selected_fee_keys,
+                )
+                record.save(update_fields=['product_quote_snapshot', 'updated_at'])
         return record
 
 
@@ -1575,6 +1595,47 @@ def process_spin_form_submission(
             cleaned['branch'] = validate_spin_branch(group_config, cleaned.get('branch', ''))
         except ValueError as exc:
             errors.append(str(exc))
+    if not errors and cleaned.get('loan_product'):
+        from core.models import OperationalLocation
+        from core.services.product_catalog import (
+            active_product_version, missing_product_requirements, product_is_available,
+            resolve_product, validate_custom_values,
+        )
+        product = resolve_product(cleaned.get('loan_product'))
+        version = active_product_version(product) if product else None
+        if version is None:
+            errors.append('Choose a product from the global product catalogue.')
+        else:
+            branch_record = OperationalLocation.objects.filter(
+                location_type='branch', name__iexact=cleaned.get('branch', ''), active=True,
+            ).first()
+            if not product_is_available(
+                product, branch=branch_record,
+                workflow='spin_credit_analysis', channel='portal',
+            ):
+                errors.append('This product is not available for the selected branch.')
+            missing = missing_product_requirements(
+                version, workflow='spin_credit_analysis', stage='created',
+                evidence=cleaned.get('product_requirement_evidence'),
+            )
+            if missing:
+                errors.append('Complete required product evidence: ' + ', '.join(item['label'] for item in missing))
+            custom_errors = validate_custom_values(
+                version, cleaned.get('product_custom_values'), workflow='spin_credit_analysis',
+            )
+            errors.extend(custom_errors.values())
+            allowed_fees = set(version.fees.filter(mandatory=False).values_list('key', flat=True))
+            if set(cleaned.get('product_selected_fee_keys') or []) - allowed_fees:
+                errors.append('One or more selected fees are not available for this product version.')
+            amount = cleaned.get('requested_amount')
+            if amount is not None and (amount < version.min_amount or (
+                version.max_amount is not None and amount > version.max_amount
+            )):
+                maximum = f' and at most {version.currency} {version.max_amount:,.2f}' if version.max_amount is not None else ''
+                errors.append(
+                    f'Amount for {product.name} must be at least {version.currency} '
+                    f'{version.min_amount:,.2f}{maximum}.'
+                )
     if errors:
         return {
             'success': False,
@@ -1658,6 +1719,9 @@ def process_spin_form_submission(
     parsed.missing_fields = missing_fields_for(parsed)
     parsed.parsed_fields = parsed_fields(parsed)
     parsed.parsed_fields['branch'] = cleaned.get('branch', '')
+    parsed.parsed_fields['_product_requirement_evidence'] = cleaned.get('product_requirement_evidence') or {}
+    parsed.parsed_fields['_product_custom_values'] = cleaned.get('product_custom_values') or {}
+    parsed.parsed_fields['_product_selected_fee_keys'] = cleaned.get('product_selected_fee_keys') or []
     if media_links:
         parsed.parsed_fields['media_urls'] = '\n'.join(media_links)
 
@@ -1823,6 +1887,34 @@ def update_spin_review_request(
         }
 
     cleaned, errors = normalize_spin_review_fields(group_config, record, fields)
+    if not errors and cleaned.get('loan_product'):
+        from core.models import OperationalLocation
+        from core.services.product_catalog import (
+            active_product_version, missing_product_requirements, product_is_available,
+            resolve_product, serialize_product_version, validate_custom_values,
+        )
+        product = resolve_product(cleaned.get('loan_product'))
+        version = active_product_version(product) if product else None
+        if version is None:
+            errors.append('Choose a product from the global product catalogue.')
+        else:
+            branch_record = OperationalLocation.objects.filter(
+                location_type='branch', name__iexact=cleaned.get('branch', ''), active=True,
+            ).first()
+            if not product_is_available(
+                product, branch=branch_record,
+                workflow='spin_credit_analysis', channel='portal',
+            ):
+                errors.append('This product is not available for the selected branch.')
+            missing = missing_product_requirements(
+                version, workflow='spin_credit_analysis', stage='review',
+                evidence=record.product_requirement_evidence,
+            )
+            if missing:
+                errors.append('Complete required product evidence: ' + ', '.join(item['label'] for item in missing))
+            errors.extend(validate_custom_values(
+                version, record.product_custom_values, workflow='spin_credit_analysis',
+            ).values())
     if errors:
         return {
             'success': False,
@@ -1874,6 +1966,10 @@ def update_spin_review_request(
     record.secondary_phone = cleaned['secondary_phone']
     record.customer_type = cleaned['customer_type']
     record.loan_product = cleaned['loan_product']
+    if cleaned.get('loan_product'):
+        record.product = product
+        record.product_version = version
+        record.product_terms_snapshot = serialize_product_version(version)
     record.requested_amount = cleaned['requested_amount']
     record.tenor = cleaned['tenor']
     record.business_notes = cleaned['business_notes']
@@ -1891,6 +1987,7 @@ def update_spin_review_request(
         'secondary_phone',
         'customer_type',
         'loan_product',
+        'product', 'product_version', 'product_terms_snapshot',
         'requested_amount',
         'tenor',
         'business_notes',
@@ -2111,7 +2208,24 @@ def normalize_spin_request_type(value: str) -> str:
 
 
 def validate_spin_form_fields(fields: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
-    data = {key: str(value or '').strip() for key, value in (fields or {}).items()}
+    raw_fields = fields or {}
+    data = {
+        key: str(value or '').strip()
+        for key, value in raw_fields.items()
+        if key not in {'product_requirement_evidence', 'product_custom_values', 'product_selected_fee_keys'}
+    }
+    def structured(name, expected, default):
+        value = raw_fields.get(name, default)
+        if isinstance(value, str):
+            try:
+                value = json.loads(value or json.dumps(default))
+            except json.JSONDecodeError:
+                return default
+        return value if isinstance(value, expected) else default
+
+    requirement_evidence = structured('product_requirement_evidence', dict, {})
+    custom_values = structured('product_custom_values', dict, {})
+    selected_fee_keys = structured('product_selected_fee_keys', list, [])
     request_type = normalize_spin_request_type(data.get('request_type', ''))
     errors = []
     if request_type not in SPIN_FORM_REQUEST_TYPES:
@@ -2154,6 +2268,11 @@ def validate_spin_form_fields(fields: dict[str, Any]) -> tuple[dict[str, Any], l
         'secondary_phone': secondary_phone,
         'customer_type': customer_type,
         'loan_product': data.get('loan_product', '').strip().title(),
+        'product_requirement_evidence': requirement_evidence,
+        'product_custom_values': custom_values,
+        'product_selected_fee_keys': list(dict.fromkeys(
+            str(item).strip() for item in selected_fee_keys if str(item).strip()
+        )),
         'branch': data.get('branch', ''),
         'requested_amount': amount,
         'tenor': tenor,

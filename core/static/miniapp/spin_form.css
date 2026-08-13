@@ -711,6 +711,17 @@ button.secondary {
 }
 .modal-footer button { min-height: 32px; font-size: 12px; }
 
+.checkbox-row { display: flex !important; align-items: center; gap: 8px; min-height: 38px; }
+.checkbox-row input { width: 18px !important; height: 18px; margin: 0; }
+#spinProductConfiguration {
+  padding: 12px;
+  border: 1px solid var(--spin-line);
+  border-radius: 12px;
+  background: var(--spin-surface-2);
+}
+#spinProductConfiguration[hidden] { display: none; }
+#spinProductConfiguration h3 { margin: 0 0 10px; font-size: 14px; }
+
 /* Responsive adjustments */
 @media (min-width: 540px) {
   .modal-overlay { align-items: center; }

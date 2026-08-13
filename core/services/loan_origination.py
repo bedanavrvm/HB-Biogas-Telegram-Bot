@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -243,6 +244,26 @@ def create_application(*, product_key: str, officer, branch: str, client_request
     if not definition:
         raise OriginationError('This origination product is not active.')
     validate_product_definition(definition)
+    from core.services.product_catalog import (
+        active_product_version, product_is_available, serialize_product_version,
+    )
+    if definition.product_version_id:
+        current = active_product_version(definition.product_version.product)
+        if current is None or current.pk != definition.product_version_id:
+            raise OriginationError('This product version is not currently effective.')
+        from core.models import OperationalLocation
+        branch_record = OperationalLocation.objects.filter(
+            location_type='branch', name__iexact=str(branch or '').strip(), active=True,
+        ).first()
+        if not product_is_available(
+            definition.product_version.product, branch=branch_record,
+            workflow='loan_origination', channel='portal',
+        ):
+            raise OriginationError('This product is not available for the selected branch in Loan Origination.')
+    terms_snapshot = (
+        serialize_product_version(definition.product_version)
+        if definition.product_version_id else {}
+    )
     application_id = uuid.uuid4()
     try:
         with transaction.atomic():
@@ -250,11 +271,13 @@ def create_application(*, product_key: str, officer, branch: str, client_request
                 id=application_id,
                 reference_number=f'ORG-{timezone.localdate():%Y}-{str(application_id)[:8].upper()}',
                 product_definition=definition,
+                product_version=definition.product_version,
                 officer=officer,
                 branch=str(branch or '').strip(),
                 schema_snapshot=definition.form_schema,
                 signer_rules_snapshot=definition.signer_rules,
                 template_configuration_snapshot=_published_template_configuration(definition),
+                product_terms_snapshot=terms_snapshot,
                 client_request_id=client_request_id,
             )
     except IntegrityError:
@@ -281,7 +304,11 @@ def _published_template_configuration(definition: OriginationProductDefinition) 
     revision = template.published_configuration_revision
     return (revision.configuration if revision else template.placement_config) or {}
 @transaction.atomic
-def save_application_fields(*, application_id, actor, payload: Any, expected_revision: int, request_id: str) -> LoanOriginationApplication:
+def save_application_fields(
+    *, application_id, actor, payload: Any, expected_revision: int, request_id: str,
+    requirement_evidence: Any = None, custom_values: Any = None,
+    selected_fee_keys: Any = None,
+) -> LoanOriginationApplication:
     request_id = _require_request_id(request_id)
     application = LoanOriginationApplication.objects.select_for_update().select_related('product_definition').get(pk=application_id)
     if request_id and application.events.filter(request_id=request_id).exists():
@@ -298,11 +325,59 @@ def save_application_fields(*, application_id, actor, payload: Any, expected_rev
     result = validate_form_payload(application.schema_snapshot, payload, require_complete=False)
     if not result.valid:
         raise OriginationError(next(iter(result.errors.values())))
+    if requirement_evidence is not None and not isinstance(requirement_evidence, dict):
+        raise OriginationError('Product requirement evidence must be an object.')
+    if custom_values is not None and not isinstance(custom_values, dict):
+        raise OriginationError('Product custom values must be an object.')
+    if selected_fee_keys is not None and not isinstance(selected_fee_keys, list):
+        raise OriginationError('Selected product fees must be a list.')
+    selected_fee_keys = (
+        list(dict.fromkeys(str(value).strip() for value in selected_fee_keys if str(value).strip()))
+        if selected_fee_keys is not None else application.product_selected_fee_keys
+    )
+    if application.product_version_id:
+        allowed_fee_keys = set(application.product_version.fees.filter(mandatory=False).values_list('key', flat=True))
+        if set(selected_fee_keys) - allowed_fee_keys:
+            raise OriginationError('One or more selected fees are not available for this product version.')
+    if custom_values is not None:
+        from core.services.product_catalog import validate_custom_values
+        errors = validate_custom_values(application.product_version, custom_values, workflow='loan_origination')
+        if errors:
+            raise OriginationError(next(iter(errors.values())))
+    quote_snapshot = application.product_quote_snapshot
+    if application.product_version_id:
+        amount_key = application.product_version.quote_amount_field_key
+        tenor_key = application.product_version.quote_tenor_field_key
+        amount_value = payload.get(amount_key)
+        tenor_value = payload.get(tenor_key)
+        if amount_value not in (None, '') and tenor_value not in (None, ''):
+            match = re.search(r'\d+', str(tenor_value))
+            if not match:
+                raise OriginationError(f'{tenor_key.replace("_", " ").title()} must contain a whole number.')
+            from core.services.product_catalog import ProductCatalogError
+            from core.services.product_quotes import calculate_product_quote
+            try:
+                quote_snapshot = calculate_product_quote(
+                    application.product_version, amount=amount_value, tenor=match.group(0),
+                    optional_fee_keys=selected_fee_keys,
+                )
+            except ProductCatalogError as exc:
+                raise OriginationError(str(exc)) from exc
     before = {'status': application.status, 'revision': application.revision}
     application.form_payload = payload
+    application.product_quote_snapshot = quote_snapshot
+    if requirement_evidence is not None:
+        application.product_requirement_evidence = requirement_evidence
+    if custom_values is not None:
+        application.product_custom_values = custom_values
+    application.product_selected_fee_keys = selected_fee_keys
     application.revision += 1
     application.status = LoanOriginationApplication.STATUS_DRAFT
-    application.save(update_fields=['form_payload', 'revision', 'status', 'updated_at'])
+    application.save(update_fields=[
+        'form_payload', 'product_quote_snapshot', 'product_requirement_evidence', 'product_custom_values',
+        'product_selected_fee_keys',
+        'revision', 'status', 'updated_at',
+    ])
     _record_event(application, 'fields_saved', actor=actor, request_id=request_id, before=before)
     return application
 
@@ -324,6 +399,13 @@ def submit_for_review(*, application_id, actor, expected_revision: int, request_
         raise OriginationError('Complete all required application fields before review.')
     if not application.events.filter(action='document_previewed', revision=application.revision).exists():
         raise OriginationError('Preview the filled document for this saved revision before submitting.')
+    from core.services.product_catalog import missing_product_requirements
+    missing = missing_product_requirements(
+        application.product_version, workflow='loan_origination', stage='review',
+        evidence=application.product_requirement_evidence,
+    )
+    if missing:
+        raise OriginationError('Complete required product evidence before review: ' + ', '.join(item['label'] for item in missing))
     application.status = LoanOriginationApplication.STATUS_READY_FOR_REVIEW
     application.revision += 1
     application.submitted_at = timezone.now()
@@ -391,6 +473,13 @@ def prepare_signing_package(
         raise OriginationConflict('This application changed on another device. Refresh before preparing signing.')
     if application.status != LoanOriginationApplication.STATUS_REVIEWED:
         raise OriginationError('Only a reviewed application can be prepared for signing.')
+    from core.services.product_catalog import missing_product_requirements
+    missing = missing_product_requirements(
+        application.product_version, workflow='loan_origination', stage='signing',
+        evidence=application.product_requirement_evidence,
+    )
+    if missing:
+        raise OriginationError('Complete required product evidence before signing: ' + ', '.join(item['label'] for item in missing))
     package_id = uuid.uuid4()
     package = OriginationSigningPackage.objects.create(
         id=package_id,
@@ -420,9 +509,18 @@ def serialize_application(application: LoanOriginationApplication, *, include_pa
         'product_key': application.product_definition.product_key,
         'product_name': application.product_definition.name,
         'product_version': application.product_definition.version,
+        'global_product_id': application.product_version.product_id if application.product_version_id else None,
+        'global_product_version_id': str(application.product_version_id or ''),
         'branch': application.branch, 'status': application.status,
         'revision': application.revision, 'updated_at': application.updated_at.isoformat(),
     }
     if include_payload:
-        payload.update({'form_payload': application.form_payload, 'form_schema': application.schema_snapshot})
+        payload.update({
+            'form_payload': application.form_payload, 'form_schema': application.schema_snapshot,
+            'product_terms': application.product_terms_snapshot,
+            'product_quote': application.product_quote_snapshot,
+            'product_requirements': application.product_requirement_evidence,
+            'product_custom_values': application.product_custom_values,
+            'product_selected_fee_keys': application.product_selected_fee_keys,
+        })
     return payload

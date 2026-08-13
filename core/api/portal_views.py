@@ -3652,6 +3652,8 @@ def portal_set_credit_decision(request, farmer_id: str):
             expected_revision=expected_revision,
             actor_user=getattr(request, 'portal_user', None),
             access=getattr(request, 'portal_access', None),
+            product_requirement_evidence=body.get('product_requirement_evidence'),
+            product_custom_values=body.get('product_custom_values'),
         )
     except (ValueError, ValidationError) as exc:
         response = _portal_workflow_error(exc)
@@ -3765,6 +3767,8 @@ def portal_set_final_decision(request, farmer_id: str):
             expected_revision=expected_revision,
             actor_user=getattr(request, 'portal_user', None),
             access=getattr(request, 'portal_access', None),
+            product_requirement_evidence=body.get('product_requirement_evidence'),
+            product_custom_values=body.get('product_custom_values'),
         )
     except (ValueError, ValidationError) as exc:
         response = _portal_workflow_error(exc)

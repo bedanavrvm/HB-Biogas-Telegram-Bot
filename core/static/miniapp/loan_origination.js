@@ -104,6 +104,16 @@
     const sections = Array.isArray(configured) && configured.length
       ? configured.map(item => ({ key: item.key, label: item.label || item.key, hint: item.help_text || '' }))
       : LEGACY_SECTIONS;
+    const terms = current?.product_terms || {};
+    const requirements = (terms.requirements || []).filter(item => !item.workflow || item.workflow === 'loan_origination');
+    const attributes = (terms.custom_attributes || []).filter(item => !(item.workflows || []).length || item.workflows.includes('loan_origination'));
+    if (requirements.length || attributes.length || (terms.fees || []).some(item => !item.mandatory)) {
+      sections.push({
+        key: 'product_requirements',
+        label: 'Product requirements',
+        hint: 'Capture the evidence and product-specific details required for this facility.',
+      });
+    }
     return [...sections, { key: 'review', label: 'Review', hint: 'Confirm details against the filled document' }];
   }
 
@@ -119,6 +129,60 @@
       else payload[input.dataset.field] = input.value;
     });
     return payload;
+  }
+
+  function collectProductConfiguration() {
+    const requirements = { ...(current?.product_requirements || {}) };
+    const customValues = { ...(current?.product_custom_values || {}) };
+    const selectedFeeKeys = [];
+    root()?.querySelectorAll('[data-product-requirement]').forEach(input => {
+      requirements[input.dataset.productRequirement] = input.type === 'checkbox' ? input.checked : input.value;
+    });
+    root()?.querySelectorAll('[data-product-custom]').forEach(input => {
+      customValues[input.dataset.productCustom] = input.type === 'checkbox' ? input.checked : input.value;
+    });
+    root()?.querySelectorAll('[data-product-fee]').forEach(input => {
+      if (input.checked) selectedFeeKeys.push(input.dataset.productFee);
+    });
+    return { requirements, customValues, selectedFeeKeys };
+  }
+
+  function configurationControl(item, value, dataAttribute, disabled) {
+    const key = escapeHtml(item.key);
+    const data = `${dataAttribute}="${key}"`;
+    const locked = disabled ? ' disabled' : '';
+    if (item.type === 'boolean' || item.type === 'checkbox' || item.type === 'eligibility') {
+      return `<label class="configuration-check"><input type="checkbox" ${data}${value === true ? ' checked' : ''}${locked}><span>Confirmed</span></label>`;
+    }
+    if (item.type === 'choice') {
+      const options = (item.options || []).map(option => `<option value="${escapeHtml(option)}"${value === option ? ' selected' : ''}>${escapeHtml(option)}</option>`).join('');
+      return `<select ${data}${locked}><option value="">Choose</option>${options}</select>`;
+    }
+    const inputType = item.type === 'date' ? 'date' : ['number', 'money', 'amount'].includes(item.type) ? 'number' : 'text';
+    const numeric = ['number', 'money', 'amount'].includes(item.type) ? ' inputmode="decimal" step="any"' : '';
+    const placeholder = item.type === 'document' ? 'Document reference or evidence note' : '';
+    return `<input type="${inputType}" ${data} value="${escapeHtml(value ?? '')}"${numeric}${placeholder ? ` placeholder="${placeholder}"` : ''}${locked}>`;
+  }
+
+  function productConfigurationMarkup(editable) {
+    const terms = current?.product_terms || {};
+    const requirements = (terms.requirements || []).filter(item => !item.workflow || item.workflow === 'loan_origination');
+    const attributes = (terms.custom_attributes || []).filter(item => !(item.workflows || []).length || item.workflows.includes('loan_origination'));
+    const optionalFees = (terms.fees || []).filter(item => !item.mandatory);
+    const selected = new Set(current?.product_selected_fee_keys || []);
+    const requirementRows = requirements.map(item => {
+      const required = item.required ? '<span class="required-mark" aria-label="required">*</span>' : '';
+      const stage = item.enforcement_stage ? `<small class="field-help">Required before ${escapeHtml(item.enforcement_stage.replaceAll('_', ' '))}</small>` : '';
+      return `<label class="laf-field" data-product-wrap="requirement:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}${required}</span>${item.description ? `<small class="field-help">${escapeHtml(item.description)}</small>` : ''}${stage}${configurationControl(item, current?.product_requirements?.[item.key], 'data-product-requirement', !editable)}<small class="field-error" aria-live="polite"></small></label>`;
+    }).join('');
+    const attributeRows = attributes.map(item => {
+      const required = item.required ? '<span class="required-mark" aria-label="required">*</span>' : '';
+      return `<label class="laf-field" data-product-wrap="custom:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}${required}</span>${item.help_text ? `<small class="field-help">${escapeHtml(item.help_text)}</small>` : ''}${configurationControl(item, current?.product_custom_values?.[item.key] ?? item.default, 'data-product-custom', !editable)}<small class="field-error" aria-live="polite"></small></label>`;
+    }).join('');
+    const feeRows = optionalFees.map(item => `<label class="laf-field configuration-fee" data-product-wrap="fee:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}</span><small class="field-help">Optional ${escapeHtml(item.collection_mode)} fee</small><label class="configuration-check"><input type="checkbox" data-product-fee="${escapeHtml(item.key)}"${selected.has(item.key) ? ' checked' : ''}${editable ? '' : ' disabled'}><span>Include in quote</span></label><small class="field-error" aria-live="polite"></small></label>`).join('');
+    const quote = current?.product_quote || {};
+    const quoteMarkup = quote.installment_amount ? `<aside class="notice"><strong>Current quote</strong><span>${escapeHtml(quote.currency)} ${escapeHtml(quote.installment_amount)} × ${escapeHtml(quote.installment_count)}; total repayment ${escapeHtml(quote.currency)} ${escapeHtml(quote.total_repayment)}${quote.upfront_fees !== '0.00' ? `; upfront fees ${escapeHtml(quote.currency)} ${escapeHtml(quote.upfront_fees)}` : ''}</span></aside>` : '';
+    return `${quoteMarkup}<div class="laf-grid">${requirementRows}${attributeRows}${feeRows}</div>`;
   }
 
   function fieldInput(field, value, disabled) {
@@ -145,6 +209,20 @@
   }
 
   function sectionErrors(sectionKey) {
+    if (sectionKey === 'product_requirements') {
+      const terms = current?.product_terms || {};
+      const values = collectProductConfiguration();
+      const errors = {};
+      (terms.requirements || []).filter(item => item.required && (!item.workflow || item.workflow === 'loan_origination')).forEach(item => {
+        const value = values.requirements[item.key];
+        if (value === undefined || value === null || value === '' || value === false) errors[`requirement:${item.key}`] = 'Required';
+      });
+      (terms.custom_attributes || []).filter(item => item.required && (!(item.workflows || []).length || item.workflows.includes('loan_origination'))).forEach(item => {
+        const value = values.customValues[item.key];
+        if (value === undefined || value === null || value === '') errors[`custom:${item.key}`] = 'Required';
+      });
+      return errors;
+    }
     const payload = collectPayload();
     const errors = {};
     fieldsFor(sectionKey).forEach(field => {
@@ -161,18 +239,32 @@
       const output = wrapper.querySelector('.field-error');
       if (output) output.textContent = message;
     });
+    root()?.querySelectorAll('[data-product-wrap]').forEach(wrapper => {
+      const message = errors[wrapper.dataset.productWrap] || '';
+      wrapper.classList.toggle('invalid', Boolean(message));
+      const output = wrapper.querySelector('.field-error');
+      if (output) output.textContent = message;
+    });
   }
 
   async function saveDraft(showError) {
     if (!current || !['draft', 'correction_required'].includes(current.status)) return true;
     if (!dirty) return true;
     const payload = collectPayload();
-    localStorage.setItem(draftKey(current.id), JSON.stringify({ revision: current.revision, payload, savedAt: Date.now() }));
+    const configuration = collectProductConfiguration();
+    localStorage.setItem(draftKey(current.id), JSON.stringify({ revision: current.revision, payload, configuration, savedAt: Date.now() }));
     setSaveState('Saving…', 'saving');
     const key = requestKey('save');
     const result = await apiFetch(`/applications/${current.id}/`, {
       method: 'PATCH', headers: { 'Idempotency-Key': key, 'X-Request-ID': key },
-      body: JSON.stringify({ revision: current.revision, form_payload: payload, request_id: key }),
+      body: JSON.stringify({
+        revision: current.revision,
+        form_payload: payload,
+        product_requirement_evidence: configuration.requirements,
+        product_custom_values: configuration.customValues,
+        product_selected_fee_keys: configuration.selectedFeeKeys,
+        request_id: key,
+      }),
     });
     if (!result.ok || !result.data?.ok) {
       setSaveState('Saved on phone', 'offline');
@@ -206,6 +298,13 @@
   function reviewMarkup(values) {
     return `<div class="review-intro"><div><p class="eyebrow">Final check</p><h3>Review the application</h3><p>Open each section to correct details, then inspect the populated ${escapeHtml(current.product_name)} document.</p></div><button type="button" class="btn btn-primary" id="origination-preview">Preview filled document</button></div>
       <div class="review-sections">${wizardSections().slice(0, -1).map((section, index) => {
+        if (section.key === 'product_requirements') {
+          const configuration = collectProductConfiguration();
+          const completed = Object.values(configuration.requirements).filter(value => value !== '' && value != null && value !== false).length
+            + Object.values(configuration.customValues).filter(value => value !== '' && value != null).length;
+          const total = (current?.product_terms?.requirements || []).length + (current?.product_terms?.custom_attributes || []).length;
+          return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>${escapeHtml(section.label)}</strong><small>${completed} of ${total} details completed</small></span><span>Edit â†’</span></button>`;
+        }
         const fields = fieldsFor(section.key);
         const completed = fields.filter(field => values[field.key] !== '' && values[field.key] != null).length;
         return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>${escapeHtml(section.label)}</strong><small>${completed} of ${fields.length} fields completed</small></span><span>Edit →</span></button>`;
@@ -228,13 +327,25 @@
     let local = null;
     try { local = JSON.parse(localStorage.getItem(draftKey(application.id)) || 'null'); } catch (_) { localStorage.removeItem(draftKey(application.id)); }
     dirty = Boolean(local?.revision === application.revision);
-    if (dirty) current.form_payload = local.payload;
+    if (dirty) {
+      current.form_payload = local.payload;
+      current.product_requirements = local.configuration?.requirements || current.product_requirements;
+      current.product_custom_values = local.configuration?.customValues || current.product_custom_values;
+      current.product_selected_fee_keys = local.configuration?.selectedFeeKeys || current.product_selected_fee_keys;
+    }
     const values = collectPayload();
     const editable = ['draft', 'correction_required'].includes(application.status);
     const sections = wizardSections();
     if (step >= sections.length) step = sections.length - 1;
     const section = sections[step];
-    const content = section.key === 'review' ? reviewMarkup(values) : `<div class="section-title"><div><p class="eyebrow">Step ${step + 1} of ${sections.length}</p><h3>${escapeHtml(section.label)}</h3><p>${escapeHtml(section.hint || '')}</p></div><button type="button" class="preview-link" id="origination-preview-early">Preview PDF</button></div><div class="laf-grid">${fieldsFor(section.key).map(field => fieldInput(field, values[field.key], !editable || field.editable === false)).join('')}</div>`;
+    let content;
+    if (section.key === 'review') content = reviewMarkup(values);
+    else {
+      const fields = section.key === 'product_requirements'
+        ? productConfigurationMarkup(editable)
+        : `<div class="laf-grid">${fieldsFor(section.key).map(field => fieldInput(field, values[field.key], !editable || field.editable === false)).join('')}</div>`;
+      content = `<div class="section-title"><div><p class="eyebrow">Step ${step + 1} of ${sections.length}</p><h3>${escapeHtml(section.label)}</h3><p>${escapeHtml(section.hint || '')}</p></div><button type="button" class="preview-link" id="origination-preview-early">Preview PDF</button></div>${fields}`;
+    }
     root().innerHTML = `<div class="editor-top"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">←</button><div><strong>${escapeHtml(application.reference_number)}</strong><small>${escapeHtml(application.product_name)}</small></div><span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(application.status.replaceAll('_', ' '))}</span></div>${progressMarkup()}<section class="wizard-card">${content}</section><footer class="wizard-actions"><span id="origination-save-status" data-state="${local ? 'offline' : 'saved'}">${local ? 'Recovered from phone' : 'Saved'}</span><div>${actionMarkup(editable)}</div></footer>`;
     bindEditor(editable);
   }

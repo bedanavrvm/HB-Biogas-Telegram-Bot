@@ -743,6 +743,8 @@
     $('userLine').textContent = `${user.name || 'Staff'} | ${roles}`;
     $('statRole').textContent = user.name || 'Staff';
     fillSelect(document.querySelector('[name="product_key"]'), data.products, 'key', 'label');
+    document.querySelector('[name="product_key"]')?.addEventListener('change', renderNewCaseProductConfiguration);
+    renderNewCaseProductConfiguration();
     fillSelect(document.querySelector('[name="branch"]'), (data.branches || []).map((value) => ({ value, label: value })), 'value', 'label');
     fillFilterSelect($('queueProductFilter'), data.products, 'key', 'label', 'All products');
     fillFilterSelect($('queueBranchFilter'), (data.branches || []).map((value) => ({ value, label: value })), 'value', 'label', 'All branches');
@@ -765,6 +767,51 @@
     show(initialView);
     if (currentHomeFilters().product_key || currentHomeFilters().branch) refresh({ background: true }).catch(() => {});
     setStatus('Ready.', 'ok');
+  }
+
+  function productConfigurationControl(item, value, dataName) {
+    const data = `${dataName}="${escapeHtml(item.key)}"`;
+    if (['boolean', 'checkbox', 'eligibility'].includes(item.type)) {
+      return `<label class="checkbox-row"><input type="checkbox" ${data}${value === true ? ' checked' : ''}><span>Confirmed</span></label>`;
+    }
+    if (item.type === 'choice') {
+      return `<select ${data}><option value="">Choose</option>${(item.options || []).map(option => `<option value="${escapeHtml(option)}"${value === option ? ' selected' : ''}>${escapeHtml(option)}</option>`).join('')}</select>`;
+    }
+    const type = item.type === 'date' ? 'date' : ['number', 'money', 'amount'].includes(item.type) ? 'number' : 'text';
+    return `<input type="${type}" ${data} value="${escapeHtml(value ?? '')}"${type === 'number' ? ' step="any" inputmode="decimal"' : ''}${item.type === 'document' ? ' placeholder="Document reference or evidence note"' : ''}>`;
+  }
+
+  function renderNewCaseProductConfiguration() {
+    const container = $('newCaseProductConfiguration');
+    const selectedKey = document.querySelector('[name="product_key"]')?.value || '';
+    const product = (state.data?.products || []).find(item => item.key === selectedKey);
+    const terms = product?.terms || {};
+    const requirements = (terms.requirements || []).filter(item => item.enforcement_stage === 'created' && (!item.workflow || item.workflow === 'tat_tracker'));
+    const attributes = (terms.custom_attributes || []).filter(item => !(item.workflows || []).length || item.workflows.includes('tat_tracker'));
+    const fees = (terms.fees || []).filter(item => !item.mandatory);
+    if (!container || !product?.version_id) {
+      if (container) { container.hidden = true; container.innerHTML = ''; }
+      return;
+    }
+    const requirementRows = requirements.map(item => `<label>${escapeHtml(item.label)}${item.required ? ' *' : ''}${item.description ? `<small>${escapeHtml(item.description)}</small>` : ''}${productConfigurationControl(item, '', 'data-product-requirement')}</label>`).join('');
+    const attributeRows = attributes.map(item => `<label>${escapeHtml(item.label)}${item.required ? ' *' : ''}${item.help_text ? `<small>${escapeHtml(item.help_text)}</small>` : ''}${productConfigurationControl(item, item.default, 'data-product-custom')}</label>`).join('');
+    const feeRows = fees.map(item => `<label>${escapeHtml(item.label)}<label class="checkbox-row"><input type="checkbox" data-product-fee="${escapeHtml(item.key)}"><span>Include optional ${escapeHtml(item.collection_mode)} fee</span></label></label>`).join('');
+    container.innerHTML = `<h3>${escapeHtml(product.label)} terms</h3><label>Tenor (${escapeHtml(terms.tenor_unit || 'month')}s)<input name="tenor" type="number" inputmode="numeric" min="${escapeHtml(terms.min_tenor || 1)}" max="${escapeHtml(terms.max_tenor || '')}" required></label>${requirementRows}${attributeRows}${feeRows}`;
+    container.hidden = false;
+  }
+
+  function collectProductConfiguration(container) {
+    const requirementEvidence = {};
+    const customValues = {};
+    const selectedFeeKeys = [];
+    container?.querySelectorAll('[data-product-requirement]').forEach(input => {
+      requirementEvidence[input.dataset.productRequirement] = input.type === 'checkbox' ? input.checked : input.value;
+    });
+    container?.querySelectorAll('[data-product-custom]').forEach(input => {
+      customValues[input.dataset.productCustom] = input.type === 'checkbox' ? input.checked : input.value;
+    });
+    container?.querySelectorAll('[data-product-fee]:checked').forEach(input => selectedFeeKeys.push(input.dataset.productFee));
+    return { requirementEvidence, customValues, selectedFeeKeys };
   }
 
   async function refresh(options) {
@@ -924,6 +971,13 @@
       if (field.editable) {
         const actionWrap = document.createElement('div');
         actionWrap.className = 'stage-action-wrap';
+        const stageRequirements = (detail.product_requirements || []).filter(item => item.stage === field.key);
+        if (stageRequirements.length) {
+          const requirements = document.createElement('div');
+          requirements.className = 'product-configuration-panel stage-product-requirements';
+          requirements.innerHTML = `<strong>Product requirements</strong>${stageRequirements.map(item => `<label>${escapeHtml(item.label)}${item.required ? ' *' : ''}${item.description ? `<small>${escapeHtml(item.description)}</small>` : ''}${productConfigurationControl(item, item.value, 'data-product-requirement')}</label>`).join('')}`;
+          actionWrap.appendChild(requirements);
+        }
         if (field.kind === 'dropdown') {
           const select = document.createElement('select');
           select.setAttribute('aria-label', 'Update ' + field.label);
@@ -1165,6 +1219,8 @@
       workflow_revision: settings.workflowRevision || Number(state.detail.summary.workflow_revision || 1),
       request_id: settings.requestId || newRequestId(),
       updates,
+      product_requirement_evidence: collectProductConfiguration($('stageFields')).requirementEvidence,
+      product_custom_values: collectProductConfiguration($('stageFields')).customValues,
     });
     state.detail = result.data;
     renderDetail(result.data);
@@ -1342,6 +1398,10 @@
       setStatus('Creating case...', 'busy');
       const form = new FormData(formElement);
       const payload = Object.fromEntries(form.entries());
+      const productConfiguration = collectProductConfiguration($('newCaseProductConfiguration'));
+      payload.product_requirement_evidence = productConfiguration.requirementEvidence;
+      payload.product_custom_values = productConfiguration.customValues;
+      payload.product_selected_fee_keys = productConfiguration.selectedFeeKeys;
       payload.creation_intent = 'new_loan';
       state.pendingCreateRequestId = state.pendingCreateRequestId || newRequestId();
       writePendingCreateRequestId(state.pendingCreateRequestId);
@@ -1354,6 +1414,7 @@
       state.pendingCreateRequestId = '';
       writePendingCreateRequestId('');
       if (formElement && typeof formElement.reset === 'function') formElement.reset();
+      renderNewCaseProductConfiguration();
       renderExistingLoanContext(null);
       const broInput = document.querySelector('[name="bro_name"]');
       if (broInput) broInput.value = payload.bro_name || '';

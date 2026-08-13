@@ -1488,6 +1488,7 @@
         </div>
         <p id="workflow-draft-state" class="field-help jbl-draft-state" aria-live="polite">Draft saves automatically.</p>
       </div>
+      ${productConfigurationMarkup(farmer, 'credit_decision')}
       ${farmer.jbl_visit_comment ? `<div class="info-row"><span class="ir-label">JBL Comment</span><span class="ir-value">${deps.escapeHtml(farmer.jbl_visit_comment)}</span></div>` : ''}
     `;
   }
@@ -1509,6 +1510,44 @@
     };
     imab.addEventListener('change', sync);
     sync();
+  }
+
+  function productConfigurationControl(item, value, dataName) {
+    const data = `${dataName}="${deps.escapeHtml(item.key)}"`;
+    if (['boolean', 'checkbox', 'eligibility'].includes(item.type)) {
+      return `<label class="checkbox-row"><input type="checkbox" ${data}${value === true ? ' checked' : ''}><span>Confirmed</span></label>`;
+    }
+    if (item.type === 'choice') {
+      return `<select ${data}><option value="">Choose</option>${(item.options || []).map(option => `<option value="${deps.escapeHtml(option)}"${value === option ? ' selected' : ''}>${deps.escapeHtml(option)}</option>`).join('')}</select>`;
+    }
+    const type = item.type === 'date' ? 'date' : ['number', 'money', 'amount'].includes(item.type) ? 'number' : 'text';
+    return `<input type="${type}" ${data} value="${deps.escapeHtml(value ?? '')}"${type === 'number' ? ' step="any" inputmode="decimal"' : ''}${item.type === 'document' ? ' placeholder="Document reference or evidence note"' : ''}>`;
+  }
+
+  function productConfigurationMarkup(farmer, stage) {
+    const terms = farmer.product_terms || {};
+    const requirements = (terms.requirements || []).filter(item =>
+      item.enforcement_stage === stage && (!item.workflow || item.workflow === 'jawabu_portal')
+    );
+    const attributes = (terms.custom_attributes || []).filter(item =>
+      !(item.workflows || []).length || item.workflows.includes('jawabu_portal')
+    );
+    if (!requirements.length && !attributes.length) return '';
+    const requirementRows = requirements.map(item => `<div class="form-row"><label>${deps.escapeHtml(item.label)}${item.required ? ' *' : ''}</label>${item.description ? `<small class="field-help">${deps.escapeHtml(item.description)}</small>` : ''}${productConfigurationControl(item, farmer.product_requirements?.[item.key], 'data-product-requirement')}</div>`).join('');
+    const attributeRows = attributes.map(item => `<div class="form-row"><label>${deps.escapeHtml(item.label)}${item.required ? ' *' : ''}</label>${item.help_text ? `<small class="field-help">${deps.escapeHtml(item.help_text)}</small>` : ''}${productConfigurationControl(item, farmer.product_custom_values?.[item.key] ?? item.default, 'data-product-custom')}</div>`).join('');
+    return `<div class="form-section form-grid product-configuration"><div class="form-row form-row-wide"><strong>${deps.escapeHtml(terms.product_name || farmer.payment_product || 'Product')} requirements</strong></div>${requirementRows}${attributeRows}</div>`;
+  }
+
+  function collectProductConfiguration() {
+    const requirementEvidence = {};
+    const customValues = {};
+    el('sheet-form')?.querySelectorAll('[data-product-requirement]').forEach(input => {
+      requirementEvidence[input.dataset.productRequirement] = input.type === 'checkbox' ? input.checked : input.value;
+    });
+    el('sheet-form')?.querySelectorAll('[data-product-custom]').forEach(input => {
+      customValues[input.dataset.productCustom] = input.type === 'checkbox' ? input.checked : input.value;
+    });
+    return { requirementEvidence, customValues };
   }
 
   function buildFinalReviewForm(farmer) {
@@ -1534,6 +1573,7 @@
         <div class="form-row form-row-wide"><label>After-call Comments</label><textarea id="final-comment" rows="4" placeholder="Summarize the call and decision...">${deps.escapeHtml(farmer.final_decision_comment || '')}</textarea>${voiceWidget('final_decision_comment', 'final-comment')}</div>
         <p id="workflow-draft-state" class="field-help jbl-draft-state form-row-wide" aria-live="polite">Draft saves automatically.</p>
       </div>
+      ${productConfigurationMarkup(farmer, 'final_decision')}
       ${farmer.jbl_visit_comment ? `<div class="info-row"><span class="ir-label">BRO Comment</span><span class="ir-value">${deps.escapeHtml(farmer.jbl_visit_comment)}</span></div>` : ''}
     `;
   }
@@ -1816,6 +1856,7 @@
     const decision = el('credit-decision')?.value || '';
     const imabCreated = el('credit-imab')?.value || '';
     const customerNo = (el('credit-customer-no')?.value || '').replace(/[^0-9]/g, '');
+    const productConfiguration = collectProductConfiguration();
     if (!decision) return deps.showToast('Please select a decision', 'error');
     if (imabCreated !== 'Yes') return deps.showToast('Create the customer in IMAB before sending this case to Head of Rural review.', 'error');
     if (!customerNo) return deps.showToast('Enter the IMAB Customer No before sending this case to Head of Rural review.', 'error');
@@ -1824,7 +1865,12 @@
     deps.setButtonLoading(btn, true, 'Saving...');
     const { ok, data } = await deps.apiFetch('/credit-queue/' + farmer.id + '/', {
       method: 'POST',
-      body: JSON.stringify({ request_id: requestId(), workflow_revision: Number(farmer.workflow_revision || 1), decision, imab_created: imabCreated, customer_no: customerNo }),
+      body: JSON.stringify({
+        request_id: requestId(), workflow_revision: Number(farmer.workflow_revision || 1),
+        decision, imab_created: imabCreated, customer_no: customerNo,
+        product_requirement_evidence: productConfiguration.requirementEvidence,
+        product_custom_values: productConfiguration.customValues,
+      }),
     });
     deps.setButtonLoading(btn, false);
     if (!ok) return deps.showToast(data.error || 'Save failed', 'error');
@@ -1842,6 +1888,7 @@
     const decisionComment = el('final-comment')?.value || '';
     const repaymentDate = el('final-repayment-date')?.value || '';
     const repaymentTenor = el('final-repayment-tenor')?.value || '';
+    const productConfiguration = collectProductConfiguration();
     if (!finalDecision) return deps.showToast('Please select a final decision', 'error');
 
     const btn = el('btn-submit-final');
@@ -1856,6 +1903,8 @@
         voice_transcription_id: acceptedVoiceAttempts.final_decision_comment || '',
         repayment_date: repaymentDate,
         repayment_tenor: repaymentTenor,
+        product_requirement_evidence: productConfiguration.requirementEvidence,
+        product_custom_values: productConfiguration.customValues,
       }),
     });
     deps.setButtonLoading(btn, false);

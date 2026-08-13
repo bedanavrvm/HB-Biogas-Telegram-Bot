@@ -18,6 +18,8 @@ from core.models import (
     ParsedInvoiceEvent,
     PaymentDocument,
     PaymentDocumentTemplate,
+    Product,
+    ProductAlias,
     RequisitionBatch,
 )
 from core.services.invoice_parser import ingest_invoice_upload_batch
@@ -35,6 +37,16 @@ from core.services.payment_documents import (
     SECURE_SSL_REDIRECT=False,
 )
 class InvoicePoolAndPaymentDocumentTests(TestCase):
+    def setUp(self):
+        # The payment fixture uses a historical external product spelling.
+        # Register it explicitly so payment readiness exercises the canonical
+        # catalogue path instead of an unresolved mapping issue.
+        ProductAlias.objects.get_or_create(
+            product=Product.objects.get(code='biogas'),
+            normalized_alias='biogas_premium',
+            defaults={'alias': 'BIOGAS PREMIUM'},
+        )
+
     def farmer(self, **overrides):
         data = {
             'customer_name': 'Mary Wanjiku',

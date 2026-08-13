@@ -99,6 +99,9 @@ class ProductConfig:
     tat_start_col: int
     stage_columns: dict[str, int]
     stages: tuple[StageConfig, ...]
+    product_id: int | None = None
+    version_id: str = ''
+    stage_tat_columns: tuple['StageTatColumn', ...] = ()
 
 
 @dataclass(frozen=True)
@@ -206,8 +209,69 @@ def is_tat_tracker_workflow(group_config) -> bool:
 
 def configured_products(workflow: dict | None = None) -> list[ProductConfig]:
     workflow = workflow or {}
-    keys = workflow.get('products') or list(PRODUCTS.keys())
-    return [PRODUCTS[key] for key in keys if key in PRODUCTS]
+    keys = workflow.get('products') or []
+    if not keys:
+        try:
+            from core.models import Product
+            from core.services.product_catalog import (
+                active_product_version, product_is_selectable,
+            )
+            keys = [
+                product.code
+                for product in Product.objects.filter(active=True).order_by('sort_order', 'name')
+                if (version := active_product_version(product))
+                and hasattr(version, 'tat_configuration')
+                and product_is_selectable(
+                    product=product, workflow='tat_tracker', channel='portal',
+                )
+            ]
+        except Exception:
+            keys = list(PRODUCTS.keys())
+    resolved = []
+    for key in keys:
+        try:
+            resolved.append(_database_product_by_key(key))
+        except Exception:
+            if key in PRODUCTS:
+                resolved.append(PRODUCTS[key])
+    return resolved
+
+
+def _database_product_by_key(key: str) -> ProductConfig:
+    """Adapt governed database configuration to the established TAT interface."""
+    from core.models import ProductTatConfiguration
+    from core.services.product_catalog import active_product_version, resolve_product
+
+    product = resolve_product(key)
+    version = active_product_version(product) if product else None
+    if version is None:
+        raise ValueError('Invalid product.')
+    try:
+        configuration = ProductTatConfiguration.objects.get(product_version=version)
+    except ProductTatConfiguration.DoesNotExist as exc:
+        raise ValueError('This product is not configured for TAT Tracker.') from exc
+    stages = tuple(StageConfig(
+        key=str(item.get('key') or ''), label=str(item.get('label') or item.get('key') or ''),
+        column=int(item.get('column') or 0), role=str(item.get('role') or ''),
+        kind=str(item.get('kind') or 'timestamp'), options=tuple(item.get('options') or ()),
+        auto_timestamp_key=str(item.get('auto_timestamp_key') or ''),
+        requires_signature_certificate=bool(item.get('requires_signature_certificate', False)),
+    ) for item in (configuration.stages or []) if item.get('key'))
+    stages_by_key = {stage.key: stage for stage in stages}
+    tat_columns = tuple(StageTatColumn(
+        stage_key=str(item.get('stage_key') or ''), fallback_col=int(item.get('fallback_col') or 0),
+        aliases=tuple(item.get('aliases') or _stage_tat_aliases(
+            stages_by_key[str(item.get('stage_key') or '')]
+        )),
+    ) for item in (configuration.stage_tat_columns or []) if item.get('stage_key') in stages_by_key)
+    return ProductConfig(
+        key=product.code, label=product.name, sheet_name=configuration.sheet_name,
+        case_prefix=configuration.case_prefix, min_amount=version.min_amount,
+        max_amount=version.max_amount, remarks_col=configuration.remarks_col,
+        status_col=configuration.status_col, tat_start_col=configuration.tat_start_col,
+        stage_columns=configuration.stage_columns or {}, stages=stages,
+        product_id=product.pk, version_id=str(version.pk), stage_tat_columns=tat_columns,
+    )
 
 
 def workflow_branches(workflow: dict | None = None) -> list[str]:
@@ -645,6 +709,46 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
     if branch not in _allowed_branches(workflow, user):
         raise ValueError('Select a valid branch.')
     validate_amount(product, amount)
+    product_version = None
+    terms_snapshot = {}
+    quote_snapshot = {}
+    requirement_evidence = payload.get('product_requirement_evidence') or {}
+    custom_values = payload.get('product_custom_values') or {}
+    selected_fee_keys = payload.get('product_selected_fee_keys') or []
+    if not isinstance(requirement_evidence, dict):
+        raise ValueError('Product requirement evidence must be an object.')
+    if not isinstance(custom_values, dict):
+        raise ValueError('Product custom values must be an object.')
+    if not isinstance(selected_fee_keys, list):
+        raise ValueError('Selected product fees must be a list.')
+    if product.version_id:
+        from core.models import OperationalLocation, ProductVersion
+        from core.services.product_catalog import (
+            missing_product_requirements, product_is_available, serialize_product_version,
+            validate_custom_values,
+        )
+        product_version = ProductVersion.objects.select_related('product').get(pk=product.version_id)
+        branch_record = OperationalLocation.objects.filter(location_type='branch', name__iexact=branch, active=True).first()
+        if not product_is_available(product_version.product, branch=branch_record, workflow='tat_tracker', channel='portal'):
+            raise ValueError('This product is not available for the selected branch and channel.')
+        missing = missing_product_requirements(
+            product_version, workflow='tat_tracker', stage='created', evidence=requirement_evidence,
+        )
+        if missing:
+            raise ValueError('Complete required product evidence: ' + ', '.join(item['label'] for item in missing))
+        custom_errors = validate_custom_values(product_version, custom_values, workflow='tat_tracker')
+        if custom_errors:
+            raise ValueError(next(iter(custom_errors.values())))
+        allowed_fees = set(product_version.fees.filter(mandatory=False).values_list('key', flat=True))
+        if set(selected_fee_keys) - allowed_fees:
+            raise ValueError('One or more selected fees are not available for this product version.')
+        terms_snapshot = serialize_product_version(product_version)
+        if payload.get('tenor') not in (None, ''):
+            from core.services.product_quotes import calculate_product_quote
+            quote_snapshot = calculate_product_quote(
+                product_version, amount=amount, tenor=payload.get('tenor'),
+                optional_fee_keys=selected_fee_keys,
+            )
     create_request_id = normalize_create_request_id(payload.get('client_request_id') or payload.get('create_request_id') or payload.get('request_id'))
     if create_request_id:
         existing = TatTrackerCase.objects.select_for_update().filter(
@@ -671,6 +775,11 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
         group_id=str(group_config.group_id), sheet_id=str(group_config.sheet_id or ''), sheet_name=product.sheet_name,
         create_request_id=create_request_id,
         case_id=case_id, product_key=product.key, product_label=product.label, client_name=client_name,
+        product_id=product.product_id, product_version=product_version,
+        product_terms_snapshot=terms_snapshot, product_quote_snapshot=quote_snapshot,
+        product_requirement_evidence=requirement_evidence,
+        product_custom_values=custom_values,
+        product_selected_fee_keys=selected_fee_keys,
         national_id=national_id, primary_phone=primary_phone,
         branch=branch, bro_name=bro_name, amount=amount, stage_values={'created': now.isoformat()},
         stage_target_snapshots=stage_target_snapshots,
@@ -1146,6 +1255,9 @@ def update_case(
     *,
     expected_revision: int | None = None,
     request_id: str = '',
+    requirement_evidence: dict | None = None,
+    custom_values: dict | None = None,
+    selected_fee_keys: list | None = None,
 ) -> dict:
     """Apply one atomic, revision-checked TAT case mutation.
 
@@ -1162,6 +1274,35 @@ def update_case(
     validate_workflow_revision(case, expected_revision)
     if not updates:
         raise ValueError('No updates were submitted.')
+    if requirement_evidence is not None:
+        if not isinstance(requirement_evidence, dict):
+            raise ValueError('Product requirement evidence must be an object.')
+        case.product_requirement_evidence = {
+            **(case.product_requirement_evidence or {}), **requirement_evidence,
+        }
+    if custom_values is not None:
+        if not isinstance(custom_values, dict):
+            raise ValueError('Product custom values must be an object.')
+        case.product_custom_values = {**(case.product_custom_values or {}), **custom_values}
+    if selected_fee_keys is not None:
+        if not isinstance(selected_fee_keys, list):
+            raise ValueError('Selected product fees must be a list.')
+        allowed_fees = set(case.product_version.fees.filter(mandatory=False).values_list('key', flat=True)) if case.product_version_id else set()
+        if set(selected_fee_keys) - allowed_fees:
+            raise ValueError('One or more selected fees are not available for this product version.')
+        case.product_selected_fee_keys = list(dict.fromkeys(selected_fee_keys))
+    from core.services.product_catalog import missing_product_requirements, validate_custom_values
+    custom_errors = validate_custom_values(case.product_version, case.product_custom_values, workflow='tat_tracker')
+    if custom_errors:
+        raise ValueError(next(iter(custom_errors.values())))
+    for item in updates:
+        stage_key = str(item.get('field') or '').strip()
+        missing = missing_product_requirements(
+            case.product_version, workflow='tat_tracker', stage=stage_key,
+            evidence=case.product_requirement_evidence,
+        )
+        if missing:
+            raise ValueError('Complete required product evidence: ' + ', '.join(row['label'] for row in missing))
     from_state = str(case.current_stage or '')
     revision_before, revision_after = next_workflow_revision(case)
     for item in updates:
@@ -1171,7 +1312,7 @@ def update_case(
     if next_stage:
         snapshot_stage_target(case, workflow, product_by_key(case.product_key), next_stage)
     case.last_updated_by = user.get('name', '')
-    case.save(update_fields=['stage_values', 'stage_target_snapshots', 'status', 'remarks', 'current_stage', 'last_updated_by', 'workflow_revision', 'updated_at', 'client_name', 'national_id', 'primary_phone', 'branch', 'bro_name', 'amount'])
+    case.save(update_fields=['stage_values', 'stage_target_snapshots', 'status', 'remarks', 'current_stage', 'last_updated_by', 'workflow_revision', 'updated_at', 'client_name', 'national_id', 'primary_phone', 'branch', 'bro_name', 'amount', 'product_requirement_evidence', 'product_custom_values', 'product_selected_fee_keys'])
     record_tat_event(
         case=case,
         group_id=case.group_id,
@@ -1657,7 +1798,7 @@ def resolve_tat_sheet_columns(product: ProductConfig, headers: list[Any]) -> dic
     total_col = first_matching_header(normalized_headers, ('TAT Minutes', 'Total TAT Minutes', 'Case TAT Minutes'))
     if total_col:
         columns['total_minutes'] = total_col
-    for config in STAGE_TAT_COLUMNS.get(product.key, ()):
+    for config in product.stage_tat_columns or STAGE_TAT_COLUMNS.get(product.key, ()):
         columns[config.stage_key] = first_matching_header(normalized_headers, config.aliases) or config.fallback_col
     return columns
 
@@ -2370,6 +2511,19 @@ def serialize_case_detail(case: TatTrackerCase, user: dict, workflow: dict | Non
         }
         for event in case.events.order_by('-created_at')[:20]
     ]
+    requirements = []
+    if case.product_version_id:
+        requirements = [
+            {
+                'key': item.key, 'label': item.label, 'description': item.description,
+                'type': item.requirement_type, 'stage': item.enforcement_stage,
+                'required': item.required,
+                'value': (case.product_requirement_evidence or {}).get(item.key),
+            }
+            for item in case.product_version.requirements.filter(
+                active=True,
+            ).filter(Q(workflow='') | Q(workflow='tat_tracker'))
+        ]
     return {
         'summary': serialize_case_summary(case, user, workflow=workflow),
         'fields': fields,
@@ -2379,6 +2533,20 @@ def serialize_case_detail(case: TatTrackerCase, user: dict, workflow: dict | Non
         'escalation': latest_escalation('tat_tracker', str(case.pk)),
         'can_correct_details': can_correct_details,
         'correction_branches': _allowed_branches(workflow or {}, user) if can_correct_details else [],
+        'product_terms': case.product_terms_snapshot,
+        'product_quote': case.product_quote_snapshot,
+        'product_requirements': requirements,
+        'product_custom_attributes': [
+            {
+                'key': item.key, 'label': item.label, 'type': item.attribute_type,
+                'required': item.required, 'help_text': item.help_text,
+                'options': item.options, 'value': (case.product_custom_values or {}).get(item.key),
+            }
+            for item in case.product_version.custom_attributes.all()
+            if not item.workflow_visibility or 'tat_tracker' in item.workflow_visibility
+        ] if case.product_version_id else [],
+        'product_custom_values': case.product_custom_values,
+        'product_selected_fee_keys': case.product_selected_fee_keys,
     }
 
 
@@ -2448,7 +2616,20 @@ def public_user(user: dict) -> dict:
 
 
 def serialize_product(product: ProductConfig) -> dict:
-    return {'key': product.key, 'label': product.label, 'sheet_name': product.sheet_name, 'min_amount': str(product.min_amount), 'max_amount': str(product.max_amount) if product.max_amount is not None else ''}
+    payload = {
+        'id': product.product_id, 'version_id': product.version_id,
+        'key': product.key, 'label': product.label, 'sheet_name': product.sheet_name,
+        'min_amount': str(product.min_amount),
+        'max_amount': str(product.max_amount) if product.max_amount is not None else '',
+    }
+    if product.version_id:
+        from core.models import ProductVersion
+        from core.services.product_catalog import serialize_product_version
+        version = ProductVersion.objects.filter(pk=product.version_id).first()
+        payload['terms'] = serialize_product_version(version) if version else {}
+    else:
+        payload['terms'] = {}
+    return payload
 
 
 def _allowed_products(workflow: dict, user: dict) -> list[ProductConfig]:
@@ -2471,9 +2652,12 @@ def _allowed_branches(workflow: dict, user: dict) -> list[str]:
 
 def product_by_key(key: str) -> ProductConfig:
     normalized = str(key or '').strip().lower().replace('-', '_')
-    if normalized not in PRODUCTS:
-        raise ValueError('Invalid product.')
-    return PRODUCTS[normalized]
+    try:
+        return _database_product_by_key(normalized)
+    except Exception:
+        if normalized not in PRODUCTS:
+            raise ValueError('Invalid product.')
+        return PRODUCTS[normalized]
 
 
 def stage_by_key(product: ProductConfig, key: str) -> StageConfig | None:

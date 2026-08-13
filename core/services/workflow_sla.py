@@ -387,10 +387,15 @@ def record_tat_daily_metrics(metrics: list[dict], *, metric_date=None) -> tuple[
     )
     for item in metrics:
         lookup = {field: item.get(field, '') for field in dimensions}
+        from core.services.product_catalog import resolve_product
+        product = resolve_product(item.get('product_key'))
         record, created = WorkflowTatDailyMetric.objects.update_or_create(
             metric_date=metric_date,
             **lookup,
-            defaults={field: item.get(field) for field in values},
+            defaults={
+                **{field: item.get(field) for field in values},
+                'product': product,
+            },
         )
         records.append(record)
         created_count += int(created)

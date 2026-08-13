@@ -1093,6 +1093,23 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
   border-color: color-mix(in srgb, #ef4444 45%, var(--tat-border));
   background: color-mix(in srgb, #ef4444 10%, var(--tat-surface));
 }
+.product-configuration-panel {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  padding: 11px;
+  border: 1px solid var(--tat-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--tat-primary) 5%, var(--tat-surface));
+}
+.product-configuration-panel[hidden] { display: none; }
+.product-configuration-panel h3, .product-configuration-panel > strong { grid-column: 1 / -1; margin: 0; }
+.product-configuration-panel label { display: grid; gap: 4px; font-size: 10px; font-weight: 700; }
+.product-configuration-panel small { color: var(--tat-muted); font-weight: 500; }
+.product-configuration-panel .checkbox-row { display: flex; align-items: center; gap: 7px; }
+.product-configuration-panel .checkbox-row input { width: 17px; height: 17px; }
+.stage-product-requirements { grid-template-columns: 1fr; width: 100%; }
 
 /* Responsive Overrides */
 @media (min-width: 640px) {
@@ -1107,6 +1124,7 @@ body.compact-cards .next-chip { height: 16px; padding: 0 4px; font-size: 8px; }
 }
 
 @media (max-width: 380px) {
+  .product-configuration-panel { grid-template-columns: 1fr; }
   .overview-strip { gap: 4px; }
   .metric-tile { padding: 4px 6px; }
   .metric-tile span { font-size: 13px; }

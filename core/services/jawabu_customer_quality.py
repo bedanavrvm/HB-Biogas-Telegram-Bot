@@ -92,7 +92,7 @@ def product_quality_message(value: object, *, configured_products: list[str] | N
         return ''
     configured = configured_products if configured_products is not None else configured_operational_products()
     if not configured:
-        return 'Operational product catalog has not been configured.'
+        return 'Global product catalogue has not been configured.'
     if product.casefold() not in {item.casefold() for item in configured}:
         return f'Product Name "{product}" is not in the operational product catalog.'
     return ''

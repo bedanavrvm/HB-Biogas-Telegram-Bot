@@ -37,9 +37,11 @@ def create_repair_job(
     case_ids = list(
         candidate_queryset.order_by('product_key', 'case_id').values_list('case_id', flat=True)
     )
+    from core.services.product_catalog import resolve_product
     return TatRepairJob.objects.create(
         group_configuration=config,
         product_key=product_key,
+        product=resolve_product(product_key),
         case_ids=case_ids,
         total_cases=len(case_ids),
         skipped_unlinked=0 if include_unlinked else queryset.exclude(row_number__gt=0).count(),

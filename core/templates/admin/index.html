@@ -42,10 +42,10 @@
                             <span>Branches and counties</span>
                         </a>
                     {% endif %}
-                    {% if perms.core.view_operationalproduct %}
-                        <a class="admin-ops-action" href="{% url 'admin:core_operationalproduct_changelist' %}">
+                    {% if perms.core.view_product %}
+                        <a class="admin-ops-action" href="{% url 'admin:core_product_changelist' %}">
                             <span class="material-symbols-outlined" aria-hidden="true">category</span>
-                            <span>Operational products</span>
+                            <span>Global products</span>
                         </a>
                     {% endif %}
                     {% if perms.core.view_groupsheetconfiguration %}

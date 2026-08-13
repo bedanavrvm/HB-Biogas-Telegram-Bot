@@ -126,14 +126,11 @@ def branch_choices():
 
 
 def product_choices():
-    from core.services.tat_tracker import PRODUCTS
-    from core.services.jawabu_customer_quality import configured_operational_product_options
-
-    configured = [
-        (key, label) for key, label in configured_operational_product_options()
-        if key in PRODUCTS
+    from core.models import Product
+    return [('', 'All products')] + [
+        (product.code, product.name)
+        for product in Product.objects.filter(active=True).order_by('sort_order', 'name')
     ]
-    return [('', 'All products')] + (configured or [(key, config.label) for key, config in PRODUCTS.items()])
 
 
 def validate_access_scope(*, workflow, role, branch='', product='', group_configuration=None):
@@ -146,13 +143,12 @@ def validate_access_scope(*, workflow, role, branch='', product='', group_config
         errors['branch'] = 'Complaint Cases access is group-scoped; leave branch as All branches.'
     elif branch and branch not in global_branch_choices():
         errors['branch'] = 'Select a configured branch.'
-    if workflow != 'tat_tracker' and product:
-        errors['product'] = f'{workflow_label(workflow)} does not use product scope.'
-    elif workflow == 'tat_tracker':
-        from core.services.tat_tracker import PRODUCTS
+    if workflow == 'complaint_cases' and product:
+        errors['product'] = 'Complaint Cases access is group-scoped; leave product as All products.'
+    elif product:
         valid_products = {key for key, _label in product_choices() if key}
-        if product and (product not in PRODUCTS or product not in valid_products):
-            errors['product'] = 'Select a valid TAT Tracker product.'
+        if product not in valid_products:
+            errors['product'] = 'Select a valid global product.'
     if group_configuration is not None:
         group_type = str((group_configuration.workflow or {}).get('type') or '')
         if group_type not in WORKFLOW_GROUP_TYPES.get(workflow, set()):

@@ -14,7 +14,7 @@ from django.conf import settings
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.template.response import TemplateResponse
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import DatabaseError, connections, transaction
+from django.db import DatabaseError, connections, models, transaction
 from django.urls import path, reverse
 from django.utils.html import format_html
 from django.utils import timezone
@@ -67,7 +67,16 @@ from .models import (
     JawabuApprovalCondition,
     JawabuMediaAccessEvent,
     OperationalLocation,
-    OperationalProduct,
+    Product,
+    ProductAlias,
+    ProductAvailability,
+    ProductCustomAttribute,
+    ProductFee,
+    ProductMappingIssue,
+    ProductRequirement,
+    ProductTatConfiguration,
+    ProductVersion,
+    ProductVersionEvent,
     OrderApprovalUpdate,
     InvoiceUploadBatch,
     InvoiceIdentityReview,
@@ -126,15 +135,28 @@ logger = logging.getLogger(__name__)
 
 
 class OriginationProductDefinitionForm(forms.ModelForm):
+    product_version = forms.ModelChoiceField(
+        queryset=ProductVersion.objects.none(), required=False,
+        help_text='Global product terms version used by this form and LAF.',
+    )
+    product_key = forms.SlugField(required=False, widget=forms.HiddenInput)
+    name = forms.CharField(required=False, widget=forms.HiddenInput)
     form_schema = forms.JSONField(widget=forms.HiddenInput)
     signer_rules = forms.JSONField(widget=forms.HiddenInput)
 
     class Meta:
         model = OriginationProductDefinition
-        fields = ('product_key', 'name', 'form_schema', 'signer_rules')
+        fields = ('product_version', 'product_key', 'name', 'form_schema', 'signer_rules')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields['product_version'].queryset = ProductVersion.objects.filter(
+            status__in=[
+                ProductVersion.STATUS_DRAFT,
+                ProductVersion.STATUS_SCHEDULED,
+                ProductVersion.STATUS_PUBLISHED,
+            ],
+        ).select_related('product').order_by('product__name', '-version')
         if self.instance.pk and not self.instance._state.adding:
             # A version may change its presentation contract while it is a
             # draft, but it must not move into another product's version line.
@@ -144,6 +166,13 @@ class OriginationProductDefinitionForm(forms.ModelForm):
         cleaned = super().clean()
         schema = cleaned.get('form_schema')
         signer_rules = cleaned.get('signer_rules')
+        product_version = cleaned.get('product_version')
+        if product_version:
+            cleaned['product_key'] = product_version.product.code
+            cleaned['name'] = product_version.product.name
+            self.instance.product_key = product_version.product.code
+            self.instance.name = product_version.product.name
+            self.instance.document_type = product_version.product.code
         if schema is None or signer_rules is None:
             return cleaned
         from core.services.loan_origination import OriginationError, validate_product_form_contract
@@ -321,20 +350,399 @@ class OperationalLocationAdmin(CompactModelAdmin):
     )
 
 
-@admin.register(OperationalProduct)
-class OperationalProductAdmin(CompactModelAdmin):
-    """Controlled product names accepted from system exports."""
+PRODUCT_WORKFLOW_CHOICES = [
+    ('', 'All workflows'),
+    ('jawabu_portal', 'Jawabu Portal'),
+    ('loan_origination', 'Loan Origination'),
+    ('tat_tracker', 'TAT Tracker'),
+    ('spin_credit_analysis', 'SPIN / Credit Analysis'),
+    ('order_approval', 'Order Approval'),
+    ('complaint_cases', 'Complaint Cases'),
+]
 
-    list_display = ('name', 'code', 'active', 'sort_order', 'updated_at')
-    list_filter = ('active',)
-    search_fields = ('name', 'code')
-    list_editable = ('active', 'sort_order')
+PRODUCT_REQUIREMENT_STAGE_CHOICES = [
+    ('', 'No transition gate'),
+    ('created', 'Case or request creation'),
+    ('review', 'Review submission'),
+    ('signing', 'Signing preparation'),
+    ('completed', 'Analysis completion'),
+    ('credit_decision', 'Credit decision'),
+    ('final_decision', 'Final decision'),
+    ('order', 'Order preparation'),
+    ('payment', 'Payment preparation'),
+]
+
+
+class ProductAliasInline(TabularInline):
+    model = ProductAlias
+    extra = 1
+    fields = ('alias',)
+
+
+class ProductAvailabilityForm(forms.ModelForm):
+    workflow = forms.ChoiceField(choices=PRODUCT_WORKFLOW_CHOICES, required=False)
+
+    class Meta:
+        model = ProductAvailability
+        fields = ('branch', 'workflow', 'channel', 'active')
+
+
+class ProductAvailabilityInline(TabularInline):
+    model = ProductAvailability
+    form = ProductAvailabilityForm
+    extra = 1
+    fields = ('branch', 'workflow', 'channel', 'active')
+
+
+@admin.register(Product)
+class ProductAdmin(CompactModelAdmin):
+    """Canonical identity shared by every workflow and external adapter."""
+
+    list_display = ('name', 'code', 'category', 'active', 'current_terms', 'sort_order', 'updated_at')
+    list_filter = ('active', 'category')
+    search_fields = ('name', 'code', 'aliases__alias')
     ordering = ('sort_order', 'name')
-    readonly_fields = ('created_at', 'updated_at')
+    readonly_fields = ('created_at', 'updated_at', 'terms_link')
+    inlines = (ProductAliasInline, ProductAvailabilityInline)
     fieldsets = (
-        ('Product', {'fields': (('name', 'code'), ('active', 'sort_order'))}),
+        ('Global identity', {'fields': (('name', 'code'), ('category', 'active'), 'description', 'sort_order')}),
+        ('Commercial terms', {'fields': ('terms_link',)}),
         ('Audit', {'fields': (('created_at', 'updated_at'),), 'classes': ('collapse',)}),
     )
+
+    @admin.display(description='Current terms')
+    def current_terms(self, obj):
+        from core.services.product_catalog import active_product_version
+        version = active_product_version(obj)
+        return f'v{version.version}' if version else 'Configuration required'
+
+    @admin.display(description='Terms versions')
+    def terms_link(self, obj):
+        if not obj.pk:
+            return 'Save the product before adding commercial terms.'
+        url = reverse('admin:core_productversion_changelist') + '?' + urlencode({'product__id__exact': obj.pk})
+        add_url = reverse('admin:core_productversion_add') + '?' + urlencode({'product': obj.pk})
+        return format_html('<a class="button" href="{}">Manage versions</a> <a class="button" href="{}">Add version</a>', url, add_url)
+
+    def get_readonly_fields(self, request, obj=None):
+        fields = list(self.readonly_fields)
+        if obj:
+            fields.append('code')
+        return fields
+
+    def has_add_permission(self, request):
+        return request.user.is_superuser
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class ProductFeeInline(TabularInline):
+    model = ProductFee
+    extra = 0
+    fields = (
+        'position', 'key', 'label', 'fee_type', 'fixed_amount', 'percentage',
+        'calculation_basis', 'minimum_amount', 'maximum_amount',
+        'collection_mode', 'mandatory',
+    )
+
+
+class ProductRequirementForm(forms.ModelForm):
+    workflow = forms.ChoiceField(choices=PRODUCT_WORKFLOW_CHOICES, required=False)
+    enforcement_stage = forms.ChoiceField(
+        choices=PRODUCT_REQUIREMENT_STAGE_CHOICES, required=False,
+        help_text='The workflow transition that must block until this evidence is complete.',
+    )
+    minimum = forms.DecimalField(required=False, help_text='Optional numeric minimum for amount evidence.')
+    maximum = forms.DecimalField(required=False, help_text='Optional numeric maximum for amount evidence.')
+
+    class Meta:
+        model = ProductRequirement
+        fields = (
+            'position', 'key', 'label', 'description', 'requirement_type',
+            'workflow', 'enforcement_stage', 'required', 'active',
+        )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        choices = list(PRODUCT_REQUIREMENT_STAGE_CHOICES)
+        known = {value for value, _label in choices}
+        try:
+            for configuration in ProductTatConfiguration.objects.only('stages'):
+                for stage in configuration.stages or []:
+                    key = str(stage.get('key') or '').strip()
+                    label = str(stage.get('label') or key).strip()
+                    if key and key not in known:
+                        choices.append((key, f'TAT: {label}'))
+                        known.add(key)
+        except Exception:
+            pass
+        current_stage = str(getattr(self.instance, 'enforcement_stage', '') or '')
+        if current_stage and current_stage not in known:
+            choices.append((current_stage, current_stage.replace('_', ' ').title()))
+        self.fields['enforcement_stage'].choices = choices
+        config = self.instance.validation_config if self.instance.pk else {}
+        self.fields['minimum'].initial = config.get('min')
+        self.fields['maximum'].initial = config.get('max')
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        instance.validation_config = {
+            key: str(value) for key, value in {
+                'min': self.cleaned_data.get('minimum'),
+                'max': self.cleaned_data.get('maximum'),
+            }.items() if value is not None
+        }
+        if commit:
+            instance.save()
+        return instance
+
+
+class ProductRequirementInline(StackedInline):
+    model = ProductRequirement
+    form = ProductRequirementForm
+    extra = 0
+    fields = (
+        ('position', 'key'), ('label', 'requirement_type'), 'description',
+        ('workflow', 'enforcement_stage'), ('required', 'active'), ('minimum', 'maximum'),
+    )
+
+
+class ProductCustomAttributeForm(forms.ModelForm):
+    choice_options = forms.CharField(
+        required=False, widget=forms.Textarea(attrs={'rows': 3}),
+        help_text='For Choice attributes, enter one option per line.',
+    )
+    visible_in_workflows = forms.MultipleChoiceField(
+        choices=PRODUCT_WORKFLOW_CHOICES[1:], required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text='Leave empty to expose this attribute to every workflow.',
+    )
+    minimum = forms.DecimalField(required=False)
+    maximum = forms.DecimalField(required=False)
+    pattern = forms.CharField(required=False, help_text='Optional regular expression for text values.')
+    default_input = forms.CharField(
+        required=False,
+        help_text='Optional default shown to staff. For Yes / No use yes or no.',
+    )
+
+    class Meta:
+        model = ProductCustomAttribute
+        fields = ('position', 'key', 'label', 'attribute_type', 'required', 'help_text')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['choice_options'].initial = '\n'.join(str(item) for item in (self.instance.options or []))
+        self.fields['visible_in_workflows'].initial = self.instance.workflow_visibility or []
+        config = self.instance.validation_config or {}
+        self.fields['minimum'].initial = config.get('min')
+        self.fields['maximum'].initial = config.get('max')
+        self.fields['pattern'].initial = config.get('pattern')
+        default = self.instance.default_value
+        if isinstance(default, bool):
+            default = 'yes' if default else 'no'
+        self.fields['default_input'].initial = '' if default is None else str(default)
+
+    def clean_default_input(self):
+        value = str(self.cleaned_data.get('default_input') or '').strip()
+        attribute_type = self.cleaned_data.get('attribute_type')
+        if attribute_type == ProductCustomAttribute.TYPE_BOOLEAN and value.casefold() not in {
+            '', 'yes', 'no', 'true', 'false',
+        }:
+            raise ValidationError('A Yes / No default must be yes or no.')
+        return value
+
+    def clean_pattern(self):
+        import re
+        value = str(self.cleaned_data.get('pattern') or '').strip()
+        if value:
+            try:
+                re.compile(value)
+            except re.error as exc:
+                raise ValidationError(f'Invalid regular expression: {exc}.') from exc
+        return value
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        instance.options = [
+            item.strip() for item in self.cleaned_data.get('choice_options', '').splitlines()
+            if item.strip()
+        ]
+        instance.workflow_visibility = list(self.cleaned_data.get('visible_in_workflows') or [])
+        instance.validation_config = {
+            key: str(value) for key, value in {
+                'min': self.cleaned_data.get('minimum'), 'max': self.cleaned_data.get('maximum'),
+                'pattern': self.cleaned_data.get('pattern'),
+            }.items() if value not in (None, '')
+        }
+        default = str(self.cleaned_data.get('default_input') or '').strip()
+        if not default:
+            instance.default_value = None
+        elif instance.attribute_type == ProductCustomAttribute.TYPE_BOOLEAN:
+            normalized = default.casefold()
+            instance.default_value = normalized in {'yes', 'true'}
+        else:
+            instance.default_value = default
+        if commit:
+            instance.save()
+        return instance
+
+
+class ProductCustomAttributeInline(StackedInline):
+    model = ProductCustomAttribute
+    form = ProductCustomAttributeForm
+    extra = 0
+    fields = (
+        ('position', 'key'), ('label', 'attribute_type'), ('required',), 'help_text',
+        'choice_options', 'visible_in_workflows', ('minimum', 'maximum'), 'pattern', 'default_input',
+    )
+
+
+class ProductTatConfigurationInline(StackedInline):
+    model = ProductTatConfiguration
+    extra = 0
+    max_num = 1
+    fields = (
+        ('sheet_name', 'case_prefix'), ('remarks_col', 'status_col', 'tat_start_col'),
+        'stage_columns', 'stages', 'stage_tat_columns',
+    )
+    classes = ('collapse',)
+
+
+@admin.register(ProductVersion)
+class ProductVersionAdmin(CompactModelAdmin):
+    list_display = (
+        'product', 'version', 'status', 'effective_from', 'effective_to',
+        'amount_range', 'interest_summary', 'repayment_frequency', 'published_by',
+    )
+    list_filter = ('status', 'currency', 'interest_method', 'repayment_frequency', 'product')
+    search_fields = ('product__name', 'product__code')
+    readonly_fields = ('version', 'status', 'supersedes', 'created_by', 'published_by', 'published_at', 'created_at', 'updated_at')
+    actions = ('publish_selected_versions', 'create_next_version')
+    inlines = (ProductFeeInline, ProductRequirementInline, ProductCustomAttributeInline, ProductTatConfigurationInline)
+    fieldsets = (
+        ('Version', {'fields': (('product', 'version', 'status'), ('effective_from', 'effective_to'), 'supersedes')}),
+        ('Amount and tenor', {'fields': (('currency', 'min_amount', 'max_amount'), ('min_tenor', 'max_tenor', 'tenor_unit'))}),
+        ('Interest and repayment', {'fields': (
+            ('interest_method', 'interest_rate', 'interest_rate_period'), 'repayment_frequency',
+            ('quote_amount_field_key', 'quote_tenor_field_key'),
+        )}),
+        ('Publication audit', {'fields': (('created_by', 'created_at'), ('published_by', 'published_at'), 'updated_at'), 'classes': ('collapse',)}),
+    )
+
+    @admin.display(description='Amount range')
+    def amount_range(self, obj):
+        maximum = f'{obj.max_amount:,.2f}' if obj.max_amount is not None else 'No maximum'
+        return f'{obj.currency} {obj.min_amount:,.2f} – {maximum}'
+
+    @admin.display(description='Interest')
+    def interest_summary(self, obj):
+        return f'{obj.interest_rate}% {obj.interest_rate_period} · {obj.get_interest_method_display()}'
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj and obj.status != obj.STATUS_DRAFT:
+            return tuple(field.name for field in self.model._meta.fields)
+        return self.readonly_fields
+
+    def get_inline_instances(self, request, obj=None):
+        instances = super().get_inline_instances(request, obj)
+        if obj and obj.status != obj.STATUS_DRAFT:
+            for inline in instances:
+                inline.has_add_permission = lambda request, obj=None: False
+                inline.has_change_permission = lambda request, obj=None: False
+                inline.has_delete_permission = lambda request, obj=None: False
+        return instances
+
+    def save_model(self, request, obj, form, change):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        if change and obj.status != obj.STATUS_DRAFT:
+            raise PermissionDenied
+        if not change:
+            obj.version = (ProductVersion.objects.filter(product=obj.product).aggregate(models.Max('version'))['version__max'] or 0) + 1
+            obj.created_by = request.user
+        obj.full_clean()
+        super().save_model(request, obj, form, change)
+
+    @admin.action(description='Publish selected product version')
+    def publish_selected_versions(self, request, queryset):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        if queryset.count() != 1:
+            self.message_user(request, 'Select exactly one product version.', level=messages.ERROR)
+            return
+        from core.services.product_catalog import ProductCatalogError, publish_product_version
+        try:
+            version = publish_product_version(version=queryset.first(), actor=request.user)
+        except (ProductCatalogError, ValidationError) as exc:
+            self.message_user(request, str(exc), level=messages.ERROR)
+            return
+        self.message_user(request, f'{version} is {version.status}.', level=messages.SUCCESS)
+
+    @admin.action(description='Create editable next version')
+    def create_next_version(self, request, queryset):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        if queryset.count() != 1:
+            self.message_user(request, 'Select exactly one product version.', level=messages.ERROR)
+            return
+        from core.services.product_catalog import clone_product_version
+        version = clone_product_version(queryset.first(), actor=request.user)
+        return HttpResponseRedirect(reverse('admin:core_productversion_change', args=[version.pk]))
+
+    def has_add_permission(self, request):
+        return request.user.is_superuser
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ProductMappingIssue)
+class ProductMappingIssueAdmin(CompactModelAdmin):
+    list_display = ('raw_value', 'source_workflow', 'source_model', 'source_record_id', 'status', 'product', 'created_at')
+    list_filter = ('status', 'source_workflow', 'source_model')
+    search_fields = ('raw_value', 'normalized_value', 'source_record_id')
+    readonly_fields = ('raw_value', 'normalized_value', 'source_workflow', 'source_model', 'source_record_id', 'status', 'resolved_by', 'resolved_at', 'created_at')
+
+    def save_model(self, request, obj, form, change):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        if obj.product_id and obj.status == obj.STATUS_OPEN:
+            from core.services.product_catalog import resolve_product_mapping_issue
+            resolve_product_mapping_issue(obj, product=obj.product, actor=request.user)
+            return
+        super().save_model(request, obj, form, change)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ProductVersionEvent)
+class ProductVersionEventAdmin(CompactModelAdmin):
+    list_display = ('product_version', 'action', 'actor', 'occurred_at')
+    list_filter = ('action', 'occurred_at')
+    search_fields = ('product_version__product__name', 'product_version__product__code')
+
+    def get_readonly_fields(self, request, obj=None):
+        return tuple(field.name for field in self.model._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 class JawabuCustomerPhoneHistoryInline(TabularInline):
@@ -4053,11 +4461,14 @@ class OriginationProductDefinitionAdmin(ModelAdmin):
         if change and obj.lifecycle_status != obj.STATUS_DRAFT:
             raise PermissionDenied
         if not change:
+            if obj.product_version_id:
+                obj.product_key = obj.product_version.product.code
+                obj.name = obj.product_version.product.name
             if OriginationProductDefinition.objects.filter(product_key=obj.product_key).exists():
                 raise ValidationError('This product key already exists. Create a new version from its existing record.')
             obj.version = 1
             obj.document_type = obj.product_key
-            obj.document_template_version = 1
+            obj.document_template_version = obj.version
             obj.lifecycle_status = obj.STATUS_DRAFT
             obj.is_active = False
         if not obj.created_by_id:

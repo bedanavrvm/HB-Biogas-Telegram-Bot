@@ -740,6 +740,55 @@ def complete_jbl_visit(
     }
 
 
+def _validate_farmer_product_configuration(
+    farmer: JawabuFarmerMaster,
+    *,
+    stage: str,
+    requirement_evidence=None,
+    custom_values=None,
+) -> str:
+    """Merge product-specific inputs and return a staff-safe transition error."""
+    if requirement_evidence is not None:
+        if not isinstance(requirement_evidence, dict):
+            return 'Product requirement evidence must be an object.'
+        farmer.product_requirement_evidence = {
+            **(farmer.product_requirement_evidence or {}), **requirement_evidence,
+        }
+    if custom_values is not None:
+        if not isinstance(custom_values, dict):
+            return 'Product custom values must be an object.'
+        farmer.product_custom_values = {
+            **(farmer.product_custom_values or {}), **custom_values,
+        }
+    if farmer.payment_product and not farmer.product_version_id:
+        return 'Map this case to a published global product version before continuing.'
+    from core.services.product_catalog import (
+        missing_product_requirements, product_is_available, validate_custom_values,
+    )
+    if farmer.product_id:
+        from core.models import OperationalLocation
+        branch_record = OperationalLocation.objects.filter(
+            location_type='branch', name__iexact=farmer.branch, active=True,
+        ).first()
+        if not product_is_available(
+            farmer.product, branch=branch_record,
+            workflow='jawabu_portal', channel='portal',
+        ):
+            return 'This product is not available for the case branch in Jawabu Portal.'
+    custom_errors = validate_custom_values(
+        farmer.product_version, farmer.product_custom_values, workflow='jawabu_portal',
+    )
+    if custom_errors:
+        return next(iter(custom_errors.values()))
+    missing = missing_product_requirements(
+        farmer.product_version, workflow='jawabu_portal', stage=stage,
+        evidence=farmer.product_requirement_evidence,
+    )
+    if missing:
+        return 'Complete required product evidence: ' + ', '.join(item['label'] for item in missing)
+    return ''
+
+
 @transaction.atomic
 def set_credit_decision(
     farmer: JawabuFarmerMaster,
@@ -753,6 +802,8 @@ def set_credit_decision(
     expected_revision: int | None = None,
     actor_user=None,
     access: dict | None = None,
+    product_requirement_evidence=None,
+    product_custom_values=None,
 ) -> tuple[bool, str]:
     """
     Record the credit analyst's decision (Stage 3 advance).
@@ -776,6 +827,13 @@ def set_credit_decision(
         return False, f"Invalid credit decision: '{decision}'. Must be one of: {', '.join(sorted(valid_decisions))}"
     if decision == 'Pending':
         return False, 'Pending is the initial credit state and cannot be selected as an analyst decision.'
+    product_error = _validate_farmer_product_configuration(
+        farmer, stage='credit_decision',
+        requirement_evidence=product_requirement_evidence,
+        custom_values=product_custom_values,
+    )
+    if product_error:
+        return False, product_error
 
     imab_created = str(imab_created or '').strip()
     customer_no = str(customer_no or '').strip()
@@ -821,6 +879,7 @@ def set_credit_decision(
         'credit_decided_by', 'credit_decided_at', 'updated_at',
         'deferred_at', 'deferred_stage', 'deferred_until',
         'workflow_state', 'workflow_state_entered_at', 'workflow_revision',
+        'product_requirement_evidence', 'product_custom_values',
     ])
     from core.services.jawabu_approvals import JawabuApprovalError, record_approval
     try:
@@ -877,6 +936,8 @@ def set_final_decision(
     expected_revision: int | None = None,
     actor_user=None,
     access: dict | None = None,
+    product_requirement_evidence=None,
+    product_custom_values=None,
 ) -> tuple[bool, str]:
     """
     Record Head of Rural final decision. Approved records enter the order queue.
@@ -900,6 +961,13 @@ def set_final_decision(
         return False, f"Invalid final decision: '{final_decision}'. Must be one of: {', '.join(sorted(valid_decisions))}"
     if final_decision == 'Under Review':
         return False, 'Under Review is the initial state and cannot be selected as a final decision.'
+    product_error = _validate_farmer_product_configuration(
+        farmer, stage='final_decision',
+        requirement_evidence=product_requirement_evidence,
+        custom_values=product_custom_values,
+    )
+    if product_error:
+        return False, product_error
 
     if not farmer.jbl_visit_date:
         return False, 'Cannot set final decision before the JBL/BRO visit is logged.'
@@ -949,6 +1017,7 @@ def set_final_decision(
         'final_decided_at', 'updated_at',
         'deferred_at', 'deferred_stage', 'deferred_until',
         'workflow_state', 'workflow_state_entered_at', 'workflow_revision',
+        'product_requirement_evidence', 'product_custom_values',
     ]
     if repayment_date is not None:
         farmer.repayment_date = str(repayment_date or '').strip()
@@ -1514,6 +1583,9 @@ def assign_order(
         return False, str(exc)
     if not _is_actionable_at_stage(farmer, JawabuWorkflowState.ORDER, deferred_stage='order'):
         return False, _wrong_stage_message(farmer, JawabuWorkflowState.ORDER)
+    product_error = _validate_farmer_product_configuration(farmer, stage='order')
+    if product_error:
+        return False, product_error
     prior_state = current_workflow_state(farmer)
 
     order_number = str(order_number or '').strip()
@@ -1663,6 +1735,12 @@ def farmer_to_card(
         'repayment_date': farmer.repayment_date,
         'repayment_tenor': farmer.repayment_tenor,
         'payment_product': farmer.payment_product,
+        'product_id': farmer.product_id,
+        'product_version_id': str(farmer.product_version_id or ''),
+        'product_terms': farmer.product_terms_snapshot,
+        'product_quote': farmer.product_quote_snapshot,
+        'product_requirements': farmer.product_requirement_evidence,
+        'product_custom_values': farmer.product_custom_values,
         'credit_decided_by': farmer.credit_decided_by,
         'credit_decided_at': (
             farmer.credit_decided_at.isoformat() if farmer.credit_decided_at else None

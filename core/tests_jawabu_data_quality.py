@@ -85,8 +85,13 @@ class JawabuDataQualityTests(TestCase):
         self.assertEqual(product.code, 'micro_asset')
 
     def test_tat_access_product_scope_uses_the_controlled_catalog(self):
-        OperationalProduct.objects.all().delete()
-        OperationalProduct.objects.create(name='Business', code='business', active=True)
+        # Products are durable catalogue identities once terms have been published.
+        OperationalProduct.objects.update(active=False)
+        business, _ = OperationalProduct.objects.get_or_create(
+            name='Business', defaults={'code': 'business', 'active': True},
+        )
+        business.active = True
+        business.save(update_fields=['active', 'updated_at'])
 
         role = validate_access_scope(
             workflow='tat_tracker', role='BRO', product='business', branch='', group_configuration=None,

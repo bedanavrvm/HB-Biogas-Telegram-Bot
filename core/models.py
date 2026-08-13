@@ -503,6 +503,19 @@ class SpinCreditRequest(models.Model):
     secondary_phone = models.CharField(max_length=50, blank=True, default='')
     customer_type = models.CharField(max_length=50, blank=True, default='')
     loan_product = models.CharField(max_length=255, blank=True, default='')
+    product = models.ForeignKey(
+        'Product', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='spin_credit_requests',
+    )
+    product_version = models.ForeignKey(
+        'ProductVersion', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='spin_credit_requests',
+    )
+    product_terms_snapshot = models.JSONField(default=dict, blank=True)
+    product_quote_snapshot = models.JSONField(default=dict, blank=True)
+    product_requirement_evidence = models.JSONField(default=dict, blank=True)
+    product_custom_values = models.JSONField(default=dict, blank=True)
+    product_selected_fee_keys = models.JSONField(default=list, blank=True)
     requested_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     tenor = models.CharField(max_length=100, blank=True, default='')
     business_notes = models.TextField(blank=True, default='')
@@ -542,6 +555,32 @@ class SpinCreditRequest(models.Model):
 
     def __str__(self):
         return f"{self.get_request_type_display()} {self.customer_name or self.national_id or self.primary_phone}".strip()
+
+    def save(self, *args, **kwargs):
+        from core.services.product_catalog import (
+            active_product_version, resolve_product, serialize_product_version,
+            stage_product_mapping_issue,
+        )
+        if self.product_id:
+            self.loan_product = self.product.name
+        elif self.loan_product:
+            self.product = resolve_product(self.loan_product)
+        if self.product_id and not self.product_version_id:
+            self.product_version = active_product_version(self.product)
+        if self.product_version_id and not self.product_terms_snapshot:
+            self.product_terms_snapshot = serialize_product_version(self.product_version)
+        update_fields = kwargs.get('update_fields')
+        if update_fields is not None:
+            kwargs['update_fields'] = set(update_fields) | {
+                'loan_product', 'product', 'product_version', 'product_terms_snapshot',
+            }
+        result = super().save(*args, **kwargs)
+        if self.loan_product and not self.product_id:
+            stage_product_mapping_issue(
+                self.loan_product, workflow='spin_credit_analysis',
+                source_model=type(self).__name__, source_record_id=self.pk,
+            )
+        return result
 
 
 class SpinBatchReviewItem(models.Model):
@@ -643,6 +682,19 @@ class TatTrackerCase(models.Model):
     case_id = models.CharField(max_length=128, db_index=True)
     product_key = models.CharField(max_length=80, db_index=True)
     product_label = models.CharField(max_length=120, blank=True, default='')
+    product = models.ForeignKey(
+        'Product', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='tat_cases',
+    )
+    product_version = models.ForeignKey(
+        'ProductVersion', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='tat_cases',
+    )
+    product_terms_snapshot = models.JSONField(default=dict, blank=True)
+    product_quote_snapshot = models.JSONField(default=dict, blank=True)
+    product_requirement_evidence = models.JSONField(default=dict, blank=True)
+    product_custom_values = models.JSONField(default=dict, blank=True)
+    product_selected_fee_keys = models.JSONField(default=list, blank=True)
     client_name = models.CharField(max_length=255, db_index=True)
     national_id = models.CharField(max_length=32, blank=True, default='', db_index=True)
     primary_phone = models.CharField(max_length=32, blank=True, default='', db_index=True)
@@ -785,6 +837,10 @@ class TatRepairJob(models.Model):
         related_name='tat_repair_jobs',
     )
     product_key = models.CharField(max_length=80, blank=True, default='', db_index=True)
+    product = models.ForeignKey(
+        'Product', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='tat_repair_jobs',
+    )
     case_ids = models.JSONField(blank=True, default=list)
     cursor = models.PositiveIntegerField(default=0)
     total_cases = models.PositiveIntegerField(default=0)
@@ -1124,6 +1180,19 @@ class JawabuFarmerMaster(models.Model):
         max_length=128, blank=True, default='',
         help_text='Payment document product value captured before order/payment generation.',
     )
+    product = models.ForeignKey(
+        'Product', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='jawabu_farmer_records',
+    )
+    product_version = models.ForeignKey(
+        'ProductVersion', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='jawabu_farmer_records',
+    )
+    product_terms_snapshot = models.JSONField(default=dict, blank=True)
+    product_quote_snapshot = models.JSONField(default=dict, blank=True)
+    product_requirement_evidence = models.JSONField(default=dict, blank=True)
+    product_custom_values = models.JSONField(default=dict, blank=True)
+    product_selected_fee_keys = models.JSONField(default=list, blank=True)
 
     # Stage 4: Head of Rural final review. This is the order-readiness gate.
     final_decision = models.CharField(
@@ -1215,6 +1284,32 @@ class JawabuFarmerMaster(models.Model):
         label = self.customer_name or self.national_id or self.primary_phone or 'unknown farmer'
         return f"{label} ({self.status})"
 
+    def save(self, *args, **kwargs):
+        from core.services.product_catalog import (
+            active_product_version, resolve_product, serialize_product_version,
+            stage_product_mapping_issue,
+        )
+        if self.product_id:
+            self.payment_product = self.product.name
+        elif self.payment_product:
+            self.product = resolve_product(self.payment_product)
+        if self.product_id and not self.product_version_id:
+            self.product_version = active_product_version(self.product)
+        if self.product_version_id and not self.product_terms_snapshot:
+            self.product_terms_snapshot = serialize_product_version(self.product_version)
+        update_fields = kwargs.get('update_fields')
+        if update_fields is not None:
+            kwargs['update_fields'] = set(update_fields) | {
+                'payment_product', 'product', 'product_version', 'product_terms_snapshot',
+            }
+        result = super().save(*args, **kwargs)
+        if self.payment_product and not self.product_id:
+            stage_product_mapping_issue(
+                self.payment_product, workflow='jawabu_portal',
+                source_model=type(self).__name__, source_record_id=self.pk,
+            )
+        return result
+
 
 class JawabuApprovalDelegation(models.Model):
     """Time-boxed authority to approve one Portal gate for another staff user."""
@@ -1237,6 +1332,10 @@ class JawabuApprovalDelegation(models.Model):
     source_role = models.CharField(max_length=80, default='BUSINESS_ADMIN')
     branch = models.CharField(max_length=128, blank=True, default='', db_index=True)
     product = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    product_ref = models.ForeignKey(
+        'Product', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='jawabu_approval_delegations',
+    )
     reason = models.TextField()
     authorized_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
@@ -1262,6 +1361,14 @@ class JawabuApprovalDelegation(models.Model):
     def active(self):
         current = timezone.now()
         return self.revoked_at is None and self.starts_at <= current < self.expires_at
+
+    def save(self, *args, **kwargs):
+        if self.product_ref_id:
+            self.product = self.product_ref.code
+        elif self.product:
+            from core.services.product_catalog import resolve_product
+            self.product_ref = resolve_product(self.product)
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return f'{self.delegate} - {self.get_gate_display()} until {self.expires_at:%d-%b-%Y}'
@@ -1706,6 +1813,10 @@ class WorkflowTatDailyMetric(models.Model):
     group_id = models.CharField(max_length=100, blank=True, default='', db_index=True)
     branch = models.CharField(max_length=128, blank=True, default='', db_index=True)
     product_key = models.CharField(max_length=80, blank=True, default='', db_index=True)
+    product = models.ForeignKey(
+        'Product', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='tat_daily_metrics',
+    )
     stage_key = models.CharField(max_length=120, db_index=True)
     responsible_role = models.CharField(max_length=80, blank=True, default='', db_index=True)
     responsible_actor = models.CharField(max_length=160, blank=True, default='', db_index=True)
@@ -1809,11 +1920,13 @@ class JawabuCustomerFieldProvenance(models.Model):
         verbose_name_plural = 'Jawabu customer field provenance'
 
 
-class OperationalProduct(models.Model):
-    """Single controlled catalog for products used by imports, scopes, and TAT."""
+class Product(models.Model):
+    """Stable global identity for a financial product used by every workflow."""
 
     name = models.CharField(max_length=128)
     code = models.CharField(max_length=64, blank=True, default='')
+    description = models.TextField(blank=True, default='')
+    category = models.CharField(max_length=64, blank=True, default='', db_index=True)
     active = models.BooleanField(default=True, db_index=True)
     sort_order = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1828,8 +1941,8 @@ class OperationalProduct(models.Model):
                 name='jawabu_unique_operational_product_code_ci',
             ),
         ]
-        verbose_name = 'Operational product'
-        verbose_name_plural = 'Operational products'
+        verbose_name = 'Product'
+        verbose_name_plural = 'Products'
 
     def clean(self):
         super().clean()
@@ -1840,9 +1953,477 @@ class OperationalProduct(models.Model):
         self.code = re.sub(r'[^a-z0-9]+', '_', str(self.code or '').casefold()).strip('_')
         if not self.name:
             raise ValidationError({'name': 'Enter a product name.'})
+        if not self.code:
+            raise ValidationError({'code': 'Enter a stable product code.'})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        if not self._state.adding:
+            previous_code = type(self).objects.filter(pk=self.pk).values_list('code', flat=True).first()
+            if previous_code is not None and previous_code != self.code:
+                raise ValidationError({'code': 'Product code is a stable identity and cannot be changed.'})
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name
+
+
+# Transitional Python import compatibility. The database model and content type
+# are now Product; older modules may continue importing OperationalProduct while
+# they move to the global catalogue service.
+OperationalProduct = Product
+
+
+class ProductAlias(models.Model):
+    """Approved external/import spelling for one canonical product."""
+
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='aliases')
+    alias = models.CharField(max_length=160)
+    normalized_alias = models.CharField(max_length=160, unique=True, db_index=True, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['alias']
+        verbose_name_plural = 'Product aliases'
+
+    def clean(self):
+        super().clean()
+        self.alias = ' '.join(str(self.alias or '').split())
+        self.normalized_alias = re.sub(r'[^a-z0-9]+', '_', self.alias.casefold()).strip('_')
+        if not self.normalized_alias:
+            raise ValidationError({'alias': 'Enter a usable product alias.'})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.alias} → {self.product}'
+
+
+class ProductVersion(models.Model):
+    """Immutable, effective-dated commercial terms for a global product."""
+
+    STATUS_DRAFT = 'draft'
+    STATUS_SCHEDULED = 'scheduled'
+    STATUS_PUBLISHED = 'published'
+    STATUS_RETIRED = 'retired'
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, 'Draft'),
+        (STATUS_SCHEDULED, 'Scheduled'),
+        (STATUS_PUBLISHED, 'Published'),
+        (STATUS_RETIRED, 'Retired'),
+    ]
+    TENOR_WEEK = 'week'
+    TENOR_MONTH = 'month'
+    TENOR_UNIT_CHOICES = [(TENOR_WEEK, 'Weeks'), (TENOR_MONTH, 'Months')]
+    INTEREST_FLAT = 'flat'
+    INTEREST_REDUCING = 'reducing'
+    INTEREST_METHOD_CHOICES = [
+        (INTEREST_FLAT, 'Flat rate'),
+        (INTEREST_REDUCING, 'Reducing balance'),
+    ]
+    RATE_MONTHLY = 'monthly'
+    RATE_ANNUAL = 'annual'
+    RATE_PERIOD_CHOICES = [(RATE_MONTHLY, 'Monthly'), (RATE_ANNUAL, 'Annual')]
+    REPAYMENT_WEEKLY = 'weekly'
+    REPAYMENT_FORTNIGHTLY = 'fortnightly'
+    REPAYMENT_MONTHLY = 'monthly'
+    REPAYMENT_FREQUENCY_CHOICES = [
+        (REPAYMENT_WEEKLY, 'Weekly'),
+        (REPAYMENT_FORTNIGHTLY, 'Fortnightly'),
+        (REPAYMENT_MONTHLY, 'Monthly'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name='versions')
+    version = models.PositiveIntegerField()
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_DRAFT, db_index=True)
+    currency = models.CharField(max_length=3, default='KES')
+    min_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    max_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    min_tenor = models.PositiveSmallIntegerField(default=1)
+    max_tenor = models.PositiveSmallIntegerField(default=12)
+    tenor_unit = models.CharField(max_length=12, choices=TENOR_UNIT_CHOICES, default=TENOR_MONTH)
+    interest_method = models.CharField(
+        max_length=16, choices=INTEREST_METHOD_CHOICES, default=INTEREST_FLAT,
+    )
+    interest_rate = models.DecimalField(max_digits=9, decimal_places=6, default=0)
+    interest_rate_period = models.CharField(
+        max_length=12, choices=RATE_PERIOD_CHOICES, default=RATE_ANNUAL,
+    )
+    repayment_frequency = models.CharField(
+        max_length=16, choices=REPAYMENT_FREQUENCY_CHOICES, default=REPAYMENT_MONTHLY,
+    )
+    quote_amount_field_key = models.SlugField(
+        max_length=80, default='loan_amount',
+        help_text='Origination/workflow variable containing the requested principal.',
+    )
+    quote_tenor_field_key = models.SlugField(
+        max_length=80, default='repayment_period',
+        help_text='Origination/workflow variable containing the numeric tenor.',
+    )
+    effective_from = models.DateField(default=timezone.localdate, db_index=True)
+    effective_to = models.DateField(null=True, blank=True, db_index=True)
+    supersedes = models.ForeignKey(
+        'self', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='superseded_by_versions',
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='created_product_versions',
+    )
+    published_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='published_product_versions',
+    )
+    published_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['product__sort_order', 'product__name', '-version']
+        constraints = [
+            models.UniqueConstraint(fields=['product', 'version'], name='unique_global_product_version'),
+        ]
+        indexes = [models.Index(fields=['product', 'status', 'effective_from'])]
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        self.currency = str(self.currency or '').upper().strip()
+        if len(self.currency) != 3:
+            errors['currency'] = 'Use a three-letter currency code.'
+        if self.min_amount < 0:
+            errors['min_amount'] = 'Minimum amount cannot be negative.'
+        if self.max_amount is not None and self.max_amount < self.min_amount:
+            errors['max_amount'] = 'Maximum amount cannot be below the minimum amount.'
+        if self.min_tenor < 1:
+            errors['min_tenor'] = 'Minimum tenor must be at least one.'
+        if self.max_tenor < self.min_tenor:
+            errors['max_tenor'] = 'Maximum tenor cannot be below the minimum tenor.'
+        if self.interest_rate < 0:
+            errors['interest_rate'] = 'Interest rate cannot be negative.'
+        if self.effective_to and self.effective_to < self.effective_from:
+            errors['effective_to'] = 'Effective-to date cannot precede effective-from.'
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if self._state.adding:
+            if self.status != self.STATUS_DRAFT and not getattr(self, '_allow_catalog_publication', False):
+                raise ValidationError(
+                    'New product versions must begin as drafts and be published through the catalogue service.'
+                )
+        else:
+            previous = type(self).objects.filter(pk=self.pk).first()
+            if previous:
+                immutable_fields = (
+                    'product_id', 'version', 'status', 'currency', 'min_amount', 'max_amount',
+                    'min_tenor', 'max_tenor', 'tenor_unit', 'interest_method', 'interest_rate',
+                    'interest_rate_period', 'repayment_frequency', 'quote_amount_field_key',
+                    'quote_tenor_field_key', 'effective_from', 'effective_to', 'supersedes_id',
+                )
+                changed = [
+                    field for field in immutable_fields
+                    if getattr(previous, field) != getattr(self, field)
+                ]
+                if (
+                    previous.status != self.STATUS_DRAFT
+                    and changed
+                    and not getattr(self, '_allow_catalog_publication', False)
+                ):
+                    raise ValidationError(
+                        'Published product versions are immutable. Create the next version instead.'
+                    )
+                if (
+                    previous.status == self.STATUS_DRAFT
+                    and self.status != self.STATUS_DRAFT
+                    and not getattr(self, '_allow_catalog_publication', False)
+                ):
+                    raise ValidationError('Publish product versions through the catalogue service.')
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.product.name} v{self.version}'
+
+
+def _require_draft_product_configuration(product_version: ProductVersion) -> None:
+    if product_version.status != ProductVersion.STATUS_DRAFT:
+        raise ValidationError(
+            'Published product configuration is immutable. Create the next version instead.'
+        )
+
+
+class ProductFee(models.Model):
+    TYPE_FIXED = 'fixed'
+    TYPE_PERCENTAGE = 'percentage'
+    TYPE_CHOICES = [(TYPE_FIXED, 'Fixed amount'), (TYPE_PERCENTAGE, 'Percentage')]
+    BASIS_PRINCIPAL = 'principal'
+    BASIS_FINANCED = 'financed_principal'
+    BASIS_INTEREST = 'interest'
+    BASIS_TOTAL = 'principal_interest'
+    BASIS_CHOICES = [
+        (BASIS_PRINCIPAL, 'Principal'),
+        (BASIS_FINANCED, 'Financed principal'),
+        (BASIS_INTEREST, 'Interest'),
+        (BASIS_TOTAL, 'Principal plus interest'),
+    ]
+    COLLECTION_UPFRONT = 'upfront'
+    COLLECTION_FINANCED = 'financed'
+    COLLECTION_CHOICES = [(COLLECTION_UPFRONT, 'Upfront'), (COLLECTION_FINANCED, 'Financed')]
+
+    product_version = models.ForeignKey(ProductVersion, on_delete=models.CASCADE, related_name='fees')
+    key = models.SlugField(max_length=80)
+    label = models.CharField(max_length=160)
+    fee_type = models.CharField(max_length=16, choices=TYPE_CHOICES, default=TYPE_FIXED)
+    fixed_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    percentage = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    calculation_basis = models.CharField(max_length=24, choices=BASIS_CHOICES, default=BASIS_PRINCIPAL)
+    minimum_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    maximum_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    collection_mode = models.CharField(max_length=16, choices=COLLECTION_CHOICES, default=COLLECTION_UPFRONT)
+    mandatory = models.BooleanField(default=True)
+    position = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ['position', 'id']
+        constraints = [models.UniqueConstraint(fields=['product_version', 'key'], name='unique_product_fee_key')]
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.fee_type == self.TYPE_FIXED and self.fixed_amount is None:
+            errors['fixed_amount'] = 'Enter the fixed fee amount.'
+        if self.fee_type == self.TYPE_PERCENTAGE and self.percentage is None:
+            errors['percentage'] = 'Enter the fee percentage.'
+        if self.fixed_amount is not None and self.fixed_amount < 0:
+            errors['fixed_amount'] = 'Fee amount cannot be negative.'
+        if self.percentage is not None and self.percentage < 0:
+            errors['percentage'] = 'Fee percentage cannot be negative.'
+        if self.minimum_amount is not None and self.minimum_amount < 0:
+            errors['minimum_amount'] = 'Minimum fee cannot be negative.'
+        if self.maximum_amount is not None and self.maximum_amount < 0:
+            errors['maximum_amount'] = 'Maximum fee cannot be negative.'
+        if self.collection_mode == self.COLLECTION_FINANCED and self.calculation_basis in {self.BASIS_INTEREST, self.BASIS_TOTAL}:
+            errors['calculation_basis'] = 'A financed fee must be based on principal to avoid circular calculations.'
+        if self.maximum_amount is not None and self.minimum_amount is not None and self.maximum_amount < self.minimum_amount:
+            errors['maximum_amount'] = 'Maximum fee cannot be below the minimum fee.'
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        _require_draft_product_configuration(self.product_version)
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        _require_draft_product_configuration(self.product_version)
+        return super().delete(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.product_version}: {self.label}'
+
+
+class ProductRequirement(models.Model):
+    TYPE_DOCUMENT = 'document'
+    TYPE_ELIGIBILITY = 'eligibility'
+    TYPE_CHECKBOX = 'checkbox'
+    TYPE_AMOUNT = 'amount'
+    TYPE_TEXT = 'text'
+    TYPE_CHOICES = [
+        (TYPE_DOCUMENT, 'Document'),
+        (TYPE_ELIGIBILITY, 'Eligibility rule'),
+        (TYPE_CHECKBOX, 'Confirmation'),
+        (TYPE_AMOUNT, 'Amount evidence'),
+        (TYPE_TEXT, 'Text evidence'),
+    ]
+
+    product_version = models.ForeignKey(ProductVersion, on_delete=models.CASCADE, related_name='requirements')
+    key = models.SlugField(max_length=80)
+    label = models.CharField(max_length=160)
+    description = models.TextField(blank=True, default='')
+    requirement_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    workflow = models.CharField(max_length=40, blank=True, default='', db_index=True)
+    enforcement_stage = models.CharField(max_length=80, blank=True, default='', db_index=True)
+    required = models.BooleanField(default=True)
+    validation_config = models.JSONField(default=dict, blank=True)
+    position = models.PositiveSmallIntegerField(default=0)
+    active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ['position', 'id']
+        constraints = [models.UniqueConstraint(fields=['product_version', 'key'], name='unique_product_requirement_key')]
+
+    def __str__(self):
+        return f'{self.product_version}: {self.label}'
+
+    def save(self, *args, **kwargs):
+        _require_draft_product_configuration(self.product_version)
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        _require_draft_product_configuration(self.product_version)
+        return super().delete(*args, **kwargs)
+
+
+class ProductCustomAttribute(models.Model):
+    TYPE_TEXT = 'text'
+    TYPE_NUMBER = 'number'
+    TYPE_MONEY = 'money'
+    TYPE_DATE = 'date'
+    TYPE_BOOLEAN = 'boolean'
+    TYPE_CHOICE = 'choice'
+    TYPE_CHOICES = [
+        (TYPE_TEXT, 'Text'), (TYPE_NUMBER, 'Number'), (TYPE_MONEY, 'Money'),
+        (TYPE_DATE, 'Date'), (TYPE_BOOLEAN, 'Yes / No'), (TYPE_CHOICE, 'Choice'),
+    ]
+
+    product_version = models.ForeignKey(ProductVersion, on_delete=models.CASCADE, related_name='custom_attributes')
+    key = models.SlugField(max_length=80)
+    label = models.CharField(max_length=160)
+    attribute_type = models.CharField(max_length=16, choices=TYPE_CHOICES)
+    required = models.BooleanField(default=False)
+    help_text = models.CharField(max_length=500, blank=True, default='')
+    options = models.JSONField(default=list, blank=True)
+    validation_config = models.JSONField(default=dict, blank=True)
+    default_value = models.JSONField(null=True, blank=True)
+    workflow_visibility = models.JSONField(default=list, blank=True)
+    position = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ['position', 'id']
+        constraints = [models.UniqueConstraint(fields=['product_version', 'key'], name='unique_product_attribute_key')]
+
+    def clean(self):
+        super().clean()
+        if self.attribute_type == self.TYPE_CHOICE and not [item for item in (self.options or []) if str(item).strip()]:
+            raise ValidationError({'options': 'Choice attributes require at least one option.'})
+        pattern = (self.validation_config or {}).get('pattern')
+        if pattern:
+            try:
+                re.compile(str(pattern))
+            except re.error as exc:
+                raise ValidationError({'validation_config': f'Invalid regular expression: {exc}.'}) from exc
+
+    def __str__(self):
+        return f'{self.product_version}: {self.label}'
+
+    def save(self, *args, **kwargs):
+        _require_draft_product_configuration(self.product_version)
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        _require_draft_product_configuration(self.product_version)
+        return super().delete(*args, **kwargs)
+
+
+class ProductAvailability(models.Model):
+    CHANNEL_CHOICES = [
+        ('portal', 'Portal'), ('telegram', 'Telegram'), ('admin', 'Django Admin'),
+        ('import', 'Imports'), ('api', 'API'),
+    ]
+
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='availability_assignments')
+    branch = models.ForeignKey(
+        'OperationalLocation', null=True, blank=True, on_delete=models.PROTECT,
+        limit_choices_to={'location_type': 'branch'}, related_name='product_availability_assignments',
+    )
+    workflow = models.CharField(max_length=40, blank=True, default='', db_index=True)
+    channel = models.CharField(max_length=16, choices=CHANNEL_CHOICES, blank=True, default='', db_index=True)
+    scope_signature = models.CharField(max_length=180, editable=False)
+    active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['product__sort_order', 'product__name', 'workflow', 'channel']
+        constraints = [models.UniqueConstraint(fields=['product', 'scope_signature'], name='unique_product_availability_scope')]
+
+    def clean(self):
+        super().clean()
+        if self.branch_id and self.branch.location_type != 'branch':
+            raise ValidationError({'branch': 'Product availability can only reference branch locations.'})
+        self.scope_signature = f'branch:{self.branch_id or "*"}|workflow:{self.workflow or "*"}|channel:{self.channel or "*"}'
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+
+class ProductTatConfiguration(models.Model):
+    """Versioned TAT and Sheet adapter for one product version."""
+
+    product_version = models.OneToOneField(ProductVersion, on_delete=models.CASCADE, related_name='tat_configuration')
+    sheet_name = models.CharField(max_length=160)
+    case_prefix = models.CharField(max_length=32)
+    remarks_col = models.PositiveSmallIntegerField()
+    status_col = models.PositiveSmallIntegerField()
+    tat_start_col = models.PositiveSmallIntegerField()
+    stage_columns = models.JSONField(default=dict)
+    stages = models.JSONField(default=list)
+    stage_tat_columns = models.JSONField(default=list, blank=True)
+
+    def __str__(self):
+        return f'{self.product_version}: TAT configuration'
+
+    def save(self, *args, **kwargs):
+        _require_draft_product_configuration(self.product_version)
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        _require_draft_product_configuration(self.product_version)
+        return super().delete(*args, **kwargs)
+
+
+class ProductVersionEvent(models.Model):
+    """Append-only product-terms publication and lifecycle evidence."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    product_version = models.ForeignKey(ProductVersion, on_delete=models.PROTECT, related_name='events')
+    action = models.CharField(max_length=40, db_index=True)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name='+')
+    metadata = models.JSONField(default=dict, blank=True)
+    occurred_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ['occurred_at', 'id']
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError('Product version events are append-only.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Product version events cannot be deleted.')
+
+
+class ProductMappingIssue(models.Model):
+    STATUS_OPEN = 'open'
+    STATUS_RESOLVED = 'resolved'
+    STATUS_CHOICES = [(STATUS_OPEN, 'Open'), (STATUS_RESOLVED, 'Resolved')]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    raw_value = models.CharField(max_length=255)
+    normalized_value = models.CharField(max_length=160, db_index=True)
+    source_workflow = models.CharField(max_length=40, db_index=True)
+    source_model = models.CharField(max_length=120, blank=True, default='')
+    source_record_id = models.CharField(max_length=120, blank=True, default='')
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_OPEN, db_index=True)
+    product = models.ForeignKey(Product, null=True, blank=True, on_delete=models.PROTECT, related_name='mapping_issues')
+    resolved_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name='+')
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [models.UniqueConstraint(
+            fields=['normalized_value', 'source_workflow', 'source_model', 'source_record_id'],
+            condition=models.Q(status='open'), name='unique_open_product_mapping_issue',
+        )]
 
 
 class UserProfile(models.Model):
@@ -2108,6 +2689,10 @@ class AccessGrant(models.Model):
     role = models.CharField(max_length=80, db_index=True)
     branch = models.CharField(max_length=120, blank=True, default='', db_index=True)
     product = models.CharField(max_length=120, blank=True, default='', db_index=True)
+    product_ref = models.ForeignKey(
+        'Product', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='access_grants',
+    )
     group_configuration = models.ForeignKey(
         'GroupSheetConfiguration', on_delete=models.CASCADE, null=True, blank=True,
         related_name='user_access_grants',
@@ -2147,6 +2732,11 @@ class AccessGrant(models.Model):
 
         if self.workflow:
             self.role = canonical_access_role(self.workflow, self.role)
+        if self.product_ref_id:
+            self.product = self.product_ref.code
+        elif self.product:
+            from core.services.product_catalog import resolve_product
+            self.product_ref = resolve_product(self.product)
         with transaction.atomic():
             super().save(*args, **kwargs)
 
@@ -2459,6 +3049,10 @@ class EmergencyAccessGrant(models.Model):
     role = models.CharField(max_length=80)
     branch = models.CharField(max_length=120, blank=True, default='')
     product = models.CharField(max_length=120, blank=True, default='')
+    product_ref = models.ForeignKey(
+        'Product', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='emergency_access_grants',
+    )
     group_configuration = models.ForeignKey('GroupSheetConfiguration', null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
     reason = models.TextField()
     activated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='activated_emergency_access')
@@ -2474,6 +3068,14 @@ class EmergencyAccessGrant(models.Model):
     @property
     def active(self):
         return self.revoked_at is None and self.expires_at > timezone.now()
+
+    def save(self, *args, **kwargs):
+        if self.product_ref_id:
+            self.product = self.product_ref.code
+        elif self.product:
+            from core.services.product_catalog import resolve_product
+            self.product_ref = resolve_product(self.product)
+        return super().save(*args, **kwargs)
 
 
 class AccessControlNotification(models.Model):
@@ -2560,6 +3162,10 @@ class OriginationProductDefinition(models.Model):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    product_version = models.ForeignKey(
+        ProductVersion, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='origination_definitions',
+    )
     product_key = models.SlugField(max_length=80, db_index=True)
     name = models.CharField(max_length=160)
     version = models.PositiveIntegerField(default=1)
@@ -2609,6 +3215,11 @@ class OriginationProductDefinition(models.Model):
 
     def clean(self):
         super().clean()
+        if self.product_version_id:
+            if self.product_key != self.product_version.product.code:
+                raise ValidationError({'product_key': 'Origination product key must match the global product code.'})
+            if self.name != self.product_version.product.name:
+                raise ValidationError({'name': 'Origination product name must match the global product name.'})
         if self.is_active or self.lifecycle_status == self.STATUS_PUBLISHED:
             from core.services.loan_origination import OriginationError, validate_product_definition
             try:
@@ -2795,6 +3406,10 @@ class LoanOriginationApplication(models.Model):
     product_definition = models.ForeignKey(
         OriginationProductDefinition, on_delete=models.PROTECT, related_name='applications',
     )
+    product_version = models.ForeignKey(
+        ProductVersion, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='origination_applications',
+    )
     customer = models.ForeignKey(
         'JawabuCustomer', null=True, blank=True, on_delete=models.PROTECT,
         related_name='origination_applications',
@@ -2812,6 +3427,11 @@ class LoanOriginationApplication(models.Model):
     schema_snapshot = models.JSONField(default=dict)
     signer_rules_snapshot = models.JSONField(default=list)
     template_configuration_snapshot = models.JSONField(default=dict, blank=True)
+    product_terms_snapshot = models.JSONField(default=dict, blank=True)
+    product_quote_snapshot = models.JSONField(default=dict, blank=True)
+    product_requirement_evidence = models.JSONField(default=dict, blank=True)
+    product_custom_values = models.JSONField(default=dict, blank=True)
+    product_selected_fee_keys = models.JSONField(default=list, blank=True)
     identity_snapshot = models.JSONField(default=dict, blank=True)
     client_request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
     reviewed_by = models.ForeignKey(

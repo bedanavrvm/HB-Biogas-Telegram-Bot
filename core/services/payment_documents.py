@@ -325,6 +325,19 @@ def _row_payload(
     except JawabuApprovalError:
         missing.append('Current final approval')
 
+    if farmer.payment_product and not farmer.product_version_id:
+        missing.append('Global product mapping')
+    elif farmer.product_version_id:
+        from core.services.product_catalog import missing_product_requirements
+
+        product_missing = missing_product_requirements(
+            farmer.product_version,
+            workflow='jawabu_portal',
+            stage='payment',
+            evidence=farmer.product_requirement_evidence,
+        )
+        missing.extend(item['label'] for item in product_missing)
+
     from core.services.requisition import requisition_deposit_values
 
     hbg_deposit, jbl_deposit = requisition_deposit_values(farmer)

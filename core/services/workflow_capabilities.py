@@ -104,10 +104,10 @@ def capability_definitions() -> tuple[CapabilityDefinition, ...]:
     definitions = list(_STATIC_CAPABILITIES)
     try:
         # Lazy import avoids a module cycle while the TAT service starts.
-        from core.services.tat_tracker import PRODUCTS
+        from core.services.tat_tracker import configured_products
 
         stages: dict[str, tuple[str, str]] = {}
-        for product in PRODUCTS.values():
+        for product in configured_products():
             for stage in product.stages:
                 stages.setdefault(stage.key, (stage.label, stage.role))
         for stage_key, (label, role) in sorted(stages.items()):

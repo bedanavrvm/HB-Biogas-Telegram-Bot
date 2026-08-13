@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=101">
-  <link rel="stylesheet" href="{% static 'miniapp/spin_form.css' %}?v=103">
+  <link rel="stylesheet" href="{% static 'miniapp/spin_form.css' %}?v=104">
   <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=14">
 </head>
 <body class="workflow-standard spin-app">
@@ -115,15 +115,9 @@
         <label class="field">
           <span>Loan Product</span>
           <input name="loan_product" list="loanProducts" placeholder="Msingi">
-          <datalist id="loanProducts">
-            <option value="Msingi"></option>
-            <option value="Daraja"></option>
-            <option value="Kilimo Biashara"></option>
-            <option value="Logbook"></option>
-            <option value="Digital"></option>
-            <option value="Biashara"></option>
-          </datalist>
+          <datalist id="loanProducts"></datalist>
         </label>
+        <div id="spinProductConfiguration" class="wide" hidden></div>
         <label class="field">
           <span>MPESA Statement Code</span>
           <input name="code" placeholder="Optional MPESA statement code">
@@ -335,7 +329,7 @@
         </label>
         <label class="field">
           <span>Loan Product</span>
-          <input name="loan_product">
+          <input name="loan_product" list="loanProducts">
         </label>
         <label class="field">
           <span>MPESA Statement Code</span>
@@ -360,7 +354,7 @@
 <script src="{% static 'miniapp/telegram.js' %}"></script>
   <script src="{% static 'miniapp/utils.js' %}?v=3"></script>
   <script src="{% static 'miniapp/spin_api.js' %}?v=1"></script>
-  <script src="{% static 'miniapp/spin_form.js' %}?v=109"></script>
+  <script src="{% static 'miniapp/spin_form.js' %}?v=110"></script>
 </body>
 </html>
 

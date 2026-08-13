@@ -680,6 +680,9 @@ def tat_tracker_update(request):
             payload.get('updates') or [],
             expected_revision=expected_revision,
             request_id=str(payload.get('request_id') or request.headers.get('X-Request-ID') or ''),
+            requirement_evidence=payload.get('product_requirement_evidence'),
+            custom_values=payload.get('product_custom_values'),
+            selected_fee_keys=payload.get('product_selected_fee_keys'),
         )
         _dispatch_tat_approval_certificate(payload.get('case_id', ''), user)
         _send_tat_next_role_alert(group_config, data)
@@ -1290,11 +1293,26 @@ def spin_form(request):
         if group_config and is_spin_workflow(group_config):
             branch_choices = spin_branch_choices(group_config)
             default_branch = spin_default_branch(group_config)
+    from core.models import Product
+    from core.services.product_catalog import (
+        active_product_version, product_is_selectable, serialize_product_version,
+    )
+    product_options = []
+    for product in Product.objects.filter(active=True).order_by('sort_order', 'name'):
+        version = active_product_version(product)
+        if version and product_is_selectable(
+            product=product, workflow='spin_credit_analysis', channel='portal',
+        ):
+            product_options.append({
+                'code': product.code, 'name': product.name,
+                'terms': serialize_product_version(version),
+            })
     payload = {
         'group_id': group_id,
         'form_token': form_token,
         'branch_choices': branch_choices,
         'default_branch': default_branch,
+        'product_options': product_options,
     }
     return render(
         request,
@@ -1463,6 +1481,12 @@ def spin_form_requests(request):
             'secondary_phone': r.secondary_phone,
             'customer_type': r.customer_type,
             'loan_product': r.loan_product,
+            'product_id': r.product_id,
+            'product_version_id': str(r.product_version_id or ''),
+            'product_terms': r.product_terms_snapshot,
+            'product_quote': r.product_quote_snapshot,
+            'product_requirements': r.product_requirement_evidence,
+            'product_custom_values': r.product_custom_values,
             'requested_amount': float(r.requested_amount) if r.requested_amount is not None else 0.0,
             'tenor': r.tenor,
             'business_notes': r.business_notes,
@@ -1587,6 +1611,17 @@ def spin_form_complete(request):
             'sheet_synced': True,
             'idempotent_replay': True,
         })
+    from core.services.product_catalog import missing_product_requirements
+    missing_requirements = missing_product_requirements(
+        record.product_version, workflow='spin_credit_analysis', stage='completed',
+        evidence=record.product_requirement_evidence,
+    )
+    if missing_requirements:
+        return JsonResponse({
+            'success': False,
+            'message': 'Complete required product evidence before analysis completion: '
+                       + ', '.join(item['label'] for item in missing_requirements),
+        }, status=400)
     spin_report = request.FILES.get('spin_report')
     crb_report = request.FILES.get('crb_report')
     credit_analysis = request.FILES.get('credit_analysis')

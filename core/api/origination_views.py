@@ -94,16 +94,36 @@ def portal_origination_products(request):
     error = _capability_error(request, 'portal.origination.view')
     if error:
         return error
-    products = OriginationProductDefinition.objects.filter(is_active=True).order_by('name')
-    return JsonResponse({'ok': True, 'products': [{
-        'product_key': item.product_key, 'name': item.name, 'version': item.version,
-        'form_schema': item.form_schema, 'signer_rules': item.signer_rules,
-        'lifecycle_status': item.lifecycle_status,
-        'document_type': item.document_type,
-        'document_template_name': item.document_template_name,
-        'document_template_version': item.document_template_version,
-        'template_ready': bool(item.document_template_sha256),
-    } for item in products]})
+    products = OriginationProductDefinition.objects.filter(is_active=True).select_related(
+        'product_version__product',
+    ).order_by('name')
+    from core.services.product_catalog import (
+        active_product_version, product_is_selectable, serialize_product_version,
+    )
+    payload = []
+    for item in products:
+        if item.product_version_id:
+            current = active_product_version(item.product_version.product)
+            if current is None or current.pk != item.product_version_id:
+                continue
+            if not product_is_selectable(
+                product=item.product_version.product,
+                workflow='loan_origination', channel='portal',
+            ):
+                continue
+        payload.append({
+            'id': item.product_version.product_id if item.product_version_id else None,
+            'product_key': item.product_key, 'name': item.name, 'version': item.version,
+            'global_product_version_id': str(item.product_version_id or ''),
+            'terms': serialize_product_version(item.product_version) if item.product_version_id else {},
+            'form_schema': item.form_schema, 'signer_rules': item.signer_rules,
+            'lifecycle_status': item.lifecycle_status,
+            'document_type': item.document_type,
+            'document_template_name': item.document_template_name,
+            'document_template_version': item.document_template_version,
+            'template_ready': bool(item.document_template_sha256),
+        })
+    return JsonResponse({'ok': True, 'products': payload})
 
 
 @csrf_exempt
@@ -162,6 +182,9 @@ def portal_origination_application_detail(request, application_id: str):
             application_id=application.pk, actor=request.portal_user,
             payload=body.get('form_payload', {}), expected_revision=int(body.get('revision')),
             request_id=_request_id(request, body),
+            requirement_evidence=body.get('product_requirement_evidence'),
+            custom_values=body.get('product_custom_values'),
+            selected_fee_keys=body.get('product_selected_fee_keys'),
         )
     except OriginationConflict as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)

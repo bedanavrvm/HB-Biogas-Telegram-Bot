@@ -93,8 +93,67 @@
     reviewBranchSelect.removeAttribute('name');
     reviewBranchField.hidden = true;
   }
+  const productOptions = Array.isArray(config.product_options) ? config.product_options : [];
+  const loanProducts = document.getElementById('loanProducts');
+  const productConfiguration = document.getElementById('spinProductConfiguration');
+  if (loanProducts) {
+    loanProducts.innerHTML = productOptions.map(product => `<option value="${escapeHtml(product.name)}"></option>`).join('');
+  }
 
   function field(name) { return form.elements[name]; }
+
+  function selectedProduct() {
+    const wanted = String(field('loan_product')?.value || '').trim().toLowerCase();
+    return productOptions.find(product => [product.name, product.code].some(value => String(value || '').toLowerCase() === wanted)) || null;
+  }
+
+  function productControl(item, value, attribute) {
+    const data = `${attribute}="${escapeHtml(item.key)}"`;
+    if (['boolean', 'checkbox', 'eligibility'].includes(item.type)) {
+      return `<label class="checkbox-row"><input type="checkbox" ${data}${value === true ? ' checked' : ''}><span>Confirmed</span></label>`;
+    }
+    if (item.type === 'choice') {
+      return `<select ${data}><option value="">Choose</option>${(item.options || []).map(option => `<option value="${escapeHtml(option)}"${value === option ? ' selected' : ''}>${escapeHtml(option)}</option>`).join('')}</select>`;
+    }
+    const type = item.type === 'date' ? 'date' : ['number', 'money', 'amount'].includes(item.type) ? 'number' : 'text';
+    return `<input type="${type}" ${data} value="${escapeHtml(value ?? '')}"${type === 'number' ? ' step="any" inputmode="decimal"' : ''}${item.type === 'document' ? ' placeholder="Document reference or evidence note"' : ''}>`;
+  }
+
+  function renderProductConfiguration(saved) {
+    if (!productConfiguration) return;
+    const selected = selectedProduct();
+    const terms = selected?.terms || {};
+    const requirements = (terms.requirements || []).filter(item => !item.workflow || item.workflow === 'spin_credit_analysis');
+    const attributes = (terms.custom_attributes || []).filter(item => !(item.workflows || []).length || item.workflows.includes('spin_credit_analysis'));
+    const fees = (terms.fees || []).filter(item => !item.mandatory);
+    if (!selected || (!requirements.length && !attributes.length && !fees.length)) {
+      productConfiguration.hidden = true;
+      productConfiguration.innerHTML = '';
+      return;
+    }
+    const evidence = saved?.requirements || {};
+    const values = saved?.customValues || {};
+    const selectedFees = new Set(saved?.selectedFeeKeys || []);
+    const requirementRows = requirements.map(item => `<label class="field"><span>${escapeHtml(item.label)}${item.required ? ' *' : ''}</span>${item.description ? `<small>${escapeHtml(item.description)}</small>` : ''}${productControl(item, evidence[item.key], 'data-product-requirement')}</label>`).join('');
+    const attributeRows = attributes.map(item => `<label class="field"><span>${escapeHtml(item.label)}${item.required ? ' *' : ''}</span>${item.help_text ? `<small>${escapeHtml(item.help_text)}</small>` : ''}${productControl(item, values[item.key] ?? item.default, 'data-product-custom')}</label>`).join('');
+    const feeRows = fees.map(item => `<label class="field"><span>${escapeHtml(item.label)}</span><label class="checkbox-row"><input type="checkbox" data-product-fee="${escapeHtml(item.key)}"${selectedFees.has(item.key) ? ' checked' : ''}><span>Include optional ${escapeHtml(item.collection_mode)} fee</span></label></label>`).join('');
+    productConfiguration.innerHTML = `<h3>Product-specific requirements</h3><div class="grid-2">${requirementRows}${attributeRows}${feeRows}</div>`;
+    productConfiguration.hidden = false;
+  }
+
+  function productConfigurationValues() {
+    const requirements = {};
+    const customValues = {};
+    const selectedFeeKeys = [];
+    productConfiguration?.querySelectorAll('[data-product-requirement]').forEach(input => {
+      requirements[input.dataset.productRequirement] = input.type === 'checkbox' ? input.checked : input.value;
+    });
+    productConfiguration?.querySelectorAll('[data-product-custom]').forEach(input => {
+      customValues[input.dataset.productCustom] = input.type === 'checkbox' ? input.checked : input.value;
+    });
+    productConfiguration?.querySelectorAll('[data-product-fee]:checked').forEach(input => selectedFeeKeys.push(input.dataset.productFee));
+    return { requirements, customValues, selectedFeeKeys };
+  }
 
   function normalizePhone(value) {
     const digits = String(value || '').replace(/\D/g, '');
@@ -117,6 +176,7 @@
 
   function formValues() {
     const selectedType = form.querySelector('input[name="request_type"]:checked');
+    const productValues = productConfigurationValues();
     return {
       request_type: selectedType ? selectedType.value : '',
       branch: field('branch') ? field('branch').value.trim() : (config.default_branch || ''),
@@ -128,6 +188,9 @@
       requested_amount: cleanAmount(field('requested_amount').value),
       tenor: field('tenor').value.trim(),
       loan_product: field('loan_product').value.trim(),
+      product_requirement_evidence: productValues.requirements,
+      product_custom_values: productValues.customValues,
+      product_selected_fee_keys: productValues.selectedFeeKeys,
       code: field('code').value.trim(),
       business_notes: field('business_notes').value.trim()
     };
@@ -240,6 +303,16 @@
     if (data.secondary_phone && !normalizePhone(data.secondary_phone)) add('secondary_phone', 'Secondary Phone is invalid. Use 254 format or leave it blank.');
     if (!data.requested_amount || Number(data.requested_amount) <= 0) add('requested_amount', 'Requested Amount is required and must be greater than 0.');
     if (!data.tenor) add('tenor', 'Tenor is required, for example 6 weeks or 12 months.');
+    if (!selectedProduct()) add('loan_product', 'Choose a product from the global product catalogue.');
+    const terms = selectedProduct()?.terms || {};
+    (terms.requirements || []).filter(item => item.required && item.enforcement_stage === 'created' && (!item.workflow || item.workflow === 'spin_credit_analysis')).forEach(item => {
+      const value = data.product_requirement_evidence[item.key];
+      if (value === undefined || value === null || value === '' || value === false) add('loan_product', `${item.label} is required for this product.`);
+    });
+    (terms.custom_attributes || []).filter(item => item.required && (!(item.workflows || []).length || item.workflows.includes('spin_credit_analysis'))).forEach(item => {
+      const value = data.product_custom_values[item.key];
+      if (value === undefined || value === null || value === '') add('loan_product', `${item.label} is required for this product.`);
+    });
     return { errors, invalid };
   }
 
@@ -327,6 +400,11 @@
           field(name).value = value || '';
         }
       });
+      renderProductConfiguration({
+        requirements: data.product_requirement_evidence || {},
+        customValues: data.product_custom_values || {},
+        selectedFeeKeys: data.product_selected_fee_keys || [],
+      });
       draftState.textContent = 'Draft restored';
     } catch (_) {
       draftState.textContent = 'Draft unavailable';
@@ -341,6 +419,7 @@
       return;
     }
     form.reset();
+    renderProductConfiguration();
     if (branchSelect && branchSelect.name) branchSelect.value = config.default_branch || '';
     field('primary_phone').value = '';
     field('secondary_phone').value = '';
@@ -372,7 +451,7 @@
     payload.set('form_token', config.form_token || '');
     payload.set('init_data', tg ? tg.initData || '' : '');
     payload.set('client_request_id', requestId || '');
-    Object.entries(data).forEach(([key, value]) => payload.set(key, value || ''));
+    Object.entries(data).forEach(([key, value]) => payload.set(key, typeof value === 'object' ? JSON.stringify(value) : value || ''));
     files.forEach(({ fieldName, file }) => payload.append(fieldName, file, file.name));
     return { method: 'POST', body: payload };
   }
@@ -418,6 +497,7 @@
       markInvalid([]);
       setBanner(`Submitted ${result.request_id || ''} for ${result.customer_name || 'customer'}.`, 'success');
       form.reset();
+      renderProductConfiguration();
       clientRequestId = '';
       if (branchSelect && branchSelect.name) branchSelect.value = config.default_branch || '';
       updateSummary();
@@ -1030,6 +1110,7 @@
 
   // --- Initial Setup ---
 
+  field('loan_product')?.addEventListener('input', () => renderProductConfiguration());
   form.addEventListener('input', () => { updateSummary(); saveDraft(); });
   form.addEventListener('change', () => { updateSummary(); updateFileSummaries(); saveDraft(); });
   form.addEventListener('submit', submitForm);
@@ -1071,6 +1152,7 @@
   // server remains authoritative, but this prevents a role without create
   // access from being presented with a misleading active form.
   if (submitBtn) submitBtn.disabled = true;
+  renderProductConfiguration();
   fetchRequests().then(async () => {
     try {
       const personal = await loadSpinSettings({ preserveSession: false });

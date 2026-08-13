@@ -361,11 +361,13 @@ def clone_product_version(
     ).order_by('-version').first()
     if existing:
         return existing
+    global_version = source.product_version
     next_version = (
         OriginationProductDefinition.objects.filter(product_key=source.product_key)
         .aggregate(models.Max('version'))['version__max'] or 0
     ) + 1
     clone = OriginationProductDefinition.objects.create(
+        product_version=global_version,
         product_key=source.product_key,
         name=source.name,
         version=next_version,
@@ -483,6 +485,12 @@ def publish_product_template(
     validate_template_configuration(
         selected.configuration, template=template, require_complete=True,
     )
+    if product.product_version_id:
+        from core.services.product_catalog import ProductCatalogError, publish_product_version
+        try:
+            publish_product_version(version=product.product_version, actor=actor)
+        except ProductCatalogError as exc:
+            raise OriginationTemplateError(str(exc)) from exc
     published = publish_calibration(template=template, revision=revision, actor=actor)
     activated = activate_template(template, actor=actor)
 

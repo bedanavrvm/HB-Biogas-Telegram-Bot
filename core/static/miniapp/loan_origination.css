@@ -127,6 +127,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !impo
 .field-help { color: var(--laf-muted); font-size: .61rem; font-weight: 500; }
 .field-error { min-height: .65rem; color: #b42318; font-size: .6rem; }
 .laf-field.invalid input, .laf-field.invalid select, .laf-field.invalid textarea { border-color: #d92d20 !important; }
+.configuration-check { display: flex; align-items: center; gap: 7px; min-height: 34px; font-size: .68rem; font-weight: 650; }
+.configuration-check input { width: 17px; height: 17px; margin: 0; }
+.configuration-fee { padding: 7px; border: 1px solid var(--laf-line); border-radius: 8px; background: #f8faf9; }
 .input-wrap { position: relative; }
 .input-prefix { position: absolute; left: 10px; top: 50%; z-index: 1; transform: translateY(-50%); color: var(--laf-muted); font-size: .65rem; }
 .has-prefix input { padding-left: 40px; }
