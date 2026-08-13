@@ -463,16 +463,19 @@ def publish_product_template(
     *, template: OriginationDocumentTemplate, revision: int, actor,
 ) -> tuple[OriginationProductDefinition | None, OriginationDocumentTemplate, OriginationTemplateConfigurationRevision]:
     """Publish calibration, activate its immutable PDF, and expose the product atomically."""
-    template = (
-        OriginationDocumentTemplate.objects.select_for_update()
-        .select_related('product_definition')
-        .get(pk=template.pk)
+    # Lock only the template row. ``product_definition`` is nullable, so
+    # combining select_for_update() with select_related() makes PostgreSQL try
+    # to lock the nullable side of a LEFT OUTER JOIN, which it rejects. The
+    # product row is locked explicitly below when the template has one.
+    template = OriginationDocumentTemplate.objects.select_for_update().get(
+        pk=template.pk,
     )
-    product = template.product_definition
-    if product is None:
+    if not template.product_definition_id:
         published = publish_calibration(template=template, revision=revision, actor=actor)
         return None, activate_template(template, actor=actor), published
-    product = OriginationProductDefinition.objects.select_for_update().get(pk=product.pk)
+    product = OriginationProductDefinition.objects.select_for_update().get(
+        pk=template.product_definition_id,
+    )
     if (
         product.lifecycle_status == product.STATUS_PUBLISHED
         and product.is_active

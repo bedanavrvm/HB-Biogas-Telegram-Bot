@@ -7,7 +7,9 @@ from unittest.mock import patch
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from pypdf import PdfReader, PdfWriter
 from unfold.widgets import UnfoldAdminFileFieldWidget, UnfoldAdminSelectWidget
@@ -628,9 +630,10 @@ class MultiProductOriginationTemplateTests(TestCase):
             actor=self.user, expected_revision=1,
         )
 
-        product, template, published = publish_product_template(
-            template=template, revision=draft.revision, actor=self.user,
-        )
+        with CaptureQueriesContext(connection) as queries:
+            product, template, published = publish_product_template(
+                template=template, revision=draft.revision, actor=self.user,
+            )
 
         product.refresh_from_db(); template.refresh_from_db()
         self.assertTrue(product.is_active)
@@ -639,6 +642,15 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertEqual(template.status, template.STATUS_ACTIVE)
         self.assertEqual(template.published_configuration_revision_id, published.pk)
         audit.assert_called_once()
+        template_reads = [
+            item['sql'] for item in queries.captured_queries
+            if 'FROM "core_originationdocumenttemplate"' in item['sql']
+        ]
+        self.assertTrue(template_reads)
+        self.assertNotIn(
+            'JOIN "core_originationproductdefinition"', template_reads[0],
+            'The locked template query must not outer-join its nullable product relation.',
+        )
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_draft_save_allows_incomplete_mapping_but_publish_validation_does_not(self, storage_class):
