@@ -22,5 +22,8 @@
 .opb-empty { padding: 16px; border: 1px dashed #94a3b8; border-radius: 7px; color: #64748b; text-align: center; }
 .opb-errors { margin-top: 10px; padding: 9px 12px; border: 1px solid #fecaca; border-radius: 7px; background: #fef2f2; color: #991b1b; }
 .opb-next-step .button { display: inline-flex; background: #2563eb !important; color: #fff !important; }
+.opb-prerequisite-warning { border-color: #f59e0b; background: #fffbeb; }
+.opb-prerequisite-warning h2 { color: #92400e; }
+.opb-secondary-link { display: inline-flex; align-items: center; min-height: 36px; color: #2563eb; font-size: 13px; font-weight: 650; }
 @media (max-width: 900px) { .opb-grid { grid-template-columns: 1fr; } .opb-header { flex-direction: column; } .opb-row label, .opb-row label.opb-wide { grid-column: span 6; } }
 @media (max-width: 520px) { .opb-row label, .opb-row label.opb-wide, .opb-row label.opb-small { grid-column: span 12; } }

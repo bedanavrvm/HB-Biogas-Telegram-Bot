@@ -183,10 +183,21 @@ class OriginationProductDefinitionForm(forms.ModelForm):
         return cleaned
 
 
+class OriginationProductDefinitionChoiceField(forms.ModelChoiceField):
+    def label_from_instance(self, obj):
+        terms_label = (
+            f'terms v{obj.product_version.version}'
+            if obj.product_version_id else 'legacy terms link'
+        )
+        return f'{obj.name} - loan form v{obj.version} ({terms_label})'
+
+
 class OriginationDocumentTemplateForm(forms.ModelForm):
-    product_definition = forms.ModelChoiceField(
+    product_definition = OriginationProductDefinitionChoiceField(
         queryset=OriginationProductDefinition.objects.none(),
-        help_text='Draft loan product version that owns this immutable PDF.',
+        empty_label='Select a draft loan form definition',
+        label='Loan form definition',
+        help_text='Draft form/schema linked to the global product terms that own this PDF.',
     )
     pdf_file = forms.FileField(help_text='Approved PDF. It is stored in the configured restricted Drive folder.')
 
@@ -194,11 +205,24 @@ class OriginationDocumentTemplateForm(forms.ModelForm):
         model = OriginationDocumentTemplate
         fields = ('product_definition', 'name', 'pdf_file')
 
+    @staticmethod
+    def eligible_product_definitions():
+        non_failed_template = OriginationDocumentTemplate.objects.filter(
+            product_definition=models.OuterRef('pk'),
+        ).exclude(status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED)
+        return OriginationProductDefinition.objects.filter(
+            lifecycle_status=OriginationProductDefinition.STATUS_DRAFT,
+        ).annotate(
+            _has_non_failed_template=models.Exists(non_failed_template),
+        ).filter(
+            _has_non_failed_template=False,
+        ).select_related(
+            'product_version', 'product_version__product',
+        ).order_by('name', '-version')
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['product_definition'].queryset = OriginationProductDefinition.objects.filter(
-            lifecycle_status=OriginationProductDefinition.STATUS_DRAFT,
-        ).order_by('name', '-version')
+        self.fields['product_definition'].queryset = self.eligible_product_definitions()
 
     def clean(self):
         cleaned = super().clean()
@@ -4504,7 +4528,7 @@ class OriginationProductDefinitionAdmin(ModelAdmin):
 
 
 @admin.register(OriginationDocumentTemplate)
-class OriginationDocumentTemplateAdmin(ModelAdmin):
+class OriginationDocumentTemplateAdmin(CompactModelAdmin):
     form = OriginationDocumentTemplateForm
     change_form_template = 'admin/core/originationdocumenttemplate/change_form.html'
     change_list_template = 'admin/core/originationdocumenttemplate/change_list.html'
@@ -4513,17 +4537,73 @@ class OriginationDocumentTemplateAdmin(ModelAdmin):
     search_fields = ('name', 'document_type', 'source_filename', 'source_sha256')
     actions = ('activate_selected_templates',)
     readonly_fields = (
-        'product_definition', 'document_type', 'version', 'status', 'source_filename', 'source_sha256',
+        'product_definition', 'name', 'document_type', 'version', 'status', 'source_filename', 'source_sha256',
         'source_byte_size', 'page_count', 'calibration_link', 'placement_config', 'drive_link',
         'published_configuration_revision', 'upload_error', 'created_by', 'activated_by',
         'activated_at', 'created_at', 'updated_at',
     )
 
     def get_readonly_fields(self, request, obj=None):
-        fields = super().get_readonly_fields(request, obj)
         if obj is None:
-            return tuple(field for field in fields if field != 'product_definition')
-        return fields
+            # Values below are derived only after the PDF has been validated
+            # and uploaded. Rendering all of them as blank readonly rows made
+            # the add screen both misleading and unnecessarily tall.
+            return ()
+        return super().get_readonly_fields(request, obj)
+
+    def get_fieldsets(self, request, obj=None):
+        if obj is None:
+            return ((
+                'Upload PDF template',
+                {
+                    'description': (
+                        'Select the draft loan form that defines the fields for this PDF. '
+                        'After upload, the visual calibration screen opens automatically.'
+                    ),
+                    'fields': ('product_definition', 'name', 'pdf_file'),
+                },
+            ),)
+        return (
+            ('Template', {
+                'fields': (
+                    'product_definition', 'name',
+                    ('document_type', 'version', 'status'),
+                    'calibration_link',
+                ),
+            }),
+            ('Source PDF', {
+                'fields': (
+                    'source_filename', ('source_byte_size', 'page_count'),
+                    'source_sha256', 'drive_link', 'upload_error',
+                ),
+            }),
+            ('Published calibration', {
+                'fields': ('published_configuration_revision', 'placement_config'),
+                'classes': ('collapse',),
+            }),
+            ('Audit', {
+                'fields': (
+                    ('created_by', 'created_at'),
+                    ('activated_by', 'activated_at'), 'updated_at',
+                ),
+                'classes': ('collapse',),
+            }),
+        )
+
+    def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
+        context = {**(extra_context or {})}
+        if object_id is None:
+            eligible_definitions = OriginationDocumentTemplateForm.eligible_product_definitions()
+            context.update({
+                'has_eligible_product_definitions': eligible_definitions.exists(),
+                'create_product_definition_url': reverse(
+                    'admin:core_originationproductdefinition_add',
+                ),
+                'manage_product_definitions_url': reverse(
+                    'admin:core_originationproductdefinition_changelist',
+                ),
+            })
+        return super().changeform_view(request, object_id, form_url, context)
 
     def get_form(self, request, obj=None, **kwargs):
         if obj is not None:

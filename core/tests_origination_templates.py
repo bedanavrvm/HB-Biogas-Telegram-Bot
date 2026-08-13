@@ -327,6 +327,67 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertEqual(product.lifecycle_status, product.STATUS_DRAFT)
         self.assertEqual(product.document_template_sha256, '')
 
+    def test_admin_template_add_is_compact_and_explains_eligible_drafts(self):
+        self.client.force_login(self.user)
+        response = self.client.get(
+            reverse('admin:core_originationdocumenttemplate_add'),
+            {'product_definition': str(self.product.pk)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Upload the PDF for a draft loan form')
+        self.assertContains(response, 'Loan form definition')
+        self.assertContains(response, 'Dairy Working Capital - loan form v1')
+        self.assertContains(response, f'value="{self.product.pk}" selected')
+        self.assertEqual(
+            tuple(response.context['adminform'].form.fields),
+            ('product_definition', 'name', 'pdf_file'),
+        )
+        self.assertEqual(response.context['adminform'].readonly_fields, ())
+
+    def test_admin_template_add_links_to_definition_builder_when_no_draft_is_eligible(self):
+        self.product.lifecycle_status = OriginationProductDefinition.STATUS_PUBLISHED
+        self.product.save(update_fields=['lifecycle_status'])
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('admin:core_originationdocumenttemplate_add'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No draft loan form is ready for a PDF')
+        self.assertContains(response, reverse('admin:core_originationproductdefinition_add'))
+        self.assertFalse(
+            response.context['adminform'].form.fields['product_definition'].queryset.exists(),
+        )
+
+    def test_admin_template_dropdown_excludes_drafts_that_already_have_a_template(self):
+        template = OriginationDocumentTemplate.objects.create(
+            product_definition=self.product,
+            document_type=self.product.document_type,
+            name='Existing PDF',
+            version=self.product.version,
+            source_filename='existing.pdf',
+            source_sha256='e' * 64,
+            source_byte_size=100,
+            page_count=1,
+            placement_config=initial_template_configuration(self.product),
+            created_by=self.user,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse('admin:core_originationdocumenttemplate_add'))
+
+        self.assertContains(response, 'No draft loan form is ready for a PDF')
+        self.assertFalse(
+            response.context['adminform'].form.fields['product_definition'].queryset.exists(),
+        )
+
+        change_response = self.client.get(
+            reverse('admin:core_originationdocumenttemplate_change', args=[template.pk]),
+        )
+        self.assertEqual(change_response.status_code, 200)
+        self.assertContains(change_response, 'Source PDF')
+        self.assertContains(change_response, 'Published calibration')
+
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_admin_template_upload_requires_only_draft_product_and_pdf(self, storage_class):
         storage_class.return_value.upload.return_value = ('drive-admin-pdf', 'https://drive.test/admin-pdf')

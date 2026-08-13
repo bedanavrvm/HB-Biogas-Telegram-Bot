@@ -1,4 +1,30 @@
 {% extends "admin/change_form.html" %}
+{% load static %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=2">
+{% endblock %}
+
+{% block form_before %}
+  {{ block.super }}
+  {% if add %}
+    <section class="opb-shell opb-next-step{% if not has_eligible_product_definitions %} opb-prerequisite-warning{% endif %}">
+      {% if has_eligible_product_definitions %}
+        <h2>Upload the PDF for a draft loan form</h2>
+        <p>Select the loan form definition below. It already contains the product-specific fields and its link to the canonical product terms.</p>
+      {% else %}
+        <h2>No draft loan form is ready for a PDF</h2>
+        <p>First create a loan form definition, choose its global product terms, and define its fields. For an existing published form, use <b>Create editable next version</b> from the loan form definitions list.</p>
+      {% endif %}
+      <div class="opb-actions">
+        <a class="button" href="{{ create_product_definition_url }}">Create loan form definition</a>
+        <a class="opb-secondary-link" href="{{ manage_product_definitions_url }}">Manage loan form definitions</a>
+      </div>
+    </section>
+  {% endif %}
+{% endblock %}
+
 {% block object-tools-items %}
   {{ block.super }}
   {% if original and original.drive_file_id and request.user.is_superuser %}
