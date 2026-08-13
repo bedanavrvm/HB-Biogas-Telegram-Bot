@@ -1,9 +1,11 @@
 from unittest.mock import Mock, patch
+from pathlib import Path
 
 from django.contrib import admin
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.conf import settings
 from django.test import Client, RequestFactory, TestCase, override_settings
 from django.urls import resolve, reverse
 from unfold.admin import ModelAdmin
@@ -97,7 +99,15 @@ class AdminMonitoringTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Operations dashboard')
         self.assertContains(response, '/static/admin/css/compact_unfold.css')
-        self.assertContains(response, 'compact_unfold.css?v=3')
+        self.assertContains(response, 'compact_unfold.css?v=4')
+
+    def test_admin_density_css_only_assigns_label_width_to_horizontal_rows(self):
+        css = (Path(settings.BASE_DIR) / 'core/static/admin/css/compact_unfold.css').read_text(
+            encoding='utf-8',
+        )
+
+        self.assertIn(".field-line[class~='lg:flex-row'] > div:first-child", css)
+        self.assertIn('form > div.flex.flex-col', css)
 
     def test_admin_index_uses_curated_sidebar_and_global_search(self):
         user = get_user_model().objects.create_superuser(

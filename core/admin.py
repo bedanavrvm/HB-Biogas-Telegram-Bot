@@ -19,6 +19,7 @@ from django.urls import path, reverse
 from django.utils.html import format_html
 from django.utils import timezone
 from unfold.admin import ModelAdmin, StackedInline, TabularInline
+from unfold.widgets import UnfoldAdminFileFieldWidget, UnfoldAdminSelectWidget
 from urllib.parse import urlencode
 
 from core.services.workflow_presets import (
@@ -138,6 +139,7 @@ class OriginationProductDefinitionForm(forms.ModelForm):
     product_version = forms.ModelChoiceField(
         queryset=ProductVersion.objects.none(), required=False,
         help_text='Global product terms version used by this form and LAF.',
+        widget=UnfoldAdminSelectWidget,
     )
     product_key = forms.SlugField(required=False, widget=forms.HiddenInput)
     name = forms.CharField(required=False, widget=forms.HiddenInput)
@@ -198,8 +200,12 @@ class OriginationDocumentTemplateForm(forms.ModelForm):
         empty_label='Select a draft loan form definition',
         label='Loan form definition',
         help_text='Draft form/schema linked to the global product terms that own this PDF.',
+        widget=UnfoldAdminSelectWidget,
     )
-    pdf_file = forms.FileField(help_text='Approved PDF. It is stored in the configured restricted Drive folder.')
+    pdf_file = forms.FileField(
+        help_text='Approved PDF. It is stored in the configured restricted Drive folder.',
+        widget=UnfoldAdminFileFieldWidget,
+    )
 
     class Meta:
         model = OriginationDocumentTemplate
@@ -4437,7 +4443,7 @@ class UnfoldGroupAdmin(ModelAdmin, DjangoGroupAdmin):
 
 
 @admin.register(OriginationProductDefinition)
-class OriginationProductDefinitionAdmin(ModelAdmin):
+class OriginationProductDefinitionAdmin(CompactModelAdmin):
     form = OriginationProductDefinitionForm
     change_form_template = 'admin/core/originationproductdefinition/change_form.html'
     list_display = (
@@ -4452,6 +4458,14 @@ class OriginationProductDefinitionAdmin(ModelAdmin):
         'document_template_sha256', 'lifecycle_status', 'is_active', 'supersedes',
         'created_by', 'published_by', 'published_at', 'created_at', 'updated_at',
     )
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj is None:
+            # These values are all derived when the first form version is
+            # saved. Blank readonly rows make the builder look broken and,
+            # on a vertical Unfold row, previously amplified label spacing.
+            return ()
+        return super().get_readonly_fields(request, obj)
 
     def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
         from core.services.loan_origination import SIGNER_ROLE_CATALOG

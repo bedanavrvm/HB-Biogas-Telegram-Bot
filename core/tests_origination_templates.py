@@ -8,6 +8,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from pypdf import PdfWriter
+from unfold.widgets import UnfoldAdminFileFieldWidget, UnfoldAdminSelectWidget
 
 from core.models import (
     LoanOriginationApplication,
@@ -305,6 +306,11 @@ class MultiProductOriginationTemplateTests(TestCase):
         add_url = reverse('admin:core_originationproductdefinition_add')
         response = self.client.get(add_url)
         self.assertContains(response, 'id="origination-product-builder"')
+        self.assertEqual(response.context['adminform'].readonly_fields, ())
+        self.assertIsInstance(
+            response.context['adminform'].form.fields['product_version'].widget,
+            UnfoldAdminSelectWidget,
+        )
         response = self.client.post(add_url, {
             'product_key': 'solar-upgrade',
             'name': 'Solar Upgrade Loan',
@@ -344,6 +350,15 @@ class MultiProductOriginationTemplateTests(TestCase):
             ('product_definition', 'name', 'pdf_file'),
         )
         self.assertEqual(response.context['adminform'].readonly_fields, ())
+        self.assertIsInstance(
+            response.context['adminform'].form.fields['product_definition'].widget,
+            UnfoldAdminSelectWidget,
+        )
+        self.assertIsInstance(
+            response.context['adminform'].form.fields['pdf_file'].widget,
+            UnfoldAdminFileFieldWidget,
+        )
+        self.assertContains(response, 'file_upload')
 
     def test_admin_template_add_links_to_definition_builder_when_no_draft_is_eligible(self):
         self.product.lifecycle_status = OriginationProductDefinition.STATUS_PUBLISHED

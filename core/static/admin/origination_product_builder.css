@@ -25,5 +25,16 @@
 .opb-prerequisite-warning { border-color: #f59e0b; background: #fffbeb; }
 .opb-prerequisite-warning h2 { color: #92400e; }
 .opb-secondary-link { display: inline-flex; align-items: center; min-height: 36px; color: #2563eb; font-size: 13px; font-weight: 650; }
+.dark .opb-shell { border-color: rgb(var(--color-base-700)); background: rgb(var(--color-base-900)); color: rgb(var(--color-base-200)); }
+.dark .opb-shell h2, .dark .opb-shell h3 { color: rgb(var(--color-base-100)); }
+.dark .opb-shell p, .dark .opb-empty { color: rgb(var(--color-base-400)); }
+.dark .opb-section, .dark .opb-signer { border-color: rgb(var(--color-base-700)); background: rgb(var(--color-base-800)); }
+.dark .opb-row label { color: rgb(var(--color-base-300)); }
+.dark .opb-row input:not([type="checkbox"]), .dark .opb-row select, .dark .opb-row textarea { border-color: rgb(var(--color-base-700)); background: rgb(var(--color-base-900)); color: rgb(var(--color-base-200)); color-scheme: dark; }
+.dark .opb-tools button, .dark .opb-add { border-color: rgb(var(--color-base-700)); background: rgb(var(--color-base-900)); color: rgb(var(--color-base-200)); }
+.dark .opb-field, .dark .opb-slot { background: rgb(var(--color-base-900)); }
+.dark .opb-prerequisite-warning { border-color: #b45309; background: rgb(120 53 15 / .22); }
+.dark .opb-prerequisite-warning h2 { color: #fbbf24; }
+.dark .opb-secondary-link { color: #60a5fa; }
 @media (max-width: 900px) { .opb-grid { grid-template-columns: 1fr; } .opb-header { flex-direction: column; } .opb-row label, .opb-row label.opb-wide { grid-column: span 6; } }
 @media (max-width: 520px) { .opb-row label, .opb-row label.opb-wide, .opb-row label.opb-small { grid-column: span 12; } }

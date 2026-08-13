@@ -1242,6 +1242,12 @@ body.change-form #content-main {
     min-width: 0;
 }
 
+/* Unfold wraps all fieldsets in a direct flex column with gap-8. Keep model
+   forms operationally compact while retaining separation between sections. */
+body.change-form #content-main form > div.flex.flex-col {
+    gap: .85rem !important;
+}
+
 body.change-form #content-main > .module,
 body.change-form #content-main > form > .module,
 body.change-form #content-main > form > fieldset.module {
@@ -1262,9 +1268,12 @@ body.change-form fieldset.module .field-line {
     padding-top: .45rem !important;
 }
 
+/* Unfold only adds lg:flex-row when compressed_fields is enabled. Applying a
+   label-width flex basis to its normal flex-col rows turns that width into
+   vertical height and creates a large blank block before every input. */
 body.change-form fieldset.module .field-line > div:first-child {
-    flex: 0 0 9.5rem;
-    min-width: 9.5rem;
+    flex: 0 0 auto;
+    min-width: 0;
 }
 
 body.change-form fieldset.module .field-line > div:last-child {
@@ -1305,6 +1314,13 @@ body.change-form fieldset.module .form-row.grid > .field-line {
 
 body.change-form fieldset.module .form-row.grid > .field-line:last-child {
     border-bottom: 0;
+}
+
+@media (min-width: 1024px) {
+    body.change-form fieldset.module .field-line[class~='lg:flex-row'] > div:first-child {
+        flex: 0 0 9.5rem;
+        min-width: 9.5rem;
+    }
 }
 
 body.change-form .submit-row {
