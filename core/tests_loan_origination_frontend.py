@@ -29,7 +29,10 @@ class LoanOriginationFrontendTests(SimpleTestCase):
         self.assertIn('font-size: 16px !important', css)
         self.assertIn('position: sticky', css)
         self.assertIn('class="header-icon"', template)
-        self.assertIn('data-ui-version="20260812-5"', template)
+        self.assertIn('data-ui-version="20260813-1"', template)
+        self.assertIn('wizardSections()', source)
+        self.assertIn('field.section_key', source)
+        self.assertIn("field.type === 'textarea'", source)
         self.assertIn("stage.addEventListener('pointermove'", source)
         self.assertIn('setPointerCapture', source)
         self.assertIn('touch-action: none', css)
@@ -42,9 +45,20 @@ class LoanOriginationFrontendTests(SimpleTestCase):
     def test_superuser_template_calibration_workspace_is_present(self):
         template = Path('core/templates/admin/core/originationdocumenttemplate/calibrate.html').read_text(encoding='utf-8')
         source = Path('core/static/admin/origination_calibration.js').read_text(encoding='utf-8')
-        for control in ('calibration-canvas', 'calibration-save', 'calibration-publish', 'calibration-filled'):
+        for control in ('calibration-canvas', 'calibration-save', 'calibration-publish', 'cal-filled', 'calibration-add-signature'):
             self.assertIn(control, template)
         self.assertIn('global-apply', template)
         self.assertIn('global-font', template)
         self.assertIn('preview_format', Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8'))
         self.assertIn('beforeunload', source)
+
+    def test_superuser_visual_product_builder_is_present(self):
+        template = Path('core/templates/admin/core/originationproductdefinition/change_form.html').read_text(encoding='utf-8')
+        source = Path('core/static/admin/origination_product_builder.js').read_text(encoding='utf-8')
+
+        for control in ('origination-product-builder', 'opb-sections', 'opb-signers', 'add-section', 'add-signer'):
+            self.assertIn(control, template)
+        for field_type in ('textarea', 'money', 'national_id', 'choice', 'boolean'):
+            self.assertIn(field_type, source)
+        self.assertIn('Add field', source)
+        self.assertIn('Add slot', source)

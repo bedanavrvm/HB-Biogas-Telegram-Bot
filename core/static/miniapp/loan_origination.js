@@ -2,13 +2,12 @@
   'use strict';
 
   const tg = window.Telegram?.WebApp;
-  const SECTIONS = [
+  const LEGACY_SECTIONS = [
     { key: 'applicant', label: 'Applicant', hint: 'Identity, contacts and residence' },
     { key: 'business', label: 'Business', hint: 'Enterprise and household finances' },
     { key: 'loan', label: 'Loan', hint: 'Product, purpose and repayment' },
     { key: 'security', label: 'Security', hint: 'Assets pledged for the facility' },
     { key: 'guarantors', label: 'Guarantors', hint: 'Guarantor and relationship details' },
-    { key: 'review', label: 'Review', hint: 'Confirm details against the filled LAF' },
   ];
   const FULL_WIDTH = new Set([
     'applicant_residence_address', 'employer_business_address', 'loan_purpose',
@@ -100,8 +99,16 @@
     return 'business';
   }
 
+  function wizardSections() {
+    const configured = current?.form_schema?.sections;
+    const sections = Array.isArray(configured) && configured.length
+      ? configured.map(item => ({ key: item.key, label: item.label || item.key, hint: item.help_text || '' }))
+      : LEGACY_SECTIONS;
+    return [...sections, { key: 'review', label: 'Review', hint: 'Confirm details against the filled document' }];
+  }
+
   function fieldsFor(sectionKey) {
-    return (current?.form_schema?.fields || []).filter(field => sectionFor(field.key) === sectionKey);
+    return (current?.form_schema?.fields || []).filter(field => (field.section_key || sectionFor(field.key)) === sectionKey);
   }
 
   function collectPayload() {
@@ -117,7 +124,7 @@
   function fieldInput(field, value, disabled) {
     const key = escapeHtml(field.key);
     const label = escapeHtml(normalizeLabel(field));
-    const classes = `laf-field${FULL_WIDTH.has(field.key) ? ' laf-field-wide' : ''}`;
+    const classes = `laf-field${field.width === 'full' || FULL_WIDTH.has(field.key) ? ' laf-field-wide' : ''}`;
     const required = field.required ? '<span class="required-mark" aria-label="required">*</span>' : '';
     let control = '';
     if (field.type === 'choice') {
@@ -125,12 +132,16 @@
       control = `<select data-field="${key}"${disabled ? ' disabled' : ''}><option value="">Choose</option>${options}</select>`;
     } else if (field.type === 'boolean') {
       control = `<select data-field="${key}"${disabled ? ' disabled' : ''}><option value="">Choose</option><option value="true"${value === true ? ' selected' : ''}>Yes</option><option value="false"${value === false ? ' selected' : ''}>No</option></select>`;
+    } else if (field.type === 'textarea') {
+      control = `<textarea data-field="${key}"${disabled ? ' disabled' : ''}>${escapeHtml(value ?? '')}</textarea>`;
     } else {
-      const type = field.type === 'date' ? 'date' : field.type === 'money' ? 'number' : field.type === 'phone' ? 'tel' : 'text';
+      const type = field.type === 'date' ? 'date' : ['money', 'number'].includes(field.type) ? 'number' : field.type === 'phone' ? 'tel' : 'text';
       const prefix = field.type === 'money' ? '<span class="input-prefix">KES</span>' : '';
-      control = `<div class="input-wrap${prefix ? ' has-prefix' : ''}">${prefix}<input data-field="${key}" type="${type}" value="${escapeHtml(value ?? '')}"${field.type === 'money' ? ' inputmode="decimal" min="0" step="0.01"' : ''}${field.type === 'national_id' ? ' inputmode="numeric"' : ''}${disabled ? ' disabled' : ''}></div>`;
+      const numeric = field.type === 'money' ? ' inputmode="decimal" min="0" step="0.01"' : field.type === 'number' ? ' inputmode="decimal" step="any"' : '';
+      control = `<div class="input-wrap${prefix ? ' has-prefix' : ''}">${prefix}<input data-field="${key}" type="${type}" value="${escapeHtml(value ?? '')}"${numeric}${field.type === 'national_id' ? ' inputmode="numeric"' : ''}${disabled ? ' disabled' : ''}></div>`;
     }
-    return `<label class="${classes}" data-field-wrap="${key}"><span>${label}${required}</span>${control}<small class="field-error" aria-live="polite"></small></label>`;
+    const help = field.help_text ? `<small class="field-help">${escapeHtml(field.help_text)}</small>` : '';
+    return `<label class="${classes}" data-field-wrap="${key}"><span>${label}${required}</span>${help}${control}<small class="field-error" aria-live="polite"></small></label>`;
   }
 
   function sectionErrors(sectionKey) {
@@ -189,15 +200,15 @@
   }
 
   function progressMarkup() {
-    return `<nav class="wizard-progress" aria-label="Application sections">${SECTIONS.map((item, index) => `<button type="button" class="wizard-step${index === step ? ' active' : ''}${index < step ? ' complete' : ''}" data-step="${index}"><span>${index < step ? '✓' : index + 1}</span><small>${item.label}</small></button>`).join('')}</nav>`;
+    return `<nav class="wizard-progress" aria-label="Application sections">${wizardSections().map((item, index) => `<button type="button" class="wizard-step${index === step ? ' active' : ''}${index < step ? ' complete' : ''}" data-step="${index}"><span>${index < step ? '✓' : index + 1}</span><small>${escapeHtml(item.label)}</small></button>`).join('')}</nav>`;
   }
 
   function reviewMarkup(values) {
-    return `<div class="review-intro"><div><p class="eyebrow">Final check</p><h3>Review the application</h3><p>Open each section to correct details, then inspect the populated two-page LAF.</p></div><button type="button" class="btn btn-primary" id="origination-preview">Preview filled document</button></div>
-      <div class="review-sections">${SECTIONS.slice(0, -1).map((section, index) => {
+    return `<div class="review-intro"><div><p class="eyebrow">Final check</p><h3>Review the application</h3><p>Open each section to correct details, then inspect the populated ${escapeHtml(current.product_name)} document.</p></div><button type="button" class="btn btn-primary" id="origination-preview">Preview filled document</button></div>
+      <div class="review-sections">${wizardSections().slice(0, -1).map((section, index) => {
         const fields = fieldsFor(section.key);
         const completed = fields.filter(field => values[field.key] !== '' && values[field.key] != null).length;
-        return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>${section.label}</strong><small>${completed} of ${fields.length} fields completed</small></span><span>Edit →</span></button>`;
+        return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>${escapeHtml(section.label)}</strong><small>${completed} of ${fields.length} fields completed</small></span><span>Edit →</span></button>`;
       }).join('')}</div>`;
   }
 
@@ -207,7 +218,7 @@
       if (current.status === 'reviewed') return '<button class="btn btn-primary" id="origination-prepare-signing">Prepare signing package</button>';
       return '';
     }
-    return `${step > 0 ? '<button class="btn btn-secondary" id="wizard-previous">Previous</button>' : '<span></span>'}${step < SECTIONS.length - 1 ? '<button class="btn btn-primary" id="wizard-next">Save & continue</button>' : '<button class="btn btn-primary" id="origination-submit">Submit for review</button>'}`;
+    return `${step > 0 ? '<button class="btn btn-secondary" id="wizard-previous">Previous</button>' : '<span></span>'}${step < wizardSections().length - 1 ? '<button class="btn btn-primary" id="wizard-next">Save & continue</button>' : '<button class="btn btn-primary" id="origination-submit">Submit for review</button>'}`;
   }
 
   function renderEditor(application, requestedStep) {
@@ -220,8 +231,10 @@
     if (dirty) current.form_payload = local.payload;
     const values = collectPayload();
     const editable = ['draft', 'correction_required'].includes(application.status);
-    const section = SECTIONS[step];
-    const content = section.key === 'review' ? reviewMarkup(values) : `<div class="section-title"><div><p class="eyebrow">Step ${step + 1} of ${SECTIONS.length}</p><h3>${section.label}</h3><p>${section.hint}</p></div><button type="button" class="preview-link" id="origination-preview-early">Preview PDF</button></div><div class="laf-grid">${fieldsFor(section.key).map(field => fieldInput(field, values[field.key], !editable || field.editable === false)).join('')}</div>`;
+    const sections = wizardSections();
+    if (step >= sections.length) step = sections.length - 1;
+    const section = sections[step];
+    const content = section.key === 'review' ? reviewMarkup(values) : `<div class="section-title"><div><p class="eyebrow">Step ${step + 1} of ${sections.length}</p><h3>${escapeHtml(section.label)}</h3><p>${escapeHtml(section.hint || '')}</p></div><button type="button" class="preview-link" id="origination-preview-early">Preview PDF</button></div><div class="laf-grid">${fieldsFor(section.key).map(field => fieldInput(field, values[field.key], !editable || field.editable === false)).join('')}</div>`;
     root().innerHTML = `<div class="editor-top"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">←</button><div><strong>${escapeHtml(application.reference_number)}</strong><small>${escapeHtml(application.product_name)}</small></div><span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(application.status.replaceAll('_', ' '))}</span></div>${progressMarkup()}<section class="wizard-card">${content}</section><footer class="wizard-actions"><span id="origination-save-status" data-state="${local ? 'offline' : 'saved'}">${local ? 'Recovered from phone' : 'Saved'}</span><div>${actionMarkup(editable)}</div></footer>`;
     bindEditor(editable);
   }
@@ -235,7 +248,7 @@
     if (editable) root().querySelector('.laf-grid')?.addEventListener('input', scheduleSave);
     document.getElementById('wizard-previous')?.addEventListener('click', async () => { if (await saveDraft(true)) renderEditor(current, step - 1); });
     document.getElementById('wizard-next')?.addEventListener('click', async () => {
-      const errors = sectionErrors(SECTIONS[step].key); showErrors(errors);
+      const errors = sectionErrors(wizardSections()[step].key); showErrors(errors);
       if (Object.keys(errors).length) return showToast('Complete the required fields in this section.', true);
       if (await saveDraft(true)) renderEditor(current, step + 1);
     });
@@ -448,7 +461,7 @@
     const counts = applications.reduce((result, item) => { result[item.status] = (result[item.status] || 0) + 1; return result; }, {});
     const options = products.map(item => `<option value="${escapeHtml(item.product_key)}">${escapeHtml(item.name)}</option>`).join('');
     const cards = applications.map(item => `<button type="button" class="application-card" data-application-id="${item.id}"><span><strong>${escapeHtml(item.reference_number)}</strong><small>${escapeHtml(item.product_name)} · ${escapeHtml(item.branch || 'No branch')}</small></span><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(item.status.replaceAll('_', ' '))}</span></button>`).join('');
-    root().innerHTML = `<section class="app-hero"><div><p class="eyebrow">Paperless lending</p><h2>Applications</h2><p>Capture details once and place them directly onto the approved LAF.</p></div></section><div class="metric-grid"><article><strong>${counts.draft || 0}</strong><span>Drafts</span></article><article><strong>${counts.ready_for_review || 0}</strong><span>Review</span></article><article><strong>${counts.correction_required || 0}</strong><span>Corrections</span></article><article><strong>${(counts.reviewed || 0) + (counts.signing_pending || 0)}</strong><span>Signing</span></article></div>${products.length ? `<form id="origination-create" class="create-card"><div><h3>New application</h3><p>Start with the approved partnership LAF.</p></div><label><span>Product</span><select name="product_key" required>${options}</select></label><label><span>Branch</span><input name="branch" required autocomplete="organization"></label><button class="btn btn-primary" type="submit">Start application</button></form>` : '<div class="notice error">No approved origination product is active.</div>'}<div class="list-heading"><h3>Recent applications</h3><button type="button" class="text-button" id="origination-list-refresh">Refresh</button></div><div class="application-list">${cards || '<div class="empty-state"><strong>No applications yet</strong><span>Start the first application above.</span></div>'}</div>`;
+    root().innerHTML = `<section class="app-hero"><div><p class="eyebrow">Paperless lending</p><h2>Applications</h2><p>Capture each product's details once and place them onto its approved loan document.</p></div></section><div class="metric-grid"><article><strong>${counts.draft || 0}</strong><span>Drafts</span></article><article><strong>${counts.ready_for_review || 0}</strong><span>Review</span></article><article><strong>${counts.correction_required || 0}</strong><span>Corrections</span></article><article><strong>${(counts.reviewed || 0) + (counts.signing_pending || 0)}</strong><span>Signing</span></article></div>${products.length ? `<form id="origination-create" class="create-card"><div><h3>New application</h3><p>Choose the approved loan product and document.</p></div><label><span>Product</span><select name="product_key" required>${options}</select></label><label><span>Branch</span><input name="branch" required autocomplete="organization"></label><button class="btn btn-primary" type="submit">Start application</button></form>` : '<div class="notice error">No approved origination product is active.</div>'}<div class="list-heading"><h3>Recent applications</h3><button type="button" class="text-button" id="origination-list-refresh">Refresh</button></div><div class="application-list">${cards || '<div class="empty-state"><strong>No applications yet</strong><span>Start the first application above.</span></div>'}</div>`;
     root().querySelectorAll('[data-application-id]').forEach(button => button.onclick = async () => { const result = await apiFetch(`/applications/${button.dataset.applicationId}/`, {}); if (!result.ok) return showToast(result.data?.error || 'Could not open this application.', true); renderEditor(result.data.application, 0); });
     document.getElementById('origination-list-refresh').onclick = load;
     const form = document.getElementById('origination-create');

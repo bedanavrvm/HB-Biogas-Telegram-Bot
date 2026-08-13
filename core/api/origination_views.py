@@ -98,9 +98,11 @@ def portal_origination_products(request):
     return JsonResponse({'ok': True, 'products': [{
         'product_key': item.product_key, 'name': item.name, 'version': item.version,
         'form_schema': item.form_schema, 'signer_rules': item.signer_rules,
+        'lifecycle_status': item.lifecycle_status,
         'document_type': item.document_type,
         'document_template_name': item.document_template_name,
         'document_template_version': item.document_template_version,
+        'template_ready': bool(item.document_template_sha256),
     } for item in products]})
 
 

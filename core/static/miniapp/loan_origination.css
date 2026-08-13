@@ -77,8 +77,9 @@ body.origination-app {
 .create-card label { display: grid; gap: 4px; min-width: 0; font-size: .7rem; font-weight: 750; }
 .create-card .btn { min-height: 42px; }
 
-input, select { width: 100%; min-width: 0; min-height: 42px; padding: 8px 10px; border: 1px solid #b9cac3; border-radius: 8px; background: var(--tg-theme-bg-color, #fff); color: inherit; font: inherit; outline: none; }
-input:focus, select:focus { border-color: var(--laf-green) !important; box-shadow: 0 0 0 3px rgba(18, 100, 72, .12) !important; }
+input, select, textarea { width: 100%; min-width: 0; min-height: 42px; box-sizing: border-box; padding: 8px 10px; border: 1px solid #b9cac3; border-radius: 8px; background: var(--tg-theme-bg-color, #fff); color: inherit; font: inherit; outline: none; }
+textarea { min-height: 88px; resize: vertical; }
+input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !important; box-shadow: 0 0 0 3px rgba(18, 100, 72, .12) !important; }
 
 .list-heading, .section-title, .review-intro, .editor-top, .wizard-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .list-heading { margin: 14px 2px 7px; }
@@ -119,12 +120,13 @@ input:focus, select:focus { border-color: var(--laf-green) !important; box-shado
 .section-title h3, .section-title p { margin: 0; }
 .section-title h3 { font-size: .98rem; }
 .section-title p:last-child { margin-top: 2px; color: var(--laf-muted); font-size: .7rem; }
-.laf-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 10px; }
+.laf-grid { display: grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap: 7px 10px; }
 .laf-field { display: grid; align-content: start; gap: 4px; min-width: 0; font-size: .68rem; font-weight: 750; }
 .laf-field-wide { grid-column: 1 / -1; }
 .required-mark { margin-left: 3px; color: #c33; }
+.field-help { color: var(--laf-muted); font-size: .61rem; font-weight: 500; }
 .field-error { min-height: .65rem; color: #b42318; font-size: .6rem; }
-.laf-field.invalid input, .laf-field.invalid select { border-color: #d92d20 !important; }
+.laf-field.invalid input, .laf-field.invalid select, .laf-field.invalid textarea { border-color: #d92d20 !important; }
 .input-wrap { position: relative; }
 .input-prefix { position: absolute; left: 10px; top: 50%; z-index: 1; transform: translateY(-50%); color: var(--laf-muted); font-size: .65rem; }
 .has-prefix input { padding-left: 40px; }
@@ -179,7 +181,7 @@ input:focus, select:focus { border-color: var(--laf-green) !important; box-shado
   .review-intro { display: grid; }
   .review-intro .btn { width: 100%; }
   .review-sections { grid-template-columns: 1fr; }
-  input, select { font-size: 16px !important; }
+  input, select, textarea { font-size: 16px !important; }
 }
 
 @media (max-width: 390px) {

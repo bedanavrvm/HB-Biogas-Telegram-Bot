@@ -225,3 +225,18 @@ class LoanOriginationServiceTests(TestCase):
             renderer.call_args.kwargs['expected_sha256'],
             self.product.document_template_sha256,
         )
+
+    @patch('core.services.partnership_laf_preview.render_origination_document', return_value=b'%PDF-product-specific')
+    def test_preview_renders_non_partnership_product_with_its_document_type(self, renderer):
+        application, _ = create_application(
+            product_key=self.product.product_key, officer=self.officer,
+            branch='Synthetic Branch', client_request_id='create-generic-preview',
+        )
+        application.form_payload = {'customer_name': 'Synthetic Customer', 'consent': True}
+        application.save(update_fields=['form_payload'])
+
+        content = render_application_preview(application)
+
+        self.assertEqual(content, b'%PDF-product-specific')
+        self.assertEqual(renderer.call_args.kwargs['document_type'], 'synthetic_loan_agreement')
+        self.assertEqual(renderer.call_args.kwargs['version'], 1)

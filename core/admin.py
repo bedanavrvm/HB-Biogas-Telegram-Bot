@@ -78,6 +78,7 @@ from .models import (
     ParsedInvoice,
     PortalVoiceTranscriptionAttempt,
     OriginationProductDefinition,
+    OriginationProductDefinitionEvent,
     OriginationDocumentTemplate,
     OriginationDocumentTemplateEvent,
     OriginationTemplateConfigurationRevision,
@@ -124,41 +125,81 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
+class OriginationProductDefinitionForm(forms.ModelForm):
+    form_schema = forms.JSONField(widget=forms.HiddenInput)
+    signer_rules = forms.JSONField(widget=forms.HiddenInput)
+
+    class Meta:
+        model = OriginationProductDefinition
+        fields = ('product_key', 'name', 'form_schema', 'signer_rules')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance.pk and not self.instance._state.adding:
+            # A version may change its presentation contract while it is a
+            # draft, but it must not move into another product's version line.
+            self.fields['product_key'].disabled = True
+
+    def clean(self):
+        cleaned = super().clean()
+        schema = cleaned.get('form_schema')
+        signer_rules = cleaned.get('signer_rules')
+        if schema is None or signer_rules is None:
+            return cleaned
+        from core.services.loan_origination import OriginationError, validate_product_form_contract
+        try:
+            validate_product_form_contract(schema, signer_rules)
+        except OriginationError as exc:
+            raise forms.ValidationError(str(exc)) from exc
+        return cleaned
+
+
 class OriginationDocumentTemplateForm(forms.ModelForm):
+    product_definition = forms.ModelChoiceField(
+        queryset=OriginationProductDefinition.objects.none(),
+        help_text='Draft loan product version that owns this immutable PDF.',
+    )
     pdf_file = forms.FileField(help_text='Approved PDF. It is stored in the configured restricted Drive folder.')
-    configuration_file = forms.FileField(help_text='UTF-8 JSON placement configuration for this exact PDF version.')
 
     class Meta:
         model = OriginationDocumentTemplate
-        fields = ('name', 'pdf_file', 'configuration_file')
+        fields = ('product_definition', 'name', 'pdf_file')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['product_definition'].queryset = OriginationProductDefinition.objects.filter(
+            lifecycle_status=OriginationProductDefinition.STATUS_DRAFT,
+        ).order_by('name', '-version')
 
     def clean(self):
         cleaned = super().clean()
         pdf_file = cleaned.get('pdf_file')
-        config_file = cleaned.get('configuration_file')
-        if not pdf_file or not config_file:
+        product = cleaned.get('product_definition')
+        if not pdf_file or not product:
             return cleaned
         if not str(pdf_file.name).lower().endswith('.pdf'):
             self.add_error('pdf_file', 'Upload a PDF file.')
             return cleaned
-        if not str(config_file.name).lower().endswith('.json'):
-            self.add_error('configuration_file', 'Upload a JSON configuration file.')
+        if product.document_templates.exclude(status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED).exists():
+            self.add_error('product_definition', 'This product version already has a template. Create a new product version to replace it.')
             return cleaned
-        from core.services.origination_templates import OriginationTemplateError, validate_template_files
-        pdf_data, config_data = pdf_file.read(), config_file.read()
+        from core.services.origination_templates import (
+            OriginationTemplateError, initial_template_configuration, validate_template_pdf,
+        )
+        pdf_data = pdf_file.read()
         pdf_file.seek(0)
-        config_file.seek(0)
         try:
-            config, digest, page_count = validate_template_files(pdf_data, config_data)
+            digest, page_count = validate_template_pdf(pdf_data)
         except OriginationTemplateError as exc:
             raise forms.ValidationError(str(exc)) from exc
-        self.instance.document_type = str(config['document_type']).strip()
-        self.instance.version = int(config['version'])
+        self.instance.product_definition = product
+        self.instance.document_type = product.document_type
+        self.instance.version = product.version
         self.instance.source_filename = str(pdf_file.name)[:255]
         self.instance.source_sha256 = digest
         self.instance.source_byte_size = len(pdf_data)
         self.instance.page_count = page_count
-        self.instance.placement_config = config
+        self.instance.placement_config = initial_template_configuration(product)
         self._pdf_data = pdf_data
         return cleaned
 
@@ -3965,15 +4006,90 @@ class UnfoldGroupAdmin(ModelAdmin, DjangoGroupAdmin):
 
 @admin.register(OriginationProductDefinition)
 class OriginationProductDefinitionAdmin(ModelAdmin):
-    list_display = ('product_key', 'name', 'version', 'document_type', 'document_template_name', 'is_active', 'updated_at')
-    list_filter = ('is_active', 'document_type')
+    form = OriginationProductDefinitionForm
+    change_form_template = 'admin/core/originationproductdefinition/change_form.html'
+    list_display = (
+        'product_key', 'name', 'version', 'lifecycle_status', 'template_readiness',
+        'is_active', 'updated_at',
+    )
+    list_filter = ('lifecycle_status', 'is_active', 'document_type')
     search_fields = ('product_key', 'name', 'document_type')
+    actions = ('create_new_version',)
+    readonly_fields = (
+        'version', 'document_type', 'document_template_name', 'document_template_version',
+        'document_template_sha256', 'lifecycle_status', 'is_active', 'supersedes',
+        'created_by', 'published_by', 'published_at', 'created_at', 'updated_at',
+    )
+
+    def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
+        from core.services.loan_origination import SIGNER_ROLE_CATALOG
+        context = {
+            **(extra_context or {}),
+            'origination_signer_roles': [
+                {'key': key, 'label': label} for key, label in SIGNER_ROLE_CATALOG
+            ],
+        }
+        return super().changeform_view(request, object_id, form_url, context)
+
+    def get_form(self, request, obj=None, **kwargs):
+        if obj is not None and obj.lifecycle_status != obj.STATUS_DRAFT:
+            kwargs['form'] = forms.modelform_factory(OriginationProductDefinition, fields=())
+        return super().get_form(request, obj, **kwargs)
+
+    @admin.display(description='Template')
+    def template_readiness(self, obj):
+        template = obj.document_templates.order_by('-created_at').first()
+        if not template:
+            return 'PDF required'
+        if template.status == template.STATUS_UPLOAD_FAILED:
+            return 'Upload failed'
+        if obj.is_active and template.status == template.STATUS_ACTIVE:
+            return 'Published'
+        if template.published_configuration_revision_id:
+            return 'Ready to publish'
+        return 'Calibration required'
 
     def save_model(self, request, obj, form, change):
+        if change and obj.lifecycle_status != obj.STATUS_DRAFT:
+            raise PermissionDenied
+        if not change:
+            if OriginationProductDefinition.objects.filter(product_key=obj.product_key).exists():
+                raise ValidationError('This product key already exists. Create a new version from its existing record.')
+            obj.version = 1
+            obj.document_type = obj.product_key
+            obj.document_template_version = 1
+            obj.lifecycle_status = obj.STATUS_DRAFT
+            obj.is_active = False
         if not obj.created_by_id:
             obj.created_by = request.user
-        obj.full_clean()
+        from core.services.loan_origination import validate_product_form_contract
+        validate_product_form_contract(obj.form_schema, obj.signer_rules)
         super().save_model(request, obj, form, change)
+        OriginationProductDefinitionEvent.objects.create(
+            product_definition=obj, action='draft_updated' if change else 'created',
+            actor=request.user, metadata={'version': obj.version},
+        )
+
+    @admin.action(description='Create editable next version')
+    def create_new_version(self, request, queryset):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        if queryset.count() != 1:
+            self.message_user(request, 'Select exactly one product.', level=messages.ERROR)
+            return None
+        from core.services.origination_templates import clone_product_version
+        clone = clone_product_version(queryset.first(), actor=request.user)
+        self.message_user(request, f'Product version {clone.version} is ready to edit.', level=messages.SUCCESS)
+        return HttpResponseRedirect(reverse('admin:core_originationproductdefinition_change', args=[clone.pk]))
+
+    def has_add_permission(self, request):
+        return request.user.is_superuser
+
+    def has_change_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(OriginationDocumentTemplate)
@@ -3981,16 +4097,22 @@ class OriginationDocumentTemplateAdmin(ModelAdmin):
     form = OriginationDocumentTemplateForm
     change_form_template = 'admin/core/originationdocumenttemplate/change_form.html'
     change_list_template = 'admin/core/originationdocumenttemplate/change_list.html'
-    list_display = ('name', 'document_type', 'version', 'status', 'calibrate_link', 'page_count', 'created_by', 'activated_by', 'updated_at')
+    list_display = ('name', 'product_definition', 'document_type', 'version', 'status', 'calibrate_link', 'page_count', 'created_by', 'activated_by', 'updated_at')
     list_filter = ('status', 'document_type')
     search_fields = ('name', 'document_type', 'source_filename', 'source_sha256')
     actions = ('activate_selected_templates',)
     readonly_fields = (
-        'document_type', 'version', 'status', 'source_filename', 'source_sha256',
+        'product_definition', 'document_type', 'version', 'status', 'source_filename', 'source_sha256',
         'source_byte_size', 'page_count', 'calibration_link', 'placement_config', 'drive_link',
         'published_configuration_revision', 'upload_error', 'created_by', 'activated_by',
         'activated_at', 'created_at', 'updated_at',
     )
+
+    def get_readonly_fields(self, request, obj=None):
+        fields = super().get_readonly_fields(request, obj)
+        if obj is None:
+            return tuple(field for field in fields if field != 'product_definition')
+        return fields
 
     def get_form(self, request, obj=None, **kwargs):
         if obj is not None:
@@ -4053,10 +4175,23 @@ class OriginationDocumentTemplateAdmin(ModelAdmin):
         from core.services.origination_templates import load_template_source
         reader = PdfReader(BytesIO(load_template_source(obj)))
         page_sizes = [{'page_number': i + 1, 'width': float(page.mediabox.width), 'height': float(page.mediabox.height)} for i, page in enumerate(reader.pages)]
-        fields = obj.document_type and OriginationProductDefinition.objects.filter(document_type=obj.document_type, is_active=True).values_list('form_schema', flat=True).first() or {}
+        product = obj.product_definition or OriginationProductDefinition.objects.filter(
+            document_type=obj.document_type, is_active=True,
+        ).order_by('-version').first()
+        fields = product.form_schema if product else {}
         context_keys = [{'key': item.get('key'), 'label': item.get('label') or item.get('key')} for item in (fields.get('fields') or []) if item.get('key')]
         context_keys.extend([{'key': key, 'label': key.replace('_', ' ').title()} for key in ('reference_number', 'branch_code', 'loan_officer_name', 'application_date') if key not in {item['key'] for item in context_keys}])
-        return JsonResponse({'ok': True, 'revision': latest.revision if latest else 0, 'published': bool(latest and latest.is_published), 'configuration': config, 'page_sizes': page_sizes, 'context_keys': context_keys})
+        from core.services.origination_templates import _expected_signature_slots
+        return JsonResponse({
+            'ok': True,
+            'revision': latest.revision if latest else 0,
+            'published': bool(latest and latest.is_published),
+            'product_published': bool(product and product.is_active),
+            'configuration': config,
+            'page_sizes': page_sizes,
+            'context_keys': context_keys,
+            'signature_slots': list(_expected_signature_slots(product).values()),
+        })
 
     def calibration_page_view(self, request, object_id):
         obj = self._calibration_template(request, object_id)
@@ -4092,8 +4227,12 @@ class OriginationDocumentTemplateAdmin(ModelAdmin):
             from core.services.origination_templates import load_template_source, validate_template_configuration
             from core.services.partnership_laf_preview import render_pdf_page, render_template
             body = self._json_body(request)
-            config = validate_template_configuration(body.get('configuration'), template=obj)
-            pdf = render_template(load_template_source(obj), config, config.get('sample_context') or {})
+            config = validate_template_configuration(
+                body.get('configuration'), template=obj, require_complete=False,
+            )
+            sample_context = dict(config.get('sample_context') or {})
+            sample_context['_show_signature_slots'] = True
+            pdf = render_template(load_template_source(obj), config, sample_context)
             content, total = render_pdf_page(pdf, page_number=int(body.get('page') or 1), scale=2)
         except Exception as exc:
             return self._calibration_error_response(exc)
@@ -4119,12 +4258,19 @@ class OriginationDocumentTemplateAdmin(ModelAdmin):
         if request.method != 'POST':
             return JsonResponse({'ok': False, 'error': 'POST required.'}, status=405)
         try:
-            from core.services.origination_templates import publish_calibration
+            from core.services.origination_templates import publish_product_template
             body = self._json_body(request)
-            published = publish_calibration(template=obj, revision=int(body.get('revision')), actor=request.user)
+            product, _template, published = publish_product_template(
+                template=obj, revision=int(body.get('revision')), actor=request.user,
+            )
         except Exception as exc:
             return self._calibration_error_response(exc)
-        return JsonResponse({'ok': True, 'revision': published.revision})
+        return JsonResponse({
+            'ok': True,
+            'revision': published.revision,
+            'product_key': product.product_key if product else '',
+            'product_version': product.version if product else None,
+        })
 
     @admin.display(description='Drive file')
     def drive_link(self, obj):
@@ -4161,7 +4307,7 @@ class OriginationDocumentTemplateAdmin(ModelAdmin):
         if obj.status == OriginationDocumentTemplate.STATUS_UPLOAD_FAILED:
             messages.error(request, obj.upload_error)
         else:
-            messages.success(request, 'Template uploaded to Drive. Calibrate and publish its alignment before activation.')
+            messages.success(request, 'Template uploaded to Drive. Calibrate its fields and publish the product.')
 
     def response_add(self, request, obj, post_url_continue=None):
         if obj.drive_file_id and obj.status != OriginationDocumentTemplate.STATUS_UPLOAD_FAILED:
@@ -4175,9 +4321,17 @@ class OriginationDocumentTemplateAdmin(ModelAdmin):
         if queryset.count() != 1:
             self.message_user(request, 'Select exactly one template to activate.', level=messages.ERROR)
             return
+        selected = queryset.first()
+        if selected.product_definition_id:
+            self.message_user(
+                request,
+                'Open Calibrate fields and use Publish product; it validates and activates the product in one action.',
+                level=messages.ERROR,
+            )
+            return
         from core.services.origination_templates import OriginationTemplateError, activate_template
         try:
-            template = activate_template(queryset.first(), actor=request.user)
+            template = activate_template(selected, actor=request.user)
         except OriginationTemplateError as exc:
             self.message_user(request, str(exc), level=messages.ERROR)
             return
@@ -4217,6 +4371,13 @@ class OriginationDocumentTemplateEventAdmin(_AppendOnlyOriginationAdmin):
     list_display = ('template', 'action', 'actor', 'occurred_at')
     list_filter = ('action',)
     search_fields = ('template__name', 'template__document_type')
+
+
+@admin.register(OriginationProductDefinitionEvent)
+class OriginationProductDefinitionEventAdmin(_AppendOnlyOriginationAdmin):
+    list_display = ('product_definition', 'action', 'actor', 'occurred_at')
+    list_filter = ('action',)
+    search_fields = ('product_definition__product_key', 'product_definition__name')
 
 
 @admin.register(OriginationTemplateConfigurationRevision)

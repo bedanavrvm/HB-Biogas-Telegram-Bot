@@ -2550,6 +2550,15 @@ class MiniAppDraft(models.Model):
 class OriginationProductDefinition(models.Model):
     """Versioned, inactive-by-default contract for one loan-origination form."""
 
+    STATUS_DRAFT = 'draft'
+    STATUS_PUBLISHED = 'published'
+    STATUS_RETIRED = 'retired'
+    STATUS_CHOICES = [
+        (STATUS_DRAFT, 'Draft'),
+        (STATUS_PUBLISHED, 'Published'),
+        (STATUS_RETIRED, 'Retired'),
+    ]
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     product_key = models.SlugField(max_length=80, db_index=True)
     name = models.CharField(max_length=160)
@@ -2561,6 +2570,18 @@ class OriginationProductDefinition(models.Model):
     document_template_version = models.PositiveIntegerField(default=1)
     document_template_sha256 = models.CharField(max_length=64, blank=True, default='')
     is_active = models.BooleanField(default=False, db_index=True)
+    lifecycle_status = models.CharField(
+        max_length=16, choices=STATUS_CHOICES, default=STATUS_DRAFT, db_index=True,
+    )
+    supersedes = models.ForeignKey(
+        'self', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='superseded_by_versions',
+    )
+    published_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='published_origination_product_definitions',
+    )
+    published_at = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
         related_name='created_origination_product_definitions',
@@ -2588,12 +2609,39 @@ class OriginationProductDefinition(models.Model):
 
     def clean(self):
         super().clean()
-        if self.is_active:
+        if self.is_active or self.lifecycle_status == self.STATUS_PUBLISHED:
             from core.services.loan_origination import OriginationError, validate_product_definition
             try:
                 validate_product_definition(self)
             except OriginationError as exc:
                 raise ValidationError(str(exc)) from exc
+
+
+class OriginationProductDefinitionEvent(models.Model):
+    """Append-only lifecycle history for a versioned origination product."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    product_definition = models.ForeignKey(
+        OriginationProductDefinition, on_delete=models.PROTECT, related_name='events',
+    )
+    action = models.CharField(max_length=40, db_index=True)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='origination_product_definition_events',
+    )
+    metadata = models.JSONField(default=dict, blank=True)
+    occurred_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ['occurred_at', 'id']
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError('Origination product events are append-only.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Origination product events cannot be deleted.')
 
 
 class OriginationDocumentTemplate(models.Model):
@@ -2611,6 +2659,10 @@ class OriginationDocumentTemplate(models.Model):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    product_definition = models.ForeignKey(
+        OriginationProductDefinition, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='document_templates',
+    )
     document_type = models.SlugField(max_length=80, db_index=True)
     name = models.CharField(max_length=180)
     version = models.PositiveIntegerField()
@@ -2861,6 +2913,8 @@ class OriginationSigningPackage(models.Model):
     external_reference = models.CharField(max_length=80, unique=True, db_index=True)
     document_type = models.CharField(max_length=80)
     template_version = models.PositiveIntegerField(null=True, blank=True)
+    template_sha256 = models.CharField(max_length=64, blank=True, default='')
+    template_configuration_snapshot = models.JSONField(default=dict, blank=True)
     context_snapshot = models.JSONField(default=dict)
     participants_snapshot = models.JSONField(default=list)
     status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)

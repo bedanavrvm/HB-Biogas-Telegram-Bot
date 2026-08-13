@@ -1,0 +1,55 @@
+{% extends "admin/change_form.html" %}
+{% load static %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=1">
+{% endblock %}
+
+{% block field_sets %}
+  {{ block.super }}
+  {% if not original or original.lifecycle_status == 'draft' %}
+    {{ origination_signer_roles|json_script:"origination-signer-role-data" }}
+    <section id="origination-product-builder" class="opb-shell">
+      <header class="opb-header">
+        <div>
+          <h2>Loan form builder</h2>
+          <p>Define the Mini App sections, product-specific fields, and signer slots. Save this draft before uploading its PDF.</p>
+        </div>
+        <div class="opb-actions">
+          <button type="button" class="button" data-action="add-section">Add section</button>
+          <button type="button" class="button" data-action="add-signer">Add signer</button>
+        </div>
+      </header>
+      <div id="opb-errors" class="opb-errors" hidden></div>
+      <div class="opb-grid">
+        <section>
+          <h3>Form sections and fields</h3>
+          <div id="opb-sections"></div>
+        </section>
+        <aside>
+          <h3>Signing roles</h3>
+          <p class="help">Slots are drawn onto the PDF during visual calibration.</p>
+          <div id="opb-signers"></div>
+        </aside>
+      </div>
+    </section>
+    <script src="{% static 'admin/origination_product_builder.js' %}?v=1" defer></script>
+  {% elif original %}
+    <section class="opb-shell opb-published">
+      <h2>Published product version</h2>
+      <p>This contract is immutable. Select it in the product list and use <b>Create editable next version</b> to make changes without altering existing applications.</p>
+    </section>
+  {% endif %}
+{% endblock %}
+
+{% block after_related_objects %}
+  {{ block.super }}
+  {% if original and original.lifecycle_status == 'draft' %}
+    <section class="opb-shell opb-next-step">
+      <h2>Next step: upload this version's PDF</h2>
+      <p>After saving the product draft, upload its PDF, draw field and signer areas, preview it, then publish the product.</p>
+      <a class="button" href="{% url 'admin:core_originationdocumenttemplate_add' %}?product_definition={{ original.pk }}">Upload PDF template</a>
+    </section>
+  {% endif %}
+{% endblock %}

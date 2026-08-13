@@ -117,6 +117,10 @@ body #content, body #content-main { max-width: none !important; background: #f8f
 .calibration-box span { position: absolute; left: 0; top: -17px; padding: 1px 4px; background: #1473e6; color: #fff; font-size: 9px; white-space: nowrap; }
 .calibration-box.selected { z-index: 2; border-color: #e65100; background: rgba(230,81,0,.16); }
 .calibration-box.selected span { background: #e65100; }
+.calibration-box.signature { border-color: #7c3aed; background: rgba(124,58,237,.12); }
+.calibration-box.signature span { background: #7c3aed; }
+.calibration-box.signature.selected { border-color: #db2777; background: rgba(219,39,119,.15); }
+.calibration-box.signature.selected span { background: #db2777; }
 .calibration-box i { position: absolute; right: -6px; bottom: -6px; width: 11px; height: 11px; border: 2px solid currentColor; background: #fff; cursor: nwse-resize; }
 .calibration-actions #calibration-status { color: var(--cal-muted); font-size: 11px; }
 @media (min-width: 851px) {

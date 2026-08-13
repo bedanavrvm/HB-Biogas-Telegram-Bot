@@ -14,11 +14,14 @@ class PartnershipLafPreviewError(RuntimeError):
     pass
 
 
-def _approved_assets(*, version: int = 1, expected_sha256: str = '') -> tuple[bytes, dict[str, Any]]:
+def _approved_assets(
+    *, document_type: str = 'partnership_loan_application', version: int = 1,
+    expected_sha256: str = '',
+) -> tuple[bytes, dict[str, Any]]:
     try:
         from core.services.origination_templates import OriginationTemplateError, load_active_template
         return load_active_template(
-            'partnership_loan_application', version=version, expected_sha256=expected_sha256,
+            document_type, version=version, expected_sha256=expected_sha256,
         )
     except OriginationTemplateError as exc:
         raise PartnershipLafPreviewError(str(exc)) from exc
@@ -95,6 +98,30 @@ def _overlay_page(width: float, height: float, fields: list[tuple[dict, str]], d
     return output.getvalue()
 
 
+def _signature_preview_page(width: float, height: float, slots: list[dict]) -> bytes:
+    output = BytesIO()
+    pdf = canvas.Canvas(output, pagesize=(width, height), pageCompression=1)
+    pdf.setStrokeColorRGB(0.48, 0.23, 0.93)
+    pdf.setFillColorRGB(0.34, 0.12, 0.65)
+    pdf.setDash(4, 3)
+    for spec in slots:
+        box = spec.get('allowed_area') or spec.get('box') or {}
+        unit_scale = 72 / 25.4 if spec.get('units', 'pt') == 'mm' else 1
+        try:
+            x = float(box.get('x', 0)) * unit_scale
+            y = float(box.get('y', 0)) * unit_scale
+            box_width = float(box.get('width', 0)) * unit_scale
+            box_height = float(box.get('height', 0)) * unit_scale
+        except (TypeError, ValueError):
+            continue
+        pdf.rect(x, y, box_width, box_height, stroke=1, fill=0)
+        pdf.setFont('Helvetica-Bold', 6)
+        label = str(spec.get('label') or spec.get('slot_key') or 'Signature slot')
+        pdf.drawString(x + 3, y + max(3, box_height - 8), label[:72])
+    pdf.save()
+    return output.getvalue()
+
+
 def render_template(source: bytes, config: dict[str, Any], context: dict[str, Any]) -> bytes:
     reader = PdfReader(BytesIO(source))
     fields_by_page: dict[int, list[tuple[dict, str]]] = {}
@@ -106,6 +133,14 @@ def render_template(source: bytes, config: dict[str, Any], context: dict[str, An
             continue
         page_number = int(spec.get('page_number') or 1)
         fields_by_page.setdefault(page_number, []).append((spec, context.get(spec.get('context_key'))))
+    signature_slots_by_page: dict[int, list[dict]] = {}
+    if context.get('_show_signature_slots'):
+        signature_manifest = (config.get('signature_overlay_manifest') or {}).get('slots') or {}
+        for spec in signature_manifest.values():
+            if not isinstance(spec, dict):
+                continue
+            page_number = int(spec.get('page_number') or 1)
+            signature_slots_by_page.setdefault(page_number, []).append(spec)
 
     writer = PdfWriter()
     for index, page in enumerate(reader.pages, start=1):
@@ -113,6 +148,11 @@ def render_template(source: bytes, config: dict[str, Any], context: dict[str, An
         overlay = _overlay_page(width, height, fields_by_page.get(index, []), defaults)
         overlay_page = PdfReader(BytesIO(overlay)).pages[0]
         page.merge_page(overlay_page, over=True)
+        if signature_slots_by_page.get(index):
+            signature_overlay = _signature_preview_page(
+                width, height, signature_slots_by_page[index],
+            )
+            page.merge_page(PdfReader(BytesIO(signature_overlay)).pages[0], over=True)
         writer.add_page(page)
     output = BytesIO()
     writer.write(output)
@@ -126,7 +166,23 @@ def render_partnership_laf(
     context: dict[str, Any], *, version: int = 1, expected_sha256: str = '',
     configuration: dict[str, Any] | None = None,
 ) -> bytes:
-    source, config = _approved_assets(version=version, expected_sha256=expected_sha256)
+    return render_origination_document(
+        context,
+        document_type='partnership_loan_application',
+        version=version,
+        expected_sha256=expected_sha256,
+        configuration=configuration,
+    )
+
+
+def render_origination_document(
+    context: dict[str, Any], *, document_type: str, version: int = 1,
+    expected_sha256: str = '', configuration: dict[str, Any] | None = None,
+) -> bytes:
+    """Render any published origination product PDF using its calibrated overlays."""
+    source, config = _approved_assets(
+        document_type=document_type, version=version, expected_sha256=expected_sha256,
+    )
     return render_template(source, configuration or config, context)
 
 

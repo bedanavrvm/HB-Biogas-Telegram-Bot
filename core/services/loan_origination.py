@@ -25,6 +25,25 @@ class OriginationConflict(OriginationError):
     """The caller attempted to change a stale application revision."""
 
 
+SUPPORTED_FIELD_TYPES = {
+    'text', 'textarea', 'number', 'money', 'date', 'phone', 'national_id',
+    'choice', 'boolean',
+}
+
+SIGNER_ROLE_CATALOG = (
+    ('borrower', 'Borrower'),
+    ('customer', 'Customer (legacy borrower role)'),
+    ('guarantor_1', 'Guarantor 1'),
+    ('guarantor_2', 'Guarantor 2'),
+    ('bro_1', 'Business Relationship Officer 1'),
+    ('bro_2', 'Business Relationship Officer 2'),
+    ('loan_officer', 'Loan Officer'),
+    ('officer', 'Officer (legacy role)'),
+    ('branch_manager', 'Branch Manager'),
+    ('commissioner_for_oaths', 'Commissioner for Oaths'),
+)
+
+
 @dataclass(frozen=True)
 class ValidationResult:
     valid: bool
@@ -45,14 +64,65 @@ def _schema_fields(schema: dict[str, Any]) -> list[dict[str, Any]]:
     return [field for field in fields if isinstance(field, dict)]
 
 
-def validate_product_definition(definition: OriginationProductDefinition) -> None:
-    """Reject activation of incomplete or ambiguous product contracts."""
-    fields = _schema_fields(definition.form_schema)
+def validate_product_form_contract(form_schema: dict[str, Any], signer_rules: Any) -> None:
+    """Validate the visual form and signer contract before template calibration."""
+    fields = _schema_fields(form_schema)
     if not fields:
         raise OriginationError('An active origination product requires at least one form field.')
     keys = [str(field.get('key') or '').strip() for field in fields]
     if any(not key for key in keys) or len(keys) != len(set(keys)):
         raise OriginationError('Every origination field requires a unique key.')
+    sections = form_schema.get('sections', []) if isinstance(form_schema, dict) else []
+    if sections:
+        if not isinstance(sections, list) or any(not isinstance(item, dict) for item in sections):
+            raise OriginationError('Origination form sections must be a list of objects.')
+        section_keys = [str(item.get('key') or '').strip() for item in sections]
+        if any(not key for key in section_keys) or len(section_keys) != len(set(section_keys)):
+            raise OriginationError('Every origination section requires a unique key.')
+        unknown_sections = sorted({
+            str(field.get('section_key') or '').strip()
+            for field in fields
+            if str(field.get('section_key') or '').strip() not in set(section_keys)
+        })
+        if unknown_sections:
+            raise OriginationError(f'Unknown origination sections: {", ".join(unknown_sections)}.')
+    for field in fields:
+        field_type = str(field.get('type') or 'text').strip()
+        if field_type not in SUPPORTED_FIELD_TYPES:
+            raise OriginationError(f'Field {field.get("key")} has an unsupported control type.')
+        if field_type == 'choice':
+            options = field.get('options')
+            if not isinstance(options, list) or not [item for item in options if str(item).strip()]:
+                raise OriginationError(f'Choice field {field.get("key")} requires at least one option.')
+    known_roles = {key for key, _label in SIGNER_ROLE_CATALOG}
+    if not isinstance(signer_rules, list) or not signer_rules:
+        raise OriginationError('An active origination product requires signer rules.')
+    roles = [str(item.get('role') or '').strip() for item in signer_rules if isinstance(item, dict)]
+    if len(roles) != len(signer_rules) or any(role not in known_roles for role in roles):
+        raise OriginationError('Every signer requires a role from the approved catalogue.')
+    if len(roles) != len(set(roles)):
+        raise OriginationError('Signer roles cannot be duplicated.')
+    for rule in signer_rules:
+        slots = rule.get('slots', [])
+        if not isinstance(slots, list):
+            raise OriginationError(f'Signer {rule.get("role")} requires a valid slot list.')
+        if rule.get('required', False) and 'slots' in rule and not slots:
+            raise OriginationError(f'Required signer {rule.get("role")} requires at least one signature or stamp slot.')
+        slot_keys = []
+        for raw_slot in slots:
+            slot = {'key': raw_slot} if isinstance(raw_slot, str) else raw_slot
+            if not isinstance(slot, dict) or not str(slot.get('key') or '').strip():
+                raise OriginationError(f'Signer {rule.get("role")} has an invalid slot.')
+            slot_keys.append(str(slot.get('key')).strip())
+            if str(slot.get('type') or rule.get('slot_type') or 'signature') not in {'signature', 'stamp'}:
+                raise OriginationError(f'Signer {rule.get("role")} has an unsupported slot type.')
+        if len(slot_keys) != len(set(slot_keys)):
+            raise OriginationError(f'Signer {rule.get("role")} has duplicate slot keys.')
+
+
+def validate_product_definition(definition: OriginationProductDefinition) -> None:
+    """Reject activation of incomplete or ambiguous product contracts."""
+    validate_product_form_contract(definition.form_schema, definition.signer_rules)
     if not definition.document_type.strip():
         raise OriginationError('An active origination product requires an e-sign document type.')
     if not definition.document_template_name.strip():
@@ -60,8 +130,6 @@ def validate_product_definition(definition: OriginationProductDefinition) -> Non
     digest = definition.document_template_sha256.strip().lower()
     if len(digest) != 64 or any(character not in '0123456789abcdef' for character in digest):
         raise OriginationError('The approved document template requires a valid SHA-256 digest.')
-    if not isinstance(definition.signer_rules, list) or not definition.signer_rules:
-        raise OriginationError('An active origination product requires signer rules.')
 
 
 def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_complete: bool) -> ValidationResult:
@@ -81,11 +149,11 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
         if value in (None, ''):
             continue
         field_type = str(field.get('type') or 'text')
-        if field_type in {'text', 'phone', 'national_id', 'date', 'choice'} and not isinstance(value, str):
+        if field_type in {'text', 'textarea', 'phone', 'national_id', 'date', 'choice'} and not isinstance(value, str):
             errors[key] = 'Enter a valid text value.'
         elif field_type == 'boolean' and not isinstance(value, bool):
             errors[key] = 'Choose yes or no.'
-        elif field_type == 'money':
+        elif field_type in {'money', 'number'}:
             from decimal import Decimal, InvalidOperation
             try:
                 Decimal(str(value))
@@ -131,8 +199,6 @@ def preview_context(application: LoanOriginationApplication) -> dict[str, Any]:
 def render_application_preview(application: LoanOriginationApplication) -> bytes:
     """Render the approved PDF locally; no signing package or file is persisted."""
     definition = application.product_definition
-    if definition.document_type != 'partnership_loan_application':
-        raise OriginationError('This application does not reference the approved Partnership LAF.')
     # Until a signing package is prepared this endpoint is a live preview, so
     # it must reflect the latest published Admin calibration.  The signing
     # package remains immutable and continues to use its captured snapshot.
@@ -147,13 +213,18 @@ def render_application_preview(application: LoanOriginationApplication) -> bytes
             application.template_configuration_snapshot = latest_configuration
             application.save(update_fields=['template_configuration_snapshot', 'updated_at'])
     try:
-        from core.services.partnership_laf_preview import PartnershipLafPreviewError, render_partnership_laf
-        return render_partnership_laf(
-            preview_context(application),
-            version=definition.document_template_version,
-            expected_sha256=definition.document_template_sha256,
-            configuration=application.template_configuration_snapshot or None,
+        from core.services.partnership_laf_preview import (
+            PartnershipLafPreviewError, render_origination_document, render_partnership_laf,
         )
+        renderer = render_partnership_laf if definition.document_type == 'partnership_loan_application' else render_origination_document
+        kwargs = {
+            'version': definition.document_template_version,
+            'expected_sha256': definition.document_template_sha256,
+            'configuration': application.template_configuration_snapshot or None,
+        }
+        if renderer is render_origination_document:
+            kwargs['document_type'] = definition.document_type
+        return renderer(preview_context(application), **kwargs)
     except PartnershipLafPreviewError as exc:
         raise OriginationError(str(exc)) from exc
 
@@ -328,6 +399,8 @@ def prepare_signing_package(
         external_reference=f'ESIGN-{str(package_id)[:12].upper()}',
         document_type=application.product_definition.document_type,
         template_version=application.product_definition.document_template_version,
+        template_sha256=application.product_definition.document_template_sha256,
+        template_configuration_snapshot=application.template_configuration_snapshot,
         context_snapshot=preview_context(application),
         participants_snapshot=application.signer_rules_snapshot,
     )

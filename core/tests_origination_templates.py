@@ -4,6 +4,7 @@ from io import BytesIO
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from pypdf import PdfWriter
@@ -17,11 +18,16 @@ from core.models import (
 from core.services.origination_templates import (
     OriginationTemplateError,
     activate_template,
+    clone_product_version,
     create_template,
+    initial_template_configuration,
     load_active_template,
     publish_calibration,
+    publish_product_template,
     save_calibration_draft,
+    validate_template_configuration,
     validate_template_files,
+    validate_template_pdf,
 )
 from core.services.partnership_laf_preview import PartnershipLafPreviewError, render_pdf_page
 from core.services.loan_origination import render_application_preview
@@ -226,3 +232,227 @@ class OriginationTemplateLifecycleTests(TestCase):
         application.refresh_from_db()
         self.assertEqual(application.template_configuration_snapshot, {'new': True})
         self.assertEqual(renderer.call_args.kwargs['configuration'], {'new': True})
+
+
+@override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='shared-drive-root')
+class MultiProductOriginationTemplateTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser(
+            'product-builder', 'builder@example.test', 'x',
+        )
+        self.pdf = synthetic_pdf()
+        self.product = OriginationProductDefinition.objects.create(
+            product_key='dairy-capital', name='Dairy Working Capital', version=1,
+            form_schema={
+                'sections': [
+                    {'key': 'farm', 'label': 'Farm', 'help_text': 'Farm details'},
+                    {'key': 'facility', 'label': 'Facility', 'help_text': 'Loan request'},
+                ],
+                'fields': [
+                    {
+                        'key': 'farmer_name', 'label': 'Farmer name', 'type': 'text',
+                        'section_key': 'farm', 'required': True, 'width': 'full',
+                    },
+                    {
+                        'key': 'requested_amount', 'label': 'Requested amount', 'type': 'money',
+                        'section_key': 'facility', 'required': True, 'width': 'half',
+                    },
+                ],
+            },
+            signer_rules=[{
+                'role': 'borrower', 'required': True,
+                'slots': [{'key': 'acceptance', 'label': 'Borrower acceptance', 'type': 'signature', 'required': True}],
+            }],
+            document_type='dairy-capital', document_template_version=1,
+            lifecycle_status=OriginationProductDefinition.STATUS_DRAFT,
+            created_by=self.user,
+        )
+
+    def calibrated_configuration(self):
+        config = initial_template_configuration(self.product)
+        config['field_overlay_manifest']['fields'] = {
+            'farmer_name': {
+                'context_key': 'farmer_name', 'page_number': 1, 'units': 'pt',
+                'box': {'x': 20, 'y': 700, 'width': 180, 'height': 16},
+            },
+            'requested_amount': {
+                'context_key': 'requested_amount', 'page_number': 1, 'units': 'pt',
+                'box': {'x': 20, 'y': 660, 'width': 100, 'height': 16},
+            },
+        }
+        config['signature_overlay_manifest']['slots'] = {
+            'borrower.acceptance': {
+                'role': 'borrower', 'slot_key': 'acceptance', 'slot_type': 'signature',
+                'label': 'Borrower acceptance', 'page_number': 1, 'units': 'pt',
+                'box': {'x': 20, 'y': 80, 'width': 180, 'height': 35},
+            },
+        }
+        return config
+
+    def test_pdf_only_onboarding_derives_product_contract(self):
+        digest, pages = validate_template_pdf(self.pdf)
+        config = initial_template_configuration(self.product)
+
+        self.assertEqual(pages, 1)
+        self.assertEqual(digest, hashlib.sha256(self.pdf).hexdigest())
+        self.assertEqual(config['document_type'], self.product.document_type)
+        self.assertEqual(config['version'], self.product.version)
+        self.assertEqual(config['field_overlay_manifest']['fields'], {})
+        self.assertIn('farmer_name', config['sample_context'])
+
+    def test_admin_creates_visual_product_draft_without_raw_template_identifiers(self):
+        self.client.force_login(self.user)
+        add_url = reverse('admin:core_originationproductdefinition_add')
+        response = self.client.get(add_url)
+        self.assertContains(response, 'id="origination-product-builder"')
+        response = self.client.post(add_url, {
+            'product_key': 'solar-upgrade',
+            'name': 'Solar Upgrade Loan',
+            'form_schema': json.dumps({
+                'sections': [{'key': 'customer', 'label': 'Customer'}],
+                'fields': [{
+                    'key': 'customer_name', 'label': 'Customer name', 'type': 'text',
+                    'section_key': 'customer', 'required': True, 'width': 'full',
+                }],
+            }),
+            'signer_rules': json.dumps([{
+                'role': 'borrower', 'required': True,
+                'slots': [{'key': 'signature', 'label': 'Signature', 'type': 'signature', 'required': True}],
+            }]),
+            '_save': 'Save',
+        })
+        self.assertEqual(response.status_code, 302)
+        product = OriginationProductDefinition.objects.get(product_key='solar-upgrade')
+        self.assertEqual(product.document_type, 'solar-upgrade')
+        self.assertEqual(product.lifecycle_status, product.STATUS_DRAFT)
+        self.assertEqual(product.document_template_sha256, '')
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_admin_template_upload_requires_only_draft_product_and_pdf(self, storage_class):
+        storage_class.return_value.upload.return_value = ('drive-admin-pdf', 'https://drive.test/admin-pdf')
+        self.client.force_login(self.user)
+        response = self.client.post(reverse('admin:core_originationdocumenttemplate_add'), {
+            'product_definition': str(self.product.pk),
+            'name': 'Dairy Admin PDF',
+            'pdf_file': SimpleUploadedFile('dairy-admin.pdf', self.pdf, content_type='application/pdf'),
+            '_save': 'Save',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        template = OriginationDocumentTemplate.objects.get(product_definition=self.product)
+        self.assertEqual(template.document_type, self.product.document_type)
+        self.assertEqual(template.version, self.product.version)
+        self.assertEqual(template.placement_config['field_overlay_manifest']['fields'], {})
+
+    @patch('core.services.compliance_audit.record_event')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_publish_action_binds_template_and_activates_product_atomically(self, storage_class, audit):
+        storage = storage_class.return_value
+        storage.upload.return_value = ('drive-dairy-v1', 'https://drive.test/dairy-v1')
+        storage.download.return_value = self.pdf
+        pdf_file = BytesIO(self.pdf); pdf_file.name = 'dairy-capital.pdf'
+        template = create_template(
+            pdf_file=pdf_file, product_definition=self.product,
+            name='Dairy Capital Agreement', actor=self.user,
+        )
+        draft = save_calibration_draft(
+            template=template, configuration=self.calibrated_configuration(),
+            actor=self.user, expected_revision=1,
+        )
+
+        product, template, published = publish_product_template(
+            template=template, revision=draft.revision, actor=self.user,
+        )
+
+        product.refresh_from_db(); template.refresh_from_db()
+        self.assertTrue(product.is_active)
+        self.assertEqual(product.lifecycle_status, product.STATUS_PUBLISHED)
+        self.assertEqual(product.document_template_sha256, hashlib.sha256(self.pdf).hexdigest())
+        self.assertEqual(template.status, template.STATUS_ACTIVE)
+        self.assertEqual(template.published_configuration_revision_id, published.pk)
+        audit.assert_called_once()
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_draft_save_allows_incomplete_mapping_but_publish_validation_does_not(self, storage_class):
+        storage_class.return_value.upload.return_value = ('drive-dairy-draft', 'https://drive.test/draft')
+        storage_class.return_value.download.return_value = self.pdf
+        pdf_file = BytesIO(self.pdf); pdf_file.name = 'draft.pdf'
+        template = create_template(
+            pdf_file=pdf_file, product_definition=self.product,
+            name='Draft', actor=self.user,
+        )
+        incomplete = initial_template_configuration(self.product)
+        saved = save_calibration_draft(
+            template=template, configuration=incomplete,
+            actor=self.user, expected_revision=1,
+        )
+
+        self.assertEqual(saved.revision, 2)
+        with self.assertRaisesRegex(OriginationTemplateError, 'At least one calibrated field'):
+            validate_template_configuration(incomplete, template=template, require_complete=True)
+
+    def test_clone_creates_editable_successor_without_mutating_source(self):
+        self.product.lifecycle_status = self.product.STATUS_PUBLISHED
+        self.product.is_active = True
+        self.product.document_template_name = 'Dairy Capital Agreement'
+        self.product.document_template_sha256 = 'a' * 64
+        self.product.save()
+
+        clone = clone_product_version(self.product, actor=self.user)
+
+        self.assertEqual(clone.version, 2)
+        self.assertEqual(clone.lifecycle_status, clone.STATUS_DRAFT)
+        self.assertEqual(clone.supersedes_id, self.product.pk)
+        self.assertEqual(clone.form_schema, self.product.form_schema)
+        self.assertFalse(clone.is_active)
+        self.product.refresh_from_db()
+        self.assertTrue(self.product.is_active)
+
+    @patch('core.services.compliance_audit.record_event')
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_retired_template_remains_available_to_exact_pinned_application_contract(self, storage_class, _audit):
+        storage = storage_class.return_value
+        storage.upload.side_effect = [
+            ('drive-dairy-v1', 'https://drive.test/dairy-v1'),
+            ('drive-dairy-v2', 'https://drive.test/dairy-v2'),
+        ]
+        storage.download.return_value = self.pdf
+
+        first_file = BytesIO(self.pdf); first_file.name = 'dairy-v1.pdf'
+        first_template = create_template(
+            pdf_file=first_file, product_definition=self.product,
+            name='Dairy v1', actor=self.user,
+        )
+        first_draft = save_calibration_draft(
+            template=first_template, configuration=self.calibrated_configuration(),
+            actor=self.user, expected_revision=1,
+        )
+        first_product, first_template, _published = publish_product_template(
+            template=first_template, revision=first_draft.revision, actor=self.user,
+        )
+        successor = clone_product_version(first_product, actor=self.user)
+        second_file = BytesIO(self.pdf); second_file.name = 'dairy-v2.pdf'
+        second_template = create_template(
+            pdf_file=second_file, product_definition=successor,
+            name='Dairy v2', actor=self.user,
+        )
+        successor_config = self.calibrated_configuration()
+        successor_config['version'] = successor.version
+        second_draft = save_calibration_draft(
+            template=second_template, configuration=successor_config,
+            actor=self.user, expected_revision=1,
+        )
+        publish_product_template(
+            template=second_template, revision=second_draft.revision, actor=self.user,
+        )
+
+        first_template.refresh_from_db(); first_product.refresh_from_db()
+        self.assertEqual(first_template.status, first_template.STATUS_RETIRED)
+        self.assertEqual(first_product.lifecycle_status, first_product.STATUS_RETIRED)
+        source, config = load_active_template(
+            first_product.document_type,
+            version=first_product.document_template_version,
+            expected_sha256=first_product.document_template_sha256,
+        )
+        self.assertEqual(source, self.pdf)
+        self.assertEqual(config['version'], 1)
