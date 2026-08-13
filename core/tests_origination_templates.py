@@ -311,6 +311,13 @@ class MultiProductOriginationTemplateTests(TestCase):
             response.context['adminform'].form.fields['product_version'].widget,
             UnfoldAdminSelectWidget,
         )
+        self.assertIsInstance(
+            response.context['adminform'].form.fields['laf_pdf'].widget,
+            UnfoldAdminFileFieldWidget,
+        )
+        self.assertContains(response, 'LAF PDF template')
+        self.assertContains(response, 'Product and LAF')
+        self.assertContains(response, 'Assign and align fields on the LAF')
         response = self.client.post(add_url, {
             'product_key': 'solar-upgrade',
             'name': 'Solar Upgrade Loan',
@@ -332,6 +339,138 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertEqual(product.document_type, 'solar-upgrade')
         self.assertEqual(product.lifecycle_status, product.STATUS_DRAFT)
         self.assertEqual(product.document_template_sha256, '')
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_admin_product_builder_uploads_laf_and_opens_alignment_workspace(self, storage_class):
+        storage_class.return_value.upload.return_value = (
+            'drive-integrated-laf', 'https://drive.test/integrated-laf',
+        )
+        storage_class.return_value.download.return_value = self.pdf
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse('admin:core_originationproductdefinition_add'),
+            {
+                'product_key': 'integrated-laf',
+                'name': 'Integrated LAF Loan',
+                'form_schema': json.dumps({
+                    'sections': [{'key': 'customer', 'label': 'Customer'}],
+                    'fields': [{
+                        'key': 'customer_name', 'label': 'Customer name', 'type': 'text',
+                        'section_key': 'customer', 'required': True, 'width': 'full',
+                    }],
+                }),
+                'signer_rules': json.dumps([{
+                    'role': 'borrower', 'required': True,
+                    'slots': [{
+                        'key': 'signature', 'label': 'Signature',
+                        'type': 'signature', 'required': True,
+                    }],
+                }]),
+                'laf_pdf': SimpleUploadedFile(
+                    'integrated-laf.pdf', self.pdf, content_type='application/pdf',
+                ),
+                '_save': 'Save',
+            },
+        )
+
+        product = OriginationProductDefinition.objects.get(product_key='integrated-laf')
+        template = product.document_templates.get()
+        self.assertRedirects(
+            response,
+            reverse(
+                'admin:core_originationdocumenttemplate_calibrate', args=[template.pk],
+            ),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(template.drive_file_id, 'drive-integrated-laf')
+        self.assertEqual(
+            template.placement_config['sample_context']['customer_name'],
+            'Customer name',
+        )
+        self.assertEqual(
+            list(template.events.values_list('action', flat=True)),
+            ['created', 'uploaded'],
+        )
+        state_response = self.client.get(reverse(
+            'admin:core_originationdocumenttemplate_calibration_state',
+            args=[template.pk],
+        ))
+        state = state_response.json()
+        self.assertEqual(state_response.status_code, 200)
+        self.assertIn('customer_name', {item['key'] for item in state['context_keys']})
+        self.assertIn(
+            'borrower.signature',
+            {
+                f"{item['role']}.{item['slot_key']}"
+                for item in state['signature_slots']
+            },
+        )
+
+    def test_admin_product_builder_links_existing_laf_without_allowing_overwrite(self):
+        template = OriginationDocumentTemplate.objects.create(
+            product_definition=self.product,
+            document_type=self.product.document_type,
+            name='Dairy LAF',
+            version=self.product.version,
+            source_filename='dairy-laf.pdf',
+            source_sha256='f' * 64,
+            source_byte_size=100,
+            page_count=1,
+            placement_config=initial_template_configuration(self.product),
+            drive_file_id='drive-existing-laf',
+            drive_url='https://drive.test/existing-laf',
+            created_by=self.user,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse(
+            'admin:core_originationproductdefinition_change', args=[self.product.pk],
+        ))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['adminform'].form.fields['laf_pdf'].disabled)
+        self.assertTrue(
+            response.context['adminform'].form.fields['laf_pdf'].widget.is_hidden,
+        )
+        self.assertContains(response, 'Open alignment builder')
+        self.assertContains(response, reverse(
+            'admin:core_originationdocumenttemplate_calibrate', args=[template.pk],
+        ))
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_existing_draft_product_can_upload_laf_from_its_builder(self, storage_class):
+        storage_class.return_value.upload.return_value = (
+            'drive-existing-draft', 'https://drive.test/existing-draft',
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse(
+                'admin:core_originationproductdefinition_change', args=[self.product.pk],
+            ),
+            {
+                'product_version': '',
+                'product_key': self.product.product_key,
+                'name': self.product.name,
+                'form_schema': json.dumps(self.product.form_schema),
+                'signer_rules': json.dumps(self.product.signer_rules),
+                'laf_pdf': SimpleUploadedFile(
+                    'dairy-laf.pdf', self.pdf, content_type='application/pdf',
+                ),
+                '_save': 'Save',
+            },
+        )
+
+        template = self.product.document_templates.get()
+        self.assertRedirects(
+            response,
+            reverse(
+                'admin:core_originationdocumenttemplate_calibrate', args=[template.pk],
+            ),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(template.drive_file_id, 'drive-existing-draft')
 
     def test_admin_template_add_is_compact_and_explains_eligible_drafts(self):
         self.client.force_login(self.user)

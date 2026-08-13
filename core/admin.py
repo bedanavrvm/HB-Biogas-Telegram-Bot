@@ -145,10 +145,22 @@ class OriginationProductDefinitionForm(forms.ModelForm):
     name = forms.CharField(required=False, widget=forms.HiddenInput)
     form_schema = forms.JSONField(widget=forms.HiddenInput)
     signer_rules = forms.JSONField(widget=forms.HiddenInput)
+    laf_pdf = forms.FileField(
+        required=False,
+        label='LAF PDF template',
+        help_text=(
+            'Upload the blank LAF PDF. After saving, the visual alignment builder '
+            'opens so these form variables can be assigned and drawn on the document.'
+        ),
+        widget=UnfoldAdminFileFieldWidget(attrs={'accept': 'application/pdf'}),
+    )
 
     class Meta:
         model = OriginationProductDefinition
-        fields = ('product_version', 'product_key', 'name', 'form_schema', 'signer_rules')
+        fields = (
+            'product_version', 'laf_pdf', 'product_key', 'name',
+            'form_schema', 'signer_rules',
+        )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -163,18 +175,40 @@ class OriginationProductDefinitionForm(forms.ModelForm):
             # A version may change its presentation contract while it is a
             # draft, but it must not move into another product's version line.
             self.fields['product_key'].disabled = True
+            if self.instance.document_templates.exclude(
+                status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
+            ).exists():
+                # The source PDF is immutable. Replacing it requires the next
+                # product-definition version rather than silently overwriting
+                # the legal document attached to this one.
+                self.fields['laf_pdf'].disabled = True
+                self.fields['laf_pdf'].widget = forms.HiddenInput()
 
     def clean(self):
         cleaned = super().clean()
         schema = cleaned.get('form_schema')
         signer_rules = cleaned.get('signer_rules')
         product_version = cleaned.get('product_version')
+        laf_pdf = cleaned.get('laf_pdf')
         if product_version:
             cleaned['product_key'] = product_version.product.code
             cleaned['name'] = product_version.product.name
             self.instance.product_key = product_version.product.code
             self.instance.name = product_version.product.name
             self.instance.document_type = product_version.product.code
+        if laf_pdf:
+            if not str(laf_pdf.name).lower().endswith('.pdf'):
+                self.add_error('laf_pdf', 'Upload a PDF file.')
+            else:
+                from core.services.origination_templates import (
+                    OriginationTemplateError, validate_template_pdf,
+                )
+                pdf_data = laf_pdf.read()
+                laf_pdf.seek(0)
+                try:
+                    validate_template_pdf(pdf_data)
+                except OriginationTemplateError as exc:
+                    self.add_error('laf_pdf', str(exc))
         if schema is None or signer_rules is None:
             return cleaned
         from core.services.loan_origination import OriginationError, validate_product_form_contract
@@ -4469,11 +4503,38 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
 
     def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
         from core.services.loan_origination import SIGNER_ROLE_CATALOG
+        product = self.get_object(request, object_id) if object_id else None
+        template = None
+        failed_template = None
+        if product is not None:
+            templates = product.document_templates.order_by('-created_at')
+            template = templates.exclude(
+                status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
+            ).first()
+            failed_template = templates.filter(
+                status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
+            ).first()
         context = {
             **(extra_context or {}),
             'origination_signer_roles': [
                 {'key': key, 'label': label} for key, label in SIGNER_ROLE_CATALOG
             ],
+            'origination_document_template': template,
+            'origination_failed_template': failed_template,
+            'origination_calibration_url': (
+                reverse(
+                    'admin:core_originationdocumenttemplate_calibrate',
+                    args=[template.pk],
+                )
+                if template and template.drive_file_id else ''
+            ),
+            'origination_template_change_url': (
+                reverse(
+                    'admin:core_originationdocumenttemplate_change',
+                    args=[template.pk],
+                )
+                if template else ''
+            ),
         }
         return super().changeform_view(request, object_id, form_url, context)
 
@@ -4518,6 +4579,44 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
             product_definition=obj, action='draft_updated' if change else 'created',
             actor=request.user, metadata={'version': obj.version},
         )
+        laf_pdf = form.cleaned_data.get('laf_pdf')
+        if laf_pdf:
+            from core.services.origination_templates import create_template
+            template = create_template(
+                pdf_file=laf_pdf,
+                product_definition=obj,
+                name=f'{obj.name} LAF v{obj.version}',
+                actor=request.user,
+            )
+            obj._uploaded_laf_template_id = template.pk
+            if template.status == OriginationDocumentTemplate.STATUS_UPLOAD_FAILED:
+                messages.error(request, template.upload_error)
+            else:
+                messages.success(
+                    request,
+                    'LAF uploaded. Assign each form variable and signer slot on the PDF.',
+                )
+
+    def _uploaded_laf_response(self, obj):
+        template_id = getattr(obj, '_uploaded_laf_template_id', None)
+        if not template_id:
+            return None
+        template = OriginationDocumentTemplate.objects.get(pk=template_id)
+        if template.drive_file_id and template.status != template.STATUS_UPLOAD_FAILED:
+            return HttpResponseRedirect(reverse(
+                'admin:core_originationdocumenttemplate_calibrate', args=[template.pk],
+            ))
+        return HttpResponseRedirect(reverse(
+            'admin:core_originationproductdefinition_change', args=[obj.pk],
+        ))
+
+    def response_add(self, request, obj, post_url_continue=None):
+        return self._uploaded_laf_response(obj) or super().response_add(
+            request, obj, post_url_continue,
+        )
+
+    def response_change(self, request, obj):
+        return self._uploaded_laf_response(obj) or super().response_change(request, obj)
 
     @admin.action(description='Create editable next version')
     def create_new_version(self, request, queryset):
