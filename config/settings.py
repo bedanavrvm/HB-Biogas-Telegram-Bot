@@ -470,6 +470,17 @@ INVOICE_UPLOAD_MAX_FILE_SIZE_MB = config('INVOICE_UPLOAD_MAX_FILE_SIZE_MB', defa
 # Physically signed/stamped requisition and payment scans are stored in Django
 # before their Drive upload, so keep the accepted payload bounded.
 DOCUMENT_SIGNOFF_MAX_FILE_SIZE_MB = config('DOCUMENT_SIGNOFF_MAX_FILE_SIZE_MB', default=12, cast=int)
+# Origination evidence is streamed to the restricted Drive media root and is
+# governed separately from general workflow attachments.
+ORIGINATION_EVIDENCE_MAX_FILE_SIZE_MB = config(
+    'ORIGINATION_EVIDENCE_MAX_FILE_SIZE_MB', default=10, cast=int,
+)
+ORIGINATION_EVIDENCE_MAX_FILES_PER_REQUIREMENT = config(
+    'ORIGINATION_EVIDENCE_MAX_FILES_PER_REQUIREMENT', default=5, cast=int,
+)
+ORIGINATION_EVIDENCE_MAX_TOTAL_UPLOAD_MB = config(
+    'ORIGINATION_EVIDENCE_MAX_TOTAL_UPLOAD_MB', default=30, cast=int,
+)
 
 # API Configuration & Security
 API_REQUEST_SIZE_LIMIT = 1_000_000  # 1MB - Prevent DoS from large payloads

@@ -14,7 +14,12 @@
     'security_1_description', 'guarantor_1_business_location', 'guarantor_1_residence_location',
   ]);
   let products = [];
+  let allProducts = [];
+  let branches = [];
   let applications = [];
+  let listCounts = {};
+  let capabilities = { can_create: false, can_review: false, can_start_signing: false };
+  let listState = { queue: '', status: '', productKey: '', query: '', page: 1, pages: 1 };
   let current = null;
   let step = 0;
   let saveTimer = null;
@@ -25,6 +30,15 @@
   let previewRequestId = '';
   let previewedRevision = null;
   let dirty = false;
+  let editGeneration = 0;
+  let saveInFlight = null;
+  let pendingSaveRequestId = '';
+  let syncConflict = false;
+  let conflictDraft = null;
+  let recoveryAvailable = Boolean(window.crypto?.subtle && window.indexedDB);
+  const recoveredApplications = new Set();
+  const reviewTargets = new Map();
+  let reviewDialogMode = '';
   let previewPinch = null;
   let previewSwipe = null;
   const previewPointers = new Map();
@@ -89,6 +103,133 @@
   function root() { return document.getElementById('origination-root'); }
   function draftKey(id) { return `loan-origination-draft:${id}`; }
   function normalizeLabel(field) { return field.label || field.key.replaceAll('_', ' '); }
+
+  const RECOVERY_DB = 'jbl-origination-recovery-v1';
+  const RECOVERY_TTL_MS = 24 * 60 * 60 * 1000;
+  const recoveryUser = String(tg?.initDataUnsafe?.user?.id || 'local-session');
+
+  function recoveryDb() {
+    if (!recoveryAvailable) return Promise.resolve(null);
+    if (recoveryDb.promise) return recoveryDb.promise;
+    recoveryDb.promise = new Promise((resolve, reject) => {
+      const request = indexedDB.open(RECOVERY_DB, 1);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta');
+        if (!db.objectStoreNames.contains('drafts')) db.createObjectStore('drafts');
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    }).catch(() => { recoveryAvailable = false; return null; });
+    return recoveryDb.promise;
+  }
+
+  function idbRequest(request) {
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async function recoveryKey(db) {
+    let transaction = db.transaction('meta', 'readonly');
+    let key = await idbRequest(transaction.objectStore('meta').get('aes-key'));
+    if (!key) {
+      key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+      transaction = db.transaction('meta', 'readwrite');
+      await idbRequest(transaction.objectStore('meta').put(key, 'aes-key'));
+    }
+    return key;
+  }
+
+  async function persistRecoveryDraft(applicationId, value) {
+    if (!recoveryAvailable) return false;
+    try {
+      const db = await recoveryDb();
+      if (!db) return false;
+      const key = await recoveryKey(db);
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const plaintext = new TextEncoder().encode(JSON.stringify(value));
+      const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext);
+      const transaction = db.transaction('drafts', 'readwrite');
+      await idbRequest(transaction.objectStore('drafts').put({
+        user: recoveryUser,
+        expiresAt: Date.now() + RECOVERY_TTL_MS,
+        iv: Array.from(iv),
+        ciphertext,
+      }, draftKey(applicationId)));
+      return true;
+    } catch (_) {
+      recoveryAvailable = false;
+      return false;
+    }
+  }
+
+  async function readRecoveryDraft(applicationId) {
+    if (!recoveryAvailable) return null;
+    try {
+      const db = await recoveryDb();
+      if (!db) return null;
+      const transaction = db.transaction('drafts', 'readonly');
+      const record = await idbRequest(transaction.objectStore('drafts').get(draftKey(applicationId)));
+      if (!record || record.user !== recoveryUser || Number(record.expiresAt || 0) <= Date.now()) {
+        if (record) await removeRecoveryDraft(applicationId);
+        return null;
+      }
+      const key = await recoveryKey(db);
+      const plaintext = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: new Uint8Array(record.iv) }, key, record.ciphertext,
+      );
+      return JSON.parse(new TextDecoder().decode(plaintext));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function removeRecoveryDraft(applicationId) {
+    try {
+      const db = await recoveryDb();
+      if (!db) return;
+      const transaction = db.transaction('drafts', 'readwrite');
+      await idbRequest(transaction.objectStore('drafts').delete(draftKey(applicationId)));
+    } catch (_) { /* Recovery deletion is best effort. */ }
+    localStorage.removeItem(draftKey(applicationId));
+  }
+
+  async function recoverDraft(application) {
+    if (recoveredApplications.has(application.id)) return;
+    recoveredApplications.add(application.id);
+    let local = await readRecoveryDraft(application.id);
+    // One-time migration from the previous plaintext recovery format.
+    if (!local) {
+      try { local = JSON.parse(localStorage.getItem(draftKey(application.id)) || 'null'); } catch (_) { local = null; }
+      if (local) await persistRecoveryDraft(application.id, local);
+      localStorage.removeItem(draftKey(application.id));
+    }
+    if (!local) return;
+    if (Number(local.revision) !== Number(application.revision)) {
+      syncConflict = true;
+      conflictDraft = local;
+      showToast('A phone recovery draft and the server revision differ. Your phone copy was kept; refresh before editing.', true);
+      return;
+    }
+    current.form_payload = local.payload || current.form_payload;
+    current.product_requirements = local.configuration?.requirements || current.product_requirements;
+    current.product_custom_values = local.configuration?.customValues || current.product_custom_values;
+    current.product_selected_fee_keys = local.configuration?.selectedFeeKeys || current.product_selected_fee_keys;
+    pendingSaveRequestId = local.requestId || requestKey('save');
+    editGeneration = Number(local.generation || 1);
+    dirty = true;
+  }
+
+  async function openEditor(application, requestedStep) {
+    current = application;
+    reviewTargets.clear();
+    syncConflict = false;
+    conflictDraft = null;
+    await recoverDraft(application);
+    renderEditor(current, requestedStep);
+  }
 
   function sectionFor(key) {
     if (key.startsWith('guarantor_')) return 'guarantors';
@@ -159,9 +300,11 @@
       return `<select ${data}${locked}><option value="">Choose</option>${options}</select>`;
     }
     const inputType = item.type === 'date' ? 'date' : ['number', 'money', 'amount'].includes(item.type) ? 'number' : 'text';
-    const numeric = ['number', 'money', 'amount'].includes(item.type) ? ' inputmode="decimal" step="any"' : '';
+    const validation = item.validation || {};
+    const numeric = ['number', 'money', 'amount'].includes(item.type) ? ` inputmode="decimal" step="any"${validation.min != null ? ` min="${escapeHtml(validation.min)}"` : ''}${validation.max != null ? ` max="${escapeHtml(validation.max)}"` : ''}` : '';
+    const pattern = inputType === 'text' && validation.pattern ? ` pattern="${escapeHtml(validation.pattern)}"` : '';
     const placeholder = item.type === 'document' ? 'Document reference or evidence note' : '';
-    return `<input type="${inputType}" ${data} value="${escapeHtml(value ?? '')}"${numeric}${placeholder ? ` placeholder="${placeholder}"` : ''}${locked}>`;
+    return `<input type="${inputType}" ${data} value="${escapeHtml(value ?? '')}"${numeric}${pattern}${placeholder ? ` placeholder="${placeholder}"` : ''}${locked}>`;
   }
 
   function productConfigurationMarkup(editable) {
@@ -169,11 +312,21 @@
     const requirements = (terms.requirements || []).filter(item => !item.workflow || item.workflow === 'loan_origination');
     const attributes = (terms.custom_attributes || []).filter(item => !(item.workflows || []).length || item.workflows.includes('loan_origination'));
     const optionalFees = (terms.fees || []).filter(item => !item.mandatory);
+    const evidenceEditable = editable || (current?.status === 'reviewed' && capabilities.can_start_signing);
     const selected = new Set(current?.product_selected_fee_keys || []);
     const requirementRows = requirements.map(item => {
       const required = item.required ? '<span class="required-mark" aria-label="required">*</span>' : '';
       const stage = item.enforcement_stage ? `<small class="field-help">Required before ${escapeHtml(item.enforcement_stage.replaceAll('_', ' '))}</small>` : '';
-      return `<label class="laf-field" data-product-wrap="requirement:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}${required}</span>${item.description ? `<small class="field-help">${escapeHtml(item.description)}</small>` : ''}${stage}${configurationControl(item, current?.product_requirements?.[item.key], 'data-product-requirement', !editable)}<small class="field-error" aria-live="polite"></small></label>`;
+      const correction = current.status === 'ready_for_review' ? correctionToggle('requirement', item.key, item.label) : '';
+      if (item.type === 'document') {
+        const evidence = (current?.requirement_evidence || []).filter(file => file.requirement_key === item.key && file.status !== 'removed');
+        const upload = evidenceEditable ? `<label class="evidence-upload"><input type="file" accept="application/pdf,image/jpeg,image/png" data-evidence-upload="${escapeHtml(item.key)}"><span>Choose PDF, JPG or PNG</span></label>` : '';
+        const fileRows = evidence.map(file => `<span class="evidence-row status-${escapeHtml(file.status)}"><span><strong>${escapeHtml(file.filename)}</strong><small>${escapeHtml(file.status === 'failed' ? file.error || 'Upload failed' : `${Math.max(1, Math.round(file.byte_size / 1024))} KB · ${file.status}`)}</small></span><span class="evidence-actions">${file.download_url ? `<button type="button" data-evidence-open="${escapeHtml(file.id)}">Open</button>` : ''}${evidenceEditable && file.status === 'uploaded' ? `<button type="button" data-evidence-remove="${escapeHtml(file.id)}">Remove</button>` : ''}</span></span>`).join('');
+        return `<div class="laf-field laf-field-wide evidence-field" data-product-wrap="requirement:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}${required}</span>${item.description ? `<small class="field-help">${escapeHtml(item.description)}</small>` : ''}${stage}${correction}${fileRows || '<small class="field-help">No evidence uploaded.</small>'}${upload}<small class="field-error" aria-live="polite"></small></div>`;
+      }
+      const signingEditable = current?.status === 'reviewed'
+        && capabilities.can_start_signing && item.enforcement_stage === 'signing';
+      return `<label class="laf-field" data-product-wrap="requirement:${escapeHtml(item.key)}"><span>${escapeHtml(item.label)}${required}</span>${item.description ? `<small class="field-help">${escapeHtml(item.description)}</small>` : ''}${stage}${correction}${configurationControl(item, current?.product_requirements?.[item.key], 'data-product-requirement', !(editable || signingEditable))}<small class="field-error" aria-live="polite"></small></label>`;
     }).join('');
     const attributeRows = attributes.map(item => {
       const required = item.required ? '<span class="required-mark" aria-label="required">*</span>' : '';
@@ -183,6 +336,12 @@
     const quote = current?.product_quote || {};
     const quoteMarkup = quote.installment_amount ? `<aside class="notice"><strong>Current quote</strong><span>${escapeHtml(quote.currency)} ${escapeHtml(quote.installment_amount)} × ${escapeHtml(quote.installment_count)}; total repayment ${escapeHtml(quote.currency)} ${escapeHtml(quote.total_repayment)}${quote.upfront_fees !== '0.00' ? `; upfront fees ${escapeHtml(quote.currency)} ${escapeHtml(quote.upfront_fees)}` : ''}</span></aside>` : '';
     return `${quoteMarkup}<div class="laf-grid">${requirementRows}${attributeRows}${feeRows}</div>`;
+  }
+
+  function correctionToggle(targetType, targetKey, targetLabel) {
+    if (!capabilities.can_review) return '';
+    const identity = `${targetType}:${targetKey}`;
+    return `<span class="correction-toggle"><input type="checkbox" data-correction-target="${escapeHtml(identity)}" data-target-type="${escapeHtml(targetType)}" data-target-key="${escapeHtml(targetKey)}" data-target-label="${escapeHtml(targetLabel)}"${reviewTargets.has(identity) ? ' checked' : ''}><span>Flag for correction</span></span>`;
   }
 
   function fieldInput(field, value, disabled) {
@@ -201,15 +360,20 @@
     } else if (field.type === 'boolean') {
       control = `<select data-field="${key}"${disabled ? ' disabled' : ''}><option value="">Choose</option><option value="true"${value === true ? ' selected' : ''}>Yes</option><option value="false"${value === false ? ' selected' : ''}>No</option></select>`;
     } else if (field.type === 'textarea') {
-      control = `<textarea data-field="${key}"${disabled ? ' disabled' : ''}>${escapeHtml(value ?? '')}</textarea>`;
+      const validation = field.validation || {};
+      control = `<textarea data-field="${key}"${validation.min_length != null ? ` minlength="${escapeHtml(validation.min_length)}"` : ''}${validation.max_length != null ? ` maxlength="${escapeHtml(validation.max_length)}"` : ''}${validation.pattern ? ` pattern="${escapeHtml(validation.pattern)}"` : ''}${disabled ? ' disabled' : ''}>${escapeHtml(value ?? '')}</textarea>`;
     } else {
       const type = field.type === 'date' ? 'date' : ['money', 'number'].includes(field.type) ? 'number' : field.type === 'phone' ? 'tel' : 'text';
       const prefix = field.type === 'money' ? '<span class="input-prefix">KES</span>' : '';
-      const numeric = field.type === 'money' ? ' inputmode="decimal" min="0" step="0.01"' : field.type === 'number' ? ' inputmode="decimal" step="any"' : '';
-      control = `<div class="input-wrap${prefix ? ' has-prefix' : ''}">${prefix}<input data-field="${key}" type="${type}" value="${escapeHtml(value ?? '')}"${numeric}${field.type === 'national_id' ? ' inputmode="numeric"' : ''}${disabled ? ' disabled' : ''}></div>`;
+      const validation = field.validation || {};
+      const numeric = field.type === 'money' ? ` inputmode="decimal" min="${escapeHtml(validation.min ?? 0)}"${validation.max != null ? ` max="${escapeHtml(validation.max)}"` : ''} step="0.01"` : field.type === 'number' ? ` inputmode="decimal"${validation.min != null ? ` min="${escapeHtml(validation.min)}"` : ''}${validation.max != null ? ` max="${escapeHtml(validation.max)}"` : ''} step="any"` : '';
+      const textRules = ['text', 'textarea', 'phone', 'national_id'].includes(field.type) ? `${validation.min_length != null ? ` minlength="${escapeHtml(validation.min_length)}"` : ''}${validation.max_length != null ? ` maxlength="${escapeHtml(validation.max_length)}"` : ''}${validation.pattern ? ` pattern="${escapeHtml(validation.pattern)}"` : ''}` : '';
+      const dateRules = field.type === 'date' ? `${validation.min_date ? ` min="${escapeHtml(validation.min_date)}"` : ''}${validation.max_date ? ` max="${escapeHtml(validation.max_date)}"` : ''}` : '';
+      control = `<div class="input-wrap${prefix ? ' has-prefix' : ''}">${prefix}<input data-field="${key}" type="${type}" value="${escapeHtml(value ?? '')}"${numeric}${textRules}${dateRules}${field.type === 'national_id' ? ' inputmode="numeric"' : ''}${disabled ? ' disabled' : ''}></div>`;
     }
     const help = field.help_text ? `<small class="field-help">${escapeHtml(field.help_text)}</small>` : '';
-    return `<label class="${classes}" data-field-wrap="${key}"><span>${label}${required}</span>${help}${control}<small class="field-error" aria-live="polite"></small></label>`;
+    const correction = current.status === 'ready_for_review' ? correctionToggle('field', field.key, normalizeLabel(field)) : '';
+    return `<label class="${classes}" data-field-wrap="${key}"><span>${label}${required}</span>${help}${correction}${control}<small class="field-error" aria-live="polite"></small></label>`;
   }
 
   function sectionErrors(sectionKey) {
@@ -217,13 +381,25 @@
       const terms = current?.product_terms || {};
       const values = collectProductConfiguration();
       const errors = {};
-      (terms.requirements || []).filter(item => item.required && (!item.workflow || item.workflow === 'loan_origination')).forEach(item => {
-        const value = values.requirements[item.key];
-        if (value === undefined || value === null || value === '' || value === false) errors[`requirement:${item.key}`] = 'Required';
+      (terms.requirements || []).filter(item => item.required && item.enforcement_stage === 'review' && (!item.workflow || item.workflow === 'loan_origination')).forEach(item => {
+        if (item.type === 'document') {
+          const uploaded = (current?.requirement_evidence || []).some(file => file.requirement_key === item.key && file.status === 'uploaded');
+          if (!uploaded) errors[`requirement:${item.key}`] = 'Upload required evidence';
+        } else {
+          const value = values.requirements[item.key];
+          if (value === undefined || value === null || value === '' || value === false) errors[`requirement:${item.key}`] = 'Required';
+        }
       });
       (terms.custom_attributes || []).filter(item => item.required && (!(item.workflows || []).length || item.workflows.includes('loan_origination'))).forEach(item => {
         const value = values.customValues[item.key];
         if (value === undefined || value === null || value === '') errors[`custom:${item.key}`] = 'Required';
+      });
+      root()?.querySelectorAll('[data-product-requirement], [data-product-custom]').forEach(input => {
+        if (input.checkValidity()) return;
+        const key = input.dataset.productRequirement
+          ? `requirement:${input.dataset.productRequirement}`
+          : `custom:${input.dataset.productCustom}`;
+        errors[key] ||= input.validationMessage || 'Enter a valid value.';
       });
       return errors;
     }
@@ -232,6 +408,10 @@
     fieldsFor(sectionKey).forEach(field => {
       const value = payload[field.key];
       if (field.required && (value === undefined || value === null || value === '')) errors[field.key] = 'Required';
+      const input = root()?.querySelector(`[data-field="${CSS.escape(field.key)}"]`);
+      if (!errors[field.key] && input && !input.checkValidity()) {
+        errors[field.key] = input.validationMessage || 'Enter a valid value.';
+      }
     });
     return errors;
   }
@@ -251,18 +431,47 @@
     });
   }
 
+  function showServerErrors(errors) {
+    if (!errors || typeof errors !== 'object') return;
+    const firstKey = Object.keys(errors)[0];
+    if (!firstKey) return;
+    const sections = wizardSections();
+    let targetStep = sections.findIndex(section => fieldsFor(section.key).some(field => field.key === firstKey));
+    if (firstKey.startsWith('requirement:') || firstKey.startsWith('custom:')) {
+      targetStep = sections.findIndex(section => section.key === 'product_requirements');
+    }
+    if (targetStep >= 0 && targetStep !== step) renderEditor(current, targetStep);
+    showErrors(errors);
+    window.setTimeout(() => root()?.querySelector('.invalid input, .invalid select, .invalid textarea')?.focus(), 0);
+  }
+
   async function saveDraft(showError) {
     if (!current || !['draft', 'correction_required'].includes(current.status)) return true;
     if (!dirty) return true;
+    if (syncConflict) {
+      if (showError) showToast('Resolve the saved-draft conflict before continuing.', true);
+      return false;
+    }
+    if (saveInFlight) {
+      await saveInFlight;
+      return dirty ? saveDraft(showError) : true;
+    }
+    const applicationId = current.id;
+    const revision = current.revision;
+    const generation = editGeneration;
     const payload = collectPayload();
     const configuration = collectProductConfiguration();
-    localStorage.setItem(draftKey(current.id), JSON.stringify({ revision: current.revision, payload, configuration, savedAt: Date.now() }));
+    pendingSaveRequestId ||= requestKey('save');
+    const key = pendingSaveRequestId;
+    await persistRecoveryDraft(applicationId, {
+      revision, payload, configuration, requestId: key,
+      generation, savedAt: Date.now(),
+    });
     setSaveState('Saving…', 'saving');
-    const key = requestKey('save');
-    const result = await apiFetch(`/applications/${current.id}/`, {
+    saveInFlight = apiFetch(`/applications/${applicationId}/`, {
       method: 'PATCH', headers: { 'Idempotency-Key': key, 'X-Request-ID': key },
       body: JSON.stringify({
-        revision: current.revision,
+        revision,
         form_payload: payload,
         product_requirement_evidence: configuration.requirements,
         product_custom_values: configuration.customValues,
@@ -270,15 +479,37 @@
         request_id: key,
       }),
     });
+    const result = await saveInFlight;
+    saveInFlight = null;
     if (!result.ok || !result.data?.ok) {
-      setSaveState('Saved on phone', 'offline');
-      if (showError) showToast(result.data?.error || 'Draft remains on this phone. Reconnect and try again.', true);
+      if (result.status === 409 || result.data?.conflict) syncConflict = true;
+      setSaveState(recoveryAvailable ? 'Encrypted on phone' : 'Not saved offline', 'offline');
+      if (result.data?.errors) showServerErrors(result.data.errors);
+      if (showError) showToast(
+        result.data?.error || (recoveryAvailable
+          ? 'Draft remains encrypted on this phone. Reconnect and try again.'
+          : 'Could not save. Keep this screen open and retry.'),
+        true,
+      );
       return false;
     }
+    const changedWhileSaving = editGeneration !== generation;
+    const latestPayload = changedWhileSaving ? collectPayload() : null;
+    const latestConfiguration = changedWhileSaving ? collectProductConfiguration() : null;
     current = result.data.application;
-    dirty = false;
     previewedRevision = null;
-    localStorage.removeItem(draftKey(current.id));
+    pendingSaveRequestId = '';
+    if (changedWhileSaving) {
+      current.form_payload = latestPayload;
+      current.product_requirements = latestConfiguration.requirements;
+      current.product_custom_values = latestConfiguration.customValues;
+      current.product_selected_fee_keys = latestConfiguration.selectedFeeKeys;
+      dirty = true;
+      setSaveState('Saving newer changes…', 'saving');
+      return saveDraft(showError);
+    }
+    dirty = false;
+    await removeRecoveryDraft(applicationId);
     setSaveState('Saved', 'saved');
     return true;
   }
@@ -290,9 +521,23 @@
 
   function scheduleSave() {
     dirty = true;
+    editGeneration += 1;
+    pendingSaveRequestId ||= requestKey('save');
     setSaveState('Unsaved changes', 'dirty');
     window.clearTimeout(saveTimer);
     saveTimer = window.setTimeout(() => saveDraft(false), 900);
+    const payload = collectPayload();
+    const configuration = collectProductConfiguration();
+    void persistRecoveryDraft(current.id, {
+      revision: current.revision,
+      payload,
+      configuration,
+      requestId: pendingSaveRequestId,
+      generation: editGeneration,
+      savedAt: Date.now(),
+    }).then(saved => {
+      if (!saved && dirty) setSaveState('Server-only draft', 'offline');
+    });
   }
 
   function progressMarkup() {
@@ -317,26 +562,29 @@
 
   function actionMarkup(editable) {
     if (!editable) {
-      if (current.status === 'ready_for_review') return '<button class="btn btn-secondary" data-review="request_correction">Request correction</button><button class="btn btn-danger" data-review="decline">Decline</button><button class="btn btn-primary" data-review="approve">Approve</button>';
-      if (current.status === 'reviewed') return '<button class="btn btn-primary" id="origination-prepare-signing">Prepare signing package</button>';
+      if (current.status === 'ready_for_review' && capabilities.can_review) return '<button class="btn btn-secondary" data-review="request_correction">Request correction</button><button class="btn btn-danger" data-review="decline">Decline</button><button class="btn btn-primary" data-review="approve">Approve</button>';
+      if (current.status === 'reviewed' && capabilities.can_start_signing) return '<button class="btn btn-primary" id="origination-prepare-signing">Prepare signing package</button>';
       return '';
     }
     return `${step > 0 ? '<button class="btn btn-secondary" id="wizard-previous">Previous</button>' : '<span></span>'}${step < wizardSections().length - 1 ? '<button class="btn btn-primary" id="wizard-next">Save & continue</button>' : '<button class="btn btn-primary" id="origination-submit">Submit for review</button>'}`;
+  }
+
+  function correctionChecklistMarkup() {
+    const correction = current?.active_correction;
+    if (!correction) return '';
+    const items = (correction.items || []).map(item => `<button type="button" class="correction-item" data-correction-jump="${escapeHtml(`${item.target_type}:${item.target_key}`)}"><span><strong>${escapeHtml(item.target_label)}</strong>${item.instruction ? `<small>${escapeHtml(item.instruction)}</small>` : ''}</span><span>Open →</span></button>`).join('');
+    return `<aside class="correction-checklist"><p class="eyebrow">Correction required</p><strong>${escapeHtml(correction.summary)}</strong>${items ? `<div>${items}</div>` : '<small>Review the application and address the reviewer note.</small>'}</aside>`;
+  }
+
+  function recoveryConflictMarkup() {
+    if (!syncConflict || !conflictDraft) return '';
+    return `<aside class="notice recovery-conflict"><strong>Two draft revisions need your choice</strong><span>The encrypted phone draft was based on revision ${escapeHtml(conflictDraft.revision)}; the server is now revision ${escapeHtml(current.revision)}. Nothing has been overwritten.</span><div><button type="button" class="btn btn-secondary" id="recovery-use-server">Use server version</button><button type="button" class="btn btn-primary" id="recovery-restore-phone">Restore phone draft</button></div></aside>`;
   }
 
   function renderEditor(application, requestedStep) {
     current = application;
     step = Number.isInteger(requestedStep) ? requestedStep : step;
     tg?.BackButton?.show();
-    let local = null;
-    try { local = JSON.parse(localStorage.getItem(draftKey(application.id)) || 'null'); } catch (_) { localStorage.removeItem(draftKey(application.id)); }
-    dirty = Boolean(local?.revision === application.revision);
-    if (dirty) {
-      current.form_payload = local.payload;
-      current.product_requirements = local.configuration?.requirements || current.product_requirements;
-      current.product_custom_values = local.configuration?.customValues || current.product_custom_values;
-      current.product_selected_fee_keys = local.configuration?.selectedFeeKeys || current.product_selected_fee_keys;
-    }
     const values = collectPayload();
     const editable = ['draft', 'correction_required'].includes(application.status);
     const sections = wizardSections();
@@ -350,17 +598,199 @@
         : `<div class="laf-grid">${fieldsFor(section.key).map(field => fieldInput(field, values[field.key], !editable || field.editable === false)).join('')}</div>`;
       content = `<div class="section-title"><div><p class="eyebrow">Step ${step + 1} of ${sections.length}</p><h3>${escapeHtml(section.label)}</h3><p>${escapeHtml(section.hint || '')}</p></div><button type="button" class="preview-link" id="origination-preview-early">Preview PDF</button></div>${fields}`;
     }
-    root().innerHTML = `<div class="editor-top"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">←</button><div><strong>${escapeHtml(application.reference_number)}</strong><small>${escapeHtml(application.product_name)}</small></div><span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(application.status.replaceAll('_', ' '))}</span></div>${progressMarkup()}<section class="wizard-card">${content}</section><footer class="wizard-actions"><span id="origination-save-status" data-state="${local ? 'offline' : 'saved'}">${local ? 'Recovered from phone' : 'Saved'}</span><div>${actionMarkup(editable)}</div></footer>`;
+    const recoveryState = syncConflict ? ['Conflict', 'offline'] : dirty ? ['Recovered securely', 'offline'] : ['Saved', 'saved'];
+    root().innerHTML = `<div class="editor-top"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">←</button><div><strong>${escapeHtml(application.reference_number)}</strong><small>${escapeHtml(application.product_name)}</small></div><span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(application.status.replaceAll('_', ' '))}</span></div>${recoveryConflictMarkup()}${correctionChecklistMarkup()}${progressMarkup()}<section class="wizard-card">${content}</section><footer class="wizard-actions"><span id="origination-save-status" data-state="${recoveryState[1]}">${recoveryState[0]}</span><div>${actionMarkup(editable)}</div></footer>`;
     bindEditor(editable);
   }
 
+  function correctionTargetStep(identity) {
+    const [targetType, targetKey] = String(identity || '').split(':', 2);
+    const sections = wizardSections();
+    if (targetType === 'requirement') return sections.findIndex(item => item.key === 'product_requirements');
+    return sections.findIndex(section => fieldsFor(section.key).some(field => field.key === targetKey));
+  }
+
+  function openReviewDialog(mode) {
+    if (mode === 'request_correction' && !reviewTargets.size) {
+      return showToast('Flag at least one field or requirement before requesting correction.', true);
+    }
+    reviewDialogMode = mode;
+    const overlay = document.getElementById('origination-review-overlay');
+    const title = document.getElementById('review-dialog-title');
+    const hint = document.getElementById('review-dialog-hint');
+    const targets = document.getElementById('review-dialog-targets');
+    const summary = document.getElementById('review-dialog-summary');
+    title.textContent = mode === 'decline' ? 'Decline application' : 'Request corrections';
+    hint.textContent = mode === 'decline'
+      ? 'Record the reason. The decision is retained in the application audit history.'
+      : 'Give the officer an overall instruction for the flagged items.';
+    targets.innerHTML = mode === 'request_correction'
+      ? [...reviewTargets.entries()].map(([identity, item]) => `<label><span>${escapeHtml(item.target_label)}</span><input data-review-instruction="${escapeHtml(identity)}" maxlength="1000" value="${escapeHtml(item.instruction || '')}" placeholder="Optional item-specific instruction"></label>`).join('')
+      : '';
+    summary.value = '';
+    overlay.hidden = false;
+    overlay.setAttribute('aria-hidden', 'false');
+    summary.focus();
+  }
+
+  function closeReviewDialog() {
+    const overlay = document.getElementById('origination-review-overlay');
+    overlay.hidden = true;
+    overlay.setAttribute('aria-hidden', 'true');
+    reviewDialogMode = '';
+  }
+
+  async function submitReviewDialog() {
+    const reason = document.getElementById('review-dialog-summary').value.trim();
+    if (!reason) return showToast('Enter the review reason.', true);
+    const decision = reviewDialogMode;
+    if (decision === 'request_correction') {
+      document.querySelectorAll('[data-review-instruction]').forEach(input => {
+        const item = reviewTargets.get(input.dataset.reviewInstruction);
+        if (item) item.instruction = input.value.trim();
+      });
+    }
+    const correctionItems = decision === 'request_correction' ? [...reviewTargets.values()] : undefined;
+    const button = document.getElementById('review-dialog-submit');
+    button.disabled = true;
+    const result = await postJson(`/applications/${current.id}/review/`, {
+      revision: current.revision,
+      decision,
+      reason,
+      ...(correctionItems ? { correction_items: correctionItems } : {}),
+    });
+    button.disabled = false;
+    if (!result.ok) return showToast(result.data?.error || 'Could not record the review.', true);
+    closeReviewDialog();
+    await load();
+  }
+
+  async function uploadEvidence(input) {
+    if (!(await saveDraft(true))) { input.value = ''; return; }
+    const file = input.files?.[0];
+    if (!file) return;
+    const requestId = requestKey('evidence');
+    const formData = new FormData();
+    formData.append('revision', String(current.revision));
+    formData.append('request_id', requestId);
+    formData.append('file', file);
+    input.disabled = true;
+    setSaveState('Uploading evidence…', 'saving');
+    const result = await new Promise(resolve => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `/api/origination/api/applications/${current.id}/requirements/${encodeURIComponent(input.dataset.evidenceUpload)}/evidence/`);
+      xhr.timeout = 60000;
+      if (tg?.initData) xhr.setRequestHeader('X-Telegram-Init-Data', tg.initData);
+      xhr.setRequestHeader('Idempotency-Key', requestId);
+      xhr.setRequestHeader('X-Request-ID', requestId);
+      xhr.upload.onprogress = event => {
+        if (event.lengthComputable) setSaveState(`Uploading ${Math.round(event.loaded * 100 / event.total)}%`, 'saving');
+      };
+      xhr.onload = () => {
+        let data = {};
+        try { data = JSON.parse(xhr.responseText || '{}'); } catch (_) { /* Safe fallback below. */ }
+        resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, data });
+      };
+      xhr.onerror = () => resolve({ ok: false, status: 0, data: { error: 'Could not connect while uploading. Select the file again to retry.' } });
+      xhr.ontimeout = () => resolve({ ok: false, status: 0, data: { error: 'The upload timed out. Select the file again to retry.' } });
+      xhr.send(formData);
+    });
+    input.disabled = false;
+    input.value = '';
+    if (result.data?.application) current = result.data.application;
+    if (!result.ok) {
+      renderEditor(current, step);
+      return showToast(result.data?.error || 'Evidence was not uploaded. Select the file again to retry.', true);
+    }
+    renderEditor(current, step);
+    showToast('Evidence uploaded securely.');
+  }
+
+  async function removeEvidence(evidenceId) {
+    if (!(await saveDraft(true))) return;
+    const result = await postJson(`/evidence/${evidenceId}/remove/`, { revision: current.revision });
+    if (!result.ok) return showToast(result.data?.error || 'Could not remove the evidence.', true);
+    current = result.data.application;
+    renderEditor(current, step);
+    showToast('Evidence removed from the active requirement.');
+  }
+
+  async function openEvidence(evidenceId) {
+    const key = requestKey('evidence-read');
+    const result = await apiFetch(`/evidence/${evidenceId}/download/`, {
+      headers: { 'X-Request-ID': key },
+    });
+    if (!result.ok || !result.blob) return showToast(result.data?.error || 'Could not open the evidence.', true);
+    const url = URL.createObjectURL(result.blob);
+    window.open(url, '_blank', 'noopener');
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
+  async function saveSigningRequirements() {
+    const signingRequirements = (current?.product_terms?.requirements || []).filter(item =>
+      item.enforcement_stage === 'signing' && item.type !== 'document'
+      && (!item.workflow || item.workflow === 'loan_origination')
+    );
+    if (!signingRequirements.length) return true;
+    const configuration = collectProductConfiguration();
+    const result = await postJson(`/applications/${current.id}/signing-requirements/`, {
+      revision: current.revision,
+      product_requirement_evidence: configuration.requirements,
+    });
+    if (!result.ok) {
+      if (result.data?.errors) showServerErrors(result.data.errors);
+      showToast(result.data?.error || 'Could not save signing requirements.', true);
+      return false;
+    }
+    current = result.data.application;
+    return true;
+  }
+
   function bindEditor(editable) {
+    document.getElementById('recovery-use-server')?.addEventListener('click', async () => {
+      await removeRecoveryDraft(current.id);
+      syncConflict = false; conflictDraft = null; dirty = false; pendingSaveRequestId = '';
+      renderEditor(current, step);
+    });
+    document.getElementById('recovery-restore-phone')?.addEventListener('click', () => {
+      current.form_payload = conflictDraft.payload || current.form_payload;
+      current.product_requirements = conflictDraft.configuration?.requirements || current.product_requirements;
+      current.product_custom_values = conflictDraft.configuration?.customValues || current.product_custom_values;
+      current.product_selected_fee_keys = conflictDraft.configuration?.selectedFeeKeys || current.product_selected_fee_keys;
+      syncConflict = false; conflictDraft = null; dirty = true; editGeneration += 1;
+      pendingSaveRequestId = requestKey('save');
+      renderEditor(current, step);
+      scheduleSave();
+    });
     document.getElementById('origination-back').onclick = async () => {
       if (!editable || await saveDraft(true)) renderList();
     };
     root().querySelectorAll('.wizard-step').forEach(button => button.onclick = async () => { if (editable && !(await saveDraft(true))) return; step = Number(button.dataset.step); renderEditor(current, step); });
     root().querySelectorAll('[data-edit-step]').forEach(button => button.onclick = () => renderEditor(current, Number(button.dataset.editStep)));
+    root().querySelectorAll('[data-correction-jump]').forEach(button => button.onclick = () => {
+      const targetStep = correctionTargetStep(button.dataset.correctionJump);
+      if (targetStep >= 0) renderEditor(current, targetStep);
+    });
+    root().querySelectorAll('[data-correction-target]').forEach(input => input.onchange = () => {
+      if (input.checked) reviewTargets.set(input.dataset.correctionTarget, {
+        target_type: input.dataset.targetType,
+        target_key: input.dataset.targetKey,
+        target_label: input.dataset.targetLabel,
+        instruction: '',
+      });
+      else reviewTargets.delete(input.dataset.correctionTarget);
+    });
+    root().querySelectorAll('[data-evidence-upload]').forEach(input => input.onchange = () => uploadEvidence(input));
+    root().querySelectorAll('[data-evidence-remove]').forEach(button => button.onclick = () => removeEvidence(button.dataset.evidenceRemove));
+    root().querySelectorAll('[data-evidence-open]').forEach(button => button.onclick = () => openEvidence(button.dataset.evidenceOpen));
     if (editable) root().querySelector('.laf-grid')?.addEventListener('input', scheduleSave);
+    else if (current.status === 'reviewed' && capabilities.can_start_signing) {
+      root().querySelector('.laf-grid')?.addEventListener('input', () => {
+        const configuration = collectProductConfiguration();
+        current.product_requirements = configuration.requirements;
+        setSaveState('Signing requirements not saved', 'dirty');
+      });
+    }
     document.getElementById('wizard-previous')?.addEventListener('click', async () => { if (await saveDraft(true)) renderEditor(current, step - 1); });
     document.getElementById('wizard-next')?.addEventListener('click', async () => {
       const errors = sectionErrors(wizardSections()[step].key); showErrors(errors);
@@ -373,20 +803,26 @@
       if (!(await saveDraft(true))) return;
       if (previewedRevision !== current.revision) return showToast('Preview the filled document for this saved revision before submitting.', true);
       const result = await postJson(`/applications/${current.id}/submit/`, { revision: current.revision });
-      if (!result.ok) return showToast(result.data?.error || 'Could not submit the application.', true);
+      if (!result.ok) {
+        if (result.data?.errors) showServerErrors(result.data.errors);
+        return showToast(result.data?.error || 'Could not submit the application.', true);
+      }
       await load();
     });
     root().querySelectorAll('[data-review]').forEach(button => button.onclick = async () => {
       const decision = button.dataset.review;
-      const reason = decision === 'approve' ? '' : window.prompt('Record the reason for this decision:');
-      if (decision !== 'approve' && !reason) return;
-      const result = await postJson(`/applications/${current.id}/review/`, { revision: current.revision, decision, reason });
+      if (decision !== 'approve') return openReviewDialog(decision);
+      const result = await postJson(`/applications/${current.id}/review/`, { revision: current.revision, decision, reason: '' });
       if (!result.ok) return showToast(result.data?.error || 'Could not record the review.', true);
       await load();
     });
     document.getElementById('origination-prepare-signing')?.addEventListener('click', async () => {
+      if (!(await saveSigningRequirements())) return;
       const result = await postJson(`/applications/${current.id}/prepare-signing/`, { revision: current.revision });
-      if (!result.ok) return showToast(result.data?.error || 'Could not prepare signing.', true);
+      if (!result.ok) {
+        if (result.data?.errors) showServerErrors(result.data.errors);
+        return showToast(result.data?.error || 'Could not prepare signing.', true);
+      }
       await load();
     });
   }
@@ -573,20 +1009,87 @@
 
   function renderList() {
     current = null; step = 0; dirty = false; closePreview(); tg?.BackButton?.hide();
-    const counts = applications.reduce((result, item) => { result[item.status] = (result[item.status] || 0) + 1; return result; }, {});
-    const options = products.map(item => `<option value="${escapeHtml(item.product_key)}">${escapeHtml(item.name)}</option>`).join('');
-    const cards = applications.map(item => `<button type="button" class="application-card" data-application-id="${item.id}"><span><strong>${escapeHtml(item.reference_number)}</strong><small>${escapeHtml(item.product_name)} · ${escapeHtml(item.branch || 'No branch')}</small></span><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(item.status.replaceAll('_', ' '))}</span></button>`).join('');
-    root().innerHTML = `<section class="app-hero"><div><p class="eyebrow">Paperless lending</p><h2>Applications</h2><p>Capture each product's details once and place them onto its approved loan document.</p></div></section><div class="metric-grid"><article><strong>${counts.draft || 0}</strong><span>Drafts</span></article><article><strong>${counts.ready_for_review || 0}</strong><span>Review</span></article><article><strong>${counts.correction_required || 0}</strong><span>Corrections</span></article><article><strong>${(counts.reviewed || 0) + (counts.signing_pending || 0)}</strong><span>Signing</span></article></div>${products.length ? `<form id="origination-create" class="create-card"><div><h3>New application</h3><p>Choose the approved loan product and document.</p></div><label><span>Product</span><select name="product_key" required>${options}</select></label><label><span>Branch</span><input name="branch" required autocomplete="organization"></label><button class="btn btn-primary" type="submit">Start application</button></form>` : '<div class="notice error">No approved origination product is active.</div>'}<div class="list-heading"><h3>Recent applications</h3><button type="button" class="text-button" id="origination-list-refresh">Refresh</button></div><div class="application-list">${cards || '<div class="empty-state"><strong>No applications yet</strong><span>Start the first application above.</span></div>'}</div>`;
-    root().querySelectorAll('[data-application-id]').forEach(button => button.onclick = async () => { const result = await apiFetch(`/applications/${button.dataset.applicationId}/`, {}); if (!result.ok) return showToast(result.data?.error || 'Could not open this application.', true); renderEditor(result.data.application, 0); });
-    document.getElementById('origination-list-refresh').onclick = load;
+    const branchOptions = branches.map(item => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join('');
+    const productFilterOptions = allProducts.map(item => `<option value="${escapeHtml(item.product_key)}"${listState.productKey === item.product_key ? ' selected' : ''}>${escapeHtml(item.name)}</option>`).join('');
+    const cards = applications.map(item => `<button type="button" class="application-card" data-application-id="${item.id}"><span><strong>${escapeHtml(item.reference_number)}</strong><small>${escapeHtml(item.product_name)} · ${escapeHtml(item.branch || 'No branch')}${capabilities.can_review ? ` · ${escapeHtml(item.officer_name || 'Unassigned')}` : ''}</small></span><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(item.status.replaceAll('_', ' '))}</span></button>`).join('');
+    const queueTabs = [
+      ...(capabilities.can_create ? [['mine', 'My applications'], ['corrections', 'Corrections']] : []),
+      ...(capabilities.can_review ? [['review', 'Review queue']] : []),
+      ...(capabilities.can_start_signing ? [['signing', 'Signing']] : []),
+    ].map(([key, label]) => `<button type="button" data-queue="${key}" class="queue-tab${listState.queue === key ? ' active' : ''}">${label}</button>`).join('');
+    const createMarkup = capabilities.can_create ? `<form id="origination-create" class="create-card"><div><h3>New application</h3><p>Select the branch first; only products available there will appear.</p></div><label><span>Branch</span><select name="branch" id="origination-create-branch" required><option value="">Choose branch</option>${branchOptions}</select></label><label><span>Product</span><select name="product_key" id="origination-create-product" required disabled><option value="">Choose branch first</option></select></label><button class="btn btn-primary" type="submit">Start application</button></form>` : '';
+    root().innerHTML = `<section class="app-hero"><div><p class="eyebrow">Paperless lending</p><h2>Applications</h2><p>Capture, review and prepare approved product documents securely.</p></div></section><div class="metric-grid"><article><strong>${listCounts.draft || 0}</strong><span>Drafts</span></article><article><strong>${listCounts.ready_for_review || 0}</strong><span>Review</span></article><article><strong>${listCounts.correction_required || 0}</strong><span>Corrections</span></article><article><strong>${(listCounts.reviewed || 0) + (listCounts.signing_pending || 0)}</strong><span>Signing</span></article></div>${createMarkup}<nav class="queue-tabs" aria-label="Origination queues">${queueTabs}</nav><form class="list-filters" id="origination-filters"><input name="q" value="${escapeHtml(listState.query)}" placeholder="Search reference number"><select name="product_key"><option value="">All products</option>${productFilterOptions}</select><select name="status"><option value="">All statuses</option>${['draft','ready_for_review','correction_required','reviewed','signing_pending','partially_signed','fully_signed','declined','expired','cancelled'].map(status => `<option value="${status}"${listState.status === status ? ' selected' : ''}>${status.replaceAll('_', ' ')}</option>`).join('')}</select><button class="btn btn-secondary" type="submit">Filter</button></form><div class="list-heading"><h3>${escapeHtml(listState.queue ? listState.queue.replaceAll('_', ' ') : 'Applications')}</h3><button type="button" class="text-button" id="origination-list-refresh">Refresh</button></div><div class="application-list">${cards || '<div class="empty-state"><strong>No applications in this queue</strong><span>Change the filters or refresh.</span></div>'}</div><div class="pagination-actions"><button type="button" class="btn btn-secondary" id="origination-page-previous"${listState.page <= 1 ? ' disabled' : ''}>Previous</button><span>Page ${listState.page} of ${listState.pages}</span><button type="button" class="btn btn-secondary" id="origination-page-next"${listState.page >= listState.pages ? ' disabled' : ''}>Next</button></div>`;
+    root().querySelectorAll('[data-application-id]').forEach(button => button.onclick = async () => { const result = await apiFetch(`/applications/${button.dataset.applicationId}/`, {}); if (!result.ok) return showToast(result.data?.error || 'Could not open this application.', true); await openEditor(result.data.application, 0); });
+    root().querySelectorAll('[data-queue]').forEach(button => button.onclick = async () => { listState.queue = button.dataset.queue; listState.page = 1; await loadApplications(); });
+    document.getElementById('origination-list-refresh').onclick = () => loadApplications();
+    document.getElementById('origination-page-previous').onclick = async () => { if (listState.page > 1) { listState.page -= 1; await loadApplications(); } };
+    document.getElementById('origination-page-next').onclick = async () => { if (listState.page < listState.pages) { listState.page += 1; await loadApplications(); } };
+    document.getElementById('origination-filters').onsubmit = async event => {
+      event.preventDefault();
+      const values = new FormData(event.currentTarget);
+      listState.query = String(values.get('q') || '').trim();
+      listState.productKey = String(values.get('product_key') || '');
+      listState.status = String(values.get('status') || '');
+      listState.page = 1;
+      await loadApplications();
+    };
     const form = document.getElementById('origination-create');
-    if (form) form.onsubmit = async event => { event.preventDefault(); const values = new FormData(form); const result = await postJson('/applications/', { product_key: values.get('product_key'), branch: values.get('branch') }); if (!result.ok) return showToast(result.data?.error || 'Could not start the application.', true); renderEditor(result.data.application, 0); };
+    if (form) {
+      document.getElementById('origination-create-branch').onchange = event => loadProductsForBranch(event.target.value);
+      form.onsubmit = async event => {
+        event.preventDefault();
+        const values = new FormData(form);
+        const identity = `${values.get('branch')}:${values.get('product_key')}`;
+        const storageKey = `origination-create-request:${identity}`;
+        const createKey = localStorage.getItem(storageKey) || requestKey('create');
+        localStorage.setItem(storageKey, createKey);
+        const result = await postJson('/applications/', { product_key: values.get('product_key'), branch: values.get('branch'), client_request_id: createKey });
+        if (!result.ok) return showToast(result.data?.error || 'Could not start the application.', true);
+        localStorage.removeItem(storageKey);
+        await openEditor(result.data.application, 0);
+      };
+    }
+  }
+
+  async function loadProductsForBranch(branch) {
+    const select = document.getElementById('origination-create-product');
+    if (!select) return;
+    if (!branch) { select.innerHTML = '<option value="">Choose branch first</option>'; select.disabled = true; return; }
+    select.innerHTML = '<option value="">Loading products…</option>'; select.disabled = true;
+    const result = await apiFetch(`/products/?branch=${encodeURIComponent(branch)}`, {});
+    if (!result.ok) { select.innerHTML = '<option value="">Could not load products</option>'; return showToast(result.data?.error || 'Could not load branch products.', true); }
+    products = result.data.products || [];
+    select.innerHTML = `<option value="">Choose product</option>${products.map(item => `<option value="${escapeHtml(item.product_key)}">${escapeHtml(item.name)}</option>`).join('')}`;
+    select.disabled = !products.length;
+    if (!products.length) showToast('No active origination product is available for this branch.', true);
+  }
+
+  async function loadApplications() {
+    const params = new URLSearchParams({ queue: listState.queue, page: String(listState.page), page_size: '25' });
+    if (listState.status) params.set('status', listState.status);
+    if (listState.productKey) params.set('product_key', listState.productKey);
+    if (listState.query) params.set('q', listState.query);
+    const result = await apiFetch(`/applications/?${params}`, {});
+    if (!result.ok) return showToast(result.data?.error || 'Could not load applications.', true);
+    applications = result.data.applications || [];
+    listCounts = result.data.counts || {};
+    capabilities = result.data.capabilities || capabilities;
+    listState.page = result.data.pagination?.page || 1;
+    listState.pages = result.data.pagination?.pages || 1;
+    renderList();
   }
 
   async function load() {
-    const [productResult, applicationResult] = await Promise.all([apiFetch('/products/', {}), apiFetch('/applications/', {})]);
-    if (!productResult.ok || !applicationResult.ok) { root().innerHTML = `<div class="notice error">${escapeHtml(productResult.data?.error || applicationResult.data?.error || 'Could not load Origination.')} <button class="btn btn-secondary" id="load-retry">Retry</button></div>`; document.getElementById('load-retry').onclick = load; return; }
-    products = productResult.data.products || []; applications = applicationResult.data.applications || []; renderList();
+    root().setAttribute('aria-busy', 'true');
+    const productResult = await apiFetch('/products/', {});
+    if (!productResult.ok) { root().innerHTML = `<div class="notice error">${escapeHtml(productResult.data?.error || 'Could not load Origination.')} <button class="btn btn-secondary" id="load-retry">Retry</button></div>`; document.getElementById('load-retry').onclick = load; return; }
+    allProducts = productResult.data.products || [];
+    products = allProducts;
+    branches = productResult.data.branches || [];
+    capabilities = productResult.data.capabilities || capabilities;
+    if (!listState.queue) listState.queue = capabilities.can_create ? 'mine' : capabilities.can_review ? 'review' : capabilities.can_start_signing ? 'signing' : '';
+    await loadApplications();
+    root().setAttribute('aria-busy', 'false');
   }
 
   document.getElementById('preview-close').onclick = closePreview;
@@ -602,10 +1105,16 @@
   document.getElementById('preview-zoom-out').onclick = () => setPreviewZoom(previewZoom - 25);
   document.getElementById('preview-zoom-in').onclick = () => setPreviewZoom(previewZoom + 25);
   document.getElementById('preview-open').onclick = () => { if (previewUrl) window.open(previewUrl, '_blank', 'noopener'); };
+  document.getElementById('origination-review-dialog').onsubmit = event => { event.preventDefault(); submitReviewDialog(); };
+  document.getElementById('review-dialog-close').onclick = closeReviewDialog;
+  document.getElementById('review-dialog-cancel').onclick = closeReviewDialog;
+  document.getElementById('origination-refresh').onclick = load;
   bindPreviewPinch();
   window.addEventListener('beforeunload', closePreview);
+  window.addEventListener('online', () => { if (current && dirty && !syncConflict) void saveDraft(false); else if (!current) void loadApplications(); });
   tg?.ready(); tg?.expand();
   tg?.BackButton?.onClick(async () => {
+    if (reviewDialogMode) return closeReviewDialog();
     if (previewUrl) return closePreview();
     if (current && ['draft', 'correction_required'].includes(current.status) && !(await saveDraft(true))) return;
     if (current && step > 0) renderEditor(current, step - 1);

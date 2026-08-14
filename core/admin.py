@@ -97,6 +97,9 @@ from .models import (
     OriginationTemplateConfigurationRevision,
     LoanOriginationApplication,
     OriginationApplicationEvent,
+    OriginationCorrectionItem,
+    OriginationCorrectionRequest,
+    OriginationRequirementEvidence,
     OriginationSigningPackage,
     PaymentDocument,
     PaymentDocumentTemplate,
@@ -5391,6 +5394,27 @@ class OriginationApplicationEventAdmin(_AppendOnlyOriginationAdmin):
     list_display = ('application', 'action', 'revision', 'actor', 'occurred_at')
     list_filter = ('action',)
     search_fields = ('application__reference_number', 'request_id')
+
+
+@admin.register(OriginationCorrectionRequest)
+class OriginationCorrectionRequestAdmin(_AppendOnlyOriginationAdmin):
+    list_display = ('application', 'application_revision', 'reviewer', 'status', 'created_at', 'addressed_at')
+    list_filter = ('status', 'created_at')
+    search_fields = ('application__reference_number', 'summary', 'reviewer__username')
+
+
+@admin.register(OriginationCorrectionItem)
+class OriginationCorrectionItemAdmin(_AppendOnlyOriginationAdmin):
+    list_display = ('correction_request', 'target_type', 'target_label', 'created_at')
+    list_filter = ('target_type',)
+    search_fields = ('correction_request__application__reference_number', 'target_key', 'target_label')
+
+
+@admin.register(OriginationRequirementEvidence)
+class OriginationRequirementEvidenceAdmin(_AppendOnlyOriginationAdmin):
+    list_display = ('application', 'requirement_label', 'original_filename', 'status', 'uploaded_by', 'created_at')
+    list_filter = ('status', 'mime_type', 'requirement_key')
+    search_fields = ('application__reference_number', 'requirement_label', 'original_filename', 'content_sha256')
 
 
 @admin.register(OriginationSigningPackage)

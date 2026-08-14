@@ -3835,6 +3835,160 @@ class OriginationApplicationEvent(models.Model):
         raise ValidationError('Origination application events cannot be deleted.')
 
 
+class OriginationCorrectionRequest(models.Model):
+    """Append-preserving reviewer instructions for one submitted revision."""
+
+    STATUS_OPEN = 'open'
+    STATUS_ADDRESSED = 'addressed'
+    STATUS_CHOICES = [
+        (STATUS_OPEN, 'Open'),
+        (STATUS_ADDRESSED, 'Addressed'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    application = models.ForeignKey(
+        LoanOriginationApplication, on_delete=models.PROTECT,
+        related_name='correction_requests',
+    )
+    application_revision = models.PositiveIntegerField()
+    reviewer = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='origination_correction_requests',
+    )
+    summary = models.TextField(max_length=2000)
+    status = models.CharField(
+        max_length=16, choices=STATUS_CHOICES, default=STATUS_OPEN, db_index=True,
+    )
+    addressed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='addressed_origination_corrections',
+    )
+    addressed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['application', 'application_revision'],
+                name='unique_orig_correction_revision',
+            ),
+        ]
+        indexes = [models.Index(
+            fields=['application', 'status', 'created_at'],
+            name='orig_corr_app_status_idx',
+        )]
+
+    def __str__(self):
+        return f'{self.application.reference_number} correction r{self.application_revision}'
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Origination correction requests cannot be deleted.')
+
+
+class OriginationCorrectionItem(models.Model):
+    """Immutable field or requirement target within a correction request."""
+
+    TARGET_FIELD = 'field'
+    TARGET_REQUIREMENT = 'requirement'
+    TARGET_CHOICES = [
+        (TARGET_FIELD, 'Application field'),
+        (TARGET_REQUIREMENT, 'Product requirement'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    correction_request = models.ForeignKey(
+        OriginationCorrectionRequest, on_delete=models.PROTECT, related_name='items',
+    )
+    target_type = models.CharField(max_length=20, choices=TARGET_CHOICES)
+    target_key = models.CharField(max_length=120)
+    target_label = models.CharField(max_length=160)
+    instruction = models.CharField(max_length=1000, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at', 'id']
+        constraints = [models.UniqueConstraint(
+            fields=['correction_request', 'target_type', 'target_key'],
+            name='unique_orig_correction_target',
+        )]
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError('Origination correction items are immutable.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Origination correction items cannot be deleted.')
+
+
+class OriginationRequirementEvidence(models.Model):
+    """Audited Drive-backed evidence for one snapshotted product requirement."""
+
+    STATUS_PENDING = 'pending'
+    STATUS_UPLOADED = 'uploaded'
+    STATUS_FAILED = 'failed'
+    STATUS_REMOVED = 'removed'
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Pending upload'),
+        (STATUS_UPLOADED, 'Uploaded'),
+        (STATUS_FAILED, 'Upload failed'),
+        (STATUS_REMOVED, 'Removed'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    application = models.ForeignKey(
+        LoanOriginationApplication, on_delete=models.PROTECT,
+        related_name='requirement_evidence_files',
+    )
+    application_revision = models.PositiveIntegerField()
+    requirement_key = models.CharField(max_length=80)
+    requirement_label = models.CharField(max_length=160)
+    original_filename = models.CharField(max_length=255)
+    mime_type = models.CharField(max_length=100)
+    byte_size = models.PositiveBigIntegerField()
+    content_sha256 = models.CharField(max_length=64, db_index=True)
+    status = models.CharField(
+        max_length=16, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True,
+    )
+    drive_file_id = models.CharField(max_length=255, blank=True, default='')
+    drive_url = models.URLField(max_length=1000, blank=True, default='')
+    upload_error = models.TextField(blank=True, default='')
+    request_id = models.CharField(max_length=128)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='uploaded_origination_requirement_evidence',
+    )
+    removed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='removed_origination_requirement_evidence',
+    )
+    removed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['requirement_key', '-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['application', 'request_id'],
+                name='unique_orig_evidence_request',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['application', 'requirement_key', 'status'],
+                name='orig_evid_app_req_status_idx',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.application.reference_number}: {self.requirement_label}'
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Origination evidence cannot be deleted; remove it logically.')
+
+
 class OriginationSigningPackage(models.Model):
     """Stable cross-system link from one frozen revision to e-signatures."""
 
@@ -3867,6 +4021,7 @@ class OriginationSigningPackage(models.Model):
     template_configuration_snapshot = models.JSONField(default=dict, blank=True)
     context_snapshot = models.JSONField(default=dict)
     participants_snapshot = models.JSONField(default=list)
+    requirement_evidence_snapshot = models.JSONField(default=list, blank=True)
     status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
     unsigned_document_hash = models.CharField(max_length=64, blank=True, default='')
     signed_document_hash = models.CharField(max_length=64, blank=True, default='')

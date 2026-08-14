@@ -61,6 +61,7 @@
       field.width ||= field.type === 'textarea' ? 'full' : 'half';
       field.help_text ||= '';
       field.options = Array.isArray(field.options) ? field.options : [];
+      field.validation = field.validation && typeof field.validation === 'object' ? field.validation : {};
     });
     signers = signers.filter(item => item && typeof item === 'object').map(item => ({
       role: item.role || 'borrower',
@@ -87,6 +88,14 @@
       if (option && typeof option === 'object') return `${option.code} | ${option.label || option.code}`;
       return String(option || '');
     }).filter(Boolean).join('\n');
+    const validation = field.validation || {};
+    const validationMarkup = ['money', 'number'].includes(field.type)
+      ? `<label>Minimum<input type="number" step="any" data-validation-prop="min" value="${escapeHtml(validation.min ?? '')}"></label><label>Maximum<input type="number" step="any" data-validation-prop="max" value="${escapeHtml(validation.max ?? '')}"></label>`
+      : field.type === 'date'
+        ? `<label>Earliest date<input type="date" data-validation-prop="min_date" value="${escapeHtml(validation.min_date || '')}"></label><label>Latest date<input type="date" data-validation-prop="max_date" value="${escapeHtml(validation.max_date || '')}"></label>`
+        : ['text', 'textarea', 'phone', 'national_id'].includes(field.type)
+          ? `<label>Minimum length<input type="number" min="0" step="1" data-validation-prop="min_length" value="${escapeHtml(validation.min_length ?? '')}"></label><label>Maximum length<input type="number" min="1" step="1" data-validation-prop="max_length" value="${escapeHtml(validation.max_length ?? '')}"></label><label class="opb-wide">Format pattern <small>Optional regular expression, limited to 200 characters.</small><input data-validation-prop="pattern" maxlength="200" value="${escapeHtml(validation.pattern || '')}"></label>`
+          : '';
     return `<article class="opb-field" data-field-index="${fieldIndex}">
       <div class="opb-row">
         <label class="opb-wide">Canonical data field<select data-prop="data_field_id">${canonicalOptions(field)}</select></label>
@@ -96,6 +105,7 @@
         <label class="opb-small">Width<select data-prop="width">${optionMarkup([['half', 'Half'], ['full', 'Full']], field.width)}</select></label>
         <label class="opb-check opb-small"><input data-prop="required" type="checkbox"${field.required ? ' checked' : ''}> Required</label>
         <label class="opb-wide">Help text<input data-prop="help_text" value="${escapeHtml(field.help_text || '')}"></label>
+        ${validationMarkup}
         <label class="opb-wide"${field.type === 'choice' ? '' : ' hidden'}>Product choices <small>Canonical code | display label; reorder or remove lines as needed.</small><textarea data-prop="options_text" placeholder="canonical_code | Display label">${escapeHtml(choiceOptions)}</textarea></label>
         <div class="opb-tools"><button type="button" data-action="field-up">Move up</button><button type="button" data-action="field-down">Move down</button><button type="button" data-action="remove-field">Remove</button></div>
       </div>
@@ -153,6 +163,12 @@
     if (slotNode && event.target.dataset.slotProp) {
       const slot = signers[Number(slotNode.dataset.signerIndex)].slots[Number(slotNode.dataset.slotIndex)];
       slot[event.target.dataset.slotProp] = event.target.type === 'checkbox' ? event.target.checked : event.target.value;
+    } else if (fieldNode && event.target.dataset.validationProp) {
+      const field = schema.fields[Number(fieldNode.dataset.fieldIndex)];
+      field.validation ||= {};
+      const prop = event.target.dataset.validationProp;
+      if (event.target.value === '') delete field.validation[prop];
+      else field.validation[prop] = event.target.value;
     } else if (fieldNode && event.target.dataset.prop) {
       const field = schema.fields[Number(fieldNode.dataset.fieldIndex)];
       const prop = event.target.dataset.prop;
@@ -220,6 +236,7 @@
         data_field_id: canonical.id, key: canonical.key, label: canonical.label,
         type: canonical.type, section_key: schema.sections[sectionIndex].key,
         required: false, width: 'half', help_text: canonical.help_text || '',
+        validation: {},
         sensitivity: canonical.sensitivity, masking_policy: canonical.masking_policy,
         reporting_use: canonical.reporting_use, export_allowed: canonical.export_allowed,
         source_type: canonical.source_type,

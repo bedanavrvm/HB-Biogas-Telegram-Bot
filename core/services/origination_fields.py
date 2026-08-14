@@ -221,6 +221,14 @@ def _product_choice_options(data_field: OriginationDataField, requested: Any) ->
 
 
 def _field_schema_item(data_field: OriginationDataField, presentation: dict[str, Any]) -> dict[str, Any]:
+    validation = presentation.get('validation') or {}
+    if not isinstance(validation, dict):
+        raise OriginationFieldError('Product field validation must be an object.')
+    allowed_validation = {
+        key: value for key, value in validation.items()
+        if key in {'min', 'max', 'min_length', 'max_length', 'pattern', 'min_date', 'max_date'}
+        and value not in (None, '')
+    }
     item = {
         'data_field_id': str(data_field.pk),
         'key': data_field.key,
@@ -235,6 +243,7 @@ def _field_schema_item(data_field: OriginationDataField, presentation: dict[str,
         'reporting_use': data_field.reporting_use,
         'export_allowed': data_field.export_allowed,
         'source_type': data_field.source_type,
+        'validation': allowed_validation,
     }
     if item['width'] not in {'half', 'full'}:
         raise OriginationFieldError('Field width must be half or full.')
