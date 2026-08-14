@@ -47,7 +47,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertLess(html.index('miniapp/portal_payments.js'), html.index('miniapp/portal.js'))
         self.assertLess(html.index('miniapp/portal_imports.js'), html.index('miniapp/portal.js'))
         self.assertIn('miniapp/portal_queues.js?v=8', html)
-        self.assertIn('miniapp/portal_farmer_sheet.js?v=43', html)
+        self.assertIn('miniapp/portal_farmer_sheet.js?v=44', html)
         self.assertIn('miniapp/utils.js?v=4', html)
         self.assertIn('miniapp/portal_helpers.js?v=5', html)
         self.assertIn('miniapp/portal.css?v=76', html)
@@ -59,7 +59,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('miniapp/portal_invoices.js?v=15', html)
         self.assertIn('miniapp/portal_payments.js?v=7', html)
         self.assertIn('miniapp/portal_reports.js?v=13', html)
-        self.assertIn('miniapp/portal.js?v=64', html)
+        self.assertIn('miniapp/portal.js?v=66', html)
         self.assertIn('miniapp/portal_case_history.js?v=1', html)
         self.assertLess(html.index('miniapp/portal_case_history.js'), html.index('miniapp/portal.js'))
 

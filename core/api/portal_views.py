@@ -1960,17 +1960,13 @@ def portal_meta(request):
         return access_error
     """GET /api/portal/meta/ — lookup lists for Mini App dropdowns."""
     from core.models import JawabuApprovalDelegation, JawabuFarmerMaster
-    from core.services.branches import global_branch_choices
-    from core.services.locations import global_county_choices
+    from core.services.location_catalog import location_options
     from core.services.access_control import policy_version
-    branches = global_branch_choices()
-    staff_branches = {
-        str(value).strip().casefold()
-        for value in getattr(request, 'portal_access', {}).get('branches', [])
-        if str(value).strip()
-    }
-    if staff_branches:
-        branches = [branch for branch in branches if branch.casefold() in staff_branches]
+    location_catalog = location_options(
+        user=getattr(request, 'portal_user', None),
+        access=getattr(request, 'portal_access', None),
+    )
+    branches = [item['name'] for item in location_catalog['branches']]
     delegation_gates = []
     portal_user = getattr(request, 'portal_user', None)
     if portal_user:
@@ -1981,7 +1977,8 @@ def portal_meta(request):
     return JsonResponse({
         'ok': True,
         'branches': branches,
-        'counties': global_county_choices(),
+        'counties': [item['name'] for item in location_catalog['counties']],
+        'location_catalog': location_catalog,
         'jbl_visit_statuses': [c[0] for c in JawabuFarmerMaster.JBL_VISIT_STATUS_CHOICES],
         'credit_decisions': [c[0] for c in JawabuFarmerMaster.CREDIT_DECISION_CHOICES],
         'imab_created_options': ['Yes', 'No', 'Pending'],
@@ -2006,6 +2003,26 @@ def portal_meta(request):
         },
         'due_publication_operation_ids': _portal_due_publication_ids(request),
     })
+
+
+@csrf_exempt
+@require_http_methods(['GET'])
+def portal_location_options(request):
+    """Return access-scoped dependent branch/county/sub-county choices."""
+    access_error = _portal_any_capability_error(request)
+    if access_error:
+        return access_error
+    from core.services.location_catalog import LocationCatalogError, location_options
+    try:
+        payload = location_options(
+            user=getattr(request, 'portal_user', None),
+            access=getattr(request, 'portal_access', None),
+            branch_value=request.GET.get('branch', ''),
+            county_value=request.GET.get('county', ''),
+        )
+    except LocationCatalogError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({'ok': True, **payload})
 
 
 def _portal_voice_error_response(exc):
@@ -3111,6 +3128,7 @@ def portal_complete_jbl_visit(request, farmer_id: str):
             request_id=_portal_request_id(request, body),
             expected_revision=expected_revision,
             actor_user=getattr(request, 'portal_user', None),
+            location_override_reason=str(body.get('location_override_reason') or '').strip(),
         )
     except ValueError as exc:
         response = _portal_workflow_error(exc)

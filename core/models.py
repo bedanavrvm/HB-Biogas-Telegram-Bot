@@ -375,6 +375,19 @@ class OrderApprovalUpdate(models.Model):
     reply_to_telegram_message_id = models.CharField(max_length=255, blank=True, default='')
     raw_text = models.TextField(blank=True, default='')
     parsed_fields = models.JSONField(blank=True, default=dict)
+    branch_ref = models.ForeignKey(
+        'OperationalLocation', null=True, blank=True, on_delete=models.PROTECT,
+        limit_choices_to={'location_type': 'branch'}, related_name='order_approval_branch_updates',
+    )
+    county_ref = models.ForeignKey(
+        'OperationalLocation', null=True, blank=True, on_delete=models.PROTECT,
+        limit_choices_to={'location_type': 'county'}, related_name='order_approval_county_updates',
+    )
+    sub_county_ref = models.ForeignKey(
+        'OperationalLocation', null=True, blank=True, on_delete=models.PROTECT,
+        limit_choices_to={'location_type': 'sub_county'}, related_name='order_approval_sub_county_updates',
+    )
+    location_snapshot = models.JSONField(blank=True, default=dict)
     update_status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
@@ -1088,6 +1101,18 @@ class JawabuFarmerMaster(models.Model):
     village = models.CharField(max_length=255, blank=True, default='')
     landmark = models.TextField(blank=True, default='')
     branch = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    branch_ref = models.ForeignKey(
+        'OperationalLocation', null=True, blank=True, on_delete=models.PROTECT,
+        limit_choices_to={'location_type': 'branch'}, related_name='jawabu_branch_records',
+    )
+    county_ref = models.ForeignKey(
+        'OperationalLocation', null=True, blank=True, on_delete=models.PROTECT,
+        limit_choices_to={'location_type': 'county'}, related_name='jawabu_county_records',
+    )
+    sub_county_ref = models.ForeignKey(
+        'OperationalLocation', null=True, blank=True, on_delete=models.PROTECT,
+        limit_choices_to={'location_type': 'sub_county'}, related_name='jawabu_sub_county_records',
+    )
 
     hbg_contract_name = models.CharField(max_length=128, blank=True, default='', db_index=True)
     lead_source = models.CharField(max_length=128, blank=True, default='', db_index=True)
@@ -2688,6 +2713,10 @@ class AccessGrant(models.Model):
     workflow = models.CharField(max_length=40, choices=WORKFLOW_CHOICES, db_index=True)
     role = models.CharField(max_length=80, db_index=True)
     branch = models.CharField(max_length=120, blank=True, default='', db_index=True)
+    branch_ref = models.ForeignKey(
+        'OperationalLocation', null=True, blank=True, on_delete=models.PROTECT,
+        limit_choices_to={'location_type': 'branch'}, related_name='access_grants',
+    )
     product = models.CharField(max_length=120, blank=True, default='', db_index=True)
     product_ref = models.ForeignKey(
         'Product', null=True, blank=True, on_delete=models.PROTECT,
@@ -2737,6 +2766,17 @@ class AccessGrant(models.Model):
         elif self.product:
             from core.services.product_catalog import resolve_product
             self.product_ref = resolve_product(self.product)
+        if self.branch_ref_id and not self.branch:
+            self.branch = self.branch_ref.name
+        if self.branch or self.branch_ref_id:
+            from core.services.location_catalog import validate_location_selection
+            branch_record, _county, _sub_county = validate_location_selection(
+                branch_value=self.branch_ref or self.branch,
+                source_workflow=self.workflow,
+                source_model=type(self).__name__,
+                source_record_id=self.pk,
+            )
+            self.branch_ref = branch_record
         with transaction.atomic():
             super().save(*args, **kwargs)
 
@@ -3161,11 +3201,16 @@ class OriginationDataField(models.Model):
     TYPE_NATIONAL_ID = 'national_id'
     TYPE_CHOICE = 'choice'
     TYPE_BOOLEAN = 'boolean'
+    TYPE_BRANCH = 'branch'
+    TYPE_COUNTY = 'county'
+    TYPE_SUB_COUNTY = 'sub_county'
     TYPE_CHOICES = [
         (TYPE_TEXT, 'Short text'), (TYPE_TEXTAREA, 'Long text'),
         (TYPE_NUMBER, 'Number'), (TYPE_MONEY, 'Money'), (TYPE_DATE, 'Date'),
         (TYPE_PHONE, 'Phone'), (TYPE_NATIONAL_ID, 'National ID'),
         (TYPE_CHOICE, 'Choice'), (TYPE_BOOLEAN, 'Yes / No'),
+        (TYPE_BRANCH, 'Governed branch'), (TYPE_COUNTY, 'Governed county'),
+        (TYPE_SUB_COUNTY, 'Governed sub-county'),
     ]
 
     SOURCE_USER_INPUT = 'user_input'
@@ -3666,6 +3711,19 @@ class LoanOriginationApplication(models.Model):
         related_name='loan_origination_applications',
     )
     branch = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    branch_ref = models.ForeignKey(
+        'OperationalLocation', null=True, blank=True, on_delete=models.PROTECT,
+        limit_choices_to={'location_type': 'branch'}, related_name='origination_applications',
+    )
+    county_ref = models.ForeignKey(
+        'OperationalLocation', null=True, blank=True, on_delete=models.PROTECT,
+        limit_choices_to={'location_type': 'county'}, related_name='origination_county_applications',
+    )
+    sub_county_ref = models.ForeignKey(
+        'OperationalLocation', null=True, blank=True, on_delete=models.PROTECT,
+        limit_choices_to={'location_type': 'sub_county'}, related_name='origination_sub_county_applications',
+    )
+    location_snapshot = models.JSONField(default=dict, blank=True)
     status = models.CharField(
         max_length=32, choices=STATUS_CHOICES, default=STATUS_DRAFT, db_index=True,
     )
@@ -4267,18 +4325,27 @@ class FcaImportRecord(models.Model):
 
 
 class OperationalLocation(models.Model):
-    """Canonical branch and county values shared by all workflows."""
+    """Stable branch, county, or sub-county identity shared by all workflows."""
 
     LOCATION_TYPES = (
         ('branch', 'Branch'),
         ('county', 'County'),
+        ('sub_county', 'Sub-county'),
     )
 
     location_type = models.CharField(max_length=20, choices=LOCATION_TYPES, db_index=True)
     name = models.CharField(max_length=128)
-    code = models.CharField(max_length=32, blank=True, default='')
+    code = models.CharField(max_length=64)
+    parent = models.ForeignKey(
+        'self', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='children',
+    )
     active = models.BooleanField(default=True, db_index=True)
     sort_order = models.PositiveIntegerField(default=0)
+    source_name = models.CharField(max_length=160, blank=True, default='')
+    source_reference = models.URLField(max_length=1000, blank=True, default='')
+    published_at = models.DateTimeField(default=timezone.now)
+    retired_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -4287,7 +4354,19 @@ class OperationalLocation(models.Model):
         constraints = [
             models.UniqueConstraint(
                 Lower('name'), 'location_type',
+                condition=models.Q(location_type__in=['branch', 'county']),
                 name='unique_operational_location_name_ci',
+            ),
+            models.UniqueConstraint(
+                Lower('name'), 'parent',
+                condition=models.Q(location_type='sub_county'),
+                name='unique_sub_county_name_per_county_ci',
+            ),
+            models.UniqueConstraint(
+                Lower('code'), name='unique_operational_location_code_ci',
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(code=''), name='operational_location_code_required',
             ),
         ]
         verbose_name = 'Operational location'
@@ -4296,13 +4375,274 @@ class OperationalLocation(models.Model):
     def clean(self):
         super().clean()
         self.name = ' '.join(str(self.name or '').split())
-        self.code = ' '.join(str(self.code or '').split()).upper()
+        self.code = re.sub(r'[^A-Z0-9]+', '-', str(self.code or '').upper()).strip('-')
         if not self.name:
-            from django.core.exceptions import ValidationError
             raise ValidationError({'name': 'Enter a location name.'})
+        if not self.code:
+            raise ValidationError({'code': 'Enter a stable location code.'})
+        if self.location_type == 'sub_county':
+            if not self.parent_id or self.parent.location_type != 'county':
+                raise ValidationError({'parent': 'A sub-county must belong to a county.'})
+        elif self.parent_id:
+            raise ValidationError({'parent': 'Only sub-counties may have a parent location.'})
+        if self.active and self.retired_at:
+            raise ValidationError({'retired_at': 'An active location cannot have a retirement time.'})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        if not self._state.adding:
+            previous = type(self).objects.filter(pk=self.pk).values(
+                'code', 'location_type', 'parent_id',
+            ).first()
+            if previous and previous['code'] != self.code:
+                raise ValidationError({'code': 'Location code is immutable.'})
+            if previous and previous['location_type'] != self.location_type:
+                raise ValidationError({'location_type': 'Location type is immutable.'})
+            if previous and previous['parent_id'] != self.parent_id:
+                raise ValidationError({'parent': 'Published location parentage is immutable; retire and replace it.'})
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Locations cannot be deleted; retire them instead.')
 
     def __str__(self):
         return f'{self.get_location_type_display()}: {self.name}'
+
+
+class OperationalLocationAlias(models.Model):
+    """Approved legacy or alternate spelling for a canonical location."""
+
+    location = models.ForeignKey(
+        OperationalLocation, on_delete=models.PROTECT, related_name='aliases',
+    )
+    location_type = models.CharField(max_length=20, choices=OperationalLocation.LOCATION_TYPES, editable=False)
+    parent = models.ForeignKey(
+        OperationalLocation, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='+', editable=False,
+    )
+    alias = models.CharField(max_length=160)
+    normalized_alias = models.CharField(max_length=180, editable=False, db_index=True)
+    active = models.BooleanField(default=True, db_index=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    retired_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['location_type', 'alias']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['location_type', 'normalized_alias'],
+                condition=models.Q(location_type__in=['branch', 'county']),
+                name='unique_location_alias_by_type',
+            ),
+            models.UniqueConstraint(
+                fields=['parent', 'normalized_alias'],
+                condition=models.Q(location_type='sub_county'),
+                name='unique_sub_county_alias_per_county',
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        self.alias = ' '.join(str(self.alias or '').split())
+        self.normalized_alias = re.sub(
+            r'[^a-z0-9]+', '_', self.alias.casefold().replace('\u2019', "'")
+        ).strip('_')
+        self.location_type = self.location.location_type if self.location_id else ''
+        self.parent = self.location.parent if self.location_id else None
+        if not self.normalized_alias:
+            raise ValidationError({'alias': 'Enter a usable location alias.'})
+        canonical = OperationalLocation.objects.filter(location_type=self.location_type)
+        if self.location_type == 'sub_county':
+            canonical = canonical.filter(parent=self.parent)
+        for location in canonical.only('id', 'name'):
+            normalized_name = re.sub(
+                r'[^a-z0-9]+', '_', location.name.casefold().replace('\u2019', "'")
+            ).strip('_')
+            if normalized_name == self.normalized_alias and location.pk != self.location_id:
+                raise ValidationError({'alias': 'This alias is the canonical name of another location.'})
+        if self.active and self.retired_at:
+            raise ValidationError({'retired_at': 'An active alias cannot have a retirement time.'})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        if not self._state.adding:
+            previous = type(self).objects.filter(pk=self.pk).values('location_id').first()
+            if previous and previous['location_id'] != self.location_id:
+                raise ValidationError({'location': 'An alias cannot be reassigned; retire it and create another.'})
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Location aliases cannot be deleted; retire them instead.')
+
+    def __str__(self):
+        return f'{self.alias} -> {self.location.name}'
+
+
+class BranchServiceArea(models.Model):
+    """Current governed coverage of one branch over a county or sub-county."""
+
+    branch = models.ForeignKey(
+        OperationalLocation, on_delete=models.PROTECT, related_name='service_area_assignments',
+        limit_choices_to={'location_type': 'branch'},
+    )
+    area = models.ForeignKey(
+        OperationalLocation, on_delete=models.PROTECT, related_name='serving_branch_assignments',
+        limit_choices_to={'location_type__in': ['county', 'sub_county']},
+    )
+    is_primary = models.BooleanField(default=False, db_index=True)
+    active = models.BooleanField(default=True, db_index=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='created_branch_service_areas',
+    )
+    retired_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='retired_branch_service_areas',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    retired_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['branch__sort_order', 'branch__name', 'area__sort_order', 'area__name']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['branch', 'area'], name='unique_branch_service_area',
+            ),
+            models.UniqueConstraint(
+                fields=['area'], condition=models.Q(active=True, is_primary=True),
+                name='unique_active_primary_branch_per_area',
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.branch_id and self.branch.location_type != 'branch':
+            raise ValidationError({'branch': 'Choose a branch location.'})
+        if self.area_id and self.area.location_type not in {'county', 'sub_county'}:
+            raise ValidationError({'area': 'Choose a county or sub-county.'})
+        if self.branch_id and self.area_id and self.branch_id == self.area_id:
+            raise ValidationError({'area': 'A branch cannot serve itself as an area.'})
+        if self.active and self.retired_at:
+            raise ValidationError({'retired_at': 'An active service area cannot have a retirement time.'})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        if not self._state.adding:
+            previous = type(self).objects.filter(pk=self.pk).values('branch_id', 'area_id').first()
+            if previous and (previous['branch_id'], previous['area_id']) != (self.branch_id, self.area_id):
+                raise ValidationError('A service-area assignment cannot be retargeted; retire and create another.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Service areas cannot be deleted; retire them instead.')
+
+    def __str__(self):
+        return f'{self.branch.name} -> {self.area.name}'
+
+
+class LocationPolicyState(models.Model):
+    MODE_AUDIT = 'audit'
+    MODE_STRICT = 'strict'
+    MODE_CHOICES = [(MODE_AUDIT, 'Audit only'), (MODE_STRICT, 'Strict enforcement')]
+
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    mode = models.CharField(max_length=16, choices=MODE_CHOICES, default=MODE_AUDIT, db_index=True)
+    source_manifest = models.JSONField(default=dict, blank=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name='+',
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Location enforcement policy'
+        verbose_name_plural = 'Location enforcement policy'
+
+    def clean(self):
+        super().clean()
+        if self.pk != 1:
+            raise ValidationError('Only one location policy record is allowed.')
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+
+class LocationConfigurationEvent(models.Model):
+    """Append-only evidence for global location and coverage changes."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    subject_type = models.CharField(max_length=40, db_index=True)
+    subject_id = models.CharField(max_length=120, db_index=True)
+    action = models.CharField(max_length=60, db_index=True)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name='+',
+    )
+    request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    before_values = models.JSONField(default=dict, blank=True)
+    after_values = models.JSONField(default=dict, blank=True)
+    occurred_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ['occurred_at', 'id']
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError('Location configuration events are append-only.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Location configuration events cannot be deleted.')
+
+
+class LocationMappingIssue(models.Model):
+    STATUS_OPEN = 'open'
+    STATUS_RESOLVED = 'resolved'
+    STATUS_IGNORED = 'ignored'
+    STATUS_CHOICES = [
+        (STATUS_OPEN, 'Open'), (STATUS_RESOLVED, 'Resolved'), (STATUS_IGNORED, 'Ignored'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    location_type = models.CharField(max_length=20, choices=OperationalLocation.LOCATION_TYPES, db_index=True)
+    raw_value = models.CharField(max_length=255)
+    normalized_value = models.CharField(max_length=180, db_index=True)
+    source_workflow = models.CharField(max_length=40, db_index=True)
+    source_model = models.CharField(max_length=120)
+    source_field = models.CharField(max_length=80)
+    source_record_id = models.CharField(max_length=120)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default=STATUS_OPEN, db_index=True)
+    location = models.ForeignKey(
+        OperationalLocation, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='mapping_issues',
+    )
+    detail = models.TextField(blank=True, default='')
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name='+',
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [models.UniqueConstraint(
+            fields=['location_type', 'normalized_value', 'source_model', 'source_field', 'source_record_id'],
+            condition=models.Q(status='open'), name='unique_open_location_mapping_issue',
+        )]
+
+    def clean(self):
+        super().clean()
+        if self.location_id and self.location.location_type != self.location_type:
+            raise ValidationError({'location': 'Choose a canonical location with the same type.'})
+        if self.status == self.STATUS_RESOLVED and not self.location_id:
+            raise ValidationError({'location': 'Choose the canonical location before resolving this issue.'})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
 
 class GroupSheetConfiguration(models.Model):

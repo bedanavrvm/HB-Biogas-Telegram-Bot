@@ -891,7 +891,9 @@
           </label>
           <label>
             Sub-county
-            <input name="sub_county">
+            <select name="sub_county">
+              <option value=""></option>
+            </select>
           </label>
           <label>
             Visited by
@@ -1010,6 +1012,7 @@
     </dialog>
   </main>
 
+  {{ location_catalog|json_script:"location-catalog-data" }}
   <script src="{% static 'miniapp/order_approval_api.js' %}?v=1"></script>
   <script>
     const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
@@ -1041,6 +1044,7 @@
     const editSheetInput = document.getElementById('edit-sheet');
     const editRowInput = document.getElementById('edit-row');
     const editFingerprintInput = document.getElementById('edit-fingerprint');
+    const locationCatalog = JSON.parse(document.getElementById('location-catalog-data')?.textContent || '{}');
     const editableFields = [
       'id_number',
       'date_visited',
@@ -1092,6 +1096,59 @@
     let currentRecordId = '';
     let isSubmitting = false;
     let reviewConfirmed = false;
+
+    function catalogMatch(items, value) {
+      const target = String(value || '').trim().toLowerCase();
+      return (items || []).find(item => [item.code, item.name, ...(item.aliases || [])].some(candidate => String(candidate || '').toLowerCase() === target));
+    }
+
+    function replaceCatalogOptions(select, items, selectedValue) {
+      if (!select) return;
+      const selected = catalogMatch(items, selectedValue);
+      select.replaceChildren(new Option('', ''));
+      (items || []).forEach(item => select.add(new Option(item.name, item.code)));
+      select.value = selected?.code || '';
+    }
+
+    function governedCountiesForBranch(branchValue) {
+      const counties = locationCatalog.counties || [];
+      const branch = catalogMatch(locationCatalog.branches, branchValue);
+      const areaCodes = branch ? (locationCatalog.branch_service_areas?.[branch.code] || []) : [];
+      if (!branch || !areaCodes.length) return counties;
+      const allowed = new Set();
+      counties.forEach(county => {
+        if (areaCodes.includes(county.code) || (county.sub_counties || []).some(item => areaCodes.includes(item.code))) {
+          allowed.add(county.code);
+        }
+      });
+      return counties.filter(county => allowed.has(county.code));
+    }
+
+    function syncGovernedLocationOptions({ branchValue, countyValue, subCountyValue } = {}) {
+      const branchSelect = form.elements.branch;
+      const countySelect = form.elements.county;
+      const subCountySelect = form.elements.sub_county;
+      const branch = catalogMatch(locationCatalog.branches, branchValue ?? branchSelect.value);
+      if (branch && branchSelect.value !== branch.code) branchSelect.value = branch.code;
+      const counties = governedCountiesForBranch(branch?.code || branchSelect.value);
+      const county = catalogMatch(counties, countyValue ?? countySelect.value);
+      replaceCatalogOptions(countySelect, counties, county?.code || '');
+      let subCounties = county?.sub_counties || [];
+      const areaCodes = branch ? (locationCatalog.branch_service_areas?.[branch.code] || []) : [];
+      if (areaCodes.length && !areaCodes.includes(county?.code)) {
+        subCounties = subCounties.filter(item => areaCodes.includes(item.code));
+      }
+      replaceCatalogOptions(subCountySelect, subCounties, subCountyValue ?? subCountySelect.value);
+    }
+
+    replaceCatalogOptions(form.elements.branch, locationCatalog.branches || [], form.elements.branch.value);
+    syncGovernedLocationOptions();
+    form.elements.branch?.addEventListener('change', () => syncGovernedLocationOptions({ branchValue: form.elements.branch.value }));
+    form.elements.county?.addEventListener('change', () => syncGovernedLocationOptions({
+      branchValue: form.elements.branch.value,
+      countyValue: form.elements.county.value,
+      subCountyValue: '',
+    }));
 
     if (tg) {
       tg.ready();
@@ -1541,6 +1598,11 @@
         }
         setInputValue(input, fields[name]);
       }
+      syncGovernedLocationOptions({
+        branchValue: fields.branch,
+        countyValue: fields.county,
+        subCountyValue: fields.sub_county,
+      });
     }
 
     function setInputValue(input, value) {

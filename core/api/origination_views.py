@@ -145,6 +145,13 @@ def portal_origination_products(request):
     user = getattr(request, 'portal_user', None)
     access = getattr(request, 'portal_access', None)
     branches = authorized_branches(user, access)
+    from core.services.location_catalog import location_catalog_manifest
+    location_catalog = location_catalog_manifest()
+    allowed_branch_names = {item.casefold() for item in branches}
+    location_catalog['branches'] = [
+        item for item in location_catalog['branches']
+        if item['name'].casefold() in allowed_branch_names
+    ]
     selected_branch = str(request.GET.get('branch') or '').strip()
     branch_record = None
     if selected_branch:
@@ -193,6 +200,7 @@ def portal_origination_products(request):
     return JsonResponse({
         'ok': True,
         'branches': branches,
+        'location_catalog': location_catalog,
         'selected_branch': selected_branch,
         'products': payload,
         'capabilities': queue_capabilities(user=user, access=access),

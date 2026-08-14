@@ -541,7 +541,7 @@ def resolve_review_issue(
 
 
 def _projection_kwargs(field_type: str, value: Any) -> dict[str, Any]:
-    if field_type in {'text', 'textarea', 'phone', 'national_id'}:
+    if field_type in {'text', 'textarea', 'phone', 'national_id', 'branch', 'county', 'sub_county'}:
         text = str(value)
         if len(text) > 500:
             raise OriginationFieldError('A reportable text value exceeds 500 characters.')

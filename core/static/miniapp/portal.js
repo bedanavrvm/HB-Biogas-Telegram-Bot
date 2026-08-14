@@ -38,6 +38,7 @@
     approvalDelegationGates: [],
     metaBranches: [],
     metaCounties: [],
+    metaLocationCatalog: {},
     jblVisitMediaMaxBytes: 20 * 1024 * 1024,
     jblVisitMediaMaxFiles: 6,
     jblVisitMediaMaxTotalBytes: 40 * 1024 * 1024,
@@ -1194,6 +1195,7 @@
     state.approvalDelegationGates = data.approval_delegation_gates || [];
     state.metaBranches = data.branches || [];
     state.metaCounties = data.counties || [];
+    state.metaLocationCatalog = data.location_catalog || {};
     state.jblVisitMediaMaxBytes = Number(data.jbl_visit_media_max_bytes || state.jblVisitMediaMaxBytes);
     state.jblVisitMediaMaxFiles = Number(data.jbl_visit_media_max_files || state.jblVisitMediaMaxFiles);
     state.jblVisitMediaMaxTotalBytes = Number(data.jbl_visit_media_max_total_bytes || state.jblVisitMediaMaxTotalBytes);

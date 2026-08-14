@@ -392,6 +392,7 @@ def log_jbl_visit(
     request_id: str = '',
     expected_revision: int | None = None,
     actor_user=None,
+    location_override_reason: str = '',
 ) -> tuple[bool, str]:
     """
     Record that a JBL officer has visited the farmer (Stage 2 advance).
@@ -429,6 +430,22 @@ def log_jbl_visit(
     if jbl_visit_date is None:
         return False, 'A valid JBL visit date is required.'
     visit_date = jbl_visit_date
+
+    from core.services.location_catalog import LocationCatalogError, validate_location_selection
+    try:
+        branch_record, county_record, sub_county_record = validate_location_selection(
+            branch_value=farmer.branch_ref or farmer.branch,
+            county_value=farmer.county if county is None else county,
+            sub_county_value=farmer.sub_county if sub_county is None else sub_county,
+            source_workflow='jawabu_portal',
+            source_model='JawabuFarmerMaster',
+            source_record_id=farmer.pk,
+            actor=actor_user,
+            override_reason=location_override_reason,
+            request_id=request_id,
+        )
+    except LocationCatalogError as exc:
+        return False, str(exc)
 
     # A forward visit is only meaningful when the required evidence exists.
     # The upload endpoint is idempotent, so callers can safely upload first
@@ -478,11 +495,28 @@ def log_jbl_visit(
     ]
 
     if county is not None:
-        farmer.county = str(county or '').strip()
+        county_text = str(county or '').strip()
+        farmer.county = (
+            county_record.name
+            if county_record and county_text.casefold() == county_record.code.casefold()
+            else county_text
+        )
         update_fields.append('county')
     if sub_county is not None:
-        farmer.sub_county = str(sub_county or '').strip()
+        sub_county_text = str(sub_county or '').strip()
+        farmer.sub_county = (
+            sub_county_record.name
+            if sub_county_record and sub_county_text.casefold() == sub_county_record.code.casefold()
+            else sub_county_text
+        )
         update_fields.append('sub_county')
+        if county is None and county_record:
+            farmer.county = county_record.name
+            update_fields.append('county')
+    farmer.branch_ref = branch_record
+    farmer.county_ref = county_record
+    farmer.sub_county_ref = sub_county_record
+    update_fields.extend(['branch_ref', 'county_ref', 'sub_county_ref'])
     if village is not None:
         farmer.village = str(village or '').strip()
         update_fields.append('village')
@@ -561,6 +595,10 @@ def preflight_jbl_visit_completion(
     location_unavailable_reason: str = '',
     expected_revision: int | None = None,
     request_id: str = '',
+    county: str | None = None,
+    sub_county: str | None = None,
+    actor_user=None,
+    location_override_reason: str = '',
 ) -> tuple[bool, str, bool]:
     """Validate a visit-completion payload before Drive receives any evidence.
 
@@ -581,6 +619,22 @@ def preflight_jbl_visit_completion(
         return False, f"Invalid JBL visit status: '{visit_status}'", False
     if visit_status == JBL_SCHEDULING_STATUS:
         return False, 'Choose the outcome of the JBL visit before logging it.', False
+    from core.services.location_catalog import LocationCatalogError, validate_location_selection
+    try:
+        validate_location_selection(
+            branch_value=locked.branch_ref or locked.branch,
+            county_value=locked.county if county is None else county,
+            sub_county_value=locked.sub_county if sub_county is None else sub_county,
+            source_workflow='jawabu_portal',
+            source_model='JawabuFarmerMaster',
+            source_record_id=locked.pk,
+            actor=actor_user,
+            override_reason=location_override_reason,
+            request_id=request_id,
+            record_policy_event=False,
+        )
+    except LocationCatalogError as exc:
+        return False, str(exc), False
     hbg_visit_date = locked.hbg_visit_date or parse_business_date(locked.sign_date)
     normalized_date = visit_date if isinstance(visit_date, date) else parse_business_date(visit_date)
     if normalized_date is None:
@@ -617,6 +671,7 @@ def complete_jbl_visit(
     request_id: str = '',
     expected_revision: int | None = None,
     actor_user=None,
+    location_override_reason: str = '',
 ) -> tuple[bool, str, dict[str, Any]]:
     """Safely complete a JBL visit from one validated multipart submission.
 
@@ -672,6 +727,10 @@ def complete_jbl_visit(
         location_unavailable_reason=location_unavailable_reason,
         expected_revision=expected_revision,
         request_id=request_id,
+        county=county,
+        sub_county=sub_county,
+        actor_user=actor_user,
+        location_override_reason=location_override_reason,
     )
     if not ok:
         return False, error, {'evidence_saved': False}
@@ -722,6 +781,7 @@ def complete_jbl_visit(
             # still rejecting a different user's intervening write.
             expected_revision=upload_result.get('workflow_revision', expected_revision),
             actor_user=actor_user,
+            location_override_reason=location_override_reason,
         )
     except ValueError as exc:
         transition_ok, transition_error = False, str(exc)
@@ -1712,6 +1772,9 @@ def farmer_to_card(
         'sub_county': farmer.sub_county,
         'village': farmer.village,
         'branch': farmer.branch,
+        'branch_ref_code': farmer.branch_ref.code if include_detail_metadata and farmer.branch_ref_id else '',
+        'county_ref_code': farmer.county_ref.code if include_detail_metadata and farmer.county_ref_id else '',
+        'sub_county_ref_code': farmer.sub_county_ref.code if include_detail_metadata and farmer.sub_county_ref_id else '',
         'location_label': ' | '.join(location_parts) or '-',
         'hb_sales_person': farmer.hb_sales_person,
         # Keep the legacy text field for compatibility, but never expose a

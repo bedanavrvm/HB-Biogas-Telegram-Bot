@@ -235,7 +235,11 @@ def get_admin_navigation(request) -> list[dict]:
     configuration = [
         _model_item("auth.User", "Users", "group"),
         _model_item("auth.Group", "Groups", "groups"),
-        _model_item("core.OperationalLocation", "Branches and counties", "map"),
+        _model_item("core.OperationalLocation", "Global locations", "map"),
+        _model_item("core.BranchServiceArea", "Branch service areas", "conversion_path"),
+        _model_item("core.OperationalLocationAlias", "Location aliases", "alt_route"),
+        _model_item("core.LocationMappingIssue", "Unmapped location values", "rule"),
+        _model_item("core.LocationPolicyState", "Location enforcement", "policy"),
         _model_item("core.Product", "Global products", "inventory_2"),
         _model_item("core.ProductVersion", "Product terms and requirements", "price_change"),
         _model_item("core.OriginationProductDefinition", "Loan form definitions", "dynamic_form"),
@@ -264,6 +268,7 @@ def get_admin_navigation(request) -> list[dict]:
         _model_item("core.JawabuPipelineEvent", "Pipeline events", "event_note"),
         _model_item("core.TatTrackerApprovalCertificate", "Approval certificates", "verified"),
         _model_item("core.OriginationDataFieldEvent", "Origination field audit", "history"),
+        _model_item("core.LocationConfigurationEvent", "Location configuration audit", "history"),
     ]
 
     configured_workflows = _configured_workflow_groups()

@@ -16,6 +16,7 @@
   let products = [];
   let allProducts = [];
   let branches = [];
+  let locationCatalog = {};
   let applications = [];
   let listCounts = {};
   let capabilities = { can_create: false, can_review: false, can_start_signing: false };
@@ -344,13 +345,57 @@
     return `<span class="correction-toggle"><input type="checkbox" data-correction-target="${escapeHtml(identity)}" data-target-type="${escapeHtml(targetType)}" data-target-key="${escapeHtml(targetKey)}" data-target-label="${escapeHtml(targetLabel)}"${reviewTargets.has(identity) ? ' checked' : ''}><span>Flag for correction</span></span>`;
   }
 
+  function locationMatch(items, value) {
+    const target = String(value ?? '').trim().toLowerCase();
+    return (items || []).find(item => [item.code, item.name, ...(item.aliases || [])].some(candidate => String(candidate || '').toLowerCase() === target));
+  }
+
+  function originationCounties() {
+    const counties = locationCatalog.counties || [];
+    const branch = locationMatch(locationCatalog.branches, current?.branch);
+    const areas = branch ? (locationCatalog.branch_service_areas?.[branch.code] || []) : [];
+    if (!areas.length) return counties;
+    return counties.filter(county => areas.includes(county.code) || (county.sub_counties || []).some(item => areas.includes(item.code)));
+  }
+
+  function locationSelectOptions(items, value) {
+    const selected = locationMatch(items, value);
+    return (items || []).map(item => `<option value="${escapeHtml(item.code)}"${selected?.code === item.code ? ' selected' : ''}>${escapeHtml(item.name)}</option>`).join('');
+  }
+
+  function syncOriginationSubCountySelect() {
+    const countySelect = root()?.querySelector('[data-location-type="county"]');
+    const subCountySelect = root()?.querySelector('[data-location-type="sub_county"]');
+    if (!countySelect || !subCountySelect) return;
+    const county = locationMatch(originationCounties(), countySelect.value);
+    let items = county?.sub_counties || [];
+    const branch = locationMatch(locationCatalog.branches, current?.branch);
+    const areas = branch ? (locationCatalog.branch_service_areas?.[branch.code] || []) : [];
+    if (areas.length && !areas.includes(county?.code)) items = items.filter(item => areas.includes(item.code));
+    subCountySelect.innerHTML = `<option value="">Choose sub-county</option>${locationSelectOptions(items, '')}`;
+  }
+
   function fieldInput(field, value, disabled) {
     const key = escapeHtml(field.key);
     const label = escapeHtml(normalizeLabel(field));
     const classes = `laf-field${field.width === 'full' || FULL_WIDTH.has(field.key) ? ' laf-field-wide' : ''}`;
     const required = field.required ? '<span class="required-mark" aria-label="required">*</span>' : '';
     let control = '';
-    if (field.type === 'choice') {
+    if (field.type === 'branch') {
+      const branch = locationMatch(locationCatalog.branches, current?.branch);
+      control = `<select data-field="${key}" data-location-type="branch" disabled><option value="">Choose</option>${locationSelectOptions(branch ? [branch] : [], value || current?.branch)}</select>`;
+    } else if (field.type === 'county') {
+      const counties = originationCounties();
+      control = `<select data-field="${key}" data-location-type="county"${disabled ? ' disabled' : ''}><option value="">Choose county</option>${locationSelectOptions(counties, value)}</select>`;
+    } else if (field.type === 'sub_county') {
+      const countyField = (current?.form_schema?.fields || []).find(item => item.type === 'county');
+      const county = locationMatch(originationCounties(), current?.form_payload?.[countyField?.key]);
+      let items = county?.sub_counties || [];
+      const branch = locationMatch(locationCatalog.branches, current?.branch);
+      const areas = branch ? (locationCatalog.branch_service_areas?.[branch.code] || []) : [];
+      if (areas.length && !areas.includes(county?.code)) items = items.filter(item => areas.includes(item.code));
+      control = `<select data-field="${key}" data-location-type="sub_county"${disabled ? ' disabled' : ''}><option value="">Choose sub-county</option>${locationSelectOptions(items, value)}</select>`;
+    } else if (field.type === 'choice') {
       const options = (field.options || []).map(option => {
         const code = option && typeof option === 'object' ? option.code : option;
         const label = option && typeof option === 'object' ? (option.label || option.code) : option;
@@ -791,6 +836,7 @@
         setSaveState('Signing requirements not saved', 'dirty');
       });
     }
+    root().querySelector('[data-location-type="county"]')?.addEventListener('change', syncOriginationSubCountySelect);
     document.getElementById('wizard-previous')?.addEventListener('click', async () => { if (await saveDraft(true)) renderEditor(current, step - 1); });
     document.getElementById('wizard-next')?.addEventListener('click', async () => {
       const errors = sectionErrors(wizardSections()[step].key); showErrors(errors);
@@ -1086,6 +1132,7 @@
     allProducts = productResult.data.products || [];
     products = allProducts;
     branches = productResult.data.branches || [];
+    locationCatalog = productResult.data.location_catalog || {};
     capabilities = productResult.data.capabilities || capabilities;
     if (!listState.queue) listState.queue = capabilities.can_create ? 'mine' : capabilities.can_review ? 'review' : capabilities.can_start_signing ? 'signing' : '';
     await loadApplications();

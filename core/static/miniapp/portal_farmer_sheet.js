@@ -532,6 +532,7 @@
       el('btn-submit-jbl').addEventListener('click', submitJblVisit);
       wireGpsButton();
       wireJblVisitDraft(farmer);
+      wireJblLocationFields(farmer);
       wireVoiceWidget('jbl_visit_comment');
       sessionStorage.setItem(JBL_ACTIVE_DRAFT_KEY, farmer.id);
     } else if (mode === 'credit') {
@@ -648,9 +649,17 @@
     const statusOptions = state().metaStatuses.filter(status => status !== 'JBL to Schedule Visit').map(status =>
       `<option value="${deps.escapeHtml(status)}"${farmer.jbl_visit_status === status ? ' selected' : ''}>${deps.escapeHtml(status)}</option>`
     ).join('');
-    const countyOptions = (state().metaCounties || []).map(county =>
-      `<option value="${deps.escapeHtml(county)}"></option>`
+    const catalogCounties = state().metaLocationCatalog?.counties || (state().metaCounties || []).map(name => ({ code: name, name }));
+    const selectedCounty = String(farmer.county_ref_code || farmer.county || '').toLowerCase();
+    const countyOptions = catalogCounties.map(county =>
+      `<option value="${deps.escapeHtml(county.code)}"${[county.code, county.name].map(value => String(value || '').toLowerCase()).includes(selectedCounty) ? ' selected' : ''}>${deps.escapeHtml(county.name)}</option>`
     ).join('');
+    const legacySubCounty = farmer.sub_county
+      ? `<option value="${deps.escapeHtml(farmer.sub_county)}" selected>${deps.escapeHtml(farmer.sub_county)}</option>`
+      : '';
+    const overrideField = state().metaLocationCatalog?.override_available
+      ? '<div class="form-row form-row-wide"><label>Service-area override reason</label><input type="text" id="jbl-location-override-reason" maxlength="500" placeholder="Required only when selecting an area outside the branch service area"><small class="field-help">Technical Superuser override; the reason is permanently audit-logged.</small></div>'
+      : '';
     const mediaFields = hasCapability('portal.jbl_media.write') ? `
         <div class="form-row media-upload-row form-row-wide">
           <label>Visit Media</label>
@@ -675,9 +684,10 @@
         <div class="form-row"><label title="JBL visits follow the HBG visit and cannot be dated earlier.">Visit Date <span class="label-help" aria-hidden="true">?</span></label><input type="date" id="jbl-date" min="${deps.escapeHtml(hbgVisitDate)}" value="${deps.escapeHtml(farmer.jbl_visit_date || defaultVisitDate)}"></div>
         <div class="form-row"><label>Status / Outcome</label><select id="jbl-status"><option value="">- Select -</option>${statusOptions}</select></div>
         <div class="form-row"><label>Officer Name</label><input type="text" id="jbl-officer" placeholder="Your name" value="${deps.escapeHtml(farmer.jbl_officer || '')}"></div>
-        <div class="form-row"><label>County</label><input type="text" id="jbl-county" list="jbl-county-options" placeholder="County" value="${deps.escapeHtml(farmer.county || '')}"><datalist id="jbl-county-options">${countyOptions}</datalist></div>
-        <div class="form-row"><label>Constituency</label><input type="text" id="jbl-sub-county" placeholder="Constituency / sub-county" value="${deps.escapeHtml(farmer.sub_county || '')}"></div>
+        <div class="form-row"><label>County</label><select id="jbl-county"><option value="">- Select county -</option>${countyOptions}</select></div>
+        <div class="form-row"><label>Sub-county</label><select id="jbl-sub-county"><option value="">- Select sub-county -</option>${legacySubCounty}</select></div>
         <div class="form-row"><label>Village</label><input type="text" id="jbl-village" placeholder="Village / area" value="${deps.escapeHtml(farmer.village || '')}"></div>
+        ${overrideField}
         <div class="form-row form-row-wide"><label>Comment (optional)</label><textarea id="jbl-comment" rows="2" placeholder="Additional notes...">${deps.escapeHtml(farmer.jbl_visit_comment || '')}</textarea>${voiceWidget('jbl_visit_comment', 'jbl-comment')}</div>
         ${mediaFields}
         <div class="form-row form-row-wide gps-capture-row">
@@ -693,6 +703,45 @@
         <p id="jbl-draft-state" class="field-help jbl-draft-state" aria-live="polite">Draft saves automatically. Files are never stored in a draft.</p>
       </div>
     `;
+  }
+
+  function replaceLocationOptions(select, items, selectedValue, placeholder) {
+    if (!select) return;
+    const selected = String(selectedValue || '').toLowerCase();
+    select.replaceChildren(new Option(placeholder, ''));
+    (items || []).forEach(item => {
+      const option = new Option(item.name, item.code);
+      option.selected = [item.code, item.name].some(value => String(value || '').toLowerCase() === selected);
+      select.add(option);
+    });
+  }
+
+  async function wireJblLocationFields(farmer) {
+    const countySelect = el('jbl-county');
+    const subCountySelect = el('jbl-sub-county');
+    if (!countySelect || !subCountySelect) return;
+    let initialCounty = countySelect.value || farmer.county_ref_code || farmer.county || '';
+    let initialSubCounty = subCountySelect.value || farmer.sub_county_ref_code || farmer.sub_county || '';
+    const loadOptions = async () => {
+      const branch = farmer.branch_ref_code || farmer.branch || '';
+      const county = countySelect.value || initialCounty;
+      const query = new URLSearchParams({ branch, county });
+      const { ok, data } = await deps.apiFetch(`/location-options/?${query.toString()}`);
+      if (!ok || !data?.ok) {
+        deps.showToast(data?.error || 'Could not load governed location choices.', 'error');
+        return;
+      }
+      replaceLocationOptions(countySelect, data.counties, data.selected_county?.code || county, '- Select county -');
+      replaceLocationOptions(subCountySelect, data.sub_counties, initialSubCounty, '- Select sub-county -');
+      initialCounty = countySelect.value;
+      initialSubCounty = subCountySelect.value;
+    };
+    countySelect.addEventListener('change', () => {
+      initialCounty = countySelect.value;
+      initialSubCounty = '';
+      loadOptions();
+    });
+    await loadOptions();
   }
 
   function jblDraftKey(farmerId) { return `portal:jbl-visit-draft:${farmerId}`; }
@@ -1055,7 +1104,7 @@
 
   function jblVisitDraftValues() {
     const values = {};
-    ['jbl-date', 'jbl-status', 'jbl-officer', 'jbl-county', 'jbl-sub-county', 'jbl-village', 'jbl-comment', 'jbl-lat', 'jbl-lng', 'jbl-location-unavailable'].forEach(id => {
+    ['jbl-date', 'jbl-status', 'jbl-officer', 'jbl-county', 'jbl-sub-county', 'jbl-village', 'jbl-comment', 'jbl-lat', 'jbl-lng', 'jbl-location-unavailable', 'jbl-location-override-reason'].forEach(id => {
       values[id] = el(id)?.value || '';
     });
     return values;
@@ -1795,6 +1844,7 @@
     formData.set('officer', el('jbl-officer')?.value || '');
     formData.set('county', el('jbl-county')?.value || '');
     formData.set('sub_county', el('jbl-sub-county')?.value || '');
+    formData.set('location_override_reason', el('jbl-location-override-reason')?.value || '');
     formData.set('village', el('jbl-village')?.value || '');
     formData.set('comment', el('jbl-comment')?.value || '');
     if (acceptedVoiceAttempts.jbl_visit_comment) formData.set('voice_transcription_id', acceptedVoiceAttempts.jbl_visit_comment);

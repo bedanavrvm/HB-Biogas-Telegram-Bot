@@ -33,7 +33,7 @@ class OriginationConflict(OriginationError):
 
 SUPPORTED_FIELD_TYPES = {
     'text', 'textarea', 'number', 'money', 'date', 'phone', 'national_id',
-    'choice', 'boolean',
+    'choice', 'boolean', 'branch', 'county', 'sub_county',
 }
 
 SIGNER_ROLE_CATALOG = (
@@ -129,7 +129,7 @@ def validate_product_form_contract(form_schema: dict[str, Any], signer_rules: An
                 maximum_value = Decimal(str(maximum)) if maximum not in (None, '') else None
                 if minimum_value is not None and maximum_value is not None and minimum_value > maximum_value:
                     raise OriginationError(f'Field {field.get("key")} has minimum above maximum.')
-            elif field_type in {'text', 'textarea', 'phone', 'national_id'}:
+            elif field_type in {'text', 'textarea', 'phone', 'national_id', 'branch', 'county', 'sub_county'}:
                 minimum_length = int(validation.get('min_length', 0) or 0)
                 maximum_length = int(validation.get('max_length', 0) or 0)
                 if minimum_length < 0 or maximum_length < 0:
@@ -204,7 +204,7 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
             continue
         field_type = str(field.get('type') or 'text')
         validation = field.get('validation') if isinstance(field.get('validation'), dict) else {}
-        if field_type in {'text', 'textarea', 'phone', 'national_id', 'date', 'choice'} and not isinstance(value, str):
+        if field_type in {'text', 'textarea', 'phone', 'national_id', 'date', 'choice', 'branch', 'county', 'sub_county'} and not isinstance(value, str):
             errors[key] = 'Enter a valid text value.'
         elif field_type == 'boolean' and not isinstance(value, bool):
             errors[key] = 'Choose yes or no.'
@@ -236,13 +236,13 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
         if key in errors:
             continue
         if (
-            field_type in {'text', 'textarea', 'phone', 'national_id'}
+            field_type in {'text', 'textarea', 'phone', 'national_id', 'branch', 'county', 'sub_county'}
             and str(field.get('reporting_use') or 'unavailable') != 'unavailable'
             and len(value) > 500
         ):
             errors[key] = 'Enter no more than 500 characters for this reportable field.'
             continue
-        if field_type in {'text', 'textarea', 'phone', 'national_id'}:
+        if field_type in {'text', 'textarea', 'phone', 'national_id', 'branch', 'county', 'sub_county'}:
             minimum_length = validation.get('min_length')
             maximum_length = validation.get('max_length')
             if minimum_length not in (None, '') and len(value) < int(minimum_length):
@@ -406,13 +406,9 @@ def render_application_preview(application: LoanOriginationApplication) -> bytes
 @transaction.atomic
 def create_application(*, product_key: str, officer, branch: str, client_request_id: str) -> tuple[LoanOriginationApplication, bool]:
     client_request_id = _require_request_id(client_request_id)
-    from core.models import OperationalLocation
+    from core.services.location_catalog import resolve_location
     branch = str(branch or '').strip()
-    branch_record = OperationalLocation.objects.filter(
-        location_type='branch', name__iexact=branch, active=True,
-    ).first()
-    if branch_record:
-        branch = branch_record.name
+    branch_record = resolve_location(branch, location_type='branch')
     existing = LoanOriginationApplication.objects.filter(
         officer=officer, client_request_id=client_request_id,
     ).first()
@@ -441,6 +437,17 @@ def create_application(*, product_key: str, officer, branch: str, client_request
         if definition.product_version_id else {}
     )
     application_id = uuid.uuid4()
+    from core.services.location_catalog import location_snapshot, validate_location_selection
+    branch_record, _county, _sub_county = validate_location_selection(
+        branch_value=branch,
+        source_workflow='loan_origination',
+        source_model='LoanOriginationApplication',
+        source_record_id=application_id,
+        actor=officer,
+        request_id=client_request_id,
+    )
+    if branch_record:
+        branch = branch_record.name
     try:
         with transaction.atomic():
             from core.services.origination_fields import snapshot_form_schema
@@ -451,6 +458,8 @@ def create_application(*, product_key: str, officer, branch: str, client_request
                 product_version=definition.product_version,
                 officer=officer,
                 branch=branch,
+                branch_ref=branch_record,
+                location_snapshot=location_snapshot(branch=branch_record),
                 schema_snapshot=snapshot_form_schema(definition.form_schema),
                 signer_rules_snapshot=definition.signer_rules,
                 template_configuration_snapshot=_published_template_configuration(definition),
@@ -544,7 +553,48 @@ def save_application_fields(
             except ProductCatalogError as exc:
                 raise OriginationError(str(exc)) from exc
     before = {'status': application.status, 'revision': application.revision}
+    from core.services.location_catalog import location_snapshot, validate_location_selection
+    location_keys = {
+        str(field.get('type') or ''): str(field.get('key') or '')
+        for field in _schema_fields(application.schema_snapshot)
+        if str(field.get('type') or '') in {'branch', 'county', 'sub_county'}
+    }
+    county_key = location_keys.get('county') or next((
+        key for key in ('county', 'applicant_county', 'business_county')
+        if str(payload.get(key) or '').strip()
+    ), '')
+    sub_county_key = location_keys.get('sub_county') or next((
+        key for key in ('sub_county', 'subcounty', 'applicant_sub_county', 'business_sub_county')
+        if str(payload.get(key) or '').strip()
+    ), '')
+    branch_record, county_record, sub_county_record = validate_location_selection(
+        branch_value=application.branch_ref or application.branch,
+        county_value=payload.get(county_key, '') if county_key else '',
+        sub_county_value=payload.get(sub_county_key, '') if sub_county_key else '',
+        source_workflow='loan_origination',
+        source_model='LoanOriginationApplication',
+        source_record_id=application.pk,
+        actor=actor,
+        request_id=request_id,
+    )
+    branch_key = location_keys.get('branch', '')
+    if branch_key and str(payload.get(branch_key) or '').strip():
+        from core.services.location_catalog import resolve_location
+        payload_branch = resolve_location(payload[branch_key], location_type='branch')
+        if not payload_branch or not branch_record or payload_branch.pk != branch_record.pk:
+            raise OriginationError('The form branch must match the application branch.')
+        payload[branch_key] = branch_record.name
+    if county_key and county_record:
+        payload[county_key] = county_record.name
+    if sub_county_key and sub_county_record:
+        payload[sub_county_key] = sub_county_record.name
     application.form_payload = payload
+    application.branch_ref = branch_record
+    application.county_ref = county_record
+    application.sub_county_ref = sub_county_record
+    application.location_snapshot = location_snapshot(
+        branch=branch_record, county=county_record, sub_county=sub_county_record,
+    )
     application.product_quote_snapshot = quote_snapshot
     if requirement_evidence is not None:
         application.product_requirement_evidence = requirement_evidence
@@ -556,6 +606,7 @@ def save_application_fields(
     application.save(update_fields=[
         'form_payload', 'product_quote_snapshot', 'product_requirement_evidence', 'product_custom_values',
         'product_selected_fee_keys',
+        'branch_ref', 'county_ref', 'sub_county_ref', 'location_snapshot',
         'revision', 'status', 'updated_at',
     ])
     _record_event(application, 'fields_saved', actor=actor, request_id=request_id, before=before)

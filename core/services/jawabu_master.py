@@ -1602,6 +1602,8 @@ def upsert_farmer(cleaned: dict) -> tuple[bool, str]:
             setattr(existing, field, value)
         from core.services.jawabu_validation import canonicalize_farmer
         canonicalize_farmer(existing, strict=True)
+        from core.services.location_catalog import bind_farmer_location_fields
+        bind_farmer_location_fields(existing)
         scheduled_for_jbl_visit = _set_pending_jbl_visit_status(existing)
         existing.save()
         from core.services.jawabu_validation import refresh_data_quality_issues
@@ -1638,11 +1640,14 @@ def upsert_farmer(cleaned: dict) -> tuple[bool, str]:
     farmer = JawabuFarmerMaster.objects.create(**defaults)
     from core.services.jawabu_validation import canonicalize_farmer
     canonicalize_farmer(farmer, strict=True)
+    from core.services.location_catalog import bind_farmer_location_fields
+    bind_farmer_location_fields(farmer)
     scheduled_for_jbl_visit = _set_pending_jbl_visit_status(farmer)
     farmer.save(update_fields=[
         'national_id', 'primary_phone', 'secondary_phone', 'hbg_visit_date',
         'deposit_paid_hbg', 'latitude_value', 'longitude_value',
         'repayment_day', 'repayment_tenor_months', 'jbl_visit_status', 'updated_at',
+        'branch', 'county', 'sub_county', 'branch_ref', 'county_ref', 'sub_county_ref',
     ])
     from core.services.jawabu_validation import refresh_data_quality_issues
     refresh_data_quality_issues(farmer)

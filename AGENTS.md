@@ -54,6 +54,7 @@ The workflows in this repo use organization-specific shorthand. An agent unfamil
 | **TAT** | Turnaround Time — tracked per loan/case stage with role- and product-based rules (`tat_tracker.py`). |
 | **SPIN** | Credit/CRB-report-linked request workflow handled by `spin_credit.py`, completed by credit analysts. |
 | **Global product** | The stable `Product` identity shared across workflows. Commercial terms and product-specific configuration belong to immutable, effective-dated `ProductVersion` records; workflow cases retain their selected version and snapshots. |
+| **Global location** | The stable `OperationalLocation` identity for branches, counties, and sub-counties. Codes and hierarchy are immutable; aliases preserve legacy labels, branch service areas govern availability, and workflow records retain canonical references plus historical display values. |
 | **Mini App** | A Telegram Web App (mobile-first web UI launched inside Telegram) backed by Django templates/static assets under `core/templates/*` and `core/static/miniapp/`. |
 | **`initData`** | Telegram's signed payload proving a Mini App session belongs to a specific Telegram user; must be HMAC-verified server-side before trust. |
 | **Portal** | The aggregated staff-facing view across pipeline/workflow data, served by `core/api/portal_views.py`. |
@@ -120,7 +121,8 @@ Key modules:
 - `jawabu_master.py` — master farmer-record operations
 - `jawabu_pipeline.py` — pipeline state and transition logic
 - `live_sheet_records.py` — sheet-originated record-change handling
-- `locations.py` — centralized branch and county configuration
+- `locations.py` — compatibility helpers exposing active branch and county labels
+- `location_catalog.py` — governed branch/county/sub-county resolution, aliases, branch service areas, mapping review, readiness, and strict-policy publication
 - `miniapp_drafts.py` — short-lived, user-owned field-only recovery drafts for eligible Mini App forms; current Portal JBL Visit recovery uses the shared service and never persists attachments
 - `order_approval.py` — order-approval workflow and attachments
 - `parser.py` — complaint/message parsing

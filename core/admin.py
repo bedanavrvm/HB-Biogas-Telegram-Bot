@@ -67,7 +67,12 @@ from .models import (
     JawabuApprovalRecord,
     JawabuApprovalCondition,
     JawabuMediaAccessEvent,
+    BranchServiceArea,
+    LocationConfigurationEvent,
+    LocationMappingIssue,
+    LocationPolicyState,
     OperationalLocation,
+    OperationalLocationAlias,
     Product,
     ProductAlias,
     ProductAvailability,
@@ -399,27 +404,262 @@ class SheetSyncDiscrepancyAdmin(CompactModelAdmin):
 
 @admin.register(OperationalLocation)
 class OperationalLocationAdmin(CompactModelAdmin):
-    """Central editable list used by Portal, forms, parsers, and grants."""
+    """Governed location identity used by Portal, forms, parsers, and grants."""
 
-    list_display = ('location_type', 'name', 'code', 'active', 'sort_order', 'updated_at')
+    list_display = ('location_type', 'name', 'code', 'parent', 'active', 'sort_order', 'updated_at')
     list_filter = ('location_type', 'active')
-    search_fields = ('name', 'code')
-    list_editable = ('active', 'sort_order')
+    search_fields = ('name', 'code', 'aliases__alias')
     ordering = ('location_type', 'sort_order', 'name')
-    readonly_fields = ('created_at', 'updated_at')
+    readonly_fields = ('published_at', 'retired_at', 'created_at', 'updated_at')
     fieldsets = (
         ('Location', {
             'fields': (
-                ('location_type', 'name'),
-                ('code', 'sort_order'),
-                'active',
+                ('location_type', 'name'), ('code', 'parent'),
+                ('sort_order', 'active'),
+                ('source_name', 'source_reference'),
             ),
         }),
         ('Audit', {
-            'fields': (('created_at', 'updated_at'),),
+            'fields': (('published_at', 'retired_at'), ('created_at', 'updated_at')),
             'classes': ('collapse',),
         }),
     )
+
+    def has_add_permission(self, request):
+        return bool(request.user.is_active and request.user.is_superuser)
+
+    def has_change_permission(self, request, obj=None):
+        return bool(request.user.is_active and request.user.is_superuser)
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_readonly_fields(self, request, obj=None):
+        values = list(super().get_readonly_fields(request, obj))
+        if obj:
+            values.extend(['location_type', 'code', 'parent'])
+        return tuple(dict.fromkeys(values))
+
+    def save_model(self, request, obj, form, change):
+        from core.services.location_catalog import _record_event
+
+        before = {}
+        previous_name = ''
+        if change:
+            previous = OperationalLocation.objects.get(pk=obj.pk)
+            previous_name = previous.name
+            before = {
+                'name': previous.name, 'active': previous.active,
+                'sort_order': previous.sort_order,
+            }
+        if not obj.active and not obj.retired_at:
+            obj.retired_at = timezone.now()
+        elif obj.active:
+            obj.retired_at = None
+        super().save_model(request, obj, form, change)
+        if previous_name and previous_name.casefold() != obj.name.casefold():
+            OperationalLocationAlias.objects.get_or_create(
+                location=obj,
+                normalized_alias=re.sub(r'[^a-z0-9]+', '_', previous_name.casefold()).strip('_'),
+                defaults={
+                    'location_type': obj.location_type,
+                    'alias': previous_name,
+                    'created_by': request.user,
+                },
+            )
+        _record_event(
+            subject_type='operational_location', subject_id=obj.pk,
+            action='location_created' if not change else 'location_updated',
+            actor=request.user, before=before,
+            after={'name': obj.name, 'code': obj.code, 'active': obj.active, 'sort_order': obj.sort_order},
+        )
+
+
+@admin.register(OperationalLocationAlias)
+class OperationalLocationAliasAdmin(CompactModelAdmin):
+    list_display = ('alias', 'location_type', 'location', 'parent', 'active', 'created_at')
+    list_filter = ('location_type', 'active')
+    search_fields = ('alias', 'location__name', 'location__code')
+    readonly_fields = ('location_type', 'parent', 'normalized_alias', 'created_by', 'created_at', 'retired_at')
+
+    def get_readonly_fields(self, request, obj=None):
+        fields = list(self.readonly_fields)
+        if obj:
+            fields.append('location')
+        return fields
+
+    def has_add_permission(self, request):
+        return bool(request.user.is_active and request.user.is_superuser)
+
+    def has_change_permission(self, request, obj=None):
+        return bool(request.user.is_active and request.user.is_superuser)
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def save_model(self, request, obj, form, change):
+        from core.services.location_catalog import _record_event
+
+        before = {'active': obj.active} if change else {}
+        if not obj.created_by_id:
+            obj.created_by = request.user
+        if not obj.active and not obj.retired_at:
+            obj.retired_at = timezone.now()
+        elif obj.active:
+            obj.retired_at = None
+        super().save_model(request, obj, form, change)
+        _record_event(
+            subject_type='operational_location_alias', subject_id=obj.pk,
+            action='alias_updated' if change else 'alias_created', actor=request.user,
+            before=before,
+            after={'location_code': obj.location.code, 'alias': obj.alias, 'active': obj.active},
+        )
+
+
+@admin.register(BranchServiceArea)
+class BranchServiceAreaAdmin(CompactModelAdmin):
+    list_display = ('branch', 'area', 'is_primary', 'active', 'created_at', 'retired_at')
+    list_filter = ('active', 'is_primary', 'branch', 'area__location_type')
+    search_fields = ('branch__name', 'branch__code', 'area__name', 'area__code')
+    autocomplete_fields = ('branch', 'area')
+    readonly_fields = ('created_by', 'retired_by', 'created_at', 'retired_at')
+
+    def get_readonly_fields(self, request, obj=None):
+        fields = list(self.readonly_fields)
+        if obj:
+            fields.extend(['branch', 'area'])
+        return fields
+
+    def has_add_permission(self, request):
+        return bool(request.user.is_active and request.user.is_superuser)
+
+    def has_change_permission(self, request, obj=None):
+        return bool(request.user.is_active and request.user.is_superuser)
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def save_model(self, request, obj, form, change):
+        from core.services.location_catalog import _record_event
+
+        before = {}
+        if change:
+            previous = BranchServiceArea.objects.get(pk=obj.pk)
+            before = {'active': previous.active, 'is_primary': previous.is_primary}
+        elif not obj.created_by_id:
+            obj.created_by = request.user
+        if not obj.active and not obj.retired_at:
+            obj.retired_at = timezone.now()
+            obj.retired_by = request.user
+            obj.is_primary = False
+        elif obj.active:
+            obj.retired_at = None
+            obj.retired_by = None
+        super().save_model(request, obj, form, change)
+        _record_event(
+            subject_type='branch_service_area', subject_id=obj.pk,
+            action='service_area_updated' if change else 'service_area_created',
+            actor=request.user, before=before,
+            after={
+                'branch_code': obj.branch.code, 'area_code': obj.area.code,
+                'active': obj.active, 'is_primary': obj.is_primary,
+            },
+        )
+
+
+@admin.register(LocationPolicyState)
+class LocationPolicyStateAdmin(CompactModelAdmin):
+    list_display = ('mode', 'readiness_status', 'updated_by', 'updated_at')
+    readonly_fields = ('mode', 'readiness_details', 'source_manifest', 'updated_by', 'updated_at')
+    actions = ('publish_audit_mode', 'publish_strict_mode')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return bool(request.user.is_active and request.user.is_superuser)
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description='Readiness')
+    def readiness_status(self, obj):
+        from core.services.location_catalog import catalog_readiness
+        return 'Ready for strict mode' if catalog_readiness()['ready'] else 'Audit cleanup required'
+
+    @admin.display(description='Readiness details')
+    def readiness_details(self, obj):
+        from core.services.location_catalog import catalog_readiness
+        return json.dumps(catalog_readiness(), indent=2)
+
+    @admin.action(description='Publish audit-only location policy')
+    def publish_audit_mode(self, request, queryset):
+        from core.services.location_catalog import publish_policy
+        publish_policy(mode='audit', actor=request.user)
+
+    @admin.action(description='Publish strict location policy after readiness check')
+    def publish_strict_mode(self, request, queryset):
+        from core.services.location_catalog import LocationCatalogError, publish_policy
+        try:
+            publish_policy(mode='strict', actor=request.user)
+        except LocationCatalogError as exc:
+            self.message_user(request, str(exc), level=messages.ERROR)
+
+
+@admin.register(LocationMappingIssue)
+class LocationMappingIssueAdmin(CompactModelAdmin):
+    list_display = ('location_type', 'raw_value', 'source_workflow', 'source_model', 'source_field', 'status', 'created_at')
+    list_filter = ('status', 'location_type', 'source_workflow', 'source_model')
+    search_fields = ('raw_value', 'normalized_value', 'source_record_id', 'detail')
+    autocomplete_fields = ('location',)
+    readonly_fields = (
+        'location_type', 'raw_value', 'normalized_value', 'source_workflow',
+        'source_model', 'source_field', 'source_record_id', 'detail', 'created_at',
+        'resolved_by', 'resolved_at',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return bool(request.user.is_active and request.user.is_superuser)
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def save_model(self, request, obj, form, change):
+        previous_status = (
+            LocationMappingIssue.objects.filter(pk=obj.pk).values_list('status', flat=True).first()
+            if change else ''
+        )
+        if obj.location_id and previous_status == LocationMappingIssue.STATUS_OPEN:
+            from core.services.location_catalog import resolve_mapping_issue
+            resolve_mapping_issue(obj, location=obj.location, actor=request.user)
+            return
+        super().save_model(request, obj, form, change)
+        if previous_status and previous_status != obj.status:
+            from core.services.location_catalog import _record_event
+            _record_event(
+                subject_type='location_mapping_issue', subject_id=obj.pk,
+                action='mapping_issue_status_changed', actor=request.user,
+                before={'status': previous_status}, after={'status': obj.status},
+            )
+
+
+@admin.register(LocationConfigurationEvent)
+class LocationConfigurationEventAdmin(CompactModelAdmin):
+    list_display = ('subject_type', 'subject_id', 'action', 'actor', 'occurred_at')
+    list_filter = ('subject_type', 'action', 'occurred_at')
+    search_fields = ('subject_id', 'request_id')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 PRODUCT_WORKFLOW_CHOICES = [

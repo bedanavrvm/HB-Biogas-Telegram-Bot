@@ -1129,9 +1129,14 @@ def _extract_county_value(value: str) -> str:
     if direct:
         return direct
     from core.services.locations import global_county_choices
+    # Keep accepting the parser's historical sheet-facing spellings while the
+    # governed catalogue supplies the current staff-facing labels.  In
+    # particular, KNBS uses ``Murang'a`` while existing message traffic and
+    # Sheets use ``MURANGA``.
+    county_choices = list(dict.fromkeys([*KENYA_COUNTIES, *global_county_choices()]))
     pattern_body = '|'.join(
         re.escape(county).replace(r'\ ', r'[\s\-]+')
-        for county in sorted(global_county_choices(), key=len, reverse=True)
+        for county in sorted(county_choices, key=len, reverse=True)
     )
     match = re.search(r'\b(' + pattern_body + r')\b', value or '', flags=re.IGNORECASE)
     if match:
@@ -1142,9 +1147,10 @@ def _extract_county_value(value: str) -> str:
 def _extract_county_reference(content: str) -> str:
     text = str(content or '')
     from core.services.locations import global_county_choices
+    county_choices = list(dict.fromkeys([*KENYA_COUNTIES, *global_county_choices()]))
     pattern_body = '|'.join(
         re.escape(county).replace(r'\ ', r'[\s\-]+')
-        for county in sorted(global_county_choices(), key=len, reverse=True)
+        for county in sorted(county_choices, key=len, reverse=True)
     )
     patterns = [
         rf'\b(?:county|branch|region)\s*[:;\-,]?\s*(?:of\s+)?({pattern_body})\b',
@@ -1167,7 +1173,9 @@ def _canonical_county(value: str) -> str:
         re.sub(r'[^a-z0-9]+', ' ', county.lower()).strip(): county
         for county in global_county_choices()
     }
-    return configured_lookup.get(key, COUNTY_LOOKUP.get(key, ''))
+    # The parser feeds an established uppercase Sheets contract.  Resolve its
+    # legacy canonical values first, then fall back to catalogue-only entries.
+    return COUNTY_LOOKUP.get(key, configured_lookup.get(key, ''))
 
 
 def _clean_item_name(item: str) -> str:

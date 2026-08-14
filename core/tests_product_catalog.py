@@ -153,8 +153,12 @@ class ProductCatalogTests(TestCase):
         self.assertEqual(active_product_version(self.product, on_date=successor_date), second)
 
     def test_availability_is_global_until_assignments_restrict_it(self):
-        branch_a = OperationalLocation.objects.create(location_type='branch', name='Branch A')
-        branch_b = OperationalLocation.objects.create(location_type='branch', name='Branch B')
+        branch_a = OperationalLocation.objects.create(
+            location_type='branch', name='Branch A', code='JBL-BR-TEST-A',
+        )
+        branch_b = OperationalLocation.objects.create(
+            location_type='branch', name='Branch B', code='JBL-BR-TEST-B',
+        )
         self.assertTrue(product_is_available(
             self.product, branch=branch_b, workflow='loan_origination', channel='portal',
         ))

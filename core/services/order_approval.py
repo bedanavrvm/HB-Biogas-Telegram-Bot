@@ -309,6 +309,23 @@ def handle_order_approval_message(
         parsed_fields=parsed.fields,
         update_status='pending',
     )
+    try:
+        _bind_order_location_catalog(
+            update_record, parsed.fields, request_id=telegram_message_id,
+        )
+    except ValueError as exc:
+        update_record.update_status = 'failed'
+        update_record.sync_error = str(exc)
+        update_record.save(update_fields=['update_status', 'sync_error'])
+        return _order_reply(
+            format_order_failure_reply(
+                title='Order approval update skipped.',
+                id_number=parsed.id_number,
+                errors=[str(exc)],
+            ),
+            warnings=parsed.warnings,
+            status='failed',
+        )
 
     matches = find_order_approval_matches(group_config, parsed.id_number)
     if not matches:
@@ -584,6 +601,42 @@ def looks_like_non_order_command(content: str) -> bool:
     return command not in {'/order', '/form'}
 
 
+def _bind_order_location_catalog(
+    update_record: OrderApprovalUpdate, fields: dict[str, str], *, actor=None,
+    override_reason: str = '', request_id: str = '',
+) -> None:
+    """Resolve form labels/codes before any external Sheet write occurs."""
+    from core.services.location_catalog import location_snapshot, validate_location_selection
+
+    branch, county, sub_county = validate_location_selection(
+        branch_value=fields.get('branch', ''),
+        county_value=fields.get('county', ''),
+        sub_county_value=fields.get('sub_county', ''),
+        source_workflow='order_approval',
+        source_model='OrderApprovalUpdate',
+        source_record_id=update_record.pk,
+        actor=actor,
+        override_reason=override_reason,
+        request_id=request_id,
+    )
+    if branch:
+        fields['branch'] = branch.name
+    if county:
+        fields['county'] = county.name
+    if sub_county:
+        fields['sub_county'] = sub_county.name
+    update_record.parsed_fields = fields
+    update_record.branch_ref = branch
+    update_record.county_ref = county
+    update_record.sub_county_ref = sub_county
+    update_record.location_snapshot = location_snapshot(
+        branch=branch, county=county, sub_county=sub_county,
+    )
+    update_record.save(update_fields=[
+        'parsed_fields', 'branch_ref', 'county_ref', 'sub_county_ref', 'location_snapshot',
+    ])
+
+
 def process_order_approval_form_submission(
     group_config,
     fields: dict[str, str],
@@ -626,6 +679,20 @@ def process_order_approval_form_submission(
         parsed_fields=parsed_fields,
         update_status='pending',
     )
+    try:
+        _bind_order_location_catalog(update_record, parsed_fields)
+    except ValueError as exc:
+        update_record.update_status = 'failed'
+        update_record.sync_error = str(exc)
+        update_record.save(update_fields=['update_status', 'sync_error'])
+        return {
+            'success': False,
+            'status': 'failed',
+            'message': str(exc),
+            'errors': [str(exc)],
+            'files_stored': 0,
+            'warnings': [],
+        }
 
     loaded_edit_match = None
     if include_blank_fields and edit_context_has_loaded_row(edit_context):
