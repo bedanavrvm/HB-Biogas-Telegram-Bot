@@ -140,6 +140,46 @@ input, select, textarea { width: 100%; min-width: 0; min-height: 42px; box-sizin
 .origination-select-trigger > svg { flex: 0 0 auto; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }
 .origination-select-trigger:focus-visible { border-color: var(--laf-green) !important; box-shadow: 0 0 0 3px rgba(18, 100, 72, .12) !important; }
 .origination-select-trigger:disabled { cursor: not-allowed; opacity: .52; }
+.origination-app [data-date-input] { display: none !important; }
+.origination-date-trigger { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 42px; padding: 8px 10px !important; border: 1px solid #b9cac3 !important; border-radius: 8px !important; background: var(--laf-surface) !important; color: var(--laf-dark) !important; font: inherit; font-weight: 500 !important; text-align: left; }
+.origination-date-trigger > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.origination-date-trigger > span.is-placeholder { color: var(--laf-muted); }
+.origination-date-trigger > svg { flex: 0 0 auto; width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.9; }
+.origination-date-trigger:focus-visible { border-color: var(--laf-green) !important; box-shadow: 0 0 0 3px rgba(18, 100, 72, .12) !important; }
+.origination-date-trigger:disabled { cursor: not-allowed; opacity: .52; }
+.origination-app input[type="checkbox"] {
+  display: inline-grid;
+  flex: 0 0 18px;
+  place-content: center;
+  width: 18px !important;
+  height: 18px !important;
+  min-height: 18px !important;
+  margin: 0;
+  padding: 0;
+  border: 1.5px solid #8aa49a;
+  border-radius: 5px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--laf-surface);
+  color: var(--laf-on-green);
+  cursor: pointer;
+}
+.origination-app input[type="checkbox"]::before {
+  width: 10px;
+  height: 10px;
+  content: "";
+  transform: scale(0);
+  transition: transform .12s ease-in-out;
+  background: currentColor;
+  clip-path: polygon(14% 44%, 0 59%, 40% 100%, 100% 20%, 84% 6%, 39% 72%);
+}
+.origination-app input[type="checkbox"]:checked { border-color: var(--laf-green); background: var(--laf-green); }
+.origination-app input[type="checkbox"]:checked::before { transform: scale(1); }
+.origination-app input[type="checkbox"]:focus-visible { outline: 2px solid var(--laf-green); outline-offset: 2px; }
+.origination-app input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .52; }
+.origination-app input[type="number"] { appearance: textfield; -moz-appearance: textfield; }
+.origination-app input[type="number"]::-webkit-inner-spin-button,
+.origination-app input[type="number"]::-webkit-outer-spin-button { margin: 0; -webkit-appearance: none; }
 textarea { min-height: 88px; resize: vertical; }
 input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !important; box-shadow: 0 0 0 3px rgba(18, 100, 72, .12) !important; }
 .origination-app .btn-primary { background: var(--laf-green) !important; color: var(--laf-on-green) !important; }
@@ -326,6 +366,28 @@ input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !impo
 .origination-select-option[aria-selected="true"] { background: var(--laf-green-soft) !important; color: var(--laf-green) !important; }
 .origination-select-option:disabled { opacity: .48; }
 .origination-select-option svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.2; }
+
+.origination-date-overlay { position: fixed; inset: 0; z-index: 1150; display: grid; align-items: end; min-height: var(--origination-live-height); padding-top: max(12px, env(safe-area-inset-top)); background: rgba(8, 24, 18, .62); }
+.origination-date-overlay[hidden] { display: none; }
+.origination-date-dialog { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; width: min(100%, 440px); max-height: min(88vh, calc(var(--origination-live-height) - 12px)); margin: 0 auto; overflow: hidden; border: 1px solid var(--laf-line); border-radius: 16px 16px 0 0; background: var(--laf-surface); color: var(--laf-dark); box-shadow: 0 -12px 40px rgba(0,0,0,.28); }
+.origination-date-dialog > header { display: flex !important; flex-direction: row !important; align-items: center !important; justify-content: space-between !important; gap: 10px !important; margin: 0 !important; padding: 10px 12px 7px !important; }
+.origination-date-dialog > header > div { min-width: 0; }
+.origination-date-dialog > header h2, .origination-date-dialog > header p { margin: 0; }
+.origination-date-dialog > header h2 { font-size: .9rem; }
+.origination-date-dialog > header .icon-button { flex: 0 0 38px; width: 38px !important; }
+.origination-calendar-toolbar { display: grid; grid-template-columns: 38px minmax(0, 1fr) 38px; align-items: center; gap: 8px; padding: 2px 12px 7px; }
+.origination-calendar-toolbar strong { text-align: center; font-size: .78rem; }
+.origination-calendar-toolbar .icon-button { flex: 0 0 38px !important; width: 38px !important; }
+.origination-calendar-weekdays, .origination-calendar-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; padding-inline: 10px; }
+.origination-calendar-weekdays { padding-block: 5px; color: var(--laf-muted); font-size: .58rem; font-weight: 800; text-align: center; text-transform: uppercase; }
+.origination-calendar-days { min-height: 0; overflow-y: auto; padding-bottom: 9px; }
+.origination-calendar-day, .origination-calendar-blank { aspect-ratio: 1; min-width: 0; min-height: 38px; }
+.origination-calendar-blank { display: block; }
+.origination-calendar-day { padding: 0 !important; border: 1px solid transparent !important; border-radius: 9px !important; background: transparent !important; color: var(--laf-dark) !important; font-size: .72rem !important; font-weight: 700 !important; }
+.origination-calendar-day.is-today { border-color: var(--laf-green) !important; color: var(--laf-green) !important; }
+.origination-calendar-day[aria-selected="true"] { border-color: var(--laf-green) !important; background: var(--laf-green) !important; color: var(--laf-on-green) !important; }
+.origination-calendar-day:disabled { opacity: .3; }
+.origination-date-dialog > footer { display: flex; justify-content: flex-end; gap: 7px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid var(--laf-line); }
 
 .origination-sheet :focus-visible, .review-dialog :focus-visible, .preview-overlay :focus-visible { outline: 2px solid var(--tg-theme-accent-text-color, var(--laf-green)); outline-offset: 2px; }
 

@@ -48,6 +48,9 @@
   let sheetReturnFocus = null;
   let activeCustomSelect = null;
   let customSelectReturnFocus = null;
+  let activeDateInput = null;
+  let dateReturnFocus = null;
+  let dateDisplayMonth = null;
   let mainButtonHandler = null;
   let primaryBusy = false;
   let createInFlight = false;
@@ -121,6 +124,7 @@
       arrowLeft: '<path d="m15 18-6-6 6-6"/>',
       arrowRight: '<path d="m9 18 6-6-6-6"/>',
       chevronDown: '<path d="m6 9 6 6 6-6"/>',
+      calendar: '<path d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z"/>',
       close: '<path d="m6 6 12 12M18 6 6 18"/>',
       filter: '<path d="M4 5h16M7 12h10M10 19h4"/>',
       plus: '<path d="M12 5v14M5 12h14"/>',
@@ -169,7 +173,7 @@
     clearMainButtonHandler();
     document.body.classList.remove('telegram-main-button-active');
     if (!tg?.MainButton) return;
-    const blockedByOverlay = Boolean(activeCustomSelect)
+    const blockedByOverlay = Boolean(activeDateInput || activeCustomSelect)
       || !document.getElementById('document-preview-overlay')?.hidden
       || !document.getElementById('origination-review-overlay')?.hidden
       || (sheetMode && sheetMode !== 'create');
@@ -218,7 +222,7 @@
   function syncTelegramControls() {
     if (tg?.BackButton) {
       const previewOpen = !document.getElementById('document-preview-overlay')?.hidden;
-      if (activeCustomSelect || sheetMode || reviewDialogMode || previewOpen || current) tg.BackButton.show();
+      if (activeDateInput || activeCustomSelect || sheetMode || reviewDialogMode || previewOpen || current) tg.BackButton.show();
       else tg.BackButton.hide();
     }
     syncPrimaryAction();
@@ -325,6 +329,136 @@
   function enhanceSelects(container = document) {
     if (container.matches?.('select')) enhanceSelect(container);
     container.querySelectorAll?.('select').forEach(enhanceSelect);
+  }
+
+  function parseIsoDate(value) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
+    if (!match) return null;
+    const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    return date.getFullYear() === Number(match[1]) && date.getMonth() === Number(match[2]) - 1 && date.getDate() === Number(match[3]) ? date : null;
+  }
+
+  function isoDate(date) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  }
+
+  function displayDate(value) {
+    const date = parseIsoDate(value);
+    return date ? `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}` : '';
+  }
+
+  function dateInputLabel(input) {
+    return input.closest('label')?.querySelector(':scope > span')?.textContent?.replace('*', '').trim()
+      || input.getAttribute('aria-label') || 'Date';
+  }
+
+  function syncDateInput(input) {
+    const trigger = input._originationDateTrigger;
+    if (!trigger) return;
+    const formatted = displayDate(input.value);
+    const label = trigger.querySelector('span');
+    label.textContent = formatted || 'Choose date';
+    label.classList.toggle('is-placeholder', !formatted);
+    trigger.disabled = input.disabled;
+    trigger.setAttribute('aria-label', `${dateInputLabel(input)}: ${formatted || 'not selected'}`);
+  }
+
+  function renderCalendar() {
+    if (!activeDateInput || !dateDisplayMonth) return;
+    const year = dateDisplayMonth.getFullYear();
+    const month = dateDisplayMonth.getMonth();
+    document.getElementById('origination-date-month').textContent = new Intl.DateTimeFormat('en-KE', { month: 'long', year: 'numeric' }).format(dateDisplayMonth);
+    const days = document.getElementById('origination-date-days');
+    days.replaceChildren();
+    const mondayOffset = (new Date(year, month, 1).getDay() + 6) % 7;
+    for (let index = 0; index < mondayOffset; index += 1) {
+      const blank = document.createElement('span');
+      blank.className = 'origination-calendar-blank';
+      blank.setAttribute('aria-hidden', 'true');
+      days.append(blank);
+    }
+    const count = new Date(year, month + 1, 0).getDate();
+    const selected = activeDateInput.value;
+    const today = isoDate(new Date());
+    const min = activeDateInput.getAttribute('min') || '';
+    const max = activeDateInput.getAttribute('max') || '';
+    for (let day = 1; day <= count; day += 1) {
+      const value = isoDate(new Date(year, month, day));
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `origination-calendar-day${value === today ? ' is-today' : ''}`;
+      button.textContent = String(day);
+      button.dataset.dateValue = value;
+      button.setAttribute('role', 'gridcell');
+      button.setAttribute('aria-label', new Intl.DateTimeFormat('en-KE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(year, month, day)));
+      button.setAttribute('aria-selected', value === selected ? 'true' : 'false');
+      button.disabled = Boolean((min && value < min) || (max && value > max));
+      button.onclick = () => chooseDate(value);
+      days.append(button);
+    }
+  }
+
+  function closeDatePicker({ restoreFocus = true } = {}) {
+    if (!activeDateInput) return;
+    const overlay = document.getElementById('origination-date-overlay');
+    overlay.hidden = true;
+    overlay.setAttribute('aria-hidden', 'true');
+    activeDateInput = null;
+    dateDisplayMonth = null;
+    const returnFocus = dateReturnFocus;
+    dateReturnFocus = null;
+    syncTelegramControls();
+    if (restoreFocus) window.requestAnimationFrame(() => returnFocus?.focus?.());
+  }
+
+  function chooseDate(value) {
+    if (!activeDateInput) return;
+    activeDateInput.value = value;
+    syncDateInput(activeDateInput);
+    activeDateInput.dispatchEvent(new Event('input', { bubbles: true }));
+    activeDateInput.dispatchEvent(new Event('change', { bubbles: true }));
+    closeDatePicker();
+  }
+
+  function openDatePicker(input, trigger) {
+    if (input.disabled) return;
+    if (activeCustomSelect) closeCustomSelect({ restoreFocus: false });
+    activeDateInput = input;
+    dateReturnFocus = trigger;
+    const selected = parseIsoDate(input.value);
+    const fallback = selected || new Date();
+    dateDisplayMonth = new Date(fallback.getFullYear(), fallback.getMonth(), 1);
+    document.getElementById('origination-date-title').textContent = dateInputLabel(input);
+    document.getElementById('origination-date-clear').hidden = Boolean(input.required);
+    renderCalendar();
+    const overlay = document.getElementById('origination-date-overlay');
+    overlay.hidden = false;
+    overlay.setAttribute('aria-hidden', 'false');
+    syncTelegramControls();
+    window.requestAnimationFrame(() => document.querySelector('.origination-calendar-day[aria-selected="true"]')?.focus()
+      || document.querySelector('.origination-calendar-day.is-today:not([disabled])')?.focus()
+      || document.querySelector('.origination-calendar-day:not([disabled])')?.focus());
+  }
+
+  function enhanceDateInput(input) {
+    if (input._originationDateTrigger) return syncDateInput(input);
+    input.setAttribute('aria-hidden', 'true');
+    input.tabIndex = -1;
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.className = 'origination-date-trigger';
+    trigger.setAttribute('aria-haspopup', 'dialog');
+    trigger.innerHTML = `<span></span>${iconSvg('calendar')}`;
+    trigger.onclick = () => openDatePicker(input, trigger);
+    input.insertAdjacentElement('afterend', trigger);
+    input._originationDateTrigger = trigger;
+    input.addEventListener('change', () => syncDateInput(input));
+    syncDateInput(input);
+  }
+
+  function enhanceDateInputs(container = document) {
+    if (container.matches?.('[data-date-input]')) enhanceDateInput(container);
+    container.querySelectorAll?.('[data-date-input]').forEach(enhanceDateInput);
   }
 
   const RECOVERY_DB = 'jbl-origination-recovery-v1';
@@ -458,6 +592,7 @@
     overlay.setAttribute('aria-hidden', 'false');
     document.body.classList.add('origination-modal-open');
     enhanceSelects(document.getElementById('origination-sheet'));
+    enhanceDateInputs(document.getElementById('origination-sheet'));
     syncTelegramControls();
     window.requestAnimationFrame(() => {
       focusableElements(document.getElementById('origination-sheet'))[0]?.focus()
@@ -663,12 +798,13 @@
       const options = (item.options || []).map(option => `<option value="${escapeHtml(option)}"${value === option ? ' selected' : ''}>${escapeHtml(option)}</option>`).join('');
       return `<select ${data}${locked}><option value="">Choose</option>${options}</select>`;
     }
-    const inputType = item.type === 'date' ? 'date' : ['number', 'money', 'amount'].includes(item.type) ? 'number' : 'text';
+    const inputType = 'text';
     const validation = item.validation || {};
-    const numeric = ['number', 'money', 'amount'].includes(item.type) ? ` inputmode="decimal" step="any"${validation.min != null ? ` min="${escapeHtml(validation.min)}"` : ''}${validation.max != null ? ` max="${escapeHtml(validation.max)}"` : ''}` : '';
+    const numeric = ['number', 'money', 'amount'].includes(item.type) ? ` inputmode="decimal" data-numeric-input data-min="${escapeHtml(validation.min ?? '')}" data-max="${escapeHtml(validation.max ?? '')}"` : '';
+    const dateRules = item.type === 'date' ? `${validation.min_date || validation.min ? ` min="${escapeHtml(validation.min_date || validation.min)}"` : ''}${validation.max_date || validation.max ? ` max="${escapeHtml(validation.max_date || validation.max)}"` : ''}` : '';
     const pattern = inputType === 'text' && validation.pattern ? ` pattern="${escapeHtml(validation.pattern)}"` : '';
     const placeholder = item.type === 'document' ? 'Document reference or evidence note' : '';
-    return `<input type="${inputType}" ${data} value="${escapeHtml(value ?? '')}"${numeric}${pattern}${placeholder ? ` placeholder="${placeholder}"` : ''}${locked}>`;
+    return `<input type="${inputType}" ${data} value="${escapeHtml(value ?? '')}"${item.type === 'date' ? ` data-date-input inputmode="none" readonly${item.required ? ' required' : ''}` : ''}${numeric}${dateRules}${pattern}${placeholder ? ` placeholder="${placeholder}"` : ''}${locked}>`;
   }
 
   function productConfigurationMarkup(editable) {
@@ -771,17 +907,29 @@
       const validation = field.validation || {};
       control = `<textarea data-field="${key}"${validation.min_length != null ? ` minlength="${escapeHtml(validation.min_length)}"` : ''}${validation.max_length != null ? ` maxlength="${escapeHtml(validation.max_length)}"` : ''}${validation.pattern ? ` pattern="${escapeHtml(validation.pattern)}"` : ''}${disabled ? ' disabled' : ''}>${escapeHtml(value ?? '')}</textarea>`;
     } else {
-      const type = field.type === 'date' ? 'date' : ['money', 'number'].includes(field.type) ? 'number' : field.type === 'phone' ? 'tel' : 'text';
+      const type = field.type === 'phone' ? 'tel' : 'text';
       const prefix = field.type === 'money' ? '<span class="input-prefix">KES</span>' : '';
       const validation = field.validation || {};
-      const numeric = field.type === 'money' ? ` inputmode="decimal" min="${escapeHtml(validation.min ?? 0)}"${validation.max != null ? ` max="${escapeHtml(validation.max)}"` : ''} step="0.01"` : field.type === 'number' ? ` inputmode="decimal"${validation.min != null ? ` min="${escapeHtml(validation.min)}"` : ''}${validation.max != null ? ` max="${escapeHtml(validation.max)}"` : ''} step="any"` : '';
+      const numeric = field.type === 'money' ? ` inputmode="decimal" data-numeric-input data-min="${escapeHtml(validation.min ?? 0)}" data-max="${escapeHtml(validation.max ?? '')}"` : field.type === 'number' ? ` inputmode="decimal" data-numeric-input data-min="${escapeHtml(validation.min ?? '')}" data-max="${escapeHtml(validation.max ?? '')}"` : '';
       const textRules = ['text', 'textarea', 'phone', 'national_id'].includes(field.type) ? `${validation.min_length != null ? ` minlength="${escapeHtml(validation.min_length)}"` : ''}${validation.max_length != null ? ` maxlength="${escapeHtml(validation.max_length)}"` : ''}${validation.pattern ? ` pattern="${escapeHtml(validation.pattern)}"` : ''}` : '';
       const dateRules = field.type === 'date' ? `${validation.min_date ? ` min="${escapeHtml(validation.min_date)}"` : ''}${validation.max_date ? ` max="${escapeHtml(validation.max_date)}"` : ''}` : '';
-      control = `<div class="input-wrap${prefix ? ' has-prefix' : ''}">${prefix}<input data-field="${key}" type="${type}" value="${escapeHtml(value ?? '')}"${numeric}${textRules}${dateRules}${field.type === 'national_id' ? ' inputmode="numeric"' : ''}${disabled ? ' disabled' : ''}></div>`;
+      control = `<div class="input-wrap${prefix ? ' has-prefix' : ''}">${prefix}<input data-field="${key}" type="${type}" value="${escapeHtml(value ?? '')}"${field.type === 'date' ? ` data-date-input inputmode="none" readonly${field.required ? ' required' : ''}` : ''}${numeric}${textRules}${dateRules}${field.type === 'national_id' ? ' inputmode="numeric"' : ''}${disabled ? ' disabled' : ''}></div>`;
     }
     const help = field.help_text ? `<small class="field-help">${escapeHtml(field.help_text)}</small>` : '';
     const correction = current.status === 'ready_for_review' ? correctionToggle('field', field.key, normalizeLabel(field)) : '';
     return `<label class="${classes}" data-field-wrap="${key}"><span>${label}${required}</span>${help}${correction}${control}<small class="field-error" aria-live="polite"></small></label>`;
+  }
+
+  function numericInputError(input) {
+    if (!input?.matches?.('[data-numeric-input]') || input.value === '') return '';
+    const normalized = input.value.trim();
+    if (!/^-?(?:\d+|\d*\.\d+)$/.test(normalized)) return 'Enter a valid number.';
+    const value = Number(normalized);
+    const min = input.dataset.min === '' ? null : Number(input.dataset.min);
+    const max = input.dataset.max === '' ? null : Number(input.dataset.max);
+    if (min != null && value < min) return `Enter ${min} or more.`;
+    if (max != null && value > max) return `Enter ${max} or less.`;
+    return '';
   }
 
   function sectionErrors(sectionKey) {
@@ -803,10 +951,12 @@
         if (value === undefined || value === null || value === '') errors[`custom:${item.key}`] = 'Required';
       });
       root()?.querySelectorAll('[data-product-requirement], [data-product-custom]').forEach(input => {
-        if (input.checkValidity()) return;
         const key = input.dataset.productRequirement
           ? `requirement:${input.dataset.productRequirement}`
           : `custom:${input.dataset.productCustom}`;
+        const numericError = numericInputError(input);
+        if (numericError) { errors[key] ||= numericError; return; }
+        if (input.checkValidity()) return;
         errors[key] ||= input.validationMessage || 'Enter a valid value.';
       });
       return errors;
@@ -817,6 +967,8 @@
       const value = payload[field.key];
       if (field.required && (value === undefined || value === null || value === '')) errors[field.key] = 'Required';
       const input = root()?.querySelector(`[data-field="${CSS.escape(field.key)}"]`);
+      const numericError = numericInputError(input);
+      if (!errors[field.key] && numericError) errors[field.key] = numericError;
       if (!errors[field.key] && input && !input.checkValidity()) {
         errors[field.key] = input.validationMessage || 'Enter a valid value.';
       }
@@ -1557,6 +1709,30 @@
   document.getElementById('origination-select-overlay').addEventListener('click', event => {
     if (event.target === event.currentTarget) closeCustomSelect();
   });
+  document.getElementById('origination-date-dialog').addEventListener('keydown', event => trapModalFocus(event, event.currentTarget));
+  document.getElementById('origination-date-close').onclick = () => closeDatePicker();
+  document.getElementById('origination-date-overlay').addEventListener('click', event => {
+    if (event.target === event.currentTarget) closeDatePicker();
+  });
+  document.getElementById('origination-date-previous').onclick = () => {
+    if (!dateDisplayMonth) return;
+    dateDisplayMonth = new Date(dateDisplayMonth.getFullYear(), dateDisplayMonth.getMonth() - 1, 1);
+    renderCalendar();
+  };
+  document.getElementById('origination-date-next').onclick = () => {
+    if (!dateDisplayMonth) return;
+    dateDisplayMonth = new Date(dateDisplayMonth.getFullYear(), dateDisplayMonth.getMonth() + 1, 1);
+    renderCalendar();
+  };
+  document.getElementById('origination-date-clear').onclick = () => chooseDate('');
+  document.getElementById('origination-date-today').onclick = () => {
+    if (!activeDateInput) return;
+    const today = isoDate(new Date());
+    const min = activeDateInput.getAttribute('min') || '';
+    const max = activeDateInput.getAttribute('max') || '';
+    if ((min && today < min) || (max && today > max)) return showToast('Today is outside the allowed date range.', true);
+    chooseDate(today);
+  };
   document.getElementById('origination-review-dialog').addEventListener('keydown', event => trapModalFocus(event, event.currentTarget));
   document.getElementById('document-preview-overlay').addEventListener('keydown', event => trapModalFocus(event, event.currentTarget));
   document.getElementById('origination-refresh').onclick = load;
@@ -1567,7 +1743,8 @@
   window.visualViewport?.addEventListener('resize', syncViewport);
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
-    if (activeCustomSelect) closeCustomSelect();
+    if (activeDateInput) closeDatePicker();
+    else if (activeCustomSelect) closeCustomSelect();
     else if (sheetMode) closeSheet();
     else if (reviewDialogMode) closeReviewDialog();
     else if (!document.getElementById('document-preview-overlay').hidden) closePreview();
@@ -1578,6 +1755,7 @@
   syncTelegramTheme();
   syncViewport();
   tg?.BackButton?.onClick(async () => {
+    if (activeDateInput) return closeDatePicker();
     if (activeCustomSelect) return closeCustomSelect();
     if (sheetMode) return closeSheet();
     if (reviewDialogMode) return closeReviewDialog();
@@ -1586,10 +1764,16 @@
   });
   new MutationObserver(mutations => {
     mutations.forEach(mutation => {
-      mutation.addedNodes.forEach(node => { if (node.nodeType === Node.ELEMENT_NODE) enhanceSelects(node); });
+      mutation.addedNodes.forEach(node => {
+        if (node.nodeType !== Node.ELEMENT_NODE) return;
+        enhanceSelects(node);
+        enhanceDateInputs(node);
+      });
       if (mutation.target?.matches?.('select')) syncCustomSelect(mutation.target);
+      if (mutation.target?.matches?.('[data-date-input]')) syncDateInput(mutation.target);
     });
   }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled'] });
   enhanceSelects();
+  enhanceDateInputs();
   load();
 })();

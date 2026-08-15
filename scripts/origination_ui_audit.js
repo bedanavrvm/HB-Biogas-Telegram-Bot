@@ -17,6 +17,7 @@ const fields = [
   { key: 'applicant_name', label: 'Applicant name', type: 'text', section_key: 'applicant' },
   { key: 'applicant_phone', label: 'Phone number', type: 'phone', section_key: 'applicant' },
   { key: 'national_id', label: 'National ID', type: 'national_id', section_key: 'applicant' },
+  { key: 'date_of_birth', label: 'Date of birth', type: 'date', section_key: 'applicant' },
   { key: 'county', label: 'County', type: 'county', section_key: 'applicant' },
   { key: 'business_name', label: 'Business name', type: 'text', section_key: 'business' },
   { key: 'business_type', label: 'Business type', type: 'choice', options: ['Retail', 'Farming'], section_key: 'business' },
@@ -132,6 +133,7 @@ async function auditViewport(browser, viewport) {
   assert(optionLabels.some(label => label.trim() === 'Embu'), `${viewport.name}: branch option labels are not rendered in the custom picker`);
   await page.screenshot({ path: path.join(outputDir, `${viewport.name}-select-options.png`) });
   await page.locator('#origination-select-close').click();
+  await page.waitForFunction(() => document.activeElement?.classList.contains('origination-select-trigger'));
   assert(await page.locator('#origination-sheet').evaluate(sheet => sheet.getBoundingClientRect().bottom <= innerHeight + 1), `${viewport.name}: sheet exceeds live viewport`);
   await page.locator('[data-sheet-cancel]').focus();
   await page.keyboard.press('Tab');
@@ -149,10 +151,22 @@ async function auditViewport(browser, viewport) {
   await page.locator('.application-card').nth(8).click();
   await page.locator('.wizard-progress-compact').waitFor();
   assert(await page.evaluate(() => scrollY <= 1), `${viewport.name}: editor did not reset scroll`);
+  assert(await page.locator('input[type="date"]').count() === 0, `${viewport.name}: browser-native date input remains in the editor`);
+  const dateTrigger = page.locator('[data-field="date_of_birth"] + .origination-date-trigger');
+  await dateTrigger.waitFor();
+  await dateTrigger.click();
+  await page.screenshot({ path: path.join(outputDir, `${viewport.name}-date-picker.png`) });
+  await page.locator('#origination-date-days .origination-calendar-day:not([disabled])').first().click();
+  assert(/^\d{4}-\d{2}-\d{2}$/.test(await page.locator('[data-field="date_of_birth"]').inputValue()), `${viewport.name}: custom calendar did not store an ISO date`);
   await page.screenshot({ path: path.join(outputDir, `${viewport.name}-editor.png`), fullPage: true });
   await page.locator('#origination-section-picker').click();
   await page.locator('[data-section-index="1"]').click();
   assert(await page.evaluate(() => scrollY <= 1), `${viewport.name}: section change did not reset scroll`);
+  await page.locator('#origination-section-picker').click();
+  await page.locator('[data-section-index="2"]').click();
+  const amountInput = page.locator('[data-field="loan_amount"]');
+  assert(await amountInput.getAttribute('type') === 'text', `${viewport.name}: money field still uses a browser-native number control`);
+  assert(await amountInput.getAttribute('inputmode') === 'decimal', `${viewport.name}: money field lost its decimal keyboard hint`);
   await page.locator('#origination-back').click();
   await page.locator('.application-card').first().waitFor();
   await page.waitForFunction(expected => Math.abs(scrollY - expected) <= 5, before);
