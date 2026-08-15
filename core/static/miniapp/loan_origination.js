@@ -57,6 +57,14 @@
   let previewPinch = null;
   let previewSwipe = null;
   let keyboardFocusTimer = null;
+  let maximumLiveViewportHeight = Math.max(
+    Number(window.visualViewport?.height) || 0,
+    Number(window.innerHeight) || 0,
+    Number(tg?.viewportStableHeight) || 0,
+  );
+  let keyboardViewportOpen = false;
+  let telegramMainSuppressed = false;
+  let nativeMainButtonVisible = false;
   const previewPointers = new Map();
   const previewPageUrls = new Map();
   const previewPageLoads = new Map();
@@ -145,13 +153,31 @@
   }
 
   function syncViewport() {
-    const visualHeight = Number(window.visualViewport?.height) || Number(window.innerHeight) || 640;
-    const stableHeight = Number(tg?.viewportStableHeight) || Number(tg?.viewportHeight) || Number(window.innerHeight) || visualHeight;
+    const browserHeight = Number(window.visualViewport?.height) || Number(window.innerHeight) || 640;
+    const telegramHeight = Number(tg?.viewportHeight) || browserHeight;
+    const visualHeight = Math.min(browserHeight, telegramHeight);
+    const stableHeight = Number(tg?.viewportStableHeight) || Number(window.innerHeight) || visualHeight;
+    maximumLiveViewportHeight = Math.max(maximumLiveViewportHeight, stableHeight, visualHeight);
     document.documentElement.style.setProperty('--origination-viewport-height', `${Math.round(stableHeight)}px`);
     document.documentElement.style.setProperty('--origination-live-height', `${Math.round(visualHeight)}px`);
-    const keyboardOpen = visualHeight < Number(window.innerHeight || visualHeight) - 100;
-    document.body.classList.toggle('origination-keyboard-open', keyboardOpen);
+    const keyboardOpen = isKeyboardInput(document.activeElement) && visualHeight < maximumLiveViewportHeight - 80;
+    setKeyboardViewportOpen(keyboardOpen);
     if (document.body.classList.contains('origination-input-active')) scheduleFocusedInputVisibility();
+  }
+
+  function setKeyboardViewportOpen(open) {
+    keyboardViewportOpen = Boolean(open);
+    document.body.classList.toggle('origination-keyboard-open', keyboardViewportOpen);
+    if (keyboardViewportOpen && nativeMainButtonVisible && !telegramMainSuppressed) {
+      telegramMainSuppressed = true;
+      clearMainButtonHandler();
+      document.body.classList.remove('telegram-main-button-active');
+      try { tg?.MainButton?.hideProgress?.(); tg?.MainButton?.hide?.(); } catch (_) { /* Telegram owns this surface. */ }
+      nativeMainButtonVisible = false;
+    } else if (!keyboardViewportOpen && telegramMainSuppressed) {
+      telegramMainSuppressed = false;
+      syncPrimaryAction();
+    }
   }
 
   function isKeyboardInput(element) {
@@ -168,7 +194,7 @@
     const rect = input.getBoundingClientRect();
     // Telegram owns its native MainButton. Do not mutate it during a focus
     // transition; reserve its footprint and move the field above it instead.
-    const telegramButtonReserve = tg?.MainButton ? 64 : 0;
+    const telegramButtonReserve = keyboardViewportOpen ? 0 : (tg?.MainButton ? 64 : 0);
     const lowerLimit = liveHeight - telegramButtonReserve - 14;
     const upperLimit = Math.max(10, headerBottom + 8);
     try {
@@ -183,15 +209,17 @@
   }
 
   function clearMainButtonHandler() {
-    if (mainButtonHandler && tg?.MainButton) tg.MainButton.offClick?.(mainButtonHandler);
+    if (mainButtonHandler && tg?.MainButton) {
+      try { tg.MainButton.offClick?.(mainButtonHandler); } catch (_) { /* Do not let bridge errors break the form. */ }
+    }
     mainButtonHandler = null;
   }
 
   function hideMainButton() {
     clearMainButtonHandler();
     document.body.classList.remove('telegram-main-button-active');
-    tg?.MainButton?.hideProgress?.();
-    tg?.MainButton?.hide?.();
+    try { tg?.MainButton?.hideProgress?.(); tg?.MainButton?.hide?.(); } catch (_) { /* Keep the form usable. */ }
+    nativeMainButtonVisible = false;
   }
 
   function syncPrimaryAction() {
@@ -202,6 +230,17 @@
     });
     clearMainButtonHandler();
     document.body.classList.remove('telegram-main-button-active');
+    // The native Telegram button is useful in the short creation sheet, but
+    // in the editor it competes with the software keyboard. Keep editor
+    // actions in the document so they can disappear with the keyboard state.
+    if (current) {
+      if (nativeMainButtonVisible) hideMainButton();
+      return;
+    }
+    if (keyboardViewportOpen) {
+      try { tg?.MainButton?.hideProgress?.(); tg?.MainButton?.hide?.(); } catch (_) { /* Keep the form usable. */ }
+      return;
+    }
     if (!tg?.MainButton) return;
     const blockedByOverlay = Boolean(activeDateInput || activeCustomSelect)
       || !document.getElementById('document-preview-overlay')?.hidden
@@ -222,6 +261,7 @@
     };
     tg.MainButton.onClick?.(mainButtonHandler);
     tg.MainButton.show?.();
+    nativeMainButtonVisible = true;
   }
 
   function setPrimaryBusy(busy, label = '') {
@@ -1780,6 +1820,7 @@
     window.setTimeout(() => {
       if (isKeyboardInput(document.activeElement)) return;
       document.body.classList.remove('origination-input-active');
+      setKeyboardViewportOpen(false);
     }, 120);
   });
   document.addEventListener('keydown', event => {

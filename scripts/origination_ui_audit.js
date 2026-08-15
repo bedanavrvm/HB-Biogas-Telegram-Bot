@@ -231,14 +231,16 @@ async function auditTelegramAndSlowNetwork(browser) {
   await page.waitForFunction(() => document.body.classList.contains('origination-input-active'));
   await page.waitForFunction(() => {
     const input = document.querySelector('[data-field="applicant_notes"]');
-    return input && input.getBoundingClientRect().bottom <= (visualViewport?.height || innerHeight) - 67;
+    return input && input.getBoundingClientRect().bottom <= (visualViewport?.height || innerHeight) - 3;
   });
   const keyboardState = await page.evaluate(() => ({
     mainVisible: window.__telegramAudit.mainVisible,
     actionPosition: getComputedStyle(document.querySelector('.wizard-actions')).position,
+    actionDisplay: getComputedStyle(document.querySelector('.wizard-actions')).display,
   }));
-  assert(keyboardState.mainVisible, 'Focusing a field unexpectedly reconfigured Telegram MainButton ownership');
+  assert(!keyboardState.mainVisible, 'Telegram MainButton remained over the contracted keyboard viewport');
   assert(keyboardState.actionPosition === 'static', `Wizard actions stayed ${keyboardState.actionPosition} while the keyboard input was active`);
+  assert(keyboardState.actionDisplay === 'none', `Wizard action overlay remained ${keyboardState.actionDisplay} above the keyboard`);
   await page.screenshot({ path: path.join(outputDir, 'telegram-keyboard-active.png') });
   await page.evaluate(() => document.activeElement?.blur());
   await page.setViewportSize({ width: 360, height: 800 });
