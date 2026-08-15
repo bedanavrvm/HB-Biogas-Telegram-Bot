@@ -9,9 +9,9 @@
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="{% static 'miniapp/base.css' %}?v=6">
   <link rel="stylesheet" href="{% static 'miniapp/workflow_standard.css' %}?v=16">
-  <link rel="stylesheet" href="{% static 'miniapp/loan_origination.css' %}?v=20260814-1">
+  <link rel="stylesheet" href="{% static 'miniapp/loan_origination.css' %}?v=20260815-1">
 </head>
-<body class="workflow-standard origination-app" data-miniapp="loan-origination" data-ui-version="20260814-1">
+<body class="workflow-standard origination-app" data-miniapp="loan-origination" data-ui-version="20260815-1">
   <main class="origination-shell">
     <header class="origination-header">
       <img class="workflow-brand" src="{% static 'miniapp/jawabu-logo.png' %}" alt="Jawabu">
@@ -20,28 +20,38 @@
         <h1>Loan Origination</h1>
         <p>Capture, review and prepare paperless applications</p>
       </div>
-      <button type="button" class="header-icon" id="origination-refresh" aria-label="Refresh applications" title="Refresh applications">↻</button>
+      <button type="button" class="header-icon" id="origination-refresh" aria-label="Refresh applications" title="Refresh applications"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg></button>
     </header>
     <div id="origination-root" aria-live="polite" aria-busy="true">
       <div class="empty-state"><div class="spinner-inline"></div><div class="es-sub">Loading applications...</div></div>
     </div>
   </main>
   <div id="document-preview-overlay" class="preview-overlay" role="dialog" aria-modal="true" aria-hidden="true" hidden>
-    <header class="preview-header"><div><strong>Filled loan document</strong><small id="preview-page">Loading preview…</small></div><button id="preview-close" class="icon-button" type="button" aria-label="Close preview">×</button></header>
-    <div class="preview-toolbar"><button id="preview-previous" type="button">← Page</button><button id="preview-next" type="button">Page →</button><button id="preview-regenerate" type="button" class="preview-icon-action" aria-label="Regenerate preview" title="Regenerate preview">↻</button><button id="preview-zoom-out" type="button">−</button><span id="preview-zoom">100%</span><button id="preview-zoom-in" type="button">+</button><button id="preview-open" type="button">Open</button></div>
+    <header class="preview-header"><div><strong>Filled loan document</strong><small id="preview-page">Loading preview...</small></div><button id="preview-close" class="icon-button" type="button" aria-label="Close preview"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>
+    <div class="preview-toolbar"><button id="preview-previous" type="button">Previous page</button><button id="preview-next" type="button">Next page</button><button id="preview-regenerate" type="button" class="preview-icon-action" aria-label="Regenerate preview" title="Regenerate preview"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg></button><button id="preview-zoom-out" type="button" aria-label="Zoom out">-</button><span id="preview-zoom">100%</span><button id="preview-zoom-in" type="button" aria-label="Zoom in">+</button><button id="preview-open" type="button">Open</button></div>
     <div id="document-preview-stage" class="preview-stage"><img id="document-preview-image" alt="Filled loan application preview"></div>
   </div>
   <div id="origination-review-overlay" class="review-overlay" role="dialog" aria-modal="true" aria-hidden="true" hidden>
     <form id="origination-review-dialog" class="review-dialog">
-      <header><div><p class="eyebrow">Maker-checker review</p><h2 id="review-dialog-title">Request corrections</h2></div><button type="button" class="icon-button" id="review-dialog-close" aria-label="Close review dialog">×</button></header>
+      <header><div><p class="eyebrow">Maker-checker review</p><h2 id="review-dialog-title">Request corrections</h2></div><button type="button" class="icon-button" id="review-dialog-close" aria-label="Close review dialog"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>
       <p id="review-dialog-hint"></p>
       <div id="review-dialog-targets" class="review-dialog-targets"></div>
       <label><span>Overall instruction or reason</span><textarea id="review-dialog-summary" maxlength="2000" required></textarea></label>
       <footer><button type="button" class="btn btn-secondary" id="review-dialog-cancel">Cancel</button><button type="submit" class="btn btn-primary" id="review-dialog-submit">Record decision</button></footer>
     </form>
   </div>
+  <div id="origination-sheet-overlay" class="origination-sheet-overlay" role="dialog" aria-modal="true" aria-hidden="true" hidden>
+    <section id="origination-sheet" class="origination-sheet" tabindex="-1" aria-labelledby="origination-sheet-title">
+      <header>
+        <div><p class="eyebrow" id="origination-sheet-eyebrow">Origination</p><h2 id="origination-sheet-title">Options</h2><p id="origination-sheet-hint"></p></div>
+        <button type="button" class="icon-button" id="origination-sheet-close" aria-label="Close sheet"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+      </header>
+      <div id="origination-sheet-body" class="origination-sheet-body"></div>
+      <footer id="origination-sheet-footer" class="origination-sheet-footer"></footer>
+    </section>
+  </div>
   <div id="origination-toast" class="origination-toast" role="status" aria-live="polite" hidden></div>
   <script src="{% static 'miniapp/utils.js' %}?v=4"></script>
-  <script src="{% static 'miniapp/loan_origination.js' %}?v=20260814-2"></script>
+  <script src="{% static 'miniapp/loan_origination.js' %}?v=20260815-1"></script>
 </body>
 </html>

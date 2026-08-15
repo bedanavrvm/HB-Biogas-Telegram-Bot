@@ -19,12 +19,15 @@
   let locationCatalog = {};
   let applications = [];
   let listCounts = {};
+  let listTotal = 0;
+  let listScrollY = 0;
   let capabilities = { can_create: false, can_review: false, can_start_signing: false };
   let listState = { queue: '', status: '', productKey: '', query: '', page: 1, pages: 1 };
   let current = null;
   let step = 0;
   let saveTimer = null;
   let previewUrl = '';
+  let previewReturnFocus = null;
   let previewPage = 1;
   let previewZoom = 100;
   let previewPageCount = 1;
@@ -40,6 +43,12 @@
   const recoveredApplications = new Set();
   const reviewTargets = new Map();
   let reviewDialogMode = '';
+  let reviewReturnFocus = null;
+  let sheetMode = '';
+  let sheetReturnFocus = null;
+  let mainButtonHandler = null;
+  let primaryBusy = false;
+  let createInFlight = false;
   let previewPinch = null;
   let previewSwipe = null;
   const previewPointers = new Map();
@@ -104,6 +113,131 @@
   function root() { return document.getElementById('origination-root'); }
   function draftKey(id) { return `loan-origination-draft:${id}`; }
   function normalizeLabel(field) { return field.label || field.key.replaceAll('_', ' '); }
+
+  function iconSvg(name, className = '') {
+    const paths = {
+      arrowLeft: '<path d="m15 18-6-6 6-6"/>',
+      arrowRight: '<path d="m9 18 6-6-6-6"/>',
+      chevronDown: '<path d="m6 9 6 6 6-6"/>',
+      close: '<path d="m6 6 12 12M18 6 6 18"/>',
+      filter: '<path d="M4 5h16M7 12h10M10 19h4"/>',
+      plus: '<path d="M12 5v14M5 12h14"/>',
+      refresh: '<path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/>',
+      check: '<path d="m5 12 4 4L19 6"/>',
+    };
+    return `<svg class="${escapeHtml(className)}" aria-hidden="true" viewBox="0 0 24 24">${paths[name] || ''}</svg>`;
+  }
+
+  function syncTelegramTheme() {
+    const params = tg?.themeParams || {};
+    Object.entries(params).forEach(([key, value]) => {
+      document.documentElement.style.setProperty(`--tg-theme-${key.replaceAll('_', '-')}`, value);
+    });
+    const scheme = String(tg?.colorScheme || '').toLowerCase();
+    if (scheme === 'dark' || scheme === 'light') document.documentElement.dataset.telegramTheme = scheme;
+  }
+
+  function syncViewport() {
+    const visualHeight = Number(window.visualViewport?.height) || Number(window.innerHeight) || 640;
+    const stableHeight = Number(tg?.viewportStableHeight) || Number(tg?.viewportHeight) || Number(window.innerHeight) || visualHeight;
+    document.documentElement.style.setProperty('--origination-viewport-height', `${Math.round(stableHeight)}px`);
+    document.documentElement.style.setProperty('--origination-live-height', `${Math.round(visualHeight)}px`);
+    const keyboardOpen = visualHeight < Number(window.innerHeight || visualHeight) - 100;
+    document.body.classList.toggle('origination-keyboard-open', keyboardOpen);
+  }
+
+  function clearMainButtonHandler() {
+    if (mainButtonHandler && tg?.MainButton) tg.MainButton.offClick?.(mainButtonHandler);
+    mainButtonHandler = null;
+  }
+
+  function hideMainButton() {
+    clearMainButtonHandler();
+    document.body.classList.remove('telegram-main-button-active');
+    tg?.MainButton?.hideProgress?.();
+    tg?.MainButton?.hide?.();
+  }
+
+  function syncPrimaryAction() {
+    const actions = [...document.querySelectorAll('[data-primary-action]')];
+    actions.forEach(action => {
+      action.hidden = false;
+      action.removeAttribute('aria-hidden');
+    });
+    clearMainButtonHandler();
+    document.body.classList.remove('telegram-main-button-active');
+    if (!tg?.MainButton) return;
+    const blockedByOverlay = !document.getElementById('document-preview-overlay')?.hidden
+      || !document.getElementById('origination-review-overlay')?.hidden
+      || (sheetMode && sheetMode !== 'create');
+    const action = blockedByOverlay ? null : actions.find(item => item.getClientRects().length > 0);
+    actions.forEach(item => {
+      item.hidden = true;
+      item.setAttribute('aria-hidden', 'true');
+    });
+    if (!action) return hideMainButton();
+    document.body.classList.add('telegram-main-button-active');
+    tg.MainButton.setText(action.dataset.primaryAction || action.textContent.trim() || 'Continue');
+    if (primaryBusy || action.disabled) tg.MainButton.disable?.();
+    else tg.MainButton.enable?.();
+    mainButtonHandler = () => {
+      if (!primaryBusy && !action.disabled) action.click();
+    };
+    tg.MainButton.onClick?.(mainButtonHandler);
+    tg.MainButton.show?.();
+  }
+
+  function setPrimaryBusy(busy, label = '') {
+    primaryBusy = Boolean(busy);
+    document.querySelectorAll('[data-primary-action]').forEach(action => { action.disabled = primaryBusy; });
+    if (tg?.MainButton) {
+      if (label) tg.MainButton.setText?.(label);
+      if (primaryBusy) {
+        tg.MainButton.disable?.();
+        tg.MainButton.showProgress?.(false);
+      } else {
+        tg.MainButton.hideProgress?.();
+      }
+    }
+    if (!busy) syncPrimaryAction();
+  }
+
+  async function runPrimaryAction(label, action) {
+    if (primaryBusy) return;
+    setPrimaryBusy(true, label);
+    try {
+      await action();
+    } finally {
+      setPrimaryBusy(false);
+    }
+  }
+
+  function syncTelegramControls() {
+    if (tg?.BackButton) {
+      const previewOpen = !document.getElementById('document-preview-overlay')?.hidden;
+      if (sheetMode || reviewDialogMode || previewOpen || current) tg.BackButton.show();
+      else tg.BackButton.hide();
+    }
+    syncPrimaryAction();
+  }
+
+  function focusableElements(container) {
+    return [...container.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')]
+      .filter(item => !item.hidden && item.getClientRects().length > 0);
+  }
+
+  function trapModalFocus(event, container) {
+    if (event.key !== 'Tab') return;
+    const items = focusableElements(container);
+    if (!items.length) return event.preventDefault();
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault(); last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault(); first.focus();
+    }
+  }
 
   const RECOVERY_DB = 'jbl-origination-recovery-v1';
   const RECOVERY_TTL_MS = 24 * 60 * 60 * 1000;
@@ -221,6 +355,146 @@
     pendingSaveRequestId = local.requestId || requestKey('save');
     editGeneration = Number(local.generation || 1);
     dirty = true;
+  }
+
+  function openSheet({ mode, eyebrow, title, hint = '', body = '', footer = '', trigger = null }) {
+    const overlay = document.getElementById('origination-sheet-overlay');
+    sheetMode = mode;
+    sheetReturnFocus = trigger || document.activeElement;
+    document.getElementById('origination-sheet-eyebrow').textContent = eyebrow || 'Origination';
+    document.getElementById('origination-sheet-title').textContent = title;
+    document.getElementById('origination-sheet-hint').textContent = hint;
+    document.getElementById('origination-sheet-body').innerHTML = body;
+    document.getElementById('origination-sheet-footer').innerHTML = footer;
+    overlay.hidden = false;
+    overlay.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('origination-modal-open');
+    syncTelegramControls();
+    window.requestAnimationFrame(() => {
+      focusableElements(document.getElementById('origination-sheet'))[0]?.focus()
+        || document.getElementById('origination-sheet')?.focus();
+    });
+  }
+
+  function closeSheet({ restoreFocus = true } = {}) {
+    const overlay = document.getElementById('origination-sheet-overlay');
+    if (!sheetMode && overlay.hidden) return;
+    overlay.hidden = true;
+    overlay.setAttribute('aria-hidden', 'true');
+    const returnFocus = sheetReturnFocus;
+    sheetMode = '';
+    sheetReturnFocus = null;
+    document.body.classList.remove('origination-modal-open');
+    syncTelegramControls();
+    if (restoreFocus) window.requestAnimationFrame(() => returnFocus?.focus?.());
+  }
+
+  function openCreationSheet(trigger) {
+    const branchOptions = branches.map(item => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join('');
+    openSheet({
+      mode: 'create', eyebrow: 'New application', title: 'Start an application',
+      hint: 'Choose a branch, then select a product available there.', trigger,
+      body: `<form id="origination-create" class="sheet-form"><label><span>Branch</span><select name="branch" id="origination-create-branch" required><option value="">Choose branch</option>${branchOptions}</select></label><label><span>Product</span><select name="product_key" id="origination-create-product" required disabled><option value="">Choose branch first</option></select></label></form>`,
+      footer: '<button type="button" class="btn btn-secondary" data-sheet-cancel>Cancel</button><button type="submit" form="origination-create" class="btn btn-primary" id="origination-create-submit" data-primary-action="Start application" disabled>Start application</button>',
+    });
+    document.querySelector('[data-sheet-cancel]').onclick = () => closeSheet();
+    document.getElementById('origination-create-branch').onchange = event => loadProductsForBranch(event.target.value);
+    document.getElementById('origination-create').onsubmit = startApplication;
+    syncPrimaryAction();
+  }
+
+  function syncCreationPrimary() {
+    const branch = document.getElementById('origination-create-branch');
+    const product = document.getElementById('origination-create-product');
+    const submit = document.getElementById('origination-create-submit');
+    if (!submit) return;
+    submit.disabled = createInFlight || !branch?.value || !product?.value;
+    syncPrimaryAction();
+  }
+
+  function filterStatusOptions() {
+    return ['draft', 'ready_for_review', 'correction_required', 'reviewed', 'signing_pending', 'partially_signed', 'fully_signed', 'declined', 'expired', 'cancelled']
+      .map(status => `<option value="${status}"${listState.status === status ? ' selected' : ''}>${status.replaceAll('_', ' ')}</option>`).join('');
+  }
+
+  function openFilterSheet(trigger) {
+    const productOptions = allProducts.map(item => `<option value="${escapeHtml(item.product_key)}"${listState.productKey === item.product_key ? ' selected' : ''}>${escapeHtml(item.name)}</option>`).join('');
+    openSheet({
+      mode: 'filter', eyebrow: 'Application queue', title: 'Filter applications',
+      hint: 'Narrow this queue without changing your access scope.', trigger,
+      body: `<form id="origination-filter-sheet" class="sheet-form"><label><span>Product</span><select name="product_key"><option value="">All products</option>${productOptions}</select></label><label><span>Status</span><select name="status"><option value="">All statuses</option>${filterStatusOptions()}</select></label></form>`,
+      footer: '<button type="button" class="btn btn-secondary" id="origination-filter-reset">Reset</button><button type="submit" form="origination-filter-sheet" class="btn btn-primary">Apply filters</button>',
+    });
+    document.getElementById('origination-filter-reset').onclick = () => applyListFilters({ productKey: '', status: '' });
+    document.getElementById('origination-filter-sheet').onsubmit = event => {
+      event.preventDefault();
+      const values = new FormData(event.currentTarget);
+      applyListFilters({ productKey: String(values.get('product_key') || ''), status: String(values.get('status') || '') });
+    };
+  }
+
+  function openSectionSheet(trigger) {
+    const sections = wizardSections();
+    openSheet({
+      mode: 'sections', eyebrow: 'Application progress', title: 'Go to section',
+      hint: 'Sections come from the approved product schema.', trigger,
+      body: `<div class="section-picker">${sections.map((item, index) => `<button type="button" data-section-index="${index}" class="section-picker-item${index === step ? ' active' : ''}"><span>${index < step ? iconSvg('check') : index + 1}</span><strong>${escapeHtml(item.label)}</strong>${index === step ? '<small>Current</small>' : ''}</button>`).join('')}</div>`,
+      footer: '<button type="button" class="btn btn-secondary" data-sheet-cancel>Close</button>',
+    });
+    document.querySelector('[data-sheet-cancel]').onclick = () => closeSheet();
+    document.querySelectorAll('[data-section-index]').forEach(button => button.onclick = async () => {
+      const editable = ['draft', 'correction_required'].includes(current.status);
+      if (editable && !(await saveDraft(true))) return;
+      const target = Number(button.dataset.sectionIndex);
+      closeSheet({ restoreFocus: false });
+      renderEditor(current, target);
+    });
+  }
+
+  async function startApplication(event) {
+    event.preventDefault();
+    if (createInFlight) return;
+    const values = new FormData(event.currentTarget);
+    const identity = `${values.get('branch')}:${values.get('product_key')}`;
+    const storageKey = `origination-create-request:${identity}`;
+    const createKey = localStorage.getItem(storageKey) || requestKey('create');
+    localStorage.setItem(storageKey, createKey);
+    createInFlight = true;
+    setPrimaryBusy(true, 'Starting...');
+    try {
+      const result = await postJson('/applications/', {
+        product_key: values.get('product_key'), branch: values.get('branch'), client_request_id: createKey,
+      });
+      if (!result.ok) return showToast(result.data?.error || 'Could not start the application.', true);
+      localStorage.removeItem(storageKey);
+      closeSheet({ restoreFocus: false });
+      await openEditor(result.data.application, 0);
+    } finally {
+      createInFlight = false;
+      setPrimaryBusy(false);
+    }
+  }
+
+  function applicationListParams() {
+    const params = new URLSearchParams({ queue: listState.queue, page: String(listState.page), page_size: '25' });
+    if (listState.status) params.set('status', listState.status);
+    if (listState.productKey) params.set('product_key', listState.productKey);
+    if (listState.query) params.set('q', listState.query);
+    return params;
+  }
+
+  async function applyListFilters(updates) {
+    Object.assign(listState, updates, { page: 1 });
+    closeSheet({ restoreFocus: false });
+    window.scrollTo(0, 0);
+    await loadApplications();
+  }
+
+  async function exitEditor() {
+    if (!current) return;
+    const editable = ['draft', 'correction_required'].includes(current.status);
+    if (editable && !(await saveDraft(true))) return;
+    renderList({ restoreScroll: true });
   }
 
   async function openEditor(application, requestedStep) {
@@ -586,7 +860,10 @@
   }
 
   function progressMarkup() {
-    return `<nav class="wizard-progress" aria-label="Application sections">${wizardSections().map((item, index) => `<button type="button" class="wizard-step${index === step ? ' active' : ''}${index < step ? ' complete' : ''}" data-step="${index}"><span>${index < step ? '✓' : index + 1}</span><small>${escapeHtml(item.label)}</small></button>`).join('')}</nav>`;
+    const sections = wizardSections();
+    const section = sections[step];
+    const percent = Math.round(((step + 1) / sections.length) * 100);
+    return `<div class="wizard-progress-compact"><button type="button" id="origination-section-picker" class="wizard-progress-trigger" aria-label="Choose application section"><span><small>Step ${step + 1} of ${sections.length}</small><strong>${escapeHtml(section.label)}</strong></span>${iconSvg('chevronDown')}</button><div class="wizard-progress-track" role="progressbar" aria-label="Application progress" aria-valuemin="1" aria-valuemax="${sections.length}" aria-valuenow="${step + 1}"><span style="width:${percent}%"></span></div></div>`;
   }
 
   function reviewMarkup(values) {
@@ -597,27 +874,27 @@
           const completed = Object.values(configuration.requirements).filter(value => value !== '' && value != null && value !== false).length
             + Object.values(configuration.customValues).filter(value => value !== '' && value != null).length;
           const total = (current?.product_terms?.requirements || []).length + (current?.product_terms?.custom_attributes || []).length;
-          return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>${escapeHtml(section.label)}</strong><small>${completed} of ${total} details completed</small></span><span>Edit â†’</span></button>`;
+          return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>${escapeHtml(section.label)}</strong><small>${completed} of ${total} details completed</small></span><span>Edit ${iconSvg('arrowRight')}</span></button>`;
         }
         const fields = fieldsFor(section.key);
         const completed = fields.filter(field => values[field.key] !== '' && values[field.key] != null).length;
-        return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>${escapeHtml(section.label)}</strong><small>${completed} of ${fields.length} fields completed</small></span><span>Edit →</span></button>`;
+        return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>${escapeHtml(section.label)}</strong><small>${completed} of ${fields.length} fields completed</small></span><span>Edit ${iconSvg('arrowRight')}</span></button>`;
       }).join('')}</div>`;
   }
 
   function actionMarkup(editable) {
     if (!editable) {
       if (current.status === 'ready_for_review' && capabilities.can_review) return '<button class="btn btn-secondary" data-review="request_correction">Request correction</button><button class="btn btn-danger" data-review="decline">Decline</button><button class="btn btn-primary" data-review="approve">Approve</button>';
-      if (current.status === 'reviewed' && capabilities.can_start_signing) return '<button class="btn btn-primary" id="origination-prepare-signing">Prepare signing package</button>';
+      if (current.status === 'reviewed' && capabilities.can_start_signing) return '<button class="btn btn-primary" id="origination-prepare-signing" data-primary-action="Prepare signing package">Prepare signing package</button>';
       return '';
     }
-    return `${step > 0 ? '<button class="btn btn-secondary" id="wizard-previous">Previous</button>' : '<span></span>'}${step < wizardSections().length - 1 ? '<button class="btn btn-primary" id="wizard-next">Save & continue</button>' : '<button class="btn btn-primary" id="origination-submit">Submit for review</button>'}`;
+    return `${step > 0 ? `<button class="btn btn-secondary" id="wizard-previous">${iconSvg('arrowLeft')} Previous</button>` : '<span></span>'}${step < wizardSections().length - 1 ? '<button class="btn btn-primary" id="wizard-next" data-primary-action="Save & continue">Save & continue</button>' : '<button class="btn btn-primary" id="origination-submit" data-primary-action="Submit for review">Submit for review</button>'}`;
   }
 
   function correctionChecklistMarkup() {
     const correction = current?.active_correction;
     if (!correction) return '';
-    const items = (correction.items || []).map(item => `<button type="button" class="correction-item" data-correction-jump="${escapeHtml(`${item.target_type}:${item.target_key}`)}"><span><strong>${escapeHtml(item.target_label)}</strong>${item.instruction ? `<small>${escapeHtml(item.instruction)}</small>` : ''}</span><span>Open →</span></button>`).join('');
+    const items = (correction.items || []).map(item => `<button type="button" class="correction-item" data-correction-jump="${escapeHtml(`${item.target_type}:${item.target_key}`)}"><span><strong>${escapeHtml(item.target_label)}</strong>${item.instruction ? `<small>${escapeHtml(item.instruction)}</small>` : ''}</span><span>Open ${iconSvg('arrowRight')}</span></button>`).join('');
     return `<aside class="correction-checklist"><p class="eyebrow">Correction required</p><strong>${escapeHtml(correction.summary)}</strong>${items ? `<div>${items}</div>` : '<small>Review the application and address the reviewer note.</small>'}</aside>`;
   }
 
@@ -629,7 +906,6 @@
   function renderEditor(application, requestedStep) {
     current = application;
     step = Number.isInteger(requestedStep) ? requestedStep : step;
-    tg?.BackButton?.show();
     const values = collectPayload();
     const editable = ['draft', 'correction_required'].includes(application.status);
     const sections = wizardSections();
@@ -641,11 +917,13 @@
       const fields = section.key === 'product_requirements'
         ? productConfigurationMarkup(editable)
         : `<div class="laf-grid">${fieldsFor(section.key).map(field => fieldInput(field, values[field.key], !editable || field.editable === false)).join('')}</div>`;
-      content = `<div class="section-title"><div><p class="eyebrow">Step ${step + 1} of ${sections.length}</p><h3>${escapeHtml(section.label)}</h3><p>${escapeHtml(section.hint || '')}</p></div><button type="button" class="preview-link" id="origination-preview-early">Preview PDF</button></div>${fields}`;
+      content = `<div class="section-title"><div><h3>${escapeHtml(section.label)}</h3><p>${escapeHtml(section.hint || '')}</p></div><button type="button" class="preview-link" id="origination-preview-early">Preview PDF</button></div>${fields}`;
     }
     const recoveryState = syncConflict ? ['Conflict', 'offline'] : dirty ? ['Recovered securely', 'offline'] : ['Saved', 'saved'];
-    root().innerHTML = `<div class="editor-top"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">←</button><div><strong>${escapeHtml(application.reference_number)}</strong><small>${escapeHtml(application.product_name)}</small></div><span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(application.status.replaceAll('_', ' '))}</span></div>${recoveryConflictMarkup()}${correctionChecklistMarkup()}${progressMarkup()}<section class="wizard-card">${content}</section><footer class="wizard-actions"><span id="origination-save-status" data-state="${recoveryState[1]}">${recoveryState[0]}</span><div>${actionMarkup(editable)}</div></footer>`;
+    root().innerHTML = `<div class="editor-context"><button type="button" class="icon-button" id="origination-back" aria-label="Back to applications">${iconSvg('arrowLeft')}</button><div><strong>${escapeHtml(application.reference_number)}</strong><small>${escapeHtml(application.product_name)}</small></div><span class="status-chip status-${escapeHtml(application.status)}">${escapeHtml(application.status.replaceAll('_', ' '))}</span></div>${recoveryConflictMarkup()}${correctionChecklistMarkup()}${progressMarkup()}<section class="wizard-card">${content}</section><footer class="wizard-actions"><span id="origination-save-status" data-state="${recoveryState[1]}">${recoveryState[0]}</span><div>${actionMarkup(editable)}</div></footer>`;
     bindEditor(editable);
+    syncTelegramControls();
+    window.requestAnimationFrame(() => window.scrollTo(0, 0));
   }
 
   function correctionTargetStep(identity) {
@@ -660,6 +938,7 @@
       return showToast('Flag at least one field or requirement before requesting correction.', true);
     }
     reviewDialogMode = mode;
+    reviewReturnFocus = document.activeElement;
     const overlay = document.getElementById('origination-review-overlay');
     const title = document.getElementById('review-dialog-title');
     const hint = document.getElementById('review-dialog-hint');
@@ -675,6 +954,8 @@
     summary.value = '';
     overlay.hidden = false;
     overlay.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('origination-modal-open');
+    syncTelegramControls();
     summary.focus();
   }
 
@@ -683,6 +964,11 @@
     overlay.hidden = true;
     overlay.setAttribute('aria-hidden', 'true');
     reviewDialogMode = '';
+    document.body.classList.remove('origination-modal-open');
+    syncTelegramControls();
+    const returnFocus = reviewReturnFocus;
+    reviewReturnFocus = null;
+    window.requestAnimationFrame(() => returnFocus?.focus?.());
   }
 
   async function submitReviewDialog() {
@@ -807,10 +1093,8 @@
       renderEditor(current, step);
       scheduleSave();
     });
-    document.getElementById('origination-back').onclick = async () => {
-      if (!editable || await saveDraft(true)) renderList();
-    };
-    root().querySelectorAll('.wizard-step').forEach(button => button.onclick = async () => { if (editable && !(await saveDraft(true))) return; step = Number(button.dataset.step); renderEditor(current, step); });
+    document.getElementById('origination-back').onclick = exitEditor;
+    document.getElementById('origination-section-picker')?.addEventListener('click', event => openSectionSheet(event.currentTarget));
     root().querySelectorAll('[data-edit-step]').forEach(button => button.onclick = () => renderEditor(current, Number(button.dataset.editStep)));
     root().querySelectorAll('[data-correction-jump]').forEach(button => button.onclick = () => {
       const targetStep = correctionTargetStep(button.dataset.correctionJump);
@@ -838,14 +1122,14 @@
     }
     root().querySelector('[data-location-type="county"]')?.addEventListener('change', syncOriginationSubCountySelect);
     document.getElementById('wizard-previous')?.addEventListener('click', async () => { if (await saveDraft(true)) renderEditor(current, step - 1); });
-    document.getElementById('wizard-next')?.addEventListener('click', async () => {
+    document.getElementById('wizard-next')?.addEventListener('click', () => runPrimaryAction('Saving...', async () => {
       const errors = sectionErrors(wizardSections()[step].key); showErrors(errors);
       if (Object.keys(errors).length) return showToast('Complete the required fields in this section.', true);
       if (await saveDraft(true)) renderEditor(current, step + 1);
-    });
+    }));
     document.getElementById('origination-preview')?.addEventListener('click', openPreview);
     document.getElementById('origination-preview-early')?.addEventListener('click', openPreview);
-    document.getElementById('origination-submit')?.addEventListener('click', async () => {
+    document.getElementById('origination-submit')?.addEventListener('click', () => runPrimaryAction('Submitting...', async () => {
       if (!(await saveDraft(true))) return;
       if (previewedRevision !== current.revision) return showToast('Preview the filled document for this saved revision before submitting.', true);
       const result = await postJson(`/applications/${current.id}/submit/`, { revision: current.revision });
@@ -854,15 +1138,17 @@
         return showToast(result.data?.error || 'Could not submit the application.', true);
       }
       await load();
-    });
+    }));
     root().querySelectorAll('[data-review]').forEach(button => button.onclick = async () => {
       const decision = button.dataset.review;
       if (decision !== 'approve') return openReviewDialog(decision);
-      const result = await postJson(`/applications/${current.id}/review/`, { revision: current.revision, decision, reason: '' });
-      if (!result.ok) return showToast(result.data?.error || 'Could not record the review.', true);
-      await load();
+      await runPrimaryAction('Recording...', async () => {
+        const result = await postJson(`/applications/${current.id}/review/`, { revision: current.revision, decision, reason: '' });
+        if (!result.ok) return showToast(result.data?.error || 'Could not record the review.', true);
+        await load();
+      });
     });
-    document.getElementById('origination-prepare-signing')?.addEventListener('click', async () => {
+    document.getElementById('origination-prepare-signing')?.addEventListener('click', () => runPrimaryAction('Preparing...', async () => {
       if (!(await saveSigningRequirements())) return;
       const result = await postJson(`/applications/${current.id}/prepare-signing/`, { revision: current.revision });
       if (!result.ok) {
@@ -870,7 +1156,7 @@
         return showToast(result.data?.error || 'Could not prepare signing.', true);
       }
       await load();
-    });
+    }));
   }
 
   async function openPreview() {
@@ -880,9 +1166,12 @@
     previewPage = 1; previewZoom = 100; previewPageCount = 1;
     previewRequestId = requestKey('preview');
     const overlay = document.getElementById('document-preview-overlay');
+    previewReturnFocus = document.activeElement;
     overlay.hidden = false;
     overlay.setAttribute('aria-hidden', 'false');
-    tg?.BackButton?.show();
+    document.body.classList.add('origination-modal-open');
+    syncTelegramControls();
+    window.requestAnimationFrame(() => document.getElementById('preview-close')?.focus());
     await loadPreviewPage();
   }
 
@@ -1044,6 +1333,11 @@
     previewPinch = null;
     previewSwipe = null;
     previewPointers.clear();
+    document.body.classList.remove('origination-modal-open');
+    syncTelegramControls();
+    const returnFocus = previewReturnFocus;
+    previewReturnFocus = null;
+    window.requestAnimationFrame(() => returnFocus?.focus?.());
   }
 
   function showToast(message, error) {
@@ -1053,75 +1347,84 @@
     window.clearTimeout(showToast.timer); showToast.timer = window.setTimeout(() => { toast.hidden = true; }, 3500);
   }
 
-  function renderList() {
-    current = null; step = 0; dirty = false; closePreview(); tg?.BackButton?.hide();
-    const branchOptions = branches.map(item => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`).join('');
-    const productFilterOptions = allProducts.map(item => `<option value="${escapeHtml(item.product_key)}"${listState.productKey === item.product_key ? ' selected' : ''}>${escapeHtml(item.name)}</option>`).join('');
-    const cards = applications.map(item => `<button type="button" class="application-card" data-application-id="${item.id}"><span><strong>${escapeHtml(item.reference_number)}</strong><small>${escapeHtml(item.product_name)} · ${escapeHtml(item.branch || 'No branch')}${capabilities.can_review ? ` · ${escapeHtml(item.officer_name || 'Unassigned')}` : ''}</small></span><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(item.status.replaceAll('_', ' '))}</span></button>`).join('');
+  function renderList({ restoreScroll = false } = {}) {
+    current = null;
+    step = 0;
+    dirty = false;
+    window.clearTimeout(saveTimer);
+    closePreview();
+    if (sheetMode) closeSheet({ restoreFocus: false });
+    const queueCount = key => {
+      if (key === 'mine') return listState.queue === 'mine' ? listTotal : '';
+      if (key === 'corrections') return listCounts.correction_required || 0;
+      if (key === 'review') return listCounts.ready_for_review || 0;
+      if (key === 'signing') return (listCounts.reviewed || 0) + (listCounts.signing_pending || 0) + (listCounts.partially_signed || 0);
+      return '';
+    };
+    const cards = applications.map(item => `<button type="button" class="application-card" data-application-id="${item.id}"><span><strong>${escapeHtml(item.reference_number)}</strong><small>${escapeHtml(item.product_name)} · ${escapeHtml(item.branch || 'No branch')}${capabilities.can_review ? ` · ${escapeHtml(item.officer_name || 'Unassigned')}` : ''}</small></span><span class="application-card-state"><span class="status-chip status-${escapeHtml(item.status)}">${escapeHtml(item.status.replaceAll('_', ' '))}</span>${iconSvg('arrowRight')}</span></button>`).join('');
     const queueTabs = [
       ...(capabilities.can_create ? [['mine', 'My applications'], ['corrections', 'Corrections']] : []),
-      ...(capabilities.can_review ? [['review', 'Review queue']] : []),
+      ...(capabilities.can_review ? [['review', 'Review']] : []),
       ...(capabilities.can_start_signing ? [['signing', 'Signing']] : []),
-    ].map(([key, label]) => `<button type="button" data-queue="${key}" class="queue-tab${listState.queue === key ? ' active' : ''}">${label}</button>`).join('');
-    const createMarkup = capabilities.can_create ? `<form id="origination-create" class="create-card"><div><h3>New application</h3><p>Select the branch first; only products available there will appear.</p></div><label><span>Branch</span><select name="branch" id="origination-create-branch" required><option value="">Choose branch</option>${branchOptions}</select></label><label><span>Product</span><select name="product_key" id="origination-create-product" required disabled><option value="">Choose branch first</option></select></label><button class="btn btn-primary" type="submit">Start application</button></form>` : '';
-    root().innerHTML = `<section class="app-hero"><div><p class="eyebrow">Paperless lending</p><h2>Applications</h2><p>Capture, review and prepare approved product documents securely.</p></div></section><div class="metric-grid"><article><strong>${listCounts.draft || 0}</strong><span>Drafts</span></article><article><strong>${listCounts.ready_for_review || 0}</strong><span>Review</span></article><article><strong>${listCounts.correction_required || 0}</strong><span>Corrections</span></article><article><strong>${(listCounts.reviewed || 0) + (listCounts.signing_pending || 0)}</strong><span>Signing</span></article></div>${createMarkup}<nav class="queue-tabs" aria-label="Origination queues">${queueTabs}</nav><form class="list-filters" id="origination-filters"><input name="q" value="${escapeHtml(listState.query)}" placeholder="Search reference number"><select name="product_key"><option value="">All products</option>${productFilterOptions}</select><select name="status"><option value="">All statuses</option>${['draft','ready_for_review','correction_required','reviewed','signing_pending','partially_signed','fully_signed','declined','expired','cancelled'].map(status => `<option value="${status}"${listState.status === status ? ' selected' : ''}>${status.replaceAll('_', ' ')}</option>`).join('')}</select><button class="btn btn-secondary" type="submit">Filter</button></form><div class="list-heading"><h3>${escapeHtml(listState.queue ? listState.queue.replaceAll('_', ' ') : 'Applications')}</h3><button type="button" class="text-button" id="origination-list-refresh">Refresh</button></div><div class="application-list">${cards || '<div class="empty-state"><strong>No applications in this queue</strong><span>Change the filters or refresh.</span></div>'}</div><div class="pagination-actions"><button type="button" class="btn btn-secondary" id="origination-page-previous"${listState.page <= 1 ? ' disabled' : ''}>Previous</button><span>Page ${listState.page} of ${listState.pages}</span><button type="button" class="btn btn-secondary" id="origination-page-next"${listState.page >= listState.pages ? ' disabled' : ''}>Next</button></div>`;
-    root().querySelectorAll('[data-application-id]').forEach(button => button.onclick = async () => { const result = await apiFetch(`/applications/${button.dataset.applicationId}/`, {}); if (!result.ok) return showToast(result.data?.error || 'Could not open this application.', true); await openEditor(result.data.application, 0); });
-    root().querySelectorAll('[data-queue]').forEach(button => button.onclick = async () => { listState.queue = button.dataset.queue; listState.page = 1; await loadApplications(); });
+    ].map(([key, label]) => {
+      const count = queueCount(key);
+      return `<button type="button" data-queue="${key}" class="queue-tab${listState.queue === key ? ' active' : ''}"><span>${label}</span>${count !== '' ? `<strong>${count}</strong>` : ''}</button>`;
+    }).join('');
+    const activeChips = [
+      ...(listState.productKey ? [{ key: 'productKey', label: allProducts.find(item => item.product_key === listState.productKey)?.name || listState.productKey }] : []),
+      ...(listState.status ? [{ key: 'status', label: listState.status.replaceAll('_', ' ') }] : []),
+    ].map(item => `<button type="button" class="filter-chip" data-remove-filter="${item.key}"><span>${escapeHtml(item.label)}</span>${iconSvg('close')}</button>`).join('');
+    const pagination = listState.pages > 1 ? `<div class="pagination-actions"><button type="button" class="btn btn-secondary" id="origination-page-previous"${listState.page <= 1 ? ' disabled' : ''}>Previous</button><span>Page ${listState.page} of ${listState.pages}</span><button type="button" class="btn btn-secondary" id="origination-page-next"${listState.page >= listState.pages ? ' disabled' : ''}>Next</button></div>` : '';
+    const startAction = capabilities.can_create ? `<button type="button" class="btn btn-primary compact-start" id="origination-start">${iconSvg('plus')} Start application</button>` : '';
+    root().innerHTML = `<section class="list-toolbar"><div><p class="eyebrow">Paperless lending</p><h2>Applications</h2></div><div>${startAction}<button type="button" class="icon-button" id="origination-list-refresh" aria-label="Refresh applications">${iconSvg('refresh')}</button></div></section><nav class="queue-tabs" aria-label="Origination queues">${queueTabs}</nav><form class="list-search" id="origination-search"><input name="q" value="${escapeHtml(listState.query)}" placeholder="Search reference number" aria-label="Search reference number"><button type="button" class="filter-button${activeChips ? ' active' : ''}" id="origination-open-filters">${iconSvg('filter')}<span>Filters</span>${activeChips ? '<b></b>' : ''}</button></form>${activeChips ? `<div class="active-filters" aria-label="Active filters">${activeChips}</div>` : ''}<div class="list-heading"><h3>${escapeHtml(listState.queue ? listState.queue.replaceAll('_', ' ') : 'Applications')}</h3><span>${listTotal} ${listTotal === 1 ? 'application' : 'applications'}</span></div><div class="application-list">${cards || '<div class="empty-state"><strong>No applications in this queue</strong><span>Change the filters or refresh.</span></div>'}</div>${pagination}`;
+    root().querySelectorAll('[data-application-id]').forEach(button => button.onclick = async () => {
+      listScrollY = window.scrollY;
+      button.disabled = true;
+      const result = await apiFetch(`/applications/${button.dataset.applicationId}/`, {});
+      button.disabled = false;
+      if (!result.ok) return showToast(result.data?.error || 'Could not open this application.', true);
+      await openEditor(result.data.application, 0);
+    });
+    root().querySelectorAll('[data-queue]').forEach(button => button.onclick = () => applyListFilters({ queue: button.dataset.queue }));
+    root().querySelectorAll('[data-remove-filter]').forEach(button => button.onclick = () => applyListFilters({ [button.dataset.removeFilter]: '' }));
+    document.getElementById('origination-start')?.addEventListener('click', event => openCreationSheet(event.currentTarget));
+    document.getElementById('origination-open-filters').onclick = event => openFilterSheet(event.currentTarget);
     document.getElementById('origination-list-refresh').onclick = () => loadApplications();
-    document.getElementById('origination-page-previous').onclick = async () => { if (listState.page > 1) { listState.page -= 1; await loadApplications(); } };
-    document.getElementById('origination-page-next').onclick = async () => { if (listState.page < listState.pages) { listState.page += 1; await loadApplications(); } };
-    document.getElementById('origination-filters').onsubmit = async event => {
+    document.getElementById('origination-search').onsubmit = event => {
       event.preventDefault();
-      const values = new FormData(event.currentTarget);
-      listState.query = String(values.get('q') || '').trim();
-      listState.productKey = String(values.get('product_key') || '');
-      listState.status = String(values.get('status') || '');
-      listState.page = 1;
-      await loadApplications();
+      applyListFilters({ query: String(new FormData(event.currentTarget).get('q') || '').trim() });
     };
-    const form = document.getElementById('origination-create');
-    if (form) {
-      document.getElementById('origination-create-branch').onchange = event => loadProductsForBranch(event.target.value);
-      form.onsubmit = async event => {
-        event.preventDefault();
-        const values = new FormData(form);
-        const identity = `${values.get('branch')}:${values.get('product_key')}`;
-        const storageKey = `origination-create-request:${identity}`;
-        const createKey = localStorage.getItem(storageKey) || requestKey('create');
-        localStorage.setItem(storageKey, createKey);
-        const result = await postJson('/applications/', { product_key: values.get('product_key'), branch: values.get('branch'), client_request_id: createKey });
-        if (!result.ok) return showToast(result.data?.error || 'Could not start the application.', true);
-        localStorage.removeItem(storageKey);
-        await openEditor(result.data.application, 0);
-      };
-    }
+    document.getElementById('origination-page-previous')?.addEventListener('click', async () => { if (listState.page > 1) { listState.page -= 1; window.scrollTo(0, 0); await loadApplications(); } });
+    document.getElementById('origination-page-next')?.addEventListener('click', async () => { if (listState.page < listState.pages) { listState.page += 1; window.scrollTo(0, 0); await loadApplications(); } });
+    syncTelegramControls();
+    if (restoreScroll) window.requestAnimationFrame(() => window.scrollTo(0, listScrollY));
+    else window.requestAnimationFrame(() => window.scrollTo(0, 0));
   }
 
   async function loadProductsForBranch(branch) {
     const select = document.getElementById('origination-create-product');
     if (!select) return;
-    if (!branch) { select.innerHTML = '<option value="">Choose branch first</option>'; select.disabled = true; return; }
+    if (!branch) { select.innerHTML = '<option value="">Choose branch first</option>'; select.disabled = true; syncCreationPrimary(); return; }
     select.innerHTML = '<option value="">Loading products…</option>'; select.disabled = true;
     const result = await apiFetch(`/products/?branch=${encodeURIComponent(branch)}`, {});
-    if (!result.ok) { select.innerHTML = '<option value="">Could not load products</option>'; return showToast(result.data?.error || 'Could not load branch products.', true); }
+    if (!result.ok) { select.innerHTML = '<option value="">Could not load products</option>'; syncCreationPrimary(); return showToast(result.data?.error || 'Could not load branch products.', true); }
     products = result.data.products || [];
     select.innerHTML = `<option value="">Choose product</option>${products.map(item => `<option value="${escapeHtml(item.product_key)}">${escapeHtml(item.name)}</option>`).join('')}`;
     select.disabled = !products.length;
+    select.onchange = syncCreationPrimary;
+    syncCreationPrimary();
     if (!products.length) showToast('No active origination product is available for this branch.', true);
   }
 
   async function loadApplications() {
-    const params = new URLSearchParams({ queue: listState.queue, page: String(listState.page), page_size: '25' });
-    if (listState.status) params.set('status', listState.status);
-    if (listState.productKey) params.set('product_key', listState.productKey);
-    if (listState.query) params.set('q', listState.query);
-    const result = await apiFetch(`/applications/?${params}`, {});
+    const result = await apiFetch(`/applications/?${applicationListParams()}`, {});
     if (!result.ok) return showToast(result.data?.error || 'Could not load applications.', true);
     applications = result.data.applications || [];
     listCounts = result.data.counts || {};
     capabilities = result.data.capabilities || capabilities;
     listState.page = result.data.pagination?.page || 1;
     listState.pages = result.data.pagination?.pages || 1;
+    listTotal = result.data.pagination?.total ?? applications.length;
     renderList();
   }
 
@@ -1155,17 +1458,35 @@
   document.getElementById('origination-review-dialog').onsubmit = event => { event.preventDefault(); submitReviewDialog(); };
   document.getElementById('review-dialog-close').onclick = closeReviewDialog;
   document.getElementById('review-dialog-cancel').onclick = closeReviewDialog;
+  document.getElementById('origination-sheet-close').onclick = () => closeSheet();
+  document.getElementById('origination-sheet-overlay').addEventListener('click', event => {
+    if (event.target === event.currentTarget) closeSheet();
+  });
+  document.getElementById('origination-sheet').addEventListener('keydown', event => trapModalFocus(event, event.currentTarget));
+  document.getElementById('origination-review-dialog').addEventListener('keydown', event => trapModalFocus(event, event.currentTarget));
+  document.getElementById('document-preview-overlay').addEventListener('keydown', event => trapModalFocus(event, event.currentTarget));
   document.getElementById('origination-refresh').onclick = load;
   bindPreviewPinch();
   window.addEventListener('beforeunload', closePreview);
   window.addEventListener('online', () => { if (current && dirty && !syncConflict) void saveDraft(false); else if (!current) void loadApplications(); });
+  window.addEventListener('resize', syncViewport);
+  window.visualViewport?.addEventListener('resize', syncViewport);
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    if (sheetMode) closeSheet();
+    else if (reviewDialogMode) closeReviewDialog();
+    else if (!document.getElementById('document-preview-overlay').hidden) closePreview();
+  });
   tg?.ready(); tg?.expand();
+  tg?.onEvent?.('themeChanged', syncTelegramTheme);
+  tg?.onEvent?.('viewportChanged', syncViewport);
+  syncTelegramTheme();
+  syncViewport();
   tg?.BackButton?.onClick(async () => {
+    if (sheetMode) return closeSheet();
     if (reviewDialogMode) return closeReviewDialog();
-    if (previewUrl) return closePreview();
-    if (current && ['draft', 'correction_required'].includes(current.status) && !(await saveDraft(true))) return;
-    if (current && step > 0) renderEditor(current, step - 1);
-    else if (current) renderList();
+    if (!document.getElementById('document-preview-overlay').hidden) return closePreview();
+    if (current) await exitEditor();
   });
   load();
 })();
