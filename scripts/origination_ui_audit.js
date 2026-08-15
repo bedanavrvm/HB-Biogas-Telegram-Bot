@@ -108,6 +108,8 @@ async function assertSelectIsVisible(select, context) {
 
 async function auditViewport(browser, viewport) {
   const page = await browser.newPage({ viewport });
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message || String(error)));
   await installApiMocks(page);
   await waitForList(page);
   const metrics = await page.evaluate(() => {
@@ -173,12 +175,15 @@ async function auditViewport(browser, viewport) {
   await page.waitForFunction(expected => Math.abs(scrollY - expected) <= 5, before);
   const restored = await page.evaluate(() => scrollY);
   assert(Math.abs(restored - before) <= 5, `${viewport.name}: list scroll was not restored (${before} -> ${restored})`);
+  assert(!pageErrors.length, `${viewport.name}: browser error during field interaction: ${pageErrors.join(' | ')}`);
   await page.close();
   return metrics;
 }
 
 async function auditTelegramAndSlowNetwork(browser) {
   const page = await browser.newPage({ viewport: { width: 360, height: 800 } });
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message || String(error)));
   await page.addInitScript(() => {
     const state = { mainVisible: false, backVisible: false, mainText: '', mainHandler: null, backHandler: null };
     window.__telegramAudit = state;
@@ -226,13 +231,13 @@ async function auditTelegramAndSlowNetwork(browser) {
   await page.waitForFunction(() => document.body.classList.contains('origination-input-active'));
   await page.waitForFunction(() => {
     const input = document.querySelector('[data-field="applicant_notes"]');
-    return input && input.getBoundingClientRect().bottom <= (visualViewport?.height || innerHeight) - 3;
+    return input && input.getBoundingClientRect().bottom <= (visualViewport?.height || innerHeight) - 67;
   });
   const keyboardState = await page.evaluate(() => ({
     mainVisible: window.__telegramAudit.mainVisible,
     actionPosition: getComputedStyle(document.querySelector('.wizard-actions')).position,
   }));
-  assert(!keyboardState.mainVisible, 'Telegram MainButton remained over the active keyboard input');
+  assert(keyboardState.mainVisible, 'Focusing a field unexpectedly reconfigured Telegram MainButton ownership');
   assert(keyboardState.actionPosition === 'static', `Wizard actions stayed ${keyboardState.actionPosition} while the keyboard input was active`);
   await page.screenshot({ path: path.join(outputDir, 'telegram-keyboard-active.png') });
   await page.evaluate(() => document.activeElement?.blur());
@@ -242,6 +247,7 @@ async function auditTelegramAndSlowNetwork(browser) {
   await page.evaluate(() => window.__telegramAudit.backHandler());
   await page.locator('.application-card').first().waitFor();
   assert(!(await page.evaluate(() => window.__telegramAudit.backVisible)), 'Telegram BackButton remained visible after returning to the list');
+  assert(!pageErrors.length, `Telegram field interaction raised a browser error: ${pageErrors.join(' | ')}`);
   await page.close();
 }
 

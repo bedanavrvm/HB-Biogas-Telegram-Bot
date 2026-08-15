@@ -166,10 +166,15 @@
     const liveHeight = Number(window.visualViewport?.height) || Number(window.innerHeight) || 640;
     const headerBottom = document.querySelector('.origination-header')?.getBoundingClientRect().bottom || 0;
     const rect = input.getBoundingClientRect();
-    const lowerLimit = liveHeight - 14;
+    // Telegram owns its native MainButton. Do not mutate it during a focus
+    // transition; reserve its footprint and move the field above it instead.
+    const telegramButtonReserve = tg?.MainButton ? 64 : 0;
+    const lowerLimit = liveHeight - telegramButtonReserve - 14;
     const upperLimit = Math.max(10, headerBottom + 8);
-    if (rect.bottom > lowerLimit) window.scrollBy({ top: rect.bottom - lowerLimit + 10, behavior: 'smooth' });
-    else if (rect.top < upperLimit) window.scrollBy({ top: rect.top - upperLimit - 8, behavior: 'smooth' });
+    try {
+      if (rect.bottom > lowerLimit) window.scrollBy({ top: rect.bottom - lowerLimit + 10, behavior: 'smooth' });
+      else if (rect.top < upperLimit) window.scrollBy({ top: rect.top - upperLimit - 8, behavior: 'smooth' });
+    } catch (_) { /* Older Telegram WebViews may reject ScrollToOptions. */ }
   }
 
   function scheduleFocusedInputVisibility() {
@@ -197,7 +202,6 @@
     });
     clearMainButtonHandler();
     document.body.classList.remove('telegram-main-button-active');
-    if (document.body.classList.contains('origination-input-active')) return hideMainButton();
     if (!tg?.MainButton) return;
     const blockedByOverlay = Boolean(activeDateInput || activeCustomSelect)
       || !document.getElementById('document-preview-overlay')?.hidden
@@ -1770,14 +1774,12 @@
   document.addEventListener('focusin', event => {
     if (!isKeyboardInput(event.target)) return;
     document.body.classList.add('origination-input-active');
-    syncTelegramControls();
     scheduleFocusedInputVisibility();
   });
   document.addEventListener('focusout', () => {
     window.setTimeout(() => {
       if (isKeyboardInput(document.activeElement)) return;
       document.body.classList.remove('origination-input-active');
-      syncTelegramControls();
     }, 120);
   });
   document.addEventListener('keydown', event => {
