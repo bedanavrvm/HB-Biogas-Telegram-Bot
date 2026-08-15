@@ -5360,7 +5360,16 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
         ).order_by('-version').first()
         from core.services.origination_fields import catalogue_for_product, product_schema_revision
         fields = product.form_schema if product else {}
+        presentations = {
+            str(item.get('key') or ''): item
+            for item in (fields.get('fields') or [])
+            if isinstance(item, dict) and item.get('key')
+        }
         context_keys = catalogue_for_product(product)
+        for item in context_keys:
+            presentation = presentations.get(str(item.get('key') or ''), {})
+            item['required'] = bool(presentation.get('required', False))
+            item['section_key'] = str(presentation.get('section_key') or '')
         from core.services.origination_templates import _expected_signature_slots
         return JsonResponse({
             'ok': True,
@@ -5474,11 +5483,21 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
                 )
         except Exception as exc:
             return self._calibration_error_response(exc)
+        context_keys = catalogue_for_product(product)
+        presentations = {
+            str(item.get('key') or ''): item
+            for item in ((product.form_schema or {}).get('fields') or [])
+            if isinstance(item, dict) and item.get('key')
+        }
+        for item in context_keys:
+            presentation = presentations.get(str(item.get('key') or ''), {})
+            item['required'] = bool(presentation.get('required', False))
+            item['section_key'] = str(presentation.get('section_key') or '')
         return JsonResponse({
             'ok': True, 'field': next(
-                item for item in catalogue_for_product(product) if item['key'] == data_field.key
+                item for item in context_keys if item['key'] == data_field.key
             ),
-            'context_keys': catalogue_for_product(product),
+            'context_keys': context_keys,
             'schema_revision': product_schema_revision(product),
             'form_sections': list((product.form_schema or {}).get('sections') or []),
             'replayed': replayed,

@@ -1,6 +1,6 @@
 {% extends "admin/base_site.html" %}
 {% load static %}
-{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_calibration.css' %}?v=11">{% endblock %}
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_calibration.css' %}?v=12">{% endblock %}
 {% block breadcrumbs %}{% endblock %}
 {% block content_title %}{% endblock %}
 {% block content_subtitle %}{% endblock %}
@@ -14,15 +14,17 @@
   data-publish-url="{% url 'admin:core_originationdocumenttemplate_calibration_publish' template_record.pk %}">
   <header class="calibration-topbar">
     <div class="calibration-heading"><a href="{% url 'admin:core_originationdocumenttemplate_changelist' %}" aria-label="Back to templates"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg></a><div><h1>{{ template_record.name }}</h1><p>Draw fields and signer slots, inspect the sample, then publish the product.</p></div></div>
-    <div class="calibration-actions"><span id="calibration-status">Loading…</span><button type="button" class="cal-button" id="calibration-save">Save draft</button><button type="button" class="cal-button cal-button-primary" id="calibration-publish">Publish product</button></div>
+    <div class="calibration-actions"><button type="button" class="calibration-readiness-trigger" id="calibration-readiness-trigger" aria-controls="calibration-readiness"><span id="calibration-readiness-label">Checking…</span></button><span id="calibration-save-state" class="calibration-save-state">Loading…</span><button type="button" class="cal-button" id="calibration-save">Save draft</button><button type="button" class="cal-button cal-button-primary" id="calibration-publish" aria-describedby="calibration-readiness-message">Publish product</button></div>
   </header>
+  <div id="calibration-status" class="calibration-toast" role="status" aria-live="polite" hidden></div>
   <button type="button" id="calibration-mobile-backdrop" class="calibration-mobile-backdrop" aria-label="Close calibration controls" hidden></button>
   <div class="calibration-workspace">
     <aside class="calibration-sidebar" id="calibration-sidebar" aria-labelledby="calibration-sheet-title">
       <header class="calibration-sheet-header"><div><p>Calibration controls</p><h2 id="calibration-sheet-title">Fields and signer slots</h2></div><button type="button" class="cal-button cal-button-icon" id="calibration-sheet-close" aria-label="Close controls"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>
+      <section id="calibration-readiness" class="calibration-readiness" aria-labelledby="calibration-readiness-heading"><div><h2 id="calibration-readiness-heading">Publish readiness</h2><strong id="calibration-readiness-count">0 of 0 required items placed</strong></div><p id="calibration-readiness-message">Checking the product requirements.</p><ul id="calibration-readiness-items"></ul></section>
       <div class="tool-row"><button type="button" class="cal-button" id="calibration-add">+ Field</button><button type="button" class="cal-button" id="calibration-add-signature">+ Signer slot</button><button type="button" class="cal-button" id="calibration-draw">Draw</button><button type="button" class="cal-button" id="calibration-duplicate">Duplicate field</button><button type="button" class="cal-button cal-button-danger" id="calibration-delete">Delete</button></div>
-      <div class="calibration-field-browser"><label>Find field<input id="calibration-search" type="search" placeholder="Name or data key"></label>
-      <select id="calibration-fields" size="12" aria-label="Calibrated fields"></select></div>
+      <div class="calibration-field-browser"><label>Find field<input id="calibration-search" type="search" placeholder="Name, key, category, or role"></label>
+      <div id="calibration-fields" class="calibration-navigator" role="list" aria-label="Product fields and signer slots"></div></div>
       <details class="global-formatting">
         <summary>Global formatting</summary>
         <div class="global-formatting-body">
@@ -65,16 +67,18 @@
     <main class="calibration-main">
       <div class="calibration-toolbar" id="calibration-toolbar" aria-labelledby="calibration-view-title">
         <header class="calibration-sheet-header"><div><p>Canvas controls</p><h2 id="calibration-view-title">Page and preview</h2></div><button type="button" class="cal-button cal-button-icon" id="calibration-view-close" aria-label="Close view controls"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>
+        <button type="button" class="cal-button" id="cal-undo" aria-label="Undo" title="Undo (Ctrl/Command+Z)">Undo</button><button type="button" class="cal-button" id="cal-redo" aria-label="Redo" title="Redo (Ctrl/Command+Shift+Z)">Redo</button>
         <button type="button" class="cal-button" id="cal-prev"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg> Page</button><strong id="cal-page-label">Page 1</strong><button type="button" class="cal-button" id="cal-next">Page <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg></button>
         <button type="button" class="cal-button cal-button-icon" id="cal-zoom-out">−</button><span id="cal-zoom-label">100%</span><button type="button" class="cal-button cal-button-icon" id="cal-zoom-in">+</button>
+        <button type="button" class="cal-button" id="cal-fit-width">Fit width</button><button type="button" class="cal-button" id="cal-fit-page">Fit page</button><button type="button" class="cal-button" id="cal-zoom-reset">100%</button>
         <button type="button" class="cal-button selected" id="cal-source">Template</button><button type="button" class="cal-button" id="cal-filled">Filled sample</button><button type="button" class="cal-button cal-button-icon" id="cal-regenerate" aria-label="Regenerate preview" title="Regenerate preview"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/></svg></button>
       </div>
-      <div class="calibration-scroll"><div id="calibration-canvas" class="calibration-canvas"><img id="calibration-page" alt="Template page"><div id="calibration-overlays" class="calibration-overlays"></div></div></div>
+      <div class="calibration-scroll" id="calibration-scroll"><div id="calibration-canvas" class="calibration-canvas"><img id="calibration-page" alt="Template page"><div id="calibration-overlays" class="calibration-overlays"></div></div></div>
     </main>
   </div>
   <nav class="calibration-mobile-dock" aria-label="Calibration tools">
-    <button type="button" id="cal-mobile-fields" aria-controls="calibration-sidebar" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>Fields</span></button>
-    <button type="button" id="cal-mobile-inspector" aria-controls="calibration-sidebar" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="3"/></svg><span>Selected</span></button>
+    <button type="button" id="cal-mobile-fields" aria-controls="calibration-sidebar" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>Fields <b id="cal-mobile-field-count">0</b></span></button>
+    <button type="button" id="cal-mobile-inspector" aria-controls="calibration-sidebar" aria-expanded="false" disabled><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="3"/></svg><span>Selected</span></button>
     <button type="button" id="cal-mobile-global" aria-controls="calibration-sidebar" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span>Format</span></button>
     <button type="button" id="cal-mobile-view" aria-controls="calibration-toolbar" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 12s3-6 9-6 9 6 9 6-3 6-9 6-9-6-9-6Z"/><circle cx="12" cy="12" r="2"/></svg><span>View</span></button>
   </nav>
@@ -101,5 +105,5 @@
     </form>
   </dialog>
 </div>
-<script src="{% static 'admin/origination_calibration.js' %}?v=10"></script>
+<script src="{% static 'admin/origination_calibration.js' %}?v=11"></script>
 {% endblock %}

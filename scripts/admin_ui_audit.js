@@ -65,6 +65,7 @@ async function auditOpenCalibrationSheets(page, viewport, theme) {
   for (const sheet of sheets) {
     await page.locator(sheet.trigger).click();
     await page.locator(sheet.target).waitFor({ state: 'visible' });
+    await page.waitForTimeout(200);
     const surfaces = [sheet.target, `${sheet.target} .calibration-sheet-header`];
     if (sheet.inner) surfaces.push(sheet.inner);
     for (const selector of surfaces) {
@@ -116,6 +117,7 @@ async function auditSharedPages(browser, viewport) {
 
 async function installCalibrationMocks(page) {
   let saveRequests = 0;
+  const saveBodies = [];
   const config = {
     field_overlay_manifest: { defaults: {}, fields: { applicant_name: {
       context_key: 'applicant_name', units: 'pt', page_number: 1,
@@ -127,32 +129,70 @@ async function installCalibrationMocks(page) {
   const state = {
     configuration: config, revision: 1, schema_revision: 1,
     page_sizes: [{ page_number: 1, width: 600, height: 800 }],
-    context_keys: [{ id: 'field-1', key: 'applicant_name', label: 'Applicant name', category: 'Applicant', type: 'text', attached: true, aliases: [] }],
+    context_keys: [
+      { id: 'field-1', key: 'applicant_name', label: 'Applicant name', category: 'Applicant', type: 'text', attached: true, required: true, section_key: 'applicant', aliases: [] },
+      { id: 'field-2', key: 'loan_amount', label: 'Loan amount', category: 'Loan', type: 'money', attached: true, required: true, section_key: 'applicant', aliases: ['Requested amount'] },
+    ],
     form_sections: [{ key: 'applicant', label: 'Applicant' }], signature_slots: [], published: false, product_published: false,
   };
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800"><rect width="600" height="800" fill="white"/><text x="50" y="70" font-family="Arial" font-size="22" fill="#172033">Synthetic Loan Application</text><path d="M50 160h500M50 230h500M50 300h500M50 370h500M50 440h500M50 510h500M50 580h500M50 650h500" stroke="#94a3b8"/></svg>';
   await page.route(`**/${templateId}/calibration-state/`, route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(state) }));
   await page.route(`**/${templateId}/calibration-page/**`, route => route.fulfill({ status: 200, contentType: 'image/svg+xml', body: svg }));
   await page.route(`**/${templateId}/calibration-preview/`, route => route.fulfill({ status: 200, contentType: 'image/svg+xml', body: svg }));
+  await page.route(`**/${templateId}/calibration-field/`, route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({
+      ok: true, field: state.context_keys[1], context_keys: state.context_keys,
+      schema_revision: 2, form_sections: state.form_sections, replayed: true,
+    }),
+  }));
   await page.route(`**/${templateId}/calibration-save/`, async route => {
     saveRequests += 1;
+    saveBodies.push({ body: route.request().postDataJSON(), requestId: route.request().headers()['idempotency-key'] });
     await new Promise(resolve => setTimeout(resolve, 350));
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, revision: 2 }) });
   });
-  return () => saveRequests;
+  await page.route(`**/${templateId}/calibration-publish/`, route => route.fulfill({
+    status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'Template revision changed; reload before publishing.' }),
+  }));
+  return { count: () => saveRequests, bodies: () => saveBodies };
 }
 
 async function auditCalibration(browser, viewport) {
   const context = await browser.newContext({ viewport });
   const page = await context.newPage();
-  const saveRequests = await installCalibrationMocks(page);
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  const saves = await installCalibrationMocks(page);
   await login(page);
   await page.goto(`${base}/admin/core/originationdocumenttemplate/${templateId}/calibrate/`, { waitUntil: 'domcontentloaded' });
-  await page.locator('.calibration-box').waitFor();
+  try { await page.locator('.calibration-box').waitFor({ timeout: 8000 }); }
+  catch (error) { throw new Error(`${viewport.name}: calibration did not render; browser errors: ${pageErrors.join(' | ') || 'none'}`); }
   await assertContained(page, `${viewport.name}/calibration`);
+  assert(await page.locator('#calibration-publish').isDisabled(), `${viewport.name}: missing required field did not block publish`);
+  if (viewport.width <= 850) await page.locator('#cal-mobile-fields').click();
+  await page.locator('[data-nav-action="place"][data-key="loan_amount"]').click();
+  await page.locator('#calibration-field-dialog').waitFor({ state: 'visible' });
+  await page.locator('#cal-field-confirm').click();
+  await page.waitForFunction(() => document.querySelectorAll('.calibration-box').length === 2);
+  assert(!(await page.locator('#calibration-publish').isDisabled()), `${viewport.name}: placing required field did not unlock publish`);
+  await page.locator('[data-nav-action="select"][data-key="applicant_name"]').click();
+  await page.locator('.calibration-box[data-key="applicant_name"]').waitFor();
 
   if (viewport.width <= 850) {
     assert(await page.locator('.calibration-mobile-dock').isVisible(), `${viewport.name}: mobile tool dock missing`);
+    assert(await page.locator('#cal-fit-width').evaluate(node => node.classList.contains('selected')), `${viewport.name}: mobile did not default to Fit width`);
+    const focalBefore = await page.locator('#calibration-scroll').evaluate(node => {
+      node.scrollTop = Math.max(0, (node.scrollHeight - node.clientHeight) * .45);
+      node.dispatchEvent(new Event('scroll'));
+      const canvas = document.getElementById('calibration-canvas');
+      return (node.scrollTop + node.clientHeight / 2) / canvas.clientHeight;
+    });
+    await page.setViewportSize({ width: viewport.width + 40, height: viewport.height });
+    await page.waitForTimeout(180);
+    const focalAfter = await page.locator('#calibration-scroll').evaluate(node => (node.scrollTop + node.clientHeight / 2) / document.getElementById('calibration-canvas').clientHeight);
+    assert(Math.abs(focalAfter - focalBefore) < .04, `${viewport.name}: fit resize lost focal position (${focalBefore} -> ${focalAfter})`);
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.waitForTimeout(180);
     await auditOpenCalibrationSheets(page, viewport, 'light');
     await page.locator('#cal-mobile-fields').click();
     assert(await page.locator('#calibration-sidebar').getAttribute('role') === 'dialog', `${viewport.name}: fields sheet lacks dialog role`);
@@ -172,19 +212,48 @@ async function auditCalibration(browser, viewport) {
     assert(columns === 2, `${viewport.name}: desktop calibration is not two-pane`);
   }
 
+  page.once('dialog', dialog => dialog.accept());
+  if (viewport.width <= 850) await page.locator('#cal-mobile-fields').click();
+  await page.locator('#calibration-delete').click();
+  await page.locator('.calibration-box[data-key="applicant_name"]').waitFor({ state: 'detached' });
+  assert(await page.locator('#calibration-publish').isDisabled(), `${viewport.name}: publish remained enabled with no fields`);
+  assert((await page.locator('#calibration-readiness-items').textContent()).includes('Required field: Applicant name'), `${viewport.name}: readiness did not explain the blocker`);
+  if (viewport.width <= 850) {
+    await page.locator('#calibration-sheet-close').click();
+    await page.locator('#cal-mobile-view').click();
+  }
+  await page.locator('#cal-undo').click();
+  await page.locator('.calibration-box[data-key="applicant_name"]').waitFor();
+  assert(!(await page.locator('#calibration-publish').isDisabled()), `${viewport.name}: undo did not restore publish readiness`);
+  if (viewport.width <= 850) await page.locator('#calibration-view-close').click();
+
+  if (viewport.width <= 850) {
+    await page.locator('#cal-mobile-view').click();
+    await page.locator('#cal-zoom-reset').click();
+    await page.locator('#calibration-view-close').click();
+  }
+
+  const activeBox = page.locator('.calibration-box[data-key="applicant_name"]');
+  if (!(await activeBox.evaluate(node => node.classList.contains('selected')))) {
+    if (viewport.width <= 850) await page.locator('#cal-mobile-fields').click();
+    await page.locator('[data-nav-action="select"][data-key="applicant_name"]').click();
+  }
+  await activeBox.scrollIntoViewIfNeeded();
   const before = Number(await page.locator('#cal-x').inputValue());
-  const box = await page.locator('.calibration-box').boundingBox();
+  const box = await activeBox.boundingBox();
+  assert(box, `${viewport.name}: selected calibration box is not visible`);
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
   await page.mouse.move(box.x + box.width / 2 + 30, box.y + box.height / 2, { steps: 4 });
   await page.mouse.up();
   const after = Number(await page.locator('#cal-x').inputValue());
   assert(Math.abs((after - before) - 30) < .75, `${viewport.name}: 100% drag produced ${after - before} PDF points`);
+  assert(await page.locator('#cal-redo').isDisabled(), `${viewport.name}: new drag did not truncate the redo branch`);
 
   const touchBefore = Number(await page.locator('#cal-x').inputValue());
-  const touchBox = await page.locator('.calibration-box').boundingBox();
+  const touchBox = await activeBox.boundingBox();
   const touchStart = { x: touchBox.x + touchBox.width / 2, y: touchBox.y + touchBox.height / 2 };
-  await page.locator('.calibration-box').dispatchEvent('pointerdown', {
+  await activeBox.dispatchEvent('pointerdown', {
     pointerId: 31, pointerType: 'touch', isPrimary: true, button: 0,
     clientX: touchStart.x, clientY: touchStart.y,
   });
@@ -200,6 +269,16 @@ async function auditCalibration(browser, viewport) {
   }, touchStart);
   const touchAfter = Number(await page.locator('#cal-x').inputValue());
   assert(Math.abs((touchAfter - touchBefore) - 20) < .75, `${viewport.name}: touch drag produced ${touchAfter - touchBefore} PDF points`);
+
+  const cancelBefore = Number(await page.locator('#cal-x').inputValue());
+  const cancelBox = await activeBox.boundingBox();
+  const cancelStart = { x: cancelBox.x + cancelBox.width / 2, y: cancelBox.y + cancelBox.height / 2 };
+  await activeBox.dispatchEvent('pointerdown', { pointerId: 32, pointerType: 'touch', isPrimary: true, button: 0, clientX: cancelStart.x, clientY: cancelStart.y });
+  await page.evaluate(({ x, y }) => {
+    window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 32, pointerType: 'touch', isPrimary: true, clientX: x + 24, clientY: y }));
+    window.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: 32, pointerType: 'touch', isPrimary: true, clientX: x + 24, clientY: y }));
+  }, cancelStart);
+  assert(Math.abs(Number(await page.locator('#cal-x').inputValue()) - cancelBefore) < .01, `${viewport.name}: cancelled touch drag was not rolled back`);
 
   if (viewport.width <= 850) await page.locator('#cal-mobile-view').click();
   for (const targetZoom of [.5, 1, 1.5, 2]) {
@@ -223,9 +302,30 @@ async function auditCalibration(browser, viewport) {
   }
   await page.screenshot({ path: path.join(output, `${viewport.name}-calibration-dark.png`) });
 
+  const capturedKey = await page.locator('.calibration-box.selected').getAttribute('data-key');
+  const capturedX = Number(await page.locator('#cal-x').inputValue());
+  await page.locator('#calibration-save').click();
+  await page.waitForFunction(() => document.getElementById('calibration-save').disabled === true);
+  if (viewport.width <= 850) {
+    await page.locator('#cal-mobile-view').click();
+    await page.locator('#cal-undo').click();
+    await page.locator('#calibration-view-close').click();
+  } else await page.locator('#cal-undo').click();
+  await page.waitForFunction(value => Number(document.getElementById('cal-x').value) !== value, capturedX);
+  await page.waitForFunction(() => document.getElementById('calibration-save').disabled === false);
+  assert(saves.count() === 1, `${viewport.name}: delayed save made ${saves.count()} requests`);
+  const capturedPayloadX = Number(saves.bodies()[0].body.configuration.field_overlay_manifest.fields[capturedKey].box.x);
+  assert(capturedPayloadX === capturedX, `${viewport.name}: save payload changed after undo (${capturedPayloadX} vs ${capturedX})`);
+  assert((await page.locator('#calibration-save-state').textContent()).includes('Unsaved'), `${viewport.name}: undo during save lost dirty state`);
   await page.evaluate(() => { const button = document.getElementById('calibration-save'); button.click(); button.click(); });
   await page.waitForFunction(() => document.getElementById('calibration-save').disabled === false);
-  assert(saveRequests() === 1, `${viewport.name}: double save made ${saveRequests()} requests`);
+  assert(saves.count() === 2, `${viewport.name}: repeated follow-up save made ${saves.count()} total requests`);
+  assert(saves.bodies()[0].requestId !== saves.bodies()[1].requestId, `${viewport.name}: changed payload reused an idempotency key`);
+  assert((await page.locator('#calibration-save-state').textContent()).includes('Saved'), `${viewport.name}: follow-up save did not update baseline`);
+  await page.locator('#calibration-publish').click();
+  await page.waitForFunction(() => document.getElementById('calibration-readiness-items').textContent.includes('Server check'));
+  assert((await page.locator('#calibration-status').textContent()).includes('Template revision changed'), `${viewport.name}: server readiness error was not announced`);
+  assert(await page.locator('#calibration-publish').isDisabled(), `${viewport.name}: server readiness failure did not block publish`);
   await context.close();
 }
 
@@ -234,8 +334,12 @@ async function auditCalibration(browser, viewport) {
   const browser = await chromium.launch({ headless: true });
   try {
     for (const viewport of viewports) {
-      await auditSharedPages(browser, viewport);
-      await auditCalibration(browser, viewport);
+      try {
+        if (process.env.ADMIN_AUDIT_CALIBRATION_ONLY !== 'true') await auditSharedPages(browser, viewport);
+        await auditCalibration(browser, viewport);
+      } catch (error) {
+        throw new Error(`${viewport.name}: ${error.message}`);
+      }
     }
     console.log(JSON.stringify({ ok: true, output, viewports: viewports.map(item => item.name) }, null, 2));
   } finally { await browser.close(); }

@@ -408,7 +408,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertIn("mode = 'filled'", source)
         self.assertIn('await renderPage()', source)
         self.assertIn('default for fields added later', template)
-        self.assertIn('origination_calibration.js\' %}?v=10', template)
+        self.assertIn('origination_calibration.js\' %}?v=11', template)
 
     def test_pdf_only_onboarding_derives_product_contract(self):
         digest, pages = validate_template_pdf(self.pdf)
@@ -519,6 +519,9 @@ class MultiProductOriginationTemplateTests(TestCase):
         state = state_response.json()
         self.assertEqual(state_response.status_code, 200)
         self.assertIn('customer_name', {item['key'] for item in state['context_keys']})
+        customer_field = next(item for item in state['context_keys'] if item['key'] == 'customer_name')
+        self.assertTrue(customer_field['required'])
+        self.assertEqual(customer_field['section_key'], 'customer')
         self.assertIn(
             'borrower.signature',
             {

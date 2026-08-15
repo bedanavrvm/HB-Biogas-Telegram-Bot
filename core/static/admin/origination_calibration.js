@@ -18,9 +18,20 @@
   let selectedKey = '';
   let page = 1;
   let zoom = 1;
+  let zoomMode = 'manual';
   let mode = 'source';
   let pageUrl = '';
   let dirty = false;
+  let published = false;
+  let operationState = 'idle';
+  let savedBaselineHash = '';
+  let serverReadinessIssue = '';
+  let history = [];
+  let historyIndex = -1;
+  let historyBytes = 0;
+  let toastTimer = null;
+  let lastViewportFocal = { x: .5, y: .5 };
+  let resizeTimer = null;
   let drawing = false;
   let previewTimer = null;
   let mobileSheet = '';
@@ -29,6 +40,8 @@
   let pendingWriteKeys = {};
   const TAP_DISTANCE = 10;
   const TAP_DURATION = 350;
+  const HISTORY_LIMIT = 50;
+  const HISTORY_BYTE_LIMIT = 5 * 1024 * 1024;
   const drawPointers = new Map();
   let drawGesture = null;
 
@@ -109,13 +122,74 @@
   window.__originationCalibrationGeometry = { screenPointToPage, screenDeltaToPage, pageBoxToScreen, clampBox };
   const currentCollection = () => selectedKind === 'signature' ? signatures() : fields();
   const currentSpec = () => currentCollection()[selectedKey];
-  const status = (message, error) => {
-    $('calibration-status').textContent = message;
-    $('calibration-status').style.color = error ? '#ba2121' : '';
+  const configurationHash = value => JSON.stringify(value || {});
+  const status = (message, error = false, persistent = false) => {
+    const toast = $('calibration-status');
+    window.clearTimeout(toastTimer);
+    toast.textContent = message;
+    toast.classList.toggle('is-error', Boolean(error));
+    toast.hidden = false;
+    if (!error && !persistent) toastTimer = window.setTimeout(() => { toast.hidden = true; }, 3200);
   };
-  const requestKey = kind => {
-    pendingWriteKeys[kind] ||= `${kind}-${window.crypto?.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
-    return pendingWriteKeys[kind];
+  const snapshotState = label => {
+    const state = { configuration: copy(configuration), selectedKind, selectedKey, page, label };
+    state.bytes = new TextEncoder().encode(JSON.stringify(state.configuration)).length;
+    return state;
+  };
+  function refreshDirtyState() {
+    dirty = configurationHash(configuration) !== savedBaselineHash;
+    $('calibration-save-state').textContent = published ? 'Published' : dirty ? 'Unsaved' : `Saved r${revision}`;
+    $('calibration-save-state').classList.toggle('is-dirty', dirty);
+    updateReadiness();
+  }
+  function resetHistory() {
+    const initial = snapshotState('Loaded');
+    history = [initial]; historyIndex = 0; historyBytes = initial.bytes;
+    updateHistoryControls();
+  }
+  function recordHistory(label, beforeHash = '') {
+    if (beforeHash && beforeHash === configurationHash(configuration)) return false;
+    if (historyIndex < history.length - 1) history = history.slice(0, historyIndex + 1);
+    const entry = snapshotState(label);
+    history.push(entry); historyIndex = history.length - 1;
+    historyBytes = history.reduce((total, item) => total + item.bytes, 0);
+    while (history.length > 1 && (history.length > HISTORY_LIMIT || historyBytes > HISTORY_BYTE_LIMIT)) {
+      historyBytes -= history[0].bytes; history.shift(); historyIndex -= 1;
+    }
+    refreshDirtyState(); updateHistoryControls();
+    return true;
+  }
+  async function restoreHistory(index) {
+    if (operationState === 'publishing' || index < 0 || index >= history.length) return;
+    const entry = history[index];
+    historyIndex = index;
+    configuration = copy(entry.configuration);
+    selectedKind = entry.selectedKind;
+    selectedKey = currentCollection()[entry.selectedKey] ? entry.selectedKey : (Object.keys(fields())[0] || Object.keys(signatures())[0] || '');
+    if (!Object.keys(fields()).length && Object.keys(signatures()).length) selectedKind = 'signature';
+    page = Math.min(pageSizes.length || 1, Math.max(1, entry.page || page));
+    serverReadinessIssue = '';
+    populateGlobalFormatting(); renderItemList(); inspect(); refreshDirtyState(); updateHistoryControls();
+    await renderPage({ quiet: true });
+    status(index < history.length - 1 ? 'Undo applied.' : 'Redo applied.');
+  }
+  const undo = () => restoreHistory(historyIndex - 1);
+  const redo = () => restoreHistory(historyIndex + 1);
+  function updateHistoryControls() {
+    if (!$('cal-undo')) return;
+    const locked = operationState === 'publishing' || published;
+    $('cal-undo').disabled = locked || historyIndex <= 0;
+    $('cal-redo').disabled = locked || historyIndex >= history.length - 1;
+  }
+  const requestKey = (kind, payloadHash = '') => {
+    const pending = pendingWriteKeys[kind];
+    if (!pending || pending.payloadHash !== payloadHash) {
+      pendingWriteKeys[kind] = {
+        payloadHash,
+        id: `${kind}-${window.crypto?.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`}`,
+      };
+    }
+    return pendingWriteKeys[kind].id;
   };
 
   async function jsonRequest(url, options) {
@@ -138,21 +212,28 @@
       configuration.signature_overlay_manifest.slots ||= {};
       configuration.sample_context ||= {};
       revision = state.revision;
+      published = Boolean(state.product_published);
       pageSizes = state.page_sizes || [];
       contextKeys = state.context_keys || [];
       schemaRevision = state.schema_revision || 0;
       formSections = state.form_sections || [];
       signatureCatalog = state.signature_slots || [];
+      zoomMode = mobileLayout() ? 'fit-width' : 'manual';
+      zoom = 1;
       const firstField = Object.keys(fields())[0];
       const firstSignature = Object.keys(signatures())[0];
       selectedKind = firstField ? 'field' : 'signature';
       selectedKey = firstField || firstSignature || '';
       populateCatalogs();
       populateGlobalFormatting();
+      savedBaselineHash = configurationHash(configuration);
+      resetHistory();
       renderItemList();
       await renderPage();
       inspect();
-      status(state.product_published ? `Product published at revision ${revision}` : state.published ? `Alignment published at revision ${revision}` : `Draft revision ${revision}`);
+      refreshDirtyState();
+      if (published) setOperationState('published');
+      $('calibration-status').hidden = true;
     } catch (error) {
       status(error.message, true);
     }
@@ -182,24 +263,70 @@
     $('global-padding-y').value = padding.y || 0;
   }
 
+  const catalogueByKey = key => contextKeys.find(item => item.key === key);
+  const signatureByKey = key => signatureCatalog.find(item => `${item.role}.${item.slot_key}` === key);
+  function readinessState() {
+    const placedContexts = new Set(Object.values(fields()).map(spec => String(spec.context_key || '')));
+    const requiredFields = contextKeys.filter(item => item.attached && item.required);
+    const requiredSignatures = signatureCatalog.filter(item => item.required);
+    const missingFields = requiredFields.filter(item => !placedContexts.has(item.key));
+    const missingSignatures = requiredSignatures.filter(item => !signatures()[`${item.role}.${item.slot_key}`]);
+    const total = requiredFields.length + requiredSignatures.length;
+    const complete = total - missingFields.length - missingSignatures.length;
+    const blockers = [];
+    if (!Object.keys(fields()).length) blockers.push('Place at least one application field.');
+    missingFields.forEach(item => blockers.push(`Required field: ${item.label || item.key}`));
+    missingSignatures.forEach(item => blockers.push(`Required signer: ${item.label || `${item.role}.${item.slot_key}`}`));
+    if (serverReadinessIssue) blockers.push(`Server check: ${serverReadinessIssue}`);
+    return { total, complete, blockers, missingFields, missingSignatures, ready: !blockers.length };
+  }
+  function updateReadiness() {
+    if (!configuration || !$('calibration-readiness-count')) return;
+    const state = readinessState();
+    $('calibration-readiness-count').textContent = state.total ? `${state.complete} of ${state.total} required items placed` : 'No required placements';
+    $('calibration-readiness-label').textContent = state.ready ? 'Ready to publish' : `${state.blockers.length} item${state.blockers.length === 1 ? '' : 's'} needed`;
+    $('calibration-readiness-message').textContent = state.ready ? 'All required placements are complete. Django will perform the final validation.' : 'Complete the following items before publishing.';
+    $('calibration-readiness-items').innerHTML = state.blockers.map(item => `<li>${escapeHtml(item)}</li>`).join('');
+    $('calibration-readiness').classList.toggle('is-ready', state.ready);
+    $('calibration-publish').disabled = published || operationState !== 'idle' || !state.ready;
+    $('calibration-publish').title = state.ready ? '' : state.blockers[0] || 'Publishing is not available.';
+    $('cal-mobile-field-count').textContent = String(Object.keys(fields()).length + Object.keys(signatures()).length);
+    $('cal-mobile-inspector').disabled = !currentSpec() || operationState === 'publishing' || published;
+    updateHistoryControls();
+  }
+  function navigatorRows() {
+    const fieldRows = [], consumedContexts = new Set();
+    Object.entries(fields()).forEach(([key, spec]) => {
+      const item = catalogueByKey(spec.context_key) || {};
+      consumedContexts.add(spec.context_key);
+      fieldRows.push({ kind: 'field', key, placed: true, label: item.label || spec.context_key || key, canonicalKey: spec.context_key || key, category: item.category || 'Application', aliases: item.aliases || [], required: Boolean(item.required), page: Number(spec.page_number || 1) });
+    });
+    contextKeys.filter(item => item.attached && !consumedContexts.has(item.key)).forEach(item => fieldRows.push({ kind: 'field', key: item.key, placed: false, label: item.label || item.key, canonicalKey: item.key, category: item.category || 'Application', aliases: item.aliases || [], required: Boolean(item.required), page: null }));
+    const signatureRows = signatureCatalog.map(item => {
+      const key = `${item.role}.${item.slot_key}`, spec = signatures()[key];
+      return { kind: 'signature', key, placed: Boolean(spec), label: item.label || item.slot_key, canonicalKey: key, category: item.role, aliases: [], required: Boolean(item.required), page: spec ? Number(spec.page_number || 1) : null };
+    });
+    Object.entries(signatures()).filter(([key]) => !signatureByKey(key)).forEach(([key, spec]) => signatureRows.push({ kind: 'signature', key, placed: true, label: spec.label || key, canonicalKey: key, category: spec.role || 'Signer', aliases: [], required: false, page: Number(spec.page_number || 1) }));
+    return { fieldRows, signatureRows };
+  }
+  function navigatorRowMarkup(item) {
+    const selected = item.placed && item.kind === selectedKind && item.key === selectedKey;
+    return `<div class="calibration-nav-row${selected ? ' is-selected' : ''}${item.placed ? '' : ' is-unplaced'}" role="listitem"><button type="button" data-nav-action="${item.placed ? 'select' : 'place'}" data-kind="${item.kind}" data-key="${escapeHtml(item.key)}"><span><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.canonicalKey)}</small></span><span class="calibration-nav-meta">${item.required ? '<b>Required</b>' : ''}${item.page ? `<em>Page ${item.page}</em>` : '<em>Not placed</em>'}</span></button></div>`;
+  }
   function renderItemList() {
     const query = $('calibration-search').value.trim().toLowerCase();
-    const items = [
-      ...Object.entries(fields()).map(([key, spec]) => ({ kind: 'field', key, label: spec.context_key || key })),
-      ...Object.entries(signatures()).map(([key, spec]) => ({ kind: 'signature', key, label: spec.label || key })),
-    ].filter(item => `${item.kind} ${item.key} ${item.label}`.toLowerCase().includes(query));
-    $('calibration-fields').innerHTML = items.map(item => {
-      const value = `${item.kind}:${item.key}`;
-      const selected = item.kind === selectedKind && item.key === selectedKey;
-      const prefix = item.kind === 'signature' ? 'SIGN' : 'FIELD';
-      return `<option value="${escapeHtml(value)}"${selected ? ' selected' : ''}>${prefix} · ${escapeHtml(item.label)}</option>`;
-    }).join('');
-    renderOverlays();
+    const { fieldRows, signatureRows } = navigatorRows();
+    const group = (label, rows) => {
+      const filtered = rows.filter(item => !query || [item.kind, item.key, item.label, item.canonicalKey, item.category, ...(item.aliases || [])].join(' ').toLowerCase().includes(query));
+      return `<section class="calibration-nav-group"><h3>${label}<span>${filtered.length}</span></h3>${filtered.length ? filtered.map(navigatorRowMarkup).join('') : '<p class="calibration-nav-empty">No matching items.</p>'}</section>`;
+    };
+    $('calibration-fields').innerHTML = group('Product fields', fieldRows) + group('Signer slots', signatureRows);
+    renderOverlays(); updateReadiness();
   }
 
-  async function renderPage() {
+  async function renderPage({ quiet = false } = {}) {
     if (pageUrl) URL.revokeObjectURL(pageUrl);
-    status(mode === 'filled' ? 'Rendering filled sample…' : 'Loading template…');
+    if (!quiet) $('calibration-save-state').textContent = mode === 'filled' ? 'Rendering preview…' : dirty ? 'Unsaved' : `Saved r${revision}`;
     const options = mode === 'filled' ? { method: 'POST', body: JSON.stringify({ configuration, page }) } : undefined;
     const url = mode === 'filled' ? app.dataset.previewUrl : `${app.dataset.pageUrl}?page=${page}`;
     const response = await fetch(url, {
@@ -215,13 +342,37 @@
     await new Promise((resolve, reject) => { image.onload = resolve; image.onerror = reject; image.src = pageUrl; });
     applyZoom();
     renderOverlays();
-    status(dirty ? 'Unsaved calibration changes' : `Revision ${revision}`);
+    refreshDirtyState();
   }
 
-  function applyZoom() {
+  function fittedZoom(kind) {
+    const image = $('calibration-page'), scroll = $('calibration-scroll');
+    if (!image.naturalWidth || !scroll.clientWidth) return zoom;
+    const width = Math.max(1, scroll.clientWidth - 12) / image.naturalWidth;
+    const height = Math.max(1, scroll.clientHeight - 12) / image.naturalHeight;
+    return Math.min(3, Math.max(.2, kind === 'fit-page' ? Math.min(width, height) : width));
+  }
+  function viewportFocalPoint() {
+    const scroll = $('calibration-scroll'), canvas = $('calibration-canvas');
+    lastViewportFocal = {
+      x: canvas.clientWidth ? (scroll.scrollLeft + scroll.clientWidth / 2) / canvas.clientWidth : .5,
+      y: canvas.clientHeight ? (scroll.scrollTop + scroll.clientHeight / 2) / canvas.clientHeight : .5,
+    };
+    return lastViewportFocal;
+  }
+  function restoreFocalPoint(focal) {
+    if (!focal) return;
+    const scroll = $('calibration-scroll'), canvas = $('calibration-canvas');
+    scroll.scrollLeft = Math.max(0, focal.x * canvas.clientWidth - scroll.clientWidth / 2);
+    scroll.scrollTop = Math.max(0, focal.y * canvas.clientHeight - scroll.clientHeight / 2);
+    lastViewportFocal = focal;
+  }
+  function applyZoom({ preserveFocal = false } = {}) {
     const image = $('calibration-page');
     const size = pageSize();
     if (!size || !image.naturalWidth) return;
+    const focal = preserveFocal ? lastViewportFocal : null;
+    if (zoomMode === 'fit-width' || zoomMode === 'fit-page') zoom = fittedZoom(zoomMode);
     image.style.width = `${image.naturalWidth * zoom}px`;
     $('calibration-canvas').style.width = image.style.width;
     $('calibration-canvas').style.height = `${image.naturalHeight * zoom}px`;
@@ -229,6 +380,15 @@
     $('cal-zoom-label').textContent = `${Math.round(zoom * 100)}%`;
     $('cal-prev').disabled = page <= 1;
     $('cal-next').disabled = page >= pageSizes.length;
+    $('cal-fit-width').classList.toggle('selected', zoomMode === 'fit-width');
+    $('cal-fit-page').classList.toggle('selected', zoomMode === 'fit-page');
+    $('cal-zoom-reset').classList.toggle('selected', zoomMode === 'manual' && Math.abs(zoom - 1) < .001);
+    restoreFocalPoint(focal);
+  }
+  function setZoom(nextMode, nextZoom = zoom) {
+    zoomMode = nextMode;
+    if (nextMode === 'manual') zoom = Math.min(3, Math.max(.2, nextZoom));
+    applyZoom({ preserveFocal: true }); renderOverlays();
   }
 
   function renderOverlays() {
@@ -266,7 +426,7 @@
   }
 
   function beginDraw(event) {
-    if (!drawing || event.target !== event.currentTarget || !currentSpec()) return;
+    if (operationState === 'publishing' || published || !drawing || event.target !== event.currentTarget || !currentSpec()) return;
     event.preventDefault();
     const layer = event.currentTarget;
     layer.setPointerCapture?.(event.pointerId);
@@ -276,6 +436,7 @@
       drawGesture = {
         start: screenPointToPage(event.clientX, event.clientY),
         original: copy(boxFor(currentSpec())),
+        configuration: copy(configuration), hash: configurationHash(configuration),
         spec: currentSpec(), moved: false, multiTouch: false,
         midpoint: null, scrollLeft: 0, scrollTop: 0,
       };
@@ -313,34 +474,52 @@
       drawGesture.moved = true;
       markDirty(); inspect(); renderOverlays();
     };
+    const cleanup = () => {
+      layer.removeEventListener('pointermove', moveHandler);
+      layer.removeEventListener('pointerup', upHandler);
+      layer.removeEventListener('pointercancel', cancelHandler);
+      layer.removeEventListener('lostpointercapture', cancelHandler);
+      window.removeEventListener('blur', cancelHandler);
+    };
     const upHandler = up => {
       if (!drawPointers.has(up.pointerId)) return;
       drawPointers.delete(up.pointerId);
       if (drawPointers.size) return;
-      layer.removeEventListener('pointermove', moveHandler);
-      layer.removeEventListener('pointerup', upHandler);
-      layer.removeEventListener('pointercancel', upHandler);
+      cleanup();
       const completed = drawGesture?.moved && !drawGesture?.multiTouch;
+      const gestureHash = drawGesture?.hash || '';
       drawGesture = null;
       if (completed) {
+        recordHistory('Draw field area', gestureHash);
         drawing = false;
         $('calibration-draw').classList.remove('selected');
         layer.classList.remove('draw-active');
         status('Field area drawn. Refine it from Selected if needed.');
-      }
+      } else refreshDirtyState();
+    };
+    const cancelHandler = cancel => {
+      if (cancel.type === 'pointercancel' && !drawPointers.has(cancel.pointerId)) return;
+      const originalConfiguration = drawGesture?.configuration;
+      cleanup(); drawPointers.clear(); drawGesture = null;
+      if (originalConfiguration) configuration = copy(originalConfiguration);
+      drawing = false; $('calibration-draw').classList.remove('selected'); layer.classList.remove('draw-active');
+      renderItemList(); inspect(); refreshDirtyState(); status('Interrupted drawing cancelled.');
     };
     layer.addEventListener('pointermove', moveHandler);
     layer.addEventListener('pointerup', upHandler);
-    layer.addEventListener('pointercancel', upHandler);
+    layer.addEventListener('pointercancel', cancelHandler);
+    layer.addEventListener('lostpointercapture', cancelHandler);
+    window.addEventListener('blur', cancelHandler);
   }
 
   function beginPointerEdit(event) {
+    if (operationState === 'publishing' || published) return;
     event.preventDefault();
     event.stopPropagation();
     const element = event.currentTarget;
     select(element.dataset.kind, element.dataset.key);
     const spec = currentSpec();
-    const start = { x: event.clientX, y: event.clientY, at: performance.now(), box: copy(boxFor(spec)), moved: false, maxDistance: 0 };
+    const start = { x: event.clientX, y: event.clientY, at: performance.now(), box: copy(boxFor(spec)), configuration: copy(configuration), hash: configurationHash(configuration), moved: false, maxDistance: 0 };
     const resizing = event.target.tagName === 'I';
     const moveHandler = move => {
       if (move.pointerId !== event.pointerId) return;
@@ -354,20 +533,48 @@
       else { next.x = start.box.x + delta.x; next.y = start.box.y + delta.y; }
       setBox(spec, next); markDirty(); inspect(); renderOverlays();
     };
-    const upHandler = up => {
-      if (up.pointerId !== event.pointerId) return;
+    const cleanup = () => {
       window.removeEventListener('pointermove', moveHandler);
       window.removeEventListener('pointerup', upHandler);
-      window.removeEventListener('pointercancel', upHandler);
+      window.removeEventListener('pointercancel', cancelHandler);
+      window.removeEventListener('blur', cancelHandler);
+    };
+    const upHandler = up => {
+      if (up.pointerId !== event.pointerId) return;
+      cleanup();
+      if (start.moved) recordHistory(resizing ? 'Resize field' : 'Move field', start.hash);
       if (!start.moved && performance.now() - start.at <= TAP_DURATION) openMobileSheet('inspector', element);
+    };
+    const cancelHandler = cancel => {
+      if (cancel.type === 'pointercancel' && cancel.pointerId !== event.pointerId) return;
+      cleanup();
+      if (!start.moved) return;
+      configuration = copy(start.configuration);
+      renderItemList(); inspect(); refreshDirtyState();
+      status('Interrupted gesture cancelled.');
     };
     window.addEventListener('pointermove', moveHandler);
     window.addEventListener('pointerup', upHandler);
-    window.addEventListener('pointercancel', upHandler);
+    window.addEventListener('pointercancel', cancelHandler);
+    window.addEventListener('blur', cancelHandler);
   }
 
+  function syncHistoryView() {
+    const entry = history[historyIndex];
+    if (entry && configurationHash(entry.configuration) === configurationHash(configuration)) Object.assign(entry, { selectedKind, selectedKey, page });
+  }
   function setBox(spec, box) { const bounded = clampBox(spec, box); spec.box = copy(bounded); spec.allowed_area = copy(bounded); }
-  function select(kind, key) { selectedKind = kind; selectedKey = key; renderItemList(); inspect(); }
+  function select(kind, key) { selectedKind = kind; selectedKey = key; syncHistoryView(); renderItemList(); inspect(); updateReadiness(); }
+  async function selectAndReveal(kind, key) {
+    const spec = (kind === 'signature' ? signatures() : fields())[key];
+    if (!spec) return;
+    selectedKind = kind; selectedKey = key;
+    const targetPage = Number(spec.page_number || 1);
+    if (page !== targetPage) { page = targetPage; syncHistoryView(); await renderPage({ quiet: true }); }
+    else { renderItemList(); inspect(); }
+    closeMobileSheets({ restoreFocus: false });
+    window.requestAnimationFrame(() => document.querySelector(`.calibration-box[data-kind="${CSS.escape(kind)}"][data-key="${CSS.escape(key)}"]`)?.scrollIntoView({ block: 'center', inline: 'center' }));
+  }
 
   function mobileLayout() { return window.matchMedia('(max-width: 850px)').matches; }
   function focusable(container) {
@@ -464,24 +671,37 @@
   }
 
   function markDirty() {
-    dirty = true;
-    status('Unsaved calibration changes');
+    serverReadinessIssue = '';
+    refreshDirtyState();
     if (mode === 'filled') {
       window.clearTimeout(previewTimer);
       previewTimer = window.setTimeout(() => renderPage().catch(error => status(error.message, true)), 500);
     }
   }
+  function setOperationState(next) {
+    operationState = next;
+    const saving = next === 'saving', locked = next === 'publishing' || next === 'published';
+    published = next === 'published' || published;
+    app.classList.toggle('is-write-locked', locked);
+    $('calibration-save').disabled = saving || locked;
+    if (locked) $('calibration-publish').disabled = true;
+    updateReadiness(); updateHistoryControls();
+  }
 
   function updateGeometry() {
+    if (operationState === 'publishing' || published) return;
     const spec = currentSpec();
     if (!spec) return;
+    const before = configurationHash(configuration);
     setBox(spec, { x: Number($('cal-x').value), y: Number($('cal-y').value), width: Number($('cal-width').value), height: Number($('cal-height').value) });
-    markDirty(); renderItemList(); inspect();
+    markDirty(); renderItemList(); inspect(); recordHistory('Edit coordinates', before);
   }
 
   function updateSelectedField() {
+    if (operationState === 'publishing' || published) return;
     const spec = currentSpec();
     if (!spec || selectedKind !== 'field') return;
+    const before = configurationHash(configuration);
     spec.context_key = $('cal-context').value;
     spec.font = $('cal-font').value;
     spec.font_size = Number($('cal-font-size').value);
@@ -493,7 +713,7 @@
     spec.align = $('cal-align').value;
     spec.vertical_align = $('cal-vertical').value;
     spec.fit = $('cal-fit').value;
-    markDirty(); renderItemList(); inspect();
+    markDirty(); renderItemList(); inspect(); recordHistory('Edit field formatting', before);
   }
 
   function selectedCatalogueField(id) {
@@ -520,6 +740,8 @@
     if (!item || $('cal-field-custom').checked) return;
     $('cal-field-label').value = item.label || '';
     $('cal-field-help').value = item.help_text || '';
+    $('cal-field-required').checked = Boolean(item.required);
+    if (item.section_key && [...$('cal-field-section').options].some(option => option.value === item.section_key)) $('cal-field-section').value = item.section_key;
     $('cal-field-presentation').hidden = item.source_type === 'system';
     $('cal-field-options-wrap').hidden = item.type !== 'choice';
     $('cal-field-options').value = fieldOptionLines(item);
@@ -613,6 +835,7 @@
     if (!context) return status('Choose a canonical data field.', true);
     const box = centeredBox(120, 14);
     if (!box) return status('The current PDF page is not ready yet.', true);
+    const before = configurationHash(configuration);
     let key = context, index = 2;
     while (fields()[key]) key = `${context}_${index++}`;
     fields()[key] = {
@@ -622,7 +845,7 @@
     };
     const catalogueField = contextKeys.find(item => item.key === context);
     configuration.sample_context[context] ||= catalogueField?.label || context.replaceAll('_', ' ');
-    select('field', key); markDirty();
+    select('field', key); markDirty(); recordHistory('Place field', before);
   }
 
   ['cal-x', 'cal-y', 'cal-width', 'cal-height'].forEach(id => $(id).addEventListener('change', updateGeometry));
@@ -636,10 +859,13 @@
     }
     updateSelectedField();
   });
-  $('calibration-fields').onchange = event => {
-    const [kind, ...key] = event.target.value.split(':');
-    select(kind, key.join(':'));
-    openMobileSheet('inspector', event.target);
+  $('calibration-fields').onclick = event => {
+    const button = event.target.closest('[data-nav-action]');
+    if (!button) return;
+    const kind = button.dataset.kind, key = button.dataset.key;
+    if (button.dataset.navAction === 'select') { selectAndReveal(kind, key); return; }
+    if (kind === 'field') openFieldDialog(key);
+    else placeSignatureOverlay(key);
   };
   $('calibration-search').oninput = renderItemList;
 
@@ -678,55 +904,67 @@
   $('cal-field-cancel').onclick = closeFieldDialog;
   $('cal-field-dismiss').onclick = closeFieldDialog;
 
-  $('calibration-add-signature').onclick = () => {
-    const slot = signatureCatalog.find(item => !signatures()[`${item.role}.${item.slot_key}`]);
+  function placeSignatureOverlay(identity = '') {
+    if (operationState === 'publishing' || published) return;
+    const slot = identity ? signatureByKey(identity) : signatureCatalog.find(item => !signatures()[`${item.role}.${item.slot_key}`]);
     if (!slot) return status('Every configured signer slot is already placed.', true);
     const key = `${slot.role}.${slot.slot_key}`;
+    if (signatures()[key]) return selectAndReveal('signature', key);
     const box = centeredBox(140, slot.slot_type === 'stamp' ? 55 : 28);
     if (!box) return status('The current PDF page is not ready yet.', true);
+    const before = configurationHash(configuration);
     signatures()[key] = {
       role: slot.role, slot_key: slot.slot_key, label: slot.label, slot_type: slot.slot_type,
       units: 'pt', page_number: page,
       box: copy(box), allowed_area: copy(box),
     };
-    select('signature', key); markDirty();
-  };
+    select('signature', key); markDirty(); recordHistory('Place signer slot', before);
+  }
+  $('calibration-add-signature').onclick = () => placeSignatureOverlay();
 
   $('cal-signature-slot').addEventListener('change', event => {
+    if (operationState === 'publishing' || published) return;
     if (selectedKind !== 'signature' || event.target.value === selectedKey) return;
     if (signatures()[event.target.value]) { event.target.value = selectedKey; return status('That signer slot is already placed.', true); }
     const catalog = signatureCatalog.find(item => `${item.role}.${item.slot_key}` === event.target.value);
+    const before = configurationHash(configuration);
     const spec = signatures()[selectedKey];
     delete signatures()[selectedKey];
     selectedKey = event.target.value;
     Object.assign(spec, { role: catalog.role, slot_key: catalog.slot_key, label: catalog.label, slot_type: catalog.slot_type });
     signatures()[selectedKey] = spec;
-    markDirty(); renderItemList(); inspect();
+    markDirty(); renderItemList(); inspect(); recordHistory('Change signer slot', before);
   });
 
   $('calibration-draw').onclick = () => {
+    if (operationState === 'publishing' || published) return;
     if (!currentSpec()) { $('calibration-add').click(); return; }
     drawing = true; $('calibration-overlays').classList.add('draw-active'); $('calibration-draw').classList.add('selected');
     closeMobileSheets({ restoreFocus: false });
     status('Draw with one finger. Use two fingers to pan without drawing.');
   };
   $('calibration-duplicate').onclick = () => {
+    if (operationState === 'publishing' || published) return;
     if (selectedKind !== 'field' || !selectedKey) return;
+    const before = configurationHash(configuration);
     const source = fields()[selectedKey];
     let key = `${selectedKey}_copy`, index = 2;
     while (fields()[key]) key = `${selectedKey}_copy_${index++}`;
     fields()[key] = copy(source); fields()[key].box.x += 8; fields()[key].allowed_area = copy(fields()[key].box);
-    select('field', key); markDirty();
+    select('field', key); markDirty(); recordHistory('Duplicate field', before);
   };
   $('calibration-delete').onclick = () => {
+    if (operationState === 'publishing' || published) return;
     if (!selectedKey || !window.confirm(`Delete ${selectedKey}?`)) return;
+    const before = configurationHash(configuration);
     delete currentCollection()[selectedKey];
     selectedKey = Object.keys(fields())[0] || Object.keys(signatures())[0] || '';
     selectedKind = Object.keys(fields()).length ? 'field' : 'signature';
-    markDirty(); renderItemList(); inspect();
+    markDirty(); renderItemList(); inspect(); recordHistory('Delete placement', before);
   };
 
   $('global-apply').onclick = async () => {
+    if (operationState === 'publishing' || published) return;
     const values = {
       font: $('global-font').value, font_size: Number($('global-font-size').value), min_font_size: Number($('global-min-font-size').value),
       text_case: $('global-text-case').value, align: $('global-align').value, vertical_align: $('global-vertical').value,
@@ -736,6 +974,7 @@
       return status('Global formatting values must be valid numbers.', true);
     }
     if (values.min_font_size > values.font_size) return status('Minimum font size cannot exceed font size.', true);
+    const before = configurationHash(configuration);
     configuration.field_overlay_manifest.defaults = copy(values);
     let applied = 0;
     Object.values(fields()).forEach(spec => {
@@ -743,7 +982,7 @@
       Object.assign(spec, copy(values));
       applied += 1;
     });
-    markDirty();
+    markDirty(); recordHistory('Apply global formatting', before);
     window.clearTimeout(previewTimer);
     mode = 'filled';
     $('cal-filled').classList.add('selected');
@@ -758,10 +997,15 @@
     }
   };
 
-  $('cal-prev').onclick = async () => { if (page > 1) { page--; await renderPage(); } };
-  $('cal-next').onclick = async () => { if (page < pageSizes.length) { page++; await renderPage(); } };
-  $('cal-zoom-out').onclick = () => { zoom = Math.max(.5, zoom - .25); applyZoom(); renderOverlays(); };
-  $('cal-zoom-in').onclick = () => { zoom = Math.min(3, zoom + .25); applyZoom(); renderOverlays(); };
+  $('cal-prev').onclick = async () => { if (page > 1) { page--; syncHistoryView(); await renderPage(); } };
+  $('cal-next').onclick = async () => { if (page < pageSizes.length) { page++; syncHistoryView(); await renderPage(); } };
+  $('cal-zoom-out').onclick = () => setZoom('manual', zoom - .25);
+  $('cal-zoom-in').onclick = () => setZoom('manual', zoom + .25);
+  $('cal-fit-width').onclick = () => setZoom('fit-width');
+  $('cal-fit-page').onclick = () => setZoom('fit-page');
+  $('cal-zoom-reset').onclick = () => setZoom('manual', 1);
+  $('cal-undo').onclick = undo;
+  $('cal-redo').onclick = redo;
   $('cal-source').onclick = async () => { mode = 'source'; $('cal-source').classList.add('selected'); $('cal-filled').classList.remove('selected'); await renderPage(); };
   $('cal-filled').onclick = async () => { mode = 'filled'; $('cal-filled').classList.add('selected'); $('cal-source').classList.remove('selected'); await renderPage(); };
   $('cal-regenerate').onclick = async () => { try { await renderPage(); } catch (error) { status(error.message, true); } };
@@ -773,65 +1017,107 @@
   };
   $('cal-mobile-global').onclick = event => openMobileSheet('global', event.currentTarget);
   $('cal-mobile-view').onclick = event => openMobileSheet('view', event.currentTarget);
+  $('calibration-readiness-trigger').onclick = () => {
+    if (mobileLayout()) openMobileSheet('fields', $('cal-mobile-fields'));
+    else { $('calibration-readiness').scrollIntoView({ block: 'nearest' }); $('calibration-readiness').focus?.(); }
+  };
   $('calibration-sheet-close').onclick = () => closeMobileSheets();
   $('calibration-view-close').onclick = () => closeMobileSheets();
   $('calibration-mobile-backdrop').onclick = () => closeMobileSheets();
   $('calibration-sidebar').addEventListener('keydown', trapSheetFocus);
   $('calibration-toolbar').addEventListener('keydown', trapSheetFocus);
-  window.addEventListener('resize', syncMobileLayout);
+  $('calibration-scroll').addEventListener('scroll', () => viewportFocalPoint(), { passive: true });
+  window.addEventListener('resize', () => {
+    syncMobileLayout();
+    window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(() => { applyZoom({ preserveFocal: true }); renderOverlays(); }, 100);
+  });
   syncMobileLayout();
 
-  async function saveDraft() {
-    const clientRequestId = requestKey('calibration-save');
+  async function saveDraft(snapshot, snapshotHash) {
+    const clientRequestId = requestKey('calibration-save', snapshotHash);
     const data = await jsonRequest(app.dataset.saveUrl, {
       method: 'POST',
       headers: { 'Idempotency-Key': clientRequestId, 'X-Request-ID': clientRequestId },
-      body: JSON.stringify({ revision, configuration, client_request_id: clientRequestId }),
+      body: JSON.stringify({ revision, configuration: snapshot, client_request_id: clientRequestId }),
     });
-    revision = data.revision; dirty = false; delete pendingWriteKeys['calibration-save']; return data;
+    revision = data.revision;
+    savedBaselineHash = snapshotHash;
+    delete pendingWriteKeys['calibration-save'];
+    refreshDirtyState();
+    return data;
   }
   async function runWrite(work) {
     if (writeInFlight) return writeInFlight;
-    const buttons = [$('calibration-save'), $('calibration-publish')];
-    buttons.forEach(button => { button.disabled = true; button.setAttribute('aria-busy', 'true'); });
     writeInFlight = Promise.resolve().then(work);
     try {
       return await writeInFlight;
     } finally {
       writeInFlight = null;
-      buttons.forEach(button => { button.disabled = false; button.removeAttribute('aria-busy'); });
     }
   }
   $('calibration-save').onclick = () => runWrite(async () => {
-    try { status('Saving draft…'); await saveDraft(); status(`Draft revision ${revision} saved; Mini App unchanged`); }
-    catch (error) { status(error.message, true); throw error; }
+    const snapshot = copy(configuration), snapshotHash = configurationHash(snapshot);
+    try {
+      setOperationState('saving');
+      $('calibration-save').setAttribute('aria-busy', 'true');
+      $('calibration-publish').setAttribute('aria-busy', 'true');
+      status('Saving captured draft…', false, true);
+      await saveDraft(snapshot, snapshotHash);
+      status(configurationHash(configuration) === snapshotHash ? `Draft revision ${revision} saved.` : `Revision ${revision} saved; newer changes remain unsaved.`);
+    } catch (error) {
+      status(error.message, true, true); throw error;
+    } finally {
+      $('calibration-save').removeAttribute('aria-busy'); $('calibration-publish').removeAttribute('aria-busy');
+      if (!published) setOperationState('idle');
+    }
   }).catch(() => {});
   $('calibration-publish').onclick = () => runWrite(async () => {
     try {
-      if (dirty) { status('Saving alignment…'); await saveDraft(); }
-      status('Validating and publishing product…');
-      const clientRequestId = requestKey('calibration-publish');
+      if (!readinessState().ready) { updateReadiness(); openMobileSheet('fields', $('cal-mobile-fields')); return; }
+      setOperationState('publishing');
+      $('calibration-save').setAttribute('aria-busy', 'true'); $('calibration-publish').setAttribute('aria-busy', 'true');
+      const snapshot = copy(configuration), snapshotHash = configurationHash(snapshot);
+      if (snapshotHash !== savedBaselineHash) { status('Saving reviewed alignment…', false, true); await saveDraft(snapshot, snapshotHash); }
+      status('Validating and publishing product…', false, true);
+      const clientRequestId = requestKey('calibration-publish', `${revision}:${savedBaselineHash}`);
       const data = await jsonRequest(app.dataset.publishUrl, {
         method: 'POST',
         headers: { 'Idempotency-Key': clientRequestId, 'X-Request-ID': clientRequestId },
         body: JSON.stringify({ revision, client_request_id: clientRequestId }),
       });
       revision = data.revision; delete pendingWriteKeys['calibration-publish'];
-      status(`Published ${data.product_key || 'template'} version ${data.product_version || ''}`.trim());
-    } catch (error) { status(error.message, true); throw error; }
+      published = true; setOperationState('published'); refreshDirtyState();
+      status(`Published ${data.product_key || 'template'} version ${data.product_version || ''}`.trim(), false, true);
+    } catch (error) {
+      serverReadinessIssue = error.message;
+      if (!published) setOperationState('idle');
+      updateReadiness(); status(error.message, true, true); throw error;
+    } finally {
+      $('calibration-save').removeAttribute('aria-busy'); $('calibration-publish').removeAttribute('aria-busy');
+    }
   }).catch(() => {});
 
   window.addEventListener('keydown', event => {
     if (event.key === 'Escape' && mobileSheet) { event.preventDefault(); closeMobileSheets(); return; }
+    const editingControl = /INPUT|SELECT|TEXTAREA/.test(event.target.tagName);
+    if (!editingControl && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+      event.preventDefault();
+      if (event.shiftKey) redo(); else undo();
+      return;
+    }
+    if (!editingControl && event.ctrlKey && event.key.toLowerCase() === 'y') { event.preventDefault(); redo(); return; }
     if (!currentSpec() || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key) || /INPUT|SELECT|TEXTAREA/.test(event.target.tagName)) return;
+    if (operationState === 'publishing' || published) return;
     event.preventDefault();
+    const before = configurationHash(configuration);
     const spec = currentSpec(), box = copy(boxFor(spec)), step = event.shiftKey ? 10 : 2;
     if (event.key === 'ArrowLeft') box.x -= step;
     if (event.key === 'ArrowRight') box.x += step;
     if (event.key === 'ArrowUp') box.y += step;
     if (event.key === 'ArrowDown') box.y -= step;
     box.x = Math.max(0, box.x); box.y = Math.max(0, box.y);
-    setBox(spec, box); markDirty(); inspect(); renderOverlays();
+    setBox(spec, box); markDirty(); inspect(); renderOverlays(); recordHistory('Nudge placement', before);
   });
   window.addEventListener('beforeunload', event => {
     if (dirty) { event.preventDefault(); event.returnValue = ''; }
