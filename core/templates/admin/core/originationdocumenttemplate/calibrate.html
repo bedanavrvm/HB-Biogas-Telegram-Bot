@@ -1,6 +1,6 @@
 {% extends "admin/base_site.html" %}
 {% load static %}
-{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_calibration.css' %}?v=10">{% endblock %}
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_calibration.css' %}?v=11">{% endblock %}
 {% block breadcrumbs %}{% endblock %}
 {% block content_title %}{% endblock %}
 {% block content_subtitle %}{% endblock %}
@@ -73,10 +73,10 @@
     </main>
   </div>
   <nav class="calibration-mobile-dock" aria-label="Calibration tools">
-    <button type="button" id="cal-mobile-fields"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>Fields</span></button>
-    <button type="button" id="cal-mobile-inspector"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="3"/></svg><span>Selected</span></button>
-    <button type="button" id="cal-mobile-global"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span>Format</span></button>
-    <button type="button" id="cal-mobile-view"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 12s3-6 9-6 9 6 9 6-3 6-9 6-9-6-9-6Z"/><circle cx="12" cy="12" r="2"/></svg><span>View</span></button>
+    <button type="button" id="cal-mobile-fields" aria-controls="calibration-sidebar" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>Fields</span></button>
+    <button type="button" id="cal-mobile-inspector" aria-controls="calibration-sidebar" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="3"/></svg><span>Selected</span></button>
+    <button type="button" id="cal-mobile-global" aria-controls="calibration-sidebar" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span>Format</span></button>
+    <button type="button" id="cal-mobile-view" aria-controls="calibration-toolbar" aria-expanded="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 12s3-6 9-6 9 6 9 6-3 6-9 6-9-6-9-6Z"/><circle cx="12" cy="12" r="2"/></svg><span>View</span></button>
   </nav>
   <dialog id="calibration-field-dialog" class="calibration-field-dialog">
     <form method="dialog" id="calibration-field-form">

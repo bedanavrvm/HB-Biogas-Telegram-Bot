@@ -65,6 +65,7 @@ class LoanOriginationFrontendTests(SimpleTestCase):
     def test_superuser_template_calibration_workspace_is_present(self):
         template = Path('core/templates/admin/core/originationdocumenttemplate/calibrate.html').read_text(encoding='utf-8')
         source = Path('core/static/admin/origination_calibration.js').read_text(encoding='utf-8')
+        styles = Path('core/static/admin/origination_calibration.css').read_text(encoding='utf-8')
         for control in ('calibration-canvas', 'calibration-save', 'calibration-publish', 'cal-filled', 'calibration-add-signature'):
             self.assertIn(control, template)
         self.assertIn('global-apply', template)
@@ -72,6 +73,8 @@ class LoanOriginationFrontendTests(SimpleTestCase):
         for control in ('cal-mobile-fields', 'cal-mobile-inspector', 'cal-mobile-global', 'cal-mobile-view'):
             self.assertIn(control, template)
         self.assertIn('aria-labelledby="calibration-sheet-title"', template)
+        self.assertIn('aria-controls="calibration-sidebar" aria-expanded="false"', template)
+        self.assertIn('origination_calibration.css\' %}?v=11', template)
         self.assertIn('screenPointToPage', source)
         self.assertIn('screenDeltaToPage', source)
         self.assertIn('pageBoxToScreen', source)
@@ -79,6 +82,10 @@ class LoanOriginationFrontendTests(SimpleTestCase):
         self.assertIn('TAP_DURATION = 350', source)
         self.assertIn('Idempotency-Key', source)
         self.assertIn('writeInFlight', source)
+        self.assertIn("button.classList.remove('is-active')", source)
+        self.assertIn('--cal-sheet-surface: #ffffff', styles)
+        self.assertIn('background-color: var(--cal-sheet-surface) !important', styles)
+        self.assertIn('.calibration-mobile-dock button.is-active', styles)
         self.assertNotIn('←', template)
         self.assertNotIn('↻', template)
         self.assertIn('preview_format', Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8'))

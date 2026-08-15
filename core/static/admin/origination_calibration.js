@@ -384,6 +384,10 @@
       sidebar.removeAttribute('aria-hidden'); toolbar.removeAttribute('aria-hidden');
     }
     $('calibration-mobile-backdrop').hidden = true;
+    for (const button of document.querySelectorAll('.calibration-mobile-dock button')) {
+      button.classList.remove('is-active');
+      button.setAttribute('aria-expanded', 'false');
+    }
     const returnFocus = mobileReturnFocus;
     mobileSheet = ''; mobileReturnFocus = null;
     if (restoreFocus) window.requestAnimationFrame(() => returnFocus?.focus?.());
@@ -395,6 +399,11 @@
     mobileReturnFocus = trigger || document.activeElement;
     const sidebar = $('calibration-sidebar'), toolbar = $('calibration-toolbar');
     const target = mode === 'view' ? toolbar : sidebar;
+    const triggerButton = trigger?.closest?.('.calibration-mobile-dock button');
+    if (triggerButton) {
+      triggerButton.classList.add('is-active');
+      triggerButton.setAttribute('aria-expanded', 'true');
+    }
     if (mode !== 'view') {
       sidebar.classList.add('mobile-open', `mobile-mode-${mode}`);
       $('calibration-sheet-title').textContent = mode === 'fields' ? 'Fields and signer slots' : mode === 'global' ? 'Global formatting' : 'Selected field';

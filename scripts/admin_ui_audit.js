@@ -55,6 +55,39 @@ async function assertContained(page, label) {
   assert(values.documentOverflow <= 1 && values.bodyOverflow <= 1, `${label}: document overflow ${JSON.stringify(values)}`);
 }
 
+async function auditOpenCalibrationSheets(page, viewport, theme) {
+  const sheets = [
+    { name: 'fields', trigger: '#cal-mobile-fields', target: '#calibration-sidebar', inner: '.calibration-field-browser' },
+    { name: 'selected', trigger: '#cal-mobile-inspector', target: '#calibration-sidebar', inner: '#calibration-inspector' },
+    { name: 'format', trigger: '#cal-mobile-global', target: '#calibration-sidebar', inner: '.global-formatting-body' },
+    { name: 'view', trigger: '#cal-mobile-view', target: '#calibration-toolbar', inner: null },
+  ];
+  for (const sheet of sheets) {
+    await page.locator(sheet.trigger).click();
+    await page.locator(sheet.target).waitFor({ state: 'visible' });
+    const surfaces = [sheet.target, `${sheet.target} .calibration-sheet-header`];
+    if (sheet.inner) surfaces.push(sheet.inner);
+    for (const selector of surfaces) {
+      const style = await page.locator(selector).evaluate(node => {
+        const computed = getComputedStyle(node);
+        return { background: computed.backgroundColor, image: computed.backgroundImage, opacity: computed.opacity };
+      });
+      const transparent = style.background === 'transparent' || style.background === 'rgba(0, 0, 0, 0)' || /,\s*0\)$/.test(style.background);
+      assert(!transparent && style.opacity === '1', `${viewport.name}/${theme}/${sheet.name}: transparent ${selector} ${JSON.stringify(style)}`);
+      assert(style.image === 'none', `${viewport.name}/${theme}/${sheet.name}: unexpected background image on ${selector}`);
+    }
+    assert(await page.locator(sheet.trigger).getAttribute('aria-expanded') === 'true', `${viewport.name}/${theme}/${sheet.name}: trigger not expanded`);
+    assert(await page.locator(sheet.trigger).evaluate(node => node.classList.contains('is-active')), `${viewport.name}/${theme}/${sheet.name}: trigger lacks active state`);
+    if (theme === 'dark' && sheet.target === '#calibration-sidebar') {
+      const labelColor = await page.locator(`${sheet.target} label:visible`).first().evaluate(node => getComputedStyle(node).color);
+      assert(labelColor === 'rgb(203, 213, 225)', `${viewport.name}/${theme}/${sheet.name}: low-contrast label ${labelColor}`);
+    }
+    await page.screenshot({ path: path.join(output, `${viewport.name}-calibration-${sheet.name}-${theme}.png`) });
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(selector => document.querySelector(selector)?.getAttribute('aria-expanded') === 'false', sheet.trigger);
+  }
+}
+
 async function auditSharedPages(browser, viewport) {
   const context = await browser.newContext({ viewport });
   const page = await context.newPage();
@@ -120,11 +153,13 @@ async function auditCalibration(browser, viewport) {
 
   if (viewport.width <= 850) {
     assert(await page.locator('.calibration-mobile-dock').isVisible(), `${viewport.name}: mobile tool dock missing`);
+    await auditOpenCalibrationSheets(page, viewport, 'light');
     await page.locator('#cal-mobile-fields').click();
     assert(await page.locator('#calibration-sidebar').getAttribute('role') === 'dialog', `${viewport.name}: fields sheet lacks dialog role`);
     assert(await page.locator('#calibration-sidebar').getAttribute('aria-modal') === 'true', `${viewport.name}: fields sheet lacks aria-modal`);
+    await page.waitForTimeout(25);
     await page.locator('#calibration-sidebar').evaluate(sidebar => {
-      const items = [...sidebar.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href]')]
+      const items = [...sidebar.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')]
         .filter(item => !item.hidden && item.getClientRects().length);
       items.at(-1).focus();
     });
@@ -179,6 +214,7 @@ async function auditCalibration(browser, viewport) {
   }
 
   await page.evaluate(() => document.documentElement.classList.add('dark'));
+  if (viewport.width <= 850) await auditOpenCalibrationSheets(page, viewport, 'dark');
   const overlay = await page.locator('.calibration-box.selected').evaluate(node => getComputedStyle(node).borderTopColor);
   assert(overlay === 'rgb(224, 68, 0)', `${viewport.name}: dark-mode overlay lost fixed contrast (${overlay})`);
   if (viewport.width <= 850) {

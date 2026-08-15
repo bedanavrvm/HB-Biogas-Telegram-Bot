@@ -42,6 +42,17 @@ try {
     node (Join-Path $repository 'scripts\admin_ui_audit.js')
     if ($LASTEXITCODE -ne 0) { throw "Admin browser audit failed with exit code $LASTEXITCODE" }
 } finally {
-    if ($server -and -not $server.HasExited) { Stop-Process -Id $server.Id -Force }
-    if (Test-Path -LiteralPath $auditDatabase) { Remove-Item -LiteralPath $auditDatabase -Force }
+    if ($server -and -not $server.HasExited) {
+        Stop-Process -Id $server.Id -Force
+        $server.WaitForExit(5000) | Out-Null
+    }
+    if (Test-Path -LiteralPath $auditDatabase) {
+        for ($cleanupAttempt = 0; $cleanupAttempt -lt 10; $cleanupAttempt++) {
+            try { Remove-Item -LiteralPath $auditDatabase -Force -ErrorAction Stop; break }
+            catch {
+                if ($cleanupAttempt -eq 9) { Write-Warning "Could not remove temporary audit database: $auditDatabase" }
+                else { Start-Sleep -Milliseconds 150 }
+            }
+        }
+    }
 }

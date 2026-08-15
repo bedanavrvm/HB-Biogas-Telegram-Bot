@@ -4,6 +4,9 @@
   --cal-muted: #64748b;
   --cal-control: #f8fafc;
   --cal-text: #172033;
+  --cal-sheet-surface: #ffffff;
+  --cal-sheet-sub-surface: #f8fafc;
+  --cal-sheet-border: #cbd5e1;
   display: grid;
   gap: 6px;
   width: 100%;
@@ -176,8 +179,10 @@ body #content, body #content-main { max-width: none !important; }
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 1002;
     display: grid; width: 100%; max-height: min(82dvh, 680px); box-sizing: border-box;
     padding: 0 12px calc(10px + env(safe-area-inset-bottom)); overflow-y: auto;
-    border: 1px solid var(--cal-border); border-radius: 15px 15px 0 0;
-    background: var(--cal-surface) !important; box-shadow: 0 -14px 38px rgba(15,23,42,.3);
+    border: 1px solid var(--cal-sheet-border); border-radius: 15px 15px 0 0;
+    background-color: var(--cal-sheet-surface) !important; background-image: none !important;
+    background-clip: padding-box; box-shadow: 0 -14px 38px rgba(15,23,42,.3);
+    isolation: isolate; opacity: 1;
     visibility: hidden; pointer-events: none;
     transform: translateY(105%); transition: transform .16s ease;
   }
@@ -186,7 +191,7 @@ body #content, body #content-main { max-width: none !important; }
   .calibration-toolbar { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: center; gap: 7px; }
   .calibration-toolbar > .cal-button { width: 100%; }
   .calibration-toolbar > strong, .calibration-toolbar > span { text-align: center; }
-  .calibration-sheet-header { display: flex !important; grid-column: 1 / -1; align-items: flex-start; justify-content: space-between; gap: 8px; margin: 0 -12px; padding: 10px 12px 8px; border-bottom: 1px solid var(--cal-border); }
+  .calibration-sheet-header { position: sticky; top: 0; z-index: 2; display: flex !important; grid-column: 1 / -1; align-items: flex-start; justify-content: space-between; gap: 8px; margin: 0 -12px; padding: 10px 12px 8px; border-bottom: 1px solid var(--cal-sheet-border); background-color: var(--cal-sheet-surface) !important; background-image: none !important; }
   .calibration-sheet-header h2, .calibration-sheet-header p { margin: 0; }
   .calibration-sheet-header h2 { color: var(--cal-text); font-size: 14px; }
   .calibration-sheet-header p { color: var(--cal-muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
@@ -194,7 +199,18 @@ body #content, body #content-main { max-width: none !important; }
   .calibration-sidebar:not(.mobile-mode-fields) .calibration-field-browser,
   .calibration-sidebar:not(.mobile-mode-global) .global-formatting,
   .calibration-sidebar:not(.mobile-mode-inspector) #calibration-inspector { display: none !important; }
-  .calibration-sidebar.mobile-mode-global .global-formatting { border: 0; }
+  .calibration-sidebar.mobile-mode-fields .tool-row,
+  .calibration-sidebar.mobile-mode-fields .calibration-field-browser,
+  .calibration-sidebar.mobile-mode-inspector #calibration-inspector,
+  .calibration-sidebar.mobile-mode-global .global-formatting-body {
+    border-radius: 8px;
+    background-color: var(--cal-sheet-sub-surface) !important;
+    background-image: none !important;
+  }
+  .calibration-sidebar.mobile-mode-fields .tool-row { padding: 7px; }
+  .calibration-sidebar.mobile-mode-fields .calibration-field-browser,
+  .calibration-sidebar.mobile-mode-inspector #calibration-inspector { padding: 8px; }
+  .calibration-sidebar.mobile-mode-global .global-formatting { border: 0; background-color: var(--cal-sheet-surface) !important; }
   .calibration-sidebar.mobile-mode-global .global-formatting > summary { display: none; }
   .calibration-sidebar.mobile-mode-global .global-formatting-body { display: grid; padding: 2px 0; }
   #calibration-fields { min-height: 32dvh !important; }
@@ -202,16 +218,21 @@ body #content, body #content-main { max-width: none !important; }
   .calibration-mobile-backdrop:not([hidden]) { display: block; }
   .calibration-mobile-dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1000; display: grid; grid-template-columns: repeat(4, 1fr); padding: 4px 6px calc(4px + env(safe-area-inset-bottom)); border-top: 1px solid var(--cal-border); background: var(--cal-surface); box-shadow: 0 -5px 18px rgba(15,23,42,.14); }
   .calibration-mobile-dock button { display: grid; place-items: center; gap: 1px; min-height: 46px; padding: 3px; border: 0; background: transparent; color: var(--cal-muted); font: 650 10px/1.1 system-ui, sans-serif; }
+  .calibration-mobile-dock button.is-active { border-radius: 7px; background: #e0f2f1; color: #0f766e; }
   .calibration-mobile-dock button:focus-visible { outline: 2px solid #2563eb; outline-offset: -2px; }
   .calibration-mobile-dock svg { width: 19px; height: 19px; }
   .calibration-field-dialog { width: 100vw; max-width: none; max-height: 88dvh; margin: auto 0 0; border-radius: 15px 15px 0 0; }
   .calibration-field-dialog form { gap: 9px; padding: 12px; }
 }
 
-.dark #calibration-app { --cal-border: rgb(var(--color-base-700)); --cal-surface: rgb(var(--color-base-900)); --cal-muted: rgb(var(--color-base-400)); --cal-control: rgb(var(--color-base-800)); --cal-text: rgb(var(--color-base-100)); background: rgb(var(--color-base-900)); }
-.dark .calibration-topbar, .dark .calibration-sidebar, .dark .global-formatting, .dark .global-formatting-body, .dark .calibration-field-dialog, .dark .calibration-field-dialog section { background: rgb(var(--color-base-900)) !important; color: var(--cal-text); }
-.dark .calibration-heading > a, .dark .cal-button, .dark .calibration-sidebar input, .dark .calibration-sidebar select, .dark .calibration-field-dialog input:not([type="checkbox"]), .dark .calibration-field-dialog select, .dark .calibration-field-dialog textarea { border-color: rgb(var(--color-base-700)) !important; background: rgb(var(--color-base-800)) !important; color: rgb(var(--color-base-100)) !important; -webkit-text-fill-color: rgb(var(--color-base-100)) !important; color-scheme: dark !important; }
+.dark #calibration-app { --cal-border: #475569; --cal-surface: #0f172a; --cal-muted: #94a3b8; --cal-control: #1e293b; --cal-text: #f1f5f9; --cal-sheet-surface: #0f172a; --cal-sheet-sub-surface: #1e293b; --cal-sheet-border: #475569; background: #0f172a; }
+.dark .calibration-topbar, .dark .calibration-sidebar, .dark .global-formatting, .dark .global-formatting-body, .dark .calibration-field-dialog { background-color: #0f172a !important; background-image: none !important; color: var(--cal-text); }
+.dark .calibration-field-dialog section { background-color: #1e293b !important; background-image: none !important; color: var(--cal-text); }
+.dark .calibration-heading > a, .dark .cal-button, .dark .calibration-sidebar input, .dark .calibration-sidebar select, .dark .calibration-field-dialog input:not([type="checkbox"]), .dark .calibration-field-dialog select, .dark .calibration-field-dialog textarea { border-color: #475569 !important; background: #1e293b !important; color: #f1f5f9 !important; -webkit-text-fill-color: #f1f5f9 !important; color-scheme: dark !important; }
+.dark .calibration-sidebar select option { background: #1e293b !important; color: #f1f5f9 !important; }
 .dark .calibration-topbar h1, .dark .calibration-sidebar h2, .dark .calibration-toolbar strong, .dark .calibration-toolbar span, .dark .calibration-field-dialog label { color: var(--cal-text) !important; }
-.dark .calibration-toolbar { background: rgb(var(--color-base-800)) !important; }
+.dark .calibration-sidebar label, .dark .global-formatting summary, .dark .global-formatting-body p { color: #cbd5e1 !important; }
+.dark .calibration-toolbar { background: #1e293b !important; }
 .dark #calibration-app .calibration-mobile-dock { border-color: #334155; background: #0f172a !important; }
 .dark #calibration-app .calibration-mobile-dock button { color: #cbd5e1; }
+.dark #calibration-app .calibration-mobile-dock button.is-active { background: #134e4a; color: #f0fdfa; }
