@@ -102,6 +102,22 @@ body.origination-modal-open { overflow: hidden; }
 .filter-chip svg { width: 13px; height: 13px; }
 
 input, select, textarea { width: 100%; min-width: 0; min-height: 42px; box-sizing: border-box; padding: 8px 10px; border: 1px solid #b9cac3; border-radius: 8px; background: var(--tg-theme-bg-color, #fff); color: inherit; font: inherit; outline: none; }
+/* Telegram's Android WebView may paint the native select popup with the OS
+   palette instead of the element palette. Keep the closed value and popup
+   options on the same explicit theme so populated selects never look blank. */
+.origination-app select {
+  background-color: var(--laf-surface) !important;
+  color: var(--laf-dark) !important;
+  -webkit-text-fill-color: var(--laf-dark);
+  color-scheme: light;
+}
+.origination-app select option,
+.origination-app select optgroup {
+  background-color: var(--laf-surface);
+  color: var(--laf-dark);
+  -webkit-text-fill-color: var(--laf-dark);
+}
+:root[data-telegram-theme="dark"] .origination-app select { color-scheme: dark; }
 textarea { min-height: 88px; resize: vertical; }
 input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !important; box-shadow: 0 0 0 3px rgba(18, 100, 72, .12) !important; }
 .origination-app .btn-primary { background: var(--laf-green) !important; color: var(--laf-on-green) !important; }

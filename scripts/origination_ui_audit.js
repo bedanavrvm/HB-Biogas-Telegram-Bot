@@ -76,6 +76,31 @@ async function waitForList(page) {
   await page.locator('.application-card').first().waitFor();
 }
 
+async function assertSelectIsVisible(select, context) {
+  const result = await select.evaluate(node => {
+    const parseRgb = value => (value.match(/[\d.]+/g) || []).slice(0, 3).map(Number);
+    const luminance = value => parseRgb(value).map(component => {
+      const channel = component / 255;
+      return channel <= .03928 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4;
+    }).reduce((sum, channel, index) => sum + channel * [.2126, .7152, .0722][index], 0);
+    const style = getComputedStyle(node);
+    const optionStyle = getComputedStyle(node.options[0]);
+    const values = [luminance(style.color), luminance(style.backgroundColor)].sort((a, b) => b - a);
+    return {
+      text: node.options[node.selectedIndex]?.textContent?.trim() || '',
+      contrast: (values[0] + .05) / (values[1] + .05),
+      textFill: style.webkitTextFillColor,
+      color: style.color,
+      optionColor: optionStyle.color,
+      optionBackground: optionStyle.backgroundColor,
+    };
+  });
+  assert(result.text, `${context}: selected option has no visible label`);
+  assert(result.contrast >= 4.5, `${context}: select contrast is only ${result.contrast.toFixed(2)}:1`);
+  assert(result.textFill === result.color, `${context}: WebKit text fill does not match select text (${result.textFill} / ${result.color})`);
+  assert(result.optionColor !== result.optionBackground, `${context}: option foreground and background are identical`);
+}
+
 async function auditViewport(browser, viewport) {
   const page = await browser.newPage({ viewport });
   await installApiMocks(page);
@@ -98,6 +123,7 @@ async function auditViewport(browser, viewport) {
   await start.focus();
   await start.click();
   await page.locator('#origination-sheet').waitFor();
+  await assertSelectIsVisible(page.locator('#origination-create-branch'), `${viewport.name} creation branch`);
   assert(await page.locator('#origination-sheet').evaluate(sheet => sheet.getBoundingClientRect().bottom <= innerHeight + 1), `${viewport.name}: sheet exceeds live viewport`);
   await page.locator('[data-sheet-cancel]').focus();
   await page.keyboard.press('Tab');
@@ -157,8 +183,10 @@ async function auditTelegramAndSlowNetwork(browser) {
   await page.waitForFunction(() => getComputedStyle(document.documentElement).getPropertyValue('--origination-live-height').trim() === '520px');
   await page.setViewportSize({ width: 360, height: 800 });
   await page.locator('#origination-start').click();
+  await assertSelectIsVisible(page.locator('#origination-create-branch'), 'Telegram dark creation branch');
   await page.locator('#origination-create-branch').selectOption('Embu');
   await page.locator('#origination-create-product').selectOption('express');
+  await assertSelectIsVisible(page.locator('#origination-create-product'), 'Telegram dark creation product');
   const telegramState = await page.evaluate(() => ({ ...window.__telegramAudit, mainHandler: Boolean(window.__telegramAudit.mainHandler), backHandler: Boolean(window.__telegramAudit.backHandler) }));
   assert(telegramState.mainVisible && telegramState.mainText === 'Start application', 'Telegram MainButton does not own the creation action');
   assert(await page.locator('[data-primary-action]').isHidden(), 'DOM primary remained visible with Telegram MainButton');
