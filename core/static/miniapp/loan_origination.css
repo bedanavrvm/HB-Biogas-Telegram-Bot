@@ -282,7 +282,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !impo
 .wizard-actions > span[data-state=saving] { color: #946200; }
 .wizard-actions > span[data-state=offline] { color: #b42318; }
 .wizard-actions .btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: 40px; padding: 7px 11px; font-size: .7rem; }
-.telegram-main-button-active .wizard-actions, .origination-keyboard-open .wizard-actions { position: static; padding-bottom: 7px; backdrop-filter: none; }
+.telegram-main-button-active .wizard-actions, .origination-keyboard-open .wizard-actions, .origination-input-active .wizard-actions { position: static; padding-bottom: 7px; backdrop-filter: none; }
+.origination-input-active .origination-shell { padding-bottom: max(12px, env(safe-area-inset-bottom)) !important; }
 
 .review-intro { align-items: flex-start; padding: 1px 0 11px; border-bottom: 1px solid var(--laf-line); }
 .review-intro h3, .review-intro p { margin: 0; }

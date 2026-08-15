@@ -56,6 +56,7 @@
   let createInFlight = false;
   let previewPinch = null;
   let previewSwipe = null;
+  let keyboardFocusTimer = null;
   const previewPointers = new Map();
   const previewPageUrls = new Map();
   const previewPageLoads = new Map();
@@ -150,6 +151,30 @@
     document.documentElement.style.setProperty('--origination-live-height', `${Math.round(visualHeight)}px`);
     const keyboardOpen = visualHeight < Number(window.innerHeight || visualHeight) - 100;
     document.body.classList.toggle('origination-keyboard-open', keyboardOpen);
+    if (document.body.classList.contains('origination-input-active')) scheduleFocusedInputVisibility();
+  }
+
+  function isKeyboardInput(element) {
+    if (!element || element.disabled || element.readOnly) return false;
+    if (element.matches('textarea')) return true;
+    return element.matches('input:not([type]), input[type="text"], input[type="tel"], input[type="email"], input[type="password"], input[type="search"], input[type="url"], input[type="number"]');
+  }
+
+  function keepFocusedInputVisible() {
+    const input = document.activeElement;
+    if (!isKeyboardInput(input)) return;
+    const liveHeight = Number(window.visualViewport?.height) || Number(window.innerHeight) || 640;
+    const headerBottom = document.querySelector('.origination-header')?.getBoundingClientRect().bottom || 0;
+    const rect = input.getBoundingClientRect();
+    const lowerLimit = liveHeight - 14;
+    const upperLimit = Math.max(10, headerBottom + 8);
+    if (rect.bottom > lowerLimit) window.scrollBy({ top: rect.bottom - lowerLimit + 10, behavior: 'smooth' });
+    else if (rect.top < upperLimit) window.scrollBy({ top: rect.top - upperLimit - 8, behavior: 'smooth' });
+  }
+
+  function scheduleFocusedInputVisibility() {
+    window.clearTimeout(keyboardFocusTimer);
+    keyboardFocusTimer = window.setTimeout(keepFocusedInputVisible, 180);
   }
 
   function clearMainButtonHandler() {
@@ -172,6 +197,7 @@
     });
     clearMainButtonHandler();
     document.body.classList.remove('telegram-main-button-active');
+    if (document.body.classList.contains('origination-input-active')) return hideMainButton();
     if (!tg?.MainButton) return;
     const blockedByOverlay = Boolean(activeDateInput || activeCustomSelect)
       || !document.getElementById('document-preview-overlay')?.hidden
@@ -1741,6 +1767,19 @@
   window.addEventListener('online', () => { if (current && dirty && !syncConflict) void saveDraft(false); else if (!current) void loadApplications(); });
   window.addEventListener('resize', syncViewport);
   window.visualViewport?.addEventListener('resize', syncViewport);
+  document.addEventListener('focusin', event => {
+    if (!isKeyboardInput(event.target)) return;
+    document.body.classList.add('origination-input-active');
+    syncTelegramControls();
+    scheduleFocusedInputVisibility();
+  });
+  document.addEventListener('focusout', () => {
+    window.setTimeout(() => {
+      if (isKeyboardInput(document.activeElement)) return;
+      document.body.classList.remove('origination-input-active');
+      syncTelegramControls();
+    }, 120);
+  });
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
     if (activeDateInput) closeDatePicker();
@@ -1751,7 +1790,7 @@
   });
   tg?.ready(); tg?.expand();
   tg?.onEvent?.('themeChanged', syncTelegramTheme);
-  tg?.onEvent?.('viewportChanged', syncViewport);
+  tg?.onEvent?.('viewportChanged', () => { syncViewport(); scheduleFocusedInputVisibility(); });
   syncTelegramTheme();
   syncViewport();
   tg?.BackButton?.onClick(async () => {

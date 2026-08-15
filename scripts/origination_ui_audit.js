@@ -19,6 +19,7 @@ const fields = [
   { key: 'national_id', label: 'National ID', type: 'national_id', section_key: 'applicant' },
   { key: 'date_of_birth', label: 'Date of birth', type: 'date', section_key: 'applicant' },
   { key: 'county', label: 'County', type: 'county', section_key: 'applicant' },
+  { key: 'applicant_notes', label: 'Applicant notes', type: 'textarea', width: 'full', section_key: 'applicant' },
   { key: 'business_name', label: 'Business name', type: 'text', section_key: 'business' },
   { key: 'business_type', label: 'Business type', type: 'choice', options: ['Retail', 'Farming'], section_key: 'business' },
   { key: 'loan_amount', label: 'Loan amount', type: 'money', section_key: 'loan' },
@@ -219,6 +220,24 @@ async function auditTelegramAndSlowNetwork(browser) {
   await page.evaluate(() => { window.__telegramAudit.mainHandler(); window.__telegramAudit.mainHandler(); });
   await page.locator('.wizard-progress-compact').waitFor({ timeout: 5000 });
   assert(getCreateCalls() === 1, `Slow-network double tap made ${getCreateCalls()} create requests`);
+  const notes = page.locator('[data-field="applicant_notes"]');
+  await notes.focus();
+  await page.setViewportSize({ width: 360, height: 420 });
+  await page.waitForFunction(() => document.body.classList.contains('origination-input-active'));
+  await page.waitForFunction(() => {
+    const input = document.querySelector('[data-field="applicant_notes"]');
+    return input && input.getBoundingClientRect().bottom <= (visualViewport?.height || innerHeight) - 3;
+  });
+  const keyboardState = await page.evaluate(() => ({
+    mainVisible: window.__telegramAudit.mainVisible,
+    actionPosition: getComputedStyle(document.querySelector('.wizard-actions')).position,
+  }));
+  assert(!keyboardState.mainVisible, 'Telegram MainButton remained over the active keyboard input');
+  assert(keyboardState.actionPosition === 'static', `Wizard actions stayed ${keyboardState.actionPosition} while the keyboard input was active`);
+  await page.screenshot({ path: path.join(outputDir, 'telegram-keyboard-active.png') });
+  await page.evaluate(() => document.activeElement?.blur());
+  await page.setViewportSize({ width: 360, height: 800 });
+  await page.waitForFunction(() => !document.body.classList.contains('origination-input-active'));
   await page.screenshot({ path: path.join(outputDir, 'telegram-dark-slow-network.png') });
   await page.evaluate(() => window.__telegramAudit.backHandler());
   await page.locator('.application-card').first().waitFor();
