@@ -28,6 +28,32 @@ class OriginationTemplateError(ValueError):
     """Stable, staff-safe template management error."""
 
 
+def _calibration_request_id(value: Any) -> str:
+    request_id = str(value or '').strip()
+    if len(request_id) > 120:
+        raise OriginationTemplateError('The calibration request ID is invalid.')
+    return request_id
+
+
+def _calibration_payload_hash(value: Any) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _calibration_request_replay(*, template, action: str, request_id: str, payload_hash: str):
+    if not request_id:
+        return None
+    event = template.events.filter(
+        action=action, metadata__request_id=request_id,
+    ).order_by('-occurred_at').first()
+    if not event:
+        return None
+    if event.metadata.get('payload_hash') != payload_hash:
+        raise OriginationTemplateError('This calibration request ID was already used for different content.')
+    revision = event.metadata.get('configuration_revision')
+    return template.configuration_revisions.filter(revision=revision).first()
+
+
 SYSTEM_CONTEXT_KEYS = (
     ('reference_number', 'Reference Number'),
     ('branch_code', 'Branch Code'),
@@ -256,7 +282,10 @@ def validate_template_configuration(
 
 
 @transaction.atomic
-def save_calibration_draft(*, template: OriginationDocumentTemplate, configuration: Any, actor, expected_revision: int) -> OriginationTemplateConfigurationRevision:
+def save_calibration_draft(
+    *, template: OriginationDocumentTemplate, configuration: Any, actor,
+    expected_revision: int, client_request_id: str = '',
+) -> OriginationTemplateConfigurationRevision:
     template = OriginationDocumentTemplate.objects.select_for_update().get(pk=template.pk)
     if template.product_definition_id and template.product_definition.lifecycle_status != OriginationProductDefinition.STATUS_DRAFT:
         raise OriginationTemplateError('Published product versions are immutable. Create a new product version to change its template.')
@@ -265,6 +294,14 @@ def save_calibration_draft(*, template: OriginationDocumentTemplate, configurati
     normalized = validate_template_configuration(
         configuration, template=template, require_complete=False,
     )
+    request_id = _calibration_request_id(client_request_id)
+    payload_hash = _calibration_payload_hash(normalized)
+    replay = _calibration_request_replay(
+        template=template, action='calibration_saved', request_id=request_id,
+        payload_hash=payload_hash,
+    )
+    if replay:
+        return replay
     if int(expected_revision) != current_revision:
         if latest and latest.created_by_id == getattr(actor, 'pk', None) and latest.configuration == normalized:
             return latest
@@ -275,16 +312,30 @@ def save_calibration_draft(*, template: OriginationDocumentTemplate, configurati
     )
     OriginationDocumentTemplateEvent.objects.create(
         template=template, action='calibration_saved', actor=actor,
-        metadata={'configuration_revision': revision.revision},
+        metadata={
+            'configuration_revision': revision.revision,
+            **({'request_id': request_id, 'payload_hash': payload_hash} if request_id else {}),
+        },
     )
     return revision
 
 
 @transaction.atomic
-def publish_calibration(*, template: OriginationDocumentTemplate, revision: int, actor) -> OriginationTemplateConfigurationRevision:
+def publish_calibration(
+    *, template: OriginationDocumentTemplate, revision: int, actor,
+    client_request_id: str = '',
+) -> OriginationTemplateConfigurationRevision:
     template = OriginationDocumentTemplate.objects.select_for_update().get(pk=template.pk)
     selected = template.configuration_revisions.get(revision=revision)
     validate_template_configuration(selected.configuration, template=template)
+    request_id = _calibration_request_id(client_request_id)
+    payload_hash = _calibration_payload_hash({'source_revision': int(revision)})
+    replay = _calibration_request_replay(
+        template=template, action='calibration_published', request_id=request_id,
+        payload_hash=payload_hash,
+    )
+    if replay:
+        return replay
     current_published = template.published_configuration_revision
     if current_published and current_published.configuration == selected.configuration:
         return current_published
@@ -303,7 +354,10 @@ def publish_calibration(*, template: OriginationDocumentTemplate, revision: int,
     cache.delete(f'origination-template:{template.pk}:{template.source_sha256}')
     OriginationDocumentTemplateEvent.objects.create(
         template=template, action='calibration_published', actor=actor,
-        metadata={'configuration_revision': published.revision, 'source_revision': revision},
+        metadata={
+            'configuration_revision': published.revision, 'source_revision': revision,
+            **({'request_id': request_id, 'payload_hash': payload_hash} if request_id else {}),
+        },
     )
     return published
 
@@ -704,6 +758,7 @@ def replace_draft_template(
 @transaction.atomic
 def publish_product_template(
     *, template: OriginationDocumentTemplate, revision: int, actor,
+    client_request_id: str = '',
 ) -> tuple[OriginationProductDefinition | None, OriginationDocumentTemplate, OriginationTemplateConfigurationRevision]:
     """Publish calibration, activate its immutable PDF, and expose the product atomically."""
     # Lock only the template row. ``product_definition`` is nullable, so
@@ -714,7 +769,10 @@ def publish_product_template(
         pk=template.pk,
     )
     if not template.product_definition_id:
-        published = publish_calibration(template=template, revision=revision, actor=actor)
+        published = publish_calibration(
+            template=template, revision=revision, actor=actor,
+            client_request_id=client_request_id,
+        )
         return None, activate_template(template, actor=actor), published
     product = OriginationProductDefinition.objects.select_for_update().get(
         pk=template.product_definition_id,
@@ -748,7 +806,10 @@ def publish_product_template(
             publish_product_version(version=product.product_version, actor=actor)
         except ProductCatalogError as exc:
             raise OriginationTemplateError(str(exc)) from exc
-    published = publish_calibration(template=template, revision=revision, actor=actor)
+    published = publish_calibration(
+        template=template, revision=revision, actor=actor,
+        client_request_id=client_request_id,
+    )
     activated = activate_template(template, actor=actor)
 
     product.document_template_name = template.name

@@ -5431,7 +5431,12 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
         try:
             from core.services.origination_templates import save_calibration_draft
             body = self._json_body(request)
-            saved = save_calibration_draft(template=obj, configuration=body.get('configuration'), actor=request.user, expected_revision=int(body.get('revision')))
+            request_id = str(body.get('client_request_id') or request.headers.get('Idempotency-Key') or '')
+            saved = save_calibration_draft(
+                template=obj, configuration=body.get('configuration'), actor=request.user,
+                expected_revision=int(body.get('revision')),
+                client_request_id=request_id,
+            )
         except Exception as exc:
             return self._calibration_error_response(exc)
         return JsonResponse({'ok': True, 'revision': saved.revision})
@@ -5486,8 +5491,10 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
         try:
             from core.services.origination_templates import publish_product_template
             body = self._json_body(request)
+            request_id = str(body.get('client_request_id') or request.headers.get('Idempotency-Key') or '')
             product, _template, published = publish_product_template(
                 template=obj, revision=int(body.get('revision')), actor=request.user,
+                client_request_id=request_id,
             )
         except Exception as exc:
             return self._calibration_error_response(exc)

@@ -1,5 +1,8 @@
 /*
  * Project-level density tweaks for django-unfold.
+ * DOM compatibility target: django-unfold 0.64.2.
+ * When upgrading Unfold, update this marker only after the rendered-selector
+ * and viewport audits pass against the new admin markup.
  * Keep the admin useful for operational scanning instead of oversized forms.
  */
 
@@ -1136,6 +1139,9 @@ body[class*='app-'] a.cancel-link {
     body.change-form #content-main .module {
         border-radius: .6rem !important;
         margin-bottom: .75rem !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        width: 100% !important;
     }
 
     body.change-form #content-main .form-row {
@@ -1147,8 +1153,20 @@ body[class*='app-'] a.cancel-link {
     }
 
     body.change-form #content-main .form-row > div {
+        max-width: 100% !important;
         min-width: 0 !important;
         width: 100% !important;
+    }
+
+    body.change-form #content-main .field-line,
+    body.change-form #content-main .readonly,
+    body.change-form #content-main .readonly a,
+    body.change-form #content-main .field-line a {
+        max-width: 100%;
+        min-width: 0;
+        overflow-wrap: anywhere;
+        white-space: normal;
+        word-break: break-word;
     }
 
     body.change-form #content-main input:not([type='checkbox']):not([type='radio']),
@@ -1182,11 +1200,14 @@ body[class*='app-'] a.cancel-link {
 
     body.change-list #changelist-form {
         -webkit-overflow-scrolling: touch;
+        max-width: 100%;
         overflow-x: auto !important;
         width: 100%;
     }
 
     body.change-list #changelist-form .results {
+        max-width: 100%;
+        overflow-x: auto;
         min-width: 46rem;
     }
 
@@ -1240,6 +1261,41 @@ body[class*='app-'] a.cancel-link {
  * ------------------------------------------------------------------------- */
 body.change-form #content-main {
     min-width: 0;
+}
+
+body.change-form #content-main form,
+body.change-form #content-main form > div.flex.flex-col,
+body.change-form #content-main fieldset.module,
+body.change-form #content-main fieldset.module > .aligned {
+    box-sizing: border-box;
+    max-width: 100%;
+    min-width: 0;
+    width: 100%;
+}
+
+body.change-form #content-main .related-widget-wrapper {
+    display: flex;
+    flex: 1 1 auto;
+    max-width: 100%;
+    min-width: 0;
+    width: auto;
+}
+
+body.change-form #content-main .related-widget-wrapper > :first-child {
+    flex: 1 1 0;
+    max-width: 100%;
+    min-width: 0;
+    width: 0;
+}
+
+body.change-form #content-main .related-widget-wrapper select {
+    flex: 1 1 0;
+    min-width: 0;
+    width: 0 !important;
+}
+
+body.change-form #content-main .related-widget-wrapper-link {
+    flex: 0 0 auto;
 }
 
 /* Unfold wraps all fieldsets in a direct flex column with gap-8. Keep model
@@ -1442,5 +1498,12 @@ body.change-list #changelist-filter li {
 
     #content-main.admin-custom-page .module:has(> table) table {
         min-width: 38rem;
+    }
+
+    body.change-list #content-main > *,
+    body.change-form #content-main > *,
+    #content-main.admin-custom-page > * {
+        min-width: 0;
+        max-width: 100%;
     }
 }

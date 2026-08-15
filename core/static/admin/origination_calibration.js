@@ -23,6 +23,14 @@
   let dirty = false;
   let drawing = false;
   let previewTimer = null;
+  let mobileSheet = '';
+  let mobileReturnFocus = null;
+  let writeInFlight = null;
+  let pendingWriteKeys = {};
+  const TAP_DISTANCE = 10;
+  const TAP_DURATION = 350;
+  const drawPointers = new Map();
+  let drawGesture = null;
 
   const fields = () => configuration?.field_overlay_manifest?.fields || {};
   const signatures = () => configuration?.signature_overlay_manifest?.slots || {};
@@ -59,11 +67,55 @@
       height: rounded(boxHeight),
     };
   };
+  const renderedScale = () => {
+    const size = pageSize();
+    const image = $('calibration-page');
+    return size && image.clientWidth ? image.clientWidth / Number(size.width) : 1;
+  };
+  const screenPointToPage = (clientX, clientY, rect = $('calibration-overlays').getBoundingClientRect()) => {
+    const size = pageSize();
+    const scale = renderedScale();
+    return { x: (clientX - rect.left) / scale, y: Number(size.height) - (clientY - rect.top) / scale };
+  };
+  const screenDeltaToPage = (dx, dy, spec) => {
+    const divisor = renderedScale() * unitsScale(spec);
+    return { x: dx / divisor, y: -dy / divisor };
+  };
+  const pageBoxToScreen = spec => {
+    const size = pageSize();
+    const box = boxFor(spec);
+    const unit = unitsScale(spec);
+    const scale = renderedScale();
+    return {
+      left: Number(box.x) * unit * scale,
+      top: (Number(size.height) - (Number(box.y) + Number(box.height)) * unit) * scale,
+      width: Number(box.width) * unit * scale,
+      height: Number(box.height) * unit * scale,
+    };
+  };
+  const clampBox = (spec, box) => {
+    const unit = unitsScale(spec);
+    const size = pageSize();
+    const pageWidth = Number(size.width) / unit;
+    const pageHeight = Number(size.height) / unit;
+    const width = Math.min(pageWidth, Math.max(1, Number(box.width)));
+    const height = Math.min(pageHeight, Math.max(1, Number(box.height)));
+    return {
+      x: Math.min(Math.max(0, Number(box.x)), Math.max(0, pageWidth - width)),
+      y: Math.min(Math.max(0, Number(box.y)), Math.max(0, pageHeight - height)),
+      width, height,
+    };
+  };
+  window.__originationCalibrationGeometry = { screenPointToPage, screenDeltaToPage, pageBoxToScreen, clampBox };
   const currentCollection = () => selectedKind === 'signature' ? signatures() : fields();
   const currentSpec = () => currentCollection()[selectedKey];
   const status = (message, error) => {
     $('calibration-status').textContent = message;
     $('calibration-status').style.color = error ? '#ba2121' : '';
+  };
+  const requestKey = kind => {
+    pendingWriteKeys[kind] ||= `${kind}-${window.crypto?.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
+    return pendingWriteKeys[kind];
   };
 
   async function jsonRequest(url, options) {
@@ -185,7 +237,6 @@
     const size = pageSize();
     layer.replaceChildren();
     if (!size || !image.clientWidth) return;
-    const scale = image.clientWidth / size.width;
     const items = [
       ...Object.entries(fields()).map(([key, spec]) => ({ kind: 'field', key, spec })),
       ...Object.entries(signatures()).map(([key, spec]) => ({ kind: 'signature', key, spec })),
@@ -200,72 +251,177 @@
       element.className = `calibration-box ${kind}${selected ? ' selected' : ''}`;
       element.dataset.kind = kind;
       element.dataset.key = key;
-      element.style.left = `${Number(box.x) * unit * scale}px`;
-      element.style.top = `${(size.height - (Number(box.y) + Number(box.height)) * unit) * scale}px`;
-      element.style.width = `${Number(box.width) * unit * scale}px`;
-      element.style.height = `${Number(box.height) * unit * scale}px`;
+      const rendered = pageBoxToScreen(spec);
+      element.style.left = `${rendered.left}px`;
+      element.style.top = `${rendered.top}px`;
+      element.style.width = `${rendered.width}px`;
+      element.style.height = `${rendered.height}px`;
       const label = kind === 'signature' ? (spec.label || key) : (spec.context_key || key);
       element.innerHTML = `<span>${escapeHtml(label)}</span><i aria-label="Resize"></i>`;
       element.addEventListener('pointerdown', beginPointerEdit);
-      element.addEventListener('click', () => select(kind, key));
       layer.appendChild(element);
     });
     layer.onpointerdown = beginDraw;
+    layer.classList.toggle('draw-active', drawing);
   }
 
   function beginDraw(event) {
     if (!drawing || event.target !== event.currentTarget || !currentSpec()) return;
     event.preventDefault();
     const layer = event.currentTarget;
-    const rect = layer.getBoundingClientRect();
-    const size = pageSize();
-    const scale = $('calibration-page').clientWidth / size.width;
-    const startX = event.clientX - rect.left;
-    const startY = event.clientY - rect.top;
+    layer.setPointerCapture?.(event.pointerId);
+    drawPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    const firstPointer = !drawGesture;
+    if (!drawGesture) {
+      drawGesture = {
+        start: screenPointToPage(event.clientX, event.clientY),
+        original: copy(boxFor(currentSpec())),
+        spec: currentSpec(), moved: false, multiTouch: false,
+        midpoint: null, scrollLeft: 0, scrollTop: 0,
+      };
+    }
+    if (drawPointers.size > 1) {
+      const points = [...drawPointers.values()];
+      const scroll = $('calibration-scroll');
+      drawGesture.multiTouch = true;
+      setBox(drawGesture.spec, drawGesture.original);
+      drawGesture.midpoint = { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 };
+      drawGesture.scrollLeft = scroll.scrollLeft;
+      drawGesture.scrollTop = scroll.scrollTop;
+      renderOverlays();
+    }
+    if (!firstPointer) return;
     const moveHandler = move => {
-      const left = Math.min(startX, move.clientX - rect.left);
-      const top = Math.min(startY, move.clientY - rect.top);
-      const width = Math.max(3, Math.abs(move.clientX - rect.left - startX));
-      const height = Math.max(3, Math.abs(move.clientY - rect.top - startY));
-      const spec = currentSpec();
-      spec.units = 'pt'; spec.page_number = page;
-      setBox(spec, { x: left / scale, y: size.height - (top + height) / scale, width: width / scale, height: height / scale });
+      if (!drawPointers.has(move.pointerId) || !drawGesture) return;
+      drawPointers.set(move.pointerId, { x: move.clientX, y: move.clientY });
+      if (drawPointers.size > 1 || drawGesture.multiTouch) {
+        if (drawPointers.size > 1) {
+          const points = [...drawPointers.values()];
+          const midpoint = { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 };
+          const scroll = $('calibration-scroll');
+          scroll.scrollLeft = drawGesture.scrollLeft - (midpoint.x - drawGesture.midpoint.x);
+          scroll.scrollTop = drawGesture.scrollTop - (midpoint.y - drawGesture.midpoint.y);
+        }
+        return;
+      }
+      const point = screenPointToPage(move.clientX, move.clientY);
+      const left = Math.min(drawGesture.start.x, point.x);
+      const bottom = Math.min(drawGesture.start.y, point.y);
+      const next = { x: left, y: bottom, width: Math.max(3, Math.abs(point.x - drawGesture.start.x)), height: Math.max(3, Math.abs(point.y - drawGesture.start.y)) };
+      drawGesture.spec.units = 'pt'; drawGesture.spec.page_number = page;
+      setBox(drawGesture.spec, next);
+      drawGesture.moved = true;
       markDirty(); inspect(); renderOverlays();
     };
-    const upHandler = () => {
-      drawing = false;
-      $('calibration-overlays').style.cursor = '';
-      $('calibration-draw').classList.remove('selected');
-      window.removeEventListener('pointermove', moveHandler);
+    const upHandler = up => {
+      if (!drawPointers.has(up.pointerId)) return;
+      drawPointers.delete(up.pointerId);
+      if (drawPointers.size) return;
+      layer.removeEventListener('pointermove', moveHandler);
+      layer.removeEventListener('pointerup', upHandler);
+      layer.removeEventListener('pointercancel', upHandler);
+      const completed = drawGesture?.moved && !drawGesture?.multiTouch;
+      drawGesture = null;
+      if (completed) {
+        drawing = false;
+        $('calibration-draw').classList.remove('selected');
+        layer.classList.remove('draw-active');
+        status('Field area drawn. Refine it from Selected if needed.');
+      }
     };
-    window.addEventListener('pointermove', moveHandler);
-    window.addEventListener('pointerup', upHandler, { once: true });
+    layer.addEventListener('pointermove', moveHandler);
+    layer.addEventListener('pointerup', upHandler);
+    layer.addEventListener('pointercancel', upHandler);
   }
 
   function beginPointerEdit(event) {
     event.preventDefault();
+    event.stopPropagation();
     const element = event.currentTarget;
     select(element.dataset.kind, element.dataset.key);
     const spec = currentSpec();
-    const start = { x: event.clientX, y: event.clientY, box: copy(boxFor(spec)) };
+    const start = { x: event.clientX, y: event.clientY, at: performance.now(), box: copy(boxFor(spec)), moved: false, maxDistance: 0 };
     const resizing = event.target.tagName === 'I';
     const moveHandler = move => {
-      const size = pageSize();
-      const scale = $('calibration-page').clientWidth / size.width;
-      const unit = unitsScale(spec);
-      const dx = (move.clientX - start.x) / scale / unit;
-      const dy = (move.clientY - start.y) / scale / unit;
+      if (move.pointerId !== event.pointerId) return;
+      const screenDx = move.clientX - start.x, screenDy = move.clientY - start.y;
+      start.maxDistance = Math.max(start.maxDistance, Math.hypot(screenDx, screenDy));
+      if (start.maxDistance <= TAP_DISTANCE) return;
+      start.moved = true;
+      const delta = screenDeltaToPage(screenDx, screenDy, spec);
       const next = copy(start.box);
-      if (resizing) { next.width = Math.max(1, start.box.width + dx); next.height = Math.max(1, start.box.height - dy); }
-      else { next.x = Math.max(0, start.box.x + dx); next.y = Math.max(0, start.box.y - dy); }
+      if (resizing) { next.width = start.box.width + delta.x; next.height = start.box.height + delta.y; }
+      else { next.x = start.box.x + delta.x; next.y = start.box.y + delta.y; }
       setBox(spec, next); markDirty(); inspect(); renderOverlays();
     };
+    const upHandler = up => {
+      if (up.pointerId !== event.pointerId) return;
+      window.removeEventListener('pointermove', moveHandler);
+      window.removeEventListener('pointerup', upHandler);
+      window.removeEventListener('pointercancel', upHandler);
+      if (!start.moved && performance.now() - start.at <= TAP_DURATION) openMobileSheet('inspector', element);
+    };
     window.addEventListener('pointermove', moveHandler);
-    window.addEventListener('pointerup', () => window.removeEventListener('pointermove', moveHandler), { once: true });
+    window.addEventListener('pointerup', upHandler);
+    window.addEventListener('pointercancel', upHandler);
   }
 
-  function setBox(spec, box) { spec.box = copy(box); spec.allowed_area = copy(box); }
+  function setBox(spec, box) { const bounded = clampBox(spec, box); spec.box = copy(bounded); spec.allowed_area = copy(bounded); }
   function select(kind, key) { selectedKind = kind; selectedKey = key; renderItemList(); inspect(); }
+
+  function mobileLayout() { return window.matchMedia('(max-width: 850px)').matches; }
+  function focusable(container) {
+    return [...container.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')]
+      .filter(item => !item.hidden && item.getClientRects().length);
+  }
+  function closeMobileSheets({ restoreFocus = true } = {}) {
+    const sidebar = $('calibration-sidebar'), toolbar = $('calibration-toolbar');
+    sidebar.classList.remove('mobile-open', 'mobile-mode-fields', 'mobile-mode-inspector', 'mobile-mode-global');
+    toolbar.classList.remove('mobile-open');
+    if (mobileLayout()) {
+      sidebar.setAttribute('aria-hidden', 'true'); toolbar.setAttribute('aria-hidden', 'true');
+    } else {
+      sidebar.removeAttribute('aria-hidden'); toolbar.removeAttribute('aria-hidden');
+    }
+    $('calibration-mobile-backdrop').hidden = true;
+    const returnFocus = mobileReturnFocus;
+    mobileSheet = ''; mobileReturnFocus = null;
+    if (restoreFocus) window.requestAnimationFrame(() => returnFocus?.focus?.());
+  }
+  function openMobileSheet(mode, trigger) {
+    if (!mobileLayout()) return;
+    closeMobileSheets({ restoreFocus: false });
+    mobileSheet = mode;
+    mobileReturnFocus = trigger || document.activeElement;
+    const sidebar = $('calibration-sidebar'), toolbar = $('calibration-toolbar');
+    const target = mode === 'view' ? toolbar : sidebar;
+    if (mode !== 'view') {
+      sidebar.classList.add('mobile-open', `mobile-mode-${mode}`);
+      $('calibration-sheet-title').textContent = mode === 'fields' ? 'Fields and signer slots' : mode === 'global' ? 'Global formatting' : 'Selected field';
+      if (mode === 'global') document.querySelector('.global-formatting').open = true;
+    } else toolbar.classList.add('mobile-open');
+    target.setAttribute('role', 'dialog'); target.setAttribute('aria-modal', 'true'); target.setAttribute('aria-hidden', 'false');
+    $('calibration-mobile-backdrop').hidden = false;
+    window.requestAnimationFrame(() => focusable(target)[0]?.focus());
+  }
+  function trapSheetFocus(event) {
+    if (event.key !== 'Tab' || !mobileSheet) return;
+    const target = mobileSheet === 'view' ? $('calibration-toolbar') : $('calibration-sidebar');
+    const items = focusable(target);
+    if (!items.length) return event.preventDefault();
+    if (event.shiftKey && document.activeElement === items[0]) { event.preventDefault(); items.at(-1).focus(); }
+    else if (!event.shiftKey && document.activeElement === items.at(-1)) { event.preventDefault(); items[0].focus(); }
+  }
+  function syncMobileLayout() {
+    if (mobileLayout()) {
+      if (!mobileSheet) { $('calibration-sidebar').setAttribute('aria-hidden', 'true'); $('calibration-toolbar').setAttribute('aria-hidden', 'true'); }
+      return;
+    }
+    closeMobileSheets({ restoreFocus: false });
+    for (const element of [$('calibration-sidebar'), $('calibration-toolbar')]) {
+      element.removeAttribute('role'); element.removeAttribute('aria-modal'); element.removeAttribute('aria-hidden');
+    }
+  }
 
   function inspect() {
     const spec = currentSpec();
@@ -471,7 +627,11 @@
     }
     updateSelectedField();
   });
-  $('calibration-fields').onchange = event => { const [kind, ...key] = event.target.value.split(':'); select(kind, key.join(':')); };
+  $('calibration-fields').onchange = event => {
+    const [kind, ...key] = event.target.value.split(':');
+    select(kind, key.join(':'));
+    openMobileSheet('inspector', event.target);
+  };
   $('calibration-search').oninput = renderItemList;
 
   $('calibration-add').onclick = () => {
@@ -537,8 +697,9 @@
 
   $('calibration-draw').onclick = () => {
     if (!currentSpec()) { $('calibration-add').click(); return; }
-    drawing = true; $('calibration-overlays').style.cursor = 'crosshair'; $('calibration-draw').classList.add('selected');
-    status('Drag on the document to draw the selected area.');
+    drawing = true; $('calibration-overlays').classList.add('draw-active'); $('calibration-draw').classList.add('selected');
+    closeMobileSheets({ restoreFocus: false });
+    status('Draw with one finger. Use two fingers to pan without drawing.');
   };
   $('calibration-duplicate').onclick = () => {
     if (selectedKind !== 'field' || !selectedKey) return;
@@ -596,25 +757,63 @@
   $('cal-filled').onclick = async () => { mode = 'filled'; $('cal-filled').classList.add('selected'); $('cal-source').classList.remove('selected'); await renderPage(); };
   $('cal-regenerate').onclick = async () => { try { await renderPage(); } catch (error) { status(error.message, true); } };
 
-  async function saveDraft() {
-    const data = await jsonRequest(app.dataset.saveUrl, { method: 'POST', body: JSON.stringify({ revision, configuration }) });
-    revision = data.revision; dirty = false; return data;
-  }
-  $('calibration-save').onclick = async () => {
-    try { status('Saving draft…'); await saveDraft(); status(`Draft revision ${revision} saved; Mini App unchanged`); }
-    catch (error) { status(error.message, true); }
+  $('cal-mobile-fields').onclick = event => openMobileSheet('fields', event.currentTarget);
+  $('cal-mobile-inspector').onclick = event => {
+    if (!currentSpec()) return status('Choose or add a field first.', true);
+    openMobileSheet('inspector', event.currentTarget);
   };
-  $('calibration-publish').onclick = async () => {
+  $('cal-mobile-global').onclick = event => openMobileSheet('global', event.currentTarget);
+  $('cal-mobile-view').onclick = event => openMobileSheet('view', event.currentTarget);
+  $('calibration-sheet-close').onclick = () => closeMobileSheets();
+  $('calibration-view-close').onclick = () => closeMobileSheets();
+  $('calibration-mobile-backdrop').onclick = () => closeMobileSheets();
+  $('calibration-sidebar').addEventListener('keydown', trapSheetFocus);
+  $('calibration-toolbar').addEventListener('keydown', trapSheetFocus);
+  window.addEventListener('resize', syncMobileLayout);
+  syncMobileLayout();
+
+  async function saveDraft() {
+    const clientRequestId = requestKey('calibration-save');
+    const data = await jsonRequest(app.dataset.saveUrl, {
+      method: 'POST',
+      headers: { 'Idempotency-Key': clientRequestId, 'X-Request-ID': clientRequestId },
+      body: JSON.stringify({ revision, configuration, client_request_id: clientRequestId }),
+    });
+    revision = data.revision; dirty = false; delete pendingWriteKeys['calibration-save']; return data;
+  }
+  async function runWrite(work) {
+    if (writeInFlight) return writeInFlight;
+    const buttons = [$('calibration-save'), $('calibration-publish')];
+    buttons.forEach(button => { button.disabled = true; button.setAttribute('aria-busy', 'true'); });
+    writeInFlight = Promise.resolve().then(work);
+    try {
+      return await writeInFlight;
+    } finally {
+      writeInFlight = null;
+      buttons.forEach(button => { button.disabled = false; button.removeAttribute('aria-busy'); });
+    }
+  }
+  $('calibration-save').onclick = () => runWrite(async () => {
+    try { status('Saving draft…'); await saveDraft(); status(`Draft revision ${revision} saved; Mini App unchanged`); }
+    catch (error) { status(error.message, true); throw error; }
+  }).catch(() => {});
+  $('calibration-publish').onclick = () => runWrite(async () => {
     try {
       if (dirty) { status('Saving alignment…'); await saveDraft(); }
       status('Validating and publishing product…');
-      const data = await jsonRequest(app.dataset.publishUrl, { method: 'POST', body: JSON.stringify({ revision }) });
-      revision = data.revision;
+      const clientRequestId = requestKey('calibration-publish');
+      const data = await jsonRequest(app.dataset.publishUrl, {
+        method: 'POST',
+        headers: { 'Idempotency-Key': clientRequestId, 'X-Request-ID': clientRequestId },
+        body: JSON.stringify({ revision, client_request_id: clientRequestId }),
+      });
+      revision = data.revision; delete pendingWriteKeys['calibration-publish'];
       status(`Published ${data.product_key || 'template'} version ${data.product_version || ''}`.trim());
-    } catch (error) { status(error.message, true); }
-  };
+    } catch (error) { status(error.message, true); throw error; }
+  }).catch(() => {});
 
   window.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && mobileSheet) { event.preventDefault(); closeMobileSheets(); return; }
     if (!currentSpec() || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key) || /INPUT|SELECT|TEXTAREA/.test(event.target.tagName)) return;
     event.preventDefault();
     const spec = currentSpec(), box = copy(boxFor(spec)), step = event.shiftKey ? 10 : 2;

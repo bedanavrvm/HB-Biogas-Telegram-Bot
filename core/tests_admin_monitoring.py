@@ -1,5 +1,6 @@
 from unittest.mock import Mock, patch
 from pathlib import Path
+import tomllib
 
 from django.contrib import admin
 from django.contrib.admin.sites import AdminSite
@@ -99,7 +100,7 @@ class AdminMonitoringTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'Operations dashboard')
         self.assertContains(response, '/static/admin/css/compact_unfold.css')
-        self.assertContains(response, 'compact_unfold.css?v=4')
+        self.assertContains(response, 'compact_unfold.css?v=5')
 
     def test_admin_density_css_only_assigns_label_width_to_horizontal_rows(self):
         css = (Path(settings.BASE_DIR) / 'core/static/admin/css/compact_unfold.css').read_text(
@@ -108,6 +109,20 @@ class AdminMonitoringTests(TestCase):
 
         self.assertIn(".field-line[class~='lg:flex-row'] > div:first-child", css)
         self.assertIn('form > div.flex.flex-col', css)
+
+    def test_admin_responsive_overrides_target_the_pinned_unfold_dom(self):
+        css = (Path(settings.BASE_DIR) / 'core/static/admin/css/compact_unfold.css').read_text(
+            encoding='utf-8',
+        )
+        project = tomllib.loads(
+            (Path(settings.BASE_DIR) / 'pyproject.toml').read_text(encoding='utf-8')
+        )
+
+        unfold_version = project['tool']['poetry']['dependencies']['django-unfold']
+        self.assertEqual(unfold_version, '0.64.2')
+        self.assertIn(f'DOM compatibility target: django-unfold {unfold_version}', css)
+        for selector in ('#nav-sidebar', '#changelist-form', 'body.change-form', '.inline-group'):
+            self.assertIn(selector, css)
 
     def test_admin_index_uses_curated_sidebar_and_global_search(self):
         user = get_user_model().objects.create_superuser(

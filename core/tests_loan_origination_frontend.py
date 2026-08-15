@@ -69,6 +69,18 @@ class LoanOriginationFrontendTests(SimpleTestCase):
             self.assertIn(control, template)
         self.assertIn('global-apply', template)
         self.assertIn('global-font', template)
+        for control in ('cal-mobile-fields', 'cal-mobile-inspector', 'cal-mobile-global', 'cal-mobile-view'):
+            self.assertIn(control, template)
+        self.assertIn('aria-labelledby="calibration-sheet-title"', template)
+        self.assertIn('screenPointToPage', source)
+        self.assertIn('screenDeltaToPage', source)
+        self.assertIn('pageBoxToScreen', source)
+        self.assertIn('TAP_DISTANCE = 10', source)
+        self.assertIn('TAP_DURATION = 350', source)
+        self.assertIn('Idempotency-Key', source)
+        self.assertIn('writeInFlight', source)
+        self.assertNotIn('←', template)
+        self.assertNotIn('↻', template)
         self.assertIn('preview_format', Path('core/static/miniapp/loan_origination.js').read_text(encoding='utf-8'))
         self.assertIn('beforeunload', source)
 

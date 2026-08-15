@@ -187,6 +187,68 @@ class OriginationTemplateLifecycleTests(TestCase):
         template.refresh_from_db()
         self.assertEqual(template.placement_config, published.configuration)
 
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_calibration_request_id_replays_once_and_rejects_changed_content(self, storage_class):
+        storage_class.return_value.upload.return_value = (
+            'drive-idempotent-template', 'https://drive.test/idempotent-template',
+        )
+        storage_class.return_value.download.return_value = self.pdf
+        pdf_file = BytesIO(self.pdf); pdf_file.name = 'idempotent.pdf'
+        config_file = BytesIO(synthetic_config()); config_file.name = 'config.json'
+        template = create_template(
+            pdf_file=pdf_file, config_file=config_file,
+            name='Idempotent Template', actor=self.maker,
+        )
+        configuration = json.loads(synthetic_config())
+
+        first = save_calibration_draft(
+            template=template, configuration=configuration, actor=self.maker,
+            expected_revision=1, client_request_id='save-request-1',
+        )
+        replay = save_calibration_draft(
+            template=template, configuration=configuration, actor=self.maker,
+            expected_revision=1, client_request_id='save-request-1',
+        )
+
+        self.assertEqual(replay.pk, first.pk)
+        events = template.events.filter(action='calibration_saved')
+        self.assertEqual(events.count(), 1)
+        self.assertEqual(events.get().metadata['request_id'], 'save-request-1')
+        changed = json.loads(synthetic_config())
+        changed['field_overlay_manifest']['fields']['applicant']['box']['x'] = 55
+        with self.assertRaisesMessage(OriginationTemplateError, 'already used for different content'):
+            save_calibration_draft(
+                template=template, configuration=changed, actor=self.maker,
+                expected_revision=first.revision, client_request_id='save-request-1',
+            )
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_publish_request_id_creates_one_published_event(self, storage_class):
+        storage_class.return_value.upload.return_value = (
+            'drive-idempotent-publish', 'https://drive.test/idempotent-publish',
+        )
+        storage_class.return_value.download.return_value = self.pdf
+        pdf_file = BytesIO(self.pdf); pdf_file.name = 'publish.pdf'
+        config_file = BytesIO(synthetic_config()); config_file.name = 'config.json'
+        template = create_template(
+            pdf_file=pdf_file, config_file=config_file,
+            name='Publish Once', actor=self.maker,
+        )
+
+        first = publish_calibration(
+            template=template, revision=1, actor=self.maker,
+            client_request_id='publish-request-1',
+        )
+        replay = publish_calibration(
+            template=template, revision=1, actor=self.maker,
+            client_request_id='publish-request-1',
+        )
+
+        self.assertEqual(replay.pk, first.pk)
+        events = template.events.filter(action='calibration_published')
+        self.assertEqual(events.count(), 1)
+        self.assertEqual(events.get().metadata['request_id'], 'publish-request-1')
+
     def test_calibration_workspace_is_superuser_only(self):
         template = OriginationDocumentTemplate.objects.create(
             document_type='partnership_loan_application', name='Template', version=8,
@@ -346,7 +408,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertIn("mode = 'filled'", source)
         self.assertIn('await renderPage()', source)
         self.assertIn('default for fields added later', template)
-        self.assertIn('origination_calibration.js\' %}?v=9', template)
+        self.assertIn('origination_calibration.js\' %}?v=10', template)
 
     def test_pdf_only_onboarding_derives_product_contract(self):
         digest, pages = validate_template_pdf(self.pdf)

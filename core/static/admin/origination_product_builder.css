@@ -46,5 +46,17 @@
 .dark .opb-workflow .is-active { border-color: #115e59; background: rgb(19 78 74 / .24); color: #5eead4; }
 .dark .opb-workflow .is-active b { background: #0f766e; color: #fff; }
 @media (max-width: 900px) { .opb-grid { grid-template-columns: 1fr; } .opb-header { flex-direction: column; } .opb-row label, .opb-row label.opb-wide { grid-column: span 6; } }
-@media (max-width: 620px) { .opb-workflow { grid-template-columns: 1fr; } }
-@media (max-width: 520px) { .opb-row label, .opb-row label.opb-wide, .opb-row label.opb-small { grid-column: span 12; } }
+@media (max-width: 620px) {
+  .opb-shell { margin-block: 10px; padding: 10px; }
+  .opb-workflow { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 3px; scrollbar-width: thin; }
+  .opb-workflow span { flex: 0 0 auto; min-height: 36px; padding: 5px 8px; white-space: nowrap; }
+  .opb-header { gap: 8px; }
+  .opb-actions { width: 100%; }
+  .opb-actions > * { flex: 1 1 auto; justify-content: center; text-align: center; }
+}
+@media (max-width: 520px) {
+  .opb-row label, .opb-row label.opb-wide, .opb-row label.opb-small { grid-column: span 12; }
+  .opb-tools { justify-content: stretch; overflow-x: auto; }
+  .opb-tools button { flex: 1 0 auto; }
+  .opb-section, .opb-signer { padding: 9px; }
+}

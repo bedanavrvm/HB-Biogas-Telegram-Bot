@@ -77,7 +77,7 @@ UNFOLD = {
     'STYLES': [
         # Bump this when admin chrome changes so Telegram/browser WebViews do
         # not keep an older unstyled maintenance page indefinitely.
-        '/static/admin/css/compact_unfold.css?v=4',
+        '/static/admin/css/compact_unfold.css?v=5',
     ],
     'COLORS': {
         'primary': {
