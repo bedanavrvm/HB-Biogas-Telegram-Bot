@@ -83,7 +83,8 @@ async function assertSelectIsVisible(select, context) {
       const channel = component / 255;
       return channel <= .03928 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4;
     }).reduce((sum, channel, index) => sum + channel * [.2126, .7152, .0722][index], 0);
-    const style = getComputedStyle(node);
+    const trigger = node._originationSelectTrigger;
+    const style = getComputedStyle(trigger);
     const optionStyle = getComputedStyle(node.options[0]);
     const values = [luminance(style.color), luminance(style.backgroundColor)].sort((a, b) => b - a);
     return {
@@ -93,8 +94,10 @@ async function assertSelectIsVisible(select, context) {
       color: style.color,
       optionColor: optionStyle.color,
       optionBackground: optionStyle.backgroundColor,
+      triggerVisible: Boolean(trigger && trigger.getClientRects().length),
     };
   });
+  assert(result.triggerVisible, `${context}: custom dropdown trigger is not visible`);
   assert(result.text, `${context}: selected option has no visible label`);
   assert(result.contrast >= 4.5, `${context}: select contrast is only ${result.contrast.toFixed(2)}:1`);
   assert(result.textFill === result.color, `${context}: WebKit text fill does not match select text (${result.textFill} / ${result.color})`);
@@ -124,6 +127,11 @@ async function auditViewport(browser, viewport) {
   await start.click();
   await page.locator('#origination-sheet').waitFor();
   await assertSelectIsVisible(page.locator('#origination-create-branch'), `${viewport.name} creation branch`);
+  await page.locator('#origination-create-branch + .origination-select-trigger').click();
+  const optionLabels = await page.locator('#origination-select-options .origination-select-option').allTextContents();
+  assert(optionLabels.some(label => label.trim() === 'Embu'), `${viewport.name}: branch option labels are not rendered in the custom picker`);
+  await page.screenshot({ path: path.join(outputDir, `${viewport.name}-select-options.png`) });
+  await page.locator('#origination-select-close').click();
   assert(await page.locator('#origination-sheet').evaluate(sheet => sheet.getBoundingClientRect().bottom <= innerHeight + 1), `${viewport.name}: sheet exceeds live viewport`);
   await page.locator('[data-sheet-cancel]').focus();
   await page.keyboard.press('Tab');
@@ -147,6 +155,7 @@ async function auditViewport(browser, viewport) {
   assert(await page.evaluate(() => scrollY <= 1), `${viewport.name}: section change did not reset scroll`);
   await page.locator('#origination-back').click();
   await page.locator('.application-card').first().waitFor();
+  await page.waitForFunction(expected => Math.abs(scrollY - expected) <= 5, before);
   const restored = await page.evaluate(() => scrollY);
   assert(Math.abs(restored - before) <= 5, `${viewport.name}: list scroll was not restored (${before} -> ${restored})`);
   await page.close();
@@ -184,8 +193,11 @@ async function auditTelegramAndSlowNetwork(browser) {
   await page.setViewportSize({ width: 360, height: 800 });
   await page.locator('#origination-start').click();
   await assertSelectIsVisible(page.locator('#origination-create-branch'), 'Telegram dark creation branch');
-  await page.locator('#origination-create-branch').selectOption('Embu');
-  await page.locator('#origination-create-product').selectOption('express');
+  await page.locator('#origination-create-branch + .origination-select-trigger').click();
+  await page.locator('#origination-select-options .origination-select-option', { hasText: 'Embu' }).click();
+  await page.locator('#origination-create-product + .origination-select-trigger:not([disabled])').waitFor();
+  await page.locator('#origination-create-product + .origination-select-trigger').click();
+  await page.locator('#origination-select-options .origination-select-option', { hasText: 'Jawabu Express' }).click();
   await assertSelectIsVisible(page.locator('#origination-create-product'), 'Telegram dark creation product');
   const telegramState = await page.evaluate(() => ({ ...window.__telegramAudit, mainHandler: Boolean(window.__telegramAudit.mainHandler), backHandler: Boolean(window.__telegramAudit.backHandler) }));
   assert(telegramState.mainVisible && telegramState.mainText === 'Start application', 'Telegram MainButton does not own the creation action');

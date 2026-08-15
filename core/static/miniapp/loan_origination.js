@@ -46,6 +46,8 @@
   let reviewReturnFocus = null;
   let sheetMode = '';
   let sheetReturnFocus = null;
+  let activeCustomSelect = null;
+  let customSelectReturnFocus = null;
   let mainButtonHandler = null;
   let primaryBusy = false;
   let createInFlight = false;
@@ -167,7 +169,8 @@
     clearMainButtonHandler();
     document.body.classList.remove('telegram-main-button-active');
     if (!tg?.MainButton) return;
-    const blockedByOverlay = !document.getElementById('document-preview-overlay')?.hidden
+    const blockedByOverlay = Boolean(activeCustomSelect)
+      || !document.getElementById('document-preview-overlay')?.hidden
       || !document.getElementById('origination-review-overlay')?.hidden
       || (sheetMode && sheetMode !== 'create');
     const action = blockedByOverlay ? null : actions.find(item => item.getClientRects().length > 0);
@@ -215,7 +218,7 @@
   function syncTelegramControls() {
     if (tg?.BackButton) {
       const previewOpen = !document.getElementById('document-preview-overlay')?.hidden;
-      if (sheetMode || reviewDialogMode || previewOpen || current) tg.BackButton.show();
+      if (activeCustomSelect || sheetMode || reviewDialogMode || previewOpen || current) tg.BackButton.show();
       else tg.BackButton.hide();
     }
     syncPrimaryAction();
@@ -237,6 +240,91 @@
     } else if (!event.shiftKey && document.activeElement === last) {
       event.preventDefault(); first.focus();
     }
+  }
+
+  function customSelectLabel(select) {
+    return select.closest('label')?.querySelector(':scope > span')?.textContent?.replace('*', '').trim()
+      || select.getAttribute('aria-label') || select.name || 'Choose an option';
+  }
+
+  function syncCustomSelect(select) {
+    const trigger = select._originationSelectTrigger;
+    if (!trigger) return;
+    const selected = select.options[select.selectedIndex];
+    const text = selected?.textContent?.trim() || 'Choose';
+    trigger.querySelector('span').textContent = text;
+    trigger.disabled = select.disabled;
+    trigger.setAttribute('aria-label', `${customSelectLabel(select)}: ${text}`);
+  }
+
+  function closeCustomSelect({ restoreFocus = true } = {}) {
+    if (!activeCustomSelect) return;
+    const overlay = document.getElementById('origination-select-overlay');
+    overlay.hidden = true;
+    overlay.setAttribute('aria-hidden', 'true');
+    activeCustomSelect = null;
+    const returnFocus = customSelectReturnFocus;
+    customSelectReturnFocus = null;
+    syncTelegramControls();
+    if (restoreFocus) window.requestAnimationFrame(() => returnFocus?.focus?.());
+  }
+
+  function openCustomSelect(select, trigger) {
+    if (select.disabled) return;
+    activeCustomSelect = select;
+    customSelectReturnFocus = trigger;
+    document.getElementById('origination-select-title').textContent = customSelectLabel(select);
+    const options = document.getElementById('origination-select-options');
+    options.replaceChildren(...[...select.options].map((option, index) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'origination-select-option';
+      button.setAttribute('role', 'option');
+      button.setAttribute('aria-selected', option.selected ? 'true' : 'false');
+      button.disabled = option.disabled;
+      button.dataset.optionIndex = String(index);
+      const label = document.createElement('span');
+      label.textContent = option.textContent || '';
+      button.append(label);
+      if (option.selected) button.insertAdjacentHTML('beforeend', iconSvg('check'));
+      button.onclick = () => {
+        select.selectedIndex = index;
+        syncCustomSelect(select);
+        select.dispatchEvent(new Event('input', { bubbles: true }));
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        closeCustomSelect();
+      };
+      return button;
+    }));
+    const overlay = document.getElementById('origination-select-overlay');
+    overlay.hidden = false;
+    overlay.setAttribute('aria-hidden', 'false');
+    syncTelegramControls();
+    window.requestAnimationFrame(() => options.querySelector('[aria-selected="true"]')?.focus()
+      || options.querySelector('button:not([disabled])')?.focus()
+      || document.getElementById('origination-select-dialog')?.focus());
+  }
+
+  function enhanceSelect(select) {
+    if (select._originationSelectTrigger) return syncCustomSelect(select);
+    select.classList.add('origination-native-select');
+    select.setAttribute('aria-hidden', 'true');
+    select.tabIndex = -1;
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.className = 'origination-select-trigger';
+    trigger.setAttribute('aria-haspopup', 'listbox');
+    trigger.innerHTML = `<span></span>${iconSvg('chevronDown')}`;
+    trigger.onclick = () => openCustomSelect(select, trigger);
+    select.insertAdjacentElement('afterend', trigger);
+    select._originationSelectTrigger = trigger;
+    select.addEventListener('change', () => syncCustomSelect(select));
+    syncCustomSelect(select);
+  }
+
+  function enhanceSelects(container = document) {
+    if (container.matches?.('select')) enhanceSelect(container);
+    container.querySelectorAll?.('select').forEach(enhanceSelect);
   }
 
   const RECOVERY_DB = 'jbl-origination-recovery-v1';
@@ -369,6 +457,7 @@
     overlay.hidden = false;
     overlay.setAttribute('aria-hidden', 'false');
     document.body.classList.add('origination-modal-open');
+    enhanceSelects(document.getElementById('origination-sheet'));
     syncTelegramControls();
     window.requestAnimationFrame(() => {
       focusableElements(document.getElementById('origination-sheet'))[0]?.focus()
@@ -1463,6 +1552,11 @@
     if (event.target === event.currentTarget) closeSheet();
   });
   document.getElementById('origination-sheet').addEventListener('keydown', event => trapModalFocus(event, event.currentTarget));
+  document.getElementById('origination-select-dialog').addEventListener('keydown', event => trapModalFocus(event, event.currentTarget));
+  document.getElementById('origination-select-close').onclick = () => closeCustomSelect();
+  document.getElementById('origination-select-overlay').addEventListener('click', event => {
+    if (event.target === event.currentTarget) closeCustomSelect();
+  });
   document.getElementById('origination-review-dialog').addEventListener('keydown', event => trapModalFocus(event, event.currentTarget));
   document.getElementById('document-preview-overlay').addEventListener('keydown', event => trapModalFocus(event, event.currentTarget));
   document.getElementById('origination-refresh').onclick = load;
@@ -1473,7 +1567,8 @@
   window.visualViewport?.addEventListener('resize', syncViewport);
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
-    if (sheetMode) closeSheet();
+    if (activeCustomSelect) closeCustomSelect();
+    else if (sheetMode) closeSheet();
     else if (reviewDialogMode) closeReviewDialog();
     else if (!document.getElementById('document-preview-overlay').hidden) closePreview();
   });
@@ -1483,10 +1578,18 @@
   syncTelegramTheme();
   syncViewport();
   tg?.BackButton?.onClick(async () => {
+    if (activeCustomSelect) return closeCustomSelect();
     if (sheetMode) return closeSheet();
     if (reviewDialogMode) return closeReviewDialog();
     if (!document.getElementById('document-preview-overlay').hidden) return closePreview();
     if (current) await exitEditor();
   });
+  new MutationObserver(mutations => {
+    mutations.forEach(mutation => {
+      mutation.addedNodes.forEach(node => { if (node.nodeType === Node.ELEMENT_NODE) enhanceSelects(node); });
+      if (mutation.target?.matches?.('select')) syncCustomSelect(mutation.target);
+    });
+  }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled'] });
+  enhanceSelects();
   load();
 })();

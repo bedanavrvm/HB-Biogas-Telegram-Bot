@@ -118,6 +118,28 @@ input, select, textarea { width: 100%; min-width: 0; min-height: 42px; box-sizin
   -webkit-text-fill-color: var(--laf-dark);
 }
 :root[data-telegram-theme="dark"] .origination-app select { color-scheme: dark; }
+.origination-app select.origination-native-select { display: none !important; }
+.origination-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 8px 10px !important;
+  border: 1px solid #b9cac3 !important;
+  border-radius: 8px !important;
+  background: var(--laf-surface) !important;
+  color: var(--laf-dark) !important;
+  font: inherit;
+  font-weight: 500 !important;
+  text-align: left;
+}
+.origination-select-trigger > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.origination-select-trigger > svg { flex: 0 0 auto; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }
+.origination-select-trigger:focus-visible { border-color: var(--laf-green) !important; box-shadow: 0 0 0 3px rgba(18, 100, 72, .12) !important; }
+.origination-select-trigger:disabled { cursor: not-allowed; opacity: .52; }
 textarea { min-height: 88px; resize: vertical; }
 input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !important; box-shadow: 0 0 0 3px rgba(18, 100, 72, .12) !important; }
 .origination-app .btn-primary { background: var(--laf-green) !important; color: var(--laf-on-green) !important; }
@@ -292,6 +314,18 @@ input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !impo
 .section-picker-item small { color: var(--laf-muted); font-size: .61rem; font-weight: 700; }
 .section-picker-item.active { border-color: var(--laf-green); background: var(--laf-green-soft); color: var(--laf-green); }
 .section-picker-item.active > span { background: var(--laf-green); color: var(--laf-on-green); }
+
+.origination-select-overlay { position: fixed; inset: 0; z-index: 1140; display: grid; align-items: end; min-height: var(--origination-live-height); padding-top: max(12px, env(safe-area-inset-top)); background: rgba(8, 24, 18, .62); }
+.origination-select-overlay[hidden] { display: none; }
+.origination-select-dialog { display: grid; grid-template-rows: auto minmax(0, 1fr); width: min(100%, 600px); max-height: min(72vh, calc(var(--origination-live-height) - 18px)); margin: 0 auto; overflow: hidden; border: 1px solid var(--laf-line); border-radius: 16px 16px 0 0; background: var(--laf-surface); color: var(--laf-dark); box-shadow: 0 -12px 40px rgba(0,0,0,.28); }
+.origination-select-dialog > header { display: flex !important; flex-direction: row !important; align-items: center !important; justify-content: space-between !important; gap: 10px !important; margin: 0 !important; padding: 10px 12px !important; border-bottom: 1px solid var(--laf-line); }
+.origination-select-dialog > header .icon-button { flex: 0 0 38px; width: 38px !important; }
+.origination-select-dialog h2 { margin: 0; font-size: .9rem; }
+.origination-select-options { min-height: 0; overflow-y: auto; padding: 7px 8px calc(9px + env(safe-area-inset-bottom)); overscroll-behavior: contain; }
+.origination-select-option { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 44px; padding: 9px 10px !important; border: 0 !important; border-bottom: 1px solid var(--laf-line) !important; border-radius: 7px !important; background: var(--laf-surface) !important; color: var(--laf-dark) !important; font-size: .78rem !important; font-weight: 650 !important; text-align: left; }
+.origination-select-option[aria-selected="true"] { background: var(--laf-green-soft) !important; color: var(--laf-green) !important; }
+.origination-select-option:disabled { opacity: .48; }
+.origination-select-option svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.2; }
 
 .origination-sheet :focus-visible, .review-dialog :focus-visible, .preview-overlay :focus-visible { outline: 2px solid var(--tg-theme-accent-text-color, var(--laf-green)); outline-offset: 2px; }
 
