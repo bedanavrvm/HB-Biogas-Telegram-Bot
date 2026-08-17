@@ -4,6 +4,7 @@ import json
 import hashlib
 import hmac
 import time
+from types import SimpleNamespace
 from urllib.parse import urlencode
 
 from django.contrib.auth import get_user_model
@@ -50,6 +51,11 @@ from core.services.workflow_capabilities import (
     capabilities_for_workflow,
     dependency_closure,
     effective_capability_keys,
+)
+from core.services.workflow_access import (
+    MINIAPP_DYNAMIC_ENDPOINT_POLICIES,
+    MINIAPP_ENDPOINT_CAPABILITIES,
+    workflow_access_decision,
 )
 
 
@@ -169,6 +175,66 @@ class WorkflowCapabilityPolicyTests(TestCase):
             item.key.startswith('portal.')
             for item in capabilities_for_workflow('complaint_cases')
         ))
+
+    def test_global_resolver_does_not_compose_role_and_scope_across_grants(self):
+        grants = [
+            SimpleNamespace(
+                pk='one', role='BRO', branch='EMBU', product='business',
+                group_configuration_id=None, group_configuration=None,
+            ),
+            SimpleNamespace(
+                pk='two', role='IT', branch='NAKURU', product='logbook',
+                group_configuration_id=None, group_configuration=None,
+            ),
+        ]
+        access = {'authorized': True, 'roles': ['BRO', 'IT'], 'grants': grants}
+
+        self.assertTrue(workflow_access_decision(
+            self.user, 'tat_tracker', 'tat.case.create', access=access,
+            branch='EMBU', product='business',
+        ).allowed)
+        self.assertFalse(workflow_access_decision(
+            self.user, 'tat_tracker', 'tat.case.create', access=access,
+            branch='EMBU', product='logbook',
+        ).allowed)
+
+    def test_global_resolver_enforces_group_scope_and_allows_global_grant(self):
+        group_one = SimpleNamespace(pk='group-one', group_id='-1001')
+        group_two = SimpleNamespace(pk='group-two', group_id='-1002')
+        scoped = SimpleNamespace(
+            pk='scoped', role='MANAGER', branch='', product='',
+            group_configuration_id='group-one', group_configuration=group_one,
+        )
+        access = {'authorized': True, 'roles': ['MANAGER'], 'grants': [scoped]}
+        self.assertTrue(workflow_access_decision(
+            self.user, 'complaint_cases', 'complaint.case.manage', access=access,
+            group_configuration=group_one,
+        ).allowed)
+        self.assertFalse(workflow_access_decision(
+            self.user, 'complaint_cases', 'complaint.case.manage', access=access,
+            group_configuration=group_two,
+        ).allowed)
+
+        global_grant = SimpleNamespace(
+            pk='global', role='MANAGER', branch='', product='',
+            group_configuration_id=None, group_configuration=None,
+        )
+        access['grants'].append(global_grant)
+        self.assertTrue(workflow_access_decision(
+            self.user, 'complaint_cases', 'complaint.case.manage', access=access,
+            group_configuration=group_two,
+        ).allowed)
+
+    def test_endpoint_manifest_only_references_real_capabilities_and_views(self):
+        from core.api import complaint_case_views, views
+        from core.services.workflow_capabilities import capability_definition
+
+        for view_name, (workflow, capability) in MINIAPP_ENDPOINT_CAPABILITIES.items():
+            self.assertIsNotNone(capability_definition(workflow, capability), view_name)
+            module = complaint_case_views if view_name.startswith('complaint_cases_') else views
+            self.assertTrue(callable(getattr(module, view_name, None)), view_name)
+        for view_name in MINIAPP_DYNAMIC_ENDPOINT_POLICIES:
+            self.assertTrue(callable(getattr(views, view_name, None)), view_name)
 
     def test_it_role_exists_in_every_miniapp_workflow_with_minimum_seeded_access(self):
         expected_capabilities = {

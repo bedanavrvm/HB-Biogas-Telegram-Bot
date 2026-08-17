@@ -95,8 +95,13 @@ def _context(request, payload: dict):
         return None, None, JsonResponse({'ok': False, 'error': str(exc)}, status=403)
 
 
-def _capability_error(actor, capability: str):
-    if capability not in actor.capabilities:
+def _capability_error(actor, capability: str, group_config):
+    from core.services.workflow_access import workflow_access_decision
+    decision = workflow_access_decision(
+        actor.user, 'complaint_cases', capability, access=actor.access,
+        group_configuration=group_config,
+    )
+    if not decision.allowed:
         return JsonResponse({'ok': False, 'error': 'Your assigned complaint-case role does not permit this action.'}, status=403)
     from core.services.access_control import record_capability_usage
     record_capability_usage(actor.user, 'complaint_cases', capability)
@@ -110,7 +115,7 @@ def complaint_cases_bootstrap(request):
     group_config, actor, error = _context(request, payload)
     if error:
         return error
-    capability_error = _capability_error(actor, 'complaint.queue.view')
+    capability_error = _capability_error(actor, 'complaint.queue.view', group_config)
     if capability_error:
         return capability_error
     from core.services.access_control import policy_version
@@ -142,7 +147,7 @@ def complaint_cases_settings_personal(request):
     group_config, actor, error = _context(request, payload)
     if error:
         return error
-    capability_error = _capability_error(actor, 'complaint.queue.view')
+    capability_error = _capability_error(actor, 'complaint.queue.view', group_config)
     if capability_error:
         return capability_error
     from core.services.miniapp_settings import update_preference
@@ -159,7 +164,7 @@ def complaint_cases_list(request):
     group_config, actor, error = _context(request, payload)
     if error:
         return error
-    capability_error = _capability_error(actor, 'complaint.queue.view')
+    capability_error = _capability_error(actor, 'complaint.queue.view', group_config)
     if capability_error:
         return capability_error
     return JsonResponse(
@@ -182,7 +187,7 @@ def complaint_cases_list_fragment(request):
     group_config, actor, error = _context(request, payload)
     if error:
         return error
-    capability_error = _capability_error(actor, 'complaint.queue.view')
+    capability_error = _capability_error(actor, 'complaint.queue.view', group_config)
     if capability_error:
         return capability_error
     cases = list_cases(
@@ -205,7 +210,7 @@ def complaint_cases_create(request):
     group_config, actor, error = _context(request, payload)
     if error:
         return error
-    capability_error = _capability_error(actor, 'complaint.case.create')
+    capability_error = _capability_error(actor, 'complaint.case.create', group_config)
     if capability_error:
         return capability_error
     try:
@@ -235,7 +240,7 @@ def complaint_cases_detail(request, case_id: str):
     group_config, actor, error = _context(request, payload)
     if error:
         return error
-    capability_error = _capability_error(actor, 'complaint.queue.view')
+    capability_error = _capability_error(actor, 'complaint.queue.view', group_config)
     if capability_error:
         return capability_error
     try:
@@ -258,7 +263,7 @@ def complaint_cases_update(request, case_id: str):
     group_config, actor, error = _context(request, payload)
     if error:
         return error
-    capability_error = _capability_error(actor, 'complaint.case.update')
+    capability_error = _capability_error(actor, 'complaint.case.update', group_config)
     if capability_error:
         return capability_error
     try:

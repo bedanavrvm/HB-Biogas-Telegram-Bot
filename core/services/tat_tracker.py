@@ -412,6 +412,9 @@ def staff_user_for_payload(group_config, user_payload: dict, fallback_name: str 
             'branches': access['branches'],
             'products': access['products'],
             'capabilities': capabilities_payload(canonical_user, 'tat_tracker', access=access),
+            '_canonical_user': canonical_user,
+            '_access': access,
+            '_group_configuration': group_config,
             'signing_national_id': str(getattr(profile, 'signing_national_id', '') or ''),
             'signing_phone_number': str(getattr(profile, 'signing_phone_number', '') or ''),
             'signing_email': str(getattr(profile, 'signing_email', '') or ''),
@@ -520,9 +523,8 @@ def home_data(
     """Return independently paginated home lists for the TAT Mini App."""
     workflow = getattr(group_config, 'workflow', None) or {}
     queryset = TatTrackerCase.objects.filter(group_id=str(group_config.group_id), is_deleted=False)
+    queryset = _scope_tat_queryset(queryset, user, 'tat.home.view')
     allowed_keys = [p.key for p in _allowed_products(workflow, user)]
-    if allowed_keys:
-        queryset = queryset.filter(product_key__in=allowed_keys)
     selected_product = str(product_key or '').strip()
     if selected_product:
         if selected_product in allowed_keys:
@@ -586,14 +588,14 @@ def search_cases(group_config, user: dict, query: str) -> list[dict]:
     if normalized_phone:
         query |= Q(primary_phone=normalized_phone)
     queryset = TatTrackerCase.objects.filter(group_id=str(group_config.group_id), is_deleted=False).filter(query)
-    allowed_keys = [p.key for p in _allowed_products(workflow, user)]
-    if allowed_keys:
-        queryset = queryset.filter(product_key__in=allowed_keys)
+    queryset = _scope_tat_queryset(queryset, user, 'tat.case.search')
     return [serialize_case_summary(case, user, workflow=workflow) for case in queryset.order_by('-updated_at')[:25]]
 
 
 def get_case_detail(group_config, user: dict, case_id: str) -> dict:
     case = TatTrackerCase.objects.get(group_id=str(group_config.group_id), case_id=str(case_id), is_deleted=False)
+    if not _tat_scope_allowed(user, 'tat.home.view', case):
+        raise ValueError('This TAT case is outside your assigned access scope.')
     return serialize_case_detail(case, user, workflow=getattr(group_config, 'workflow', None) or {})
 
 
@@ -708,6 +710,8 @@ def create_case(group_config, user: dict, payload: dict) -> dict:
         raise ValueError('Enter a valid Kenyan phone number.')
     if branch not in _allowed_branches(workflow, user):
         raise ValueError('Select a valid branch.')
+    if not _tat_scope_allowed_for_values(user, 'tat.case.create', branch=branch, product=product.key):
+        raise ValueError('This branch and product combination is outside your assigned access scope.')
     validate_amount(product, amount)
     product_version = None
     terms_snapshot = {}
@@ -812,7 +816,13 @@ def _validate_tat_create_payload(payload: dict) -> None:
         raise ValueError('Only an explicit new-loan submission may create a TAT case.')
 
 
-def tat_case_identity_context(group_config, national_id: object = '', primary_phone: object = '') -> dict[str, Any]:
+def tat_case_identity_context(
+    group_config,
+    national_id: object = '',
+    primary_phone: object = '',
+    *,
+    user: dict | None = None,
+) -> dict[str, Any]:
     """Return exact same-customer TAT context without treating it as a duplicate.
 
     TAT tracks loans, not a single lifetime customer application. These exact
@@ -832,11 +842,12 @@ def tat_case_identity_context(group_config, national_id: object = '', primary_ph
     if not query.children:
         return {'matches': [], 'matched_on': []}
 
-    cases = (
-        TatTrackerCase.objects.filter(group_id=str(group_config.group_id), is_deleted=False)
-        .filter(query)
-        .order_by('-updated_at')[:5]
-    )
+    cases = TatTrackerCase.objects.filter(
+        group_id=str(group_config.group_id), is_deleted=False,
+    ).filter(query)
+    if user is not None:
+        cases = _scope_tat_queryset(cases, user, 'tat.case.create')
+    cases = cases.order_by('-updated_at')[:5]
     return {
         'matched_on': matched_on,
         'matches': [
@@ -1269,6 +1280,8 @@ def update_case(
 
     workflow = getattr(group_config, 'workflow', None) or {}
     case = TatTrackerCase.objects.select_for_update().get(group_id=str(group_config.group_id), case_id=str(case_id), is_deleted=False)
+    if not _tat_scope_allowed(user, 'tat.home.view', case):
+        raise ValueError('This TAT case is outside your assigned access scope.')
     if request_id and case.events.filter(request_id=str(request_id), source='workflow_transition').exists():
         return serialize_case_detail(case, user, workflow=workflow)
     validate_workflow_revision(case, expected_revision)
@@ -2030,6 +2043,47 @@ def _tat_has_capability(user: dict | None, capability: str) -> bool:
     return bool(definition and roles.intersection(definition.default_roles))
 
 
+def _tat_scope_allowed(user: dict | None, capability: str, case: TatTrackerCase | None = None) -> bool:
+    if not user:
+        return False
+    canonical_user = user.get('_canonical_user')
+    access = user.get('_access')
+    if canonical_user is None or access is None:
+        return _tat_has_capability(user, capability)
+    from core.services.workflow_access import workflow_access_decision
+    return workflow_access_decision(
+        canonical_user, 'tat_tracker', capability, access=access, resource=case,
+        group_configuration=user.get('_group_configuration'),
+    ).allowed
+
+
+def _tat_scope_allowed_for_values(user: dict | None, capability: str, *, branch: str, product: str) -> bool:
+    if not user:
+        return False
+    canonical_user = user.get('_canonical_user')
+    access = user.get('_access')
+    if canonical_user is None or access is None:
+        return _tat_has_capability(user, capability)
+    from core.services.workflow_access import workflow_access_decision
+    return workflow_access_decision(
+        canonical_user, 'tat_tracker', capability, access=access,
+        branch=branch, product=product,
+        group_configuration=user.get('_group_configuration'),
+    ).allowed
+
+
+def _scope_tat_queryset(queryset, user: dict, capability: str):
+    canonical_user = user.get('_canonical_user')
+    access = user.get('_access')
+    if canonical_user is None or access is None:
+        return queryset
+    from core.services.workflow_access import scope_workflow_queryset
+    return scope_workflow_queryset(
+        queryset, canonical_user, 'tat_tracker', capability, access=access,
+        branch_field='branch', product_field='product_key', group_field='group_id',
+    )
+
+
 def tat_target_settings(workflow: dict | None) -> list[dict]:
     """Serialize the configured targets for the administrator Mini App form."""
     settings = []
@@ -2449,15 +2503,7 @@ def previous_stages_complete(case: TatTrackerCase, stage: StageConfig) -> bool:
 
 
 def can_user_edit_stage(user: dict, case: TatTrackerCase, stage: StageConfig) -> bool:
-    if not _tat_has_capability(user, f'tat.stage.{stage.key}.update'):
-        return False
-    branches = user.get('branches') or []
-    if branches and case.branch not in branches:
-        return False
-    products = user.get('products') or []
-    if products and case.product_key not in products and case.sheet_name not in products:
-        return False
-    return True
+    return _tat_scope_allowed(user, f'tat.stage.{stage.key}.update', case)
 
 
 def can_user_correct_stage(user: dict, case: TatTrackerCase, stage: StageConfig) -> bool:
@@ -2469,11 +2515,7 @@ def can_user_correct_stage(user: dict, case: TatTrackerCase, stage: StageConfig)
 
 def can_user_correct_case_details(user: dict, case: TatTrackerCase | None = None) -> bool:
     """Base identity/amount corrections are restricted and audited."""
-    if not _tat_has_capability(user, 'tat.case.correct'):
-        return False
-    branches = user.get('branches') or []
-    roles = {str(role).strip().upper() for role in user.get('roles') or []}
-    return not (case and branches and case.branch not in branches and 'IT' not in roles)
+    return _tat_scope_allowed(user, 'tat.case.correct', case)
 
 
 def serialize_case_summary(case: TatTrackerCase, user: dict | None = None, next_stage: StageConfig | None = None, workflow: dict | None = None) -> dict:

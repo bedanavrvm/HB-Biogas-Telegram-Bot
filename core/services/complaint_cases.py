@@ -52,6 +52,7 @@ class ComplaintCaseActor:
     username: str
     role: str
     capabilities: frozenset[str]
+    access: dict | None = None
 
     @property
     def is_manager(self) -> bool:
@@ -85,6 +86,7 @@ def staff_actor_for_payload(group_config, auth_payload: dict) -> ComplaintCaseAc
         username=username,
         role=role,
         capabilities=frozenset(effective_capability_keys(canonical_user, 'complaint_cases', access=access)),
+        access=access,
     )
 
 
