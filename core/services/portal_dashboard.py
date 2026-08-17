@@ -42,7 +42,11 @@ QUEUE_DEFINITIONS = (
 )
 
 
-def _branch_scope(queryset, access):
+def _branch_scope(queryset, access, *, user=None, capability='portal.case.read'):
+    if user is not None:
+        from core.services.portal_permissions import scope_portal_case_queryset
+
+        return scope_portal_case_queryset(queryset, user, capability, access=access)
     branches = [str(value).strip() for value in (access or {}).get('branches', []) if str(value).strip()]
     if not branches:
         return queryset
@@ -69,7 +73,7 @@ def dashboard_payload(user, *, access=None) -> dict:
     capabilities = effective_capability_keys(user, 'jawabu_portal', access=access) if user else {
         capability for _key, _label, capability, _queryset in QUEUE_DEFINITIONS
     } | {'portal.case.read', 'portal.invoice_identity.manage', 'portal.health.read'}
-    scoped_all = _branch_scope(all_cases(), access)
+    scoped_all = _branch_scope(all_cases(), access, user=user, capability='portal.case.read')
     queues = []
     legacy_counts = {'jbl_queue': 0, 'credit_queue': 0, 'final_review_queue': 0, 'requisition_queue': 0, 'deferred': 0}
     legacy_key = {
@@ -79,7 +83,7 @@ def dashboard_payload(user, *, access=None) -> dict:
     for key, label, capability, queryset_factory in QUEUE_DEFINITIONS:
         if capability not in capabilities:
             continue
-        queryset = _branch_scope(queryset_factory(), access)
+        queryset = _branch_scope(queryset_factory(), access, user=user, capability=capability)
         count = queryset.count()
         legacy_counts[legacy_key[key]] = count
         queues.append({
@@ -90,9 +94,18 @@ def dashboard_payload(user, *, access=None) -> dict:
             'url': reverse('portal_screen', kwargs={'screen': key}),
         })
 
-    branch_values = [str(value).strip() for value in (access or {}).get('branches', []) if str(value).strip()]
+    from core.services.portal_permissions import portal_capability_scope, scope_portal_case_queryset
+
+    case_scope = portal_capability_scope(user, 'portal.case.read', access=access) if user else {
+        'global_branch': not (access or {}).get('branches'),
+        'branches': (access or {}).get('branches', []),
+    }
+    branch_values = list(case_scope.get('branches') or [])
     escalations = WorkflowSlaEscalation.objects.filter(workflow='jawabu_pipeline', status='pending')
-    if branch_values:
+    if user is not None:
+        scoped_subject_ids = [str(value) for value in scoped_all.values_list('id', flat=True)]
+        escalations = escalations.filter(subject_id__in=scoped_subject_ids)
+    elif branch_values:
         escalation_scope = Q()
         for branch in branch_values:
             escalation_scope |= Q(branch__iexact=branch)
@@ -106,19 +119,31 @@ def dashboard_payload(user, *, access=None) -> dict:
     overdue_count = escalations.count()
     for queue in queues:
         queue_queryset = next(definition[3] for definition in QUEUE_DEFINITIONS if definition[0] == queue['key'])()
-        queue['urgent_count'] = _branch_scope(queue_queryset, access).filter(id__in=escalation_ids).count()
+        queue_capability = next(definition[2] for definition in QUEUE_DEFINITIONS if definition[0] == queue['key'])
+        queue['urgent_count'] = _branch_scope(
+            queue_queryset, access, user=user, capability=queue_capability,
+        ).filter(id__in=escalation_ids).count()
 
     attention = []
     if overdue_count and 'portal.case.read' in capabilities:
         attention.append({'key': 'sla_overdue', 'label': 'SLA follow-up overdue', 'count': overdue_count, 'severity': 'urgent', 'url': reverse('portal_screen', kwargs={'screen': 'all'})})
     if 'portal.deferred.view' in capabilities:
-        due_count = _branch_scope(reappraisal_required_queue(), access).count()
+        due_count = _branch_scope(
+            reappraisal_required_queue(), access, user=user,
+            capability='portal.deferred.view',
+        ).count()
         if due_count:
             attention.append({'key': 'reappraisal_due', 'label': 'Reappraisal due', 'count': due_count, 'severity': 'warning', 'url': reverse('portal_screen', kwargs={'screen': 'deferred'})})
     if 'portal.invoice_identity.manage' in capabilities:
         reviews = InvoiceIdentityReview.objects.filter(status='pending')
         changes = InvoiceNameChangeItem.objects.filter(status__in=['draft', 'awaiting_replacement'])
-        if branch_values:
+        if user is not None:
+            invoice_cases = scope_portal_case_queryset(
+                all_cases(), user, 'portal.invoice_identity.manage', access=access,
+            )
+            reviews = reviews.filter(farmer__in=invoice_cases)
+            changes = changes.filter(farmer__in=invoice_cases)
+        elif branch_values:
             review_scope = Q()
             change_scope = Q()
             for branch in branch_values:
@@ -130,7 +155,14 @@ def dashboard_payload(user, *, access=None) -> dict:
             attention.append({'key': 'invoice_identity', 'label': 'Invoice identities to verify', 'count': reviews.count(), 'severity': 'warning', 'url': reverse('portal_invoices_matched')})
         if changes.exists():
             attention.append({'key': 'invoice_name_change', 'label': 'Invoice-name changes open', 'count': changes.count(), 'severity': 'urgent', 'url': reverse('portal_invoices_matched')})
-    if 'portal.health.read' in capabilities and not branch_values:
+    health_scope = portal_capability_scope(user, 'portal.health.read', access=access) if user else {
+        'global_branch': not branch_values, 'global_product': True,
+    }
+    if (
+        'portal.health.read' in capabilities
+        and health_scope.get('global_branch')
+        and health_scope.get('global_product')
+    ):
         failed = IntegrationOperation.objects.filter(status__in=['retryable_failure', 'dead_letter']).count()
         if failed:
             attention.append({'key': 'integration_failure', 'label': 'External operations need attention', 'count': failed, 'severity': 'warning', 'url': reverse('portal_screen', kwargs={'screen': 'dashboard'})})
@@ -160,10 +192,13 @@ def dashboard_payload(user, *, access=None) -> dict:
         for item in queues
     ]
     legacy_counts.update({
-        'reappraisal_required': _branch_scope(reappraisal_required_queue(), access).count(),
+        'reappraisal_required': _branch_scope(
+            reappraisal_required_queue(), access, user=user,
+            capability='portal.deferred.view',
+        ).count(),
         'total': scoped_all.count() if 'portal.case.read' in capabilities else 0,
     })
-    scope_label = ', '.join(branch_values) if branch_values else 'All authorized branches'
+    scope_label = ', '.join(branch_values) if branch_values and not case_scope.get('global_branch') else 'All authorized branches'
     return {
         'as_of': timezone.now().isoformat(),
         'scope': {'label': scope_label, 'branches': branch_values},

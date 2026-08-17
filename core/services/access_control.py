@@ -307,25 +307,66 @@ def capability_impact(workflow: str, role: str) -> dict:
     }
 
 
-def create_capability_request(*, requester, workflow: str, role: str, capability_keys: Iterable[str], reason: str, source_request=None):
+def create_capability_request(
+    *, requester, workflow: str, role: str = '', roles: Iterable[str] | None = None,
+    capability_keys: Iterable[str], reason: str, source_request=None,
+    request_key: str = '',
+):
     """Create a reviewable policy diff; it has no live effect until approved."""
+    if not requester or not requester.is_active:
+        raise ValidationError('An active requester is required for an access-policy change.')
     if not reason.strip():
         raise ValidationError('A business reason is required for an access-policy change.')
-    role = canonical_access_role(workflow, role)
+    requested_roles = list(roles or [role])
+    normalized_roles = []
+    for requested_role in requested_roles:
+        normalized = validate_access_scope(workflow=workflow, role=requested_role)
+        if normalized not in normalized_roles:
+            normalized_roles.append(normalized)
+    if not normalized_roles:
+        raise ValidationError('Choose at least one valid workflow role.')
     allowed = {definition.key for definition in capabilities_for_workflow(workflow)}
     selected = dependency_closure(workflow, set(capability_keys).intersection(allowed))
-    before = _capability_state(workflow, role)
+    before_by_role = {
+        target_role: _capability_state(workflow, target_role)
+        for target_role in normalized_roles
+    }
     proposed = {key: ('allow' if key in selected else 'deny') for key in allowed}
+    key = str(request_key or '').strip()[:128]
+    if key:
+        existing = AccessControlChangeRequest.objects.filter(
+            requested_by=requester, request_key=key,
+        ).first()
+        if existing:
+            return existing
     state = AccessControlPolicyState.current()
-    request = AccessControlChangeRequest.objects.create(
-        change_type=AccessControlChangeRequest.TYPE_CAPABILITY,
-        workflow=workflow, role=role,
-        before_snapshot={'capabilities': before},
-        proposed_snapshot={'capabilities': proposed},
-        impact=capability_impact(workflow, role),
-        reason=reason.strip(), status=AccessControlChangeRequest.STATUS_PENDING,
-        policy_version=state.version, requested_by=requester, source_request=source_request,
-    )
+    try:
+        with transaction.atomic():
+            request = AccessControlChangeRequest.objects.create(
+                change_type=AccessControlChangeRequest.TYPE_CAPABILITY,
+                workflow=workflow, role=normalized_roles[0], target_roles=normalized_roles,
+                before_snapshot={
+                    'capabilities': before_by_role[normalized_roles[0]],
+                    'role_capabilities': before_by_role,
+                },
+                proposed_snapshot={
+                    'capabilities': proposed,
+                    'role_capabilities': {target_role: proposed for target_role in normalized_roles},
+                },
+                impact={
+                    'roles': normalized_roles,
+                    'staff_count': AccessGrant.objects.filter(
+                        workflow=workflow, role__in=normalized_roles, active=True,
+                    ).values('user_id').distinct().count(),
+                },
+                reason=reason.strip(), status=AccessControlChangeRequest.STATUS_PENDING,
+                policy_version=state.version, requested_by=requester,
+                source_request=source_request, request_key=key,
+            )
+    except IntegrityError:
+        if key:
+            return AccessControlChangeRequest.objects.get(requested_by=requester, request_key=key)
+        raise
     _record_access_control_request(request)
     transaction.on_commit(lambda: notify_approvers(request, 'pending'))
     return request
@@ -340,19 +381,39 @@ def _grant_payload(*, user, workflow, role, branch='', product='', group_configu
     }
 
 
-def create_grant_request(*, requester, user, workflow, role, reason, branch='', product='', group_configuration=None, active=True, grant=None, source_request=None):
+def create_grant_request(*, requester, user, workflow, role, reason, branch='', product='', group_configuration=None, active=True, grant=None, source_request=None, request_key=''):
+    if not requester or not requester.is_active:
+        raise ValidationError('An active requester is required for a staff access change.')
+    if not user or not user.pk:
+        raise ValidationError('Choose the staff user receiving the Access Grant.')
+    if active and not user.is_active:
+        raise ValidationError('Activate the staff account before requesting active Mini App access.')
     if not reason.strip():
         raise ValidationError('A business reason is required for a staff access change.')
+    key = str(request_key or '').strip()[:128]
+    if key:
+        existing = AccessControlChangeRequest.objects.filter(
+            requested_by=requester, request_key=key,
+        ).first()
+        if existing:
+            return existing
     proposed = _grant_payload(user=user, workflow=workflow, role=role, branch=branch, product=product, group_configuration=group_configuration, active=active, grant_id=getattr(grant, 'pk', ''))
     before = _grant_payload(user=grant.user, workflow=grant.workflow, role=grant.role, branch=grant.branch, product=grant.product, group_configuration=grant.group_configuration, active=grant.active, grant_id=grant.pk) if grant else {}
-    request = AccessControlChangeRequest.objects.create(
-        change_type=AccessControlChangeRequest.TYPE_GRANT,
-        workflow=workflow, role=proposed['role'], target_user=user,
-        before_snapshot={'grant': before}, proposed_snapshot={'grant': proposed},
-        impact={'staff_count': 1, 'branch_count': 1 if proposed['branch'] else 0, 'branches': [proposed['branch']] if proposed['branch'] else []},
-        reason=reason.strip(), status=AccessControlChangeRequest.STATUS_PENDING,
-        policy_version=AccessControlPolicyState.current().version, requested_by=requester, source_request=source_request,
-    )
+    try:
+        with transaction.atomic():
+            request = AccessControlChangeRequest.objects.create(
+                change_type=AccessControlChangeRequest.TYPE_GRANT,
+                workflow=workflow, role=proposed['role'], target_user=user,
+                before_snapshot={'grant': before}, proposed_snapshot={'grant': proposed},
+                impact={'staff_count': 1, 'branch_count': 1 if proposed['branch'] else 0, 'branches': [proposed['branch']] if proposed['branch'] else []},
+                reason=reason.strip(), status=AccessControlChangeRequest.STATUS_PENDING,
+                policy_version=AccessControlPolicyState.current().version, requested_by=requester,
+                source_request=source_request, target_roles=[proposed['role']], request_key=key,
+            )
+    except IntegrityError:
+        if key:
+            return AccessControlChangeRequest.objects.get(requested_by=requester, request_key=key)
+        raise
     _record_access_control_request(request)
     transaction.on_commit(lambda: notify_approvers(request, 'pending'))
     return request
@@ -426,6 +487,20 @@ def create_document_signoff_policy_request(*, requester, document_type: str, rea
 
 def request_diff(request: AccessControlChangeRequest) -> dict:
     if request.change_type == request.TYPE_CAPABILITY:
+        before_by_role = (request.before_snapshot or {}).get('role_capabilities') or {}
+        after_by_role = (request.proposed_snapshot or {}).get('role_capabilities') or {}
+        if before_by_role or after_by_role:
+            roles = request.target_roles or [request.role]
+            role_diffs = {}
+            for role in roles:
+                before = before_by_role.get(role, {})
+                after = after_by_role.get(role, {})
+                role_diffs[role] = {
+                    'allowed': sorted(key for key, value in after.items() if value == 'allow' and before.get(key) != 'allow'),
+                    'denied': sorted(key for key, value in after.items() if value == 'deny' and before.get(key) != 'deny'),
+                }
+            if len(role_diffs) > 1:
+                return {'roles': role_diffs}
         before = (request.before_snapshot or {}).get('capabilities') or {}
         after = (request.proposed_snapshot or {}).get('capabilities') or {}
         return {
@@ -441,39 +516,41 @@ def request_diff(request: AccessControlChangeRequest) -> dict:
 
 
 def _apply_capability_request(request: AccessControlChangeRequest) -> None:
-    proposed = (request.proposed_snapshot or {}).get('capabilities') or {}
+    proposed_by_role = (request.proposed_snapshot or {}).get('role_capabilities') or {}
+    roles = request.target_roles or [request.role]
     definitions = {definition.key for definition in capabilities_for_workflow(request.workflow)}
-    for key in definitions:
-        effect = proposed.get(key, WorkflowRoleCapability.EFFECT_DENY)
-        WorkflowRoleCapability.objects.update_or_create(
-            workflow=request.workflow, role=request.role, capability_key=key,
-            defaults={'effect': effect, 'enabled': effect == WorkflowRoleCapability.EFFECT_ALLOW},
+    for role in roles:
+        proposed = proposed_by_role.get(role) or (request.proposed_snapshot or {}).get('capabilities') or {}
+        for key in definitions:
+            effect = proposed.get(key, WorkflowRoleCapability.EFFECT_DENY)
+            WorkflowRoleCapability.objects.update_or_create(
+                workflow=request.workflow, role=role, capability_key=key,
+                defaults={'effect': effect, 'enabled': effect == WorkflowRoleCapability.EFFECT_ALLOW},
+            )
+        before = ((request.before_snapshot or {}).get('role_capabilities') or {}).get(role) or (
+            (request.before_snapshot or {}).get('capabilities') or {}
         )
-    diff = request_diff(request)
-    audit_event = WorkflowRoleCapabilityAuditEvent.objects.create(
-        workflow=request.workflow, role=request.role, actor=request.reviewed_by,
-        source='approved_change_request', changes={**diff, 'request_id': str(request.pk)},
-    )
-    from core.services.compliance_audit import record_event
+        diff = {
+            'allowed': sorted(key for key, value in proposed.items() if value == 'allow' and before.get(key) != 'allow'),
+            'denied': sorted(key for key, value in proposed.items() if value == 'deny' and before.get(key) != 'deny'),
+        }
+        audit_event = WorkflowRoleCapabilityAuditEvent.objects.create(
+            workflow=request.workflow, role=role, actor=request.reviewed_by,
+            source='approved_change_request', changes={**diff, 'request_id': str(request.pk)},
+        )
+        from core.services.compliance_audit import record_event
 
-    record_event(
-        workflow='access_control',
-        action='access_control.capability.applied',
-        category='authorization',
-        subject_type='workflow_role_capability',
-        subject_id=f'{request.workflow}:{request.role}',
-        actor=request.reviewed_by,
-        authority_user=request.reviewed_by,
-        request_id=str(request.pk),
-        source_model='WorkflowRoleCapabilityAuditEvent',
-        source_event_id=str(audit_event.pk),
-        deduplication_key=f'access:WorkflowRoleCapabilityAuditEvent:{audit_event.pk}',
-        before_values=(request.before_snapshot or {}).get('capabilities') or {},
-        after_values=(request.proposed_snapshot or {}).get('capabilities') or {},
-        metadata={'impact': request.impact or {}, 'reason': request.reason},
-        sensitive=True,
-        occurred_at=audit_event.created_at,
-    )
+        record_event(
+            workflow='access_control', action='access_control.capability.applied',
+            category='authorization', subject_type='workflow_role_capability',
+            subject_id=f'{request.workflow}:{role}', actor=request.reviewed_by,
+            authority_user=request.reviewed_by, request_id=str(request.pk),
+            source_model='WorkflowRoleCapabilityAuditEvent', source_event_id=str(audit_event.pk),
+            deduplication_key=f'access:WorkflowRoleCapabilityAuditEvent:{audit_event.pk}',
+            before_values=before, after_values=proposed,
+            metadata={'impact': request.impact or {}, 'reason': request.reason},
+            sensitive=True, occurred_at=audit_event.created_at,
+        )
 
 
 def _apply_grant_request(request: AccessControlChangeRequest) -> None:
@@ -485,13 +562,20 @@ def _apply_grant_request(request: AccessControlChangeRequest) -> None:
         grant = AccessGrant.objects.select_for_update().filter(pk=grant_id).first()
         if grant is None:
             raise ValidationError('The Access Grant no longer exists and cannot be deleted.')
-        grant.delete()
+        grant.active = False
+        grant.source = 'retired_access_request'
+        grant.save(update_fields=['active', 'source', 'updated_at'])
         return
     grant_id = data.get('id')
     if grant_id:
         grant = AccessGrant.objects.select_for_update().filter(pk=grant_id).first()
     else:
-        grant = None
+        grant = AccessGrant.objects.select_for_update().filter(
+            user_id=data['user_id'], workflow=data['workflow'], role=data['role'],
+            branch=data.get('branch', ''), product=data.get('product', ''),
+            group_configuration_id=data.get('group_configuration_id') or None,
+            active=False,
+        ).first()
     if grant is None:
         grant = AccessGrant(user_id=data['user_id'])
     grant.workflow = data['workflow']
@@ -535,6 +619,8 @@ def apply_superuser_grant_override(
         raise PermissionDenied('Only an active Django Superuser can directly apply an Access Grant override.')
     if not user or not user.pk:
         raise ValidationError('Choose the staff user receiving the Access Grant.')
+    if operation == 'upsert' and active and not user.is_active:
+        raise ValidationError('Activate the staff account before granting Mini App access.')
     if operation not in {'upsert', 'delete'}:
         raise ValidationError('Unsupported Django Superuser Access Grant operation.')
     if operation == 'delete':
@@ -587,6 +673,7 @@ def apply_superuser_grant_override(
             change_type=AccessControlChangeRequest.TYPE_GRANT,
             workflow=request_workflow,
             role=request_role,
+            target_roles=[request_role],
             target_user=user,
             before_snapshot={'grant': before},
             proposed_snapshot={
@@ -645,6 +732,65 @@ def _apply_document_signoff_policy_request(request: AccessControlChangeRequest) 
     policy.save()
 
 
+def _request_target_is_unchanged(request: AccessControlChangeRequest) -> bool:
+    """Compare only the requested target, allowing unrelated approvals to proceed."""
+    if request.change_type == request.TYPE_CAPABILITY:
+        roles = request.target_roles or [request.role]
+        before_by_role = (request.before_snapshot or {}).get('role_capabilities') or {}
+        for role in roles:
+            expected = before_by_role.get(role)
+            if expected is None:
+                expected = (request.before_snapshot or {}).get('capabilities') or {}
+            if _capability_state(request.workflow, role) != expected:
+                return False
+        return True
+    if request.change_type == request.TYPE_GRANT:
+        before = (request.before_snapshot or {}).get('grant') or {}
+        proposed = (request.proposed_snapshot or {}).get('grant') or {}
+        if before:
+            grant = AccessGrant.objects.filter(pk=before.get('id')).select_related('group_configuration').first()
+            if grant is None:
+                return False
+            current = _grant_payload(
+                user=grant.user, workflow=grant.workflow, role=grant.role,
+                branch=grant.branch, product=grant.product,
+                group_configuration=grant.group_configuration, active=grant.active,
+                grant_id=grant.pk,
+            )
+            return current == before
+        return not AccessGrant.objects.filter(
+            user_id=proposed.get('user_id'), workflow=proposed.get('workflow'),
+            role=proposed.get('role'), branch=proposed.get('branch', ''),
+            product=proposed.get('product', ''),
+            group_configuration_id=proposed.get('group_configuration_id') or None,
+        ).exists()
+    if request.change_type == request.TYPE_DOCUMENT_SIGNOFF:
+        current = DocumentSignoffPolicy.objects.filter(
+            document_type=((request.proposed_snapshot or {}).get('document_signoff_policy') or {}).get('document_type'),
+        ).first()
+        current_payload = {
+            'document_type': current.document_type,
+            'workflow': current.workflow,
+            'approval_role': current.approval_role,
+            'approval_roles': list(current.effective_approval_roles),
+            'is_active': current.is_active,
+        } if current else {}
+        return current_payload == ((request.before_snapshot or {}).get('document_signoff_policy') or {})
+    return False
+
+
+def _approval_conflict_error(request: AccessControlChangeRequest, approver) -> str:
+    if request.change_type == request.TYPE_GRANT and request.target_user_id == approver.pk:
+        return 'An access-policy checker cannot approve a grant targeting their own account.'
+    if request.change_type == request.TYPE_CAPABILITY and not approver.is_superuser:
+        target_roles = request.target_roles or [request.role]
+        if AccessGrant.objects.filter(
+            user=approver, workflow=request.workflow, role__in=target_roles, active=True,
+        ).exists():
+            return 'An access-policy checker cannot approve a capability change for a role they currently hold.'
+    return ''
+
+
 def approve_request(*, request_id, approver, review_comment='') -> AccessControlChangeRequest:
     """Approve and apply one unchanged request in a single database transaction."""
     if not can_approve_access_change(approver):
@@ -654,12 +800,22 @@ def approve_request(*, request_id, approver, review_comment='') -> AccessControl
         bootstrap_override = bootstrap_override_available(request, approver)
         if request.requested_by_id == approver.pk and not bootstrap_override:
             raise PermissionDenied('The request maker cannot approve their own access change.')
+        conflict_error = _approval_conflict_error(request, approver)
+        if conflict_error and not bootstrap_override:
+            raise PermissionDenied(conflict_error)
         if bootstrap_override and not review_comment.strip():
             raise ValidationError('A bootstrap override requires an explicit approval reason.')
         if request.status != request.STATUS_PENDING:
             raise ValidationError('Only pending access-control requests can be approved.')
+        proposed_grant = (request.proposed_snapshot or {}).get('grant') or {}
+        if (
+            request.change_type == request.TYPE_GRANT
+            and proposed_grant.get('active')
+            and (not request.target_user or not request.target_user.is_active)
+        ):
+            raise ValidationError('The target staff account is inactive; submit a new request after reactivation.')
         state, _created = AccessControlPolicyState.objects.select_for_update().get_or_create(singleton=1)
-        if request.policy_version != state.version:
+        if request.policy_version != state.version and not _request_target_is_unchanged(request):
             request.status = request.STATUS_STALE
             request.reviewed_by = approver
             request.reviewed_at = timezone.now()
@@ -719,19 +875,157 @@ def reject_request(*, request_id, approver, review_comment) -> AccessControlChan
     return request
 
 
-def create_emergency_grant(*, actor, user, workflow, role, reason, branch='', product='', group_configuration=None):
+def _record_emergency_access(grant, *, action: str, actor, reason: str) -> None:
+    from core.services.compliance_audit import record_event
+
+    record_event(
+        workflow='access_control', action=action, category='authorization',
+        subject_type='emergency_access_grant', subject_id=str(grant.pk),
+        actor=actor, authority_user=actor, request_id=grant.request_id or str(grant.pk),
+        source_model='EmergencyAccessGrant', source_event_id=f'{grant.pk}:{action}',
+        deduplication_key=f'access:EmergencyAccessGrant:{grant.pk}:{action}',
+        before_values={},
+        after_values={
+            'user_id': grant.user_id, 'workflow': grant.workflow, 'role': grant.role,
+            'branch': grant.branch, 'product': grant.product,
+            'expires_at': grant.expires_at, 'revoked_at': grant.revoked_at,
+        },
+        metadata={'reason': reason}, sensitive=True, occurred_at=timezone.now(),
+    )
+
+
+def create_emergency_grant(*, actor, user, workflow, role, reason, branch='', product='', group_configuration=None, request_id=''):
     if not actor or not actor.is_active or not actor.is_superuser:
         raise PermissionDenied('Only an active superuser can activate emergency access.')
+    if not user or not user.is_active:
+        raise ValidationError('Emergency access can only be activated for an active staff account.')
     if not reason.strip():
         raise ValidationError('Emergency access requires a reason.')
+    key = str(request_id or '').strip()[:128]
+    if key:
+        existing = EmergencyAccessGrant.objects.filter(activated_by=actor, request_id=key).first()
+        if existing:
+            return existing
     role = validate_access_scope(workflow=workflow, role=role, branch=branch, product=product, group_configuration=group_configuration)
-    grant = EmergencyAccessGrant.objects.create(
-        user=user, workflow=workflow, role=role, branch=branch or '', product=product or '',
-        group_configuration=group_configuration, reason=reason.strip(), activated_by=actor,
-        expires_at=timezone.now() + timedelta(hours=EMERGENCY_ACCESS_HOURS),
+    try:
+        with transaction.atomic():
+            grant = EmergencyAccessGrant.objects.create(
+                user=user, workflow=workflow, role=role, branch=branch or '', product=product or '',
+                group_configuration=group_configuration, reason=reason.strip(), activated_by=actor,
+                expires_at=timezone.now() + timedelta(hours=EMERGENCY_ACCESS_HOURS), request_id=key,
+            )
+    except IntegrityError:
+        if key:
+            return EmergencyAccessGrant.objects.get(activated_by=actor, request_id=key)
+        raise
+    _record_emergency_access(
+        grant, action='access_control.emergency.activated', actor=actor, reason=reason.strip(),
     )
     notify_approvers(None, 'emergency_activated', extra=f'Emergency access for {user.get_username()} in {workflow}/{role} expires at {grant.expires_at:%d-%b-%Y %H:%M}.')
     return grant
+
+
+@transaction.atomic
+def revoke_emergency_grant(*, actor, grant, reason: str):
+    if not actor or not actor.is_active or not actor.is_superuser:
+        raise PermissionDenied('Only an active superuser can revoke emergency access.')
+    if not str(reason or '').strip():
+        raise ValidationError('A reason is required to revoke emergency access.')
+    grant = EmergencyAccessGrant.objects.select_for_update().get(pk=grant.pk)
+    if grant.revoked_at is not None:
+        return grant, False
+    grant.revoked_at = timezone.now()
+    grant.revoked_by = actor
+    grant.revocation_reason = str(reason).strip()
+    grant.save(update_fields=['revoked_at', 'revoked_by', 'revocation_reason'])
+    _record_emergency_access(
+        grant, action='access_control.emergency.revoked', actor=actor,
+        reason=grant.revocation_reason,
+    )
+    return grant, True
+
+
+@transaction.atomic
+def retire_user_access(*, user, actor=None, reason: str = 'Staff account deactivated.') -> dict:
+    """Fail closed on deactivation; reactivation never restores old authority."""
+    now = timezone.now()
+    grant_rows = list(AccessGrant.objects.select_for_update().filter(user=user, active=True))
+    from core.services.compliance_audit import record_event
+
+    for grant in grant_rows:
+        previous_source = grant.source
+        grant.active = False
+        grant.source = 'account_deactivated'
+        grant.save(update_fields=['active', 'source', 'updated_at'])
+        record_event(
+            workflow='access_control', action='access_control.grant.retired',
+            category='authorization', subject_type='access_grant',
+            subject_id=str(grant.pk), actor=actor, authority_user=actor,
+            request_id=str(grant.pk), source_model='AccessGrant',
+            source_event_id=f'{grant.pk}:account_deactivated',
+            deduplication_key=f'access:AccessGrant:{grant.pk}:account_deactivated',
+            before_values={'active': True, 'source': previous_source},
+            after_values={'active': False, 'source': grant.source},
+            metadata={'target_user_id': user.pk, 'reason': reason},
+            sensitive=True, occurred_at=now,
+        )
+    emergency_rows = list(EmergencyAccessGrant.objects.select_for_update().filter(
+        user=user, revoked_at__isnull=True,
+    ))
+    for grant in emergency_rows:
+        grant.revoked_at = now
+        grant.revoked_by = actor if getattr(actor, 'pk', None) else None
+        grant.revocation_reason = reason
+        grant.save(update_fields=['revoked_at', 'revoked_by', 'revocation_reason'])
+        _record_emergency_access(
+            grant, action='access_control.emergency.revoked', actor=actor, reason=reason,
+        )
+    from core.models import JawabuApprovalDelegation
+
+    delegations = JawabuApprovalDelegation.objects.filter(
+        Q(delegate=user) | Q(authorized_by=user),
+        revoked_at__isnull=True, expires_at__gt=now,
+    ).update(
+        revoked_at=now,
+        revoked_by=actor if getattr(actor, 'pk', None) else None,
+        revocation_reason=reason,
+    )
+    checker = AccessControlCheckerAssignment.objects.select_for_update().filter(
+        user=user, revoked_at__isnull=True,
+    ).first()
+    if checker:
+        checker.revoked_at = now
+        checker.revoked_by = actor if getattr(actor, 'pk', None) else None
+        checker.revocation_reason = reason
+        checker.save(update_fields=['revoked_at', 'revoked_by', 'revocation_reason'])
+        _record_checker_assignment(
+            checker, action='access_control.checker.revoked', actor=actor,
+            before={'user_id': user.pk}, after={'user_id': user.pk, 'revoked_at': now},
+            decision_mode='account_deactivation',
+        )
+    pending_rows = list(AccessControlChangeRequest.objects.select_for_update().filter(
+        Q(requested_by=user)
+        | Q(
+            change_type=AccessControlChangeRequest.TYPE_GRANT,
+            target_user=user,
+        ),
+        status=AccessControlChangeRequest.STATUS_PENDING,
+    ))
+    for request in pending_rows:
+        request.status = AccessControlChangeRequest.STATUS_CANCELLED
+        request.reviewed_by = actor if getattr(actor, 'pk', None) else None
+        request.reviewed_at = now
+        request.review_comment = reason
+        request.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'review_comment'])
+        _record_access_control_decision(
+            request, action='access_control.change.cancelled_on_deactivation',
+            decision_mode='account_deactivation',
+        )
+    return {
+        'grants': len(grant_rows), 'emergency_grants': len(emergency_rows),
+        'delegations': delegations, 'checker_assignments': 1 if checker else 0,
+        'pending_requests': len(pending_rows),
+    }
 
 
 def create_rollback_request(*, snapshot, requester, reason: str):

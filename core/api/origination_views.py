@@ -120,12 +120,16 @@ def _safe_error(exc: Exception) -> dict:
     return payload
 
 
-def _branch_creation_error(request, branch: str):
+def _branch_creation_error(request, branch: str, product_key: str = ''):
     access = getattr(request, 'portal_access', None)
     user = getattr(request, 'portal_user', None)
     if access is not None and not getattr(user, 'is_superuser', False):
-        allowed = {str(value).strip().casefold() for value in access.get('branches', []) if str(value).strip()}
-        if allowed and str(branch or '').strip().casefold() not in allowed:
+        from core.services.portal_permissions import portal_access_decision
+
+        if not portal_access_decision(
+            user, 'portal.origination.create', access=access,
+            branch=branch, product=product_key,
+        ).allowed:
             return JsonResponse({'ok': False, 'error': 'Choose a branch within your authorized scope.'}, status=403)
     canonical = {
         value.casefold(): value
@@ -286,7 +290,9 @@ def portal_origination_applications(request):
         })
     try:
         body = _body(request)
-        branch_error = _branch_creation_error(request, body.get('branch'))
+        branch_error = _branch_creation_error(
+            request, body.get('branch'), str(body.get('product_key') or '').strip(),
+        )
         if branch_error:
             return branch_error
         request_id = _request_id(request, body)

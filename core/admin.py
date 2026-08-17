@@ -3838,7 +3838,7 @@ def _configure_access_scope_fields(form) -> None:
     }
     form.fields['product'].widget.workflow_map = {
         '': {'jawabu_portal', 'complaint_cases', 'tat_tracker'},
-        **{value: {'tat_tracker'} for value, _ in products if value},
+        **{value: {'jawabu_portal', 'tat_tracker'} for value, _ in products if value},
     }
     form.fields['group_configuration'].queryset = GroupSheetConfiguration.objects.filter(enabled=True)
 
@@ -3906,6 +3906,9 @@ class AccessGrantAdminForm(forms.ModelForm):
 
 
 class AccessGrantRequestForm(AccessGrantAdminForm):
+    request_key = forms.CharField(
+        widget=forms.HiddenInput(), initial=uuid.uuid4, max_length=128,
+    )
     reason = forms.CharField(
         widget=forms.Textarea(attrs={'rows': 3}),
         help_text='Explain the operational need. The grant will remain inactive until a different designated approver applies it.',
@@ -4028,17 +4031,16 @@ class WorkflowRoleCapabilityAdmin(CompactModelAdmin):
                     if normalized in valid_roles and normalized not in target_roles:
                         target_roles.append(normalized)
                 try:
-                    change_requests = [
-                        create_capability_request(
-                            requester=request.user, workflow=selected_workflow, role=target_role,
-                            capability_keys=submitted, reason=str(request.POST.get('reason') or ''),
-                        )
-                        for target_role in target_roles
-                    ]
+                    change_request = create_capability_request(
+                        requester=request.user, workflow=selected_workflow,
+                        roles=target_roles, capability_keys=submitted,
+                        reason=str(request.POST.get('reason') or ''),
+                        request_key=str(request.POST.get('request_key') or ''),
+                    )
                 except ValidationError as exc:
                     messages.error(request, '; '.join(exc.messages))
                 else:
-                    messages.success(request, f'{len(change_requests)} change request(s) are pending independent approval. No live access changed.')
+                    messages.success(request, f'One atomic change request for {len(target_roles)} role(s) is pending independent approval. No live access changed.')
                     return HttpResponseRedirect(reverse('admin:core_accesscontrolchangerequest_changelist'))
         selected_role = canonical_access_role(selected_workflow, request.GET.get('role') or (role_options[0][0] if role_options else ''))
         copy_from_role = canonical_access_role(selected_workflow, request.GET.get('copy_from') or '')
@@ -4066,6 +4068,7 @@ class WorkflowRoleCapabilityAdmin(CompactModelAdmin):
             'selected_role': selected_role,
             'copy_from_role': copy_from_role,
             'rows': rows,
+            'request_key': uuid.uuid4(),
             'audit_events': WorkflowRoleCapabilityAuditEvent.objects.filter(
                 workflow=selected_workflow, role=selected_role,
             ).select_related('actor')[:8],
@@ -4098,7 +4101,7 @@ class AccessControlChangeRequestAdmin(CompactModelAdmin):
     list_filter = ('status', 'change_type', 'workflow')
     search_fields = ('role', 'target_user__username', 'requested_by__username', 'reason')
     readonly_fields = (
-        'change_type', 'workflow', 'role', 'target_user', 'before_snapshot', 'proposed_snapshot',
+        'change_type', 'workflow', 'role', 'target_roles', 'request_key', 'target_user', 'before_snapshot', 'proposed_snapshot',
         'impact', 'reason', 'status', 'policy_version', 'requested_by', 'requested_at',
         'reviewed_by', 'reviewed_at', 'review_comment', 'applied_at', 'source_request',
     )
@@ -4142,6 +4145,16 @@ class AccessControlChangeRequestAdmin(CompactModelAdmin):
         from core.services.access_control import can_approve_access_change
 
         return can_approve_access_change(request.user)
+
+    def has_view_permission(self, request, obj=None):
+        from core.services.access_control import can_approve_access_change
+
+        return can_approve_access_change(request.user) or super().has_view_permission(request, obj)
+
+    def has_module_permission(self, request):
+        from core.services.access_control import can_approve_access_change
+
+        return can_approve_access_change(request.user) or super().has_module_permission(request)
 
     def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
         if request.method == 'POST' and ('approve_request' in request.POST or 'reject_request' in request.POST):
@@ -4244,10 +4257,32 @@ class EmergencyAccessGrantAdmin(CompactModelAdmin):
     list_display = ('user', 'workflow', 'role', 'activated_by', 'expires_at', 'revoked_at')
     list_filter = ('workflow',)
     search_fields = ('user__username', 'role', 'reason')
-    readonly_fields = ('activated_by', 'activated_at', 'expires_at', 'revoked_at', 'revoked_by')
+    readonly_fields = (
+        'user', 'workflow', 'role', 'branch', 'product', 'product_ref',
+        'group_configuration', 'reason', 'request_id', 'activated_by',
+        'activated_at', 'expires_at', 'revoked_at', 'revoked_by',
+        'revocation_reason',
+    )
+    actions = ('revoke_selected_emergency_access',)
 
     def has_add_permission(self, request): return False
     def has_delete_permission(self, request, obj=None): return False
+    def has_change_permission(self, request, obj=None):
+        return bool(request.user.is_active and request.user.is_superuser)
+
+    @admin.action(description='Revoke selected active emergency access')
+    def revoke_selected_emergency_access(self, request, queryset):
+        from core.services.access_control import revoke_emergency_grant
+
+        changed = 0
+        for grant in queryset:
+            _grant, revoked = revoke_emergency_grant(
+                actor=request.user,
+                grant=grant,
+                reason='Explicitly revoked from the Django Admin emergency-access register.',
+            )
+            changed += int(revoked)
+        messages.success(request, f'{changed} emergency access grant(s) revoked and audit-logged.')
 
 
 @admin.register(AccessControlNotification)
@@ -4377,6 +4412,12 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
 
     def get_queryset(self, request):
         return super().get_queryset(request).prefetch_related('access_grants')
+
+    def save_model(self, request, obj, form, change):
+        # The lifecycle signal uses this transient actor for compliance
+        # attribution and retires all effective access on active -> inactive.
+        obj._access_retirement_actor = request.user
+        return super().save_model(request, obj, form, change)
 
     def save_formset(self, request, form, formset, change):
         """Route technical-root grant edits through the audited override service.
@@ -4601,7 +4642,7 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
                 requester=request.user, user=user, workflow=form.cleaned_data['workflow'], role=form.cleaned_data['role'],
                 branch=form.cleaned_data.get('branch', ''), product=form.cleaned_data.get('product', ''),
                 group_configuration=form.cleaned_data.get('group_configuration'), active=form.cleaned_data.get('active', True),
-                reason=form.cleaned_data['reason'],
+                reason=form.cleaned_data['reason'], request_key=form.cleaned_data['request_key'],
             )
             messages.success(request, 'Access request submitted for independent approval.')
             return HttpResponseRedirect(reverse('admin:core_accesscontrolchangerequest_change', args=[change_request.pk]))
@@ -4696,6 +4737,7 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
                 actor=request.user, user=user, workflow=form.cleaned_data['workflow'], role=form.cleaned_data['role'],
                 branch=form.cleaned_data.get('branch', ''), product=form.cleaned_data.get('product', ''),
                 group_configuration=form.cleaned_data.get('group_configuration'), reason=form.cleaned_data['reason'],
+                request_id=form.cleaned_data['request_key'],
             )
             messages.warning(request, f'Emergency access is active until {grant.expires_at:%d-%b-%Y %H:%M}. Approvers were notified.')
             return HttpResponseRedirect(reverse('admin:auth_user_change', args=[user.pk]))
@@ -4709,10 +4751,28 @@ class UnfoldUserAdmin(ModelAdmin, DjangoUserAdmin):
             raise PermissionDenied
         from core.services.telegram_identity import user_access
         from core.services.workflow_capabilities import capabilities_payload
+        from core.services.portal_permissions import portal_capability_scope
         rows = []
         for workflow, label in AccessGrant.WORKFLOW_CHOICES:
             access = user_access(user, workflow)
-            rows.append({'workflow': label, 'roles': access['roles'], 'branches': access['branches'], 'products': access['products'], 'capabilities': capabilities_payload(user, workflow, access=access), 'emergency': access.get('emergency_grants', [])})
+            capabilities = capabilities_payload(user, workflow, access=access)
+            scoped_capabilities = []
+            if workflow == 'jawabu_portal':
+                for capability in capabilities:
+                    scope = portal_capability_scope(user, capability, access=access)
+                    scoped_capabilities.append({
+                        'key': capability,
+                        'assignments': [
+                            f"{item['role']}: {item['branch'] or 'All branches'} / {item['product'] or 'All products'}"
+                            for item in scope['assignments']
+                        ],
+                    })
+            rows.append({
+                'workflow': label, 'roles': access['roles'], 'branches': access['branches'],
+                'products': access['products'], 'capabilities': capabilities,
+                'capability_scopes': scoped_capabilities,
+                'emergency': access.get('emergency_grants', []),
+            })
         return TemplateResponse(request, 'admin/auth/user/effective_access.html', {
             **self.admin_site.each_context(request), 'opts': self.model._meta, 'title': f'Effective Mini App access: {user.get_username()}', 'target_user': user, 'rows': rows,
         })

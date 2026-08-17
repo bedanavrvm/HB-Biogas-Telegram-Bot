@@ -54,6 +54,7 @@ def reserve_farmer_publication(
     request_id: str = '',
     requested_by=None,
     requested_by_label: str = '',
+    required_capability: str = 'portal.case.read',
 ) -> list[IntegrationOperation]:
     """Reserve idempotent register publications for the farmer's revision.
 
@@ -74,7 +75,10 @@ def reserve_farmer_publication(
             requested_by=requested_by,
             requested_by_label=str(requested_by_label or '')[:255],
             operation_payload=(str(farmer.pk), revision, operation_type),
-            metadata={'workflow_revision': revision, 'target': operation_type},
+            metadata={
+                'workflow_revision': revision, 'target': operation_type,
+                'required_capability': str(required_capability or 'portal.case.read'),
+            },
         )
         operations.append(operation)
     return operations

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from django.db.models import Q, QuerySet
 
+from core.services.portal_permissions import portal_access_decision
 from core.services.workflow_capabilities import effective_capability_keys
 
 
@@ -23,18 +24,21 @@ def _capabilities(user, access: dict | None) -> set[str]:
     return effective_capability_keys(user, 'jawabu_portal', access=access)
 
 
-def authorized_branches(user, access: dict | None) -> list[str]:
+def authorized_branches(user, access: dict | None, capability: str = 'portal.origination.view') -> list[str]:
     from core.services.branches import global_branch_choices
 
     configured = global_branch_choices()
     if access is None or getattr(user, 'is_superuser', False):
         return configured
-    granted = {
-        str(value).strip().casefold()
-        for value in (access or {}).get('branches', [])
-        if str(value).strip()
-    }
-    return [branch for branch in configured if not granted or branch.casefold() in granted]
+    from core.services.portal_permissions import portal_capability_scope
+
+    scope = portal_capability_scope(user, capability, access=access)
+    if not scope['allowed']:
+        return []
+    granted = {str(value).strip().casefold() for value in scope['branches']}
+    return configured if scope['global_branch'] else [
+        branch for branch in configured if branch.casefold() in granted
+    ]
 
 
 def _branch_allowed(application, user, access: dict | None) -> bool:
@@ -50,16 +54,21 @@ def _branch_allowed(application, user, access: dict | None) -> bool:
 
 def application_presentation_mode(application, *, user, access: dict | None) -> str:
     """Return full, masked, or denied for one already-authenticated actor."""
-    if not user or not _branch_allowed(application, user, access):
+    if not user:
         return DENIED
     if access is None or getattr(user, 'is_superuser', False):
         return FULL
-    capabilities = _capabilities(user, access)
-    if capabilities & {'portal.origination.review', 'portal.origination.signing.start'}:
+    if any(portal_access_decision(
+        user, capability, access=access, resource=application,
+    ).allowed for capability in {'portal.origination.review', 'portal.origination.signing.start'}):
         return FULL
-    if 'portal.origination.create' in capabilities:
+    if portal_access_decision(
+        user, 'portal.origination.create', access=access, resource=application,
+    ).allowed:
         return FULL if application.officer_id == user.pk else DENIED
-    if 'portal.origination.view' in capabilities:
+    if portal_access_decision(
+        user, 'portal.origination.view', access=access, resource=application,
+    ).allowed:
         return MASKED
     return DENIED
 
@@ -70,23 +79,47 @@ def scope_application_queryset(queryset: QuerySet, *, user, access: dict | None)
         return queryset.none()
     if access is None or getattr(user, 'is_superuser', False):
         return queryset
-    branches = [
-        str(value).strip() for value in (access or {}).get('branches', [])
-        if str(value).strip()
-    ]
-    if branches:
-        branch_scope = Q()
-        for branch in branches:
-            branch_scope |= Q(branch__iexact=branch)
-        queryset = queryset.filter(branch_scope)
     capabilities = _capabilities(user, access)
-    if capabilities & {'portal.origination.review', 'portal.origination.signing.start'}:
-        return queryset
-    if 'portal.origination.create' in capabilities:
-        return queryset.filter(officer=user)
-    if 'portal.origination.view' in capabilities:
-        return queryset
-    return queryset.none()
+    elevated = capabilities.intersection({
+        'portal.origination.review', 'portal.origination.signing.start',
+    })
+    if elevated:
+        candidate_capabilities = elevated
+    elif 'portal.origination.create' in capabilities:
+        # View is a dependency of create, not permission to browse another
+        # officer's applications. Ownership stays part of the create scope.
+        candidate_capabilities = {'portal.origination.create'}
+    else:
+        candidate_capabilities = capabilities.intersection({'portal.origination.view'})
+    if not candidate_capabilities:
+        return queryset.none()
+
+    from core.models import WorkflowRoleCapability
+
+    grants = list((access or {}).get('grants') or [])
+    roles = [str(getattr(item, 'role', '') or '').strip().upper() for item in grants]
+    policy_rows = WorkflowRoleCapability.objects.filter(
+        workflow='jawabu_portal', capability_key__in=candidate_capabilities,
+        effect=WorkflowRoleCapability.EFFECT_ALLOW, role__in=roles,
+    ).values_list('role', 'capability_key')
+    roles_by_capability: dict[str, set[str]] = {}
+    for role, capability in policy_rows:
+        roles_by_capability.setdefault(capability, set()).add(role)
+
+    combined = Q(pk__in=[])
+    for capability, allowed_roles in roles_by_capability.items():
+        for grant in grants:
+            if str(getattr(grant, 'role', '') or '').strip().upper() not in allowed_roles:
+                continue
+            item = Q()
+            if getattr(grant, 'branch', ''):
+                item &= Q(branch__iexact=grant.branch)
+            if getattr(grant, 'product', ''):
+                item &= Q(product_version__product__code__iexact=grant.product)
+            if capability == 'portal.origination.create':
+                item &= Q(officer=user)
+            combined |= item
+    return queryset.filter(combined).distinct()
 
 
 def queue_capabilities(*, user, access: dict | None) -> dict[str, bool]:

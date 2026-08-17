@@ -2989,6 +2989,8 @@ class AccessControlChangeRequest(models.Model):
     change_type = models.CharField(max_length=32, choices=TYPE_CHOICES, db_index=True)
     workflow = models.CharField(max_length=40, choices=AccessGrant.WORKFLOW_CHOICES, blank=True, default='', db_index=True)
     role = models.CharField(max_length=80, blank=True, default='', db_index=True)
+    target_roles = models.JSONField(default=list, blank=True)
+    request_key = models.CharField(max_length=128, blank=True, default='', db_index=True)
     target_user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='access_control_requests')
     before_snapshot = models.JSONField(default=dict, blank=True)
     proposed_snapshot = models.JSONField(default=dict, blank=True)
@@ -3007,6 +3009,13 @@ class AccessControlChangeRequest(models.Model):
     class Meta:
         ordering = ['-requested_at']
         indexes = [models.Index(fields=['status', 'requested_at']), models.Index(fields=['workflow', 'role', 'status'])]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['requested_by', 'request_key'],
+                condition=~models.Q(request_key=''),
+                name='unique_access_change_request_key',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.get_change_type_display()} {self.workflow}/{self.role} ({self.status})'
@@ -3095,15 +3104,24 @@ class EmergencyAccessGrant(models.Model):
     )
     group_configuration = models.ForeignKey('GroupSheetConfiguration', null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
     reason = models.TextField()
+    request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
     activated_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='activated_emergency_access')
     activated_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField(db_index=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
     revoked_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='revoked_emergency_access')
+    revocation_reason = models.TextField(blank=True, default='')
 
     class Meta:
         ordering = ['-activated_at']
         indexes = [models.Index(fields=['user', 'workflow', 'expires_at'])]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['activated_by', 'request_id'],
+                condition=~models.Q(request_id=''),
+                name='unique_emergency_access_request_id',
+            ),
+        ]
 
     @property
     def active(self):

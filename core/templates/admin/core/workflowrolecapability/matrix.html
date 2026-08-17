@@ -29,6 +29,7 @@
 
     <form method="post" class="rounded border border-base-200 bg-white shadow-sm dark:border-base-800 dark:bg-base-900">
       {% csrf_token %}
+      <input type="hidden" name="request_key" value="{{ request_key }}">
       <input type="hidden" name="workflow" value="{{ selected_workflow }}">
       <input type="hidden" name="role" value="{{ selected_role }}">
       <div class="border-b border-base-200 p-4 dark:border-base-800">

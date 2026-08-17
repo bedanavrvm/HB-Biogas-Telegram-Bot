@@ -60,7 +60,10 @@ def validate_telegram_init_data(
         auth_date = int(pairs.get('auth_date') or '0')
     except ValueError as exc:
         raise TelegramAuthenticationError('Telegram Mini App auth_date is invalid.') from exc
-    if max_age > 0 and (not auth_date or time.time() - auth_date > max_age):
+    now = time.time()
+    if auth_date > now + 60:
+        raise TelegramAuthenticationError('Telegram Mini App auth_date is in the future.')
+    if max_age > 0 and (not auth_date or now - auth_date > max_age):
         raise TelegramAuthenticationError('Telegram Mini App authentication expired.')
     try:
         user_payload = json.loads(pairs.get('user') or '{}')

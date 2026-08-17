@@ -9,6 +9,8 @@ class CoreConfig(AppConfig):
 
     def ready(self):
         from core.compat import patch_django_template_context_copy
+        from core import signals  # noqa: F401
+        from core import checks  # noqa: F401
 
         patch_django_template_context_copy()
 

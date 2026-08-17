@@ -111,7 +111,13 @@ class OriginationSafeWorkflowTests(TestCase):
 
     @patch('core.services.origination_access.effective_capability_keys')
     def test_officer_sees_only_owned_applications_and_reviewer_gets_branch_queue(self, capabilities):
-        access = {'branches': ['Embu'], 'roles': ['JBL_OFFICER']}
+        from core.models import AccessGrant
+        from core.services.telegram_identity import user_access
+
+        AccessGrant.objects.create(
+            user=self.officer, workflow='jawabu_portal', role='JBL_OFFICER', branch='EMBU',
+        )
+        access = user_access(self.officer, 'jawabu_portal')
         capabilities.return_value = {'portal.origination.view', 'portal.origination.create'}
 
         officer_scope = scope_application_queryset(
@@ -127,9 +133,13 @@ class OriginationSafeWorkflowTests(TestCase):
         )
 
         capabilities.return_value = {'portal.origination.view', 'portal.origination.review'}
+        AccessGrant.objects.create(
+            user=self.reviewer, workflow='jawabu_portal', role='OPERATIONS_ADMIN', branch='EMBU',
+        )
+        reviewer_access = user_access(self.reviewer, 'jawabu_portal')
         reviewer_scope = scope_application_queryset(
             LoanOriginationApplication.objects.all(), user=self.reviewer,
-            access={'branches': ['Embu'], 'roles': ['OPERATIONS_ADMIN']},
+            access=reviewer_access,
         )
         self.assertEqual(set(reviewer_scope.values_list('pk', flat=True)), {
             self.application.pk, self.other_application.pk,
@@ -137,7 +147,7 @@ class OriginationSafeWorkflowTests(TestCase):
         self.assertEqual(
             application_presentation_mode(
                 self.application, user=self.reviewer,
-                access={'branches': ['Embu'], 'roles': ['OPERATIONS_ADMIN']},
+                access=reviewer_access,
             ),
             FULL,
         )
@@ -154,16 +164,25 @@ class OriginationSafeWorkflowTests(TestCase):
 
     @patch('core.services.origination_access.effective_capability_keys')
     def test_view_only_presentation_is_masked(self, capabilities):
+        from core.models import AccessGrant, WorkflowRoleCapability
+        from core.services.telegram_identity import user_access
         from core.services.loan_origination import serialize_application
 
         capabilities.return_value = {'portal.origination.view'}
+        AccessGrant.objects.create(
+            user=self.reviewer, workflow='jawabu_portal', role='OPERATIONS_ADMIN', branch='EMBU',
+        )
+        WorkflowRoleCapability.objects.filter(
+            workflow='jawabu_portal', role='OPERATIONS_ADMIN',
+            capability_key__in=['portal.origination.review', 'portal.origination.signing.start'],
+        ).update(effect='deny', enabled=False)
         self.application.form_payload = {
             'applicant_name': 'Synthetic Applicant', 'loan_amount': '2500',
         }
         self.application.save(update_fields=['form_payload'])
         mode = application_presentation_mode(
             self.application, user=self.reviewer,
-            access={'branches': ['Embu'], 'roles': ['VIEWER']},
+            access=user_access(self.reviewer, 'jawabu_portal'),
         )
         payload = serialize_application(self.application, presentation=mode)
 

@@ -253,11 +253,11 @@ class PortalPublicationEndpointTests(TestCase):
             data=json.dumps({'operation_id': str(self.operation.pk), 'automatic': True}),
             content_type='application/json',
         )
-        request.portal_access = {}
+        request.portal_access = None
         request.portal_user = None
         return request
 
-    @patch('core.api.portal_views._portal_farmers_scope_error')
+    @patch('core.api.portal_views._portal_capability_error')
     @patch('core.services.portal_publication.attempt_publication')
     def test_publication_attempt_denies_out_of_scope_case_before_google_call(self, mocked_attempt, mocked_scope):
         from django.http import JsonResponse
@@ -270,7 +270,7 @@ class PortalPublicationEndpointTests(TestCase):
 
     @patch('core.services.portal_publication.attempt_publication')
     @patch('core.services.portal_publication.publication_payload', return_value={'status': 'synced', 'pending_operation_ids': []})
-    @patch('core.api.portal_views._portal_farmers_scope_error', return_value=None)
+    @patch('core.api.portal_views._portal_capability_error', return_value=None)
     def test_publication_attempt_runs_one_authorized_operation(self, _scope, _payload, mocked_attempt):
         mocked_attempt.return_value = {'superseded': False}
 

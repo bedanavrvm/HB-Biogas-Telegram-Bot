@@ -356,7 +356,7 @@ def _paginate_list(items: list, request, page_size: int = 30):
     return items[start:end], pagination
 
 
-def _apply_county_branch_filters(qs, request, *, params=None):
+def _apply_county_branch_filters(qs, request, *, params=None, capability: str = ''):
     from django.db.models import Q
 
     params = params if params is not None else request.GET
@@ -366,9 +366,16 @@ def _apply_county_branch_filters(qs, request, *, params=None):
         qs = qs.filter(county__iexact=county)
     if branch:
         qs = qs.filter(branch__iexact=branch)
-    access = getattr(request, 'portal_access', {})
-    staff_branches = [str(value).strip() for value in access.get('branches', []) if str(value).strip()]
-    if staff_branches:
+    access = getattr(request, 'portal_access', None)
+    if capability:
+        from core.services.portal_permissions import scope_portal_case_queryset
+
+        qs = scope_portal_case_queryset(
+            qs, getattr(request, 'portal_user', None), capability, access=access,
+        )
+    else:
+        staff_branches = [str(value).strip() for value in (access or {}).get('branches', []) if str(value).strip()]
+    if not capability and staff_branches:
         # Branch names are operational data and have historically varied in
         # casing.  Enforce the grant scope case-insensitively so a branch
         # user cannot accidentally see an empty queue (or bypass scope via a
@@ -393,13 +400,16 @@ def _portal_capability_error(request, capability: str, farmer=None):
     access = getattr(request, 'portal_access', None)
     if access is None:  # Authentication is intentionally disabled in local/test environments.
         return None
-    from core.services.workflow_capabilities import has_capability
+    from core.services.portal_permissions import portal_access_decision
 
-    if not has_capability(request.portal_user, 'jawabu_portal', capability, access=access):
+    decision = portal_access_decision(
+        request.portal_user, capability, access=access, resource=farmer,
+    )
+    if not decision.allowed:
         return JsonResponse({'ok': False, 'error': 'You are not authorized for this Jawabu workflow action.'}, status=403)
     from core.services.access_control import record_capability_usage
     record_capability_usage(request.portal_user, 'jawabu_portal', capability)
-    return _portal_branch_scope_error(request, farmer)
+    return None
 
 
 def _portal_any_capability_error(request):
@@ -465,7 +475,14 @@ def _portal_approval_authority_error(request, farmer, gate: str):
         return None
     if getattr(getattr(request, 'portal_user', None), 'is_active', False) and getattr(request.portal_user, 'is_superuser', False):
         return None
-    from core.services.jawabu_approvals import approval_authority
+    from core.services.jawabu_approvals import GATE_CAPABILITIES, approval_authority
+    from core.services.portal_permissions import portal_access_decision
+
+    direct = portal_access_decision(
+        request.portal_user, GATE_CAPABILITIES[gate], access=access, resource=farmer,
+    )
+    if direct.allowed:
+        return None
 
     allowed, _role, _delegation = approval_authority(
         user=getattr(request, 'portal_user', None),
@@ -475,46 +492,52 @@ def _portal_approval_authority_error(request, farmer, gate: str):
     )
     if not allowed:
         return JsonResponse({'ok': False, 'error': 'You are not authorized for this Portal approval gate.'}, status=403)
-    return _portal_branch_scope_error(request, farmer)
+    # active_delegation() already validates this exact case against the
+    # delegation's branch/product scope; applying unrelated flattened grants
+    # here would incorrectly reject a valid delegated decision.
+    return None
 
 
-def _portal_order_scope_error(request, order_number: str):
+def _portal_order_scope_error(request, order_number: str, capability: str = ''):
     """Check that every application in an order is inside the actor scope."""
     from core.models import JawabuApprovalDelegation, JawabuFarmerMaster
 
     farmers = JawabuFarmerMaster.objects.filter(order_number=order_number).only('branch')
     for farmer in farmers:
-        access_error = _portal_branch_scope_error(request, farmer)
+        access_error = (
+            _portal_capability_error(request, capability, farmer)
+            if capability else _portal_branch_scope_error(request, farmer)
+        )
         if access_error:
             return access_error
     return None
 
 
-def _portal_farmers_scope_error(request, farmers, allowed_roles=None):
+def _portal_farmers_scope_error(request, farmers, allowed_roles=None, capability: str = ''):
     """Apply branch scope after the caller has checked its capability."""
     for farmer in farmers:
-        scope_error = _portal_branch_scope_error(request, farmer)
+        scope_error = (
+            _portal_capability_error(request, capability, farmer)
+            if capability else _portal_branch_scope_error(request, farmer)
+        )
         if scope_error:
             return scope_error
     return None
 
 
-def _portal_scoped_farmers(farmers, request):
-    """Filter an already-loaded batch to the actor's branch grants."""
-    branches = {
-        str(value).strip().casefold()
-        for value in getattr(request, 'portal_access', {}).get('branches', [])
-        if str(value).strip()
-    }
-    if not branches:
+def _portal_scoped_farmers(farmers, request, capability='portal.batches.view'):
+    """Filter loaded cases with the same complete-grant decision as the API."""
+    access = getattr(request, 'portal_access', None)
+    if access is None:
         return list(farmers)
-    return [
-        farmer for farmer in farmers
-        if str(getattr(farmer, 'branch', '') or '').strip().casefold() in branches
-    ]
+    from core.services.portal_permissions import portal_access_decision
+
+    return [farmer for farmer in farmers if portal_access_decision(
+        request.portal_user, capability, access=access, resource=farmer,
+    ).allowed]
 
 
-def _portal_saved_document_in_scope(request, order_number: str, farmer_ids=None) -> bool:
+def _portal_saved_document_in_scope(request, order_number: str, farmer_ids=None, capability: str = '') -> bool:
     """Return whether a saved artifact belongs entirely to the actor's scope."""
     identifiers = {str(value) for value in (farmer_ids or []) if value}
     if identifiers:
@@ -525,8 +548,8 @@ def _portal_saved_document_in_scope(request, order_number: str, farmer_ids=None)
         # for a branch-limited account.
         if len(farmers) != len(identifiers):
             return not getattr(request, 'portal_access', {}).get('branches')
-        return _portal_farmers_scope_error(request, farmers) is None
-    return _portal_order_scope_error(request, order_number) is None
+        return _portal_farmers_scope_error(request, farmers, capability=capability) is None
+    return _portal_order_scope_error(request, order_number, capability=capability) is None
 
 
 PORTAL_QUEUE_FRAGMENT_CONFIG = {
@@ -577,6 +600,7 @@ def _pending_payment_review_map(request=None):
     for document in documents:
         if request is not None and not _portal_saved_document_in_scope(
             request, document.order_number, document.farmer_ids,
+            capability='portal.final_review.view',
         ):
             continue
         for farmer_id in document.farmer_ids or []:
@@ -594,7 +618,9 @@ def _payment_review_queryset(request, *, params=None):
     queryset = JawabuFarmerMaster.objects.filter(
         status='active', id__in=list(review_map),
     )
-    return _apply_county_branch_filters(queryset, request, params=params), review_map
+    return _apply_county_branch_filters(
+        queryset, request, params=params, capability='portal.final_review.view',
+    ), review_map
 
 
 def _card_with_payment_review_metadata(farmer, card, review_map):
@@ -620,6 +646,7 @@ def _portal_queue_queryset(queue_key: str, request, *, params=None):
     if not config:
         return None, None
     params = params if params is not None else request.GET
+    queue_capability = PORTAL_QUEUE_CAPABILITIES.get(queue_key, '')
 
     if queue_key == 'my_visits':
         # JBL officers need a follow-up view without re-opening the visit
@@ -651,7 +678,7 @@ def _portal_queue_queryset(queue_key: str, request, *, params=None):
         ).filter(
             _latest_jbl_visit_actor=actor.pk,
         )
-        qs = _apply_county_branch_filters(qs, request, params=params)
+        qs = _apply_county_branch_filters(qs, request, params=params, capability=queue_capability)
         qs = qs.order_by('-_latest_jbl_visit_at', '_followup_lifecycle_order', '-updated_at', '-pk')
     elif queue_key == 'all':
         qs = jawabu_pipeline.all_cases(
@@ -659,7 +686,7 @@ def _portal_queue_queryset(queue_key: str, request, *, params=None):
             county=params.get('county', '').strip(),
             branch=params.get('branch', '').strip(),
         )
-        qs = _apply_county_branch_filters(qs, request, params=params)
+        qs = _apply_county_branch_filters(qs, request, params=params, capability=queue_capability)
     else:
         if queue_key == 'final':
             stage = _portal_review_stage(request, params=params)
@@ -672,7 +699,7 @@ def _portal_queue_queryset(queue_key: str, request, *, params=None):
         else:
             service = getattr(jawabu_pipeline, config['service'])
             qs = service(params.get('search', '').strip()) if queue_key == 'jbl' else service()
-        qs = _apply_county_branch_filters(qs, request, params=params)
+        qs = _apply_county_branch_filters(qs, request, params=params, capability=queue_capability)
     if queue_key == 'my_visits':
         return qs, config
     return _apply_portal_ordering(qs, params=params), config
@@ -685,7 +712,11 @@ def _batch_download_url(request, order_number: str) -> str:
     # Excel links are opened in Telegram's system browser, which cannot send
     # the Mini App initData header.  Bind a short-lived signed URL to the
     # already-authorized batch instead of weakening the API download route.
-    token = TimestampSigner(salt='portal-requisition-download').sign(str(order_number))
+    token = TimestampSigner(salt='portal-requisition-download').sign(json.dumps({
+        'order_number': str(order_number),
+        'user_id': str(getattr(getattr(request, 'portal_user', None), 'pk', '') or ''),
+        'capability': 'portal.batches.view',
+    }, separators=(',', ':')))
     return request.build_absolute_uri(
         f'/api/portal/requisition-download/{quote(token, safe="")}/'
     )
@@ -1144,7 +1175,7 @@ def _parse_requisition_workbook_payload(request, *, allow_blocked: bool = False)
         return None, JsonResponse({'ok': False, 'error': 'One or more selected farmers not found.'}, status=404)
 
     farmers, batch = _merge_requisition_farmers(farmers, order_number, farmer_ids)
-    access_error = _portal_farmers_scope_error(request, farmers)
+    access_error = _portal_farmers_scope_error(request, farmers, capability='portal.requisition.view')
     if access_error:
         return None, access_error
 
@@ -1701,7 +1732,9 @@ def _portal_workspace_payload(request, actor, *, include_summary: bool = False) 
     from core.models import JawabuFarmerMaster, PortalCaseWorkspace
     from core.services.portal_workspace import workspace_payload
 
-    accessible = _apply_county_branch_filters(JawabuFarmerMaster.objects.all(), request)
+    accessible = _apply_county_branch_filters(
+        JawabuFarmerMaster.objects.all(), request, capability='portal.workspace.manage',
+    )
     # Only workspace rows need availability resolution. Do not materialize every
     # case ID just to render a staff member's private shortcuts.
     workspace_farmer_ids = PortalCaseWorkspace.objects.filter(user=actor).values('farmer_id')
@@ -1974,6 +2007,14 @@ def portal_meta(request):
             delegate=portal_user, starts_at__lte=timezone.now(),
             expires_at__gt=timezone.now(), revoked_at__isnull=True,
         ).values_list('gate', flat=True).distinct())
+    capabilities = _portal_capabilities(request)
+    from core.services.portal_permissions import portal_capability_scope
+    capability_scopes = {
+        capability: portal_capability_scope(
+            portal_user, capability, access=getattr(request, 'portal_access', None),
+        )
+        for capability in capabilities
+    }
     return JsonResponse({
         'ok': True,
         'branches': branches,
@@ -1984,7 +2025,8 @@ def portal_meta(request):
         'imab_created_options': ['Yes', 'No', 'Pending'],
         'final_decisions': [c[0] for c in JawabuFarmerMaster.FINAL_DECISION_CHOICES],
         'approval_delegation_gates': delegation_gates,
-        'capabilities': _portal_capabilities(request),
+        'capabilities': capabilities,
+        'capability_scopes': capability_scopes,
         'access_policy_version': policy_version(),
         'jbl_visit_media_max_bytes': int(getattr(settings, 'MEDIA_MAX_FILE_SIZE_MB', 20) or 20) * 1024 * 1024,
         'jbl_visit_media_max_files': max(1, int(getattr(settings, 'PORTAL_JBL_VISIT_MAX_FILES', 6) or 6)),
@@ -2617,7 +2659,10 @@ def portal_jbl_queue(request):
     """GET /api/portal/jbl-queue/ — farmers awaiting JBL visit."""
     from core.services.jawabu_pipeline import jbl_visit_queue, farmer_to_card
     qs = _apply_portal_ordering(
-        _apply_county_branch_filters(jbl_visit_queue(request.GET.get('search', '')), request),
+        _apply_county_branch_filters(
+            jbl_visit_queue(request.GET.get('search', '')), request,
+            capability='portal.jbl_queue.view',
+        ),
         params=request.GET,
     )
     items, pagination = _paginate_qs(qs, request)
@@ -2827,7 +2872,7 @@ def _portal_due_publication_ids(request, *, limit: int = 8) -> list[str]:
             JawabuFarmerMaster.objects.filter(
                 pk__in=[operation.source_id for operation in candidate_operations],
             ),
-            request,
+            request, capability='portal.case.read',
         ).values_list('pk', flat=True)
     }
     return [
@@ -3183,9 +3228,16 @@ def portal_publication_attempt(request):
     farmer = JawabuFarmerMaster.objects.filter(pk=operation.source_id).first()
     if farmer is None:
         return JsonResponse({'ok': False, 'error': 'The related case is no longer available.'}, status=404)
-    access_error = _portal_farmers_scope_error(request, [farmer])
+    required_capability = str(
+        (operation.metadata or {}).get('required_capability') or 'portal.case.read'
+    )
+    access_error = _portal_capability_error(request, required_capability, farmer)
     if access_error:
-        return access_error
+        support_error = _portal_capability_error(
+            request, 'portal.publication.retry', farmer,
+        )
+        if support_error:
+            return access_error
     automatic = bool((body or {}).get('automatic'))
     if automatic and operation.next_retry_at and operation.next_retry_at > timezone.now():
         return JsonResponse({
@@ -3474,6 +3526,22 @@ def portal_open_jbl_media_signed(request, token: str):
     if actor_id:
         from django.contrib.auth import get_user_model
         actor = get_user_model().objects.filter(pk=actor_id).first()
+    local_auth_bypass = bool(
+        not getattr(settings, 'PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH', True)
+        and not actor_id
+    )
+    if (actor is None or not actor.is_active) and not local_auth_bypass:
+        return JsonResponse({'ok': False, 'error': 'This media link is no longer authorized.'}, status=403)
+    if actor is not None:
+        from core.services.telegram_identity import user_access
+
+        request.portal_user = actor
+        request.portal_access = user_access(actor, 'jawabu_portal')
+        access_error = _portal_read_access_error(
+            request, farmer, capability='portal.jbl_media.view',
+        )
+        if access_error:
+            return access_error
 
     attachment_id = str(payload.get('attachment_id') or '').strip()
     if attachment_id:
@@ -3609,7 +3677,9 @@ def portal_credit_queue(request):
         return access_error
     """GET /api/portal/credit-queue/ — farmers awaiting credit analysis."""
     from core.services.jawabu_pipeline import credit_queue, farmer_to_card
-    qs = _apply_portal_ordering(_apply_county_branch_filters(credit_queue(), request), params=request.GET)
+    qs = _apply_portal_ordering(_apply_county_branch_filters(
+        credit_queue(), request, capability='portal.credit_queue.view',
+    ), params=request.GET)
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
@@ -3706,11 +3776,15 @@ def portal_final_review_queue(request):
     review_map = {}
     if stage == 'requisition':
         from core.services.jawabu_pipeline import requisition_queue
-        qs = _apply_portal_ordering(_apply_county_branch_filters(requisition_queue(), request), params=request.GET)
+        qs = _apply_portal_ordering(_apply_county_branch_filters(
+            requisition_queue(), request, capability='portal.final_review.view',
+        ), params=request.GET)
     elif stage == 'payment':
         qs, review_map = _payment_review_queryset(request)
     else:
-        qs = _apply_portal_ordering(_apply_county_branch_filters(final_review_queue(), request), params=request.GET)
+        qs = _apply_portal_ordering(_apply_county_branch_filters(
+            final_review_queue(), request, capability='portal.final_review.view',
+        ), params=request.GET)
     qs = _apply_portal_ordering(qs, params=request.GET)
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
@@ -3876,7 +3950,9 @@ def portal_requisition_queue(request):
         return access_error
     """GET /api/portal/requisition-queue/ — credit-approved farmers awaiting order."""
     from core.services.jawabu_pipeline import requisition_queue, farmer_to_card
-    qs = _apply_portal_ordering(_apply_county_branch_filters(requisition_queue(), request), params=request.GET)
+    qs = _apply_portal_ordering(_apply_county_branch_filters(
+        requisition_queue(), request, capability='portal.requisition.view',
+    ), params=request.GET)
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
@@ -3932,7 +4008,9 @@ def portal_all_cases(request):
     county = request.GET.get('county', '').strip()
     branch = request.GET.get('branch', '').strip()
     qs = all_cases(search=search, county=county, branch=branch)
-    qs = _apply_portal_ordering(_apply_county_branch_filters(qs, request), params=request.GET)
+    qs = _apply_portal_ordering(_apply_county_branch_filters(
+        qs, request, capability='portal.case.read',
+    ), params=request.GET)
     items, pagination = _paginate_qs(qs, request)
     return JsonResponse({
         'ok': True,
@@ -3950,7 +4028,10 @@ def portal_deferred(request):
     """GET /api/portal/deferred/ — deferred/rejected/flagged farmers."""
     from core.services.jawabu_pipeline import deferred_queue, reappraisal_required_queue, farmer_to_card
     qs = _apply_portal_ordering(
-        _apply_county_branch_filters((deferred_queue() | reappraisal_required_queue()).distinct(), request),
+        _apply_county_branch_filters(
+            (deferred_queue() | reappraisal_required_queue()).distinct(), request,
+            capability='portal.deferred.view',
+        ),
         params=request.GET,
     )
     items, pagination = _paginate_qs(qs, request)
@@ -4056,7 +4137,7 @@ def portal_requisition_preview(request):
     farmer_ids = parsed['farmer_ids']
     order_number = parsed['order_number']
     requisition_date = parsed['requisition_date']
-    access_error = _portal_capability_error(request, 'portal.requisition.write') or _portal_farmers_scope_error(request, farmers)
+    access_error = _portal_capability_error(request, 'portal.requisition.write') or _portal_farmers_scope_error(request, farmers, capability='portal.requisition.write')
     if access_error:
         return access_error
 
@@ -4112,7 +4193,7 @@ def portal_requisition_workbook_preview(request):
     farmers = parsed['farmers']
     order_number = parsed['order_number']
     requisition_date = parsed['requisition_date']
-    access_error = _portal_capability_error(request, 'portal.requisition.write') or _portal_farmers_scope_error(request, farmers, {'operations'})
+    access_error = _portal_capability_error(request, 'portal.requisition.write') or _portal_farmers_scope_error(request, farmers, {'operations'}, capability='portal.requisition.write')
     if access_error:
         return access_error
     try:
@@ -4201,7 +4282,7 @@ def portal_requisition_generate(request):
     farmers = parsed['farmers']
     order_number = parsed['order_number']
     requisition_date = parsed['requisition_date']
-    access_error = _portal_capability_error(request, 'portal.requisition.write') or _portal_farmers_scope_error(request, farmers)
+    access_error = _portal_capability_error(request, 'portal.requisition.write') or _portal_farmers_scope_error(request, farmers, capability='portal.requisition.write')
     if access_error:
         return access_error
     # A Mini App can lose the response while the local transaction commits.
@@ -4212,7 +4293,7 @@ def portal_requisition_generate(request):
         existing_batch = RequisitionBatch.objects.filter(generation_request_id=batch_request_id).first()
         if existing_batch:
             existing_farmers = _farmers_for_batch(existing_batch.order_number, existing_batch.farmer_ids or None)
-            existing_scope_error = _portal_farmers_scope_error(request, existing_farmers)
+            existing_scope_error = _portal_farmers_scope_error(request, existing_farmers, capability='portal.requisition.write')
             if existing_scope_error:
                 return existing_scope_error
             payload = {
@@ -4351,9 +4432,29 @@ def portal_requisition_generate(request):
 def portal_requisition_download(request, token: str):
     """Short-lived mobile-friendly download for generated requisition Excel files."""
     try:
-        order_number = TimestampSigner(salt='portal-requisition-download').unsign(token, max_age=900)
-    except BadSignature:
+        payload = json.loads(TimestampSigner(salt='portal-requisition-download').unsign(token, max_age=900))
+        order_number = str(payload['order_number'])
+        actor_id = str(payload['user_id'])
+    except (BadSignature, KeyError, TypeError, ValueError):
         return JsonResponse({'ok': False, 'error': 'Download link expired. Generate the requisition form again.'}, status=404)
+    from django.contrib.auth import get_user_model
+    from core.services.telegram_identity import user_access
+
+    actor = get_user_model().objects.filter(pk=actor_id, is_active=True).first() if actor_id else None
+    local_auth_bypass = bool(
+        not getattr(settings, 'PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH', True)
+        and not actor_id
+    )
+    if actor is None and not local_auth_bypass:
+        return JsonResponse({'ok': False, 'error': 'This download link is no longer authorized.'}, status=403)
+    if actor is not None:
+        request.portal_user = actor
+        request.portal_access = user_access(actor, 'jawabu_portal')
+        access_error = _portal_order_scope_error(
+            request, order_number, capability=str(payload.get('capability') or 'portal.batches.view'),
+        )
+        if access_error:
+            return access_error
     from core.models import RequisitionBatch
     batch = RequisitionBatch.objects.filter(order_number=order_number).first()
     if not batch or not batch.file_content:
@@ -4410,7 +4511,7 @@ def portal_requisition_batch_detail(request, order_number: str):
     try:
         batch = RequisitionBatch.objects.get(order_number=order_number)
         farmers = _farmers_for_batch(order_number, batch.farmer_ids or None)
-        access_error = _portal_capability_error(request, 'portal.batches.view') or _portal_farmers_scope_error(request, farmers)
+        access_error = _portal_capability_error(request, 'portal.batches.view') or _portal_farmers_scope_error(request, farmers, capability='portal.batches.view')
         if access_error:
             return access_error
         payload = _serialize_batch(batch, farmers, request)
@@ -4419,7 +4520,7 @@ def portal_requisition_batch_detail(request, order_number: str):
         farmers = list(JawabuFarmerMaster.objects.filter(order_number=order_number).order_by('customer_name'))
         if not farmers:
             return JsonResponse({'ok': False, 'error': 'Batch not found.'}, status=404)
-        access_error = _portal_capability_error(request, 'portal.batches.view') or _portal_farmers_scope_error(request, farmers)
+        access_error = _portal_capability_error(request, 'portal.batches.view') or _portal_farmers_scope_error(request, farmers, capability='portal.batches.view')
         if access_error:
             return access_error
         summary = _invoice_summary_for_farmers(farmers)
@@ -4491,7 +4592,7 @@ def portal_requisition_batch_retry_sync(request, order_number: str):
     role_error = _portal_role_error(request, 'requisition.write')
     if role_error:
         return role_error
-    scope_error = _portal_order_scope_error(request, order_number)
+    scope_error = _portal_order_scope_error(request, order_number, capability='portal.requisition.write')
     if scope_error:
         return scope_error
     # Cached form clients and the current JSON retry helper share this route.
@@ -4542,7 +4643,7 @@ def portal_upload_batch_invoices(request):
     if role_error:
         return role_error
     if order_number:
-        scope_error = _portal_order_scope_error(request, order_number)
+        scope_error = _portal_order_scope_error(request, order_number, capability='portal.invoice.write')
         if scope_error:
             return scope_error
     
@@ -4838,7 +4939,7 @@ def portal_invoice_batch_confirm(request, batch_id: str):
         if role_error:
             return role_error
         if batch.order_number:
-            scope_error = _portal_order_scope_error(request, batch.order_number)
+            scope_error = _portal_order_scope_error(request, batch.order_number, capability='portal.invoice.write')
             if scope_error:
                 return scope_error
         batch = confirm_invoice_batch(batch, actor=_portal_sender_from_request(request))
@@ -5165,7 +5266,9 @@ def portal_invoice_farmer_candidates(request):
     if not query.children:
         return JsonResponse({'ok': True, 'farmers': []})
     candidate_qs = JawabuFarmerMaster.objects.filter(status='active').filter(query)
-    candidate_qs = _apply_county_branch_filters(candidate_qs, request)
+    candidate_qs = _apply_county_branch_filters(
+        candidate_qs, request, capability='portal.invoice.view',
+    )
     qs = list(candidate_qs.order_by('customer_name')[:30])
 
     def score(farmer):
@@ -5333,7 +5436,9 @@ def portal_invoice_name_change_create(request, invoice_id: str):
         if not batch:
             return JsonResponse({'ok': False, 'error': 'Draft change-letter batch not found.'}, status=404)
         for existing_item in batch.items.all():
-            scope_error = _portal_branch_scope_error(request, existing_item.farmer)
+            scope_error = _portal_capability_error(
+                request, 'portal.invoice_identity.manage', existing_item.farmer,
+            )
             if scope_error:
                 return scope_error
     try:
@@ -5371,7 +5476,9 @@ def portal_invoice_name_change_sent(request, batch_id: str):
     if role_error:
         return role_error
     for item in items:
-        scope_error = _portal_branch_scope_error(request, item.farmer)
+        scope_error = _portal_capability_error(
+            request, 'portal.invoice_identity.manage', item.farmer,
+        )
         if scope_error:
             return scope_error
     try:
@@ -5544,7 +5651,7 @@ def portal_payment_readiness(request, order_number: str):
     """Return readiness status for payment document generation."""
     from core.services.payment_documents import payment_readiness
 
-    access_error = _portal_capability_error(request, 'portal.payment.view') or _portal_order_scope_error(request, order_number)
+    access_error = _portal_capability_error(request, 'portal.payment.view') or _portal_order_scope_error(request, order_number, capability='portal.payment.view')
     if access_error:
         return access_error
 
@@ -5566,7 +5673,9 @@ def portal_payment_candidates(request):
     queryset = JawabuFarmerMaster.objects.filter(
         status='active', parsed_invoices__status='matched', parsed_invoices__matched_farmer__isnull=False,
     ).exclude(pipeline_events__action='payment_finalized').distinct().order_by('customer_name')
-    queryset = _apply_county_branch_filters(queryset, request)
+    queryset = _apply_county_branch_filters(
+        queryset, request, capability='portal.payment.view',
+    )
     if search:
         queryset = queryset.filter(
             Q(customer_name__icontains=search)
@@ -5720,7 +5829,7 @@ def portal_payment_preview_data(request, order_number: str):
     except PaymentTemplateError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 
-    access_error = _portal_capability_error(request, 'portal.payment.view') or _portal_order_scope_error(request, order_number)
+    access_error = _portal_capability_error(request, 'portal.payment.view') or _portal_order_scope_error(request, order_number, capability='portal.payment.view')
     if access_error:
         return access_error
 
@@ -5749,7 +5858,7 @@ def portal_payment_document_preview(request, order_number: str):
         serialize_payment_document,
     )
 
-    access_error = _portal_capability_error(request, 'portal.payment.prepare') or _portal_order_scope_error(request, order_number)
+    access_error = _portal_capability_error(request, 'portal.payment.prepare') or _portal_order_scope_error(request, order_number, capability='portal.payment.prepare')
     if access_error:
         return access_error
 
@@ -5784,7 +5893,7 @@ def portal_payment_document_finalize(request, order_number: str):
         serialize_payment_document,
     )
 
-    access_error = _portal_capability_error(request, 'portal.payment.prepare') or _portal_order_scope_error(request, order_number)
+    access_error = _portal_capability_error(request, 'portal.payment.prepare') or _portal_order_scope_error(request, order_number, capability='portal.payment.prepare')
     if access_error:
         return access_error
 
@@ -5937,9 +6046,9 @@ def portal_payment_document_regenerate(request, document_id: str):
     if farmer_ids and len(farmers) != len(set(farmer_ids)):
         return JsonResponse({'ok': False, 'error': 'The saved payment document references a missing case.'}, status=409)
     if farmers:
-        access_error = _portal_capability_error(request, 'portal.documents.regenerate') or _portal_farmers_scope_error(request, farmers)
+        access_error = _portal_capability_error(request, 'portal.documents.regenerate') or _portal_farmers_scope_error(request, farmers, capability='portal.documents.regenerate')
     else:
-        access_error = _portal_order_scope_error(request, source.order_number)
+        access_error = _portal_order_scope_error(request, source.order_number, capability='portal.documents.regenerate')
     if access_error:
         return access_error
 
@@ -6094,7 +6203,7 @@ def portal_document_history(request):
                 ),
             }
             for doc in documents
-            if _portal_saved_document_in_scope(request, doc.order_number, doc.farmer_ids)
+            if _portal_saved_document_in_scope(request, doc.order_number, doc.farmer_ids, capability='portal.documents.view')
         ]})
     documents = RequisitionBatch.objects.exclude(status='preview').order_by('-updated_at')[:100]
     return JsonResponse({'ok': True, 'kind': 'orders', 'documents': [
@@ -6117,7 +6226,7 @@ def portal_document_history(request):
             ),
         }
         for doc in documents
-        if _portal_saved_document_in_scope(request, doc.order_number, doc.farmer_ids)
+        if _portal_saved_document_in_scope(request, doc.order_number, doc.farmer_ids, capability='portal.documents.view')
     ]})
 
 
@@ -6136,7 +6245,7 @@ def _portal_document_signoff_document(request, document_type: str, document_id: 
         order_number = document.order_number
     else:
         return None, JsonResponse({'ok': False, 'error': 'Unsupported document type.'}, status=404)
-    if _portal_capability_error(request, 'portal.documents.sign') or not _portal_saved_document_in_scope(request, order_number, farmer_ids):
+    if _portal_capability_error(request, 'portal.documents.sign') or not _portal_saved_document_in_scope(request, order_number, farmer_ids, capability='portal.documents.sign'):
         return None, JsonResponse({'ok': False, 'error': 'You do not have access to sign this document.'}, status=403)
     return document, None
 
@@ -6203,6 +6312,7 @@ def portal_document_physical_signoff_retry(request, signoff_id: str):
         request,
         getattr(document, 'order_number', ''),
         getattr(document, 'farmer_ids', []),
+        capability='portal.documents.sign',
     ):
         return JsonResponse({'ok': False, 'error': 'You do not have access to retry this signed scan.'}, status=403)
     try:
@@ -6235,7 +6345,7 @@ def portal_payment_document_detail(request, document_id: str):
         pk=document_id,
         status__in=['pending_review', 'final', 'failed'],
     )
-    if _portal_capability_error(request, 'portal.documents.view') or not _portal_saved_document_in_scope(request, doc.order_number, doc.farmer_ids):
+    if _portal_capability_error(request, 'portal.documents.view') or not _portal_saved_document_in_scope(request, doc.order_number, doc.farmer_ids, capability='portal.documents.view'):
         return JsonResponse({'ok': False, 'error': 'You do not have access to this payment document.'}, status=403)
     from core.services.compliance_audit import record_sensitive_access
     record_sensitive_access(

@@ -1,6 +1,10 @@
 """Regression tests for the controlled Mini App capability matrix."""
 
 import json
+import hashlib
+import hmac
+import time
+from urllib.parse import urlencode
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
@@ -9,7 +13,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.urls import reverse
 from django.test.client import RequestFactory
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from core.api.portal_views import portal_meta
 from core.models import (
@@ -18,6 +22,8 @@ from core.models import (
     AccessGrant,
     ComplianceAuditEvent,
     EmergencyAccessGrant,
+    JawabuFarmerMaster,
+    Product,
     WorkflowRoleCapability,
     WorkflowRoleCapabilityAuditEvent,
 )
@@ -29,12 +35,17 @@ from core.services.access_control import (
     can_approve_access_change,
     create_capability_request,
     create_emergency_grant,
+    create_grant_request,
     policy_version,
     revoke_access_control_checker,
+    revoke_emergency_grant,
 )
 from core.services.access_policies import WORKFLOW_ROLES
 from core.services.business_admin import legacy_business_admin_cutover_issues
-from core.services.telegram_identity import user_access
+from core.services.portal_permissions import portal_access_decision, scope_portal_case_queryset
+from core.services.telegram_identity import (
+    TelegramAuthenticationError, user_access, validate_telegram_init_data,
+)
 from core.services.workflow_capabilities import (
     capabilities_for_workflow,
     dependency_closure,
@@ -282,7 +293,9 @@ class WorkflowCapabilityPolicyTests(TestCase):
             operation='delete',
         )
         self.assertEqual(removed.status, AccessControlChangeRequest.STATUS_APPLIED)
-        self.assertFalse(AccessGrant.objects.filter(pk=grant.pk).exists())
+        grant.refresh_from_db()
+        self.assertFalse(grant.active)
+        self.assertEqual(grant.source, 'retired_access_request')
         self.assertEqual(policy_version(), initial_version + 3)
 
         with self.assertRaises(PermissionDenied):
@@ -400,6 +413,222 @@ class WorkflowCapabilityPolicyTests(TestCase):
         self.assertIn('BRO', access['roles'])
         self.assertEqual(EmergencyAccessGrant.objects.filter(pk=grant.pk).count(), 1)
         self.assertFalse(AccessGrant.objects.filter(user=target, workflow='tat_tracker').exists())
+
+
+class PortalAccessHardeningTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username='scoped-user', is_active=True)
+        self.embu = JawabuFarmerMaster.objects.create(customer_name='Embu case', branch='EMBU')
+        self.nakuru = JawabuFarmerMaster.objects.create(customer_name='Nakuru case', branch='NAKURU')
+
+    def test_role_and_scope_are_resolved_from_the_same_grant(self):
+        AccessGrant.objects.create(
+            user=self.user, workflow='jawabu_portal', role='JBL_OFFICER', branch='EMBU',
+        )
+        AccessGrant.objects.create(
+            user=self.user, workflow='jawabu_portal', role='CREDIT_ANALYST', branch='NAKURU',
+        )
+        access = user_access(self.user, 'jawabu_portal')
+
+        self.assertTrue(portal_access_decision(
+            self.user, 'portal.jbl_visit.write', access=access, resource=self.embu,
+        ).allowed)
+        self.assertFalse(portal_access_decision(
+            self.user, 'portal.jbl_visit.write', access=access, resource=self.nakuru,
+        ).allowed)
+        self.assertTrue(portal_access_decision(
+            self.user, 'portal.credit.write', access=access, resource=self.nakuru,
+        ).allowed)
+        self.assertFalse(portal_access_decision(
+            self.user, 'portal.credit.write', access=access, resource=self.embu,
+        ).allowed)
+        self.assertEqual(
+            list(scope_portal_case_queryset(
+                JawabuFarmerMaster.objects.all(), self.user,
+                'portal.jbl_visit.write', access=access,
+            ).values_list('pk', flat=True)),
+            [self.embu.pk],
+        )
+
+    def test_global_grant_for_one_role_does_not_widen_another_role(self):
+        AccessGrant.objects.create(
+            user=self.user, workflow='jawabu_portal', role='JBL_OFFICER',
+        )
+        AccessGrant.objects.create(
+            user=self.user, workflow='jawabu_portal', role='CREDIT_ANALYST', branch='NAKURU',
+        )
+        access = user_access(self.user, 'jawabu_portal')
+
+        self.assertTrue(portal_access_decision(
+            self.user, 'portal.jbl_visit.write', access=access, resource=self.nakuru,
+        ).allowed)
+        self.assertFalse(portal_access_decision(
+            self.user, 'portal.credit.write', access=access, resource=self.embu,
+        ).allowed)
+
+    def test_branch_scoped_grant_fails_closed_for_unclassified_case(self):
+        AccessGrant.objects.create(
+            user=self.user, workflow='jawabu_portal', role='JBL_OFFICER', branch='EMBU',
+        )
+        unclassified = JawabuFarmerMaster.objects.create(customer_name='No branch case')
+
+        self.assertFalse(portal_access_decision(
+            self.user, 'portal.jbl_visit.write',
+            access=user_access(self.user, 'jawabu_portal'), resource=unclassified,
+        ).allowed)
+
+    def test_product_scope_is_enforced_for_case_permissions(self):
+        product_a = Product.objects.create(name='Scoped Product A', code='scoped_a')
+        product_b = Product.objects.create(name='Scoped Product B', code='scoped_b')
+        case_a = JawabuFarmerMaster.objects.create(
+            customer_name='Product A case', branch='EMBU', product=product_a,
+        )
+        case_b = JawabuFarmerMaster.objects.create(
+            customer_name='Product B case', branch='EMBU', product=product_b,
+        )
+        AccessGrant.objects.create(
+            user=self.user, workflow='jawabu_portal', role='JBL_OFFICER',
+            branch='EMBU', product=product_a.code,
+        )
+        access = user_access(self.user, 'jawabu_portal')
+
+        self.assertTrue(portal_access_decision(
+            self.user, 'portal.jbl_visit.write', access=access, resource=case_a,
+        ).allowed)
+        self.assertFalse(portal_access_decision(
+            self.user, 'portal.jbl_visit.write', access=access, resource=case_b,
+        ).allowed)
+
+    def test_multi_role_policy_change_is_one_atomic_request(self):
+        maker = get_user_model().objects.create_superuser(
+            username='atomic-maker', email='atomic-maker@example.test', password='password',
+        )
+        checker = get_user_model().objects.create_superuser(
+            username='atomic-checker', email='atomic-checker@example.test', password='password',
+        )
+        change = create_capability_request(
+            requester=maker, workflow='jawabu_portal',
+            roles=['JBL_OFFICER', 'CREDIT_ANALYST'],
+            capability_keys={'portal.case.read'}, reason='Apply one reviewed baseline.',
+            request_key='atomic-policy-1',
+        )
+        duplicate = create_capability_request(
+            requester=maker, workflow='jawabu_portal', roles=['JBL_OFFICER'],
+            capability_keys=set(), reason='Repeated network submission.',
+            request_key='atomic-policy-1',
+        )
+        self.assertEqual(duplicate.pk, change.pk)
+        self.assertEqual(change.target_roles, ['JBL_OFFICER', 'CREDIT_ANALYST'])
+
+        approve_request(request_id=change.pk, approver=checker)
+
+        for role in change.target_roles:
+            self.assertEqual(set(WorkflowRoleCapability.objects.filter(
+                workflow='jawabu_portal', role=role,
+                effect=WorkflowRoleCapability.EFFECT_ALLOW,
+            ).values_list('capability_key', flat=True)), {'portal.case.read'})
+
+    def test_unrelated_requests_do_not_become_stale_after_first_approval(self):
+        maker = get_user_model().objects.create_superuser(
+            username='parallel-maker', email='parallel-maker@example.test', password='password',
+        )
+        checker = get_user_model().objects.create_superuser(
+            username='parallel-checker', email='parallel-checker@example.test', password='password',
+        )
+        first = create_capability_request(
+            requester=maker, workflow='complaint_cases', role='OFFICER',
+            capability_keys={'complaint.queue.view'}, reason='Officer review.',
+        )
+        second = create_capability_request(
+            requester=maker, workflow='complaint_cases', role='MANAGER',
+            capability_keys={'complaint.queue.view'}, reason='Manager review.',
+        )
+
+        approve_request(request_id=first.pk, approver=checker)
+        approve_request(request_id=second.pk, approver=checker)
+        second.refresh_from_db()
+
+        self.assertEqual(second.status, AccessControlChangeRequest.STATUS_APPLIED)
+
+    def test_checker_cannot_approve_a_grant_for_their_own_account(self):
+        root = get_user_model().objects.create_superuser(
+            username='conflict-root', email='conflict-root@example.test', password='password',
+        )
+        checker = get_user_model().objects.create_user(
+            username='conflicted-checker', is_active=True, is_staff=True,
+        )
+        appoint_access_control_checker(actor=root, user=checker, reason='Independent reviewer.')
+        change = create_grant_request(
+            requester=root, user=checker, workflow='jawabu_portal', role='IT',
+            reason='Requested support access.',
+        )
+
+        with self.assertRaises(PermissionDenied):
+            approve_request(request_id=change.pk, approver=checker)
+
+    def test_emergency_access_is_idempotent_and_revocable(self):
+        root = get_user_model().objects.create_superuser(
+            username='emergency-root', email='emergency-root@example.test', password='password',
+        )
+        first = create_emergency_grant(
+            actor=root, user=self.user, workflow='jawabu_portal', role='IT',
+            reason='Restore urgent support.', request_id='emergency-1',
+        )
+        repeated = create_emergency_grant(
+            actor=root, user=self.user, workflow='jawabu_portal', role='IT',
+            reason='Repeated tap.', request_id='emergency-1',
+        )
+        self.assertEqual(first.pk, repeated.pk)
+        revoked, changed = revoke_emergency_grant(
+            actor=root, grant=first, reason='Incident resolved.',
+        )
+        self.assertTrue(changed)
+        self.assertIsNotNone(revoked.revoked_at)
+        self.assertFalse(user_access(self.user, 'jawabu_portal')['authorized'])
+
+    def test_deactivation_retires_access_and_reactivation_does_not_restore_it(self):
+        grant = AccessGrant.objects.create(
+            user=self.user, workflow='jawabu_portal', role='JBL_OFFICER', branch='EMBU',
+        )
+        pending = create_grant_request(
+            requester=self.user, user=self.user, workflow='jawabu_portal',
+            role='CREDIT_ANALYST', branch='Embu', reason='Pending role change.',
+        )
+        self.user.is_active = False
+        self.user.save(update_fields=['is_active'])
+        grant.refresh_from_db()
+        pending.refresh_from_db()
+        self.assertFalse(grant.active)
+        self.assertEqual(pending.status, AccessControlChangeRequest.STATUS_CANCELLED)
+
+        self.user.is_active = True
+        self.user.save(update_fields=['is_active'])
+        grant.refresh_from_db()
+        self.assertFalse(grant.active)
+        self.assertFalse(user_access(self.user, 'jawabu_portal')['authorized'])
+
+    def test_future_telegram_auth_date_is_rejected(self):
+        token = 'test-bot-token'
+        values = {
+            'auth_date': str(int(time.time()) + 300),
+            'query_id': 'future-query',
+            'user': json.dumps({'id': 12345, 'username': 'future-user'}, separators=(',', ':')),
+        }
+        data_check = '\n'.join(f'{key}={value}' for key, value in sorted(values.items()))
+        secret = hmac.new(b'WebAppData', token.encode(), hashlib.sha256).digest()
+        values['hash'] = hmac.new(secret, data_check.encode(), hashlib.sha256).hexdigest()
+
+        with self.assertRaises(TelegramAuthenticationError):
+            validate_telegram_init_data(urlencode(values), bot_token=token)
+
+    @override_settings(DEBUG=False, PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH=False)
+    def test_deployment_check_rejects_disabled_portal_authentication(self):
+        from core.checks import portal_authentication_check
+
+        self.assertEqual(
+            [issue.id for issue in portal_authentication_check(None)],
+            ['core.E001'],
+        )
 
 
 class WorkflowCapabilityMatrixAdminTests(TestCase):

@@ -19,6 +19,14 @@ class Command(BaseCommand):
         self.stdout.write(f"Differences from deployment baseline: {len(parity['baseline_drift'])}")
         for item in parity['baseline_drift']:
             self.stdout.write(f"  BASELINE {item['workflow']}/{item['role']}/{item['capability_key']}: {item['baseline']} -> {item['current']}")
+        for key in (
+            'invalid_grants', 'inactive_user_grants', 'invalid_policy_rows',
+            'effect_mismatches', 'dependency_violations', 'redundant_grants',
+            'emergency_on_inactive_users', 'pending_self_conflicts',
+        ):
+            self.stdout.write(f"{key.replace('_', ' ').title()}: {len(parity[key])}")
+            for item in parity[key]:
+                self.stdout.write(f"  {key.upper()} {item}")
         self.stdout.write(f"Unused capabilities in {options['unused_days']} days: {len(unused)}")
         for item in unused:
             self.stdout.write(f"  UNUSED {item['workflow']}/{item['capability_key']} ({item['label']})")
