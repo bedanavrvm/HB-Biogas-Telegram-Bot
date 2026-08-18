@@ -20,6 +20,7 @@ from core.models import (
     OriginationDocumentTemplateEvent,
     OriginationProductDefinition,
     OriginationProductDefinitionEvent,
+    OriginationProductDocumentAssignment,
     OriginationTemplateConfigurationRevision,
 )
 
@@ -59,6 +60,8 @@ SYSTEM_CONTEXT_KEYS = (
     ('branch_code', 'Branch Code'),
     ('loan_officer_name', 'Loan Officer Name'),
     ('application_date', 'Application Date'),
+    ('secured_assets_total', 'Secured Assets Total'),
+    ('home_visit_completed_date', 'Home Visit Completed Date'),
 )
 
 
@@ -79,9 +82,9 @@ def validate_template_pdf(pdf_data: bytes) -> tuple[str, int]:
     return hashlib.sha256(pdf_data).hexdigest(), page_count
 
 
-def initial_template_configuration(product: OriginationProductDefinition) -> dict[str, Any]:
+def initial_template_configuration(product: OriginationProductDefinition | None) -> dict[str, Any]:
     sample_context = {}
-    for field in (product.form_schema or {}).get('fields', []) or []:
+    for field in ((product.form_schema if product else {}) or {}).get('fields', []) or []:
         key = str(field.get('key') or '').strip()
         if not key:
             continue
@@ -94,6 +97,15 @@ def initial_template_configuration(product: OriginationProductDefinition) -> dic
             value = '13-Aug-2026'
         elif field_type == 'choice':
             value = next(iter(field.get('options') or []), field.get('label') or key)
+        elif field_type == 'repeating_group':
+            value = [{
+                str(column.get('key') or ''): (
+                    '12,500' if str(column.get('type') or '') == 'money'
+                    else str(column.get('label') or column.get('key') or 'Sample')
+                )
+                for column in ((field.get('structure') or {}).get('columns') or [])
+                if isinstance(column, dict) and column.get('key')
+            }]
         else:
             value = field.get('label') or key.replace('_', ' ').title()
         sample_context[key] = value
@@ -104,8 +116,8 @@ def initial_template_configuration(product: OriginationProductDefinition) -> dic
         'application_date': '13-Aug-2026',
     })
     return {
-        'document_type': product.document_type,
-        'version': product.version,
+        'document_type': product.document_type if product else '',
+        'version': product.version if product else 1,
         'field_overlay_manifest': {
             'defaults': {
                 'font': 'Helvetica', 'font_size': 8, 'min_font_size': 5,
@@ -237,7 +249,10 @@ def validate_template_configuration(
     unknown = sorted(configured_context_keys - known_context_keys) if known_context_keys else []
     if unknown:
         raise OriginationTemplateError(f'Unknown application fields: {", ".join(unknown)}.')
-    if require_complete and template.product_definition_id:
+    if require_complete and (
+        template.product_definition_id
+        or (template.document_role == template.ROLE_SUPPORTING and bool(schema_fields))
+    ):
         required = {str(item.get('key')) for item in schema_fields if item.get('required') and item.get('key')}
         missing = sorted(required - configured_context_keys)
         if missing:
@@ -272,8 +287,25 @@ def validate_template_configuration(
     for key, spec in fields.items():
         if not isinstance(spec, dict) or not str(spec.get('context_key') or '').strip():
             raise OriginationTemplateError(f'Field {key} requires a context key.')
-        if str(spec.get('render_as') or 'text') not in {'text', 'checkbox'}:
+        render_as = str(spec.get('render_as') or 'text')
+        if render_as not in {'text', 'checkbox', 'repeating_table'}:
             raise OriginationTemplateError(f'Field {key} has an unsupported rendering mode.')
+        if render_as == 'repeating_table':
+            schema_field = next((item for item in schema_fields if str(item.get('key') or '') == str(spec.get('context_key') or '')), None)
+            if not schema_field or str(schema_field.get('type') or '') != 'repeating_group':
+                raise OriginationTemplateError(f'Field {key} must reference a repeatable-group field.')
+            columns = spec.get('columns')
+            expected_columns = {
+                str(item.get('key') or '') for item in ((schema_field.get('structure') or {}).get('columns') or [])
+                if isinstance(item, dict)
+            }
+            configured_columns = {
+                str(item.get('key') or '') for item in (columns or []) if isinstance(item, dict)
+            }
+            rows = int(spec.get('rows') or 0)
+            maximum = int((schema_field.get('structure') or {}).get('max_items') or 0)
+            if not isinstance(columns, list) or configured_columns != expected_columns or rows < 1 or (maximum and rows > maximum):
+                raise OriginationTemplateError(f'Field {key} has an invalid repeatable-table layout.')
         validate_box(key, spec, item_label='Field')
 
     signature_slots = (normalized.get('signature_overlay_manifest') or {}).get('slots', {})
@@ -283,7 +315,10 @@ def validate_template_configuration(
     unknown_slots = sorted(set(signature_slots) - set(expected_slots)) if expected_slots else []
     if unknown_slots:
         raise OriginationTemplateError(f'Unknown signature slots: {", ".join(unknown_slots)}.')
-    if require_complete and template.product_definition_id:
+    if require_complete and (
+        template.product_definition_id
+        or (template.document_role == template.ROLE_SUPPORTING and bool(template.signer_rules))
+    ):
         missing_slots = sorted(
             identity for identity, spec in expected_slots.items()
             if spec.get('required') and identity not in signature_slots
@@ -294,7 +329,7 @@ def validate_template_configuration(
         if not isinstance(spec, dict):
             raise OriginationTemplateError(f'Signature slot {key} is invalid.')
         slot_type = str(spec.get('slot_type') or expected_slots.get(key, {}).get('slot_type') or 'signature')
-        if slot_type not in {'signature', 'stamp'}:
+        if slot_type not in {'signature', 'stamp', 'date_signed'}:
             raise OriginationTemplateError(f'Signature slot {key} has an unsupported type.')
         validate_box(key, spec, item_label='Signature slot')
     return normalized
@@ -306,6 +341,8 @@ def save_calibration_draft(
     expected_revision: int, client_request_id: str = '',
 ) -> OriginationTemplateConfigurationRevision:
     template = OriginationDocumentTemplate.objects.select_for_update().get(pk=template.pk)
+    if template.status in {template.STATUS_ACTIVE, template.STATUS_RETIRED}:
+        raise OriginationTemplateError('Published template revisions are immutable. Upload a new shared-template version.')
     if template.product_definition_id and template.product_definition.lifecycle_status != OriginationProductDefinition.STATUS_DRAFT:
         raise OriginationTemplateError('Published product versions are immutable. Create a new product version to change its template.')
     latest = template.configuration_revisions.order_by('-revision').first()
@@ -459,12 +496,16 @@ def _inherit_template_for_product_version(
     successor: OriginationProductDefinition,
     actor,
 ) -> OriginationDocumentTemplate | None:
+    assigned_keys = set(source.document_assignments.values_list('document_key', flat=True))
     source_templates = list(source.document_templates.filter(
         status__in=[
             OriginationDocumentTemplate.STATUS_ACTIVE,
             OriginationDocumentTemplate.STATUS_READY,
         ],
         drive_file_id__gt='',
+    ).exclude(
+        document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
+        document_key__in=assigned_keys,
     ).select_related('published_configuration_revision').order_by('display_order', 'document_key'))
     if not source_templates:
         fallback = _source_template_for_product(source)
@@ -539,6 +580,22 @@ def _inherit_template_for_product_version(
     return inherited_primary
 
 
+def _inherit_document_assignments(*, source, successor, actor) -> None:
+    for assignment in source.document_assignments.select_related('template').all():
+        OriginationProductDocumentAssignment.objects.get_or_create(
+            product_definition=successor, document_key=assignment.document_key,
+            defaults={
+                'template': assignment.template, 'name': assignment.name,
+                'display_order': assignment.display_order,
+                'inclusion_mode': assignment.inclusion_mode,
+                'officer_selectable': assignment.officer_selectable,
+                'default_selected': assignment.default_selected,
+                'applicability_rule': json.loads(json.dumps(assignment.applicability_rule or {})),
+                'created_by': actor,
+            },
+        )
+
+
 @transaction.atomic
 def clone_product_version(
     product: OriginationProductDefinition, *, actor,
@@ -552,6 +609,7 @@ def clone_product_version(
         _inherit_template_for_product_version(
             source=source, successor=existing, actor=actor,
         )
+        _inherit_document_assignments(source=source, successor=existing, actor=actor)
         return existing
     global_version = source.product_version
     next_version = (
@@ -577,6 +635,7 @@ def clone_product_version(
     inherited_template = _inherit_template_for_product_version(
         source=source, successor=clone, actor=actor,
     )
+    _inherit_document_assignments(source=source, successor=clone, actor=actor)
     OriginationProductDefinitionEvent.objects.create(
         product_definition=clone, action='version_created', actor=actor,
         metadata={
@@ -875,10 +934,26 @@ def publish_product_template(
         OriginationDocumentTemplate.STATUS_READY,
         OriginationDocumentTemplate.STATUS_ACTIVE,
     ]))
+    assignments = list(product.document_assignments.select_related('template').all())
+    invalid_assignments = [
+        item for item in assignments
+        if item.template.status not in {
+            OriginationDocumentTemplate.STATUS_ACTIVE,
+            OriginationDocumentTemplate.STATUS_RETIRED,
+        } or not item.template.published_configuration_revision_id
+    ]
+    if invalid_assignments:
+        raise OriginationTemplateError('Every shared supporting document must be published before the product.')
     primaries = [item for item in packet_templates if item.document_role == item.ROLE_PRIMARY]
     if len(primaries) != 1:
         raise OriginationTemplateError('A published product requires exactly one primary LAF.')
-    keys = [item.document_key for item in packet_templates]
+    keys = [item.document_key for item in packet_templates if item.document_role == item.ROLE_PRIMARY]
+    keys.extend(item.document_key for item in assignments)
+    keys.extend(
+        item.document_key for item in packet_templates
+        if item.document_role == item.ROLE_SUPPORTING
+        and item.document_key not in {assignment.document_key for assignment in assignments}
+    )
     if len(keys) != len(set(keys)):
         raise OriginationTemplateError('Document keys must be unique within a product version.')
     from core.services.origination_documents import validate_applicability_rule
@@ -895,6 +970,19 @@ def publish_product_template(
         try:
             validate_applicability_rule(
                 packet_template.applicability_rule,
+                allowed_fields=allowed_fields | document_fields,
+            )
+        except ValueError as exc:
+            raise OriginationTemplateError(str(exc)) from exc
+    for assignment in assignments:
+        document_fields = {
+            str(item.get('key'))
+            for item in (assignment.template.form_schema or {}).get('fields', [])
+            if isinstance(item, dict) and item.get('key')
+        }
+        try:
+            validate_applicability_rule(
+                assignment.applicability_rule,
                 allowed_fields=allowed_fields | document_fields,
             )
         except ValueError as exc:

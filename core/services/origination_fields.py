@@ -17,6 +17,8 @@ from core.models import (
     OriginationDataField,
     OriginationDataFieldEvent,
     OriginationFieldReviewIssue,
+    OriginationDocumentTemplate,
+    OriginationDocumentTemplateEvent,
     OriginationProductDefinition,
     OriginationProductDefinitionEvent,
     OriginationReportingValue,
@@ -78,6 +80,7 @@ def serialize_data_field(data_field: OriginationDataField, *, attached: bool = F
         'export_allowed': data_field.export_allowed,
         'help_text': data_field.help_text,
         'choice_options': list(data_field.choice_options or []),
+        'structure_schema': dict(data_field.structure_schema or {}),
         'active': data_field.active,
         'attached': attached,
     }
@@ -86,6 +89,13 @@ def serialize_data_field(data_field: OriginationDataField, *, attached: bool = F
 def product_schema_revision(product: OriginationProductDefinition) -> int:
     try:
         return int((product.form_schema or {}).get('_revision') or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def template_schema_revision(template: OriginationDocumentTemplate) -> int:
+    try:
+        return int((template.form_schema or {}).get('_revision') or 0)
     except (TypeError, ValueError):
         return 0
 
@@ -150,6 +160,9 @@ def create_data_field(*, payload: dict[str, Any], actor) -> tuple[OriginationDat
         options = normalize_choice_options(options)
     elif options:
         raise OriginationFieldError('Only choice fields may define choice options.')
+    structure_schema = payload.get('structure_schema') or {}
+    if data_type != OriginationDataField.TYPE_REPEATING_GROUP and structure_schema:
+        raise OriginationFieldError('Only repeatable-group fields may define a structure.')
     sensitivity = str(
         payload.get('sensitivity') or OriginationDataField.SENSITIVITY_PII
     ).strip()
@@ -179,6 +192,7 @@ def create_data_field(*, payload: dict[str, Any], actor) -> tuple[OriginationDat
         export_allowed=bool(payload.get('export_allowed', False)),
         help_text=str(payload.get('help_text') or '').strip()[:500],
         choice_options=options,
+        structure_schema=structure_schema,
         created_by=actor,
     )
     OriginationDataFieldEvent.objects.create(
@@ -245,6 +259,8 @@ def _field_schema_item(data_field: OriginationDataField, presentation: dict[str,
         'source_type': data_field.source_type,
         'validation': allowed_validation,
     }
+    if data_field.data_type == OriginationDataField.TYPE_REPEATING_GROUP:
+        item['structure'] = json.loads(json.dumps(data_field.structure_schema or {}))
     if item['width'] not in {'half', 'full'}:
         raise OriginationFieldError('Field width must be half or full.')
     if data_field.data_type == OriginationDataField.TYPE_CHOICE:
@@ -302,6 +318,51 @@ def attach_data_field(
         metadata={'product_definition_id': str(product.pk), 'product_key': product.product_key},
     )
     return product, False
+
+
+@transaction.atomic
+def attach_data_field_to_template(
+    *, template: OriginationDocumentTemplate, data_field: OriginationDataField,
+    presentation: dict[str, Any], actor, expected_schema_revision: int,
+) -> tuple[OriginationDocumentTemplate, bool]:
+    """Attach a canonical field to a supporting template without polluting the main LAF."""
+    if not getattr(actor, 'is_superuser', False):
+        raise OriginationFieldError('Only a Django Superuser may change a supporting-document schema.')
+    template = OriginationDocumentTemplate.objects.select_for_update().get(pk=template.pk)
+    if template.document_role != template.ROLE_SUPPORTING:
+        raise OriginationFieldError('Only supporting documents use a document-specific schema.')
+    if template.status not in {template.STATUS_READY, template.STATUS_UPLOAD_FAILED}:
+        raise OriginationFieldError('Create a new template revision before changing a published schema.')
+    if template.product_definition_id and template.product_definition.lifecycle_status != OriginationProductDefinition.STATUS_DRAFT:
+        raise OriginationFieldError('Create a new draft product version before changing this supporting document.')
+    schema = json.loads(json.dumps(template.form_schema or {}))
+    schema['fields'] = [item for item in (schema.get('fields') or []) if isinstance(item, dict)]
+    existing = next((item for item in schema['fields'] if str(item.get('key') or '') == data_field.key), None)
+    if existing:
+        if str(existing.get('type') or 'text') != data_field.data_type:
+            raise OriginationFieldConflict(f'{data_field.key} is already attached with an incompatible type.')
+        return template, True
+    actual_revision = template_schema_revision(template)
+    if int(expected_schema_revision) != actual_revision:
+        raise OriginationFieldConflict('This supporting-document schema changed. Reload before adding the field.')
+    sections = [item for item in (schema.get('sections') or []) if isinstance(item, dict)]
+    if not sections:
+        sections = [{'key': 'document', 'label': template.name, 'help_text': ''}]
+    schema['sections'] = sections
+    presentation = {**presentation, 'section_key': str(presentation.get('section_key') or sections[0]['key'])}
+    schema['fields'].append(_field_schema_item(data_field, presentation))
+    schema['_revision'] = actual_revision + 1
+    template.form_schema = schema
+    template.save(update_fields=['form_schema', 'updated_at'])
+    OriginationDocumentTemplateEvent.objects.create(
+        template=template, action='schema_field_attached', actor=actor,
+        metadata={'field_key': data_field.key, 'schema_revision': schema['_revision']},
+    )
+    OriginationDataFieldEvent.objects.create(
+        data_field=data_field, action='attached_to_supporting_template', actor=actor,
+        metadata={'template_id': str(template.pk)},
+    )
+    return template, False
 
 
 def bind_compatible_schema_fields(

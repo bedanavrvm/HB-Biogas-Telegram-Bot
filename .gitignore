@@ -66,3 +66,5 @@ spin/
 !core/templates/spin/
 !core/templates/spin/form.html
 origination-ui-audit/
+
+LAFS/

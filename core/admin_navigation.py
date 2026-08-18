@@ -244,6 +244,7 @@ def get_admin_navigation(request) -> list[dict]:
         _model_item("core.ProductVersion", "Product terms and requirements", "price_change"),
         _model_item("core.OriginationProductDefinition", "Loan form definitions", "dynamic_form"),
         _model_item("core.OriginationDocumentTemplate", "Origination PDF templates", "picture_as_pdf"),
+        _model_item("core.OriginationProductDocumentAssignment", "Product document assignments", "assignment"),
         _model_item("core.OriginationDataField", "Origination data fields", "data_object"),
         _model_item("core.OriginationFieldReviewIssue", "Legacy fields needing review", "rule"),
         _model_item("core.ProductMappingIssue", "Unmapped product values", "rule"),

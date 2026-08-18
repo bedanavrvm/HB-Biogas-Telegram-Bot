@@ -436,3 +436,18 @@ input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !impo
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
 }
+.repeatable-field { grid-column: 1 / -1; display: grid; gap: 8px; }
+.repeatable-rows { display: grid; gap: 7px; }
+.repeatable-row { display: grid; grid-template-columns: 24px minmax(0, 1.5fr) minmax(110px, .8fr) 34px; align-items: end; gap: 7px; padding: 8px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-surface); }
+.repeatable-row label { display: grid; gap: 3px; min-width: 0; }
+.repeatable-row label > span { color: var(--text-muted); font-size: 10px; font-weight: 700; }
+.repeatable-row-number { align-self: center; display: grid; width: 22px; height: 22px; place-items: center; border-radius: 50%; background: var(--bg-muted); color: var(--text-muted); font-size: 10px; font-weight: 800; }
+.repeatable-remove { width: 32px; height: 32px; }
+.repeatable-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.repeatable-summary strong { font-size: 12px; white-space: nowrap; }
+@media (max-width: 520px) {
+  .repeatable-row { grid-template-columns: 22px minmax(0, 1fr) 32px; }
+  .repeatable-row label { grid-column: 2; }
+  .repeatable-row-number { grid-column: 1; grid-row: 1 / span 2; }
+  .repeatable-remove { grid-column: 3; grid-row: 1 / span 2; align-self: center; }
+}

@@ -7,12 +7,14 @@ from io import BytesIO
 from typing import Any
 
 from django.db import transaction
+from django.utils import timezone
 from pypdf import PdfReader, PdfWriter
 
 from core.models import (
     LoanOriginationApplication,
     OriginationApplicationDocument,
     OriginationDocumentTemplate,
+    OriginationProductDocumentAssignment,
 )
 
 
@@ -92,34 +94,55 @@ def _template_snapshot(template: OriginationDocumentTemplate) -> dict[str, Any]:
 
 
 def initialize_document_packet(application: LoanOriginationApplication) -> None:
-    templates = list(application.product_definition.document_templates.filter(
+    primary_templates = list(application.product_definition.document_templates.filter(
         status=OriginationDocumentTemplate.STATUS_ACTIVE,
+        document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
     ).order_by('display_order', 'document_key'))
+    assignments = list(application.product_definition.document_assignments.select_related(
+        'template', 'template__published_configuration_revision',
+    ).filter(template__status__in=[
+        OriginationDocumentTemplate.STATUS_ACTIVE,
+        OriginationDocumentTemplate.STATUS_RETIRED,
+    ]).order_by('display_order', 'document_key'))
+    assigned_keys = {item.document_key for item in assignments}
+    legacy_supporting = list(application.product_definition.document_templates.filter(
+        status=OriginationDocumentTemplate.STATUS_ACTIVE,
+        document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
+    ).exclude(document_key__in=assigned_keys).order_by('display_order', 'document_key'))
+    templates = [(item, None) for item in primary_templates + legacy_supporting]
+    templates.extend((item.template, item) for item in assignments)
     if not templates:
         return
-    for template in templates:
-        applicable = rule_matches(template.applicability_rule, application.form_payload)
+    for template, assignment in templates:
+        inclusion_mode = assignment.inclusion_mode if assignment else template.inclusion_mode
+        applicability_rule = assignment.applicability_rule if assignment else template.applicability_rule
+        applicable = rule_matches(applicability_rule, application.form_payload)
         if template.document_role == template.ROLE_PRIMARY:
             selected, source = True, OriginationApplicationDocument.SOURCE_REQUIRED
-        elif template.inclusion_mode == template.INCLUDE_REQUIRED:
+        elif inclusion_mode == template.INCLUDE_REQUIRED:
             selected, source = True, OriginationApplicationDocument.SOURCE_REQUIRED
-        elif template.inclusion_mode == template.INCLUDE_CONDITIONAL:
+        elif inclusion_mode == template.INCLUDE_CONDITIONAL:
             selected, source = applicable, OriginationApplicationDocument.SOURCE_RULE
         else:
-            selected = applicable and template.default_selected
+            selected = applicable and (assignment.default_selected if assignment else template.default_selected)
             source = OriginationApplicationDocument.SOURCE_DEFAULT
         OriginationApplicationDocument.objects.create(
             application=application,
             template=template,
-            document_key=template.document_key,
-            name=template.name,
+            assignment=assignment,
+            document_key=assignment.document_key if assignment else template.document_key,
+            name=assignment.name if assignment else template.name,
             document_role=template.document_role,
-            display_order=template.display_order,
-            inclusion_mode=template.inclusion_mode,
+            display_order=assignment.display_order if assignment else template.display_order,
+            inclusion_mode=inclusion_mode,
             selection_source=source,
             applicable=applicable,
             selected=selected,
-            template_snapshot=_template_snapshot(template),
+            template_snapshot={
+                **_template_snapshot(template),
+                'assignment_id': str(assignment.pk) if assignment else '',
+                'applicability_rule': applicability_rule or {},
+            },
             schema_snapshot=template.form_schema or {},
             signer_rules_snapshot=(
                 template.signer_rules
@@ -153,7 +176,11 @@ def _document_fields(document: OriginationApplicationDocument) -> list[dict[str,
 
 def document_context(application: LoanOriginationApplication, document: OriginationApplicationDocument) -> dict[str, Any]:
     from core.services.loan_origination import preview_context
-    return {**preview_context(application), **(document.field_payload or {})}
+    context = {**preview_context(application), **(document.field_payload or {})}
+    context['home_visit_completed_date'] = timezone.localdate(
+        document.completed_at or timezone.now(),
+    ).isoformat()
+    return context
 
 
 def serialize_document(document: OriginationApplicationDocument) -> dict[str, Any]:
@@ -161,7 +188,7 @@ def serialize_document(document: OriginationApplicationDocument) -> dict[str, An
     fields = _document_fields(document)
     missing = [
         str(item.get('key')) for item in fields
-        if item.get('required') and document_context(application, document).get(str(item.get('key'))) in (None, '')
+        if item.get('required') and document_context(application, document).get(str(item.get('key'))) in (None, '', [])
     ]
     if document.document_role == OriginationDocumentTemplate.ROLE_PRIMARY:
         previewed = application.primary_previewed_revision == application.revision or application.events.filter(
@@ -184,6 +211,7 @@ def serialize_document(document: OriginationApplicationDocument) -> dict[str, An
         'missing_fields': missing,
         'complete': not missing,
         'previewed': previewed,
+        'completed_at': document.completed_at.isoformat() if document.completed_at else None,
     }
 
 
@@ -243,7 +271,7 @@ def select_documents(*, application_id, actor, selected_keys: Any, expected_revi
 def save_document_fields(*, application_id, document_key: str, actor, payload: Any, expected_revision: int, request_id: str):
     from core.services.loan_origination import (
         OriginationConflict, OriginationError, _record_event, _require_request_id,
-        validate_form_payload,
+        normalize_form_payload, synchronize_legacy_security_values, validate_form_payload,
     )
     request_id = _require_request_id(request_id)
     application = LoanOriginationApplication.objects.select_for_update().get(pk=application_id)
@@ -256,7 +284,9 @@ def save_document_fields(*, application_id, document_key: str, actor, payload: A
     document = application.packet_documents.select_for_update().filter(document_key=document_key).first()
     if not document or document.document_role == OriginationDocumentTemplate.ROLE_PRIMARY or not document.selected:
         raise OriginationError('This supporting document is not selected for the application.')
-    result = validate_form_payload(document.schema_snapshot or {'fields': []}, payload, require_complete=False)
+    schema = document.schema_snapshot or {'fields': []}
+    payload = normalize_form_payload(schema, payload)
+    result = validate_form_payload(schema, payload, require_complete=False)
     if not result.valid:
         raise OriginationError('Correct the supporting-document fields before saving.', errors=result.errors)
     allowed = {str(item.get('key')) for item in _document_fields(document)}
@@ -268,6 +298,12 @@ def save_document_fields(*, application_id, document_key: str, actor, payload: A
         key: value for key, value in payload.items()
         if key in allowed and (key not in primary_keys or application.form_payload.get(key) in (None, ''))
     }
+    if 'secured_assets' in values:
+        synchronized = synchronize_legacy_security_values(values, application.form_payload)
+        values['secured_assets'] = synchronized.get('secured_assets', values['secured_assets'])
+        for legacy_key in ('security_1_description', 'security_1_current_value'):
+            if legacy_key in primary_keys:
+                application.form_payload[legacy_key] = synchronized.get(legacy_key, '')
     if values == document.field_payload:
         _record_event(
             application, 'supporting_document_unchanged', actor=actor,
@@ -276,7 +312,8 @@ def save_document_fields(*, application_id, document_key: str, actor, payload: A
         return application
     document.field_payload = values
     document.previewed_application_revision = None
-    document.save(update_fields=['field_payload', 'previewed_application_revision', 'updated_at'])
+    document.completed_at = None
+    document.save(update_fields=['field_payload', 'previewed_application_revision', 'completed_at', 'updated_at'])
     application.form_payload = {**application.form_payload, **values}
     application.revision += 1
     application.primary_previewed_revision = application.revision
@@ -306,8 +343,19 @@ def render_document(application: LoanOriginationApplication, document_key: str) 
 def mark_document_previewed(application: LoanOriginationApplication, document_key: str) -> None:
     document = application.packet_documents.filter(document_key=document_key).first()
     if document and document.document_role != OriginationDocumentTemplate.ROLE_PRIMARY:
+        from core.services.loan_origination import OriginationError, validate_form_payload
+        fields = _document_fields(document)
+        context = document_context(application, document)
+        result = validate_form_payload(
+            document.schema_snapshot or {'fields': []},
+            {str(item.get('key')): context.get(str(item.get('key'))) for item in fields},
+            require_complete=True,
+        )
+        if not result.valid:
+            raise OriginationError('Complete every required supporting-document field before previewing.', errors=result.errors)
         document.previewed_application_revision = application.revision
-        document.save(update_fields=['previewed_application_revision', 'updated_at'])
+        document.completed_at = document.completed_at or timezone.now()
+        document.save(update_fields=['previewed_application_revision', 'completed_at', 'updated_at'])
 
 
 def render_packet(application: LoanOriginationApplication) -> tuple[bytes, list[dict[str, Any]]]:
@@ -336,7 +384,6 @@ def render_packet(application: LoanOriginationApplication) -> tuple[bytes, list[
 
 
 def packet_signers(application: LoanOriginationApplication) -> list[dict[str, Any]]:
-    from core.services.loan_origination import OriginationError
     roles: dict[str, dict[str, Any]] = {}
     documents = application.packet_documents.filter(selected=True)
     if not documents.exists():
@@ -347,7 +394,31 @@ def packet_signers(application: LoanOriginationApplication) -> list[dict[str, An
             if not role:
                 continue
             existing = roles.get(role)
-            if existing is not None and existing != raw:
-                raise OriginationError(f'Conflicting signer definitions exist for role {role}.')
-            roles[role] = raw
+            resolved = dict(existing or raw)
+            resolved['required'] = bool(resolved.get('required') or raw.get('required'))
+            slots = list(existing.get('slots') or []) if existing else []
+            for slot in raw.get('slots') or []:
+                normalized_slot = {'key': slot} if isinstance(slot, str) else dict(slot)
+                normalized_slot.setdefault('document_key', document.document_key)
+                identity = (normalized_slot.get('document_key'), normalized_slot.get('key'))
+                if not any((item.get('document_key'), item.get('key')) == identity for item in slots if isinstance(item, dict)):
+                    slots.append(normalized_slot)
+            resolved['slots'] = slots
+            bindings = raw.get('identity_fields') if isinstance(raw.get('identity_fields'), dict) else {}
+            context = document_context(application, document)
+            identity = dict(existing.get('identity') or {}) if existing else {}
+            identity.update({
+                key: context.get(field_key, '')
+                for key, field_key in bindings.items()
+                if str(field_key or '').strip() and context.get(field_key, '') not in (None, '')
+            })
+            if role == 'witness' and not identity:
+                identity = {'name': context.get('witness_name', '')}
+            resolved['identity'] = identity
+            resolved['dispatch_ready'] = bool(
+                resolved['identity'].get('phone') or resolved['identity'].get('email')
+            ) if role == 'witness' else True
+            if role == 'witness' and not resolved['dispatch_ready']:
+                resolved['dispatch_block_reason'] = 'Witness contact policy is pending review.'
+            roles[role] = resolved
     return list(roles.values())

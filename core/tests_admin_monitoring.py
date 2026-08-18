@@ -145,6 +145,7 @@ class AdminMonitoringTests(TestCase):
         self.assertContains(response, 'Product terms and requirements')
         self.assertContains(response, 'Loan form definitions')
         self.assertContains(response, 'Origination PDF templates')
+        self.assertContains(response, 'Product document assignments')
         self.assertContains(response, 'search-input-command')
         self.assertContains(response, 'admin-operations-dashboard')
         # The raw 32-model app list must not be dumped into the dashboard.

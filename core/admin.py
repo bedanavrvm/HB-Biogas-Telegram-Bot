@@ -113,6 +113,7 @@ from .models import (
     OriginationCorrectionRequest,
     OriginationRequirementEvidence,
     OriginationApplicationDocument,
+    OriginationProductDocumentAssignment,
     OriginationSigningPackage,
     PaymentDocument,
     PaymentDocumentTemplate,
@@ -251,7 +252,7 @@ class OriginationProductDefinitionChoiceField(forms.ModelChoiceField):
 
 class OriginationDocumentTemplateForm(forms.ModelForm):
     product_definition = OriginationProductDefinitionChoiceField(
-        queryset=OriginationProductDefinition.objects.none(),
+        queryset=OriginationProductDefinition.objects.none(), required=False,
         empty_label='Select a draft loan form definition',
         label='Loan form definition',
         help_text='Draft form/schema linked to the global product terms that own this PDF.',
@@ -303,7 +304,7 @@ class OriginationDocumentTemplateForm(forms.ModelForm):
         cleaned = super().clean()
         pdf_file = cleaned.get('pdf_file')
         product = cleaned.get('product_definition')
-        if not pdf_file or not product:
+        if not pdf_file:
             return cleaned
         cleaned['document_key'] = str(cleaned.get('document_key') or 'primary').strip()
         cleaned['document_role'] = cleaned.get('document_role') or OriginationDocumentTemplate.ROLE_PRIMARY
@@ -321,7 +322,7 @@ class OriginationDocumentTemplateForm(forms.ModelForm):
             self.add_error('pdf_file', 'Upload a PDF file.')
             return cleaned
         document_key = cleaned['document_key']
-        if product.document_templates.exclude(
+        if product and product.document_templates.exclude(
             status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
         ).filter(document_key=document_key).exists():
             self.add_error('document_key', 'This product version already has a document with this key.')
@@ -337,23 +338,32 @@ class OriginationDocumentTemplateForm(forms.ModelForm):
             raise forms.ValidationError(str(exc)) from exc
         self.instance.product_definition = product
         role = cleaned['document_role']
+        if not product and role != OriginationDocumentTemplate.ROLE_SUPPORTING:
+            self.add_error('product_definition', 'A primary LAF must belong to a draft loan form.')
+            return cleaned
         self.instance.document_type = (
             product.document_type if role == OriginationDocumentTemplate.ROLE_PRIMARY
-            else f'{product.product_key}-{document_key}'[:80]
+            else f'{product.product_key}-{document_key}'[:80] if product
+            else document_key[:80]
         )
-        self.instance.version = product.version
+        self.instance.version = (
+            product.version if product else
+            (OriginationDocumentTemplate.objects.filter(document_type=self.instance.document_type)
+             .aggregate(models.Max('version'))['version__max'] or 0) + 1
+        )
         self.instance.source_filename = str(pdf_file.name)[:255]
         self.instance.source_sha256 = digest
         self.instance.source_byte_size = len(pdf_data)
         self.instance.page_count = page_count
         self.instance.placement_config = initial_template_configuration(product)
+        self.instance.placement_config['version'] = self.instance.version
         self.instance.placement_config['document_type'] = self.instance.document_type
         self.instance.form_schema = (
-            cleaned.get('form_schema') or product.form_schema if role == OriginationDocumentTemplate.ROLE_PRIMARY
+            cleaned.get('form_schema') or product.form_schema if role == OriginationDocumentTemplate.ROLE_PRIMARY and product
             else cleaned.get('form_schema') or {}
         )
         self.instance.signer_rules = (
-            cleaned.get('signer_rules') or product.signer_rules if role == OriginationDocumentTemplate.ROLE_PRIMARY
+            cleaned.get('signer_rules') or product.signer_rules if role == OriginationDocumentTemplate.ROLE_PRIMARY and product
             else cleaned.get('signer_rules') or []
         )
         sample_context = self.instance.placement_config.setdefault('sample_context', {})
@@ -363,10 +373,10 @@ class OriginationDocumentTemplateForm(forms.ModelForm):
                     str(field['key']), str(field.get('label') or field['key']).replace('_', ' ').title(),
                 )
         if role == OriginationDocumentTemplate.ROLE_SUPPORTING and not self.instance.form_schema:
-            self.add_error('form_schema', 'Supporting documents require a document-specific field schema.')
+            self.instance.form_schema = {'_revision': 0, 'sections': [], 'fields': []}
         from core.services.origination_documents import validate_applicability_rule
         allowed_fields = {
-            str(item.get('key')) for item in (product.form_schema or {}).get('fields', [])
+            str(item.get('key')) for item in ((product.form_schema if product else {}) or {}).get('fields', [])
             if isinstance(item, dict) and item.get('key')
         }
         allowed_fields.update(
@@ -5109,6 +5119,64 @@ class OriginationFieldReviewIssueAdmin(CompactModelAdmin):
         return False
 
 
+@admin.register(OriginationProductDocumentAssignment)
+class OriginationProductDocumentAssignmentAdmin(CompactModelAdmin):
+    list_display = ('name', 'product_definition', 'document_key', 'inclusion_mode', 'display_order', 'template')
+    list_filter = ('inclusion_mode', 'product_definition__lifecycle_status')
+    search_fields = ('name', 'document_key', 'product_definition__name', 'template__name')
+    fields = (
+        'product_definition', 'template', ('document_key', 'name'),
+        ('inclusion_mode', 'display_order'), ('officer_selectable', 'default_selected'),
+        'applicability_rule', 'created_by', 'created_at',
+    )
+    readonly_fields = ('created_by', 'created_at')
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == 'product_definition':
+            kwargs['queryset'] = OriginationProductDefinition.objects.filter(
+                lifecycle_status=OriginationProductDefinition.STATUS_DRAFT,
+            ).order_by('name', '-version')
+        elif db_field.name == 'template':
+            kwargs['queryset'] = OriginationDocumentTemplate.objects.filter(
+                document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
+                status=OriginationDocumentTemplate.STATUS_ACTIVE,
+            ).order_by('name', '-version')
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def save_model(self, request, obj, form, change):
+        if not obj.created_by_id:
+            obj.created_by = request.user
+        obj.full_clean()
+        super().save_model(request, obj, form, change)
+        OriginationProductDefinitionEvent.objects.create(
+            product_definition=obj.product_definition,
+            action='shared_document_assignment_updated' if change else 'shared_document_assigned',
+            actor=request.user,
+            metadata={
+                'assignment_id': str(obj.pk), 'template_id': str(obj.template_id),
+                'document_key': obj.document_key, 'inclusion_mode': obj.inclusion_mode,
+            },
+        )
+
+    def delete_model(self, request, obj):
+        product = obj.product_definition
+        metadata = {'assignment_id': str(obj.pk), 'template_id': str(obj.template_id), 'document_key': obj.document_key}
+        super().delete_model(request, obj)
+        OriginationProductDefinitionEvent.objects.create(
+            product_definition=product, action='shared_document_assignment_removed',
+            actor=request.user, metadata=metadata,
+        )
+
+    def has_add_permission(self, request):
+        return request.user.is_superuser
+
+    def has_change_permission(self, request, obj=None):
+        return bool(request.user.is_superuser and (obj is None or obj.product_definition.lifecycle_status == obj.product_definition.STATUS_DRAFT))
+
+    def has_delete_permission(self, request, obj=None):
+        return bool(request.user.is_superuser and obj and obj.product_definition.lifecycle_status == obj.product_definition.STATUS_DRAFT)
+
+
 @admin.register(OriginationProductDefinition)
 class OriginationProductDefinitionAdmin(CompactModelAdmin):
     form = OriginationProductDefinitionForm
@@ -5126,6 +5194,7 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
         'document_template_sha256', 'lifecycle_status', 'is_active', 'supersedes',
         'created_by', 'published_by', 'published_at', 'created_at', 'updated_at',
     )
+
 
     def get_urls(self):
         urls = super().get_urls()
@@ -5235,6 +5304,9 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
                     OriginationDocumentTemplate.STATUS_ACTIVE,
                 ]).order_by('display_order', 'document_key')
             ) if product else [],
+            'origination_shared_document_assignments': list(
+                product.document_assignments.select_related('template').order_by('display_order', 'document_key')
+            ) if product else [],
             'origination_failed_template': failed_template,
             'origination_existing_successor': existing_successor,
             'origination_version_history_url': (
@@ -5267,6 +5339,11 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
                 reverse('admin:core_originationdocumenttemplate_add')
                 + f'?product_definition={product.pk}' if product else ''
             ),
+            'origination_assignment_add_url': (
+                reverse('admin:core_originationproductdocumentassignment_add')
+                + f'?product_definition={product.pk}' if product and product.lifecycle_status == product.STATUS_DRAFT else ''
+            ),
+            'origination_shared_library_url': reverse('admin:core_originationdocumenttemplate_changelist') + '?product_definition__isnull=True',
         }
         return super().changeform_view(request, object_id, form_url, context)
 
@@ -5499,7 +5576,7 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
     change_form_template = 'admin/core/originationdocumenttemplate/change_form.html'
     change_list_template = 'admin/core/originationdocumenttemplate/change_list.html'
     list_display = ('name', 'product_definition', 'document_role', 'inclusion_mode', 'display_order', 'status', 'calibrate_link', 'page_count', 'updated_at')
-    list_filter = ('status', 'document_role', 'inclusion_mode', 'document_type')
+    list_filter = ('status', 'document_role', 'inclusion_mode', 'document_type', 'product_definition')
     search_fields = ('name', 'document_type', 'source_filename', 'source_sha256')
     actions = ('activate_selected_templates',)
     readonly_fields = (
@@ -5646,7 +5723,9 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
         product = obj.product_definition or OriginationProductDefinition.objects.filter(
             document_type=obj.document_type, is_active=True,
         ).order_by('-version').first()
-        from core.services.origination_fields import catalogue_for_product, product_schema_revision
+        from core.services.origination_fields import (
+            catalogue_for_product, product_schema_revision, template_schema_revision,
+        )
         fields = (
             obj.form_schema
             if obj.document_role == obj.ROLE_SUPPORTING and obj.form_schema
@@ -5660,6 +5739,8 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
         context_keys = catalogue_for_product(product)
         for item in context_keys:
             presentation = presentations.get(str(item.get('key') or ''), {})
+            if obj.document_role == obj.ROLE_SUPPORTING:
+                item['attached'] = bool(presentation)
             item['required'] = bool(presentation.get('required', False))
             item['section_key'] = str(presentation.get('section_key') or '')
         from core.services.origination_templates import _expected_signature_slots
@@ -5671,7 +5752,7 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
             'configuration': config,
             'page_sizes': page_sizes,
             'context_keys': context_keys,
-            'schema_revision': product_schema_revision(product) if product else 0,
+            'schema_revision': template_schema_revision(obj) if obj.document_role == obj.ROLE_SUPPORTING else product_schema_revision(product) if product else 0,
             'form_sections': list(fields.get('sections') or []),
             'signature_slots': list(_expected_signature_slots(product, obj).values()),
         })
@@ -5746,14 +5827,10 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
         obj = self._calibration_template(request, object_id)
         if request.method != 'POST':
             return JsonResponse({'ok': False, 'error': 'POST required.'}, status=405)
-        if not obj.product_definition_id:
-            return JsonResponse({
-                'ok': False, 'error': 'This template is not linked to an editable product form.',
-            }, status=400)
         try:
             from core.services.origination_fields import (
-                attach_data_field, catalogue_for_product, create_data_field,
-                product_schema_revision,
+                attach_data_field, attach_data_field_to_template, catalogue_for_product,
+                create_data_field, product_schema_revision, template_schema_revision,
             )
             body = self._json_body(request)
             with transaction.atomic():
@@ -5768,21 +5845,33 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
                     ).first()
                     if not data_field:
                         raise ValidationError('Choose an active canonical data field.')
-                product, replayed = attach_data_field(
-                    product=obj.product_definition, data_field=data_field,
-                    presentation=body.get('presentation') or {}, actor=request.user,
-                    expected_schema_revision=int(body.get('schema_revision') or 0),
-                )
+                if obj.document_role == obj.ROLE_SUPPORTING:
+                    obj, replayed = attach_data_field_to_template(
+                        template=obj, data_field=data_field,
+                        presentation=body.get('presentation') or {}, actor=request.user,
+                        expected_schema_revision=int(body.get('schema_revision') or 0),
+                    )
+                    product = obj.product_definition
+                elif obj.product_definition_id:
+                    product, replayed = attach_data_field(
+                        product=obj.product_definition, data_field=data_field,
+                        presentation=body.get('presentation') or {}, actor=request.user,
+                        expected_schema_revision=int(body.get('schema_revision') or 0),
+                    )
+                else:
+                    raise ValidationError('A primary template must be linked to an editable product form.')
         except Exception as exc:
             return self._calibration_error_response(exc)
         context_keys = catalogue_for_product(product)
         presentations = {
             str(item.get('key') or ''): item
-            for item in ((product.form_schema or {}).get('fields') or [])
+            for item in (((obj.form_schema if obj.document_role == obj.ROLE_SUPPORTING else product.form_schema) or {}).get('fields') or [])
             if isinstance(item, dict) and item.get('key')
         }
         for item in context_keys:
             presentation = presentations.get(str(item.get('key') or ''), {})
+            if obj.document_role == obj.ROLE_SUPPORTING:
+                item['attached'] = bool(presentation)
             item['required'] = bool(presentation.get('required', False))
             item['section_key'] = str(presentation.get('section_key') or '')
         return JsonResponse({
@@ -5790,8 +5879,8 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
                 item for item in context_keys if item['key'] == data_field.key
             ),
             'context_keys': context_keys,
-            'schema_revision': product_schema_revision(product),
-            'form_sections': list((product.form_schema or {}).get('sections') or []),
+            'schema_revision': template_schema_revision(obj) if obj.document_role == obj.ROLE_SUPPORTING else product_schema_revision(product),
+            'form_sections': list(((obj.form_schema if obj.document_role == obj.ROLE_SUPPORTING else product.form_schema) or {}).get('sections') or []),
             'replayed': replayed,
         })
 

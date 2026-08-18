@@ -11,6 +11,7 @@ from core.models import (
     LoanOriginationApplication,
     OriginationApplicationEvent,
     OriginationDocumentTemplate,
+    OriginationProductDocumentAssignment,
     OriginationProductDefinition,
 )
 from core.services.loan_origination import (
@@ -22,6 +23,8 @@ from core.services.loan_origination import (
     render_application_preview,
     save_application_fields,
     submit_for_review,
+    normalize_form_payload,
+    validate_form_payload,
 )
 from core.services.origination_documents import (
     mark_document_previewed,
@@ -360,4 +363,61 @@ class LoanOriginationServiceTests(TestCase):
                 application_id=application.pk, actor=self.officer,
                 selected_keys=['optional_notice'], expected_revision=application.revision,
                 request_id='packet-gate-select',
+            )
+
+    def test_repeatable_secured_assets_are_typed_capped_and_decimal_normalized(self):
+        schema = {'fields': [{
+            'key': 'secured_assets', 'type': 'repeating_group', 'required': True,
+            'structure': {
+                'min_items': 1, 'max_items': 11,
+                'columns': [
+                    {'key': 'description', 'type': 'text', 'required': True},
+                    {'key': 'estimated_value', 'type': 'money', 'required': True, 'validation': {'min': '0'}},
+                ],
+            },
+        }]}
+        normalized = normalize_form_payload(schema, {'secured_assets': [
+            {'description': 'Synthetic asset', 'estimated_value': '12500.50'},
+        ]})
+        self.assertEqual(normalized['secured_assets'][0]['estimated_value'], '12500.50')
+        self.assertEqual(len(normalized['secured_assets'][0]['row_id']), 36)
+        self.assertTrue(validate_form_payload(schema, normalized, require_complete=True).valid)
+        too_many = {'secured_assets': normalized['secured_assets'] * 12}
+        result = validate_form_payload(schema, too_many, require_complete=True)
+        self.assertFalse(result.valid)
+        self.assertIn('11', result.errors['secured_assets'])
+        duplicate = {'secured_assets': [normalized['secured_assets'][0], normalized['secured_assets'][0]]}
+        result = validate_form_payload(schema, duplicate, require_complete=True)
+        self.assertFalse(result.valid)
+        self.assertIn('duplicate identity', result.errors['secured_assets'])
+
+    def test_shared_supporting_assignment_is_snapshotted_and_pinned(self):
+        template = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='shared_guarantee', document_role='supporting',
+            inclusion_mode='required', document_type='shared_guarantee', name='Shared guarantee',
+            version=3, status='active', source_filename='shared.pdf', source_sha256='9' * 64,
+            source_byte_size=100, page_count=1, placement_config={}, created_by=self.officer,
+            form_schema={'fields': [{'key': 'guarantor_1_name', 'type': 'text', 'required': True}]},
+        )
+        assignment = OriginationProductDocumentAssignment.objects.create(
+            product_definition=self.product, template=template,
+            document_key='guarantee', name='Guarantee and undertaking',
+            inclusion_mode='required', display_order=20, created_by=self.officer,
+        )
+        application, _ = create_application(
+            product_key=self.product.product_key, officer=self.officer,
+            branch='Synthetic Branch', client_request_id='shared-assignment-create',
+        )
+        document = application.packet_documents.get(document_key='guarantee')
+        self.assertEqual(document.assignment, assignment)
+        self.assertEqual(document.template_snapshot['version'], 3)
+        self.assertEqual(document.template_snapshot['assignment_id'], str(assignment.pk))
+
+        self.product.lifecycle_status = self.product.STATUS_PUBLISHED
+        self.product.save(update_fields=['lifecycle_status'])
+        with self.assertRaisesRegex(ValidationError, 'immutable'):
+            OriginationProductDocumentAssignment.objects.create(
+                product_definition=self.product, template=template,
+                document_key='late-guarantee', name='Late guarantee',
+                inclusion_mode='required', display_order=30, created_by=self.officer,
             )

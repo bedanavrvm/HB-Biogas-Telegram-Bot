@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from io import BytesIO
+from datetime import date
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from pypdf import PdfReader, PdfWriter
@@ -35,6 +37,52 @@ def _display_value(value: Any) -> str:
     return str(value).strip()
 
 
+def _formatted_value(value: Any, spec: dict[str, Any]) -> str:
+    text = _display_value(value)
+    if not text:
+        return ''
+    value_format = str(spec.get('value_format') or '')
+    if value_format == 'money':
+        try:
+            return f'{Decimal(text):,.2f}'
+        except (InvalidOperation, ValueError):
+            return text
+    if value_format in {'date_dmy', 'date_long'}:
+        try:
+            parsed = date.fromisoformat(text)
+            return parsed.strftime('%d/%m/%Y' if value_format == 'date_dmy' else '%d %b %Y')
+        except ValueError:
+            return text
+    return text
+
+
+def _draw_cell(pdf, value: Any, box: dict[str, float], spec: dict[str, Any], defaults: dict) -> None:
+    text = _formatted_value(value, spec)
+    if not text:
+        return
+    font_name = str(spec.get('font') or defaults.get('font') or 'Helvetica')
+    font_size = float(spec.get('font_size') or defaults.get('font_size') or 8)
+    min_size = float(spec.get('min_font_size') or defaults.get('min_font_size') or 5)
+    width_available = max(float(box['width']), 1)
+    while font_size > min_size and pdfmetrics.stringWidth(text, font_name, font_size) > width_available:
+        font_size -= .25
+    while text and pdfmetrics.stringWidth(text, font_name, font_size) > width_available:
+        text = text[:-1]
+    if not text:
+        return
+    text_width = pdfmetrics.stringWidth(text, font_name, font_size)
+    align = spec.get('align', defaults.get('align', 'left'))
+    draw_x = box['x'] + (width_available - text_width) / 2 if align == 'center' else box['x'] + width_available - text_width if align == 'right' else box['x']
+    try:
+        ascent, descent = pdfmetrics.getAscentDescent(font_name, font_size)
+    except KeyError:
+        font_name = 'Helvetica'
+        ascent, descent = pdfmetrics.getAscentDescent(font_name, font_size)
+    draw_y = box['y'] + max((box['height'] - (ascent - descent)) / 2, 0) - descent
+    pdf.setFont(font_name, font_size)
+    pdf.drawString(draw_x, draw_y, text)
+
+
 def _overlay_page(width: float, height: float, fields: list[tuple[dict, str]], defaults: dict) -> bytes:
     output = BytesIO()
     pdf = canvas.Canvas(output, pagesize=(width, height), pageCompression=1)
@@ -42,7 +90,32 @@ def _overlay_page(width: float, height: float, fields: list[tuple[dict, str]], d
     for spec, raw_value in fields:
         box = spec.get('allowed_area') or spec.get('box') or {}
         unit_scale = 72 / 25.4 if spec.get('units', 'pt') == 'mm' else 1
-        value = _display_value(raw_value)
+        if spec.get('render_as') == 'repeating_table':
+            rows = max(int(spec.get('rows') or 1), 1)
+            items = raw_value if isinstance(raw_value, list) else []
+            x = float(box.get('x', 0)) * unit_scale
+            y = float(box.get('y', 0)) * unit_scale
+            table_width = float(box.get('width', 0)) * unit_scale
+            table_height = float(box.get('height', 0)) * unit_scale
+            row_height = table_height / rows
+            columns = [item for item in (spec.get('columns') or []) if isinstance(item, dict)]
+            for row_index, item in enumerate(items[:rows]):
+                if not isinstance(item, dict):
+                    continue
+                cursor = 0.0
+                for column_index, column in enumerate(columns):
+                    width_ratio = float(column.get('width_ratio') or (1 / max(len(columns), 1)))
+                    x_ratio = float(column.get('x_ratio')) if column.get('x_ratio') is not None else cursor
+                    cursor = x_ratio + width_ratio
+                    cell = {
+                        'x': x + table_width * x_ratio + 3,
+                        'y': y + table_height - ((row_index + 1) * row_height),
+                        'width': max(table_width * width_ratio - 6, 1),
+                        'height': row_height,
+                    }
+                    _draw_cell(pdf, item.get(str(column.get('key') or '')), cell, column, defaults)
+            continue
+        value = _formatted_value(raw_value, spec)
         if spec.get('render_as') == 'checkbox':
             expected = spec.get('checked_when')
             normalized = value.casefold().replace('_', ' ').replace('-', ' ')

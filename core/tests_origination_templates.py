@@ -109,6 +109,29 @@ class OriginationTemplateValidationTests(SimpleTestCase):
 
         self.assertIn('MIXED CASE', text)
 
+    def test_renderer_populates_repeatable_asset_table_and_decimal_values(self):
+        config = json.loads(synthetic_config())
+        config['field_overlay_manifest']['fields'] = {
+            'secured_assets': {
+                'context_key': 'secured_assets', 'render_as': 'repeating_table',
+                'page_number': 1, 'units': 'pt',
+                'box': {'x': 40, 'y': 120, 'width': 520, 'height': 220},
+                'rows': 11,
+                'columns': [
+                    {'key': 'description', 'x_ratio': 0, 'width_ratio': .5},
+                    {'key': 'estimated_value', 'x_ratio': .5, 'width_ratio': .5, 'value_format': 'money'},
+                ],
+            },
+        }
+        rendered = render_template(synthetic_pdf(), config, {'secured_assets': [
+            {'description': 'Synthetic cooker', 'estimated_value': '12500'},
+            {'description': 'Synthetic television', 'estimated_value': '8000.50'},
+        ]})
+        text = PdfReader(BytesIO(rendered)).pages[0].extract_text()
+        self.assertIn('Synthetic cooker', text)
+        self.assertIn('12,500.00', text)
+        self.assertIn('Synthetic television', text)
+
 
 @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='shared-drive-root')
 class OriginationTemplateLifecycleTests(TestCase):
@@ -685,6 +708,29 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertEqual(template.document_type, self.product.document_type)
         self.assertEqual(template.version, self.product.version)
         self.assertEqual(template.placement_config['field_overlay_manifest']['fields'], {})
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_admin_uploads_global_supporting_template_without_product_owner(self, storage_class):
+        storage_class.return_value.upload.return_value = ('drive-shared-guarantor', 'https://drive.test/shared')
+        self.client.force_login(self.user)
+
+        response = self.client.post(reverse('admin:core_originationdocumenttemplate_add'), {
+            'product_definition': '',
+            'document_key': 'shared_guarantor',
+            'document_role': OriginationDocumentTemplate.ROLE_SUPPORTING,
+            'inclusion_mode': OriginationDocumentTemplate.INCLUDE_REQUIRED,
+            'display_order': 20,
+            'name': 'Shared guarantor form',
+            'pdf_file': SimpleUploadedFile('guarantor.pdf', self.pdf, content_type='application/pdf'),
+            '_save': 'Save',
+        })
+
+        template = OriginationDocumentTemplate.objects.get(document_key='shared_guarantor')
+        self.assertEqual(response.status_code, 302)
+        self.assertIsNone(template.product_definition_id)
+        self.assertEqual(template.document_type, 'shared_guarantor')
+        self.assertEqual(template.document_role, template.ROLE_SUPPORTING)
+        self.assertEqual(template.form_schema, {'_revision': 0, 'sections': [], 'fields': []})
 
     @patch('core.services.compliance_audit.record_event')
     @patch('core.services.order_approval.GoogleDriveMediaStorage')

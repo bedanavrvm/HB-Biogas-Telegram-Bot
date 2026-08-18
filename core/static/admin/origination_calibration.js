@@ -833,7 +833,9 @@
 
   function addFieldOverlay(context) {
     if (!context) return status('Choose a canonical data field.', true);
-    const box = centeredBox(120, 14);
+    const catalogueField = contextKeys.find(item => item.key === context);
+    const isTable = catalogueField?.type === 'repeating_group';
+    const box = centeredBox(isTable ? 240 : 120, isTable ? 190 : 14);
     if (!box) return status('The current PDF page is not ready yet.', true);
     const before = configurationHash(configuration);
     let key = context, index = 2;
@@ -843,8 +845,23 @@
       box: copy(box), allowed_area: copy(box),
       render_as: 'text', ...globalFieldFormatting(),
     };
-    const catalogueField = contextKeys.find(item => item.key === context);
-    configuration.sample_context[context] ||= catalogueField?.label || context.replaceAll('_', ' ');
+    if (isTable) {
+      fields()[key].render_as = 'repeating_table';
+      const structure = catalogueField.structure_schema || {};
+      const columns = structure.columns || [];
+      fields()[key].rows = Number(structure.max_items || 11);
+      fields()[key].columns = columns.map((column, index) => ({
+        key: column.key,
+        width_ratio: 1 / Math.max(columns.length, 1),
+        x_ratio: index / Math.max(columns.length, 1),
+        value_format: column.type === 'money' ? 'money' : '',
+      }));
+      configuration.sample_context[context] ||= [
+        Object.fromEntries(columns.map(column => [column.key, column.type === 'money' ? '12,500' : column.label || column.key])),
+      ];
+    } else {
+      configuration.sample_context[context] ||= catalogueField?.label || context.replaceAll('_', ' ');
+    }
     select('field', key); markDirty(); recordHistory('Place field', before);
   }
 

@@ -219,6 +219,20 @@ def portal_origination_products(request):
                 for template in item.document_templates.filter(status='active').order_by(
                     'display_order', 'document_key',
                 )
+                if template.document_role == template.ROLE_PRIMARY
+            ] + [
+                {
+                    'key': assignment.document_key,
+                    'name': assignment.name,
+                    'role': 'supporting',
+                    'order': assignment.display_order,
+                    'inclusion_mode': assignment.inclusion_mode,
+                    'default_selected': assignment.default_selected,
+                    'template_version': assignment.template.version,
+                }
+                for assignment in item.document_assignments.select_related('template').order_by(
+                    'display_order', 'document_key',
+                )
             ],
         })
     return JsonResponse({

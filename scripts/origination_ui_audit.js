@@ -39,7 +39,13 @@ const application = id => ({
     primary_ready: true, ready: false,
     documents: [
       { key: 'primary', name: 'Main LAF', role: 'primary', order: 0, inclusion_mode: 'required', applicable: true, selected: true, complete: true, previewed: true, schema: { fields: [] }, field_payload: {} },
-      { key: 'guarantor_consent', name: 'Guarantor consent', role: 'supporting', order: 10, inclusion_mode: 'optional', officer_selectable: true, applicable: true, selected: true, complete: false, previewed: false, missing_fields: ['guarantor_name'], schema: { fields: [{ key: 'guarantor_name', label: 'Guarantor name', type: 'text', required: true }] }, field_payload: {} },
+      { key: 'guarantor_consent', name: 'Guarantor and home visit forms', role: 'supporting', order: 10, inclusion_mode: 'optional', officer_selectable: true, applicable: true, selected: true, complete: false, previewed: false, missing_fields: ['guarantor_name'], schema: { fields: [
+        { key: 'guarantor_name', label: 'Guarantor name', type: 'text', required: true },
+        { key: 'secured_assets', label: 'Secured assets', type: 'repeating_group', required: true, structure: { min_items: 1, max_items: 11, columns: [
+          { key: 'description', label: 'Asset description', type: 'text', required: true },
+          { key: 'estimated_value', label: 'Estimated value', type: 'money', required: true },
+        ] } },
+      ] }, field_payload: { secured_assets: [{ row_id: '00000000-0000-4000-8000-000000000001', description: 'Synthetic cooker', estimated_value: '12500.00' }] } },
     ],
   },
 });
@@ -184,6 +190,10 @@ async function auditViewport(browser, viewport) {
   await page.locator('#origination-section-picker').click();
   await page.locator('[data-section-index="4"]').click();
   await page.locator('[data-document-field="guarantor_name"]').waitFor();
+  assert(await page.locator('[data-repeat-row]').count() === 1, `${viewport.name}: repeatable asset row did not render`);
+  await page.locator('[data-repeat-add]').click();
+  assert(await page.locator('[data-repeat-row]').count() === 2, `${viewport.name}: repeatable asset row could not be added`);
+  assert(await page.locator('[data-repeat-total]').textContent() === '12,500.00', `${viewport.name}: asset total is not visible`);
   assert(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth <= 1), `${viewport.name}: supporting-document form overflows`);
   await page.screenshot({ path: path.join(outputDir, `${viewport.name}-supporting-document.png`), fullPage: true });
   await page.locator('#origination-back').click();

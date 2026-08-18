@@ -35,6 +35,7 @@ class OriginationConflict(OriginationError):
 SUPPORTED_FIELD_TYPES = {
     'text', 'textarea', 'number', 'money', 'date', 'phone', 'national_id',
     'choice', 'boolean', 'branch', 'county', 'sub_county',
+    'repeating_group',
 }
 
 SIGNER_ROLE_CATALOG = (
@@ -48,6 +49,7 @@ SIGNER_ROLE_CATALOG = (
     ('officer', 'Officer (legacy role)'),
     ('branch_manager', 'Branch Manager'),
     ('commissioner_for_oaths', 'Commissioner for Oaths'),
+    ('witness', 'Witness'),
 )
 
 
@@ -109,6 +111,18 @@ def validate_product_form_contract(form_schema: dict[str, Any], signer_rules: An
                 raise OriginationError(
                     f'Choice field {field.get("key")} requires unique option codes.',
                 )
+        if field_type == 'repeating_group':
+            structure = field.get('structure') or {}
+            columns = structure.get('columns') if isinstance(structure, dict) else None
+            if not isinstance(columns, list) or not columns:
+                raise OriginationError(f'Repeatable field {field.get("key")} requires child columns.')
+            column_keys = [str(item.get('key') or '') for item in columns if isinstance(item, dict)]
+            if len(column_keys) != len(columns) or any(not key for key in column_keys) or len(column_keys) != len(set(column_keys)):
+                raise OriginationError(f'Repeatable field {field.get("key")} has invalid child columns.')
+            minimum = int(structure.get('min_items', 0) or 0)
+            maximum = int(structure.get('max_items', 0) or 0)
+            if minimum < 0 or maximum < 1 or minimum > maximum or maximum > 50:
+                raise OriginationError(f'Repeatable field {field.get("key")} has invalid item limits.')
         validation = field.get('validation') or {}
         if not isinstance(validation, dict):
             raise OriginationError(f'Field {field.get("key")} has invalid validation rules.')
@@ -169,7 +183,7 @@ def validate_product_form_contract(form_schema: dict[str, Any], signer_rules: An
             if not isinstance(slot, dict) or not str(slot.get('key') or '').strip():
                 raise OriginationError(f'Signer {rule.get("role")} has an invalid slot.')
             slot_keys.append(str(slot.get('key')).strip())
-            if str(slot.get('type') or rule.get('slot_type') or 'signature') not in {'signature', 'stamp'}:
+            if str(slot.get('type') or rule.get('slot_type') or 'signature') not in {'signature', 'stamp', 'date_signed'}:
                 raise OriginationError(f'Signer {rule.get("role")} has an unsupported slot type.')
         if len(slot_keys) != len(set(slot_keys)):
             raise OriginationError(f'Signer {rule.get("role")} has duplicate slot keys.')
@@ -205,6 +219,57 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
             continue
         field_type = str(field.get('type') or 'text')
         validation = field.get('validation') if isinstance(field.get('validation'), dict) else {}
+        if field_type == 'repeating_group':
+            if not isinstance(value, list):
+                errors[key] = 'Enter a valid list of items.'
+                continue
+            structure = field.get('structure') if isinstance(field.get('structure'), dict) else {}
+            columns = [item for item in (structure.get('columns') or []) if isinstance(item, dict)]
+            minimum = int(structure.get('min_items', 0) or 0)
+            maximum = int(structure.get('max_items', 0) or 0)
+            if require_complete and len(value) < minimum:
+                errors[key] = f'Add at least {minimum} item.'
+                continue
+            if maximum and len(value) > maximum:
+                errors[key] = f'Add no more than {maximum} items.'
+                continue
+            allowed_keys = {'row_id'} | {str(column.get('key') or '') for column in columns}
+            row_ids = set()
+            for index, row in enumerate(value):
+                if not isinstance(row, dict) or set(row) - allowed_keys:
+                    errors[key] = f'Row {index + 1} is invalid.'
+                    break
+                try:
+                    row_id = str(uuid.UUID(str(row.get('row_id') or '')))
+                except (TypeError, ValueError, AttributeError):
+                    errors[key] = f'Row {index + 1} requires a stable identity.'
+                    break
+                if row_id in row_ids:
+                    errors[key] = f'Row {index + 1} has a duplicate identity.'
+                    break
+                row_ids.add(row_id)
+                for column in columns:
+                    column_key = str(column.get('key') or '')
+                    cell = row.get(column_key)
+                    if require_complete and column.get('required') and cell in (None, ''):
+                        errors[key] = f'Complete {column.get("label") or column_key} in row {index + 1}.'
+                        break
+                    if cell in (None, ''):
+                        continue
+                    if str(column.get('type') or '') in {'money', 'number'}:
+                        try:
+                            decimal_value = Decimal(str(cell))
+                            if not decimal_value.is_finite():
+                                raise InvalidOperation
+                            minimum_value = (column.get('validation') or {}).get('min')
+                            if minimum_value not in (None, '') and decimal_value < Decimal(str(minimum_value)):
+                                raise InvalidOperation
+                        except (InvalidOperation, TypeError, ValueError):
+                            errors[key] = f'Enter a valid value in row {index + 1}.'
+                            break
+                if key in errors:
+                    break
+            continue
         if field_type in {'text', 'textarea', 'phone', 'national_id', 'date', 'choice', 'branch', 'county', 'sub_county'} and not isinstance(value, str):
             errors[key] = 'Enter a valid text value.'
         elif field_type == 'boolean' and not isinstance(value, bool):
@@ -282,6 +347,64 @@ def validate_form_payload(schema: dict[str, Any], payload: Any, *, require_compl
     return ValidationResult(not errors, errors)
 
 
+def normalize_form_payload(schema: dict[str, Any], payload: Any) -> dict[str, Any]:
+    """Canonicalize collection identities and Decimal cells before validation/storage."""
+    if not isinstance(payload, dict):
+        return payload
+    normalized = dict(payload)
+    for field in _schema_fields(schema):
+        key = str(field.get('key') or '')
+        if str(field.get('type') or '') != 'repeating_group' or key not in normalized:
+            continue
+        rows = normalized.get(key)
+        if not isinstance(rows, list):
+            continue
+        columns = {
+            str(item.get('key') or ''): str(item.get('type') or '')
+            for item in ((field.get('structure') or {}).get('columns') or [])
+            if isinstance(item, dict)
+        }
+        cleaned = []
+        for raw in rows:
+            if not isinstance(raw, dict):
+                cleaned.append(raw)
+                continue
+            row = dict(raw)
+            try:
+                row['row_id'] = str(uuid.UUID(str(row.get('row_id') or '')))
+            except (TypeError, ValueError, AttributeError):
+                row['row_id'] = str(uuid.uuid4())
+            for column_key, column_type in columns.items():
+                if column_type in {'money', 'number'} and row.get(column_key) not in (None, ''):
+                    try:
+                        row[column_key] = format(Decimal(str(row[column_key])), 'f')
+                    except (InvalidOperation, TypeError, ValueError):
+                        pass
+            cleaned.append(row)
+        normalized[key] = cleaned
+    return normalized
+
+
+def synchronize_legacy_security_values(values: dict[str, Any], existing: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Keep the legacy first-security scalars aligned with the canonical collection."""
+    merged = {**(existing or {}), **values}
+    assets = merged.get('secured_assets')
+    if isinstance(assets, list) and assets:
+        first = assets[0] if isinstance(assets[0], dict) else {}
+        merged['security_1_description'] = first.get('description', '')
+        merged['security_1_current_value'] = first.get('estimated_value', '')
+    elif 'security_1_description' in values or 'security_1_current_value' in values:
+        prior = assets[0] if isinstance(assets, list) and assets and isinstance(assets[0], dict) else {}
+        row = {
+            'row_id': str(prior.get('row_id') or uuid.uuid4()),
+            'description': merged.get('security_1_description', ''),
+            'estimated_value': merged.get('security_1_current_value', ''),
+        }
+        if row['description'] not in (None, '') or row['estimated_value'] not in (None, ''):
+            merged['secured_assets'] = [row, *(assets[1:] if isinstance(assets, list) else [])]
+    return merged
+
+
 def _missing_application_requirements(
     application: LoanOriginationApplication, *, stage: str,
 ) -> list[dict[str, str]]:
@@ -357,6 +480,15 @@ def preview_context(application: LoanOriginationApplication) -> dict[str, Any]:
         'loan_officer_name': application.officer.get_full_name() or application.officer.get_username(),
         'application_date': timezone.localdate(application.created_at).isoformat(),
     }
+    assets = context.get('secured_assets')
+    if isinstance(assets, list):
+        total = Decimal('0')
+        for row in assets:
+            try:
+                total += Decimal(str(row.get('estimated_value') or '0')) if isinstance(row, dict) else Decimal('0')
+            except (InvalidOperation, TypeError, ValueError):
+                continue
+        context['secured_assets_total'] = format(total, 'f')
     for field in _schema_fields(application.schema_snapshot):
         if str(field.get('type') or '') != 'choice':
             continue
@@ -511,6 +643,14 @@ def save_application_fields(
         raise OriginationError('This application is no longer editable.')
     if int(expected_revision) != application.revision:
         raise OriginationConflict('This application changed on another device. Refresh before saving again.')
+    payload = normalize_form_payload(application.schema_snapshot, payload)
+    schema_keys = {str(item.get('key') or '') for item in _schema_fields(application.schema_snapshot)}
+    if isinstance(payload, dict) and (
+        'secured_assets' in payload
+        or ({'security_1_description', 'security_1_current_value'} & set(payload) and 'secured_assets' in schema_keys)
+    ):
+        synchronized = synchronize_legacy_security_values(payload, application.form_payload)
+        payload = {key: value for key, value in synchronized.items() if key in schema_keys}
     result = validate_form_payload(application.schema_snapshot, payload, require_complete=False)
     if not result.valid:
         raise OriginationError(next(iter(result.errors.values())), errors=result.errors)
@@ -754,13 +894,31 @@ def review_application(
             if isinstance(item, dict)
             and (not item.get('workflow') or item.get('workflow') == 'loan_origination')
         }
+        document_field_labels = {}
+        for document in application.packet_documents.filter(selected=True).exclude(document_role='primary'):
+            for item in (document.schema_snapshot or {}).get('fields', []):
+                if not isinstance(item, dict) or not item.get('key'):
+                    continue
+                field_key = str(item['key'])
+                base_key = f'{document.document_key}.{field_key}'
+                label = f'{document.name}: {item.get("label") or field_key}'
+                document_field_labels[base_key] = label
+                if str(item.get('type') or '') == 'repeating_group':
+                    rows = application.form_payload.get(field_key) or document.field_payload.get(field_key) or []
+                    for index, row in enumerate(rows):
+                        if isinstance(row, dict) and row.get('row_id'):
+                            document_field_labels[f'{base_key}.{row["row_id"]}'] = f'{label} row {index + 1}'
         seen = set()
         for raw in correction_items:
             if not isinstance(raw, dict):
                 raise OriginationError('Every correction target must be an object.')
             target_type = str(raw.get('target_type') or '').strip()
             target_key = str(raw.get('target_key') or '').strip()
-            labels = field_labels if target_type == 'field' else requirement_labels if target_type == 'requirement' else {}
+            labels = (
+                field_labels if target_type == 'field' else
+                requirement_labels if target_type == 'requirement' else
+                document_field_labels if target_type == 'document_field' else {}
+            )
             if not target_key or target_key not in labels:
                 raise OriginationError('One or more correction targets are not part of this application.')
             identity = (target_type, target_key)
@@ -769,7 +927,7 @@ def review_application(
             seen.add(identity)
             normalized_items.append({
                 'target_type': target_type,
-                'target_key': target_key,
+                'target_key': target_key[:240],
                 'target_label': labels[target_key][:160],
                 'instruction': str(raw.get('instruction') or '').strip()[:1000],
             })

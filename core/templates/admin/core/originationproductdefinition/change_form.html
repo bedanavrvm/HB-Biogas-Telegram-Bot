@@ -93,7 +93,7 @@
             <h2>Document packet</h2>
             <p>Keep the main LAF first, then add required, conditional, or optional supporting PDFs with their own fields and signer slots.</p>
           </div>
-          <a class="button" href="{{ origination_document_add_url }}">Add supporting document</a>
+          <span><a class="button" href="{{ origination_shared_library_url }}">Shared template library</a>{% if origination_assignment_add_url %} <a class="button" href="{{ origination_assignment_add_url }}">Assign shared document</a>{% endif %} <a class="button" href="{{ origination_document_add_url }}">Add product-specific document</a></span>
         </header>
         {% if origination_document_packet %}
           <div class="opb-document-packet">
@@ -104,6 +104,16 @@
                   {% if item.drive_file_id %}<a href="{% url 'admin:core_originationdocumenttemplate_calibrate' item.pk %}">Open builder</a>{% endif %}
                   <a href="{% url 'admin:core_originationdocumenttemplate_change' item.pk %}">Details</a>
                 </span>
+              </article>
+            {% endfor %}
+          </div>
+        {% endif %}
+        {% if origination_shared_document_assignments %}
+          <div class="opb-document-packet">
+            {% for item in origination_shared_document_assignments %}
+              <article>
+                <span><b>{{ item.name }}</b><small>Shared template v{{ item.template.version }} &middot; {{ item.get_inclusion_mode_display }}</small></span>
+                <span><a href="{% url 'admin:core_originationdocumenttemplate_calibrate' item.template.pk %}">View builder</a></span>
               </article>
             {% endfor %}
           </div>

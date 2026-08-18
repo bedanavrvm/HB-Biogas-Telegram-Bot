@@ -86,6 +86,11 @@
     return `${prefix}-${window.crypto?.randomUUID ? window.crypto.randomUUID() : Date.now()}`;
   }
 
+  function newRowId() {
+    if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+    return `row-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+
   async function apiFetch(path, options) {
     const requestOptions = options || {};
     const controller = new AbortController();
@@ -1022,6 +1027,20 @@
       );
       const errors = {};
       (document?.schema?.fields || []).forEach(field => {
+        if (field.type === 'repeating_group') {
+          const container = root()?.querySelector(`[data-repeatable-field="${CSS.escape(field.key)}"]`);
+          const rows = [...(container?.querySelectorAll('[data-repeat-row]') || [])];
+          const structure = field.structure || {};
+          const minimum = Number(structure.min_items || 0);
+          const maximum = Number(structure.max_items || 0);
+          if (field.required && rows.length < Math.max(minimum, 1)) errors[field.key] = `Add at least ${Math.max(minimum, 1)} asset`;
+          if (maximum && rows.length > maximum) errors[field.key] = `Add no more than ${maximum} assets`;
+          rows.forEach((row, index) => row.querySelectorAll('[data-repeat-column]').forEach(input => {
+            if (!errors[field.key] && input.required && !input.value.trim()) errors[field.key] = `Complete row ${index + 1}`;
+            if (!errors[field.key] && input.inputMode === 'decimal' && input.value && !/^\d+(?:\.\d{1,4})?$/.test(input.value.trim())) errors[field.key] = `Enter a valid value in row ${index + 1}`;
+          }));
+          return;
+        }
         const input = root()?.querySelector(`[data-document-field="${CSS.escape(field.key)}"]`);
         const value = input?.value ?? document.field_payload?.[field.key] ?? current.form_payload?.[field.key];
         if (field.required && (value === undefined || value === null || value === '')) errors[field.key] = 'Required';
@@ -1288,15 +1307,47 @@
     return `<div class="section-title"><div><h3>Supporting documents</h3><p>Required documents are selected automatically. Add any optional documents that apply.</p></div></div><div class="packet-document-list">${rows || '<div class="empty-state">No supporting documents apply.</div>'}</div>`;
   }
 
+  function repeatableRowMarkup(columns, row, index, disabled) {
+    return `<div class="repeatable-row" data-repeat-row data-row-id="${escapeHtml(row?.row_id || newRowId())}"><span class="repeatable-row-number">${index + 1}</span>${columns.map(column => {
+      const columnValue = row?.[column.key] ?? '';
+      const numeric = column.type === 'money' || column.type === 'number';
+      return `<label><span>${escapeHtml(column.label || column.key)}</span><input data-repeat-column="${escapeHtml(column.key)}" type="text" value="${escapeHtml(columnValue)}"${numeric ? ' inputmode="decimal"' : ''}${column.required ? ' required' : ''}${disabled ? ' disabled' : ''}></label>`;
+    }).join('')}<button type="button" class="icon-button repeatable-remove" data-repeat-remove aria-label="Remove asset"${disabled ? ' disabled' : ''}>${iconSvg('close')}</button></div>`;
+  }
+
+  function refreshRepeatableField(container) {
+    const rows = [...container.querySelectorAll('[data-repeat-row]')];
+    rows.forEach((row, index) => { row.querySelector('.repeatable-row-number').textContent = String(index + 1); });
+    let total = 0;
+    rows.forEach(row => {
+      const input = row.querySelector('[data-repeat-column="estimated_value"]');
+      const value = Number(input?.value || 0);
+      if (Number.isFinite(value)) total += value;
+    });
+    const output = container.querySelector('[data-repeat-total]');
+    if (output) output.textContent = total.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const add = container.querySelector('[data-repeat-add]');
+    if (add) add.disabled = rows.length >= Number(container.dataset.maxItems || 11);
+  }
+
   function supportingDocumentField(field, document, editable) {
     const key = escapeHtml(field.key);
     const shared = current.form_payload?.[field.key];
     const value = document.field_payload?.[field.key] ?? shared ?? '';
-    const locked = shared !== undefined && shared !== null && shared !== '';
+    const mainFormOwnsField = (current.form_schema?.fields || []).some(item => item.key === field.key);
+    const locked = field.source_type === 'system' || (
+      mainFormOwnsField && shared !== undefined && shared !== null && shared !== ''
+    );
     const disabled = !editable || locked;
     const required = field.required ? '<span class="required-mark" aria-label="required">*</span>' : '';
     let control;
-    if (field.type === 'choice') {
+    if (field.type === 'repeating_group') {
+      const structure = field.structure || {};
+      const columns = structure.columns || [];
+      const rows = Array.isArray(value) ? value : [];
+      const maxItems = Number(structure.max_items || 11);
+      control = `<div class="repeatable-field" data-repeatable-field="${key}" data-max-items="${maxItems}"><div class="repeatable-rows">${rows.map((row, index) => repeatableRowMarkup(columns, row, index, disabled)).join('')}</div><div class="repeatable-summary"><button type="button" class="btn btn-secondary" data-repeat-add${disabled || rows.length >= maxItems ? ' disabled' : ''}>Add asset</button><strong>Total: KES <span data-repeat-total>0.00</span></strong></div></div>`;
+    } else if (field.type === 'choice') {
       const options = (field.options || []).map(option => {
         const code = option && typeof option === 'object' ? option.code : option;
         const label = option && typeof option === 'object' ? (option.label || option.code) : option;
@@ -1310,7 +1361,10 @@
     } else {
       control = `<input type="text" data-document-field="${key}" value="${escapeHtml(value)}"${field.type === 'date' ? ' data-date-input inputmode="none" readonly' : ''}${disabled ? ' disabled' : ''}>`;
     }
-    return `<label class="laf-field" data-field-wrap="${key}"><span>${escapeHtml(field.label || field.key)}${required}</span>${locked ? '<small class="field-help">Filled from the main LAF</small>' : field.help_text ? `<small class="field-help">${escapeHtml(field.help_text)}</small>` : ''}${control}<small class="field-error" aria-live="polite"></small></label>`;
+    const correction = current.status === 'ready_for_review'
+      ? correctionToggle('document_field', `${document.key}.${field.key}`, `${document.name}: ${field.label || field.key}`)
+      : '';
+    return `<label class="laf-field" data-field-wrap="${key}"><span>${escapeHtml(field.label || field.key)}${required}</span>${correction}${locked ? '<small class="field-help">Filled from the main LAF</small>' : field.help_text ? `<small class="field-help">${escapeHtml(field.help_text)}</small>` : ''}${control}<small class="field-error" aria-live="polite"></small></label>`;
   }
 
   function supportingDocumentMarkup(document, editable) {
@@ -1322,6 +1376,10 @@
     const [targetType, targetKey] = String(identity || '').split(':', 2);
     const sections = wizardSections();
     if (targetType === 'requirement') return sections.findIndex(item => item.key === 'product_requirements');
+    if (targetType === 'document_field') {
+      const documentKey = targetKey.split('.', 1)[0];
+      return sections.findIndex(item => item.key === `document:${documentKey}`);
+    }
     return sections.findIndex(section => fieldsFor(section.key).some(field => field.key === targetKey));
   }
 
@@ -1486,6 +1544,13 @@
 
   async function saveSupportingDocument(documentKey) {
     const payload = {};
+    root().querySelectorAll('[data-repeatable-field]').forEach(container => {
+      payload[container.dataset.repeatableField] = [...container.querySelectorAll('[data-repeat-row]')].map(row => {
+        const item = { row_id: row.dataset.rowId || newRowId() };
+        row.querySelectorAll('[data-repeat-column]').forEach(input => { item[input.dataset.repeatColumn] = input.value.trim(); });
+        return item;
+      });
+    });
     root().querySelectorAll('[data-document-field]').forEach(input => {
       if (input.disabled) return;
       if (input.options && ['true', 'false'].includes(input.value)) payload[input.dataset.documentField] = input.value === 'true';
@@ -1574,8 +1639,33 @@
       if (editable && !(await saveSupportingDocument(button.dataset.supportPreview))) return;
       await openSupportingPreview(button.dataset.supportPreview);
     });
+    root().querySelectorAll('[data-repeatable-field]').forEach(container => {
+      refreshRepeatableField(container);
+      container.querySelector('[data-repeat-add]')?.addEventListener('click', () => {
+        const document = wizardSections()[step]?.document;
+        const field = (document?.schema?.fields || []).find(item => item.key === container.dataset.repeatableField);
+        const rows = container.querySelectorAll('[data-repeat-row]');
+        if (!field || rows.length >= Number(container.dataset.maxItems || 11)) return;
+        container.querySelector('.repeatable-rows').insertAdjacentHTML(
+          'beforeend', repeatableRowMarkup(field.structure?.columns || [], {}, rows.length, false),
+        );
+        refreshRepeatableField(container);
+        setSaveState('Supporting document not saved', 'dirty');
+      });
+      container.addEventListener('click', event => {
+        const remove = event.target.closest('[data-repeat-remove]');
+        if (!remove) return;
+        remove.closest('[data-repeat-row]')?.remove();
+        refreshRepeatableField(container);
+        setSaveState('Supporting document not saved', 'dirty');
+      });
+      container.addEventListener('input', () => {
+        refreshRepeatableField(container);
+        setSaveState('Supporting document not saved', 'dirty');
+      });
+    });
     document.getElementById('origination-packet-preview')?.addEventListener('click', openPacketPreview);
-    if (editable) root().querySelector('.laf-grid')?.addEventListener('input', scheduleSave);
+    if (editable && !wizardSections()[step]?.key?.startsWith('document:')) root().querySelector('.laf-grid')?.addEventListener('input', scheduleSave);
     else if (current.status === 'reviewed' && capabilities.can_start_signing) {
       root().querySelector('.laf-grid')?.addEventListener('input', () => {
         const configuration = collectProductConfiguration();

@@ -3396,6 +3396,7 @@ class OriginationDataField(models.Model):
     TYPE_BRANCH = 'branch'
     TYPE_COUNTY = 'county'
     TYPE_SUB_COUNTY = 'sub_county'
+    TYPE_REPEATING_GROUP = 'repeating_group'
     TYPE_CHOICES = [
         (TYPE_TEXT, 'Short text'), (TYPE_TEXTAREA, 'Long text'),
         (TYPE_NUMBER, 'Number'), (TYPE_MONEY, 'Money'), (TYPE_DATE, 'Date'),
@@ -3403,6 +3404,7 @@ class OriginationDataField(models.Model):
         (TYPE_CHOICE, 'Choice'), (TYPE_BOOLEAN, 'Yes / No'),
         (TYPE_BRANCH, 'Governed branch'), (TYPE_COUNTY, 'Governed county'),
         (TYPE_SUB_COUNTY, 'Governed sub-county'),
+        (TYPE_REPEATING_GROUP, 'Repeatable group'),
     ]
 
     SOURCE_USER_INPUT = 'user_input'
@@ -3462,6 +3464,10 @@ class OriginationDataField(models.Model):
     export_allowed = models.BooleanField(default=False)
     help_text = models.CharField(max_length=500, blank=True, default='')
     choice_options = models.JSONField(default=list, blank=True)
+    structure_schema = models.JSONField(
+        default=dict, blank=True,
+        help_text='Immutable child-column contract for repeatable-group fields.',
+    )
     active = models.BooleanField(default=True, db_index=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
@@ -3503,6 +3509,35 @@ class OriginationDataField(models.Model):
                 raise ValidationError({'choice_options': 'Canonical choice codes must be unique.'})
         elif options:
             raise ValidationError({'choice_options': 'Only choice fields may define choice options.'})
+        structure = self.structure_schema or {}
+        if self.data_type == self.TYPE_REPEATING_GROUP:
+            if not isinstance(structure, dict):
+                raise ValidationError({'structure_schema': 'Repeatable-group structure must be an object.'})
+            columns = structure.get('columns')
+            if not isinstance(columns, list) or not columns:
+                raise ValidationError({'structure_schema': 'Repeatable groups require child columns.'})
+            keys = []
+            allowed_types = {
+                self.TYPE_TEXT, self.TYPE_TEXTAREA, self.TYPE_NUMBER, self.TYPE_MONEY,
+                self.TYPE_DATE, self.TYPE_PHONE, self.TYPE_NATIONAL_ID,
+                self.TYPE_CHOICE, self.TYPE_BOOLEAN,
+            }
+            for column in columns:
+                if not isinstance(column, dict):
+                    raise ValidationError({'structure_schema': 'Every repeatable-group column must be an object.'})
+                key = str(column.get('key') or '').strip()
+                column_type = str(column.get('type') or '').strip()
+                if not re.fullmatch(r'[a-z0-9_]+', key) or column_type not in allowed_types:
+                    raise ValidationError({'structure_schema': 'Each child column requires a stable key and supported scalar type.'})
+                keys.append(key)
+            if len(keys) != len(set(keys)):
+                raise ValidationError({'structure_schema': 'Repeatable-group child keys must be unique.'})
+            minimum = int(structure.get('min_items', 0) or 0)
+            maximum = int(structure.get('max_items', 0) or 0)
+            if minimum < 0 or maximum < 1 or minimum > maximum or maximum > 50:
+                raise ValidationError({'structure_schema': 'Repeatable-group item limits are invalid.'})
+        elif structure:
+            raise ValidationError({'structure_schema': 'Only repeatable-group fields may define a structure.'})
         for option in options:
             code = str(option.get('code') or '')
             if not re.fullmatch(r'[a-z0-9_]+', code):
@@ -3517,10 +3552,12 @@ class OriginationDataField(models.Model):
     def save(self, *args, **kwargs):
         if self.pk:
             original = type(self).objects.filter(pk=self.pk).values(
-                'key', 'data_type', 'choice_options',
+                'key', 'data_type', 'choice_options', 'structure_schema',
             ).first()
             if original and (original['key'] != self.key or original['data_type'] != self.data_type):
                 raise ValidationError('Canonical field keys and data types are immutable.')
+            if original and original['structure_schema'] != (self.structure_schema or {}):
+                raise ValidationError('Canonical repeatable-group structures are immutable.')
             if original and self.data_type == self.TYPE_CHOICE:
                 previous_codes = {
                     str(item.get('code') or '') for item in (original['choice_options'] or [])
@@ -3849,6 +3886,83 @@ class OriginationDocumentTemplate(models.Model):
             errors['default_selected'] = 'Only optional documents can be selected by default.'
         if errors:
             raise ValidationError(errors)
+
+
+class OriginationProductDocumentAssignment(models.Model):
+    """Immutable product-version assignment of an approved shared document revision."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    product_definition = models.ForeignKey(
+        OriginationProductDefinition, on_delete=models.PROTECT,
+        related_name='document_assignments',
+    )
+    template = models.ForeignKey(
+        OriginationDocumentTemplate, on_delete=models.PROTECT,
+        related_name='product_assignments',
+    )
+    document_key = models.SlugField(max_length=80)
+    name = models.CharField(max_length=180)
+    display_order = models.PositiveSmallIntegerField(default=10)
+    inclusion_mode = models.CharField(
+        max_length=24, choices=OriginationDocumentTemplate.INCLUDE_CHOICES,
+        default=OriginationDocumentTemplate.INCLUDE_REQUIRED,
+    )
+    officer_selectable = models.BooleanField(default=False)
+    default_selected = models.BooleanField(default=False)
+    applicability_rule = models.JSONField(default=dict, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT,
+        related_name='created_origination_document_assignments',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['product_definition', 'display_order', 'document_key']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['product_definition', 'document_key'],
+                name='unique_origination_product_document_key',
+            ),
+            models.UniqueConstraint(
+                fields=['product_definition', 'template'],
+                name='unique_origination_product_template_assignment',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.product_definition}: {self.name}'
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.template_id:
+            if self.template.document_role != OriginationDocumentTemplate.ROLE_SUPPORTING:
+                errors['template'] = 'Only supporting-document templates can be assigned.'
+            if (
+                self.template.product_definition_id not in (None, self.product_definition_id)
+                and self.template.status not in {
+                    OriginationDocumentTemplate.STATUS_ACTIVE,
+                    OriginationDocumentTemplate.STATUS_RETIRED,
+                }
+            ):
+                errors['template'] = 'Only an immutable published legacy template can be shared from another product version.'
+        if self.inclusion_mode == OriginationDocumentTemplate.INCLUDE_OPTIONAL and not self.officer_selectable:
+            errors['officer_selectable'] = 'Optional documents must be officer selectable.'
+        if self.inclusion_mode != OriginationDocumentTemplate.INCLUDE_OPTIONAL and self.default_selected:
+            errors['default_selected'] = 'Only optional documents can be selected by default.'
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if self.product_definition.lifecycle_status != OriginationProductDefinition.STATUS_DRAFT:
+            raise ValidationError('Document assignments are immutable; create the next product version.')
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        if self.product_definition.lifecycle_status != OriginationProductDefinition.STATUS_DRAFT:
+            raise ValidationError('Published document assignments cannot be deleted; replace them in the next product version.')
+        return super().delete(*args, **kwargs)
 
 
 class OriginationDocumentTemplateEvent(models.Model):
@@ -4189,9 +4303,11 @@ class OriginationCorrectionItem(models.Model):
 
     TARGET_FIELD = 'field'
     TARGET_REQUIREMENT = 'requirement'
+    TARGET_DOCUMENT_FIELD = 'document_field'
     TARGET_CHOICES = [
         (TARGET_FIELD, 'Application field'),
         (TARGET_REQUIREMENT, 'Product requirement'),
+        (TARGET_DOCUMENT_FIELD, 'Supporting-document field'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -4199,7 +4315,7 @@ class OriginationCorrectionItem(models.Model):
         OriginationCorrectionRequest, on_delete=models.PROTECT, related_name='items',
     )
     target_type = models.CharField(max_length=20, choices=TARGET_CHOICES)
-    target_key = models.CharField(max_length=120)
+    target_key = models.CharField(max_length=240)
     target_label = models.CharField(max_length=160)
     instruction = models.CharField(max_length=1000, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -4309,6 +4425,10 @@ class OriginationApplicationDocument(models.Model):
         OriginationDocumentTemplate, null=True, blank=True, on_delete=models.PROTECT,
         related_name='application_documents',
     )
+    assignment = models.ForeignKey(
+        OriginationProductDocumentAssignment, null=True, blank=True,
+        on_delete=models.PROTECT, related_name='application_documents',
+    )
     document_key = models.SlugField(max_length=80)
     name = models.CharField(max_length=180)
     document_role = models.CharField(max_length=16, choices=OriginationDocumentTemplate.ROLE_CHOICES)
@@ -4322,6 +4442,7 @@ class OriginationApplicationDocument(models.Model):
     signer_rules_snapshot = models.JSONField(default=list, blank=True)
     field_payload = models.JSONField(default=dict, blank=True)
     previewed_application_revision = models.PositiveIntegerField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
