@@ -586,6 +586,7 @@ def _inherit_document_assignments(*, source, successor, actor) -> None:
             product_definition=successor, document_key=assignment.document_key,
             defaults={
                 'template': assignment.template, 'name': assignment.name,
+                'version_policy': assignment.version_policy,
                 'display_order': assignment.display_order,
                 'inclusion_mode': assignment.inclusion_mode,
                 'officer_selectable': assignment.officer_selectable,
@@ -734,8 +735,152 @@ def activate_template(template: OriginationDocumentTemplate, *, actor) -> Origin
     template.activated_by = actor
     template.activated_at = timezone.now()
     template.save(update_fields=['status', 'activated_by', 'activated_at', 'updated_at'])
-    OriginationDocumentTemplateEvent.objects.create(template=template, action='activated', actor=actor)
+    activation_metadata = {}
+    if template.document_role == template.ROLE_SUPPORTING and template.product_definition_id is None:
+        family_assignments = OriginationProductDocumentAssignment.objects.filter(
+            version_policy=OriginationProductDocumentAssignment.VERSION_LATEST_COMPATIBLE,
+            template__document_type=template.document_type,
+        ).select_related('template', 'template__published_configuration_revision')
+        latest_ids, fallback_ids = [], []
+        for assignment in family_assignments:
+            resolved = resolve_assignment_template(assignment)
+            target = latest_ids if resolved and resolved.pk == template.pk else fallback_ids
+            target.append(str(assignment.pk))
+        activation_metadata = {
+            'document_family': template.document_type,
+            'latest_compatible_assignment_ids': latest_ids,
+            'fallback_assignment_ids': fallback_ids,
+        }
+    OriginationDocumentTemplateEvent.objects.create(
+        template=template, action='activated', actor=actor,
+        metadata=activation_metadata,
+    )
     return template
+
+
+def assignment_template_compatibility_errors(
+    baseline: OriginationDocumentTemplate,
+    candidate: OriginationDocumentTemplate,
+) -> list[str]:
+    """Return contract breaks that prevent transparent family-version adoption."""
+    errors: list[str] = []
+    if candidate.document_role != candidate.ROLE_SUPPORTING:
+        errors.append('the candidate is not a supporting document')
+    if candidate.document_type != baseline.document_type:
+        errors.append('the candidate belongs to another document family')
+    if candidate.product_definition_id is not None:
+        errors.append('the candidate is not a global shared template')
+    if candidate.status not in {candidate.STATUS_ACTIVE, candidate.STATUS_RETIRED}:
+        errors.append('the candidate is not published')
+    if not candidate.published_configuration_revision_id:
+        errors.append('the candidate has no published calibration')
+
+    baseline_fields = {
+        str(item.get('key') or ''): item
+        for item in (baseline.form_schema or {}).get('fields', [])
+        if isinstance(item, dict) and item.get('key')
+    }
+    candidate_fields = {
+        str(item.get('key') or ''): item
+        for item in (candidate.form_schema or {}).get('fields', [])
+        if isinstance(item, dict) and item.get('key')
+    }
+    for key, baseline_field in baseline_fields.items():
+        candidate_field = candidate_fields.get(key)
+        if baseline_field.get('required') and not candidate_field:
+            errors.append(f'required field {key} was removed')
+            continue
+        if candidate_field and str(candidate_field.get('type') or 'text') != str(baseline_field.get('type') or 'text'):
+            errors.append(f'field {key} changed type')
+            continue
+        if candidate_field and str(baseline_field.get('type') or '') == 'repeating_group':
+            baseline_columns = {
+                str(item.get('key') or ''): item
+                for item in ((baseline_field.get('structure') or {}).get('columns') or [])
+                if isinstance(item, dict) and item.get('key')
+            }
+            candidate_columns = {
+                str(item.get('key') or ''): item
+                for item in ((candidate_field.get('structure') or {}).get('columns') or [])
+                if isinstance(item, dict) and item.get('key')
+            }
+            for column_key, baseline_column in baseline_columns.items():
+                candidate_column = candidate_columns.get(column_key)
+                if baseline_column.get('required') and not candidate_column:
+                    errors.append(f'required column {key}.{column_key} was removed')
+                elif candidate_column and str(candidate_column.get('type') or 'text') != str(baseline_column.get('type') or 'text'):
+                    errors.append(f'column {key}.{column_key} changed type')
+
+    baseline_signers = {
+        str(item.get('role') or ''): item
+        for item in (baseline.signer_rules or [])
+        if isinstance(item, dict) and item.get('role')
+    }
+    candidate_signers = {
+        str(item.get('role') or ''): item
+        for item in (candidate.signer_rules or [])
+        if isinstance(item, dict) and item.get('role')
+    }
+    for role, baseline_signer in baseline_signers.items():
+        if not baseline_signer.get('required'):
+            continue
+        candidate_signer = candidate_signers.get(role)
+        if not candidate_signer:
+            errors.append(f'required signer {role} was removed')
+            continue
+        candidate_slots = {
+            str(slot.get('key') if isinstance(slot, dict) else slot): slot
+            for slot in (candidate_signer.get('slots') or [])
+        }
+        for slot in baseline_signer.get('slots') or []:
+            normalized = slot if isinstance(slot, dict) else {'key': slot, 'required': True}
+            slot_key = str(normalized.get('key') or '')
+            slot_required = bool(normalized.get('required', baseline_signer.get('required', True)))
+            if slot_required and slot_key not in candidate_slots:
+                errors.append(f'required signer slot {role}.{slot_key} was removed')
+            elif slot_key in candidate_slots:
+                candidate_slot = candidate_slots[slot_key]
+                candidate_type = (
+                    candidate_slot.get('type') or candidate_slot.get('slot_type') or 'signature'
+                    if isinstance(candidate_slot, dict) else 'signature'
+                )
+                baseline_type = normalized.get('type') or normalized.get('slot_type') or 'signature'
+                if str(candidate_type) != str(baseline_type):
+                    errors.append(f'signer slot {role}.{slot_key} changed type')
+    return errors
+
+
+def resolve_assignment_template(
+    assignment: OriginationProductDocumentAssignment,
+) -> OriginationDocumentTemplate | None:
+    """Resolve the immutable template revision a newly created application should snapshot."""
+    baseline = assignment.template
+    if (
+        assignment.version_policy == assignment.VERSION_PINNED
+        or baseline.product_definition_id is not None
+    ):
+        return baseline if (
+            baseline.document_role == baseline.ROLE_SUPPORTING
+            and baseline.status in {baseline.STATUS_ACTIVE, baseline.STATUS_RETIRED}
+            and baseline.published_configuration_revision_id
+        ) else None
+
+    candidates = OriginationDocumentTemplate.objects.filter(
+        product_definition__isnull=True,
+        document_type=baseline.document_type,
+        document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
+        status__in=[
+            OriginationDocumentTemplate.STATUS_ACTIVE,
+            OriginationDocumentTemplate.STATUS_RETIRED,
+        ],
+        published_configuration_revision__isnull=False,
+    ).select_related('published_configuration_revision').annotate(
+        _active_rank=models.Case(
+            models.When(status=OriginationDocumentTemplate.STATUS_ACTIVE, then=models.Value(1)),
+            default=models.Value(0), output_field=models.IntegerField(),
+        ),
+    ).order_by('-version', '-_active_rank', '-activated_at', '-created_at')
+    return next((item for item in candidates if not assignment_template_compatibility_errors(baseline, item)), None)
 
 
 def replace_draft_template(
@@ -935,13 +1080,10 @@ def publish_product_template(
         OriginationDocumentTemplate.STATUS_ACTIVE,
     ]))
     assignments = list(product.document_assignments.select_related('template').all())
-    invalid_assignments = [
-        item for item in assignments
-        if item.template.status not in {
-            OriginationDocumentTemplate.STATUS_ACTIVE,
-            OriginationDocumentTemplate.STATUS_RETIRED,
-        } or not item.template.published_configuration_revision_id
+    resolved_assignments = [
+        (item, resolve_assignment_template(item)) for item in assignments
     ]
+    invalid_assignments = [item for item, resolved in resolved_assignments if not resolved]
     if invalid_assignments:
         raise OriginationTemplateError('Every shared supporting document must be published before the product.')
     primaries = [item for item in packet_templates if item.document_role == item.ROLE_PRIMARY]
@@ -974,10 +1116,10 @@ def publish_product_template(
             )
         except ValueError as exc:
             raise OriginationTemplateError(str(exc)) from exc
-    for assignment in assignments:
+    for assignment, resolved_template in resolved_assignments:
         document_fields = {
             str(item.get('key'))
-            for item in (assignment.template.form_schema or {}).get('fields', [])
+            for item in (resolved_template.form_schema or {}).get('fields', [])
             if isinstance(item, dict) and item.get('key')
         }
         try:
@@ -1035,6 +1177,16 @@ def publish_product_template(
                 'template_id': str(template.pk),
                 'template_sha256': template.source_sha256,
                 'configuration_revision': published.revision,
+                'supporting_document_resolutions': [
+                    {
+                        'assignment_id': str(assignment.pk),
+                        'family': assignment.template.document_type,
+                        'version_policy': assignment.version_policy,
+                        'resolved_template_id': str(resolved_template.pk),
+                        'resolved_version': resolved_template.version,
+                    }
+                    for assignment, resolved_template in resolved_assignments
+                ],
             },
         )
         from core.services.compliance_audit import record_event

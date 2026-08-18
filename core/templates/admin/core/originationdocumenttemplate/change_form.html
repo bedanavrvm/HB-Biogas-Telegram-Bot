@@ -11,11 +11,11 @@
   {% if add %}
     <section class="opb-shell opb-next-step{% if not has_eligible_product_definitions %} opb-prerequisite-warning{% endif %}">
       {% if has_eligible_product_definitions %}
-        <h2>Upload the PDF for a draft loan form</h2>
-        <p>Select the loan form definition below. It already contains the product-specific fields and its link to the canonical product terms.</p>
+        <h2>Upload a primary LAF or shared supporting form</h2>
+        <p>Select a draft loan form for its primary LAF. For a reusable guarantor, home-visit, or other supporting form, leave the loan form blank, choose <b>Supporting document</b>, and retain the same document key for every family version.</p>
       {% else %}
-        <h2>No draft loan form is ready for a PDF</h2>
-        <p>First create a loan form definition, choose its global product terms, and define its fields. For an existing published form, open its definition and click <b>Create editable next version</b>; its PDF and alignment will be copied automatically.</p>
+        <h2>No draft loan form is ready for a primary LAF</h2>
+        <p>You may still upload a global supporting form by leaving the loan form blank and choosing <b>Supporting document</b>. For a primary LAF, first create a loan form definition or create an editable next version.</p>
       {% endif %}
       <div class="opb-actions">
         <a class="button" href="{{ create_product_definition_url }}">Create loan form definition</a>
@@ -34,5 +34,8 @@
         Open visual calibration
       </a>
     </li>
+    {% if origination_next_family_version_url %}
+      <li><a href="{{ origination_next_family_version_url }}">Upload next family version</a></li>
+    {% endif %}
   {% endif %}
 {% endblock %}

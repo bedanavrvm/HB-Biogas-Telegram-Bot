@@ -94,23 +94,29 @@ def _template_snapshot(template: OriginationDocumentTemplate) -> dict[str, Any]:
 
 
 def initialize_document_packet(application: LoanOriginationApplication) -> None:
+    from core.services.loan_origination import OriginationError
+    from core.services.origination_templates import resolve_assignment_template
+
     primary_templates = list(application.product_definition.document_templates.filter(
         status=OriginationDocumentTemplate.STATUS_ACTIVE,
         document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
     ).order_by('display_order', 'document_key'))
     assignments = list(application.product_definition.document_assignments.select_related(
         'template', 'template__published_configuration_revision',
-    ).filter(template__status__in=[
-        OriginationDocumentTemplate.STATUS_ACTIVE,
-        OriginationDocumentTemplate.STATUS_RETIRED,
-    ]).order_by('display_order', 'document_key'))
+    ).order_by('display_order', 'document_key'))
     assigned_keys = {item.document_key for item in assignments}
     legacy_supporting = list(application.product_definition.document_templates.filter(
         status=OriginationDocumentTemplate.STATUS_ACTIVE,
         document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
     ).exclude(document_key__in=assigned_keys).order_by('display_order', 'document_key'))
     templates = [(item, None) for item in primary_templates + legacy_supporting]
-    templates.extend((item.template, item) for item in assignments)
+    for assignment in assignments:
+        resolved = resolve_assignment_template(assignment)
+        if not resolved:
+            raise OriginationError(
+                f'No published compatible version is available for {assignment.name}.',
+            )
+        templates.append((resolved, assignment))
     if not templates:
         return
     for template, assignment in templates:
@@ -141,6 +147,9 @@ def initialize_document_packet(application: LoanOriginationApplication) -> None:
             template_snapshot={
                 **_template_snapshot(template),
                 'assignment_id': str(assignment.pk) if assignment else '',
+                'assignment_version_policy': assignment.version_policy if assignment else '',
+                'assignment_baseline_template_id': str(assignment.template_id) if assignment else '',
+                'resolved_template_id': str(template.pk),
                 'applicability_rule': applicability_rule or {},
             },
             schema_snapshot=template.form_schema or {},

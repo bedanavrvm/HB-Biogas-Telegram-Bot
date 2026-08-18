@@ -25,6 +25,7 @@ from core.models import (
 from core.services.origination_templates import (
     OriginationTemplateError,
     activate_template,
+    assignment_template_compatibility_errors,
     clone_product_version,
     create_template,
     initial_template_configuration,
@@ -131,6 +132,23 @@ class OriginationTemplateValidationTests(SimpleTestCase):
         self.assertIn('Synthetic cooker', text)
         self.assertIn('12,500.00', text)
         self.assertIn('Synthetic television', text)
+
+    def test_latest_family_compatibility_rejects_removed_required_signer_slot(self):
+        baseline = OriginationDocumentTemplate(
+            document_type='shared_guarantor', document_role='supporting',
+            signer_rules=[{'role': 'witness', 'required': True, 'slots': [
+                {'key': 'signature', 'type': 'signature'},
+            ]}],
+        )
+        candidate = OriginationDocumentTemplate(
+            document_type='shared_guarantor', document_role='supporting',
+            status='active', signer_rules=[{'role': 'witness', 'required': True, 'slots': []}],
+            published_configuration_revision_id='00000000-0000-0000-0000-000000000001',
+        )
+
+        errors = assignment_template_compatibility_errors(baseline, candidate)
+
+        self.assertIn('required signer slot witness.signature was removed', errors)
 
 
 @override_settings(GOOGLE_DRIVE_MEDIA_FOLDER_ID='shared-drive-root')
@@ -627,7 +645,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'Upload the PDF for a draft loan form')
+        self.assertContains(response, 'Upload a primary LAF or shared supporting form')
         self.assertContains(response, 'Loan form definition')
         self.assertContains(response, 'Dairy Working Capital - loan form v1')
         self.assertContains(response, f'value="{self.product.pk}" selected')
@@ -659,7 +677,8 @@ class MultiProductOriginationTemplateTests(TestCase):
         response = self.client.get(reverse('admin:core_originationdocumenttemplate_add'))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'No draft loan form is ready for a PDF')
+        self.assertContains(response, 'No draft loan form is ready for a primary LAF')
+        self.assertContains(response, 'You may still upload a global supporting form')
         self.assertContains(response, reverse('admin:core_originationproductdefinition_add'))
         self.assertFalse(
             response.context['adminform'].form.fields['product_definition'].queryset.exists(),
@@ -731,6 +750,11 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertEqual(template.document_type, 'shared_guarantor')
         self.assertEqual(template.document_role, template.ROLE_SUPPORTING)
         self.assertEqual(template.form_schema, {'_revision': 0, 'sections': [], 'fields': []})
+        change_response = self.client.get(reverse(
+            'admin:core_originationdocumenttemplate_change', args=[template.pk],
+        ))
+        self.assertContains(change_response, 'Upload next family version')
+        self.assertContains(change_response, 'document_key=shared_guarantor')
 
     @patch('core.services.compliance_audit.record_event')
     @patch('core.services.order_approval.GoogleDriveMediaStorage')

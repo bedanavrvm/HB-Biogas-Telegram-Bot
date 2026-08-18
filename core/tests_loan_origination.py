@@ -13,6 +13,7 @@ from core.models import (
     OriginationDocumentTemplate,
     OriginationProductDocumentAssignment,
     OriginationProductDefinition,
+    OriginationTemplateConfigurationRevision,
 )
 from core.services.loan_origination import (
     OriginationConflict,
@@ -399,6 +400,12 @@ class LoanOriginationServiceTests(TestCase):
             source_byte_size=100, page_count=1, placement_config={}, created_by=self.officer,
             form_schema={'fields': [{'key': 'guarantor_1_name', 'type': 'text', 'required': True}]},
         )
+        revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=template, revision=1, configuration={}, is_published=True,
+            created_by=self.officer,
+        )
+        template.published_configuration_revision = revision
+        template.save(update_fields=['published_configuration_revision'])
         assignment = OriginationProductDocumentAssignment.objects.create(
             product_definition=self.product, template=template,
             document_key='guarantee', name='Guarantee and undertaking',
@@ -412,6 +419,70 @@ class LoanOriginationServiceTests(TestCase):
         self.assertEqual(document.assignment, assignment)
         self.assertEqual(document.template_snapshot['version'], 3)
         self.assertEqual(document.template_snapshot['assignment_id'], str(assignment.pk))
+        self.assertEqual(document.template_snapshot['assignment_version_policy'], 'latest_compatible')
+
+        template.status = template.STATUS_RETIRED
+        template.save(update_fields=['status'])
+        successor = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='shared_guarantee', document_role='supporting',
+            inclusion_mode='required', document_type='shared_guarantee', name='Shared guarantee',
+            version=4, status='active', source_filename='shared-v4.pdf', source_sha256='8' * 64,
+            source_byte_size=100, page_count=1, placement_config={}, created_by=self.officer,
+            form_schema={'fields': [{'key': 'guarantor_1_name', 'type': 'text', 'required': True}]},
+        )
+        successor_revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=successor, revision=1, configuration={}, is_published=True,
+            created_by=self.officer,
+        )
+        successor.published_configuration_revision = successor_revision
+        successor.save(update_fields=['published_configuration_revision'])
+        newer_application, _ = create_application(
+            product_key=self.product.product_key, officer=self.officer,
+            branch='Synthetic Branch', client_request_id='shared-assignment-newer',
+        )
+        self.assertEqual(
+            newer_application.packet_documents.get(document_key='guarantee').template_id,
+            successor.pk,
+        )
+        document.refresh_from_db()
+        self.assertEqual(document.template_id, template.pk)
+
+        assignment.version_policy = assignment.VERSION_PINNED
+        assignment.save(update_fields=['version_policy'])
+        pinned_application, _ = create_application(
+            product_key=self.product.product_key, officer=self.officer,
+            branch='Synthetic Branch', client_request_id='shared-assignment-pinned',
+        )
+        self.assertEqual(
+            pinned_application.packet_documents.get(document_key='guarantee').template_id,
+            template.pk,
+        )
+
+        assignment.version_policy = assignment.VERSION_LATEST_COMPATIBLE
+        assignment.save(update_fields=['version_policy'])
+        successor.status = successor.STATUS_RETIRED
+        successor.save(update_fields=['status'])
+        incompatible = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='shared_guarantee', document_role='supporting',
+            inclusion_mode='required', document_type='shared_guarantee', name='Shared guarantee',
+            version=5, status='active', source_filename='shared-v5.pdf', source_sha256='7' * 64,
+            source_byte_size=100, page_count=1, placement_config={}, created_by=self.officer,
+            form_schema={'fields': [{'key': 'guarantor_1_name', 'type': 'money', 'required': True}]},
+        )
+        incompatible_revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=incompatible, revision=1, configuration={}, is_published=True,
+            created_by=self.officer,
+        )
+        incompatible.published_configuration_revision = incompatible_revision
+        incompatible.save(update_fields=['published_configuration_revision'])
+        fallback_application, _ = create_application(
+            product_key=self.product.product_key, officer=self.officer,
+            branch='Synthetic Branch', client_request_id='shared-assignment-fallback',
+        )
+        self.assertEqual(
+            fallback_application.packet_documents.get(document_key='guarantee').template_id,
+            successor.pk,
+        )
 
         self.product.lifecycle_status = self.product.STATUS_PUBLISHED
         self.product.save(update_fields=['lifecycle_status'])

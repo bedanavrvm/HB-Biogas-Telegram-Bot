@@ -3889,7 +3889,14 @@ class OriginationDocumentTemplate(models.Model):
 
 
 class OriginationProductDocumentAssignment(models.Model):
-    """Immutable product-version assignment of an approved shared document revision."""
+    """Immutable product-version assignment of an approved shared document family."""
+
+    VERSION_LATEST_COMPATIBLE = 'latest_compatible'
+    VERSION_PINNED = 'pinned'
+    VERSION_POLICY_CHOICES = [
+        (VERSION_LATEST_COMPATIBLE, 'Latest published compatible version'),
+        (VERSION_PINNED, 'Pin exact template version'),
+    ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     product_definition = models.ForeignKey(
@@ -3899,6 +3906,12 @@ class OriginationProductDocumentAssignment(models.Model):
     template = models.ForeignKey(
         OriginationDocumentTemplate, on_delete=models.PROTECT,
         related_name='product_assignments',
+        help_text='Compatibility baseline and family identity for this assignment.',
+    )
+    version_policy = models.CharField(
+        max_length=24, choices=VERSION_POLICY_CHOICES,
+        default=VERSION_LATEST_COMPATIBLE,
+        help_text='Latest-compatible affects new applications only; every application snapshots its resolved version.',
     )
     document_key = models.SlugField(max_length=80)
     name = models.CharField(max_length=180)
@@ -3946,6 +3959,11 @@ class OriginationProductDocumentAssignment(models.Model):
                 }
             ):
                 errors['template'] = 'Only an immutable published legacy template can be shared from another product version.'
+            if (
+                self.version_policy == self.VERSION_LATEST_COMPATIBLE
+                and self.template.product_definition_id is not None
+            ):
+                errors['version_policy'] = 'Latest-compatible requires a global shared-template family.'
         if self.inclusion_mode == OriginationDocumentTemplate.INCLUDE_OPTIONAL and not self.officer_selectable:
             errors['officer_selectable'] = 'Optional documents must be officer selectable.'
         if self.inclusion_mode != OriginationDocumentTemplate.INCLUDE_OPTIONAL and self.default_selected:

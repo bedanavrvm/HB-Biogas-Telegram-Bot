@@ -112,8 +112,8 @@
           <div class="opb-document-packet">
             {% for item in origination_shared_document_assignments %}
               <article>
-                <span><b>{{ item.name }}</b><small>Shared template v{{ item.template.version }} &middot; {{ item.get_inclusion_mode_display }}</small></span>
-                <span><a href="{% url 'admin:core_originationdocumenttemplate_calibrate' item.template.pk %}">View builder</a></span>
+                <span><b>{{ item.assignment.name }}</b><small>{{ item.assignment.get_version_policy_display }}{% if item.resolved_template %} &middot; currently v{{ item.resolved_template.version }}{% else %} &middot; unavailable{% endif %} &middot; {{ item.assignment.get_inclusion_mode_display }}</small></span>
+                <span>{% if item.resolved_template %}<a href="{% url 'admin:core_originationdocumenttemplate_calibrate' item.resolved_template.pk %}">View resolved builder</a>{% endif %} <a href="{% url 'admin:core_originationproductdocumentassignment_change' item.assignment.pk %}">Assignment</a></span>
               </article>
             {% endfor %}
           </div>

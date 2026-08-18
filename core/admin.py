@@ -5121,15 +5121,27 @@ class OriginationFieldReviewIssueAdmin(CompactModelAdmin):
 
 @admin.register(OriginationProductDocumentAssignment)
 class OriginationProductDocumentAssignmentAdmin(CompactModelAdmin):
-    list_display = ('name', 'product_definition', 'document_key', 'inclusion_mode', 'display_order', 'template')
-    list_filter = ('inclusion_mode', 'product_definition__lifecycle_status')
+    list_display = (
+        'name', 'product_definition', 'document_key', 'version_policy',
+        'resolved_template_version', 'inclusion_mode', 'display_order',
+    )
+    list_filter = ('version_policy', 'inclusion_mode', 'product_definition__lifecycle_status')
     search_fields = ('name', 'document_key', 'product_definition__name', 'template__name')
     fields = (
-        'product_definition', 'template', ('document_key', 'name'),
+        'product_definition', ('template', 'version_policy'), ('document_key', 'name'),
         ('inclusion_mode', 'display_order'), ('officer_selectable', 'default_selected'),
         'applicability_rule', 'created_by', 'created_at',
     )
     readonly_fields = ('created_by', 'created_at')
+
+    @admin.display(description='Currently resolves to')
+    def resolved_template_version(self, obj):
+        from core.services.origination_templates import resolve_assignment_template
+        resolved = resolve_assignment_template(obj)
+        if not resolved:
+            return 'Unavailable'
+        suffix = 'pinned' if obj.version_policy == obj.VERSION_PINNED else 'latest compatible'
+        return f'{resolved.name} v{resolved.version} ({suffix})'
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == 'product_definition':
@@ -5138,6 +5150,7 @@ class OriginationProductDocumentAssignmentAdmin(CompactModelAdmin):
             ).order_by('name', '-version')
         elif db_field.name == 'template':
             kwargs['queryset'] = OriginationDocumentTemplate.objects.filter(
+                product_definition__isnull=True,
                 document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
                 status=OriginationDocumentTemplate.STATUS_ACTIVE,
             ).order_by('name', '-version')
@@ -5155,6 +5168,7 @@ class OriginationProductDocumentAssignmentAdmin(CompactModelAdmin):
             metadata={
                 'assignment_id': str(obj.pk), 'template_id': str(obj.template_id),
                 'document_key': obj.document_key, 'inclusion_mode': obj.inclusion_mode,
+                'version_policy': obj.version_policy,
             },
         )
 
@@ -5274,6 +5288,7 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
         template = None
         failed_template = None
         existing_successor = None
+        shared_assignments = []
         if product is not None:
             templates = product.document_templates.order_by('-created_at')
             template = templates.filter(status__in=[
@@ -5288,6 +5303,13 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
                     product_key=product.product_key,
                     lifecycle_status=OriginationProductDefinition.STATUS_DRAFT,
                 ).order_by('-version').first()
+            from core.services.origination_templates import resolve_assignment_template
+            shared_assignments = [
+                {'assignment': assignment, 'resolved_template': resolve_assignment_template(assignment)}
+                for assignment in product.document_assignments.select_related(
+                    'template', 'template__published_configuration_revision',
+                ).order_by('display_order', 'document_key')
+            ]
         context = {
             **(extra_context or {}),
             'origination_signer_roles': [
@@ -5304,9 +5326,7 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
                     OriginationDocumentTemplate.STATUS_ACTIVE,
                 ]).order_by('display_order', 'document_key')
             ) if product else [],
-            'origination_shared_document_assignments': list(
-                product.document_assignments.select_related('template').order_by('display_order', 'document_key')
-            ) if product else [],
+            'origination_shared_document_assignments': shared_assignments,
             'origination_failed_template': failed_template,
             'origination_existing_successor': existing_successor,
             'origination_version_history_url': (
@@ -5656,6 +5676,24 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
                     'admin:core_originationproductdefinition_changelist',
                 ),
             })
+        else:
+            original = self.get_object(request, object_id)
+            if (
+                original
+                and original.product_definition_id is None
+                and original.document_role == original.ROLE_SUPPORTING
+            ):
+                context['origination_next_family_version_url'] = (
+                    reverse('admin:core_originationdocumenttemplate_add') + '?' + urlencode({
+                        'document_key': original.document_key,
+                        'document_role': original.document_role,
+                        'inclusion_mode': original.inclusion_mode,
+                        'display_order': original.display_order,
+                        'officer_selectable': int(original.officer_selectable),
+                        'default_selected': int(original.default_selected),
+                        'name': original.name,
+                    })
+                )
         return super().changeform_view(request, object_id, form_url, context)
 
     def get_form(self, request, obj=None, **kwargs):

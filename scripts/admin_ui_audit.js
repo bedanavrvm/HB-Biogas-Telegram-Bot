@@ -29,6 +29,9 @@ const routes = [
   ['version-history', `/admin/core/originationproductdefinition/${productId}/version-history/`],
   ['template-list', '/admin/core/originationdocumenttemplate/'],
   ['template-change', `/admin/core/originationdocumenttemplate/${templateId}/change/`],
+  ['shared-template-change', '/admin/core/originationdocumenttemplate/00000000-0000-0000-0000-000000000333/change/'],
+  ['assignment-list', '/admin/core/originationproductdocumentassignment/'],
+  ['assignment-change', '/admin/core/originationproductdocumentassignment/00000000-0000-0000-0000-000000000444/change/'],
 ];
 
 function assert(condition, message) { if (!condition) throw new Error(message); }

@@ -180,6 +180,7 @@ def portal_origination_products(request):
         active_product_version, product_is_available, product_is_selectable,
         serialize_product_version,
     )
+    from core.services.origination_templates import resolve_assignment_template
     payload = []
     for item in products:
         if item.product_version_id:
@@ -196,6 +197,22 @@ def portal_origination_products(request):
                 workflow='loan_origination', channel='portal',
             ):
                 continue
+        assignment_documents = []
+        for assignment in item.document_assignments.select_related(
+            'template', 'template__published_configuration_revision',
+        ).order_by('display_order', 'document_key'):
+            resolved_template = resolve_assignment_template(assignment)
+            assignment_documents.append({
+                'key': assignment.document_key,
+                'name': assignment.name,
+                'role': 'supporting',
+                'order': assignment.display_order,
+                'inclusion_mode': assignment.inclusion_mode,
+                'default_selected': assignment.default_selected,
+                'version_policy': assignment.version_policy,
+                'template_version': resolved_template.version if resolved_template else None,
+                'template_ready': bool(resolved_template),
+            })
         payload.append({
             'id': item.product_version.product_id if item.product_version_id else None,
             'product_key': item.product_key, 'name': item.name, 'version': item.version,
@@ -220,20 +237,7 @@ def portal_origination_products(request):
                     'display_order', 'document_key',
                 )
                 if template.document_role == template.ROLE_PRIMARY
-            ] + [
-                {
-                    'key': assignment.document_key,
-                    'name': assignment.name,
-                    'role': 'supporting',
-                    'order': assignment.display_order,
-                    'inclusion_mode': assignment.inclusion_mode,
-                    'default_selected': assignment.default_selected,
-                    'template_version': assignment.template.version,
-                }
-                for assignment in item.document_assignments.select_related('template').order_by(
-                    'display_order', 'document_key',
-                )
-            ],
+            ] + assignment_documents,
         })
     return JsonResponse({
         'ok': True,
