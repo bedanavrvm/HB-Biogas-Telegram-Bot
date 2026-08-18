@@ -1677,8 +1677,8 @@
         if (await saveSupportingDocument(section.key.slice('document:'.length))) renderEditor(current, step + 1);
       } else if (await saveDraft(true)) renderEditor(current, step + 1);
     }));
-    document.getElementById('origination-preview')?.addEventListener('click', openPreview);
-    document.getElementById('origination-preview-early')?.addEventListener('click', openPreview);
+    document.getElementById('origination-preview')?.addEventListener('click', () => openPreview());
+    document.getElementById('origination-preview-early')?.addEventListener('click', () => openPreview());
     document.getElementById('origination-submit')?.addEventListener('click', () => runPrimaryAction('Submitting...', async () => {
       if (!(await saveDraft(true))) return;
       if (previewedRevision !== current.revision) return showToast('Preview the filled document for this saved revision before submitting.', true);
@@ -1710,6 +1710,10 @@
   }
 
   async function openPreview(documentKey = '') {
+    // Event listeners must call this through a wrapper. Keep a defensive
+    // fallback too, so a future direct binding cannot turn a PointerEvent into
+    // a document-key URL segment.
+    if (typeof documentKey !== 'string') documentKey = '';
     if (!documentKey && ['draft', 'correction_required'].includes(current.status) && !(await saveDraft(true))) return;
     previewDocumentKey = documentKey;
     previewSucceeded = false;
