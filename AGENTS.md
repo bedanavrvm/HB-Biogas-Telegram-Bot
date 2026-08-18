@@ -247,7 +247,7 @@ This is a template of variables this class of system typically needs. Treat it a
 | `ORIGINATION_EVIDENCE_MAX_FILE_SIZE_MB` / `ORIGINATION_EVIDENCE_MAX_FILES_PER_REQUIREMENT` / `ORIGINATION_EVIDENCE_MAX_TOTAL_UPLOAD_MB` | File, requirement, and application limits for validated Origination requirement evidence stored under the restricted Drive media root | No |
 | `COMPLAINT_CASES_WEBAPP_REQUIRE_TELEGRAM_AUTH` | Requires verified Telegram Mini App identity for complaint case APIs | No |
 | `TELEGRAM_AUTH_MAX_AGE_SECONDS` | Maximum age accepted by the shared Telegram-to-Django authentication backend | No |
-| `COMPLAINT_CASE_MAX_FILES_PER_UPDATE` / `COMPLAINT_CASE_MAX_TOTAL_UPLOAD_MB` | Limits complaint evidence uploads | No |
+| `COMPLAINT_CASE_MAX_FILES_PER_UPDATE` / `COMPLAINT_CASE_MAX_FILE_SIZE_MB` / `COMPLAINT_CASE_MAX_TOTAL_UPLOAD_MB` | Per-update count, per-file size, and total-size limits for complaint evidence uploads | No |
 | `PORTAL_JBL_VISIT_MAX_FILES` / `PORTAL_JBL_VISIT_MAX_TOTAL_UPLOAD_MB` | Combined file-count and upload-size limits for one Portal JBL Visit submission | No |
 | `PORTAL_VOICE_INPUT_ENABLED` / `PORTAL_VOICE_PROVIDER` / `PORTAL_VOICE_MODEL` | Disabled-by-default Portal dictation pilot and approved transcription provider/model | No |
 | `GROQ_API_KEY` | Server-only Groq transcription credential; enable Zero Data Retention before operational use | Yes |

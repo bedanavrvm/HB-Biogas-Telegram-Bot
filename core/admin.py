@@ -43,6 +43,11 @@ from core.services.telegram_launchers import MINI_APP_LAUNCHER_CHOICES, default_
 
 from .models import (
     ComplaintCaseEvidence,
+    ComplaintCaseControl,
+    ComplaintCaseEvent,
+    ComplaintCategory,
+    ComplaintCategoryAlias,
+    ComplaintCategoryAvailability,
     CaseUpdate,
     FcaImportRecord,
     GroupSheetConfiguration,
@@ -2077,6 +2082,72 @@ class ComplaintCaseEvidenceAdmin(ReadOnlyAuditAdmin):
     list_filter = ['group_id', 'upload_status', 'created_at']
     search_fields = ['parsed_message__message_id', 'original_filename', 'uploaded_by', 'drive_file_id']
     readonly_fields = ['id', 'created_at']
+
+
+class SuperuserComplaintConfigurationAdmin(ModelAdmin):
+    """Complaint policy configuration is a technical Superuser responsibility."""
+
+    def has_add_permission(self, request):
+        return bool(request.user.is_active and request.user.is_superuser)
+
+    def has_view_permission(self, request, obj=None):
+        return bool(request.user.is_active and request.user.is_superuser)
+
+    def has_module_permission(self, request):
+        return bool(request.user.is_active and request.user.is_superuser)
+
+    def has_change_permission(self, request, obj=None):
+        return bool(request.user.is_active and request.user.is_superuser)
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ComplaintCategory)
+class ComplaintCategoryAdmin(SuperuserComplaintConfigurationAdmin):
+    list_display = ('label', 'key', 'default_priority', 'default_sla_hours', 'active', 'updated_at')
+    list_filter = ('active', 'default_priority')
+    search_fields = ('label', 'key', 'aliases__alias')
+    readonly_fields = ('created_by', 'created_at', 'updated_at')
+
+    def save_model(self, request, obj, form, change):
+        if not obj.created_by_id:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(ComplaintCategoryAlias)
+class ComplaintCategoryAliasAdmin(SuperuserComplaintConfigurationAdmin):
+    list_display = ('alias', 'category', 'active', 'created_at')
+    list_filter = ('active', 'category')
+    search_fields = ('alias', 'category__label')
+    readonly_fields = ('normalized_alias', 'created_at')
+
+
+@admin.register(ComplaintCategoryAvailability)
+class ComplaintCategoryAvailabilityAdmin(SuperuserComplaintConfigurationAdmin):
+    list_display = ('category', 'group_configuration', 'active', 'created_at')
+    list_filter = ('active', 'group_configuration')
+    readonly_fields = ('created_at',)
+
+
+@admin.register(ComplaintCaseControl)
+class ComplaintCaseControlAdmin(ReadOnlyAuditAdmin):
+    list_display = (
+        'parsed_message', 'category', 'branch_ref', 'assigned_to', 'priority',
+        'sla_due_at', 'revision', 'sync_status',
+    )
+    list_filter = ('priority', 'sync_status', 'customer_match_status', 'category', 'branch_ref')
+    search_fields = ('parsed_message__message_id', 'parsed_message__customer_name', 'assigned_to__username')
+    readonly_fields = [field.name for field in ComplaintCaseControl._meta.fields]
+
+
+@admin.register(ComplaintCaseEvent)
+class ComplaintCaseEventAdmin(ReadOnlyAuditAdmin):
+    list_display = ('case', 'revision', 'action', 'actor', 'request_id', 'created_at')
+    list_filter = ('action', 'created_at')
+    search_fields = ('case__parsed_message__message_id', 'actor_label', 'request_id', 'payload_hash')
+    readonly_fields = [field.name for field in ComplaintCaseEvent._meta.fields]
 
 
 @admin.register(LiveSheetRecordChange)

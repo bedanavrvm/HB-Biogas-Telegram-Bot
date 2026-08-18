@@ -118,6 +118,16 @@ class DeduplicationServiceTest(TestCase):
 class CaseUpdateServiceTest(TestCase):
     """Test chat-driven case status updates."""
 
+    def setUp(self):
+        User = get_user_model()
+        self.chat_actor = User.objects.create_user(username='complaint-chat-manager', is_active=True)
+        authorization = patch(
+            'core.services.case_updates._authorized_telegram_actor',
+            return_value=(self.chat_actor, ''),
+        )
+        authorization.start()
+        self.addCleanup(authorization.stop)
+
     def _patch_sheet_success(self):
         group_config = MagicMock(sheet_id='sheet_123', sheet_name='Complaints')
         registry = MagicMock()
@@ -227,7 +237,7 @@ class CaseUpdateServiceTest(TestCase):
         )
         self.assertNotIn('NOTE:', args[1]['resolution_details'])
 
-    def test_reply_status_update_does_not_update_db_when_sheet_fails(self):
+    def test_reply_status_update_stays_saved_when_sheet_fails(self):
         from core.services.case_updates import handle_case_status_reply
 
         case = create_parsed_case('MSG_UPDATE_FAIL', complaint_status='Open')
@@ -252,9 +262,9 @@ class CaseUpdateServiceTest(TestCase):
                 )
 
         case.refresh_from_db()
-        self.assertEqual(case.complaint_status, 'Open')
-        self.assertIsNone(case.date_resolved)
-        self.assertIn('not update the register', result['reply_text'])
+        self.assertEqual(case.complaint_status, 'Closed')
+        self.assertIsNotNone(case.date_resolved)
+        self.assertIn('publication is pending', result['reply_text'])
         update = CaseUpdate.objects.get(parsed_message=case)
         self.assertEqual(update.sync_status, 'failed')
 
@@ -360,6 +370,28 @@ class CaseUpdateServiceTest(TestCase):
         self.assertEqual(result['status'], 'command')
         self.assertEqual(case.complaint_status, 'In Progress')
         self.assertIn('scheduled for Thursday', case.resolution_details)
+
+
+class ComplaintChatAuthorizationTest(TestCase):
+    def test_unverified_telegram_actor_cannot_update_case(self):
+        from core.services.case_updates import handle_case_status_reply
+
+        case = create_parsed_case('MSG_UNAUTHORIZED_UPDATE', complaint_status='Open')
+        raw = case.processed_message.raw_message
+        raw.telegram_message_id = 'auth-source-1'
+        raw.source_telegram_message_id = 'auth-source-1'
+        raw.save(update_fields=['telegram_message_id', 'source_telegram_message_id'])
+
+        result = handle_case_status_reply(
+            group_id=case.group_id, reply_to_telegram_message_id='auth-source-1',
+            update_telegram_message_id='auth-update-1', sender='Unknown',
+            content='Status: resolved - done', telegram_user=None,
+        )
+
+        case.refresh_from_db()
+        self.assertEqual(case.complaint_status, 'Open')
+        self.assertIn('could not be verified', result['reply_text'])
+        self.assertFalse(CaseUpdate.objects.filter(parsed_message=case).exists())
 
 
 class DeduplicationHashTest(TestCase):

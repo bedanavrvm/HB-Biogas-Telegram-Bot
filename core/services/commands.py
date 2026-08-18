@@ -23,6 +23,7 @@ def handle_bot_command(
     group_id: str,
     sender: str = '',
     telegram_message_id: str = '',
+    telegram_user: dict | None = None,
 ) -> dict | None:
     """
     Return a command result dict when *content* is a supported command.
@@ -89,6 +90,7 @@ def handle_bot_command(
             content=match.group(2),
             sender=sender,
             update_telegram_message_id=telegram_message_id,
+            telegram_user=telegram_user,
         )
 
     if normalized in {'/today', 'today'}:

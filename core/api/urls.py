@@ -159,6 +159,8 @@ from .complaint_case_views import (
     complaint_cases_list_fragment,
     complaint_cases_detail,
     complaint_cases_update,
+    complaint_cases_evidence_access,
+    complaint_cases_sync_retry,
 )
 from .origination_views import (
     origination_app,
@@ -228,6 +230,8 @@ urlpatterns = [
     path('complaints/cases/create/', complaint_cases_create, name='complaint_cases_create'),
     path('complaints/cases/<str:case_id>/', complaint_cases_detail, name='complaint_cases_detail'),
     path('complaints/cases/<str:case_id>/update/', complaint_cases_update, name='complaint_cases_update'),
+    path('complaints/cases/<str:case_id>/sync-retry/', complaint_cases_sync_retry, name='complaint_cases_sync_retry'),
+    path('complaints/evidence/<uuid:evidence_id>/open/', complaint_cases_evidence_access, name='complaint_cases_evidence_access'),
     path('webhook/e-signatures/tat/', tat_signature_webhook, name='tat_signature_webhook'),
     path('webhook/telegram/', telegram_webhook, name='telegram_webhook'),
     path(

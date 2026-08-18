@@ -51,7 +51,7 @@ h1 { font-size: 18px; font-weight: 800; line-height: 1.2; }
 h2 { font-size: 13px; font-weight: 800; }
 
 .complaint-cases-app [hidden] { display: none !important; }
-.complaint-app { width: min(100%, 720px); margin: 0 auto; padding: 8px 8px 24px; }
+.complaint-app { width: min(100%, 720px); min-height: var(--complaint-viewport-height, 100dvh); margin: 0 auto; padding: 8px 8px calc(24px + env(safe-area-inset-bottom)); }
 .app-top { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 4px; margin-bottom: 6px; }
 .app-brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .app-logo { width: 80px; height: 41px; flex: 0 0 auto; object-fit: contain; }
@@ -80,6 +80,7 @@ h2 { font-size: 13px; font-weight: 800; }
 .search-icon { flex: 0 0 auto; color: var(--complaint-muted); }
 .search-input-wrap input { min-height: 34px; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .queue-filters { display: grid; gap: 6px; margin: 0 0 8px; }
+.queue-filter-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .filter-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 3px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--complaint-text) 5%, transparent); }
 .filter-tabs button { min-height: 32px; border-color: transparent; background: transparent; color: var(--complaint-muted); font-size: 11px; }
 .filter-tabs button.active { color: var(--complaint-accent); background: var(--complaint-surface); }
@@ -94,6 +95,8 @@ h2 { font-size: 13px; font-weight: 800; }
 .status-open { --status-color: var(--complaint-open); --status-bg: var(--complaint-open-soft); }
 .status-in-progress { --status-color: var(--complaint-progress); --status-bg: var(--complaint-progress-soft); }
 .status-closed { --status-color: var(--complaint-closed); --status-bg: var(--complaint-closed-soft); }
+.sla-overdue, .sla-overdue.control-chip { color: #b42318; background: #fee4e2; }
+.load-more { width: 100%; margin-top: 8px; }
 .empty-state, .empty-copy { margin: 8px 0 0; padding: 14px; color: var(--complaint-muted); border: 1px dashed var(--complaint-line); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--complaint-surface) 88%, var(--complaint-bg)); font-size: 11px; text-align: center; }
 
 .view { display: block; }
@@ -141,6 +144,13 @@ body.complaint-compact-cards .case-row .case-recorded { display: none; }
 .call-button { display: inline-flex; align-items: center; gap: 3px; min-height: 24px; padding: 0 7px; border-radius: 999px; background: var(--complaint-accent); color: var(--complaint-accent-text); font-size: 10px; font-weight: 800; text-decoration: none; }
 .description { white-space: pre-wrap; font-size: 12px; }
 .case-meta { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; color: var(--complaint-muted); font-size: 10px; }
+.control-strip { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.control-chip { padding: 4px 7px; border-radius: 999px; background: color-mix(in srgb, var(--complaint-text) 6%, transparent); color: var(--complaint-muted); font-size: 9px; font-weight: 800; text-transform: capitalize; }
+.sla-due_soon { color: var(--complaint-open); background: var(--complaint-open-soft); }
+.sla-on_track, .sync-success { color: var(--complaint-closed); background: var(--complaint-closed-soft); }
+.sync-failed, .sync-pending { color: var(--complaint-open); background: var(--complaint-open-soft); }
+.case-control-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.case-control-line { color: var(--complaint-text) !important; font-weight: 700; }
 .case-map { height: 220px; margin-bottom: 8px; border: 1px solid var(--complaint-line); border-radius: var(--radius-sm); overflow: hidden; }
 .link-button { display: inline-flex; align-items: center; min-height: 32px; color: var(--complaint-accent); font-size: 11px; font-weight: 800; text-decoration: none; }
 .evidence-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -149,3 +159,4 @@ body.complaint-compact-cards .case-row .case-recorded { display: none; }
 .toast { position: fixed; z-index: 10; left: 50%; bottom: 18px; width: min(calc(100% - 24px), 420px); transform: translate(-50%, 18px); padding: 10px 12px; border-radius: var(--radius); color: #fff; background: #24323f; opacity: 0; pointer-events: none; font-size: 11px; font-weight: 700; transition: opacity .18s, transform .18s; }.toast.visible { opacity: 1; transform: translate(-50%, 0); }.toast.error { background: #a64137; }
 
 @media (max-width: 420px) { .app-logo { width: 64px; height: 33px; }.refresh-btn span { display: none; }.form-grid { grid-template-columns: 1fr; }.full-width { grid-column: auto; }.form-actions .primary { width: 100%; }.case-row { padding: 9px; }.case-heading h2 { font-size: 15px; } }
+@media (max-width: 340px) { .queue-filter-row { grid-template-columns: 1fr; } }

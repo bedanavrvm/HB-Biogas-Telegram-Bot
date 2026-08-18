@@ -1,7 +1,9 @@
 """Parse and apply chat-driven case status updates."""
+import hashlib
 import re
 from dataclasses import dataclass
 
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -100,6 +102,7 @@ def handle_case_status_reply(
     sender: str,
     content: str,
     reply_to_text: str = '',
+    telegram_user: dict | None = None,
 ) -> dict | None:
     """Apply a status update that replies to an original case or bot confirmation."""
     parsed_update = parse_case_update(content)
@@ -129,6 +132,10 @@ def handle_case_status_reply(
             'reply_text': _format_ambiguous_cases(cases),
         }
 
+    actor, authorization_error = _authorized_telegram_actor(group_id, telegram_user, cases[0], parsed_update)
+    if authorization_error:
+        return {'status': 'command', 'reply_text': authorization_error}
+
     return apply_case_update(
         parsed_message=cases[0],
         parsed_update=parsed_update,
@@ -136,6 +143,7 @@ def handle_case_status_reply(
         raw_update_text=content,
         update_telegram_message_id=update_telegram_message_id,
         reply_to_telegram_message_id=reply_to_telegram_message_id,
+        actor=actor,
     )
 
 
@@ -145,6 +153,7 @@ def handle_case_update_command(
     content: str,
     sender: str = '',
     update_telegram_message_id: str = '',
+    telegram_user: dict | None = None,
 ) -> dict:
     """Apply an explicit `/update MSG_ID Status: ...` command."""
     parsed_update = parse_case_update(content)
@@ -162,6 +171,10 @@ def handle_case_update_command(
             'reply_text': f"Case {message_id} was not found in this group.",
         }
 
+    actor, authorization_error = _authorized_telegram_actor(group_id, telegram_user, parsed_message, parsed_update)
+    if authorization_error:
+        return {'status': 'command', 'reply_text': authorization_error}
+
     return apply_case_update(
         parsed_message=parsed_message,
         parsed_update=parsed_update,
@@ -169,7 +182,42 @@ def handle_case_update_command(
         raw_update_text=content,
         update_telegram_message_id=update_telegram_message_id,
         reply_to_telegram_message_id='',
+        actor=actor,
     )
+
+
+def _authorized_telegram_actor(group_id: str, user_payload: dict | None, case, parsed_update):
+    """Resolve Telegram identity and enforce the same scoped policy as the Mini App."""
+    if not user_payload:
+        return None, 'Your Telegram account could not be verified for complaint updates.'
+    group_config = GroupRegistry.get_instance().get_group(str(group_id))
+    if not group_config:
+        return None, 'Complaint Cases is not configured for this group.'
+    try:
+        from core.services.telegram_identity import identity_from_user_payload, resolve_or_bind_telegram_user, user_access
+        user = resolve_or_bind_telegram_user(identity_from_user_payload(user_payload))
+        access = user_access(user, 'complaint_cases', group_configuration=group_config)
+        from core.services.workflow_access import workflow_access_decision
+        capability = 'complaint.case.update'
+        decision = workflow_access_decision(
+            user, 'complaint_cases', capability, access=access, resource=case,
+            group_configuration=group_config,
+        )
+        if not decision.allowed:
+            return None, 'Your assigned complaint-case role does not permit updates to this case.'
+        transition_capability = None
+        if parsed_update.new_status == 'Closed' and case.complaint_status != 'Closed':
+            transition_capability = 'complaint.case.close'
+        elif case.complaint_status == 'Closed' and parsed_update.new_status != 'Closed':
+            transition_capability = 'complaint.case.reopen'
+        if transition_capability and not workflow_access_decision(
+            user, 'complaint_cases', transition_capability, access=access, resource=case,
+            group_configuration=group_config,
+        ).allowed:
+            return None, 'Only an authorized case manager can close or reopen this complaint.'
+        return user, ''
+    except Exception:
+        return None, 'Your Telegram account is not configured for complaint updates.'
 
 
 def apply_case_update(
@@ -179,65 +227,81 @@ def apply_case_update(
     raw_update_text: str,
     update_telegram_message_id: str,
     reply_to_telegram_message_id: str,
+    actor=None,
 ) -> dict:
-    """Write a case update to Sheets, then mirror it into Django."""
+    """Commit canonical state first, then attempt the Sheet publication."""
+    if update_telegram_message_id:
+        existing = CaseUpdate.objects.filter(
+            group_id=parsed_message.group_id, telegram_message_id=update_telegram_message_id,
+        ).first()
+        if existing:
+            return {'status': 'command', 'reply_text': f'Update for {parsed_message.message_id} was already recorded.'}
     now = timezone.now()
-    old_status = parsed_message.complaint_status or ''
     date_resolved = now if parsed_update.new_status == 'Closed' else None
-    resolution_details = _append_resolution_details(
-        existing=parsed_message.resolution_details,
-        sender=sender,
-        update_text=parsed_update.resolution_text,
-        created_at=now,
-    )
 
-    update_record = CaseUpdate.objects.create(
-        parsed_message=parsed_message,
-        group_id=parsed_message.group_id,
-        updated_by=sender or '',
-        telegram_message_id=update_telegram_message_id or '',
-        reply_to_telegram_message_id=reply_to_telegram_message_id or '',
-        old_status=old_status,
-        new_status=parsed_update.new_status,
-        resolution_text=parsed_update.resolution_text,
-        risk_level=parsed_update.risk_level,
-        loan_at_risk=parsed_update.loan_at_risk,
-        raw_update_text=raw_update_text,
-        sync_status='pending',
-    )
+    with transaction.atomic():
+        parsed_message = ParsedMessage.objects.select_for_update().get(pk=parsed_message.pk)
+        old_status = parsed_message.complaint_status or ''
+        resolution_details = _append_resolution_details(
+            existing=parsed_message.resolution_details,
+            sender=(actor.get_full_name() or actor.get_username()) if actor else sender,
+            update_text=parsed_update.resolution_text,
+            created_at=now,
+        )
+        update_record = CaseUpdate.objects.create(
+            parsed_message=parsed_message, group_id=parsed_message.group_id,
+            updated_by=(actor.get_full_name() or actor.get_username()) if actor else (sender or ''),
+            telegram_message_id=update_telegram_message_id or '',
+            reply_to_telegram_message_id=reply_to_telegram_message_id or '',
+            old_status=old_status, new_status=parsed_update.new_status,
+            resolution_text=parsed_update.resolution_text, risk_level=parsed_update.risk_level,
+            loan_at_risk=parsed_update.loan_at_risk, raw_update_text=raw_update_text,
+            sync_status='pending', source='telegram',
+        )
+        parsed_message.complaint_status = parsed_update.new_status
+        parsed_message.resolution_details = resolution_details
+        parsed_message.date_resolved = date_resolved
+        if parsed_update.risk_level:
+            parsed_message.risk_level = parsed_update.risk_level
+        if parsed_update.loan_at_risk:
+            parsed_message.loan_at_risk = parsed_update.loan_at_risk
+        parsed_message.save(update_fields=[
+            'complaint_status', 'resolution_details', 'date_resolved', 'risk_level', 'loan_at_risk',
+        ])
+        from core.services.complaint_cases import control_snapshot, ensure_case_control
+        from core.models import ComplaintCaseEvent
+        control = ensure_case_control(parsed_message, GroupRegistry.get_instance().get_group(parsed_message.group_id))
+        control.revision += 1
+        control.sync_status = 'pending'
+        control.save(update_fields=['revision', 'sync_status', 'updated_at'])
+        ComplaintCaseEvent.objects.create(
+            case=control, revision=control.revision, action='telegram_updated', actor=actor,
+            actor_label=update_record.updated_by, request_id=f'telegram-{update_telegram_message_id}' if update_telegram_message_id else '',
+            payload_hash=hashlib.sha256(raw_update_text.encode()).hexdigest(),
+            before_values={'status': old_status}, after_values=control_snapshot(control, parsed_message),
+            reason=parsed_update.resolution_text,
+        )
 
     sheet_success = _update_sheet(parsed_message, parsed_update, resolution_details, date_resolved)
     if not sheet_success:
         update_record.sync_status = 'failed'
-        update_record.sync_error = 'Google Sheets update failed'
+        update_record.sync_error = 'The local update is saved; Google Sheets publication is pending.'
         update_record.save(update_fields=['sync_status', 'sync_error'])
+        control.sync_status = 'failed'
+        control.sync_error = update_record.sync_error
+        control.save(update_fields=['sync_status', 'sync_error', 'updated_at'])
         record_command_case_update(update_record, parsed_message, action='complaint.case.update_sync_failed')
         return {
             'status': 'command',
-            'reply_text': (
-                f"Update received for {parsed_message.message_id}, but I could "
-                "not update the register. It was not applied."
-            ),
+            'reply_text': f'Update saved for {parsed_message.message_id}. Register publication is pending.',
         }
-
-    parsed_message.complaint_status = parsed_update.new_status
-    parsed_message.resolution_details = resolution_details
-    if date_resolved:
-        parsed_message.date_resolved = date_resolved
-    if parsed_update.risk_level:
-        parsed_message.risk_level = parsed_update.risk_level
-    if parsed_update.loan_at_risk:
-        parsed_message.loan_at_risk = parsed_update.loan_at_risk
-    parsed_message.save(update_fields=[
-        'complaint_status',
-        'resolution_details',
-        'date_resolved',
-        'risk_level',
-        'loan_at_risk',
-    ])
 
     update_record.sync_status = 'success'
     update_record.save(update_fields=['sync_status'])
+    control.sync_status = 'success'
+    control.sync_error = ''
+    control.last_sync_at = timezone.now()
+    control.save(update_fields=['sync_status', 'sync_error', 'last_sync_at', 'updated_at'])
     record_command_case_update(update_record, parsed_message, action='complaint.case.updated')
 
     return {

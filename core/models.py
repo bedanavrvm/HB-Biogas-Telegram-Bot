@@ -353,6 +353,180 @@ class ComplaintCaseEvidence(models.Model):
         return f"Complaint evidence {self.original_filename or self.id}"
 
 
+class ComplaintCategory(models.Model):
+    """Governed, reusable complaint category and its default service target."""
+
+    PRIORITY_CHOICES = [('high', 'High'), ('normal', 'Normal'), ('low', 'Low')]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    key = models.SlugField(max_length=80, unique=True)
+    label = models.CharField(max_length=160)
+    description = models.TextField(blank=True, default='')
+    default_priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default='normal')
+    default_sla_hours = models.PositiveIntegerField(default=72)
+    active = models.BooleanField(default=True, db_index=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['label']
+        verbose_name_plural = 'Complaint categories'
+        constraints = [
+            models.UniqueConstraint(Lower('label'), name='unique_complaint_category_label_ci'),
+            models.CheckConstraint(
+                condition=models.Q(default_sla_hours__gt=0), name='complaint_category_sla_positive',
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.label = ' '.join(str(self.label or '').split())
+        if not self._state.adding:
+            old_key = type(self).objects.filter(pk=self.pk).values_list('key', flat=True).first()
+            if old_key and old_key != self.key:
+                raise ValidationError({'key': 'The canonical category key is immutable.'})
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.label
+
+
+class ComplaintCategoryAlias(models.Model):
+    """Legacy label resolved to one canonical complaint category."""
+
+    category = models.ForeignKey(ComplaintCategory, on_delete=models.PROTECT, related_name='aliases')
+    alias = models.CharField(max_length=160)
+    normalized_alias = models.CharField(max_length=180, unique=True, editable=False)
+    active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['alias']
+        verbose_name_plural = 'Complaint category aliases'
+
+    def save(self, *args, **kwargs):
+        self.alias = ' '.join(str(self.alias or '').split())
+        self.normalized_alias = re.sub(r'[^a-z0-9]+', ' ', self.alias.casefold()).strip()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.alias} -> {self.category}'
+
+
+class ComplaintCategoryAvailability(models.Model):
+    """Optional category restriction to a configured Telegram workflow group."""
+
+    category = models.ForeignKey(ComplaintCategory, on_delete=models.CASCADE, related_name='availability')
+    group_configuration = models.ForeignKey(
+        'GroupSheetConfiguration', on_delete=models.CASCADE, related_name='complaint_category_availability',
+    )
+    active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name_plural = 'Complaint category availability'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['category', 'group_configuration'], name='unique_complaint_category_group',
+            ),
+        ]
+
+
+class ComplaintCaseControl(models.Model):
+    """Operational control plane layered over immutable complaint source data."""
+
+    PRIORITY_CHOICES = ComplaintCategory.PRIORITY_CHOICES
+    MATCH_CHOICES = [
+        ('exact_id', 'Exact national ID'), ('exact_phone', 'Exact phone'),
+        ('ambiguous', 'Ambiguous'), ('conflict', 'Conflicting identifiers'), ('unmatched', 'Unmatched'),
+    ]
+    SYNC_CHOICES = [('pending', 'Pending'), ('success', 'Synced'), ('failed', 'Failed')]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    parsed_message = models.OneToOneField(
+        ParsedMessage, on_delete=models.CASCADE, related_name='complaint_control',
+    )
+    category = models.ForeignKey(
+        ComplaintCategory, null=True, blank=True, on_delete=models.PROTECT, related_name='cases',
+    )
+    branch_ref = models.ForeignKey(
+        'OperationalLocation', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='complaint_cases', limit_choices_to={'location_type': 'branch'},
+    )
+    customer = models.ForeignKey(
+        'JawabuCustomer', null=True, blank=True, on_delete=models.SET_NULL, related_name='complaint_cases',
+    )
+    customer_match_status = models.CharField(max_length=20, choices=MATCH_CHOICES, default='unmatched')
+    assigned_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='assigned_complaint_cases',
+    )
+    assigned_at = models.DateTimeField(null=True, blank=True)
+    priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default='normal', db_index=True)
+    sla_target_hours = models.PositiveIntegerField(default=72)
+    sla_started_at = models.DateTimeField(default=timezone.now)
+    sla_due_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    revision = models.PositiveIntegerField(default=1)
+    sync_status = models.CharField(max_length=20, choices=SYNC_CHOICES, default='pending', db_index=True)
+    sync_error = models.TextField(blank=True, default='')
+    last_sync_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-sla_due_at']
+        indexes = [
+            models.Index(fields=['assigned_to', 'priority']),
+            models.Index(fields=['sync_status', 'updated_at']),
+        ]
+        constraints = [
+            models.CheckConstraint(condition=models.Q(revision__gt=0), name='complaint_case_revision_positive'),
+            models.CheckConstraint(
+                condition=models.Q(sla_target_hours__gt=0), name='complaint_case_sla_positive',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.parsed_message.message_id} control r{self.revision}'
+
+
+class ComplaintCaseEvent(models.Model):
+    """Append-only evidence of every governed complaint-case change."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    case = models.ForeignKey(ComplaintCaseControl, on_delete=models.PROTECT, related_name='events')
+    revision = models.PositiveIntegerField()
+    action = models.CharField(max_length=80, db_index=True)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name='+')
+    actor_label = models.CharField(max_length=255, blank=True, default='')
+    request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    payload_hash = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    before_values = models.JSONField(blank=True, default=dict)
+    after_values = models.JSONField(blank=True, default=dict)
+    reason = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['case', 'request_id'], condition=~models.Q(request_id=''),
+                name='unique_complaint_case_event_request',
+            ),
+        ]
+        indexes = [models.Index(fields=['case', 'revision'])]
+
+    def save(self, *args, **kwargs):
+        if self.pk and type(self).objects.filter(pk=self.pk).exists():
+            raise ValidationError('Complaint case events are append-only.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Complaint case events cannot be deleted.')
+
+
 class OrderApprovalUpdate(models.Model):
     """Audit trail for Telegram-driven order approval BRO updates."""
 

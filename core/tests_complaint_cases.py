@@ -17,6 +17,9 @@ from core.models import (
     AccessGrant,
     CaseUpdate,
     ComplaintCaseEvidence,
+    ComplaintCaseControl,
+    ComplaintCaseEvent,
+    ComplaintCategory,
     ComplaintCaseSequence,
     GroupSheetConfiguration,
     ParsedMessage,
@@ -25,12 +28,14 @@ from core.models import (
     UserProfile,
 )
 from core.services.complaint_cases import (
+    ComplaintCaseConflict,
     ComplaintCaseError,
     create_complaint_case,
     evidence_filename,
     list_cases,
     staff_actor_for_payload,
     update_case,
+    ensure_case_control,
 )
 from core.services.group_config import GroupConfig, GroupRegistry
 from core.services.telegram_auth import validate_telegram_init_data
@@ -42,6 +47,9 @@ class ComplaintCaseServiceTests(TestCase):
             group_id='-100100', sheet_id='test-sheet', sheet_name='Complaints', workflow={'type': 'case'}
         )
         self.config = GroupConfig(group_id=self.group.group_id, sheet_id='test-sheet', sheet_name='Complaints', workflow={'type': 'case'})
+        self.category = ComplaintCategory.objects.create(
+            key='product-issue', label='Product issue', default_priority='normal', default_sla_hours=72,
+        )
         self.case = self.create_case('-100100', 'CASE-1')
         self.other_case = self.create_case('-100200', 'CASE-2')
         User = get_user_model()
@@ -98,6 +106,18 @@ class ComplaintCaseServiceTests(TestCase):
 
         self.assertEqual([case['case_id'] for case in cases], ['CASE-3'])
 
+    def test_branch_scoped_officer_only_sees_their_branch(self):
+        AccessGrant.objects.filter(user=self.officer, workflow='complaint_cases').update(branch='Nakuru')
+        self.case.branch_region = 'Nakuru'
+        self.case.save(update_fields=['branch_region'])
+        embu_case = self.create_case('-100100', 'CASE-3')
+        embu_case.branch_region = 'Embu'
+        embu_case.save(update_fields=['branch_region'])
+
+        cases = list_cases(self.config, self.actor('100'))
+
+        self.assertEqual([case['case_id'] for case in cases], ['CASE-1'])
+
     @override_settings(TELEGRAM_BOT_TOKEN='test-bot-token', SECURE_SSL_REDIRECT=False)
     def test_list_fragment_renders_authorized_cases(self):
         self.case.branch_region = 'Nakuru'
@@ -132,7 +152,7 @@ class ComplaintCaseServiceTests(TestCase):
 
     def test_officer_can_progress_case_once_with_retry_idempotency(self):
         actor = self.actor('100')
-        fields = {'client_request_id': 'request-1', 'status': 'In Progress', 'resolution_text': 'Called the client.'}
+        fields = {'client_request_id': 'request-1', 'status': 'In Progress', 'resolution_text': 'Called the client.', 'expected_revision': 1}
         with patch('core.services.complaint_cases.get_sheets_service') as get_service:
             get_service.return_value.update_case_row.return_value = True
             update_case(self.config, actor, 'CASE-1', fields, [])
@@ -149,23 +169,62 @@ class ComplaintCaseServiceTests(TestCase):
             )
 
     def test_failed_drive_upload_is_recorded_without_losing_case_update(self):
-        evidence = SimpleUploadedFile('photo.jpg', b'image-bytes', content_type='image/jpeg')
+        evidence = SimpleUploadedFile('photo.jpg', b'\xff\xd8\xff\xe0synthetic-image', content_type='image/jpeg')
         with patch('core.services.complaint_cases.get_sheets_service') as get_service, patch(
             'core.services.complaint_cases.GoogleDriveMediaStorage.upload', side_effect=RuntimeError('offline')
         ):
             get_service.return_value.update_case_row.return_value = True
             update_case(
                 self.config, self.actor('100'), 'CASE-1',
-                {'client_request_id': 'request-3', 'status': 'Open', 'resolution_text': 'Photo collected'}, [evidence],
+                {'client_request_id': 'request-3', 'status': 'Open', 'resolution_text': 'Photo collected', 'expected_revision': 1}, [evidence],
             )
         self.assertEqual(ComplaintCaseEvidence.objects.get().upload_status, 'failed')
         self.assertEqual(self.case.case_updates.count(), 1)
 
-    def test_evidence_filename_uses_customer_id_when_available(self):
+    def test_sheet_failure_does_not_roll_back_local_case_update(self):
+        with patch('core.services.complaint_cases.get_sheets_service') as get_service:
+            get_service.return_value.update_case_row.return_value = False
+            result = update_case(
+                self.config, self.actor('100'), 'CASE-1',
+                {'client_request_id': 'local-first-1', 'expected_revision': 1, 'status': 'In Progress', 'resolution_text': 'Saved locally.'}, [],
+            )
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.complaint_status, 'In Progress')
+        self.assertEqual(result['sync_status'], 'failed')
+        self.assertEqual(self.case.case_updates.get().sync_status, 'failed')
+
+    def test_spoofed_image_extension_is_rejected(self):
+        evidence = SimpleUploadedFile('photo.jpg', b'not-an-image', content_type='image/jpeg')
+        with self.assertRaisesMessage(ComplaintCaseError, 'genuine JPEG'):
+            update_case(
+                self.config, self.actor('100'), 'CASE-1',
+                {'client_request_id': 'spoofed-file-1', 'expected_revision': 1, 'status': 'Open', 'resolution_text': 'Evidence.'}, [evidence],
+            )
+
+    def test_evidence_filename_does_not_expose_customer_id(self):
         self.case.customer_id = 'ID 123/456'
         self.case.save(update_fields=['customer_id'])
 
-        self.assertEqual(evidence_filename(self.case, 'site photo.jpg', 1), 'CASE-ID_123456-01-site_photo.jpg')
+        filename = evidence_filename(self.case, 'site photo.jpg', 1)
+        self.assertNotIn('ID_123456', filename)
+        self.assertTrue(filename.endswith('-01-site_photo.jpg'))
+
+    def test_stale_revision_is_rejected_without_overwriting_the_first_update(self):
+        actor = self.actor('200')
+        with patch('core.services.complaint_cases.get_sheets_service') as get_service:
+            get_service.return_value.update_case_row.return_value = True
+            update_case(self.config, actor, 'CASE-1', {
+                'client_request_id': 'revision-first', 'expected_revision': 1,
+                'status': 'In Progress', 'resolution_text': 'First update.',
+            }, [])
+            with self.assertRaises(ComplaintCaseConflict):
+                update_case(self.config, actor, 'CASE-1', {
+                    'client_request_id': 'revision-stale', 'expected_revision': 1,
+                    'status': 'Closed', 'resolution_text': 'Stale close.',
+                }, [])
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.complaint_status, 'In Progress')
+        self.assertEqual(ComplaintCaseEvent.objects.filter(case__parsed_message=self.case).count(), 1)
 
     @patch('core.services.complaint_cases.append_parsed_message_to_sheet', return_value=True)
     def test_officer_can_create_an_auditable_case_once_with_a_retry_identifier(self, append_to_sheet):
@@ -260,7 +319,9 @@ class ComplaintCaseMiniAppAssetTests(TestCase):
         self.assertIn('function configureHtmx()', script)
         self.assertIn("utils.fetchHtml(path", script)
         self.assertIn("utils.fetchJson(`/api/complaints/${path}`", script)
-        self.assertIn("await renderCasesFragment()", script)
+        self.assertIn("formData.set('expected_revision'", script)
+        self.assertIn("telegram?.BackButton?.onClick", script)
+        self.assertIn("id=\"loadMoreBtn\"", template)
 
 
 class ComplaintCaseAdminTests(TestCase):

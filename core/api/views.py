@@ -2230,6 +2230,7 @@ def _process_telegram_message(message_data: dict) -> dict:
                     group_id,
                     sender=sender,
                     telegram_message_id=telegram_message_id,
+                    telegram_user=message_data.get('from') or {},
                 )
                 if command_result:
                     return command_result
@@ -2287,6 +2288,7 @@ def _process_telegram_message(message_data: dict) -> dict:
                     group_id,
                     sender=sender,
                     telegram_message_id=telegram_message_id,
+                    telegram_user=message_data.get('from') or {},
                 )
                 if command_result:
                     return command_result
@@ -2333,6 +2335,7 @@ def _process_telegram_message(message_data: dict) -> dict:
                     group_id,
                     sender=sender,
                     telegram_message_id=telegram_message_id,
+                    telegram_user=message_data.get('from') or {},
                 )
                 if command_result:
                     return command_result
@@ -2417,6 +2420,7 @@ def _process_telegram_message(message_data: dict) -> dict:
                 reply_to_text=_extract_message_content(
                     message_data.get('reply_to_message', {})
                 ),
+                telegram_user=message_data.get('from') or {},
             )
             if update_result:
                 return update_result
@@ -2462,6 +2466,7 @@ def _process_telegram_message(message_data: dict) -> dict:
             group_id,
             sender=sender,
             telegram_message_id=telegram_message_id,
+            telegram_user=message_data.get('from') or {},
         )
         if command_result:
             return command_result

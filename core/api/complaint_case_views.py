@@ -12,13 +12,17 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
 from core.services.complaint_cases import (
+    ComplaintCaseConflict,
     ComplaintCaseError,
+    actor_can_access_case,
     bootstrap_data,
     case_detail,
     create_complaint_case,
     decode_complaint_start_param,
+    evidence_access,
     is_complaint_workflow,
-    list_cases,
+    list_cases_page,
+    retry_case_sync,
     staff_actor_for_payload,
     update_case,
 )
@@ -95,11 +99,11 @@ def _context(request, payload: dict):
         return None, None, JsonResponse({'ok': False, 'error': str(exc)}, status=403)
 
 
-def _capability_error(actor, capability: str, group_config):
+def _capability_error(actor, capability: str, group_config, *, resource=None, branch: str = ''):
     from core.services.workflow_access import workflow_access_decision
     decision = workflow_access_decision(
         actor.user, 'complaint_cases', capability, access=actor.access,
-        group_configuration=group_config,
+        group_configuration=group_config, resource=resource, branch=branch,
     )
     if not decision.allowed:
         return JsonResponse({'ok': False, 'error': 'Your assigned complaint-case role does not permit this action.'}, status=403)
@@ -167,17 +171,14 @@ def complaint_cases_list(request):
     capability_error = _capability_error(actor, 'complaint.queue.view', group_config)
     if capability_error:
         return capability_error
-    return JsonResponse(
-        {
-            'ok': True,
-            'cases': list_cases(
-                group_config,
-                query=str(payload.get('query') or ''),
-                status=str(payload.get('status') or 'active'),
-                branch=str(payload.get('branch') or ''),
-            ),
-        }
+    page = list_cases_page(
+        group_config, actor,
+        query=str(payload.get('query') or ''), status=str(payload.get('status') or 'active'),
+        branch=str(payload.get('branch') or ''), priority=str(payload.get('priority') or ''),
+        assignment=str(payload.get('assignment') or ''), sla=str(payload.get('sla') or ''),
+        cursor=str(payload.get('cursor') or ''),
     )
+    return JsonResponse({'ok': True, 'cases': page['items'], 'next_cursor': page['next_cursor']})
 
 
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
@@ -190,13 +191,13 @@ def complaint_cases_list_fragment(request):
     capability_error = _capability_error(actor, 'complaint.queue.view', group_config)
     if capability_error:
         return capability_error
-    cases = list_cases(
-        group_config,
+    page = list_cases_page(
+        group_config, actor,
         query=str(payload.get('query') or ''),
         status=str(payload.get('status') or 'active'),
         branch=str(payload.get('branch') or ''),
     )
-    return render(request, 'complaint_cases/partials/case_list.html', {'cases': cases})
+    return render(request, 'complaint_cases/partials/case_list.html', {'cases': page['items'], 'next_cursor': page['next_cursor']})
 
 
 @csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
@@ -213,6 +214,11 @@ def complaint_cases_create(request):
     capability_error = _capability_error(actor, 'complaint.case.create', group_config)
     if capability_error:
         return capability_error
+    capability_error = _capability_error(
+        actor, 'complaint.case.create', group_config, branch=str(payload.get('branch_region') or ''),
+    )
+    if capability_error:
+        return capability_error
     try:
         result = create_complaint_case(
             group_config,
@@ -225,7 +231,7 @@ def complaint_cases_create(request):
     except Exception:
         logger.exception('Complaint case creation failed for group %s.', group_config.group_id)
         return JsonResponse({'ok': False, 'error': 'The complaint could not be created. Try again.'}, status=500)
-    if 'complaint.case.manage' not in actor.capabilities:
+    if not actor_can_access_case(group_config, actor, 'complaint.case.source.view', result['case']['case_id']):
         result['case'].pop('raw_message', None)
     message = 'Complaint created.' if result['created'] else 'Existing complaint opened.'
     if not result['synced_to_sheet']:
@@ -244,10 +250,10 @@ def complaint_cases_detail(request, case_id: str):
     if capability_error:
         return capability_error
     try:
-        detail = case_detail(group_config, case_id)
+        detail = case_detail(group_config, case_id, actor)
     except ComplaintCaseError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=404)
-    if 'complaint.case.manage' not in actor.capabilities:
+    if not actor_can_access_case(group_config, actor, 'complaint.case.source.view', case_id):
         detail.pop('raw_message', None)
     return JsonResponse({'ok': True, 'case': detail})
 
@@ -274,11 +280,54 @@ def complaint_cases_update(request, case_id: str):
             payload,
             request.FILES.getlist('evidence'),
         )
+    except ComplaintCaseConflict as exc:
+        return JsonResponse(
+            {'ok': False, 'error': str(exc), 'code': 'revision_conflict', 'current_revision': exc.current_revision},
+            status=409,
+        )
     except ComplaintCaseError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
     except Exception:
         logger.exception('Complaint case update failed for group %s case %s.', group_config.group_id, case_id)
         return JsonResponse({'ok': False, 'error': 'The case update could not be saved. Try again.'}, status=500)
-    if 'complaint.case.manage' not in actor.capabilities:
+    if not actor_can_access_case(group_config, actor, 'complaint.case.source.view', case_id):
         result.pop('raw_message', None)
     return JsonResponse({'ok': True, 'case': result, 'message': 'Case update saved.'})
+
+
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(['POST'])
+def complaint_cases_evidence_access(request, evidence_id: str):
+    payload = _request_payload(request)
+    group_config, actor, error = _context(request, payload)
+    if error:
+        return error
+    capability_error = _capability_error(actor, 'complaint.case.evidence.view', group_config)
+    if capability_error:
+        return capability_error
+    try:
+        url = evidence_access(group_config, actor, evidence_id)
+    except ComplaintCaseError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=404)
+    return JsonResponse({'ok': True, 'url': url})
+
+
+@csrf_exempt  # Verified Telegram initData is the non-cookie authentication mechanism.
+@require_http_methods(['POST'])
+@miniapp_write_response
+def complaint_cases_sync_retry(request, case_id: str):
+    payload = _request_payload(request)
+    key_error = _bind_miniapp_write_request(request, payload)
+    if key_error:
+        return key_error
+    group_config, actor, error = _context(request, payload)
+    if error:
+        return error
+    capability_error = _capability_error(actor, 'complaint.case.sync.retry', group_config)
+    if capability_error:
+        return capability_error
+    try:
+        detail = retry_case_sync(group_config, actor, case_id)
+    except ComplaintCaseError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    return JsonResponse({'ok': True, 'case': detail, 'message': 'Complaint register publication retried.'})

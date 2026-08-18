@@ -75,8 +75,16 @@ _STATIC_CAPABILITIES: tuple[CapabilityDefinition, ...] = (
     # Complaint cases.
     CapabilityDefinition('complaint.queue.view', 'complaint_cases', 'View complaint queue', 'Cases', _roles('OFFICER', 'MANAGER', 'IT')),
     CapabilityDefinition('complaint.case.create', 'complaint_cases', 'Create complaints', 'Cases', _roles('OFFICER', 'MANAGER'), ('complaint.queue.view',)),
-    CapabilityDefinition('complaint.case.update', 'complaint_cases', 'Update complaints and upload evidence', 'Cases', _roles('OFFICER', 'MANAGER'), ('complaint.queue.view',)),
-    CapabilityDefinition('complaint.case.manage', 'complaint_cases', 'View confidential source details and manage cases', 'Cases', _roles('MANAGER'), ('complaint.queue.view',)),
+    CapabilityDefinition('complaint.case.update', 'complaint_cases', 'Update complaints', 'Cases', _roles('OFFICER', 'MANAGER'), ('complaint.queue.view',)),
+    CapabilityDefinition('complaint.case.claim', 'complaint_cases', 'Claim unassigned complaints', 'Assignment', _roles('OFFICER', 'MANAGER'), ('complaint.queue.view',)),
+    CapabilityDefinition('complaint.case.assign', 'complaint_cases', 'Assign complaints to officers', 'Assignment', _roles('MANAGER'), ('complaint.queue.view',)),
+    CapabilityDefinition('complaint.case.close', 'complaint_cases', 'Close complaints', 'Transitions', _roles('MANAGER'), ('complaint.queue.view',)),
+    CapabilityDefinition('complaint.case.reopen', 'complaint_cases', 'Reopen complaints', 'Transitions', _roles('MANAGER'), ('complaint.queue.view',)),
+    CapabilityDefinition('complaint.case.source.view', 'complaint_cases', 'View confidential complaint source', 'Evidence', _roles('MANAGER'), ('complaint.queue.view',)),
+    CapabilityDefinition('complaint.case.evidence.view', 'complaint_cases', 'View complaint evidence', 'Evidence', _roles('OFFICER', 'MANAGER'), ('complaint.queue.view',)),
+    CapabilityDefinition('complaint.case.evidence.manage', 'complaint_cases', 'Upload and retry complaint evidence', 'Evidence', _roles('OFFICER', 'MANAGER'), ('complaint.queue.view',)),
+    CapabilityDefinition('complaint.case.sync.retry', 'complaint_cases', 'Retry complaint register publication', 'Operations', _roles('MANAGER', 'IT'), ('complaint.queue.view',)),
+    CapabilityDefinition('complaint.case.manage', 'complaint_cases', 'Legacy complaint manager access', 'Cases', _roles('MANAGER'), ('complaint.queue.view',)),
     # TAT tracker.  Individual stages are appended dynamically below.
     CapabilityDefinition('tat.home.view', 'tat_tracker', 'View TAT queue', 'Queue', _roles('BRO', BUSINESS_ADMIN_ROLE, 'CA', 'BM', 'SECRETARY', 'CHAIR', 'LOAN_APPROVER', 'FINANCE', 'IT', 'MANAGEMENT')),
     CapabilityDefinition('tat.case.create', 'tat_tracker', 'Create TAT cases', 'Cases', _roles('BRO', BUSINESS_ADMIN_ROLE, 'CA', 'BM', 'SECRETARY', 'CHAIR', 'LOAN_APPROVER', 'FINANCE', 'IT', 'MANAGEMENT'), ('tat.home.view',)),
