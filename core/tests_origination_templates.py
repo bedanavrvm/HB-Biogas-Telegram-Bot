@@ -19,6 +19,7 @@ from core.models import (
     LoanOriginationApplication,
     OriginationDocumentTemplate,
     OriginationDocumentTemplateEvent,
+    OriginationProductDocumentAssignment,
     OriginationProductDefinition,
     OriginationTemplateConfigurationRevision,
 )
@@ -475,6 +476,36 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertIn('x: rounded((pageWidth - boxWidth) / 2)', source)
         self.assertIn('y: rounded((pageHeight - boxHeight) / 2)', source)
         self.assertNotIn('box: { x: 40, y: 40', source)
+
+    def test_shared_assignment_admin_derives_document_identity_from_template(self):
+        from core.admin import OriginationProductDocumentAssignmentForm
+
+        template = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='guarantor_form',
+            document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
+            inclusion_mode=OriginationDocumentTemplate.INCLUDE_REQUIRED,
+            document_type='guarantor_form', name='Guarantor Form', version=1,
+            status=OriginationDocumentTemplate.STATUS_ACTIVE,
+            source_filename='guarantor.pdf', source_sha256='c' * 64,
+            source_byte_size=100, page_count=1, placement_config={},
+            created_by=self.user,
+        )
+        form = OriginationProductDocumentAssignmentForm(data={
+            'product_definition': str(self.product.pk), 'template': str(template.pk),
+            'version_policy': OriginationProductDocumentAssignment.VERSION_LATEST_COMPATIBLE,
+            'inclusion_mode': OriginationDocumentTemplate.INCLUDE_REQUIRED,
+            'display_order': 10,
+        })
+
+        self.assertNotIn('document_key', form.fields)
+        self.assertNotIn('name', form.fields)
+        self.assertTrue(form.is_valid(), form.errors)
+        assignment = form.save(commit=False)
+        assignment.created_by = self.user
+        assignment.save()
+
+        self.assertEqual(assignment.document_key, template.document_key)
+        self.assertEqual(assignment.name, template.name)
 
     def test_global_formatting_applies_to_current_and_future_fields_with_preview(self):
         source = (

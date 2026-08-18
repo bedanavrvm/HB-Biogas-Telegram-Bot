@@ -393,6 +393,33 @@ class OriginationDocumentTemplateForm(forms.ModelForm):
         return cleaned
 
 
+class OriginationProductDocumentAssignmentForm(forms.ModelForm):
+    """Derive each product assignment's identity from its shared template."""
+
+    class Meta:
+        model = OriginationProductDocumentAssignment
+        fields = (
+            'product_definition', 'template', 'version_policy', 'inclusion_mode',
+            'display_order', 'officer_selectable', 'default_selected', 'applicability_rule',
+        )
+        widgets = {
+            'product_definition': UnfoldAdminSelectWidget,
+            'template': UnfoldAdminSelectWidget,
+            'version_policy': UnfoldAdminSelectWidget,
+            'inclusion_mode': UnfoldAdminSelectWidget,
+        }
+
+    def clean(self):
+        cleaned = super().clean()
+        template = cleaned.get('template')
+        if template:
+            # A product assignment chooses a governed document family. It must
+            # not create another, typo-prone key and name for that same form.
+            self.instance.document_key = template.document_key
+            self.instance.name = template.name
+        return cleaned
+
+
 class CompactModelAdmin(ModelAdmin):
     """Shared dense layout for editable operational records."""
 
@@ -5121,6 +5148,7 @@ class OriginationFieldReviewIssueAdmin(CompactModelAdmin):
 
 @admin.register(OriginationProductDocumentAssignment)
 class OriginationProductDocumentAssignmentAdmin(CompactModelAdmin):
+    form = OriginationProductDocumentAssignmentForm
     list_display = (
         'name', 'product_definition', 'document_key', 'version_policy',
         'resolved_template_version', 'inclusion_mode', 'display_order',
@@ -5128,7 +5156,7 @@ class OriginationProductDocumentAssignmentAdmin(CompactModelAdmin):
     list_filter = ('version_policy', 'inclusion_mode', 'product_definition__lifecycle_status')
     search_fields = ('name', 'document_key', 'product_definition__name', 'template__name')
     fields = (
-        'product_definition', ('template', 'version_policy'), ('document_key', 'name'),
+        'product_definition', ('template', 'version_policy'),
         ('inclusion_mode', 'display_order'), ('officer_selectable', 'default_selected'),
         'applicability_rule', 'created_by', 'created_at',
     )

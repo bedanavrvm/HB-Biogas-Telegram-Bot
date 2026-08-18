@@ -32,7 +32,9 @@
   let previewZoom = 100;
   let previewPageCount = 1;
   let previewRequestId = '';
+  let previewDocumentKey = '';
   let previewedRevision = null;
+  let previewSucceeded = false;
   let dirty = false;
   let editGeneration = 0;
   let saveInFlight = null;
@@ -1298,7 +1300,8 @@
     const packet = current?.document_packet || {};
     const documents = (packet.documents || []).filter(item => item.role === 'supporting' && item.applicable);
     if (!packet.primary_ready && previewedRevision !== current.revision) {
-      return `<div class="section-title"><div><h3>Finish the main LAF first</h3><p>Save and preview the filled LAF before choosing supporting documents.</p></div><button type="button" class="btn btn-primary" id="origination-preview-early">Preview main LAF</button></div>`;
+      const lockedRows = documents.map(item => `<label class="packet-document-option"><input type="checkbox"${item.selected ? ' checked' : ''} disabled><span><strong>${escapeHtml(item.name)}</strong><small>${item.selected ? 'Included automatically; unlocks after main LAF preview.' : 'Available after main LAF preview.'}</small></span><span class="status-chip">Locked</span></label>`).join('');
+      return `<div class="section-title"><div><h3>Finish the main LAF first</h3><p>These supporting documents are part of this application. Save and preview the filled LAF to unlock their forms and previews.</p></div><button type="button" class="btn btn-primary" id="origination-preview-early">Preview main LAF</button></div><div class="packet-document-list">${lockedRows || '<div class="empty-state">No supporting documents apply to this application.</div>'}</div>`;
     }
     const rows = documents.map(item => {
       const locked = item.inclusion_mode !== 'optional';
@@ -1571,18 +1574,7 @@
   }
 
   async function openSupportingPreview(documentKey) {
-    const key = requestKey('document-preview');
-    const result = await apiFetch(`/applications/${current.id}/documents/${encodeURIComponent(documentKey)}/preview/`, {
-      method: 'POST', headers: { 'Idempotency-Key': key, 'X-Request-ID': key },
-      body: JSON.stringify({ revision: current.revision, request_id: key }),
-    });
-    if (!result.ok || !result.blob) return showToast(result.data?.error || 'Could not preview this document.', true);
-    const url = URL.createObjectURL(result.blob);
-    window.open(url, '_blank', 'noopener');
-    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
-    const document = current.document_packet?.documents?.find(item => item.key === documentKey);
-    if (document) document.previewed = true;
-    renderEditor(current, step);
+    await openPreview(documentKey);
   }
 
   async function openPacketPreview() {
@@ -1717,9 +1709,10 @@
     }));
   }
 
-  async function openPreview() {
-    if (['draft', 'correction_required'].includes(current.status) && !(await saveDraft(true))) return;
-    previewedRevision = current.revision;
+  async function openPreview(documentKey = '') {
+    if (!documentKey && ['draft', 'correction_required'].includes(current.status) && !(await saveDraft(true))) return;
+    previewDocumentKey = documentKey;
+    previewSucceeded = false;
     clearPreviewPageCache();
     previewPage = 1; previewZoom = 100; previewPageCount = 1;
     previewRequestId = requestKey('preview');
@@ -1744,7 +1737,10 @@
     const key = previewRequestId || requestKey('preview');
     const applicationId = current.id;
     const revision = current.revision;
-    const pending = apiFetch(`/applications/${applicationId}/preview/`, {
+    const previewPath = previewDocumentKey
+      ? `/applications/${applicationId}/documents/${encodeURIComponent(previewDocumentKey)}/preview/`
+      : `/applications/${applicationId}/preview/`;
+    const pending = apiFetch(previewPath, {
       method: 'POST', headers: { 'Idempotency-Key': key, 'X-Request-ID': key },
       body: JSON.stringify({ revision, request_id: key, preview_format: 'image', page: pageNumber }),
     }).then(result => {
@@ -1752,6 +1748,14 @@
       if (key !== previewRequestId || current?.id !== applicationId) return { stale: true };
       const entry = { url: URL.createObjectURL(result.blob), pageCount: Math.max(1, result.pageCount || 1) };
       previewPageUrls.set(pageNumber, entry);
+      if (!previewDocumentKey && pageNumber === 1) {
+        previewedRevision = current.revision;
+        previewSucceeded = true;
+      }
+      if (previewDocumentKey && pageNumber === 1) {
+        const document = current?.document_packet?.documents?.find(item => item.key === previewDocumentKey);
+        if (document) document.previewed = true;
+      }
       while (previewPageUrls.size > 3) {
         const discardPage = [...previewPageUrls.keys()].find(item => item !== previewPage);
         if (discardPage == null) break;
@@ -1895,6 +1899,17 @@
     syncTelegramControls();
     const returnFocus = previewReturnFocus;
     previewReturnFocus = null;
+    const supportingStep = current && !previewDocumentKey && previewSucceeded && previewedRevision === current.revision
+      && !current.document_packet?.primary_ready
+      ? wizardSections().findIndex(item => item.key === 'document_selection')
+      : -1;
+    previewDocumentKey = '';
+    previewSucceeded = false;
+    if (supportingStep >= 0) {
+      showToast('Main LAF previewed. Continue with supporting documents.');
+      window.requestAnimationFrame(() => renderEditor(current, supportingStep));
+      return;
+    }
     window.requestAnimationFrame(() => returnFocus?.focus?.());
   }
 

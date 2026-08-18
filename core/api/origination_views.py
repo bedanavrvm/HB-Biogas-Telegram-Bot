@@ -723,6 +723,7 @@ def portal_origination_document_preview(request, application_id: str, document_k
         if int(body.get('revision')) != application.revision:
             raise OriginationConflict('This application changed. Refresh before previewing it.')
         content = render_document(application, document_key)
+        preview_format = str(body.get('preview_format') or 'pdf').strip().lower()
         mark_document_previewed(application, document_key)
         request_id = _request_id(request, body)
         if request_id and not application.events.filter(request_id=request_id).exists():
@@ -735,8 +736,19 @@ def portal_origination_document_preview(request, application_id: str, document_k
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
     except (OriginationError, TypeError, ValueError) as exc:
         return JsonResponse(_safe_error(exc), status=400)
-    response = HttpResponse(content, content_type='application/pdf')
-    response['Content-Disposition'] = f'inline; filename="{application.reference_number}-{document_key}.pdf"'
+    if preview_format == 'image':
+        try:
+            from core.services.partnership_laf_preview import PartnershipLafPreviewError, render_pdf_page
+            page_number = int(body.get('page') or 1)
+            content, total_pages = render_pdf_page(content, page_number=page_number)
+        except (OriginationError, PartnershipLafPreviewError, TypeError, ValueError) as exc:
+            return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        response = HttpResponse(content, content_type='image/jpeg')
+        response['Content-Disposition'] = f'inline; filename="{application.reference_number}-{document_key}-page-{page_number}.jpg"'
+        response['X-Preview-Page-Count'] = str(total_pages)
+    else:
+        response = HttpResponse(content, content_type='application/pdf')
+        response['Content-Disposition'] = f'inline; filename="{application.reference_number}-{document_key}.pdf"'
     response['Cache-Control'] = 'no-store, private'
     response['X-Content-Type-Options'] = 'nosniff'
     return response
