@@ -724,7 +724,15 @@ def activate_template(template: OriginationDocumentTemplate, *, actor) -> Origin
         raise OriginationTemplateError('The template could not be retrieved from Drive for review.') from exc
     if hashlib.sha256(source).hexdigest() != template.source_sha256:
         raise OriginationTemplateError('The Drive file failed integrity verification and cannot be activated.')
-    previous = list(OriginationDocumentTemplate.objects.select_for_update().filter(
+    # ``OriginationDocumentTemplate`` has a nullable ``product_definition`` and
+    # its default ordering traverses that relation.  Leaving that ordering on a
+    # locking queryset introduces a LEFT OUTER JOIN; PostgreSQL then rejects
+    # ``FOR UPDATE`` because it would lock the nullable side.  Ordering is not
+    # meaningful while retiring a document family, so clear it and lock only
+    # the template rows we are about to retire.
+    previous = list(OriginationDocumentTemplate.objects.order_by().select_for_update(
+        of=('self',),
+    ).filter(
         document_type=template.document_type, status=template.STATUS_ACTIVE,
     ).exclude(pk=template.pk))
     for old in previous:

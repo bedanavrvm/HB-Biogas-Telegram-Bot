@@ -206,6 +206,48 @@ class OriginationTemplateLifecycleTests(TestCase):
             activate_template(template, actor=self.checker)
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
+    def test_activation_retires_global_family_without_locking_nullable_product_join(self, storage_class):
+        """Global supporting templates must activate on PostgreSQL as well as SQLite."""
+        digest = hashlib.sha256(self.pdf).hexdigest()
+        previous = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='guarantor_consent', document_role='supporting',
+            inclusion_mode='required', document_type='shared-guarantor-consent',
+            name='Guarantee consent', version=1, status=OriginationDocumentTemplate.STATUS_ACTIVE,
+            source_filename='consent-v1.pdf', source_sha256=digest,
+            source_byte_size=len(self.pdf), page_count=1, placement_config={},
+            drive_file_id='drive-consent-v1', created_by=self.maker,
+        )
+        previous_revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=previous, revision=1, configuration={}, is_published=True,
+            created_by=self.maker, published_at=timezone.now(),
+        )
+        previous.published_configuration_revision = previous_revision
+        previous.save(update_fields=['published_configuration_revision'])
+        candidate = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='guarantor_consent', document_role='supporting',
+            inclusion_mode='required', document_type='shared-guarantor-consent',
+            name='Guarantee consent', version=2, status=OriginationDocumentTemplate.STATUS_READY,
+            source_filename='consent-v2.pdf', source_sha256=digest,
+            source_byte_size=len(self.pdf), page_count=1, placement_config={},
+            drive_file_id='drive-consent-v2', created_by=self.maker,
+        )
+        candidate_revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=candidate, revision=1, configuration={}, is_published=True,
+            created_by=self.maker, published_at=timezone.now(),
+        )
+        candidate.published_configuration_revision = candidate_revision
+        candidate.save(update_fields=['published_configuration_revision'])
+        storage_class.return_value.download.return_value = self.pdf
+
+        activated = activate_template(candidate, actor=self.maker)
+
+        previous.refresh_from_db()
+        self.assertEqual(activated.status, OriginationDocumentTemplate.STATUS_ACTIVE)
+        self.assertEqual(previous.status, OriginationDocumentTemplate.STATUS_RETIRED)
+        self.assertTrue(previous.events.filter(action='retired').exists())
+        self.assertTrue(candidate.events.filter(action='activated').exists())
+
+    @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_draft_does_not_replace_published_configuration_until_publish(self, storage_class):
         storage = storage_class.return_value
         storage.upload.return_value = ('drive-template-2', 'https://drive.test/template-2')
