@@ -824,7 +824,20 @@
         hint: 'Capture the evidence and product-specific details required for this facility.',
       });
     }
-    return [...sections, { key: 'review', label: 'Review', hint: 'Confirm details against the filled document' }];
+    const packetDocuments = current?.document_packet?.documents || [];
+    const supporting = packetDocuments.filter(item => item.role === 'supporting' && item.applicable);
+    if (supporting.length) {
+      sections.push({
+        key: 'document_selection', label: 'Supporting documents',
+        hint: 'Choose the additional documents that apply after saving and previewing the main LAF.',
+      });
+      supporting.filter(item => item.selected).forEach(item => sections.push({
+        key: `document:${item.key}`, label: item.name,
+        hint: 'Shared application values are filled automatically. Complete only the remaining document details.',
+        document: item,
+      }));
+    }
+    return [...sections, { key: 'review', label: 'Review', hint: 'Confirm every selected document before submission' }];
   }
 
   function fieldsFor(sectionKey) {
@@ -1003,6 +1016,20 @@
   }
 
   function sectionErrors(sectionKey) {
+    if (sectionKey.startsWith('document:')) {
+      const document = (current?.document_packet?.documents || []).find(
+        item => item.key === sectionKey.slice('document:'.length),
+      );
+      const errors = {};
+      (document?.schema?.fields || []).forEach(field => {
+        const input = root()?.querySelector(`[data-document-field="${CSS.escape(field.key)}"]`);
+        const value = input?.value ?? document.field_payload?.[field.key] ?? current.form_payload?.[field.key];
+        if (field.required && (value === undefined || value === null || value === '')) errors[field.key] = 'Required';
+        if (!errors[field.key] && input && !input.checkValidity()) errors[field.key] = input.validationMessage || 'Enter a valid value.';
+      });
+      return errors;
+    }
+    if (sectionKey === 'document_selection') return {};
     if (sectionKey === 'product_requirements') {
       const terms = current?.product_terms || {};
       const values = collectProductConfiguration();
@@ -1178,8 +1205,17 @@
   }
 
   function reviewMarkup(values) {
-    return `<div class="review-intro"><div><p class="eyebrow">Final check</p><h3>Review the application</h3><p>Open each section to correct details, then inspect the populated ${escapeHtml(current.product_name)} document.</p></div><button type="button" class="btn btn-primary" id="origination-preview">Preview filled document</button></div>
+    const hasPacket = (current?.document_packet?.documents || []).filter(item => item.selected).length > 1;
+    return `<div class="review-intro"><div><p class="eyebrow">Final check</p><h3>Review the application</h3><p>Open each section to correct details, then inspect every selected document.</p></div><div class="review-preview-actions"><button type="button" class="btn btn-secondary" id="origination-preview">Preview main LAF</button>${hasPacket ? '<button type="button" class="btn btn-primary" id="origination-packet-preview">Preview full packet</button>' : ''}</div></div>
       <div class="review-sections">${wizardSections().slice(0, -1).map((section, index) => {
+        if (section.key === 'document_selection') {
+          const selected = (current?.document_packet?.documents || []).filter(item => item.role === 'supporting' && item.selected);
+          return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>Supporting documents</strong><small>${selected.length} selected</small></span><span>Edit ${iconSvg('arrowRight')}</span></button>`;
+        }
+        if (section.key.startsWith('document:')) {
+          const document = section.document;
+          return `<button type="button" class="review-card" data-edit-step="${index}"><span><strong>${escapeHtml(document.name)}</strong><small>${document.complete ? 'Fields complete' : `${document.missing_fields?.length || 0} fields missing`} · ${document.previewed ? 'Previewed' : 'Preview required'}</small></span><span>Open ${iconSvg('arrowRight')}</span></button>`;
+        }
         if (section.key === 'product_requirements') {
           const configuration = collectProductConfiguration();
           const completed = Object.values(configuration.requirements).filter(value => value !== '' && value != null && value !== false).length
@@ -1224,6 +1260,8 @@
     const section = sections[step];
     let content;
     if (section.key === 'review') content = reviewMarkup(values);
+    else if (section.key === 'document_selection') content = documentSelectionMarkup(editable);
+    else if (section.key.startsWith('document:')) content = supportingDocumentMarkup(section.document, editable);
     else {
       const fields = section.key === 'product_requirements'
         ? productConfigurationMarkup(editable)
@@ -1235,6 +1273,49 @@
     bindEditor(editable);
     syncTelegramControls();
     window.requestAnimationFrame(() => window.scrollTo(0, 0));
+  }
+
+  function documentSelectionMarkup(editable) {
+    const packet = current?.document_packet || {};
+    const documents = (packet.documents || []).filter(item => item.role === 'supporting' && item.applicable);
+    if (!packet.primary_ready && previewedRevision !== current.revision) {
+      return `<div class="section-title"><div><h3>Finish the main LAF first</h3><p>Save and preview the filled LAF before choosing supporting documents.</p></div><button type="button" class="btn btn-primary" id="origination-preview-early">Preview main LAF</button></div>`;
+    }
+    const rows = documents.map(item => {
+      const locked = item.inclusion_mode !== 'optional';
+      return `<label class="packet-document-option${item.selected ? ' selected' : ''}"><input type="checkbox" data-document-select="${escapeHtml(item.key)}"${item.selected ? ' checked' : ''}${locked || !editable ? ' disabled' : ''}><span><strong>${escapeHtml(item.name)}</strong><small>${locked ? 'Required for this application' : 'Optional supporting document'}</small></span><span class="status-chip">${item.selected ? 'Included' : 'Not included'}</span></label>`;
+    }).join('');
+    return `<div class="section-title"><div><h3>Supporting documents</h3><p>Required documents are selected automatically. Add any optional documents that apply.</p></div></div><div class="packet-document-list">${rows || '<div class="empty-state">No supporting documents apply.</div>'}</div>`;
+  }
+
+  function supportingDocumentField(field, document, editable) {
+    const key = escapeHtml(field.key);
+    const shared = current.form_payload?.[field.key];
+    const value = document.field_payload?.[field.key] ?? shared ?? '';
+    const locked = shared !== undefined && shared !== null && shared !== '';
+    const disabled = !editable || locked;
+    const required = field.required ? '<span class="required-mark" aria-label="required">*</span>' : '';
+    let control;
+    if (field.type === 'choice') {
+      const options = (field.options || []).map(option => {
+        const code = option && typeof option === 'object' ? option.code : option;
+        const label = option && typeof option === 'object' ? (option.label || option.code) : option;
+        return `<option value="${escapeHtml(code)}"${value === code ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+      }).join('');
+      control = `<select data-document-field="${key}"${disabled ? ' disabled' : ''}><option value="">Choose</option>${options}</select>`;
+    } else if (field.type === 'boolean') {
+      control = `<select data-document-field="${key}"${disabled ? ' disabled' : ''}><option value="">Choose</option><option value="true"${value === true ? ' selected' : ''}>Yes</option><option value="false"${value === false ? ' selected' : ''}>No</option></select>`;
+    } else if (field.type === 'textarea') {
+      control = `<textarea data-document-field="${key}"${disabled ? ' disabled' : ''}>${escapeHtml(value)}</textarea>`;
+    } else {
+      control = `<input type="text" data-document-field="${key}" value="${escapeHtml(value)}"${field.type === 'date' ? ' data-date-input inputmode="none" readonly' : ''}${disabled ? ' disabled' : ''}>`;
+    }
+    return `<label class="laf-field" data-field-wrap="${key}"><span>${escapeHtml(field.label || field.key)}${required}</span>${locked ? '<small class="field-help">Filled from the main LAF</small>' : field.help_text ? `<small class="field-help">${escapeHtml(field.help_text)}</small>` : ''}${control}<small class="field-error" aria-live="polite"></small></label>`;
+  }
+
+  function supportingDocumentMarkup(document, editable) {
+    const fields = (document?.schema?.fields || []).map(field => supportingDocumentField(field, document, editable)).join('');
+    return `<div class="section-title"><div><h3>${escapeHtml(document.name)}</h3><p>Shared LAF values are locked. Complete the remaining fields, save, then preview this document.</p></div><button type="button" class="preview-link" data-support-preview="${escapeHtml(document.key)}">Preview document</button></div><div class="laf-grid">${fields || '<div class="empty-state">This document uses only values already collected in the main LAF.</div>'}</div>`;
   }
 
   function correctionTargetStep(identity) {
@@ -1388,6 +1469,69 @@
     return true;
   }
 
+  async function saveDocumentSelection() {
+    const selectedKeys = [...root().querySelectorAll('[data-document-select]:checked')].map(input => input.dataset.documentSelect);
+    const result = await postJson(`/applications/${current.id}/documents/selection/`, {
+      revision: current.revision,
+      selected_keys: selectedKeys,
+    });
+    if (!result.ok) {
+      showToast(result.data?.error || 'Could not save the supporting-document selection.', true);
+      return false;
+    }
+    current = result.data.application;
+    previewedRevision = current.revision;
+    return true;
+  }
+
+  async function saveSupportingDocument(documentKey) {
+    const payload = {};
+    root().querySelectorAll('[data-document-field]').forEach(input => {
+      if (input.disabled) return;
+      if (input.options && ['true', 'false'].includes(input.value)) payload[input.dataset.documentField] = input.value === 'true';
+      else payload[input.dataset.documentField] = input.value;
+    });
+    const result = await postJson(`/applications/${current.id}/documents/${encodeURIComponent(documentKey)}/fields/`, {
+      revision: current.revision,
+      payload,
+    });
+    if (!result.ok) {
+      if (result.data?.errors) showErrors(result.data.errors);
+      showToast(result.data?.error || 'Could not save this supporting document.', true);
+      return false;
+    }
+    current = result.data.application;
+    previewedRevision = current.revision;
+    return true;
+  }
+
+  async function openSupportingPreview(documentKey) {
+    const key = requestKey('document-preview');
+    const result = await apiFetch(`/applications/${current.id}/documents/${encodeURIComponent(documentKey)}/preview/`, {
+      method: 'POST', headers: { 'Idempotency-Key': key, 'X-Request-ID': key },
+      body: JSON.stringify({ revision: current.revision, request_id: key }),
+    });
+    if (!result.ok || !result.blob) return showToast(result.data?.error || 'Could not preview this document.', true);
+    const url = URL.createObjectURL(result.blob);
+    window.open(url, '_blank', 'noopener');
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    const document = current.document_packet?.documents?.find(item => item.key === documentKey);
+    if (document) document.previewed = true;
+    renderEditor(current, step);
+  }
+
+  async function openPacketPreview() {
+    const key = requestKey('packet-preview');
+    const result = await apiFetch(`/applications/${current.id}/packet/preview/`, {
+      method: 'POST', headers: { 'Idempotency-Key': key, 'X-Request-ID': key },
+      body: JSON.stringify({ revision: current.revision, request_id: key }),
+    });
+    if (!result.ok || !result.blob) return showToast(result.data?.error || 'Could not generate the document packet.', true);
+    const url = URL.createObjectURL(result.blob);
+    window.open(url, '_blank', 'noopener');
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
   function bindEditor(editable) {
     document.getElementById('recovery-use-server')?.addEventListener('click', async () => {
       await removeRecoveryDraft(current.id);
@@ -1423,6 +1567,14 @@
     root().querySelectorAll('[data-evidence-upload]').forEach(input => input.onchange = () => uploadEvidence(input));
     root().querySelectorAll('[data-evidence-remove]').forEach(button => button.onclick = () => removeEvidence(button.dataset.evidenceRemove));
     root().querySelectorAll('[data-evidence-open]').forEach(button => button.onclick = () => openEvidence(button.dataset.evidenceOpen));
+    root().querySelectorAll('[data-support-preview]').forEach(button => button.onclick = async () => {
+      const sectionKey = wizardSections()[step]?.key || '';
+      const errors = sectionErrors(sectionKey); showErrors(errors);
+      if (Object.keys(errors).length) return showToast('Complete the required document fields before previewing.', true);
+      if (editable && !(await saveSupportingDocument(button.dataset.supportPreview))) return;
+      await openSupportingPreview(button.dataset.supportPreview);
+    });
+    document.getElementById('origination-packet-preview')?.addEventListener('click', openPacketPreview);
     if (editable) root().querySelector('.laf-grid')?.addEventListener('input', scheduleSave);
     else if (current.status === 'reviewed' && capabilities.can_start_signing) {
       root().querySelector('.laf-grid')?.addEventListener('input', () => {
@@ -1434,9 +1586,14 @@
     root().querySelector('[data-location-type="county"]')?.addEventListener('change', syncOriginationSubCountySelect);
     document.getElementById('wizard-previous')?.addEventListener('click', async () => { if (await saveDraft(true)) renderEditor(current, step - 1); });
     document.getElementById('wizard-next')?.addEventListener('click', () => runPrimaryAction('Saving...', async () => {
-      const errors = sectionErrors(wizardSections()[step].key); showErrors(errors);
+      const section = wizardSections()[step];
+      const errors = sectionErrors(section.key); showErrors(errors);
       if (Object.keys(errors).length) return showToast('Complete the required fields in this section.', true);
-      if (await saveDraft(true)) renderEditor(current, step + 1);
+      if (section.key === 'document_selection') {
+        if (await saveDocumentSelection()) renderEditor(current, step + 1);
+      } else if (section.key.startsWith('document:')) {
+        if (await saveSupportingDocument(section.key.slice('document:'.length))) renderEditor(current, step + 1);
+      } else if (await saveDraft(true)) renderEditor(current, step + 1);
     }));
     document.getElementById('origination-preview')?.addEventListener('click', openPreview);
     document.getElementById('origination-preview-early')?.addEventListener('click', openPreview);

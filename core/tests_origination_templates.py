@@ -610,7 +610,12 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertContains(response, f'value="{self.product.pk}" selected')
         self.assertEqual(
             tuple(response.context['adminform'].form.fields),
-            ('product_definition', 'name', 'pdf_file'),
+            (
+                'product_definition', 'document_key', 'name', 'document_role',
+                'inclusion_mode', 'display_order', 'officer_selectable',
+                'default_selected', 'applicability_rule', 'form_schema',
+                'signer_rules', 'pdf_file',
+            ),
         )
         self.assertEqual(response.context['adminform'].readonly_fields, ())
         self.assertIsInstance(
@@ -637,7 +642,7 @@ class MultiProductOriginationTemplateTests(TestCase):
             response.context['adminform'].form.fields['product_definition'].queryset.exists(),
         )
 
-    def test_admin_template_dropdown_excludes_drafts_that_already_have_a_template(self):
+    def test_admin_template_dropdown_allows_supporting_document_after_primary_template(self):
         template = OriginationDocumentTemplate.objects.create(
             product_definition=self.product,
             document_type=self.product.document_type,
@@ -654,10 +659,8 @@ class MultiProductOriginationTemplateTests(TestCase):
 
         response = self.client.get(reverse('admin:core_originationdocumenttemplate_add'))
 
-        self.assertContains(response, 'No draft loan form is ready for a PDF')
-        self.assertFalse(
-            response.context['adminform'].form.fields['product_definition'].queryset.exists(),
-        )
+        self.assertContains(response, 'Dairy Working Capital - loan form v1')
+        self.assertTrue(response.context['adminform'].form.fields['product_definition'].queryset.exists())
 
         change_response = self.client.get(
             reverse('admin:core_originationdocumenttemplate_change', args=[template.pk]),

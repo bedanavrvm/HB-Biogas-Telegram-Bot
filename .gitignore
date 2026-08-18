@@ -65,3 +65,4 @@ spin/
 # Keep SPIN Mini App templates tracked; the root spin/ sample dir stays ignored above.
 !core/templates/spin/
 !core/templates/spin/form.html
+origination-ui-audit/

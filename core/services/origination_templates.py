@@ -170,9 +170,17 @@ def _template_product(template: OriginationDocumentTemplate) -> OriginationProdu
     ).order_by('-version').first()
 
 
-def _expected_signature_slots(product: OriginationProductDefinition | None) -> dict[str, dict[str, Any]]:
+def _expected_signature_slots(
+    product: OriginationProductDefinition | None,
+    template: OriginationDocumentTemplate | None = None,
+) -> dict[str, dict[str, Any]]:
     expected = {}
-    for rule in (product.signer_rules if product else []) or []:
+    rules = (
+        template.signer_rules
+        if template and template.signer_rules
+        else product.signer_rules if product else []
+    )
+    for rule in rules or []:
         if not isinstance(rule, dict):
             continue
         role = str(rule.get('role') or '').strip()
@@ -209,8 +217,19 @@ def validate_template_configuration(
     if require_complete and not fields:
         raise OriginationTemplateError('At least one calibrated field is required.')
     product = _template_product(template)
-    schema_fields = (product.form_schema or {}).get('fields', []) if product else []
+    schema = (
+        template.form_schema
+        if template.document_role == template.ROLE_SUPPORTING and template.form_schema
+        else product.form_schema if product else {}
+    )
+    schema_fields = (schema or {}).get('fields', [])
     known_context_keys = {str(item.get('key') or '') for item in schema_fields if item.get('key')}
+    if product and template.document_role == template.ROLE_SUPPORTING:
+        known_context_keys.update(
+            str(item.get('key') or '')
+            for item in (product.form_schema or {}).get('fields', [])
+            if item.get('key')
+        )
     known_context_keys.update(key for key, _label in SYSTEM_CONTEXT_KEYS)
     configured_context_keys = {
         str(spec.get('context_key') or '').strip() for spec in fields.values() if isinstance(spec, dict)
@@ -260,7 +279,7 @@ def validate_template_configuration(
     signature_slots = (normalized.get('signature_overlay_manifest') or {}).get('slots', {})
     if not isinstance(signature_slots, dict):
         raise OriginationTemplateError('The signature slot collection must be an object.')
-    expected_slots = _expected_signature_slots(product)
+    expected_slots = _expected_signature_slots(product, template)
     unknown_slots = sorted(set(signature_slots) - set(expected_slots)) if expected_slots else []
     if unknown_slots:
         raise OriginationTemplateError(f'Unknown signature slots: {", ".join(unknown_slots)}.')
@@ -440,56 +459,84 @@ def _inherit_template_for_product_version(
     successor: OriginationProductDefinition,
     actor,
 ) -> OriginationDocumentTemplate | None:
-    existing = successor.document_templates.filter(
+    source_templates = list(source.document_templates.filter(
         status__in=[
-            OriginationDocumentTemplate.STATUS_READY,
             OriginationDocumentTemplate.STATUS_ACTIVE,
+            OriginationDocumentTemplate.STATUS_READY,
         ],
-    ).order_by('-created_at').first()
-    if existing:
-        return existing
-    source_template = _source_template_for_product(source)
-    if not source_template or not source_template.drive_file_id:
-        return None
-    source_revision = source_template.published_configuration_revision
-    configuration = json.loads(json.dumps(
-        source_revision.configuration if source_revision else source_template.placement_config,
-    ))
-    configuration['document_type'] = successor.document_type
-    configuration['version'] = successor.version
-    inherited = OriginationDocumentTemplate.objects.create(
-        product_definition=successor,
-        document_type=successor.document_type,
-        name=f'{successor.name} LAF v{successor.version}',
-        version=successor.version,
-        status=OriginationDocumentTemplate.STATUS_READY,
-        source_filename=source_template.source_filename,
-        source_sha256=source_template.source_sha256,
-        source_byte_size=source_template.source_byte_size,
-        page_count=source_template.page_count,
-        placement_config=configuration,
-        drive_file_id=source_template.drive_file_id,
-        drive_url=source_template.drive_url,
-        created_by=actor,
-    )
-    OriginationTemplateConfigurationRevision.objects.create(
-        template=inherited,
-        revision=1,
-        configuration=configuration,
-        created_by=actor,
-    )
-    OriginationDocumentTemplateEvent.objects.create(
-        template=inherited,
-        action='version_inherited',
-        actor=actor,
-        metadata={
-            'source_template_id': str(source_template.pk),
-            'source_product_definition_id': str(source.pk),
-            'source_product_version': source.version,
-            'sha256': source_template.source_sha256,
-        },
-    )
-    return inherited
+        drive_file_id__gt='',
+    ).select_related('published_configuration_revision').order_by('display_order', 'document_key'))
+    if not source_templates:
+        fallback = _source_template_for_product(source)
+        source_templates = [fallback] if fallback and fallback.drive_file_id else []
+    inherited_primary = None
+    for source_template in source_templates:
+        existing = successor.document_templates.filter(
+            document_key=source_template.document_key,
+            status__in=[
+                OriginationDocumentTemplate.STATUS_READY,
+                OriginationDocumentTemplate.STATUS_ACTIVE,
+            ],
+        ).first()
+        if existing:
+            inherited_primary = inherited_primary or (
+                existing if existing.document_role == existing.ROLE_PRIMARY else None
+            )
+            continue
+        source_revision = source_template.published_configuration_revision
+        configuration = json.loads(json.dumps(
+            source_revision.configuration if source_revision else source_template.placement_config,
+        ))
+        document_type = (
+            successor.document_type
+            if source_template.document_role == source_template.ROLE_PRIMARY
+            else f'{successor.product_key}-{source_template.document_key}'[:80]
+        )
+        configuration['document_type'] = document_type
+        configuration['version'] = successor.version
+        inherited = OriginationDocumentTemplate.objects.create(
+            product_definition=successor,
+            document_key=source_template.document_key,
+            document_role=source_template.document_role,
+            inclusion_mode=source_template.inclusion_mode,
+            display_order=source_template.display_order,
+            officer_selectable=source_template.officer_selectable,
+            default_selected=source_template.default_selected,
+            applicability_rule=json.loads(json.dumps(source_template.applicability_rule)),
+            form_schema=json.loads(json.dumps(source_template.form_schema)),
+            signer_rules=json.loads(json.dumps(source_template.signer_rules)),
+            document_type=document_type,
+            name=(
+                f'{successor.name} LAF v{successor.version}'
+                if source_template.document_role == source_template.ROLE_PRIMARY
+                else source_template.name
+            ),
+            version=successor.version,
+            status=OriginationDocumentTemplate.STATUS_READY,
+            source_filename=source_template.source_filename,
+            source_sha256=source_template.source_sha256,
+            source_byte_size=source_template.source_byte_size,
+            page_count=source_template.page_count,
+            placement_config=configuration,
+            drive_file_id=source_template.drive_file_id,
+            drive_url=source_template.drive_url,
+            created_by=actor,
+        )
+        OriginationTemplateConfigurationRevision.objects.create(
+            template=inherited, revision=1, configuration=configuration, created_by=actor,
+        )
+        OriginationDocumentTemplateEvent.objects.create(
+            template=inherited, action='version_inherited', actor=actor,
+            metadata={
+                'source_template_id': str(source_template.pk),
+                'source_product_definition_id': str(source.pk),
+                'source_product_version': source.version,
+                'sha256': source_template.source_sha256,
+            },
+        )
+        if inherited.document_role == inherited.ROLE_PRIMARY:
+            inherited_primary = inherited
+    return inherited_primary
 
 
 @transaction.atomic
@@ -655,6 +702,7 @@ def replace_draft_template(
                 OriginationDocumentTemplate.STATUS_READY,
                 OriginationDocumentTemplate.STATUS_ACTIVE,
             ],
+            document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
         ).order_by('-created_at').first()
         if current and current.source_sha256 == digest:
             return current
@@ -723,6 +771,7 @@ def replace_draft_template(
                 OriginationDocumentTemplate.STATUS_READY,
                 OriginationDocumentTemplate.STATUS_ACTIVE,
             ],
+            document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
         ).exclude(pk=candidate.pk))
         for old in previous:
             old.status = old.STATUS_RETIRED
@@ -800,6 +849,56 @@ def publish_product_template(
     validate_template_configuration(
         selected.configuration, template=template, require_complete=True,
     )
+    if template.document_role == template.ROLE_SUPPORTING:
+        published = publish_calibration(
+            template=template, revision=revision, actor=actor,
+            client_request_id=client_request_id,
+        )
+        activated = activate_template(template, actor=actor)
+        OriginationDocumentTemplateEvent.objects.create(
+            template=activated, action='supporting_document_published', actor=actor,
+            metadata={'configuration_revision': published.revision},
+        )
+        return product, activated, published
+
+    supporting_not_ready = product.document_templates.filter(
+        document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
+    ).exclude(status__in=[
+        OriginationDocumentTemplate.STATUS_ACTIVE,
+        OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
+    ])
+    if supporting_not_ready.exists():
+        raise OriginationTemplateError(
+            'Publish or remove every supporting document before publishing the product.',
+        )
+    packet_templates = list(product.document_templates.filter(status__in=[
+        OriginationDocumentTemplate.STATUS_READY,
+        OriginationDocumentTemplate.STATUS_ACTIVE,
+    ]))
+    primaries = [item for item in packet_templates if item.document_role == item.ROLE_PRIMARY]
+    if len(primaries) != 1:
+        raise OriginationTemplateError('A published product requires exactly one primary LAF.')
+    keys = [item.document_key for item in packet_templates]
+    if len(keys) != len(set(keys)):
+        raise OriginationTemplateError('Document keys must be unique within a product version.')
+    from core.services.origination_documents import validate_applicability_rule
+    allowed_fields = {
+        str(item.get('key')) for item in (product.form_schema or {}).get('fields', [])
+        if isinstance(item, dict) and item.get('key')
+    }
+    for packet_template in packet_templates:
+        document_fields = {
+            str(item.get('key'))
+            for item in (packet_template.form_schema or {}).get('fields', [])
+            if isinstance(item, dict) and item.get('key')
+        }
+        try:
+            validate_applicability_rule(
+                packet_template.applicability_rule,
+                allowed_fields=allowed_fields | document_fields,
+            )
+        except ValueError as exc:
+            raise OriginationTemplateError(str(exc)) from exc
     if product.product_version_id:
         from core.services.product_catalog import ProductCatalogError, publish_product_version
         try:

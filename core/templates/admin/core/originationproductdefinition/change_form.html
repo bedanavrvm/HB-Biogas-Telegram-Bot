@@ -3,7 +3,7 @@
 
 {% block extrahead %}
   {{ block.super }}
-  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=4">
+  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=5">
 {% endblock %}
 
 {% block object-tools-items %}
@@ -86,5 +86,29 @@
         <p>Choose the <b>LAF PDF template</b> above and save this draft. The visual alignment builder will open automatically after a successful upload.</p>
       {% endif %}
     </section>
+    {% if original %}
+      <section class="opb-shell opb-next-step">
+        <header class="opb-header">
+          <div>
+            <h2>Document packet</h2>
+            <p>Keep the main LAF first, then add required, conditional, or optional supporting PDFs with their own fields and signer slots.</p>
+          </div>
+          <a class="button" href="{{ origination_document_add_url }}">Add supporting document</a>
+        </header>
+        {% if origination_document_packet %}
+          <div class="opb-document-packet">
+            {% for item in origination_document_packet %}
+              <article>
+                <span><b>{{ item.name }}</b><small>{{ item.get_document_role_display }} · {{ item.get_inclusion_mode_display }}</small></span>
+                <span>
+                  {% if item.drive_file_id %}<a href="{% url 'admin:core_originationdocumenttemplate_calibrate' item.pk %}">Open builder</a>{% endif %}
+                  <a href="{% url 'admin:core_originationdocumenttemplate_change' item.pk %}">Details</a>
+                </span>
+              </article>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </section>
+    {% endif %}
   {% endif %}
 {% endblock %}

@@ -289,6 +289,13 @@ input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !impo
 .review-intro { align-items: flex-start; padding: 1px 0 11px; border-bottom: 1px solid var(--laf-line); }
 .review-intro h3, .review-intro p { margin: 0; }
 .review-intro p:last-child { max-width: 420px; margin-top: 3px; color: var(--laf-muted); font-size: .7rem; }
+.packet-document-list { display: grid; gap: 7px; }
+.packet-document-option { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 10px; border: 1px solid var(--laf-line); border-radius: 10px; background: var(--laf-surface); cursor: pointer; }
+.packet-document-option.selected { border-color: var(--laf-purple); background: color-mix(in srgb, var(--laf-purple) 7%, var(--laf-surface)); }
+.packet-document-option > input { width: 18px; height: 18px; margin: 0; }
+.packet-document-option > span:nth-child(2) { display: grid; min-width: 0; gap: 2px; }
+.packet-document-option small { color: var(--laf-muted); }
+.review-preview-actions { display: flex; flex-wrap: wrap; gap: 7px; }
 .review-sections { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; margin-top: 10px; }
 .review-card { display: flex; align-items: center; justify-content: space-between; gap: 7px; min-height: 54px; padding: 9px !important; border: 1px solid var(--laf-line) !important; border-radius: 9px !important; background: color-mix(in srgb, var(--laf-surface) 82%, var(--laf-bg)) !important; color: inherit !important; text-align: left; }
 .review-card > span:first-child { display: grid; min-width: 0; }
@@ -402,6 +409,10 @@ input:focus, select:focus, textarea:focus { border-color: var(--laf-green) !impo
   .review-intro { display: grid; }
   .review-intro .btn { width: 100%; }
   .review-sections { grid-template-columns: 1fr; }
+  .packet-document-option { grid-template-columns: auto minmax(0, 1fr); }
+  .packet-document-option > .status-chip { grid-column: 2; justify-self: start; }
+  .review-preview-actions { width: 100%; }
+  .review-preview-actions .btn { flex: 1 1 130px; }
   input, select, textarea { font-size: 16px !important; }
 }
 

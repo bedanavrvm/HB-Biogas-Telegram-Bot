@@ -175,6 +175,10 @@ from .origination_views import (
     portal_origination_preview,
     portal_origination_review,
     portal_origination_submit,
+    portal_origination_document_selection,
+    portal_origination_document_fields,
+    portal_origination_document_preview,
+    portal_origination_packet_preview,
 )
 
 urlpatterns = [
@@ -191,6 +195,10 @@ urlpatterns = [
     path('origination/api/applications/<str:application_id>/', portal_auth_required(portal_origination_application_detail), name='loan_origination_application_detail'),
     path('origination/api/applications/<str:application_id>/submit/', portal_auth_required(portal_origination_submit), name='loan_origination_submit'),
     path('origination/api/applications/<str:application_id>/preview/', portal_auth_required(portal_origination_preview), name='loan_origination_preview'),
+    path('origination/api/applications/<str:application_id>/documents/selection/', portal_auth_required(portal_origination_document_selection), name='loan_origination_document_selection'),
+    path('origination/api/applications/<str:application_id>/documents/<slug:document_key>/fields/', portal_auth_required(portal_origination_document_fields), name='loan_origination_document_fields'),
+    path('origination/api/applications/<str:application_id>/documents/<slug:document_key>/preview/', portal_auth_required(portal_origination_document_preview), name='loan_origination_document_preview'),
+    path('origination/api/applications/<str:application_id>/packet/preview/', portal_auth_required(portal_origination_packet_preview), name='loan_origination_packet_preview'),
     path('origination/api/applications/<str:application_id>/review/', portal_auth_required(portal_origination_review), name='loan_origination_review'),
     path('origination/api/applications/<str:application_id>/prepare-signing/', portal_auth_required(portal_origination_prepare_signing), name='loan_origination_prepare_signing'),
     path('origination/api/applications/<str:application_id>/signing-requirements/', portal_auth_required(portal_origination_signing_requirements), name='loan_origination_signing_requirements'),

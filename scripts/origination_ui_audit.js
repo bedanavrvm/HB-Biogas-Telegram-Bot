@@ -35,6 +35,13 @@ const application = id => ({
   branch: 'Embu', officer_name: 'Synthetic Officer', status: 'draft', revision: 1,
   form_schema: { sections, fields }, form_payload: {}, product_terms: {}, product_requirements: {},
   product_custom_values: {}, product_selected_fee_keys: [], requirement_evidence: [],
+  document_packet: {
+    primary_ready: true, ready: false,
+    documents: [
+      { key: 'primary', name: 'Main LAF', role: 'primary', order: 0, inclusion_mode: 'required', applicable: true, selected: true, complete: true, previewed: true, schema: { fields: [] }, field_payload: {} },
+      { key: 'guarantor_consent', name: 'Guarantor consent', role: 'supporting', order: 10, inclusion_mode: 'optional', officer_selectable: true, applicable: true, selected: true, complete: false, previewed: false, missing_fields: ['guarantor_name'], schema: { fields: [{ key: 'guarantor_name', label: 'Guarantor name', type: 'text', required: true }] }, field_payload: {} },
+    ],
+  },
 });
 const applications = Array.from({ length: 16 }, (_, index) => application(index + 1));
 
@@ -170,6 +177,15 @@ async function auditViewport(browser, viewport) {
   const amountInput = page.locator('[data-field="loan_amount"]');
   assert(await amountInput.getAttribute('type') === 'text', `${viewport.name}: money field still uses a browser-native number control`);
   assert(await amountInput.getAttribute('inputmode') === 'decimal', `${viewport.name}: money field lost its decimal keyboard hint`);
+  await page.locator('#origination-section-picker').click();
+  await page.locator('[data-section-index="3"]').click();
+  await page.locator('[data-document-select="guarantor_consent"]').waitFor();
+  assert(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth <= 1), `${viewport.name}: supporting-document selection overflows`);
+  await page.locator('#origination-section-picker').click();
+  await page.locator('[data-section-index="4"]').click();
+  await page.locator('[data-document-field="guarantor_name"]').waitFor();
+  assert(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth <= 1), `${viewport.name}: supporting-document form overflows`);
+  await page.screenshot({ path: path.join(outputDir, `${viewport.name}-supporting-document.png`), fullPage: true });
   await page.locator('#origination-back').click();
   await page.locator('.application-card').first().waitFor();
   await page.waitForFunction(expected => Math.abs(scrollY - expected) <= 5, before);

@@ -112,6 +112,7 @@ from .models import (
     OriginationCorrectionItem,
     OriginationCorrectionRequest,
     OriginationRequirementEvidence,
+    OriginationApplicationDocument,
     OriginationSigningPackage,
     PaymentDocument,
     PaymentDocumentTemplate,
@@ -263,19 +264,17 @@ class OriginationDocumentTemplateForm(forms.ModelForm):
 
     class Meta:
         model = OriginationDocumentTemplate
-        fields = ('product_definition', 'name', 'pdf_file')
+        fields = (
+            'product_definition', 'document_key', 'name', 'document_role',
+            'inclusion_mode', 'display_order', 'officer_selectable',
+            'default_selected', 'applicability_rule', 'form_schema',
+            'signer_rules', 'pdf_file',
+        )
 
     @staticmethod
     def eligible_product_definitions():
-        non_failed_template = OriginationDocumentTemplate.objects.filter(
-            product_definition=models.OuterRef('pk'),
-        ).exclude(status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED)
         return OriginationProductDefinition.objects.filter(
             lifecycle_status=OriginationProductDefinition.STATUS_DRAFT,
-        ).annotate(
-            _has_non_failed_template=models.Exists(non_failed_template),
-        ).filter(
-            _has_non_failed_template=False,
         ).select_related(
             'product_version', 'product_version__product',
         ).order_by('name', '-version')
@@ -283,6 +282,22 @@ class OriginationDocumentTemplateForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['product_definition'].queryset = self.eligible_product_definitions()
+        defaults = {
+            'document_key': 'primary',
+            'document_role': OriginationDocumentTemplate.ROLE_PRIMARY,
+            'inclusion_mode': OriginationDocumentTemplate.INCLUDE_REQUIRED,
+            'display_order': 0,
+            'officer_selectable': False,
+            'default_selected': False,
+            'applicability_rule': {},
+            'form_schema': {},
+            'signer_rules': [],
+        }
+        if not self.is_bound:
+            for key, value in defaults.items():
+                self.fields[key].initial = value
+        for key in defaults:
+            self.fields[key].required = False
 
     def clean(self):
         cleaned = super().clean()
@@ -290,11 +305,26 @@ class OriginationDocumentTemplateForm(forms.ModelForm):
         product = cleaned.get('product_definition')
         if not pdf_file or not product:
             return cleaned
+        cleaned['document_key'] = str(cleaned.get('document_key') or 'primary').strip()
+        cleaned['document_role'] = cleaned.get('document_role') or OriginationDocumentTemplate.ROLE_PRIMARY
+        cleaned['inclusion_mode'] = cleaned.get('inclusion_mode') or OriginationDocumentTemplate.INCLUDE_REQUIRED
+        cleaned['display_order'] = cleaned.get('display_order') or 0
+        cleaned['officer_selectable'] = bool(cleaned.get('officer_selectable'))
+        cleaned['default_selected'] = bool(cleaned.get('default_selected'))
+        cleaned['applicability_rule'] = cleaned.get('applicability_rule') or {}
+        cleaned['form_schema'] = cleaned.get('form_schema') or {}
+        cleaned['signer_rules'] = cleaned.get('signer_rules') or []
+        for key, value in cleaned.items():
+            if key in self.fields:
+                setattr(self.instance, key, value)
         if not str(pdf_file.name).lower().endswith('.pdf'):
             self.add_error('pdf_file', 'Upload a PDF file.')
             return cleaned
-        if product.document_templates.exclude(status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED).exists():
-            self.add_error('product_definition', 'This product version already has a template. Create a new product version to replace it.')
+        document_key = cleaned['document_key']
+        if product.document_templates.exclude(
+            status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
+        ).filter(document_key=document_key).exists():
+            self.add_error('document_key', 'This product version already has a document with this key.')
             return cleaned
         from core.services.origination_templates import (
             OriginationTemplateError, initial_template_configuration, validate_template_pdf,
@@ -306,13 +336,49 @@ class OriginationDocumentTemplateForm(forms.ModelForm):
         except OriginationTemplateError as exc:
             raise forms.ValidationError(str(exc)) from exc
         self.instance.product_definition = product
-        self.instance.document_type = product.document_type
+        role = cleaned['document_role']
+        self.instance.document_type = (
+            product.document_type if role == OriginationDocumentTemplate.ROLE_PRIMARY
+            else f'{product.product_key}-{document_key}'[:80]
+        )
         self.instance.version = product.version
         self.instance.source_filename = str(pdf_file.name)[:255]
         self.instance.source_sha256 = digest
         self.instance.source_byte_size = len(pdf_data)
         self.instance.page_count = page_count
         self.instance.placement_config = initial_template_configuration(product)
+        self.instance.placement_config['document_type'] = self.instance.document_type
+        self.instance.form_schema = (
+            cleaned.get('form_schema') or product.form_schema if role == OriginationDocumentTemplate.ROLE_PRIMARY
+            else cleaned.get('form_schema') or {}
+        )
+        self.instance.signer_rules = (
+            cleaned.get('signer_rules') or product.signer_rules if role == OriginationDocumentTemplate.ROLE_PRIMARY
+            else cleaned.get('signer_rules') or []
+        )
+        sample_context = self.instance.placement_config.setdefault('sample_context', {})
+        for field in (self.instance.form_schema or {}).get('fields', []):
+            if isinstance(field, dict) and field.get('key'):
+                sample_context.setdefault(
+                    str(field['key']), str(field.get('label') or field['key']).replace('_', ' ').title(),
+                )
+        if role == OriginationDocumentTemplate.ROLE_SUPPORTING and not self.instance.form_schema:
+            self.add_error('form_schema', 'Supporting documents require a document-specific field schema.')
+        from core.services.origination_documents import validate_applicability_rule
+        allowed_fields = {
+            str(item.get('key')) for item in (product.form_schema or {}).get('fields', [])
+            if isinstance(item, dict) and item.get('key')
+        }
+        allowed_fields.update(
+            str(item.get('key')) for item in (self.instance.form_schema or {}).get('fields', [])
+            if isinstance(item, dict) and item.get('key')
+        )
+        try:
+            validate_applicability_rule(
+                cleaned.get('applicability_rule') or {}, allowed_fields=allowed_fields,
+            )
+        except ValueError as exc:
+            self.add_error('applicability_rule', str(exc))
         self._pdf_data = pdf_data
         return cleaned
 
@@ -5144,7 +5210,7 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
             template = templates.filter(status__in=[
                 OriginationDocumentTemplate.STATUS_READY,
                 OriginationDocumentTemplate.STATUS_ACTIVE,
-            ]).first()
+            ], document_role=OriginationDocumentTemplate.ROLE_PRIMARY).first()
             failed_template = templates.filter(
                 status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
             ).first()
@@ -5163,6 +5229,12 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
                 'admin:core_originationdatafield_add',
             ),
             'origination_document_template': template,
+            'origination_document_packet': list(
+                templates.filter(status__in=[
+                    OriginationDocumentTemplate.STATUS_READY,
+                    OriginationDocumentTemplate.STATUS_ACTIVE,
+                ]).order_by('display_order', 'document_key')
+            ) if product else [],
             'origination_failed_template': failed_template,
             'origination_existing_successor': existing_successor,
             'origination_version_history_url': (
@@ -5191,6 +5263,10 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
                 )
                 if template else ''
             ),
+            'origination_document_add_url': (
+                reverse('admin:core_originationdocumenttemplate_add')
+                + f'?product_definition={product.pk}' if product else ''
+            ),
         }
         return super().changeform_view(request, object_id, form_url, context)
 
@@ -5204,7 +5280,7 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
         template = obj.document_templates.filter(status__in=[
             OriginationDocumentTemplate.STATUS_READY,
             OriginationDocumentTemplate.STATUS_ACTIVE,
-        ]).order_by('-created_at').first()
+        ], document_role=OriginationDocumentTemplate.ROLE_PRIMARY).order_by('-created_at').first()
         if not template:
             failed = obj.document_templates.filter(
                 status=OriginationDocumentTemplate.STATUS_UPLOAD_FAILED,
@@ -5253,7 +5329,7 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
             current_template = obj.document_templates.filter(status__in=[
                 OriginationDocumentTemplate.STATUS_READY,
                 OriginationDocumentTemplate.STATUS_ACTIVE,
-            ]).order_by('-created_at').first()
+            ], document_role=OriginationDocumentTemplate.ROLE_PRIMARY).order_by('-created_at').first()
             creator = replace_draft_template if current_template else create_template
             template = creator(
                 pdf_file=laf_pdf, product_definition=obj,
@@ -5422,12 +5498,14 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
     form = OriginationDocumentTemplateForm
     change_form_template = 'admin/core/originationdocumenttemplate/change_form.html'
     change_list_template = 'admin/core/originationdocumenttemplate/change_list.html'
-    list_display = ('name', 'product_definition', 'document_type', 'version', 'status', 'calibrate_link', 'page_count', 'created_by', 'activated_by', 'updated_at')
-    list_filter = ('status', 'document_type')
+    list_display = ('name', 'product_definition', 'document_role', 'inclusion_mode', 'display_order', 'status', 'calibrate_link', 'page_count', 'updated_at')
+    list_filter = ('status', 'document_role', 'inclusion_mode', 'document_type')
     search_fields = ('name', 'document_type', 'source_filename', 'source_sha256')
     actions = ('activate_selected_templates',)
     readonly_fields = (
-        'product_definition', 'name', 'document_type', 'version', 'status', 'source_filename', 'source_sha256',
+        'product_definition', 'document_key', 'name', 'document_role', 'inclusion_mode',
+        'display_order', 'officer_selectable', 'default_selected', 'applicability_rule',
+        'form_schema', 'signer_rules', 'document_type', 'version', 'status', 'source_filename', 'source_sha256',
         'source_byte_size', 'page_count', 'calibration_link', 'placement_config', 'drive_link',
         'published_configuration_revision', 'upload_error', 'created_by', 'activated_by',
         'activated_at', 'created_at', 'updated_at',
@@ -5450,13 +5528,21 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
                         'Select the draft loan form that defines the fields for this PDF. '
                         'After upload, the visual calibration screen opens automatically.'
                     ),
-                    'fields': ('product_definition', 'name', 'pdf_file'),
+                    'fields': (
+                        'product_definition', ('document_key', 'name'),
+                        ('document_role', 'inclusion_mode', 'display_order'),
+                        ('officer_selectable', 'default_selected'),
+                        'applicability_rule', 'form_schema', 'signer_rules', 'pdf_file',
+                    ),
                 },
             ),)
         return (
             ('Template', {
                 'fields': (
-                    'product_definition', 'name',
+                    'product_definition', ('document_key', 'name'),
+                    ('document_role', 'inclusion_mode', 'display_order'),
+                    ('officer_selectable', 'default_selected'),
+                    'applicability_rule', 'form_schema', 'signer_rules',
                     ('document_type', 'version', 'status'),
                     'calibration_link',
                 ),
@@ -5561,7 +5647,11 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
             document_type=obj.document_type, is_active=True,
         ).order_by('-version').first()
         from core.services.origination_fields import catalogue_for_product, product_schema_revision
-        fields = product.form_schema if product else {}
+        fields = (
+            obj.form_schema
+            if obj.document_role == obj.ROLE_SUPPORTING and obj.form_schema
+            else product.form_schema if product else {}
+        )
         presentations = {
             str(item.get('key') or ''): item
             for item in (fields.get('fields') or [])
@@ -5583,7 +5673,7 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
             'context_keys': context_keys,
             'schema_revision': product_schema_revision(product) if product else 0,
             'form_sections': list(fields.get('sections') or []),
-            'signature_slots': list(_expected_signature_slots(product).values()),
+            'signature_slots': list(_expected_signature_slots(product, obj).values()),
         })
 
     def calibration_page_view(self, request, object_id):
@@ -5862,6 +5952,16 @@ class OriginationApplicationEventAdmin(_AppendOnlyOriginationAdmin):
     list_display = ('application', 'action', 'revision', 'actor', 'occurred_at')
     list_filter = ('action',)
     search_fields = ('application__reference_number', 'request_id')
+
+
+@admin.register(OriginationApplicationDocument)
+class OriginationApplicationDocumentAdmin(_AppendOnlyOriginationAdmin):
+    list_display = (
+        'application', 'document_key', 'document_role', 'selected',
+        'applicable', 'previewed_application_revision', 'updated_at',
+    )
+    list_filter = ('document_role', 'inclusion_mode', 'selected', 'applicable')
+    search_fields = ('application__reference_number', 'document_key', 'name')
 
 
 @admin.register(OriginationCorrectionRequest)

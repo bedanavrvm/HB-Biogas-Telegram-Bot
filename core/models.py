@@ -3753,11 +3753,39 @@ class OriginationDocumentTemplate(models.Model):
         (STATUS_UPLOAD_FAILED, 'Upload failed'),
     ]
 
+    ROLE_PRIMARY = 'primary'
+    ROLE_SUPPORTING = 'supporting'
+    ROLE_CHOICES = [
+        (ROLE_PRIMARY, 'Primary LAF'),
+        (ROLE_SUPPORTING, 'Supporting document'),
+    ]
+    INCLUDE_REQUIRED = 'required'
+    INCLUDE_CONDITIONAL = 'conditional_required'
+    INCLUDE_OPTIONAL = 'optional'
+    INCLUDE_CHOICES = [
+        (INCLUDE_REQUIRED, 'Always required'),
+        (INCLUDE_CONDITIONAL, 'Required when rule matches'),
+        (INCLUDE_OPTIONAL, 'Officer selectable'),
+    ]
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     product_definition = models.ForeignKey(
         OriginationProductDefinition, null=True, blank=True, on_delete=models.PROTECT,
         related_name='document_templates',
     )
+    document_key = models.SlugField(max_length=80, default='primary', db_index=True)
+    document_role = models.CharField(
+        max_length=16, choices=ROLE_CHOICES, default=ROLE_PRIMARY, db_index=True,
+    )
+    inclusion_mode = models.CharField(
+        max_length=24, choices=INCLUDE_CHOICES, default=INCLUDE_REQUIRED,
+    )
+    display_order = models.PositiveSmallIntegerField(default=0)
+    officer_selectable = models.BooleanField(default=False)
+    default_selected = models.BooleanField(default=False)
+    applicability_rule = models.JSONField(default=dict, blank=True)
+    form_schema = models.JSONField(default=dict, blank=True)
+    signer_rules = models.JSONField(default=list, blank=True)
     document_type = models.SlugField(max_length=80, db_index=True)
     name = models.CharField(max_length=180)
     version = models.PositiveIntegerField()
@@ -3787,7 +3815,7 @@ class OriginationDocumentTemplate(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['document_type', '-version']
+        ordering = ['product_definition', 'display_order', 'document_key', '-version']
         constraints = [
             models.UniqueConstraint(
                 fields=['document_type', 'version'],
@@ -3802,6 +3830,25 @@ class OriginationDocumentTemplate(models.Model):
 
     def __str__(self):
         return f'{self.name} v{self.version}'
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.document_role == self.ROLE_PRIMARY:
+            if self.document_key != 'primary':
+                errors['document_key'] = 'The primary LAF must use the key "primary".'
+            if self.inclusion_mode != self.INCLUDE_REQUIRED:
+                errors['inclusion_mode'] = 'The primary LAF is always required.'
+            if self.officer_selectable:
+                errors['officer_selectable'] = 'The primary LAF cannot be optional.'
+        elif self.document_key == 'primary':
+            errors['document_key'] = 'Supporting documents require their own stable key.'
+        if self.inclusion_mode == self.INCLUDE_OPTIONAL and not self.officer_selectable:
+            errors['officer_selectable'] = 'Optional documents must be officer selectable.'
+        if self.inclusion_mode != self.INCLUDE_OPTIONAL and self.default_selected:
+            errors['default_selected'] = 'Only optional documents can be selected by default.'
+        if errors:
+            raise ValidationError(errors)
 
 
 class OriginationDocumentTemplateEvent(models.Model):
@@ -3924,6 +3971,7 @@ class LoanOriginationApplication(models.Model):
     schema_snapshot = models.JSONField(default=dict)
     signer_rules_snapshot = models.JSONField(default=list)
     template_configuration_snapshot = models.JSONField(default=dict, blank=True)
+    primary_previewed_revision = models.PositiveIntegerField(null=True, blank=True)
     product_terms_snapshot = models.JSONField(default=dict, blank=True)
     product_quote_snapshot = models.JSONField(default=dict, blank=True)
     product_requirement_evidence = models.JSONField(default=dict, blank=True)
@@ -4239,6 +4287,54 @@ class OriginationRequirementEvidence(models.Model):
         raise ValidationError('Origination evidence cannot be deleted; remove it logically.')
 
 
+class OriginationApplicationDocument(models.Model):
+    """Application-scoped snapshot and progress for one generated packet document."""
+
+    SOURCE_REQUIRED = 'required'
+    SOURCE_RULE = 'rule'
+    SOURCE_DEFAULT = 'default'
+    SOURCE_OFFICER = 'officer'
+    SOURCE_CHOICES = [
+        (SOURCE_REQUIRED, 'Required'),
+        (SOURCE_RULE, 'Applicability rule'),
+        (SOURCE_DEFAULT, 'Default selection'),
+        (SOURCE_OFFICER, 'Officer selection'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    application = models.ForeignKey(
+        LoanOriginationApplication, on_delete=models.PROTECT, related_name='packet_documents',
+    )
+    template = models.ForeignKey(
+        OriginationDocumentTemplate, null=True, blank=True, on_delete=models.PROTECT,
+        related_name='application_documents',
+    )
+    document_key = models.SlugField(max_length=80)
+    name = models.CharField(max_length=180)
+    document_role = models.CharField(max_length=16, choices=OriginationDocumentTemplate.ROLE_CHOICES)
+    display_order = models.PositiveSmallIntegerField(default=0)
+    inclusion_mode = models.CharField(max_length=24, choices=OriginationDocumentTemplate.INCLUDE_CHOICES)
+    selection_source = models.CharField(max_length=16, choices=SOURCE_CHOICES, default=SOURCE_REQUIRED)
+    applicable = models.BooleanField(default=True)
+    selected = models.BooleanField(default=True)
+    template_snapshot = models.JSONField(default=dict)
+    schema_snapshot = models.JSONField(default=dict, blank=True)
+    signer_rules_snapshot = models.JSONField(default=list, blank=True)
+    field_payload = models.JSONField(default=dict, blank=True)
+    previewed_application_revision = models.PositiveIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['display_order', 'document_key']
+        constraints = [models.UniqueConstraint(
+            fields=['application', 'document_key'], name='unique_origination_application_document',
+        )]
+
+    def __str__(self):
+        return f'{self.application.reference_number}: {self.name}'
+
+
 class OriginationSigningPackage(models.Model):
     """Stable cross-system link from one frozen revision to e-signatures."""
 
@@ -4272,6 +4368,8 @@ class OriginationSigningPackage(models.Model):
     context_snapshot = models.JSONField(default=dict)
     participants_snapshot = models.JSONField(default=list)
     requirement_evidence_snapshot = models.JSONField(default=list, blank=True)
+    document_manifest_snapshot = models.JSONField(default=list, blank=True)
+    combined_document_hash = models.CharField(max_length=64, blank=True, default='')
     status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_PENDING, db_index=True)
     unsigned_document_hash = models.CharField(max_length=64, blank=True, default='')
     signed_document_hash = models.CharField(max_length=64, blank=True, default='')

@@ -37,6 +37,13 @@ from core.services.loan_origination import (
     serialize_application,
     submit_for_review,
 )
+from core.services.origination_documents import (
+    mark_document_previewed,
+    render_document,
+    render_packet,
+    save_document_fields,
+    select_documents,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -200,6 +207,19 @@ def portal_origination_products(request):
             'document_template_name': item.document_template_name,
             'document_template_version': item.document_template_version,
             'template_ready': bool(item.document_template_sha256),
+            'document_packet': [
+                {
+                    'key': template.document_key,
+                    'name': template.name,
+                    'role': template.document_role,
+                    'order': template.display_order,
+                    'inclusion_mode': template.inclusion_mode,
+                    'default_selected': template.default_selected,
+                }
+                for template in item.document_templates.filter(status='active').order_by(
+                    'display_order', 'document_key',
+                )
+            ],
         })
     return JsonResponse({
         'ok': True,
@@ -394,6 +414,9 @@ def portal_origination_preview(request, application_id: str):
         if request_id and not application.events.filter(request_id=request_id).exists():
             from core.services.loan_origination import _record_event
             _record_event(application, 'document_previewed', actor=request.portal_user, request_id=request_id)
+        if application.primary_previewed_revision != application.revision:
+            application.primary_previewed_revision = application.revision
+            application.save(update_fields=['primary_previewed_revision', 'updated_at'])
     except OriginationConflict as exc:
         return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
     except (OriginationError, TypeError, ValueError) as exc:
@@ -611,6 +634,119 @@ def portal_origination_evidence_download(request, evidence_id: str):
     filename = Path(item.original_filename).name.replace('"', '')
     response = HttpResponse(content, content_type=item.mime_type)
     response['Content-Disposition'] = f'inline; filename="{filename}"'
+    response['Cache-Control'] = 'no-store, private'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_origination_document_selection(request, application_id: str):
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    error = _capability_error(request, 'portal.origination.create', application)
+    if error:
+        return error
+    if (access_error := _application_access_error(request, application)):
+        return access_error
+    try:
+        body = _body(request)
+        saved = select_documents(
+            application_id=application.pk, actor=request.portal_user,
+            selected_keys=body.get('selected_keys'), expected_revision=int(body.get('revision')),
+            request_id=_request_id(request, body),
+        )
+    except OriginationConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except (OriginationError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    return JsonResponse({'ok': True, 'application': serialize_application(saved)})
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_origination_document_fields(request, application_id: str, document_key: str):
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    error = _capability_error(request, 'portal.origination.create', application)
+    if error:
+        return error
+    if (access_error := _application_access_error(request, application)):
+        return access_error
+    try:
+        body = _body(request)
+        saved = save_document_fields(
+            application_id=application.pk, document_key=document_key,
+            actor=request.portal_user, payload=body.get('payload'),
+            expected_revision=int(body.get('revision')), request_id=_request_id(request, body),
+        )
+    except OriginationConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except (OriginationError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    return JsonResponse({'ok': True, 'application': serialize_application(saved)})
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_origination_document_preview(request, application_id: str, document_key: str):
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    error = _capability_error(request, 'portal.origination.view', application)
+    if error:
+        return error
+    if (access_error := _application_access_error(request, application)):
+        return access_error
+    try:
+        body = _body(request)
+        if int(body.get('revision')) != application.revision:
+            raise OriginationConflict('This application changed. Refresh before previewing it.')
+        content = render_document(application, document_key)
+        mark_document_previewed(application, document_key)
+        request_id = _request_id(request, body)
+        if request_id and not application.events.filter(request_id=request_id).exists():
+            from core.services.loan_origination import _record_event
+            _record_event(
+                application, 'supporting_document_previewed', actor=request.portal_user,
+                request_id=request_id, after={'document_key': document_key},
+            )
+    except OriginationConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except (OriginationError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    response = HttpResponse(content, content_type='application/pdf')
+    response['Content-Disposition'] = f'inline; filename="{application.reference_number}-{document_key}.pdf"'
+    response['Cache-Control'] = 'no-store, private'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def portal_origination_packet_preview(request, application_id: str):
+    application = _application(application_id)
+    if not application:
+        return JsonResponse({'ok': False, 'error': 'Application not found.'}, status=404)
+    error = _capability_error(request, 'portal.origination.view', application)
+    if error:
+        return error
+    if (access_error := _application_access_error(request, application)):
+        return access_error
+    try:
+        body = _body(request)
+        if int(body.get('revision')) != application.revision:
+            raise OriginationConflict('This application changed. Refresh before previewing the packet.')
+        content, manifest = render_packet(application)
+    except OriginationConflict as exc:
+        return JsonResponse({'ok': False, 'error': str(exc), 'conflict': True}, status=409)
+    except (OriginationError, TypeError, ValueError) as exc:
+        return JsonResponse(_safe_error(exc), status=400)
+    response = HttpResponse(content, content_type='application/pdf')
+    response['Content-Disposition'] = f'inline; filename="{application.reference_number}-packet.pdf"'
+    response['X-Document-Count'] = str(len(manifest))
     response['Cache-Control'] = 'no-store, private'
     response['X-Content-Type-Options'] = 'nosniff'
     return response

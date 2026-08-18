@@ -1,4 +1,7 @@
+from io import BytesIO
 from unittest.mock import patch
+
+from pypdf import PdfReader, PdfWriter
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
@@ -7,6 +10,7 @@ from django.test import TestCase
 from core.models import (
     LoanOriginationApplication,
     OriginationApplicationEvent,
+    OriginationDocumentTemplate,
     OriginationProductDefinition,
 )
 from core.services.loan_origination import (
@@ -18,6 +22,14 @@ from core.services.loan_origination import (
     render_application_preview,
     save_application_fields,
     submit_for_review,
+)
+from core.services.origination_documents import (
+    mark_document_previewed,
+    save_document_fields,
+    select_documents,
+    serialize_packet,
+    render_packet,
+    validate_applicability_rule,
 )
 
 
@@ -54,6 +66,20 @@ class LoanOriginationServiceTests(TestCase):
         )
         with self.assertRaises(ValidationError):
             definition.full_clean()
+
+    def test_supporting_document_rules_are_non_executable_and_field_scoped(self):
+        validate_applicability_rule(
+            {'all': [
+                {'field': 'consent', 'operator': 'equals', 'value': True},
+                {'field': 'customer_name', 'operator': 'not_equals', 'value': ''},
+            ]},
+            allowed_fields={'consent', 'customer_name'},
+        )
+        with self.assertRaisesRegex(ValueError, 'unknown field'):
+            validate_applicability_rule(
+                {'field': '__import__', 'operator': 'equals', 'value': 'unsafe'},
+                allowed_fields={'consent'},
+            )
 
     def test_create_and_write_requests_are_idempotent_and_revision_checked(self):
         application, replayed = create_application(
@@ -240,3 +266,98 @@ class LoanOriginationServiceTests(TestCase):
         self.assertEqual(content, b'%PDF-product-specific')
         self.assertEqual(renderer.call_args.kwargs['document_type'], 'synthetic_loan_agreement')
         self.assertEqual(renderer.call_args.kwargs['version'], 1)
+
+    def test_optional_supporting_document_is_separate_prefilled_and_revision_checked(self):
+        primary = OriginationDocumentTemplate.objects.create(
+            product_definition=self.product,
+            document_key='primary', document_role='primary', inclusion_mode='required',
+            document_type=self.product.document_type, name='Primary LAF', version=1,
+            status='active', source_filename='primary.pdf', source_sha256='1' * 64,
+            source_byte_size=100, page_count=1, placement_config={}, created_by=self.officer,
+        )
+        support = OriginationDocumentTemplate.objects.create(
+            product_definition=self.product,
+            document_key='guarantor_consent', document_role='supporting',
+            inclusion_mode='optional', officer_selectable=True,
+            applicability_rule={'field': 'consent', 'operator': 'equals', 'value': True},
+            form_schema={'fields': [
+                {'key': 'customer_name', 'type': 'text', 'required': True},
+                {'key': 'guarantor_name', 'type': 'text', 'required': True},
+            ]},
+            signer_rules=[{'role': 'guarantor'}], display_order=10,
+            document_type='pilot-product-guarantor-consent', name='Guarantor consent', version=1,
+            status='active', source_filename='guarantor.pdf', source_sha256='2' * 64,
+            source_byte_size=100, page_count=1, placement_config={}, created_by=self.officer,
+        )
+        application, _ = create_application(
+            product_key=self.product.product_key, officer=self.officer,
+            branch='Synthetic Branch', client_request_id='packet-create',
+        )
+        self.assertEqual(application.packet_documents.count(), 2)
+        support_document = application.packet_documents.get(document_key=support.document_key)
+        self.assertFalse(support_document.applicable)
+        application = save_application_fields(
+            application_id=application.pk, actor=self.officer,
+            payload={'customer_name': 'Synthetic Customer', 'consent': True},
+            expected_revision=application.revision, request_id='packet-main-save',
+        )
+        support_document.refresh_from_db()
+        self.assertTrue(support_document.applicable)
+        application.primary_previewed_revision = application.revision
+        application.save(update_fields=['primary_previewed_revision'])
+        application = select_documents(
+            application_id=application.pk, actor=self.officer,
+            selected_keys=['guarantor_consent'], expected_revision=application.revision,
+            request_id='packet-selection',
+        )
+        application = save_document_fields(
+            application_id=application.pk, document_key='guarantor_consent',
+            actor=self.officer, payload={
+                'customer_name': 'Attempted overwrite',
+                'guarantor_name': 'Synthetic Guarantor',
+            }, expected_revision=application.revision, request_id='packet-support-save',
+        )
+        support_document.refresh_from_db()
+        self.assertEqual(application.form_payload['customer_name'], 'Synthetic Customer')
+        self.assertEqual(support_document.field_payload, {'guarantor_name': 'Synthetic Guarantor'})
+        mark_document_previewed(application, 'guarantor_consent')
+        packet = serialize_packet(application)
+        self.assertTrue(packet['ready'])
+        self.assertTrue(packet['primary_ready'])
+        self.assertEqual(primary.document_key, 'primary')
+        rendered_documents = []
+        for width in (200, 300):
+            writer = PdfWriter()
+            writer.add_blank_page(width=width, height=400)
+            output = BytesIO()
+            writer.write(output)
+            rendered_documents.append(output.getvalue())
+        with patch(
+            'core.services.origination_documents.render_document',
+            side_effect=rendered_documents,
+        ):
+            combined, manifest = render_packet(application)
+        self.assertEqual(len(PdfReader(BytesIO(combined)).pages), 2)
+        self.assertEqual([item['key'] for item in manifest], ['primary', 'guarantor_consent'])
+        self.assertTrue(all(len(item['rendered_sha256']) == 64 for item in manifest))
+
+    def test_supporting_document_selection_requires_current_primary_preview(self):
+        OriginationDocumentTemplate.objects.create(
+            product_definition=self.product,
+            document_key='optional_notice', document_role='supporting',
+            inclusion_mode='optional', officer_selectable=True,
+            form_schema={'fields': [{'key': 'notice_value', 'type': 'text'}]},
+            document_type='pilot-product-optional-notice', name='Optional notice', version=1,
+            status='active', source_filename='notice.pdf', source_sha256='3' * 64,
+            source_byte_size=100, page_count=1, placement_config={}, created_by=self.officer,
+        )
+        application, _ = create_application(
+            product_key=self.product.product_key, officer=self.officer,
+            branch='Synthetic Branch', client_request_id='packet-gate-create',
+        )
+        with self.assertRaisesRegex(OriginationError, 'preview the primary LAF'):
+            select_documents(
+                application_id=application.pk, actor=self.officer,
+                selected_keys=['optional_notice'], expected_revision=application.revision,
+                request_id='packet-gate-select',
+            )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import uuid
 from dataclasses import dataclass
@@ -474,6 +475,8 @@ def create_application(*, product_key: str, officer, branch: str, client_request
             return existing, True
         raise
     _record_event(application, 'created', actor=officer, request_id=client_request_id)
+    from core.services.origination_documents import initialize_document_packet
+    initialize_document_packet(application)
     return application, False
 
 
@@ -609,6 +612,8 @@ def save_application_fields(
         'branch_ref', 'county_ref', 'sub_county_ref', 'location_snapshot',
         'revision', 'status', 'updated_at',
     ])
+    from core.services.origination_documents import refresh_document_applicability
+    refresh_document_applicability(application)
     _record_event(application, 'fields_saved', actor=actor, request_id=request_id, before=before)
     return application
 
@@ -686,8 +691,17 @@ def submit_for_review(*, application_id, actor, expected_revision: int, request_
         raise OriginationError(
             'Complete all required application fields before review.', errors=result.errors,
         )
-    if not application.events.filter(action='document_previewed', revision=application.revision).exists():
+    if application.primary_previewed_revision != application.revision and not application.events.filter(
+        action='document_previewed', revision=application.revision,
+    ).exists():
         raise OriginationError('Preview the filled document for this saved revision before submitting.')
+    if application.packet_documents.exists():
+        from core.services.origination_documents import serialize_packet
+        packet = serialize_packet(application)
+        if not packet['ready']:
+            raise OriginationError(
+                'Complete and preview every selected supporting document before submitting.',
+            )
     missing = _missing_application_requirements(application, stage='review')
     if missing:
         raise OriginationError(
@@ -821,6 +835,11 @@ def prepare_signing_package(
         )
     package_id = uuid.uuid4()
     from core.services.origination_evidence import evidence_manifest
+    from core.services.origination_documents import packet_signers, render_packet
+    packet_pdf, document_manifest = (
+        render_packet(application) if application.packet_documents.exists() else (b'', [])
+    )
+    packet_hash = hashlib.sha256(packet_pdf).hexdigest() if packet_pdf else ''
     package = OriginationSigningPackage.objects.create(
         id=package_id,
         application=application,
@@ -831,8 +850,11 @@ def prepare_signing_package(
         template_sha256=application.product_definition.document_template_sha256,
         template_configuration_snapshot=application.template_configuration_snapshot,
         context_snapshot=preview_context(application),
-        participants_snapshot=application.signer_rules_snapshot,
+        participants_snapshot=packet_signers(application),
         requirement_evidence_snapshot=evidence_manifest(application),
+        document_manifest_snapshot=document_manifest,
+        combined_document_hash=packet_hash,
+        unsigned_document_hash=packet_hash,
     )
     from core.services.origination_fields import project_reporting_values
     project_reporting_values(application)
@@ -925,4 +947,6 @@ def serialize_application(
             'active_correction': _serialize_correction(application),
             'presentation': presentation,
         })
+        from core.services.origination_documents import serialize_packet
+        payload['document_packet'] = serialize_packet(application)
     return payload
