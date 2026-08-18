@@ -1,5 +1,6 @@
 .field-form_schema,
-.field-signer_rules { display: none !important; }
+.field-signer_rules,
+.field-applicability_rule { display: none !important; }
 .opb-shell { margin: 16px 0; padding: 16px; border: 1px solid #cbd5e1; border-radius: 10px; background: #fff; color: #172033; }
 .opb-header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
 .opb-shell h2, .opb-shell h3 { margin: 0 0 6px; color: #172033; }
@@ -21,6 +22,8 @@
 .opb-slot { border-left-color: #7c3aed; }
 .opb-empty { padding: 16px; border: 1px dashed #94a3b8; border-radius: 7px; color: #64748b; text-align: center; }
 .opb-errors { margin-top: 10px; padding: 9px 12px; border: 1px solid #fecaca; border-radius: 7px; background: #fef2f2; color: #991b1b; }
+.opb-role-note { margin-top: 12px; padding: 10px 12px; border: 1px solid #bfdbfe; border-radius: 7px; background: #eff6ff; color: #1e3a8a; font-size: 13px; }
+.opb-builder-muted { border-style: dashed; }
 .opb-next-step .button { display: inline-flex; background: #2563eb !important; color: #fff !important; }
 .opb-prerequisite-warning { border-color: #f59e0b; background: #fffbeb; }
 .opb-prerequisite-warning h2 { color: #92400e; }
@@ -38,6 +41,7 @@
 .dark .opb-row input:not([type="checkbox"]), .dark .opb-row select, .dark .opb-row textarea { border-color: rgb(var(--color-base-700)); background: rgb(var(--color-base-900)); color: rgb(var(--color-base-200)); color-scheme: dark; }
 .dark .opb-tools button, .dark .opb-add { border-color: rgb(var(--color-base-700)); background: rgb(var(--color-base-900)); color: rgb(var(--color-base-200)); }
 .dark .opb-field, .dark .opb-slot { background: rgb(var(--color-base-900)); }
+.dark .opb-role-note { border-color: #1d4ed8; background: rgb(30 64 175 / .22); color: #bfdbfe; }
 .dark .opb-prerequisite-warning { border-color: #b45309; background: rgb(120 53 15 / .22); }
 .dark .opb-prerequisite-warning h2 { color: #fbbf24; }
 .dark .opb-secondary-link { color: #60a5fa; }

@@ -3,7 +3,7 @@
 
 {% block extrahead %}
   {{ block.super }}
-  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=4">
+  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=6">
 {% endblock %}
 
 {% block form_before %}
@@ -22,6 +22,46 @@
         <a class="opb-secondary-link" href="{{ manage_product_definitions_url }}">Manage loan form definitions</a>
       </div>
     </section>
+  {% endif %}
+{% endblock %}
+
+{% block field_sets %}
+  {{ block.super }}
+  {% if add %}
+    {{ origination_signer_roles|json_script:"origination-signer-role-data" }}
+    {{ origination_data_fields|json_script:"origination-data-field-data" }}
+    {{ origination_condition_fields_by_product|json_script:"origination-condition-fields-data" }}
+    <section id="origination-product-builder" class="opb-shell" data-builder-kind="supporting-document" data-require-fields="true" data-require-signers="false">
+      <header class="opb-header">
+        <div>
+          <h2>Supporting document form builder</h2>
+          <p>Choose the canonical fields this PDF needs, arrange them into clear Mini App sections, and add a signer only where the document needs one. A field already collected on the main LAF is reused automatically; a new field is entered only once.</p>
+        </div>
+        <div class="opb-actions">
+          <a class="opb-secondary-link" href="{{ origination_data_field_add_url }}" target="_blank" rel="noopener">Create canonical field</a>
+          <button type="button" class="button" data-action="add-section">Add section</button>
+          <button type="button" class="button" data-action="add-signer">Add signer</button>
+        </div>
+      </header>
+      <div class="opb-role-note" data-supporting-builder-note>
+        This builder applies to a <b>Supporting document</b>. A primary LAF always uses the fields and signers already configured on its loan-form definition.
+      </div>
+      <div id="opb-errors" class="opb-errors" hidden></div>
+      <div class="opb-grid" data-supporting-builder-content>
+        <section>
+          <h3>Document sections and fields</h3>
+          <p class="help">Select a canonical field instead of retyping a variable. Its type and safe data rules follow automatically.</p>
+          <div id="opb-sections"></div>
+        </section>
+        <aside>
+          <h3>Signing roles</h3>
+          <p class="help">Add only the signatures or stamps that this supporting document requires. Leave this empty for a document with no signer.</p>
+          <div id="opb-signers"></div>
+        </aside>
+      </div>
+    </section>
+    <script src="{% static 'admin/origination_product_builder.js' %}?v=3" defer></script>
+    <script src="{% static 'admin/origination_document_conditions.js' %}?v=1" defer></script>
   {% endif %}
 {% endblock %}
 

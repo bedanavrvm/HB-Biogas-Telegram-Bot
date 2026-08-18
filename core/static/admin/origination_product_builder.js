@@ -6,6 +6,10 @@
   const signersInput = document.getElementById('id_signer_rules');
   if (!root || !schemaInput || !signersInput) return;
 
+  const supportingDocument = root.dataset.builderKind === 'supporting-document';
+  const requiresFields = root.dataset.requireFields !== 'false';
+  const requiresSigners = root.dataset.requireSigners !== 'false';
+
   const roles = JSON.parse(document.getElementById('origination-signer-role-data')?.textContent || '[]');
   const catalogue = JSON.parse(document.getElementById('origination-data-field-data')?.textContent || '[]');
   const inputCatalogue = catalogue.filter(item => item.source_type === 'user_input' && item.active !== false);
@@ -74,7 +78,7 @@
         };
       }),
     }));
-    if (!signers.length) signers.push({ role: 'borrower', required: true, slots: [{ key: 'signature', label: 'Borrower signature', type: 'signature', required: true }] });
+    if (requiresSigners && !signers.length) signers.push({ role: 'borrower', required: true, slots: [{ key: 'signature', label: 'Borrower signature', type: 'signature', required: true }] });
     sync();
   }
 
@@ -223,7 +227,7 @@
       schema.sections.push({ key, label: `Section ${schema.sections.length + 1}`, help_text: '' });
     } else if (action === 'remove-section') {
       if (schema.fields.some(field => field.section_key === schema.sections[sectionIndex].key)) return window.alert('Move or remove this section\'s fields first.');
-      if (schema.sections.length === 1) return window.alert('A product requires at least one section.');
+      if (schema.sections.length === 1) return window.alert(`A ${supportingDocument ? 'document' : 'product'} requires at least one section.`);
       schema.sections.splice(sectionIndex, 1);
     } else if (action === 'section-up') move(schema.sections, sectionIndex, -1);
     else if (action === 'section-down') move(schema.sections, sectionIndex, 1);
@@ -254,7 +258,7 @@
       const role = roles.find(item => !signers.some(signer => signer.role === item.key))?.key || roles[0]?.key || 'borrower';
       signers.push({ role, required: true, slots: [] });
     } else if (action === 'remove-signer') {
-      if (signers.length === 1) return window.alert('A product requires at least one signer.');
+      if (requiresSigners && signers.length === 1) return window.alert(`A ${supportingDocument ? 'document' : 'product'} requires at least one signer.`);
       signers.splice(signerIndex, 1);
     } else if (action === 'signer-up') move(signers, signerIndex, -1);
     else if (action === 'signer-down') move(signers, signerIndex, 1);
@@ -269,9 +273,9 @@
   schemaInput.form?.addEventListener('submit', event => {
     sync();
     const errors = [];
-    if (!schema.sections.length) errors.push('Add at least one section.');
-    if (!schema.fields.length) errors.push('Add at least one field.');
-    if (!signers.length) errors.push('Add at least one signer.');
+    if (requiresFields && !schema.sections.length) errors.push('Add at least one section.');
+    if (requiresFields && !schema.fields.length) errors.push('Add at least one canonical field.');
+    if (requiresSigners && !signers.length) errors.push('Add at least one signer.');
     const keys = schema.fields.map(field => slug(field.key));
     if (new Set(keys).size !== keys.length) errors.push('Field variable keys must be unique.');
     const canonicalIds = schema.fields.map(field => String(field.data_field_id || '')).filter(Boolean);
@@ -283,4 +287,18 @@
 
   normalize();
   render();
+
+  if (supportingDocument) {
+    const roleInput = document.getElementById('id_document_role');
+    const note = root.querySelector('[data-supporting-builder-note]');
+    const content = root.querySelector('[data-supporting-builder-content]');
+    const updateSupportingVisibility = () => {
+      const isSupporting = roleInput?.value === 'supporting';
+      if (note) note.hidden = isSupporting;
+      if (content) content.hidden = !isSupporting;
+      root.classList.toggle('opb-builder-muted', !isSupporting);
+    };
+    roleInput?.addEventListener('change', updateSupportingVisibility);
+    updateSupportingVisibility();
+  }
 })();

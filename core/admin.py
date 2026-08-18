@@ -250,7 +250,123 @@ class OriginationProductDefinitionChoiceField(forms.ModelChoiceField):
         return f'{obj.name} - loan form v{obj.version} ({terms_label})'
 
 
-class OriginationDocumentTemplateForm(forms.ModelForm):
+DOCUMENT_CONDITION_OPERATORS = (
+    ('equals', 'is equal to'),
+    ('not_equals', 'is not equal to'),
+    ('truthy', 'is confirmed / has a value'),
+    ('falsy', 'is not confirmed / is blank'),
+)
+
+
+def _simple_document_condition(rule):
+    """Return the supported Admin representation without exposing the JSON DSL."""
+    if not isinstance(rule, dict) or not rule:
+        return None
+    if set(rule) - {'field', 'operator', 'value'}:
+        return None
+    field = str(rule.get('field') or '').strip()
+    operator = str(rule.get('operator') or '').strip()
+    if field and operator in dict(DOCUMENT_CONDITION_OPERATORS):
+        return {
+            'field': field,
+            'operator': operator,
+            'value': rule.get('value', ''),
+        }
+    return None
+
+
+def _product_condition_fields(product):
+    """Small, presentation-safe catalogue for a document inclusion rule."""
+    fields = (product.form_schema or {}).get('fields', []) if product else []
+    return [
+        {
+            'key': str(item.get('key') or ''),
+            'label': str(item.get('label') or item.get('key') or ''),
+            'type': str(item.get('type') or 'text'),
+            'options': list(item.get('options') or []),
+        }
+        for item in fields
+        if isinstance(item, dict) and str(item.get('key') or '').strip()
+    ]
+
+
+class DocumentApplicabilityRuleFormMixin:
+    """A small, non-technical editor for the supported document rule shape."""
+
+    def _condition_product(self):
+        product = getattr(self.instance, 'product_definition', None)
+        raw_product_id = (
+            self.data.get('product_definition') if self.is_bound
+            else self.initial.get('product_definition')
+        )
+        if raw_product_id:
+            product = OriginationProductDefinition.objects.filter(pk=raw_product_id).first()
+        return product
+
+    def _configure_condition_editor(self):
+        product = self._condition_product()
+        self._condition_fields = _product_condition_fields(product)
+        self._condition_by_key = {item['key']: item for item in self._condition_fields}
+        self.fields['condition_field'].choices = [
+            ('', 'Always include')
+        ] + [
+            (item['key'], f"{item['label']} ({item['key']})")
+            for item in self._condition_fields
+        ]
+        rule = _simple_document_condition(getattr(self.instance, 'applicability_rule', {}))
+        self._legacy_condition_rule = bool(getattr(self.instance, 'applicability_rule', {})) and not rule
+        if rule and not self.is_bound:
+            self.initial.update({
+                'condition_field': rule['field'],
+                'condition_operator': rule['operator'],
+                'condition_value': str(rule['value']).lower() if isinstance(rule['value'], bool) else rule['value'],
+            })
+        if self._legacy_condition_rule:
+            self.fields['condition_field'].help_text = (
+                'This legacy document uses a multi-part rule. It remains unchanged when this record is saved. '
+                'Create a new assignment if you need a different rule.'
+            )
+
+    def _clean_condition_rule(self, cleaned):
+        selected = str(cleaned.get('condition_field') or '').strip()
+        if not selected:
+            return getattr(self.instance, 'applicability_rule', {}) if self._legacy_condition_rule else {}
+        operator = str(cleaned.get('condition_operator') or '').strip()
+        if not operator:
+            self.add_error('condition_operator', 'Choose how the application answer should be compared.')
+            return {}
+        field = self._condition_by_key.get(selected)
+        if not field:
+            self.add_error('condition_field', 'Choose a field from the selected loan form.')
+            return {}
+        value = cleaned.get('condition_value')
+        if operator in {'truthy', 'falsy'}:
+            return {'field': selected, 'operator': operator}
+        if value in (None, ''):
+            self.add_error('condition_value', 'Choose or enter the answer that makes this document applicable.')
+            return {}
+        if field['type'] == 'boolean':
+            value = str(value).strip().lower() == 'true'
+        return {'field': selected, 'operator': operator, 'value': value}
+
+
+class OriginationDocumentTemplateForm(DocumentApplicabilityRuleFormMixin, forms.ModelForm):
+    # ModelForm's metaclass only collects declared fields from this concrete
+    # class, so keep the visual-rule controls here as well as their shared
+    # behaviour in the mixin.
+    condition_field = forms.ChoiceField(
+        required=False, label='Only include this document when',
+        help_text='Leave as Always include unless this form is needed only for a particular application answer.',
+        widget=UnfoldAdminSelectWidget,
+    )
+    condition_operator = forms.ChoiceField(
+        required=False, choices=DOCUMENT_CONDITION_OPERATORS,
+        label='Comparison', widget=UnfoldAdminSelectWidget,
+    )
+    condition_value = forms.CharField(
+        required=False, label='Answer',
+        help_text='Choose the answer that makes this document applicable.',
+    )
     product_definition = OriginationProductDefinitionChoiceField(
         queryset=OriginationProductDefinition.objects.none(), required=False,
         empty_label='Select a draft loan form definition',
@@ -271,6 +387,13 @@ class OriginationDocumentTemplateForm(forms.ModelForm):
             'default_selected', 'applicability_rule', 'form_schema',
             'signer_rules', 'pdf_file',
         )
+        widgets = {
+            # These remain the audited storage format, but are authored through
+            # the visual builder below rather than as hand-written JSON.
+            'applicability_rule': forms.HiddenInput,
+            'form_schema': forms.HiddenInput,
+            'signer_rules': forms.HiddenInput,
+        }
 
     @staticmethod
     def eligible_product_definitions():
@@ -299,6 +422,7 @@ class OriginationDocumentTemplateForm(forms.ModelForm):
                 self.fields[key].initial = value
         for key in defaults:
             self.fields[key].required = False
+        self._configure_condition_editor()
 
     def clean(self):
         cleaned = super().clean()
@@ -312,7 +436,7 @@ class OriginationDocumentTemplateForm(forms.ModelForm):
         cleaned['display_order'] = cleaned.get('display_order') or 0
         cleaned['officer_selectable'] = bool(cleaned.get('officer_selectable'))
         cleaned['default_selected'] = bool(cleaned.get('default_selected'))
-        cleaned['applicability_rule'] = cleaned.get('applicability_rule') or {}
+        cleaned['applicability_rule'] = self._clean_condition_rule(cleaned)
         cleaned['form_schema'] = cleaned.get('form_schema') or {}
         cleaned['signer_rules'] = cleaned.get('signer_rules') or []
         for key, value in cleaned.items():
@@ -358,12 +482,14 @@ class OriginationDocumentTemplateForm(forms.ModelForm):
         self.instance.placement_config = initial_template_configuration(product)
         self.instance.placement_config['version'] = self.instance.version
         self.instance.placement_config['document_type'] = self.instance.document_type
+        # The product contract is the only source of primary-LAF form fields.
+        # Supporting forms have their own visual schema and signer slots.
         self.instance.form_schema = (
-            cleaned.get('form_schema') or product.form_schema if role == OriginationDocumentTemplate.ROLE_PRIMARY and product
+            product.form_schema if role == OriginationDocumentTemplate.ROLE_PRIMARY and product
             else cleaned.get('form_schema') or {}
         )
         self.instance.signer_rules = (
-            cleaned.get('signer_rules') or product.signer_rules if role == OriginationDocumentTemplate.ROLE_PRIMARY and product
+            product.signer_rules if role == OriginationDocumentTemplate.ROLE_PRIMARY and product
             else cleaned.get('signer_rules') or []
         )
         sample_context = self.instance.placement_config.setdefault('sample_context', {})
@@ -393,8 +519,22 @@ class OriginationDocumentTemplateForm(forms.ModelForm):
         return cleaned
 
 
-class OriginationProductDocumentAssignmentForm(forms.ModelForm):
+class OriginationProductDocumentAssignmentForm(DocumentApplicabilityRuleFormMixin, forms.ModelForm):
     """Derive each product assignment's identity from its shared template."""
+
+    condition_field = forms.ChoiceField(
+        required=False, label='Only include this document when',
+        help_text='Leave as Always include unless this form is needed only for a particular application answer.',
+        widget=UnfoldAdminSelectWidget,
+    )
+    condition_operator = forms.ChoiceField(
+        required=False, choices=DOCUMENT_CONDITION_OPERATORS,
+        label='Comparison', widget=UnfoldAdminSelectWidget,
+    )
+    condition_value = forms.CharField(
+        required=False, label='Answer',
+        help_text='Choose the answer that makes this document applicable.',
+    )
 
     class Meta:
         model = OriginationProductDocumentAssignment
@@ -407,10 +547,16 @@ class OriginationProductDocumentAssignmentForm(forms.ModelForm):
             'template': UnfoldAdminSelectWidget,
             'version_policy': UnfoldAdminSelectWidget,
             'inclusion_mode': UnfoldAdminSelectWidget,
+            'applicability_rule': forms.HiddenInput,
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._configure_condition_editor()
 
     def clean(self):
         cleaned = super().clean()
+        cleaned['applicability_rule'] = self._clean_condition_rule(cleaned)
         template = cleaned.get('template')
         if template:
             # A product assignment chooses a governed document family. It must
@@ -5149,6 +5295,7 @@ class OriginationFieldReviewIssueAdmin(CompactModelAdmin):
 @admin.register(OriginationProductDocumentAssignment)
 class OriginationProductDocumentAssignmentAdmin(CompactModelAdmin):
     form = OriginationProductDocumentAssignmentForm
+    change_form_template = 'admin/core/originationproductdocumentassignment/change_form.html'
     list_display = (
         'name', 'product_definition', 'document_key', 'version_policy',
         'resolved_template_version', 'inclusion_mode', 'display_order',
@@ -5158,9 +5305,22 @@ class OriginationProductDocumentAssignmentAdmin(CompactModelAdmin):
     fields = (
         'product_definition', ('template', 'version_policy'),
         ('inclusion_mode', 'display_order'), ('officer_selectable', 'default_selected'),
+        ('condition_field', 'condition_operator'), 'condition_value',
         'applicability_rule', 'created_by', 'created_at',
     )
     readonly_fields = ('created_by', 'created_at')
+
+    def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
+        context = {
+            **(extra_context or {}),
+            'origination_condition_fields_by_product': {
+                str(item.pk): _product_condition_fields(item)
+                for item in OriginationProductDefinition.objects.filter(
+                    lifecycle_status=OriginationProductDefinition.STATUS_DRAFT,
+                )
+            },
+        }
+        return super().changeform_view(request, object_id, form_url, context)
 
     @admin.display(description='Currently resolves to')
     def resolved_template_version(self, obj):
@@ -5629,9 +5789,9 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
     actions = ('activate_selected_templates',)
     readonly_fields = (
         'product_definition', 'document_key', 'name', 'document_role', 'inclusion_mode',
-        'display_order', 'officer_selectable', 'default_selected', 'applicability_rule',
-        'form_schema', 'signer_rules', 'document_type', 'version', 'status', 'source_filename', 'source_sha256',
-        'source_byte_size', 'page_count', 'calibration_link', 'placement_config', 'drive_link',
+        'display_order', 'officer_selectable', 'default_selected', 'applicability_summary',
+        'configuration_summary', 'document_type', 'version', 'status', 'source_filename', 'source_sha256',
+        'source_byte_size', 'page_count', 'calibration_link', 'drive_link',
         'published_configuration_revision', 'upload_error', 'created_by', 'activated_by',
         'activated_at', 'created_at', 'updated_at',
     )
@@ -5657,6 +5817,7 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
                         'product_definition', ('document_key', 'name'),
                         ('document_role', 'inclusion_mode', 'display_order'),
                         ('officer_selectable', 'default_selected'),
+                        ('condition_field', 'condition_operator'), 'condition_value',
                         'applicability_rule', 'form_schema', 'signer_rules', 'pdf_file',
                     ),
                 },
@@ -5667,7 +5828,7 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
                     'product_definition', ('document_key', 'name'),
                     ('document_role', 'inclusion_mode', 'display_order'),
                     ('officer_selectable', 'default_selected'),
-                    'applicability_rule', 'form_schema', 'signer_rules',
+                    'applicability_summary', 'configuration_summary',
                     ('document_type', 'version', 'status'),
                     'calibration_link',
                 ),
@@ -5679,7 +5840,8 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
                 ),
             }),
             ('Published calibration', {
-                'fields': ('published_configuration_revision', 'placement_config'),
+                'description': 'Field positions, formatting, and signer slots are managed in the visual calibration builder.',
+                'fields': ('published_configuration_revision',),
                 'classes': ('collapse',),
             }),
             ('Audit', {
@@ -5693,6 +5855,25 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
 
     def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
         context = {**(extra_context or {})}
+        from core.services.loan_origination import SIGNER_ROLE_CATALOG
+        from core.services.origination_fields import catalogue_for_product
+        selected_product_id = request.POST.get('product_definition') or request.GET.get('product_definition')
+        selected_product = OriginationProductDefinition.objects.filter(
+            pk=selected_product_id,
+        ).first() if selected_product_id else None
+        context.update({
+            'origination_signer_roles': [
+                {'key': key, 'label': label} for key, label in SIGNER_ROLE_CATALOG
+            ],
+            'origination_data_fields': catalogue_for_product(selected_product),
+            'origination_data_field_add_url': reverse('admin:core_originationdatafield_add'),
+            'origination_condition_fields_by_product': {
+                str(item.pk): _product_condition_fields(item)
+                for item in OriginationProductDefinition.objects.filter(
+                    lifecycle_status=OriginationProductDefinition.STATUS_DRAFT,
+                )
+            },
+        })
         if object_id is None:
             eligible_definitions = OriginationDocumentTemplateForm.eligible_product_definitions()
             context.update({
@@ -5723,6 +5904,23 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
                     })
                 )
         return super().changeform_view(request, object_id, form_url, context)
+
+    @admin.display(description='Inclusion condition')
+    def applicability_summary(self, obj):
+        rule = _simple_document_condition(obj.applicability_rule)
+        if not rule:
+            return 'Always included' if not obj.applicability_rule else 'Legacy multi-part condition retained'
+        operator = dict(DOCUMENT_CONDITION_OPERATORS).get(rule['operator'], rule['operator'])
+        value = '' if rule['operator'] in {'truthy', 'falsy'} else f' {rule.get("value", "")}'
+        return f"{rule['field'].replace('_', ' ').title()} {operator}{value}"
+
+    @admin.display(description='Configured fields and signers')
+    def configuration_summary(self, obj):
+        schema = obj.form_schema if isinstance(obj.form_schema, dict) else {}
+        fields = schema.get('fields') if isinstance(schema.get('fields'), list) else []
+        sections = schema.get('sections') if isinstance(schema.get('sections'), list) else []
+        signers = obj.signer_rules if isinstance(obj.signer_rules, list) else []
+        return f'{len(fields)} field(s) in {len(sections)} section(s); {len(signers)} signer role(s).'
 
     def get_form(self, request, obj=None, **kwargs):
         if obj is not None:

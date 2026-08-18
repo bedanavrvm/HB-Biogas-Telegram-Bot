@@ -506,6 +506,42 @@ class MultiProductOriginationTemplateTests(TestCase):
 
         self.assertEqual(assignment.document_key, template.document_key)
         self.assertEqual(assignment.name, template.name)
+        self.client.force_login(self.user)
+        response = self.client.get(
+            reverse('admin:core_originationproductdocumentassignment_add'),
+            {'product_definition': str(self.product.pk)},
+        )
+        self.assertContains(response, 'Only include this document when')
+        self.assertContains(response, 'origination_document_conditions.js')
+
+    def test_shared_assignment_admin_stores_simple_rule_from_form_controls(self):
+        from core.admin import OriginationProductDocumentAssignmentForm
+
+        template = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='guarantor_form',
+            document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
+            inclusion_mode=OriginationDocumentTemplate.INCLUDE_REQUIRED,
+            document_type='guarantor_form', name='Guarantor Form', version=1,
+            status=OriginationDocumentTemplate.STATUS_ACTIVE,
+            source_filename='guarantor.pdf', source_sha256='d' * 64,
+            source_byte_size=100, page_count=1, placement_config={},
+            created_by=self.user,
+        )
+        form = OriginationProductDocumentAssignmentForm(data={
+            'product_definition': str(self.product.pk), 'template': str(template.pk),
+            'version_policy': OriginationProductDocumentAssignment.VERSION_LATEST_COMPATIBLE,
+            'inclusion_mode': OriginationDocumentTemplate.INCLUDE_CONDITIONAL,
+            'display_order': 10,
+            'condition_field': 'farmer_name',
+            'condition_operator': 'truthy',
+            'condition_value': '',
+        })
+
+        self.assertTrue(form.is_valid(), form.errors)
+        assignment = form.save(commit=False)
+        self.assertEqual(assignment.applicability_rule, {
+            'field': 'farmer_name', 'operator': 'truthy',
+        })
 
     def test_global_formatting_applies_to_current_and_future_fields_with_preview(self):
         source = (
@@ -727,7 +763,8 @@ class MultiProductOriginationTemplateTests(TestCase):
             (
                 'product_definition', 'document_key', 'name', 'document_role',
                 'inclusion_mode', 'display_order', 'officer_selectable',
-                'default_selected', 'applicability_rule', 'form_schema',
+                'default_selected', 'condition_field', 'condition_operator',
+                'condition_value', 'applicability_rule', 'form_schema',
                 'signer_rules', 'pdf_file',
             ),
         )
@@ -741,6 +778,10 @@ class MultiProductOriginationTemplateTests(TestCase):
             UnfoldAdminFileFieldWidget,
         )
         self.assertContains(response, 'file_upload')
+        self.assertContains(response, 'Supporting document form builder')
+        self.assertContains(response, 'Create canonical field')
+        self.assertContains(response, 'type="hidden" name="form_schema"')
+        self.assertContains(response, 'type="hidden" name="signer_rules"')
 
     def test_admin_template_add_links_to_definition_builder_when_no_draft_is_eligible(self):
         self.product.lifecycle_status = OriginationProductDefinition.STATUS_PUBLISHED

@@ -1,0 +1,13 @@
+{% extends "admin/change_form.html" %}
+{% load static %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=6">
+{% endblock %}
+
+{% block after_related_objects %}
+  {{ block.super }}
+  {{ origination_condition_fields_by_product|json_script:"origination-condition-fields-data" }}
+  <script src="{% static 'admin/origination_document_conditions.js' %}?v=1" defer></script>
+{% endblock %}
