@@ -5394,6 +5394,14 @@ class InvoiceNameChangeBatch(models.Model):
     status = models.CharField(max_length=32, choices=STATUS_CHOICES, default='draft', db_index=True)
     letter_file_reference = models.CharField(max_length=1000, blank=True, default='')
     letter_checksum = models.CharField(max_length=128, blank=True, default='')
+    sent_artifact = models.ForeignKey(
+        'InvoiceNameChangeLetterArtifact', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='sent_for_batches',
+    )
+    legacy_manual_letter_allowed = models.BooleanField(
+        default=False,
+        help_text='Migration-only compatibility for draft letters created before governed DOCX generation.',
+    )
     sent_reference = models.CharField(max_length=255, blank=True, default='')
     created_by = models.CharField(max_length=255)
     sent_by = models.CharField(max_length=255, blank=True, default='')
@@ -5410,6 +5418,137 @@ class InvoiceNameChangeBatch(models.Model):
                 name='unique_invoice_name_change_batch_request',
             ),
         ]
+
+
+class InvoiceNameChangeLetterTemplate(models.Model):
+    """Admin-governed DOCX template for invoice-name-change letters."""
+
+    TEMPLATE_KEY = 'invoice_name_change'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    template_key = models.CharField(max_length=64, default=TEMPLATE_KEY, editable=False)
+    name = models.CharField(max_length=255, default='Request for Change of Invoice Names')
+    file = models.FileField(
+        upload_to='invoice_name_change_templates/',
+        help_text='Upload a validated Microsoft Word (.docx) letter template.',
+    )
+    original_filename = models.CharField(max_length=255, blank=True, default='')
+    content_type = models.CharField(
+        max_length=255,
+        default='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    )
+    size = models.PositiveIntegerField(default=0)
+    checksum = models.CharField(max_length=64, blank=True, default='')
+    drive_file_id = models.CharField(max_length=255, blank=True, default='')
+    drive_url = models.URLField(max_length=1000, blank=True, default='')
+    drive_uploaded_at = models.DateTimeField(null=True, blank=True)
+    drive_upload_error = models.TextField(blank=True, default='')
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-is_active', '-updated_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['template_key'], condition=models.Q(is_active=True),
+                name='unique_active_invoice_name_change_template',
+            ),
+        ]
+        verbose_name = 'Invoice name change letter template'
+        verbose_name_plural = 'Invoice name change letter templates'
+
+    def save(self, *args, **kwargs):
+        with transaction.atomic():
+            if self.is_active:
+                type(self).objects.filter(
+                    template_key=self.template_key, is_active=True,
+                ).exclude(pk=self.pk).update(is_active=False, updated_at=timezone.now())
+            super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.name} ({'Active' if self.is_active else 'Archived'})"
+
+
+class InvoiceNameChangeLetterArtifact(models.Model):
+    """Immutable, versioned DOCX rendered from one name-change batch snapshot."""
+
+    STATUS_GENERATED = 'generated'
+    STATUS_UPLOAD_FAILED = 'upload_failed'
+    STATUS_CHOICES = [
+        (STATUS_GENERATED, 'Generated'),
+        (STATUS_UPLOAD_FAILED, 'Drive upload failed'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    batch = models.ForeignKey(
+        InvoiceNameChangeBatch, on_delete=models.PROTECT, related_name='letter_artifacts',
+    )
+    template = models.ForeignKey(
+        InvoiceNameChangeLetterTemplate, on_delete=models.PROTECT,
+        related_name='generated_artifacts',
+    )
+    version = models.PositiveIntegerField()
+    status = models.CharField(max_length=24, choices=STATUS_CHOICES, default=STATUS_GENERATED, db_index=True)
+    filename = models.CharField(max_length=255)
+    content_type = models.CharField(
+        max_length=255,
+        default='application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    )
+    file_content = models.BinaryField(blank=True, default=bytes)
+    checksum = models.CharField(max_length=64)
+    template_checksum = models.CharField(max_length=64)
+    source_fingerprint = models.CharField(max_length=64, db_index=True)
+    payload_snapshot = models.JSONField(default=dict)
+    generated_by = models.CharField(max_length=255)
+    generated_at = models.DateTimeField(default=timezone.now)
+    client_request_id = models.CharField(max_length=128, blank=True, default='', db_index=True)
+    drive_file_id = models.CharField(max_length=255, blank=True, default='')
+    drive_url = models.URLField(max_length=1000, blank=True, default='')
+    drive_upload_error = models.TextField(blank=True, default='')
+    drive_sync_attempts = models.PositiveIntegerField(default=0)
+    drive_last_sync_at = models.DateTimeField(null=True, blank=True)
+    drive_next_retry_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-version', '-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['batch', 'version'], name='unique_invoice_name_change_letter_version',
+            ),
+            models.UniqueConstraint(
+                fields=['batch', 'client_request_id'],
+                condition=~models.Q(client_request_id=''),
+                name='unique_invoice_name_change_letter_request',
+            ),
+        ]
+        verbose_name = 'Invoice name change letter artifact'
+        verbose_name_plural = 'Invoice name change letter artifacts'
+
+    IMMUTABLE_FIELDS = (
+        'batch_id', 'template_id', 'version', 'filename', 'content_type',
+        'file_content', 'checksum', 'template_checksum', 'source_fingerprint',
+        'payload_snapshot', 'generated_by', 'generated_at', 'client_request_id',
+    )
+
+    def save(self, *args, **kwargs):
+        if self.pk and not self._state.adding:
+            original = type(self).objects.filter(pk=self.pk).values(*self.IMMUTABLE_FIELDS).first()
+            if original:
+                for field in self.IMMUTABLE_FIELDS:
+                    current = getattr(self, field)
+                    previous = original[field]
+                    if field == 'file_content':
+                        current = bytes(current or b'')
+                        previous = bytes(previous or b'')
+                    if current != previous:
+                        raise ValidationError('Generated invoice-name-change letter artifacts are immutable.')
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.batch.reference or self.batch_id} v{self.version}'
 
 
 class InvoiceNameChangeItem(models.Model):

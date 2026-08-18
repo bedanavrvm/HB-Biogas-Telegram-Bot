@@ -256,6 +256,7 @@ def get_admin_navigation(request) -> list[dict]:
         _model_item("core.CapabilityUsageDaily", "Access usage and drift", "analytics"),
         _model_item("core.RequisitionTemplate", "Requisition templates", "description"),
         _model_item("core.PaymentDocumentTemplate", "Payment templates", "article"),
+        _model_item("core.InvoiceNameChangeLetterTemplate", "Invoice name change templates", "description"),
         _custom_item("Add staff user", "admin:auth_user_add_staff", "person_add", _superuser),
     ]
     technical = [

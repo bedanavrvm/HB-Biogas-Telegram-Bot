@@ -390,7 +390,13 @@
       identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-start">Start change of invoice name</button>');
     }
     if (canManageInvoiceIdentity() && identity.name_change?.batch_status === 'draft') {
-      identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-sent">Record letter sent</button>');
+      identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-generate">Generate letter</button>');
+      if (identity.name_change.latest_letter?.drive_url) {
+        identityActions.push('<button type="button" class="btn btn-secondary invoice-name-change-download">Download v' + escapeHtml(identity.name_change.latest_letter.version) + '</button>');
+      }
+      if (identity.name_change.latest_letter?.is_current && identity.name_change.latest_letter?.drive_url) {
+        identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-sent">Record letter sent</button>');
+      }
     }
     if (canManageInvoiceIdentity() && identity.name_change?.status === 'awaiting_replacement') {
       identityActions.push('<button type="button" class="btn btn-primary invoice-name-change-replacement">Confirm replacement invoice</button>');
@@ -408,7 +414,7 @@
       '</div>',
       identity.discrepancy_codes?.length ? '<div class="invoice-card-warning">Verify: ' + escapeHtml(identity.discrepancy_codes.join(', ')) + '</div>' : '<span class="badge badge-green">Identity matches</span>',
       identity.review ? '<div class="meta">Review: ' + escapeHtml(identity.review.status) + (identity.review.decision_note ? ' — ' + escapeHtml(identity.review.decision_note) : '') + '</div>' : '',
-      identity.name_change ? '<div class="meta">Change request: ' + escapeHtml(identity.name_change.status) + '</div>' : '',
+      identity.name_change ? '<div class="meta">Change request: ' + escapeHtml(identity.name_change.status) + ' | ' + escapeHtml(identity.name_change.batch_row_count || 0) + ' row(s)' + (identity.name_change.letter_readiness?.blockers?.length ? '<br>' + escapeHtml(identity.name_change.letter_readiness.blockers.join(' ')) : '') + '</div>' : '',
       '<div class="invoice-detail-actions">' + identityActions.join('') + '</div>',
       '</div>',
     ].join('') : '';
@@ -479,6 +485,11 @@
     target.querySelector('.invoice-identity-same')?.addEventListener('click', function () { decideInvoiceIdentity(invoice.id, 'same_person_confirmed'); });
     target.querySelector('.invoice-identity-different')?.addEventListener('click', function () { decideInvoiceIdentity(invoice.id, 'different_person_confirmed'); });
     target.querySelector('.invoice-name-change-start')?.addEventListener('click', function () { startInvoiceNameChange(invoice); });
+    target.querySelector('.invoice-name-change-generate')?.addEventListener('click', function () { generateInvoiceNameChangeLetter(identity.name_change, invoice.id, this); });
+    target.querySelector('.invoice-name-change-download')?.addEventListener('click', function () {
+      const url = identity.name_change?.latest_letter?.drive_url;
+      if (url && deps.openPortalLink) deps.openPortalLink(url); else if (url) window.open(url, '_blank', 'noopener');
+    });
     target.querySelector('.invoice-name-change-sent')?.addEventListener('click', function () { markInvoiceNameChangeSent(identity.name_change); });
     target.querySelector('.invoice-name-change-replacement')?.addEventListener('click', function () { confirmInvoiceReplacement(identity.name_change); });
   }
@@ -494,21 +505,81 @@
     loadDetail(invoiceId);
   }
 
+  function openInvoiceWorkflowSheet(title, fieldsHtml, submitLabel) {
+    return new Promise(function (resolve) {
+      const previousFocus = document.activeElement;
+      const overlay = document.createElement('div');
+      overlay.className = 'sheet-overlay open invoice-workflow-overlay';
+      overlay.setAttribute('role', 'dialog');
+      overlay.setAttribute('aria-modal', 'true');
+      overlay.setAttribute('aria-labelledby', 'invoice-workflow-title');
+      overlay.innerHTML = [
+        '<form class="sheet-panel invoice-workflow-form">',
+        '<div class="sheet-handle"></div>',
+        '<div class="sheet-header"><div><h2 id="invoice-workflow-title">' + escapeHtml(title) + '</h2></div>',
+        '<button type="button" class="sheet-close-button" aria-label="Close">x</button></div>',
+        '<div class="sheet-body"><div class="form-section">' + fieldsHtml + '</div><div class="invoice-workflow-error" role="alert" aria-live="polite"></div></div>',
+        '<div class="sheet-footer"><button type="button" class="btn btn-secondary invoice-workflow-cancel">Cancel</button>',
+        '<button type="submit" class="btn btn-primary">' + escapeHtml(submitLabel) + '</button></div>',
+        '</form>',
+      ].join('');
+      document.body.appendChild(overlay);
+      const form = overlay.querySelector('form');
+      let settled = false;
+      function close(value) {
+        if (settled) return;
+        settled = true;
+        document.removeEventListener('keydown', onKeydown);
+        overlay.remove();
+        previousFocus?.focus?.();
+        resolve(value);
+      }
+      function onKeydown(event) {
+        if (event.key === 'Escape') close(null);
+        if (event.key === 'Tab') {
+          const focusable = Array.from(overlay.querySelectorAll('button,select,input,textarea')).filter(function (node) { return !node.disabled; });
+          if (!focusable.length) return;
+          const first = focusable[0]; const last = focusable[focusable.length - 1];
+          if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+          else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+        }
+      }
+      overlay.querySelector('.sheet-close-button').addEventListener('click', function () { close(null); });
+      overlay.querySelector('.invoice-workflow-cancel').addEventListener('click', function () { close(null); });
+      overlay.addEventListener('click', function (event) { if (event.target === overlay) close(null); });
+      form.addEventListener('submit', function (event) {
+        event.preventDefault();
+        if (!form.reportValidity()) return;
+        close(Object.fromEntries(new FormData(form).entries()));
+      });
+      document.addEventListener('keydown', onKeydown);
+      setTimeout(function () { overlay.querySelector('select,input,textarea,button')?.focus(); }, 30);
+    });
+  }
+
   async function startInvoiceNameChange(invoice) {
-    const relationshipType = window.prompt('Relationship type: spouse or household_member', 'spouse');
-    if (!relationshipType) return;
-    const attestation = window.prompt('Operations attestation note:');
-    if (!attestation?.trim()) return;
-    const evidence = window.prompt('Supporting evidence reference or approved Drive link:');
-    if (!evidence?.trim()) return;
-    const batchId = window.prompt('Existing draft letter batch ID (leave blank to start a new letter):', '') || '';
+    const batchResponse = await deps.apiFetch('/invoice-name-changes/');
+    if (!batchResponse.ok || !batchResponse.data?.ok) {
+      return window.alert(batchResponse.data?.error || 'Could not load draft change letters.');
+    }
+    const options = ['<option value="">Start a new letter</option>'].concat((batchResponse.data.batches || []).map(function (batch) {
+      return '<option value="' + escapeHtml(batch.id) + '">' + escapeHtml(batch.reference || 'Draft letter') + ' - ' + escapeHtml(batch.row_count) + ' row(s)</option>';
+    })).join('');
+    const values = await openInvoiceWorkflowSheet('Add to invoice-name-change letter', [
+      '<div class="form-row"><label>Invoice name</label><input value="' + escapeHtml(invoice.customer_name || '') + '" readonly></div>',
+      '<div class="form-row"><label>Relationship</label><select name="relationship_type" required><option value="spouse">Spouse</option><option value="household_member">Household member</option></select></div>',
+      '<div class="form-row"><label>Operations attestation</label><textarea name="attestation_note" rows="3" required></textarea></div>',
+      '<div class="form-row"><label>Supporting evidence reference</label><input name="evidence_reference" required autocomplete="off"></div>',
+      '<div class="form-row"><label>Draft letter</label><select name="batch_id">' + options + '</select><span class="field-help">Choose by reference and row count; no internal ID entry is needed.</span></div>',
+    ].join(''), 'Add case');
+    if (!values) return;
     const response = await deps.apiFetch('/invoice-pool/' + encodeURIComponent(invoice.id) + '/name-change/', {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...csrfHeader() },
       body: JSON.stringify({
-        relationship_type: relationshipType, related_name: invoice.customer_name,
+        relationship_type: values.relationship_type, related_name: invoice.customer_name,
         related_national_id: invoice.customer_id, related_phone: invoice.customer_phone,
-        attestation_note: attestation.trim(), evidence_reference: evidence.trim(),
-        batch_id: batchId.trim(),
+        attestation_note: values.attestation_note.trim(), evidence_reference: values.evidence_reference.trim(),
+        batch_id: values.batch_id,
         client_request_id: requestId(),
       }),
     });
@@ -516,14 +587,41 @@
     loadDetail(invoice.id);
   }
 
+  async function generateInvoiceNameChangeLetter(change, invoiceId, button) {
+    if (!change?.batch_id || button?.disabled) return;
+    if (button) { button.disabled = true; button.textContent = 'Generating...'; }
+    const retryKey = requestId();
+    try {
+      const response = await deps.apiFetch('/invoice-name-changes/' + encodeURIComponent(change.batch_id) + '/generate/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': retryKey, ...csrfHeader() },
+        body: JSON.stringify({ client_request_id: retryKey }),
+      });
+      if (!response.ok || !response.data?.ok) return window.alert(response.data?.error || 'Could not generate the letter.');
+      const letter = response.data.batch?.latest_letter;
+      if (letter?.download_url) {
+        if (deps.openPortalLink) deps.openPortalLink(letter.download_url);
+        else window.open(letter.download_url, '_blank', 'noopener');
+      }
+      loadDetail(invoiceId);
+    } finally {
+      if (button?.isConnected) { button.disabled = false; button.textContent = 'Generate letter'; }
+    }
+  }
+
   async function markInvoiceNameChangeSent(change) {
-    const letter = window.prompt('Approved Drive reference for the sent letter:');
-    if (!letter?.trim()) return;
-    const sentReference = window.prompt('HB send reference (email/message/reference number):');
-    if (!sentReference?.trim()) return;
+    const letter = change?.latest_letter;
+    if (!letter?.id || !letter?.is_current || !letter?.drive_url) {
+      return window.alert('Generate and upload the current letter before recording it as sent.');
+    }
+    const values = await openInvoiceWorkflowSheet('Record letter sent', [
+      '<div class="form-row"><label>Generated letter</label><input value="Version ' + escapeHtml(letter.version) + ' - ' + escapeHtml(letter.filename) + '" readonly></div>',
+      '<div class="form-row"><label>HB send reference</label><input name="sent_reference" required autocomplete="off"><span class="field-help">Email, message, or dispatch reference.</span></div>',
+    ].join(''), 'Record sent');
+    if (!values) return;
     const response = await deps.apiFetch('/invoice-name-changes/' + encodeURIComponent(change.batch_id) + '/sent/', {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...csrfHeader() },
-      body: JSON.stringify({ letter_reference: letter.trim(), sent_reference: sentReference.trim() }),
+      body: JSON.stringify({ artifact_id: letter.id, sent_reference: values.sent_reference.trim() }),
     });
     if (!response.ok || !response.data?.ok) return window.alert(response.data?.error || 'Could not record the sent letter.');
     window.location.reload();

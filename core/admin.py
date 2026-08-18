@@ -88,6 +88,8 @@ from .models import (
     InvoiceIdentityReview,
     InvoiceNameChangeBatch,
     InvoiceNameChangeItem,
+    InvoiceNameChangeLetterArtifact,
+    InvoiceNameChangeLetterTemplate,
     JawabuRelatedPerson,
     JawabuHouseholdRelationship,
     ParsedInvoice,
@@ -3394,6 +3396,27 @@ class PaymentDocumentTemplateForm(forms.ModelForm):
         return upload
 
 
+class InvoiceNameChangeLetterTemplateForm(forms.ModelForm):
+    class Meta:
+        model = InvoiceNameChangeLetterTemplate
+        fields = '__all__'
+        widgets = {
+            'file': UnfoldAdminFileFieldWidget(attrs={
+                'accept': '.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            }),
+        }
+
+    def clean_file(self):
+        upload = self.cleaned_data.get('file')
+        if upload and ('file' in self.changed_data or not self.instance.pk):
+            from core.services.invoice_name_change_letters import validate_template_file
+            try:
+                validate_template_file(upload)
+            except ValueError as exc:
+                raise forms.ValidationError(str(exc)) from exc
+        return upload
+
+
 @admin.register(RequisitionTemplate)
 class RequisitionTemplateAdmin(ModelAdmin):
     form = RequisitionTemplateForm
@@ -3445,6 +3468,44 @@ class PaymentDocumentTemplateAdmin(ModelAdmin):
         if 'file' in form.changed_data or not obj.drive_file_id:
             from core.services.template_storage import upload_template_record_to_drive
             upload_template_record_to_drive(obj, category='Payment Documents')
+
+
+@admin.register(InvoiceNameChangeLetterTemplate)
+class InvoiceNameChangeLetterTemplateAdmin(ModelAdmin):
+    form = InvoiceNameChangeLetterTemplateForm
+    compressed_fields = True
+    list_filter_submit = True
+    list_fullwidth = True
+    list_display = (
+        'name', 'version_status', 'file', 'drive_url', 'drive_uploaded_at',
+        'created_at', 'updated_at',
+    )
+    list_filter = ('is_active', 'created_at')
+    readonly_fields = (
+        'template_key', 'original_filename', 'content_type', 'size', 'checksum',
+        'drive_file_id', 'drive_url', 'drive_uploaded_at', 'drive_upload_error',
+        'created_at', 'updated_at',
+    )
+    search_fields = ('name', 'original_filename', 'drive_file_id')
+
+    @admin.display(description='Version')
+    def version_status(self, obj):
+        return 'CURRENT / USED' if obj.is_active else 'Archived'
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        if 'file' in form.changed_data or not obj.drive_file_id:
+            from core.services.invoice_name_change_letters import DOCX_MIME_TYPE
+            from core.services.template_storage import upload_template_record_to_drive
+            ok, error = upload_template_record_to_drive(
+                obj, category='Invoice Name Changes', mime_type=DOCX_MIME_TYPE,
+            )
+            if not ok:
+                self.message_user(
+                    request,
+                    f'Template saved locally, but the Drive backup failed: {error}',
+                    level=messages.WARNING,
+                )
 
 
 @admin.register(RequisitionBatch)
@@ -3513,7 +3574,7 @@ class JawabuHouseholdRelationshipAdmin(ReadOnlyAuditAdmin):
 
 @admin.register(InvoiceNameChangeBatch)
 class InvoiceNameChangeBatchAdmin(ReadOnlyAuditAdmin):
-    list_display = ('reference', 'status', 'created_by', 'sent_by', 'sent_at', 'created_at')
+    list_display = ('reference', 'status', 'sent_artifact', 'created_by', 'sent_by', 'sent_at', 'created_at')
     list_filter = ('status', 'created_at')
     search_fields = ('reference', 'created_by', 'sent_reference')
 
@@ -3523,6 +3584,16 @@ class InvoiceNameChangeItemAdmin(ReadOnlyAuditAdmin):
     list_display = ('batch', 'farmer', 'original_invoice', 'replacement_invoice', 'status', 'completed_at')
     list_filter = ('status', 'created_at')
     search_fields = ('farmer__customer_name', 'original_invoice__invoice_no', 'replacement_invoice__invoice_no')
+
+
+@admin.register(InvoiceNameChangeLetterArtifact)
+class InvoiceNameChangeLetterArtifactAdmin(ReadOnlyAuditAdmin):
+    list_display = (
+        'batch', 'version', 'status', 'filename', 'generated_by',
+        'drive_url', 'generated_at',
+    )
+    list_filter = ('status', 'generated_at')
+    search_fields = ('batch__reference', 'filename', 'generated_by', 'checksum', 'drive_file_id')
 
 
 @admin.register(PaymentDocument)

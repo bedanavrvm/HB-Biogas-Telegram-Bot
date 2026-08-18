@@ -722,6 +722,16 @@ def _batch_download_url(request, order_number: str) -> str:
     )
 
 
+def _invoice_name_change_download_url(request, artifact_id: str) -> str:
+    token = TimestampSigner(salt='portal-invoice-name-change-download').sign(json.dumps({
+        'artifact_id': str(artifact_id),
+        'user_id': str(getattr(getattr(request, 'portal_user', None), 'pk', '') or ''),
+    }, separators=(',', ':')))
+    return request.build_absolute_uri(
+        f'/api/portal/invoice-name-change-download/{quote(token, safe="")}/'
+    )
+
+
 def _jbl_media_open_url(request, farmer_id: str, *, attachment_id: str = '', legacy_index: int | None = None) -> str:
     """Issue a short-lived external-browser link after Mini App authorization.
 
@@ -5459,10 +5469,134 @@ def portal_invoice_name_change_create(request, invoice_id: str):
     return JsonResponse({'ok': True, 'name_change': serialize_name_change_item(item)}, status=201)
 
 
+def _serialize_name_change_batch(request, batch) -> dict:
+    from core.services.invoice_name_change_letters import (
+        letter_batch_readiness, serialize_artifact,
+    )
+    readiness = letter_batch_readiness(batch) if batch.status == 'draft' else {
+        'ready': False, 'blockers': [], 'row_count': batch.items.count(),
+    }
+    latest = batch.letter_artifacts.order_by('-version').first()
+    artifact = serialize_artifact(latest)
+    if artifact:
+        artifact['download_url'] = _invoice_name_change_download_url(request, latest.id)
+    return {
+        'id': str(batch.id), 'reference': batch.reference, 'status': batch.status,
+        'row_count': readiness['row_count'],
+        'readiness': {'ready': readiness['ready'], 'blockers': readiness['blockers']},
+        'latest_letter': artifact,
+        'created_by': batch.created_by,
+        'created_at': batch.created_at.isoformat(),
+    }
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def portal_invoice_name_change_batches(request):
+    from core.models import InvoiceNameChangeBatch
+
+    capability_error = _portal_capability_error(request, 'portal.invoice_identity.manage')
+    if capability_error:
+        return capability_error
+    visible = []
+    queryset = InvoiceNameChangeBatch.objects.filter(status='draft').prefetch_related(
+        'items__farmer', 'letter_artifacts',
+    ).order_by('-created_at')
+    for batch in queryset:
+        items = list(batch.items.all())
+        if items and all(
+            _portal_capability_error(request, 'portal.invoice_identity.manage', item.farmer) is None
+            for item in items
+        ):
+            visible.append(_serialize_name_change_batch(request, batch))
+    return JsonResponse({'ok': True, 'batches': visible})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def portal_invoice_name_change_generate(request, batch_id: str):
+    from core.models import InvoiceNameChangeBatch
+    from core.services.invoice_name_change_letters import (
+        InvoiceNameChangeLetterError, generate_letter_artifact,
+    )
+
+    body = _json_body(request)
+    batch = InvoiceNameChangeBatch.objects.prefetch_related('items__farmer').filter(pk=batch_id).first()
+    if not batch:
+        return JsonResponse({'ok': False, 'error': 'Invoice-name-change batch not found.'}, status=404)
+    items = list(batch.items.all())
+    if not items:
+        return JsonResponse({'ok': False, 'error': 'Add at least one case before generating the letter.'}, status=400)
+    for item in items:
+        scope_error = _portal_capability_error(
+            request, 'portal.invoice_identity.manage', item.farmer,
+        )
+        if scope_error:
+            return scope_error
+    portal_user = getattr(request, 'portal_user', None)
+    actor = _portal_sender_from_request(request) or (
+        portal_user.get_full_name() or portal_user.get_username() if portal_user else ''
+    )
+    try:
+        artifact, created = generate_letter_artifact(
+            batch, actor=actor,
+            client_request_id=str(
+                body.get('client_request_id') or request.headers.get('Idempotency-Key') or ''
+            ).strip(),
+        )
+    except InvoiceNameChangeLetterError as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+    batch.refresh_from_db()
+    payload = _serialize_name_change_batch(request, batch)
+    return JsonResponse({'ok': True, 'created': created, 'batch': payload}, status=201 if created else 200)
+
+
+@csrf_exempt
+@require_http_methods(["GET", "HEAD"])
+def portal_invoice_name_change_download(request, token: str):
+    try:
+        payload = json.loads(TimestampSigner(salt='portal-invoice-name-change-download').unsign(token, max_age=900))
+        artifact_id = str(payload['artifact_id'])
+        actor_id = str(payload['user_id'])
+    except (BadSignature, KeyError, TypeError, ValueError):
+        return JsonResponse({'ok': False, 'error': 'This letter download link has expired.'}, status=404)
+    from django.contrib.auth import get_user_model
+    from core.models import InvoiceNameChangeLetterArtifact
+    from core.services.telegram_identity import user_access
+
+    actor = get_user_model().objects.filter(pk=actor_id, is_active=True).first() if actor_id else None
+    local_auth_bypass = bool(
+        not getattr(settings, 'PORTAL_WEBAPP_REQUIRE_TELEGRAM_AUTH', True) and not actor_id
+    )
+    if actor is None and not local_auth_bypass:
+        return JsonResponse({'ok': False, 'error': 'This download is no longer authorized.'}, status=403)
+    artifact = InvoiceNameChangeLetterArtifact.objects.select_related('batch').prefetch_related(
+        'batch__items__farmer',
+    ).filter(pk=artifact_id).first()
+    if not artifact or not artifact.file_content:
+        return JsonResponse({'ok': False, 'error': 'Generated letter not found.'}, status=404)
+    if actor is not None:
+        request.portal_user = actor
+        request.portal_access = user_access(actor, 'jawabu_portal')
+        for item in artifact.batch.items.all():
+            scope_error = _portal_capability_error(
+                request, 'portal.invoice_identity.manage', item.farmer,
+            )
+            if scope_error:
+                return scope_error
+    response = HttpResponse(
+        b'' if request.method == 'HEAD' else bytes(artifact.file_content),
+        content_type=artifact.content_type,
+    )
+    response['Content-Disposition'] = f'attachment; filename="{artifact.filename}"'
+    response['X-Content-Type-Options'] = 'nosniff'
+    return response
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def portal_invoice_name_change_sent(request, batch_id: str):
-    from core.models import InvoiceNameChangeBatch
+    from core.models import InvoiceNameChangeBatch, InvoiceNameChangeLetterArtifact
     from core.services.invoice_identity import mark_name_change_sent
 
     body = _json_body(request)
@@ -5482,8 +5616,15 @@ def portal_invoice_name_change_sent(request, batch_id: str):
         if scope_error:
             return scope_error
     try:
+        artifact = None
+        artifact_id = str(body.get('artifact_id') or '').strip()
+        if artifact_id:
+            artifact = InvoiceNameChangeLetterArtifact.objects.filter(pk=artifact_id).first()
+            if not artifact:
+                return JsonResponse({'ok': False, 'error': 'Generated letter not found.'}, status=404)
         batch = mark_name_change_sent(
             batch, actor=_portal_sender_from_request(request),
+            artifact=artifact,
             letter_reference=str(body.get('letter_reference') or ''),
             sent_reference=str(body.get('sent_reference') or ''),
         )

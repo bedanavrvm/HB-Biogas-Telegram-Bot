@@ -56,7 +56,7 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertNotIn('portal-import-group', html)
         self.assertIn('miniapp/portal_requisitions.js?v=33', html)
         self.assertIn('miniapp/portal_api.js?v=6', html)
-        self.assertIn('miniapp/portal_invoices.js?v=15', html)
+        self.assertIn('miniapp/portal_invoices.js?v=16', html)
         self.assertIn('miniapp/portal_payments.js?v=7', html)
         self.assertIn('miniapp/portal_reports.js?v=13', html)
         self.assertIn('miniapp/portal.js?v=66', html)
@@ -251,6 +251,16 @@ class MiniAppFrontendSmokeTests(TestCase):
         self.assertIn('invoicePoolUploadBound', source)
         self.assertIn("event.target.closest('#invoice-pool-upload-form')", source)
         self.assertIn('invoiceBulkActionsBound', source)
+
+    def test_invoice_name_change_uses_governed_mobile_sheet_and_generated_letter(self):
+        source = Path('core/static/miniapp/portal_invoices.js').read_text(encoding='utf-8')
+
+        self.assertIn('openInvoiceWorkflowSheet', source)
+        self.assertIn("'/invoice-name-changes/'", source)
+        self.assertIn("'/generate/'", source)
+        self.assertIn('artifact_id: letter.id', source)
+        self.assertNotIn('Existing draft letter batch ID', source)
+        self.assertNotIn('Approved Drive reference for the sent letter', source)
 
     def test_portal_sheets_do_not_reexpand_during_external_media_activity_return(self):
         navigation_source = Path('core/static/miniapp/miniapp-nav.js').read_text(encoding='utf-8')

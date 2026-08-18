@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import uuid
 
 from django.db import transaction
 from django.utils import timezone
@@ -10,6 +11,7 @@ from core.models import (
     InvoiceIdentityReview,
     InvoiceNameChangeBatch,
     InvoiceNameChangeItem,
+    InvoiceNameChangeLetterArtifact,
     JawabuCustomer,
     JawabuFarmerMaster,
     JawabuHouseholdRelationship,
@@ -155,10 +157,22 @@ def serialize_review(review: InvoiceIdentityReview | None) -> dict | None:
 def serialize_name_change_item(item: InvoiceNameChangeItem | None) -> dict | None:
     if not item:
         return None
+    batch = item.batch
+    latest = batch.letter_artifacts.order_by('-version').first()
+    from core.services.invoice_name_change_letters import letter_batch_readiness, serialize_artifact
+    readiness = letter_batch_readiness(batch) if batch.status == 'draft' else {
+        'ready': False, 'blockers': [], 'row_count': batch.items.count(),
+    }
     return {
         'id': str(item.id),
         'batch_id': str(item.batch_id),
-        'batch_status': item.batch.status,
+        'batch_reference': batch.reference,
+        'batch_status': batch.status,
+        'batch_row_count': readiness['row_count'],
+        'letter_readiness': {
+            'ready': readiness['ready'], 'blockers': readiness['blockers'],
+        },
+        'latest_letter': serialize_artifact(latest),
         'status': item.status,
         'replacement_invoice_id': str(item.replacement_invoice_id or ''),
     }
@@ -268,8 +282,10 @@ def create_name_change(
                 if prior_item:
                     return prior_item
                 raise ValueError('That retry key belongs to another change letter.')
+        batch_id = uuid.uuid4()
         batch = InvoiceNameChangeBatch.objects.create(
-            reference=f'COIN-{timezone.localdate():%Y%m%d}',
+            id=batch_id,
+            reference=f'COIN-{timezone.localdate():%Y%m%d}-{str(batch_id)[:8].upper()}',
             created_by=actor,
             client_request_id=request_id,
         )
@@ -293,24 +309,51 @@ def create_name_change(
 
 
 @transaction.atomic
-def mark_name_change_sent(batch: InvoiceNameChangeBatch, *, actor: str, letter_reference: str, sent_reference: str) -> InvoiceNameChangeBatch:
+def mark_name_change_sent(
+    batch: InvoiceNameChangeBatch, *, actor: str, sent_reference: str,
+    artifact: InvoiceNameChangeLetterArtifact | None = None,
+    letter_reference: str = '',
+) -> InvoiceNameChangeBatch:
     batch = InvoiceNameChangeBatch.objects.select_for_update().get(pk=batch.pk)
+    artifact_id = getattr(artifact, 'pk', None)
     if batch.status != 'draft':
         if (
             batch.status in {'awaiting_replacements', 'completed'}
-            and batch.letter_file_reference == str(letter_reference or '').strip()
+            and (not artifact_id or batch.sent_artifact_id == artifact_id)
             and batch.sent_reference == str(sent_reference or '').strip()
         ):
             return batch
         raise ValueError('Only a draft change letter can be marked sent.')
-    if not str(letter_reference or '').strip() or not str(sent_reference or '').strip():
-        raise ValueError('The letter evidence and HB send reference are required.')
-    batch.letter_file_reference = str(letter_reference).strip()
+    if not str(sent_reference or '').strip():
+        raise ValueError('The HB send reference is required.')
+    update_fields = [
+        'letter_file_reference', 'letter_checksum', 'sent_reference', 'sent_by',
+        'sent_at', 'status', 'updated_at',
+    ]
+    if artifact_id:
+        artifact = InvoiceNameChangeLetterArtifact.objects.select_for_update().select_related('batch').get(pk=artifact_id)
+        if artifact.batch_id != batch.id:
+            raise ValueError('The generated letter does not belong to this batch.')
+        if not artifact.drive_file_id or not artifact.drive_url or artifact.status != artifact.STATUS_GENERATED:
+            raise ValueError('Upload the generated letter to Drive successfully before recording it as sent.')
+        from core.services.invoice_name_change_letters import artifact_is_current
+        if not artifact_is_current(artifact):
+            raise ValueError('The batch changed after this letter was generated. Generate a new version first.')
+        batch.sent_artifact = artifact
+        batch.letter_file_reference = artifact.drive_url
+        batch.letter_checksum = artifact.checksum
+        update_fields.append('sent_artifact')
+    else:
+        if not batch.legacy_manual_letter_allowed:
+            raise ValueError('Generate the governed DOCX letter before recording it as sent.')
+        if not str(letter_reference or '').strip():
+            raise ValueError('The legacy letter evidence reference is required.')
+        batch.letter_file_reference = str(letter_reference).strip()
     batch.sent_reference = str(sent_reference).strip()
     batch.sent_by = str(actor or '').strip()
     batch.sent_at = timezone.now()
     batch.status = 'awaiting_replacements'
-    batch.save(update_fields=['letter_file_reference', 'sent_reference', 'sent_by', 'sent_at', 'status', 'updated_at'])
+    batch.save(update_fields=update_fields)
     batch.items.filter(status='draft').update(status='awaiting_replacement', updated_at=timezone.now())
     for item in batch.items.select_related('farmer').all():
         _record_case_event(

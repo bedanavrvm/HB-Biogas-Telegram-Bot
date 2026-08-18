@@ -317,6 +317,9 @@ FCAUP_MINI_APP_SHORT_NAME = config('FCAUP_MINI_APP_SHORT_NAME', default='').stri
 PORTAL_MINI_APP_SHORT_NAME = config('PORTAL_MINI_APP_SHORT_NAME', default='').strip().strip('/')
 ORIGINATION_MINI_APP_SHORT_NAME = config('ORIGINATION_MINI_APP_SHORT_NAME', default='').strip().strip('/')
 ORIGINATION_TEMPLATE_MAX_FILE_SIZE_MB = config('ORIGINATION_TEMPLATE_MAX_FILE_SIZE_MB', default=15, cast=int)
+INVOICE_NAME_CHANGE_TEMPLATE_MAX_FILE_SIZE_MB = config(
+    'INVOICE_NAME_CHANGE_TEMPLATE_MAX_FILE_SIZE_MB', default=10, cast=int,
+)
 PORTAL_VOICE_INPUT_ENABLED = config('PORTAL_VOICE_INPUT_ENABLED', default=False, cast=bool)
 PORTAL_VOICE_PROVIDER = config('PORTAL_VOICE_PROVIDER', default='groq').strip().lower()
 GROQ_API_KEY = config('GROQ_API_KEY', default='').strip()

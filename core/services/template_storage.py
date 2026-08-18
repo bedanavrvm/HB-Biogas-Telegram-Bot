@@ -47,7 +47,9 @@ class GoogleDriveTemplateStorage:
         root = self._media_storage.ensure_child_folder(self._media_storage.parent_folder_id, 'Templates')
         return self._media_storage.ensure_child_folder(root, category)
 
-    def _same_name_templates(self, folder_id: str, filename: str) -> list[dict[str, Any]]:
+    def _same_name_templates(
+        self, folder_id: str, filename: str, *, mime_type: str = WORKBOOK_MIME_TYPE,
+    ) -> list[dict[str, Any]]:
         """Return live workbook files with this name, newest first.
 
         Drive permits duplicate names in a folder. Template files are a
@@ -56,7 +58,7 @@ class GoogleDriveTemplateStorage:
         """
         escaped_folder = folder_id.replace("\\", "\\\\").replace("'", "\\'")
         query = (
-            f"mimeType = '{WORKBOOK_MIME_TYPE}' and "
+            f"mimeType = '{mime_type}' and "
             f"'{escaped_folder}' in parents and trashed = false"
         )
         files = self.service.files()
@@ -87,14 +89,17 @@ class GoogleDriveTemplateStorage:
                 matching.append(item)
         return sorted(matching, key=lambda item: str(item.get('modifiedTime') or ''), reverse=True)
 
-    def upload_template(self, data: bytes, *, filename: str, category: str) -> tuple[str, str]:
+    def upload_template(
+        self, data: bytes, *, filename: str, category: str,
+        mime_type: str = WORKBOOK_MIME_TYPE,
+    ) -> tuple[str, str]:
         from googleapiclient.http import MediaIoBaseUpload
 
         filename = canonical_template_filename(category, filename)
         folder_id = self._template_folder(category)
-        media = MediaIoBaseUpload(io.BytesIO(data), mimetype=WORKBOOK_MIME_TYPE, resumable=False)
+        media = MediaIoBaseUpload(io.BytesIO(data), mimetype=mime_type, resumable=False)
         files = self.service.files()
-        existing = self._same_name_templates(folder_id, filename)
+        existing = self._same_name_templates(folder_id, filename, mime_type=mime_type)
         if existing:
             # Keep the newest Drive ID stable so links and audit references do
             # not change when an administrator replaces a template.
@@ -168,7 +173,9 @@ def _read_template_file(template: Any) -> tuple[bytes, str]:
     return data, filename
 
 
-def upload_template_record_to_drive(template: Any, *, category: str) -> tuple[bool, str]:
+def upload_template_record_to_drive(
+    template: Any, *, category: str, mime_type: str = WORKBOOK_MIME_TYPE,
+) -> tuple[bool, str]:
     """Upload the admin FileField contents to Drive and persist metadata on the model."""
     try:
         data, filename = _read_template_file(template)
@@ -177,6 +184,7 @@ def upload_template_record_to_drive(template: Any, *, category: str) -> tuple[bo
             data,
             filename=filename,
             category=category,
+            mime_type=mime_type,
         )
     except Exception as exc:
         template.drive_file_id = ''
@@ -190,7 +198,7 @@ def upload_template_record_to_drive(template: Any, *, category: str) -> tuple[bo
         return False, str(exc)
 
     template.original_filename = filename
-    template.content_type = WORKBOOK_MIME_TYPE
+    template.content_type = mime_type
     template.size = len(data)
     template.checksum = checksum
     template.drive_file_id = file_id

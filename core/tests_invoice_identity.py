@@ -93,6 +93,8 @@ class InvoiceIdentityWorkflowTests(TestCase):
             client_request_id='change-request-1',
         )
         self.assertEqual(identity_gate(original, self.farmer)['blocker'], 'invoice_name_change_pending')
+        item.batch.legacy_manual_letter_allowed = True
+        item.batch.save(update_fields=['legacy_manual_letter_allowed', 'updated_at'])
         mark_name_change_sent(
             item.batch, actor='Operations', letter_reference='drive-letter-1', sent_reference='HB-email-1'
         )
