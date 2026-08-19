@@ -8,6 +8,7 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.urls import reverse
 
+from core.admin import OriginationProductDefinitionForm
 from core.models import (
     LoanOriginationApplication,
     OriginationApplicationEvent,
@@ -72,6 +73,18 @@ class LoanOriginationServiceTests(TestCase):
         )
         with self.assertRaises(ValidationError):
             definition.full_clean()
+
+    def test_duplicate_product_definition_is_a_form_error_not_an_admin_500(self):
+        form = OriginationProductDefinitionForm(data={
+            'product_key': self.product.product_key,
+            'name': self.product.name,
+            'form_schema': '{"fields":[{"key":"customer_name","type":"text","required":true}]}',
+            'signer_rules': '[{"role":"customer"}]',
+        })
+
+        self.assertFalse(form.is_valid())
+        self.assertIn('product_version', form.errors)
+        self.assertIn('Create editable next version', form.errors['product_version'][0])
 
     def test_supporting_document_rules_are_non_executable_and_field_scoped(self):
         validate_applicability_rule(

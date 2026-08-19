@@ -218,6 +218,17 @@ class OriginationProductDefinitionForm(forms.ModelForm):
             self.instance.product_key = product_version.product.code
             self.instance.name = product_version.product.name
             self.instance.document_type = product_version.product.code
+        product_key = str(cleaned.get('product_key') or self.instance.product_key or '').strip()
+        if (
+            self.instance._state.adding
+            and product_key
+            and OriginationProductDefinition.objects.filter(product_key=product_key).exists()
+        ):
+            self.add_error(
+                'product_version',
+                'This product already has an origination loan-form version. '
+                'Open it from Origination product definitions and use “Create editable next version” instead.',
+            )
         if laf_pdf:
             if not str(laf_pdf.name).lower().endswith('.pdf'):
                 self.add_error('laf_pdf', 'Upload a PDF file.')
