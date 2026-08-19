@@ -252,6 +252,7 @@ def select_documents(*, application_id, actor, selected_keys: Any, expected_revi
         raise OriginationError('Save and preview the primary LAF before selecting supporting documents.')
     requested = {str(key) for key in (selected_keys or [])}
     allowed = set()
+    required = set()
     changed = False
     for document in application.packet_documents.select_for_update().all():
         if document.document_role == OriginationDocumentTemplate.ROLE_PRIMARY:
@@ -263,7 +264,12 @@ def select_documents(*, application_id, actor, selected_keys: Any, expected_revi
             document.selected = next_selected
             document.selection_source = OriginationApplicationDocument.SOURCE_OFFICER
             document.save(update_fields=['selected', 'selection_source', 'updated_at'])
-    unknown = requested - allowed
+        elif document.selected:
+            # Required and rule-selected documents are already governed by the
+            # packet. Ignore their keys from legacy/cached Mini App clients;
+            # they cannot be toggled by this endpoint.
+            required.add(document.document_key)
+    unknown = requested - allowed - required
     if unknown:
         raise OriginationError('One or more supporting documents cannot be selected for this application.')
     if not changed:

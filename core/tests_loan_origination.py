@@ -366,6 +366,43 @@ class LoanOriginationServiceTests(TestCase):
                 request_id='packet-gate-select',
             )
 
+    def test_required_supporting_document_key_is_ignored_by_selection_endpoint(self):
+        """Cached clients may include a disabled, required checkbox in their payload."""
+        OriginationDocumentTemplate.objects.create(
+            product_definition=self.product,
+            document_key='primary', document_role='primary', inclusion_mode='required',
+            document_type=self.product.document_type, name='Primary LAF', version=1,
+            status='active', source_filename='primary.pdf', source_sha256='4' * 64,
+            source_byte_size=100, page_count=1, placement_config={}, created_by=self.officer,
+        )
+        support = OriginationDocumentTemplate.objects.create(
+            product_definition=self.product,
+            document_key='required_guarantor', document_role='supporting',
+            inclusion_mode='required', form_schema={'fields': []},
+            document_type='pilot-product-required-guarantor', name='Required guarantor form', version=1,
+            status='active', source_filename='guarantor.pdf', source_sha256='5' * 64,
+            source_byte_size=100, page_count=1, placement_config={}, created_by=self.officer,
+        )
+        application, _ = create_application(
+            product_key=self.product.product_key, officer=self.officer,
+            branch='Synthetic Branch', client_request_id='required-selection-create',
+        )
+        OriginationApplicationEvent.objects.create(
+            application=application, action='document_previewed',
+            revision=application.revision, actor=self.officer,
+            request_id='required-selection-preview',
+        )
+
+        saved = select_documents(
+            application_id=application.pk, actor=self.officer,
+            selected_keys=[support.document_key], expected_revision=application.revision,
+            request_id='required-selection-request',
+        )
+
+        selected = saved.packet_documents.get(document_key=support.document_key)
+        self.assertTrue(selected.selected)
+        self.assertEqual(selected.selection_source, selected.SOURCE_REQUIRED)
+
     def test_repeatable_secured_assets_are_typed_capped_and_decimal_normalized(self):
         schema = {'fields': [{
             'key': 'secured_assets', 'type': 'repeating_group', 'required': True,

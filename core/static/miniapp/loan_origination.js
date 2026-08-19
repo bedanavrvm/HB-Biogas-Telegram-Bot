@@ -1531,7 +1531,10 @@
   }
 
   async function saveDocumentSelection() {
-    const selectedKeys = [...root().querySelectorAll('[data-document-select]:checked')].map(input => input.dataset.documentSelect);
+    // Required documents are displayed as checked, disabled controls. They are
+    // already selected by the server and are not part of the optional-choice
+    // API contract; :checked alone also matches disabled controls.
+    const selectedKeys = [...root().querySelectorAll('[data-document-select]:checked:not(:disabled)')].map(input => input.dataset.documentSelect);
     const result = await postJson(`/applications/${current.id}/documents/selection/`, {
       revision: current.revision,
       selected_keys: selectedKeys,
