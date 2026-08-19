@@ -596,6 +596,32 @@ def attach_shared_supporting_template(
         return assignment
 
 
+def remove_shared_supporting_template(
+    *, product_definition: OriginationProductDefinition,
+    assignment_id, actor,
+) -> bool:
+    """Detach one shared document from a draft packet without deleting its family."""
+    with transaction.atomic():
+        product = OriginationProductDefinition.objects.select_for_update().get(pk=product_definition.pk)
+        if product.lifecycle_status != product.STATUS_DRAFT:
+            raise OriginationTemplateError('Create an editable product version before changing its document packet.')
+        assignment = product.document_assignments.select_for_update().filter(pk=assignment_id).select_related('template').first()
+        if not assignment:
+            # A repeated browser request after a successful removal is safe.
+            return False
+        metadata = {
+            'assignment_id': str(assignment.pk), 'template_id': str(assignment.template_id),
+            'document_key': assignment.document_key,
+            'origin': 'product_document_packet',
+        }
+        assignment.delete()
+        OriginationProductDefinitionEvent.objects.create(
+            product_definition=product, action='shared_document_assignment_removed',
+            actor=actor, metadata=metadata,
+        )
+        return True
+
+
 def publish_and_attach_shared_supporting_template(
     *, product_definition: OriginationProductDefinition,
     template: OriginationDocumentTemplate, revision: int, actor,

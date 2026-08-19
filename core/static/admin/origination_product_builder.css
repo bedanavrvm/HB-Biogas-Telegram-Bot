@@ -74,6 +74,11 @@
 .opb-document-packet article > span { display: grid; gap: .2rem; }
 .opb-document-packet article > span:last-child { display: flex; grid-auto-flow: column; gap: .8rem; }
 .opb-document-packet small { color: var(--color-base-500); }
+.opb-packet-actions { display: flex; flex-wrap: wrap; align-items: end; justify-content: flex-end; gap: .5rem; }
+.opb-packet-picker { display: grid; gap: .2rem; color: #475569; font-size: .75rem; font-weight: 650; }
+.opb-packet-picker select { min-width: 210px; min-height: 36px; padding: 0 .5rem; border: 1px solid #cbd5e1; border-radius: .45rem; background: #fff; color: #172033; }
+.opb-remove-document { border: 0; padding: 0; background: transparent; color: #b91c1c; font: inherit; cursor: pointer; }
+.opb-remove-document:hover { color: #991b1b; text-decoration: underline; }
 .opb-supporting-setup { max-width: 1120px; }
 .opb-setup-card { margin-top: 14px; padding: 14px; border: 1px solid #dbe3ec; border-radius: 9px; background: #f8fafc; }
 .opb-setup-card > h2 { margin-bottom: 12px; }
@@ -89,7 +94,10 @@
 .dark .opb-packet-readiness > span { border-color: rgb(var(--color-base-700)); background: rgb(var(--color-base-900)); }
 .dark .opb-packet-readiness .is-ready { border-color: #115e59; background: rgb(19 78 74 / .24); }
 .dark .opb-packet-readiness .is-blocked { border-color: #92400e; background: rgb(120 53 15 / .22); }
+.dark .opb-packet-picker { color: rgb(var(--color-base-300)); }
+.dark .opb-packet-picker select { border-color: rgb(var(--color-base-700)); background: rgb(var(--color-base-900)); color: rgb(var(--color-base-200)); color-scheme: dark; }
+.dark .opb-remove-document { color: #fca5a5; }
 .dark .opb-setup-card ul label, .dark .opb-form-grid label { color: rgb(var(--color-base-300)); }
 .dark .opb-form-grid input:not([type="checkbox"]), .dark .opb-form-grid select { border-color: rgb(var(--color-base-700)); background: rgb(var(--color-base-900)); color: rgb(var(--color-base-200)); color-scheme: dark; }
 @media (max-width: 640px) { .opb-setup-card { padding: 10px; } .opb-form-grid { grid-template-columns: 1fr; } .opb-form-grid-full { grid-column: auto; } }
-@media (max-width: 640px) { .opb-document-packet article { align-items: flex-start; flex-direction: column; } }
+@media (max-width: 640px) { .opb-document-packet article { align-items: flex-start; flex-direction: column; } .opb-packet-actions { width: 100%; align-items: stretch; } .opb-packet-picker { flex: 1; } .opb-packet-picker select { width: 100%; min-width: 0; } }

@@ -588,20 +588,21 @@ class LoanOriginationServiceTests(TestCase):
 
 
 class OriginationSupportingDocumentSetupAdminTests(TestCase):
-    def test_draft_product_has_a_single_guided_supporting_document_entrypoint(self):
-        actor = get_user_model().objects.create_superuser(
+    def setUp(self):
+        self.actor = get_user_model().objects.create_superuser(
             username='packet-wizard-admin', email='packet-wizard@example.test', password='password',
         )
-        product = OriginationProductDefinition.objects.create(
+        self.product = OriginationProductDefinition.objects.create(
             product_key='packet-admin', name='Packet admin product', version=1,
             form_schema={'fields': [{'key': 'consent', 'type': 'boolean', 'required': True}]},
             signer_rules=[], document_type='packet_admin', document_template_name='',
             document_template_version=1, document_template_sha256='', is_active=False,
         )
-        self.client.force_login(actor)
+        self.client.force_login(self.actor)
 
+    def test_draft_product_has_a_single_guided_supporting_document_entrypoint(self):
         response = self.client.get(reverse(
-            'admin:core_originationproductdefinition_supporting_document_setup', args=[product.pk],
+            'admin:core_originationproductdefinition_supporting_document_setup', args=[self.product.pk],
         ))
 
         self.assertEqual(response.status_code, 200)
@@ -609,3 +610,36 @@ class OriginationSupportingDocumentSetupAdminTests(TestCase):
         self.assertContains(response, 'Use a published reusable document')
         self.assertContains(response, 'Create a reusable document')
         self.assertContains(response, 'origination-product-builder')
+
+    def test_packet_card_can_add_and_remove_a_reusable_document(self):
+        template = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='packet_guarantor', document_role='supporting',
+            inclusion_mode='required', document_type='packet_guarantor', name='Packet guarantor form',
+            version=1, status='active', source_filename='guarantor.pdf', source_sha256='4' * 64,
+            source_byte_size=100, page_count=1, placement_config={}, created_by=self.actor,
+            form_schema={'fields': [{'key': 'guarantor_name', 'type': 'text', 'required': True}]},
+        )
+        revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=template, revision=1, configuration={}, is_published=True, created_by=self.actor,
+        )
+        template.published_configuration_revision = revision
+        template.save(update_fields=['published_configuration_revision'])
+        add_url = reverse(
+            'admin:core_originationproductdefinition_packet_add_shared', args=[self.product.pk],
+        )
+
+        response = self.client.post(add_url, {'template_id': template.pk})
+
+        self.assertEqual(response.status_code, 200)
+        assignment = OriginationProductDocumentAssignment.objects.get(product_definition=self.product)
+        self.assertEqual(response.json()['assignment_id'], str(assignment.pk))
+        remove_url = reverse(
+            'admin:core_originationproductdefinition_packet_remove_shared',
+            args=[self.product.pk, assignment.pk],
+        )
+        response = self.client.post(remove_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['removed'])
+        self.assertFalse(OriginationProductDocumentAssignment.objects.filter(pk=assignment.pk).exists())
+        self.assertTrue(OriginationDocumentTemplate.objects.filter(pk=template.pk).exists())

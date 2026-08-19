@@ -5552,6 +5552,16 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
         urls = super().get_urls()
         custom = [
             path(
+                '<path:object_id>/document-packet/add-shared/',
+                self.admin_site.admin_view(self.add_shared_document_to_packet_view),
+                name='core_originationproductdefinition_packet_add_shared',
+            ),
+            path(
+                '<path:object_id>/document-packet/<path:assignment_id>/remove/',
+                self.admin_site.admin_view(self.remove_shared_document_from_packet_view),
+                name='core_originationproductdefinition_packet_remove_shared',
+            ),
+            path(
                 '<path:object_id>/supporting-document/',
                 self.admin_site.admin_view(self.supporting_document_setup_view),
                 name='core_originationproductdefinition_supporting_document_setup',
@@ -5684,6 +5694,16 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
                 ]).order_by('display_order', 'document_key')
             ) if product else [],
             'origination_shared_document_assignments': shared_assignments,
+            'origination_available_shared_documents': list(
+                OriginationDocumentTemplate.objects.filter(
+                    product_definition__isnull=True,
+                    document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
+                    status=OriginationDocumentTemplate.STATUS_ACTIVE,
+                    published_configuration_revision__isnull=False,
+                ).exclude(
+                    pk__in=[item['assignment'].template_id for item in shared_assignments],
+                ).order_by('name', '-version')
+            ) if product and product.lifecycle_status == product.STATUS_DRAFT else [],
             'origination_packet_readiness': packet_readiness,
             'origination_failed_template': failed_template,
             'origination_existing_successor': existing_successor,
@@ -5723,6 +5743,12 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
                     args=[product.pk],
                 ) if product and product.lifecycle_status == product.STATUS_DRAFT else ''
             ),
+            'origination_packet_add_shared_url': (
+                reverse(
+                    'admin:core_originationproductdefinition_packet_add_shared',
+                    args=[product.pk],
+                ) if product and product.lifecycle_status == product.STATUS_DRAFT else ''
+            ),
             'origination_assignment_add_url': (
                 reverse('admin:core_originationproductdocumentassignment_add')
                 + f'?product_definition={product.pk}' if product and product.lifecycle_status == product.STATUS_DRAFT else ''
@@ -5730,6 +5756,74 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
             'origination_shared_library_url': reverse('admin:core_originationdocumenttemplate_changelist') + '?product_definition__isnull=True',
         }
         return super().changeform_view(request, object_id, form_url, context)
+
+    def _draft_packet_product(self, request, object_id):
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        product = OriginationProductDefinition.objects.filter(pk=object_id).first()
+        if not product:
+            return None
+        if product.lifecycle_status != product.STATUS_DRAFT:
+            raise ValidationError('Create an editable product version before changing its document packet.')
+        return product
+
+    @staticmethod
+    def _packet_error_response(exc):
+        from core.services.origination_templates import OriginationTemplateError
+        if isinstance(exc, (OriginationTemplateError, ValidationError)):
+            return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        logger.exception('Origination document-packet request failed.')
+        return JsonResponse({'ok': False, 'error': 'The document-packet request could not be completed.'}, status=500)
+
+    def add_shared_document_to_packet_view(self, request, object_id):
+        if request.method != 'POST':
+            return JsonResponse({'ok': False, 'error': 'POST required.'}, status=405)
+        try:
+            product = self._draft_packet_product(request, object_id)
+            if not product:
+                return JsonResponse({'ok': False, 'error': 'Product definition not found.'}, status=404)
+            template = OriginationDocumentTemplate.objects.filter(
+                pk=request.POST.get('template_id'), product_definition__isnull=True,
+                document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
+                status=OriginationDocumentTemplate.STATUS_ACTIVE,
+                published_configuration_revision__isnull=False,
+            ).first()
+            if not template:
+                raise ValidationError('Choose a published reusable supporting document.')
+            next_order = (
+                product.document_assignments.aggregate(models.Max('display_order'))['display_order__max']
+                or 0
+            ) + 10
+            from core.services.origination_templates import attach_shared_supporting_template
+            assignment = attach_shared_supporting_template(
+                product_definition=product, template=template,
+                inclusion_mode=template.inclusion_mode, display_order=next_order,
+                officer_selectable=template.officer_selectable,
+                default_selected=template.default_selected,
+                applicability_rule=template.applicability_rule or {}, actor=request.user,
+            )
+        except PermissionDenied:
+            raise
+        except Exception as exc:
+            return self._packet_error_response(exc)
+        return JsonResponse({'ok': True, 'assignment_id': str(assignment.pk), 'name': assignment.name})
+
+    def remove_shared_document_from_packet_view(self, request, object_id, assignment_id):
+        if request.method != 'POST':
+            return JsonResponse({'ok': False, 'error': 'POST required.'}, status=405)
+        try:
+            product = self._draft_packet_product(request, object_id)
+            if not product:
+                return JsonResponse({'ok': False, 'error': 'Product definition not found.'}, status=404)
+            from core.services.origination_templates import remove_shared_supporting_template
+            removed = remove_shared_supporting_template(
+                product_definition=product, assignment_id=assignment_id, actor=request.user,
+            )
+        except PermissionDenied:
+            raise
+        except Exception as exc:
+            return self._packet_error_response(exc)
+        return JsonResponse({'ok': True, 'removed': removed})
 
     def supporting_document_setup_view(self, request, object_id):
         """Single product-first entry point for shared packet documents."""

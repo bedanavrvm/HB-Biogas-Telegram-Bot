@@ -93,8 +93,17 @@
             <h2>Document packet</h2>
             <p>Keep the main LAF first, then add required, conditional, or optional supporting PDFs with their own fields and signer slots.</p>
           </div>
-          <span>
-            {% if origination_supporting_document_setup_url %}<a class="button" href="{{ origination_supporting_document_setup_url }}">Add supporting document</a>{% endif %}
+          <span class="opb-packet-actions">
+            {% if origination_available_shared_documents %}
+              <label class="opb-packet-picker">Add reusable document
+                <select data-packet-document-select aria-label="Reusable supporting document">
+                  <option value="">Choose a document</option>
+                  {% for document in origination_available_shared_documents %}<option value="{{ document.pk }}">{{ document.name }} — v{{ document.version }}</option>{% endfor %}
+                </select>
+              </label>
+              <button type="button" class="button" data-packet-add-url="{{ origination_packet_add_shared_url }}">Add</button>
+            {% endif %}
+            {% if origination_supporting_document_setup_url %}<a class="button" href="{{ origination_supporting_document_setup_url }}">Create supporting document</a>{% endif %}
             <a class="opb-secondary-link" href="{{ origination_shared_library_url }}">Manage reusable library</a>
           </span>
         </header>
@@ -123,12 +132,42 @@
             {% for item in origination_shared_document_assignments %}
               <article>
                 <span><b>{{ item.assignment.name }}</b><small>{{ item.assignment.get_version_policy_display }}{% if item.resolved_template %} &middot; currently v{{ item.resolved_template.version }}{% else %} &middot; unavailable{% endif %} &middot; {{ item.assignment.get_inclusion_mode_display }}</small></span>
-                <span>{% if item.resolved_template %}<a href="{% url 'admin:core_originationdocumenttemplate_calibrate' item.resolved_template.pk %}">Preview PDF mapping</a>{% endif %} <a href="{% url 'admin:core_originationproductdocumentassignment_change' item.assignment.pk %}">Advanced settings</a></span>
+                <span>{% if item.resolved_template %}<a href="{% url 'admin:core_originationdocumenttemplate_calibrate' item.resolved_template.pk %}">Preview PDF mapping</a>{% endif %} <a href="{% url 'admin:core_originationproductdocumentassignment_change' item.assignment.pk %}">Advanced settings</a> <button type="button" class="opb-remove-document" data-packet-remove-url="{% url 'admin:core_originationproductdefinition_packet_remove_shared' original.pk item.assignment.pk %}" data-document-name="{{ item.assignment.name }}">Remove</button></span>
               </article>
             {% endfor %}
           </div>
         {% endif %}
       </section>
     {% endif %}
+  {% endif %}
+  {% if original and origination_packet_add_shared_url %}
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        const addButton = document.querySelector('[data-packet-add-url]');
+        const picker = document.querySelector('[data-packet-document-select]');
+        const csrf = document.querySelector('input[name="csrfmiddlewaretoken"]')?.value;
+        async function post(url, values) {
+          const response = await fetch(url, {method: 'POST', headers: {'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest'}, body: new URLSearchParams(values)});
+          const data = await response.json().catch(function () { return {}; });
+          if (!response.ok || !data.ok) throw new Error(data.error || 'The document packet could not be updated.');
+          return data;
+        }
+        addButton?.addEventListener('click', async function () {
+          if (!picker?.value) { window.alert('Choose a reusable supporting document first.'); return; }
+          addButton.disabled = true;
+          try { await post(addButton.dataset.packetAddUrl, {template_id: picker.value}); window.location.reload(); }
+          catch (error) { window.alert(error.message); addButton.disabled = false; }
+        });
+        document.querySelectorAll('[data-packet-remove-url]').forEach(function (button) {
+          button.addEventListener('click', async function () {
+            const name = button.dataset.documentName || 'this document';
+            if (!window.confirm('Remove ' + name + ' from this draft product packet? The reusable template and existing applications will not be changed.')) return;
+            button.disabled = true;
+            try { await post(button.dataset.packetRemoveUrl, {}); window.location.reload(); }
+            catch (error) { window.alert(error.message); button.disabled = false; }
+          });
+        });
+      });
+    </script>
   {% endif %}
 {% endblock %}
