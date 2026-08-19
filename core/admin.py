@@ -566,6 +566,145 @@ class OriginationProductDocumentAssignmentForm(DocumentApplicabilityRuleFormMixi
         return cleaned
 
 
+class ProductSupportingDocumentSetupForm(forms.Form):
+    """Product-scoped, non-JSON setup form for a reusable supporting PDF."""
+
+    MODE_EXISTING = 'existing'
+    MODE_NEW = 'new'
+    mode = forms.ChoiceField(
+        choices=((MODE_EXISTING, 'Use a published reusable document'), (MODE_NEW, 'Create a reusable document')),
+        initial=MODE_EXISTING, widget=forms.RadioSelect, label='How do you want to add it?',
+    )
+    template = forms.ModelChoiceField(
+        queryset=OriginationDocumentTemplate.objects.none(), required=False,
+        empty_label='Choose a published document', label='Published document',
+        help_text='Its newest compatible published version will be used for new applications.',
+        widget=UnfoldAdminSelectWidget,
+    )
+    name = forms.CharField(required=False, max_length=180, label='Document name')
+    document_key = forms.SlugField(
+        required=False, max_length=80, label='Document key',
+        help_text='A stable short ID, for example guarantor_form. It cannot be changed after publication.',
+    )
+    pdf_file = forms.FileField(
+        required=False, label='Supporting PDF',
+        widget=UnfoldAdminFileFieldWidget,
+    )
+    form_schema = forms.JSONField(required=False, widget=forms.HiddenInput)
+    signer_rules = forms.JSONField(required=False, widget=forms.HiddenInput)
+    inclusion_mode = forms.ChoiceField(
+        choices=OriginationDocumentTemplate.INCLUDE_CHOICES,
+        initial=OriginationDocumentTemplate.INCLUDE_REQUIRED,
+        label='When is this document needed?', widget=UnfoldAdminSelectWidget,
+    )
+    display_order = forms.IntegerField(initial=10, min_value=0, label='Display order')
+    officer_selectable = forms.BooleanField(
+        required=False, label='Officer selectable',
+        help_text='Required for an optional document.',
+    )
+    default_selected = forms.BooleanField(
+        required=False, label='Selected by default',
+        help_text='Only applies to officer-selectable documents.',
+    )
+    condition_field = forms.ChoiceField(
+        required=False, label='Only include this document when',
+        help_text='Leave as Always include unless it depends on an answer in the main loan form.',
+        widget=UnfoldAdminSelectWidget,
+    )
+    condition_operator = forms.ChoiceField(
+        required=False, choices=DOCUMENT_CONDITION_OPERATORS,
+        label='Comparison', widget=UnfoldAdminSelectWidget,
+    )
+    condition_value = forms.CharField(required=False, label='Answer')
+
+    def __init__(self, *args, product: OriginationProductDefinition, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.product = product
+        self.fields['template'].queryset = OriginationDocumentTemplate.objects.filter(
+            product_definition__isnull=True,
+            document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
+            status=OriginationDocumentTemplate.STATUS_ACTIVE,
+            published_configuration_revision__isnull=False,
+        ).order_by('name', '-version')
+        self._condition_by_key = {
+            item['key']: item for item in _product_condition_fields(product)
+        }
+        self.fields['condition_field'].choices = [('', 'Always include')] + [
+            (item['key'], f"{item['label']} ({item['key']})")
+            for item in self._condition_by_key.values()
+        ]
+
+    def _condition_rule(self, cleaned):
+        field_key = str(cleaned.get('condition_field') or '').strip()
+        if not field_key:
+            return {}
+        operator = str(cleaned.get('condition_operator') or '').strip()
+        if not operator:
+            self.add_error('condition_operator', 'Choose how the application answer should be compared.')
+            return {}
+        field = self._condition_by_key.get(field_key)
+        if not field:
+            self.add_error('condition_field', 'Choose a field from this loan form.')
+            return {}
+        if operator in {'truthy', 'falsy'}:
+            return {'field': field_key, 'operator': operator}
+        value = cleaned.get('condition_value')
+        if value in (None, ''):
+            self.add_error('condition_value', 'Enter the answer that makes this document applicable.')
+            return {}
+        if field['type'] == 'boolean':
+            value = str(value).lower() == 'true'
+        return {'field': field_key, 'operator': operator, 'value': value}
+
+    def clean(self):
+        cleaned = super().clean()
+        mode = cleaned.get('mode')
+        cleaned['applicability_rule'] = self._condition_rule(cleaned)
+        if cleaned.get('inclusion_mode') == OriginationDocumentTemplate.INCLUDE_OPTIONAL:
+            if not cleaned.get('officer_selectable'):
+                self.add_error('officer_selectable', 'Optional documents must be officer selectable.')
+        elif cleaned.get('default_selected'):
+            self.add_error('default_selected', 'Only optional documents can be selected by default.')
+        if mode == self.MODE_EXISTING:
+            if not cleaned.get('template'):
+                self.add_error('template', 'Choose a published reusable document.')
+            return cleaned
+        if mode != self.MODE_NEW:
+            self.add_error('mode', 'Choose how to add the supporting document.')
+            return cleaned
+        for field_name, label in (('name', 'document name'), ('document_key', 'document key'), ('pdf_file', 'supporting PDF')):
+            if not cleaned.get(field_name):
+                self.add_error(field_name, f'Provide the {label}.')
+        schema = cleaned.get('form_schema') or {}
+        signers = cleaned.get('signer_rules') or []
+        from core.services.loan_origination import OriginationError, validate_product_form_contract
+        from core.services.origination_templates import OriginationTemplateError, validate_template_pdf
+        try:
+            validate_product_form_contract(schema, signers, require_signers=False)
+        except OriginationError as exc:
+            self.add_error('form_schema', str(exc))
+        for field in (schema.get('fields') or []) if isinstance(schema, dict) else []:
+            if not isinstance(field, dict):
+                continue
+            canonical_id = field.get('data_field_id')
+            canonical = OriginationDataField.objects.filter(pk=canonical_id, active=True).first()
+            if not canonical or canonical.key != str(field.get('key') or '') or canonical.data_type != str(field.get('type') or ''):
+                self.add_error('form_schema', 'Every supporting-document field must come from the active canonical field catalogue.')
+                break
+        pdf_file = cleaned.get('pdf_file')
+        if pdf_file:
+            if not str(pdf_file.name).lower().endswith('.pdf'):
+                self.add_error('pdf_file', 'Upload a PDF file.')
+            else:
+                data = pdf_file.read()
+                pdf_file.seek(0)
+                try:
+                    validate_template_pdf(data)
+                except OriginationTemplateError as exc:
+                    self.add_error('pdf_file', str(exc))
+        return cleaned
+
+
 class CompactModelAdmin(ModelAdmin):
     """Shared dense layout for editable operational records."""
 
@@ -5402,6 +5541,11 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
         urls = super().get_urls()
         custom = [
             path(
+                '<path:object_id>/supporting-document/',
+                self.admin_site.admin_view(self.supporting_document_setup_view),
+                name='core_originationproductdefinition_supporting_document_setup',
+            ),
+            path(
                 '<path:object_id>/create-next-version/',
                 self.admin_site.admin_view(self.create_next_version_view),
                 name='core_originationproductdefinition_create_next_version',
@@ -5477,6 +5621,7 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
         failed_template = None
         existing_successor = None
         shared_assignments = []
+        packet_readiness = []
         if product is not None:
             templates = product.document_templates.order_by('-created_at')
             template = templates.filter(status__in=[
@@ -5498,6 +5643,19 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
                     'template', 'template__published_configuration_revision',
                 ).order_by('display_order', 'document_key')
             ]
+            packet_readiness.append({
+                'label': 'Main LAF',
+                'ready': bool(template and template.drive_file_id),
+                'detail': 'Ready to align' if template and template.drive_file_id else 'Upload the primary LAF PDF',
+            })
+            packet_readiness.extend({
+                'label': item['assignment'].name,
+                'ready': bool(item['resolved_template']),
+                'detail': (
+                    f"Uses shared template v{item['resolved_template'].version}"
+                    if item['resolved_template'] else 'No compatible published version is available'
+                ),
+            } for item in shared_assignments)
         context = {
             **(extra_context or {}),
             'origination_signer_roles': [
@@ -5515,6 +5673,7 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
                 ]).order_by('display_order', 'document_key')
             ) if product else [],
             'origination_shared_document_assignments': shared_assignments,
+            'origination_packet_readiness': packet_readiness,
             'origination_failed_template': failed_template,
             'origination_existing_successor': existing_successor,
             'origination_version_history_url': (
@@ -5547,6 +5706,12 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
                 reverse('admin:core_originationdocumenttemplate_add')
                 + f'?product_definition={product.pk}' if product else ''
             ),
+            'origination_supporting_document_setup_url': (
+                reverse(
+                    'admin:core_originationproductdefinition_supporting_document_setup',
+                    args=[product.pk],
+                ) if product and product.lifecycle_status == product.STATUS_DRAFT else ''
+            ),
             'origination_assignment_add_url': (
                 reverse('admin:core_originationproductdocumentassignment_add')
                 + f'?product_definition={product.pk}' if product and product.lifecycle_status == product.STATUS_DRAFT else ''
@@ -5554,6 +5719,93 @@ class OriginationProductDefinitionAdmin(CompactModelAdmin):
             'origination_shared_library_url': reverse('admin:core_originationdocumenttemplate_changelist') + '?product_definition__isnull=True',
         }
         return super().changeform_view(request, object_id, form_url, context)
+
+    def supporting_document_setup_view(self, request, object_id):
+        """Single product-first entry point for shared packet documents."""
+        if not request.user.is_superuser:
+            raise PermissionDenied
+        product = OriginationProductDefinition.objects.filter(pk=object_id).first()
+        if not product:
+            return HttpResponse(status=404)
+        product_url = reverse('admin:core_originationproductdefinition_change', args=[product.pk])
+        if product.lifecycle_status != product.STATUS_DRAFT:
+            self.message_user(
+                request, 'Published product versions are immutable. Create an editable next version first.',
+                level=messages.ERROR,
+            )
+            return HttpResponseRedirect(product_url)
+        form = ProductSupportingDocumentSetupForm(
+            request.POST or None, request.FILES or None, product=product,
+        )
+        if request.method == 'POST' and form.is_valid():
+            from core.services.origination_templates import (
+                OriginationTemplateError, attach_shared_supporting_template,
+                create_shared_supporting_template,
+            )
+            options = {
+                'inclusion_mode': form.cleaned_data['inclusion_mode'],
+                'display_order': form.cleaned_data['display_order'],
+                'officer_selectable': form.cleaned_data['officer_selectable'],
+                'default_selected': form.cleaned_data['default_selected'],
+                'applicability_rule': form.cleaned_data['applicability_rule'],
+            }
+            try:
+                if form.cleaned_data['mode'] == form.MODE_EXISTING:
+                    assignment = attach_shared_supporting_template(
+                        product_definition=product, template=form.cleaned_data['template'],
+                        actor=request.user, **options,
+                    )
+                    self.message_user(
+                        request,
+                        f'{assignment.name} is now in this product document packet. '
+                        'New applications will resolve the latest compatible published version.',
+                        level=messages.SUCCESS,
+                    )
+                    return HttpResponseRedirect(product_url)
+                template = create_shared_supporting_template(
+                    pdf_file=form.cleaned_data['pdf_file'], name=form.cleaned_data['name'],
+                    document_key=form.cleaned_data['document_key'],
+                    form_schema=form.cleaned_data['form_schema'] or {},
+                    signer_rules=form.cleaned_data['signer_rules'] or [], actor=request.user,
+                )
+            except OriginationTemplateError as exc:
+                form.add_error(None, str(exc))
+            else:
+                if template.status == template.STATUS_UPLOAD_FAILED or not template.drive_file_id:
+                    form.add_error(
+                        'pdf_file',
+                        template.upload_error or 'The PDF could not be stored. No document was attached.',
+                    )
+                else:
+                    pending = request.session.get('origination_supporting_document_attachments', {})
+                    pending[str(template.pk)] = {
+                        'product_id': str(product.pk), **options,
+                    }
+                    request.session['origination_supporting_document_attachments'] = pending
+                    request.session.modified = True
+                    self.message_user(
+                        request,
+                        'PDF uploaded. Draw its fields, then use Publish & attach to finish the packet.',
+                        level=messages.SUCCESS,
+                    )
+                    return HttpResponseRedirect(reverse(
+                        'admin:core_originationdocumenttemplate_calibrate', args=[template.pk],
+                    ))
+        from core.services.loan_origination import SIGNER_ROLE_CATALOG
+        from core.services.origination_fields import catalogue_for_product
+        return TemplateResponse(request, 'admin/core/originationproductdefinition/supporting_document_setup.html', {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': f'Add supporting document: {product}',
+            'product': product,
+            'product_url': product_url,
+            'form': form,
+            'origination_signer_roles': [
+                {'key': key, 'label': label} for key, label in SIGNER_ROLE_CATALOG
+            ],
+            'origination_data_fields': catalogue_for_product(product),
+            'origination_data_field_add_url': reverse('admin:core_originationdatafield_add'),
+        })
 
     def get_form(self, request, obj=None, **kwargs):
         if obj is not None and obj.lifecycle_status != obj.STATUS_DRAFT:
@@ -5968,11 +6220,45 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
             'Open visual calibration</a>', url,
         )
 
+    @staticmethod
+    def _pending_supporting_attachment(request, template):
+        """Read the short-lived product-wizard hand-off for this template only."""
+        raw = (request.session.get('origination_supporting_document_attachments') or {}).get(str(template.pk))
+        if not isinstance(raw, dict):
+            return None
+        product_id = raw.get('product_id')
+        product = OriginationProductDefinition.objects.filter(
+            pk=product_id, lifecycle_status=OriginationProductDefinition.STATUS_DRAFT,
+        ).first()
+        if not product or template.product_definition_id or template.document_role != template.ROLE_SUPPORTING:
+            return None
+        return {'product': product, 'options': {
+            'inclusion_mode': raw.get('inclusion_mode', OriginationDocumentTemplate.INCLUDE_REQUIRED),
+            'display_order': raw.get('display_order', 10),
+            'officer_selectable': bool(raw.get('officer_selectable')),
+            'default_selected': bool(raw.get('default_selected')),
+            'applicability_rule': raw.get('applicability_rule') or {},
+        }}
+
+    @staticmethod
+    def _clear_pending_supporting_attachment(request, template):
+        pending = dict(request.session.get('origination_supporting_document_attachments') or {})
+        if str(template.pk) in pending:
+            pending.pop(str(template.pk), None)
+            request.session['origination_supporting_document_attachments'] = pending
+            request.session.modified = True
+
     def calibrate_view(self, request, object_id):
         obj = self._calibration_template(request, object_id)
+        pending_attachment = self._pending_supporting_attachment(request, obj)
+        product = pending_attachment['product'] if pending_attachment else None
         return TemplateResponse(request, 'admin/core/originationdocumenttemplate/calibrate.html', {
             **self.admin_site.each_context(request), 'opts': self.model._meta,
             'title': f'Calibrate fields: {obj}', 'template_record': obj,
+            'calibration_attach_product': product,
+            'calibration_back_url': reverse(
+                'admin:core_originationproductdefinition_change', args=[product.pk],
+            ) if product else reverse('admin:core_originationdocumenttemplate_changelist'),
         })
 
     def calibration_state_view(self, request, object_id):
@@ -6153,13 +6439,26 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
         if request.method != 'POST':
             return JsonResponse({'ok': False, 'error': 'POST required.'}, status=405)
         try:
-            from core.services.origination_templates import publish_product_template
+            from core.services.origination_templates import (
+                publish_and_attach_shared_supporting_template, publish_product_template,
+            )
             body = self._json_body(request)
             request_id = str(body.get('client_request_id') or request.headers.get('Idempotency-Key') or '')
-            product, _template, published = publish_product_template(
-                template=obj, revision=int(body.get('revision')), actor=request.user,
-                client_request_id=request_id,
-            )
+            pending_attachment = self._pending_supporting_attachment(request, obj)
+            assignment = None
+            if pending_attachment:
+                _template, published, assignment = publish_and_attach_shared_supporting_template(
+                    product_definition=pending_attachment['product'], template=obj,
+                    revision=int(body.get('revision')), actor=request.user,
+                    client_request_id=request_id, assignment_options=pending_attachment['options'],
+                )
+                product = pending_attachment['product']
+                self._clear_pending_supporting_attachment(request, obj)
+            else:
+                product, _template, published = publish_product_template(
+                    template=obj, revision=int(body.get('revision')), actor=request.user,
+                    client_request_id=request_id,
+                )
         except Exception as exc:
             return self._calibration_error_response(exc)
         return JsonResponse({
@@ -6167,6 +6466,7 @@ class OriginationDocumentTemplateAdmin(CompactModelAdmin):
             'revision': published.revision,
             'product_key': product.product_key if product else '',
             'product_version': product.version if product else None,
+            'assignment_name': assignment.name if assignment else '',
         })
 
     @admin.display(description='Drive file')

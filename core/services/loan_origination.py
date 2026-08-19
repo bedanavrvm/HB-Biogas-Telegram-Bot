@@ -73,8 +73,15 @@ def _schema_fields(schema: dict[str, Any]) -> list[dict[str, Any]]:
     return [field for field in fields if isinstance(field, dict)]
 
 
-def validate_product_form_contract(form_schema: dict[str, Any], signer_rules: Any) -> None:
-    """Validate the visual form and signer contract before template calibration."""
+def validate_product_form_contract(
+    form_schema: dict[str, Any], signer_rules: Any, *, require_signers: bool = True,
+) -> None:
+    """Validate a visual form contract before template calibration.
+
+    Supporting PDFs use the same governed field schema as a primary LAF, but
+    do not necessarily need a signature slot.  Primary callers retain the
+    existing signer requirement by default.
+    """
     fields = _schema_fields(form_schema)
     if not fields:
         raise OriginationError('An active origination product requires at least one form field.')
@@ -164,8 +171,11 @@ def validate_product_form_contract(form_schema: dict[str, Any], signer_rules: An
         except (InvalidOperation, TypeError, ValueError) as exc:
             raise OriginationError(f'Field {field.get("key")} has invalid validation limits.') from exc
     known_roles = {key for key, _label in SIGNER_ROLE_CATALOG}
-    if not isinstance(signer_rules, list) or not signer_rules:
-        raise OriginationError('An active origination product requires signer rules.')
+    if not isinstance(signer_rules, list) or (require_signers and not signer_rules):
+        raise OriginationError(
+            'An active origination product requires signer rules.'
+            if require_signers else 'Signer rules must be a list.',
+        )
     roles = [str(item.get('role') or '').strip() for item in signer_rules if isinstance(item, dict)]
     if len(roles) != len(signer_rules) or any(role not in known_roles for role in roles):
         raise OriginationError('Every signer requires a role from the approved catalogue.')

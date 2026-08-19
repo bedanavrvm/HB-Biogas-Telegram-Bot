@@ -6,6 +6,7 @@ from pypdf import PdfReader, PdfWriter
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from django.urls import reverse
 
 from core.models import (
     LoanOriginationApplication,
@@ -35,6 +36,7 @@ from core.services.origination_documents import (
     render_packet,
     validate_applicability_rule,
 )
+from core.services.origination_templates import attach_shared_supporting_template
 
 
 class LoanOriginationServiceTests(TestCase):
@@ -529,3 +531,68 @@ class LoanOriginationServiceTests(TestCase):
                 document_key='late-guarantee', name='Late guarantee',
                 inclusion_mode='required', display_order=30, created_by=self.officer,
             )
+
+    def test_packet_wizard_attach_uses_latest_compatible_global_template(self):
+        draft = OriginationProductDefinition.objects.create(
+            product_key='packet-wizard', name='Packet wizard product', version=1,
+            form_schema={'fields': [{'key': 'consent', 'type': 'boolean', 'required': True}]},
+            signer_rules=[], document_type='packet_wizard',
+            document_template_name='', document_template_version=1,
+            document_template_sha256='', is_active=False,
+        )
+        template = OriginationDocumentTemplate.objects.create(
+            product_definition=None, document_key='guarantor_form', document_role='supporting',
+            inclusion_mode='required', document_type='guarantor_form', name='Guarantor form',
+            version=1, status='active', source_filename='guarantor.pdf', source_sha256='6' * 64,
+            source_byte_size=100, page_count=1, placement_config={}, created_by=self.officer,
+            form_schema={'fields': [{'key': 'customer_name', 'type': 'text', 'required': True}]},
+        )
+        revision = OriginationTemplateConfigurationRevision.objects.create(
+            template=template, revision=1, configuration={}, is_published=True, created_by=self.officer,
+        )
+        template.published_configuration_revision = revision
+        template.save(update_fields=['published_configuration_revision'])
+
+        assignment = attach_shared_supporting_template(
+            product_definition=draft, template=template,
+            inclusion_mode='conditional_required', display_order=15,
+            officer_selectable=False, default_selected=False,
+            applicability_rule={'field': 'consent', 'operator': 'truthy'}, actor=self.officer,
+        )
+
+        self.assertEqual(assignment.product_definition, draft)
+        self.assertEqual(assignment.template, template)
+        self.assertEqual(assignment.version_policy, assignment.VERSION_LATEST_COMPATIBLE)
+        self.assertEqual(assignment.applicability_rule['field'], 'consent')
+        repeated = attach_shared_supporting_template(
+            product_definition=draft, template=template,
+            inclusion_mode='conditional_required', display_order=15,
+            officer_selectable=False, default_selected=False,
+            applicability_rule={'field': 'consent', 'operator': 'truthy'}, actor=self.officer,
+        )
+        self.assertEqual(repeated.pk, assignment.pk)
+        self.assertEqual(draft.document_assignments.count(), 1)
+
+
+class OriginationSupportingDocumentSetupAdminTests(TestCase):
+    def test_draft_product_has_a_single_guided_supporting_document_entrypoint(self):
+        actor = get_user_model().objects.create_superuser(
+            username='packet-wizard-admin', email='packet-wizard@example.test', password='password',
+        )
+        product = OriginationProductDefinition.objects.create(
+            product_key='packet-admin', name='Packet admin product', version=1,
+            form_schema={'fields': [{'key': 'consent', 'type': 'boolean', 'required': True}]},
+            signer_rules=[], document_type='packet_admin', document_template_name='',
+            document_template_version=1, document_template_sha256='', is_active=False,
+        )
+        self.client.force_login(actor)
+
+        response = self.client.get(reverse(
+            'admin:core_originationproductdefinition_supporting_document_setup', args=[product.pk],
+        ))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Add a supporting document')
+        self.assertContains(response, 'Use a published reusable document')
+        self.assertContains(response, 'Create a reusable document')
+        self.assertContains(response, 'origination-product-builder')

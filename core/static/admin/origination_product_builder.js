@@ -293,7 +293,9 @@
     const note = root.querySelector('[data-supporting-builder-note]');
     const content = root.querySelector('[data-supporting-builder-content]');
     const updateSupportingVisibility = () => {
-      const isSupporting = roleInput?.value === 'supporting';
+      // The product-scoped supporting-document wizard has no role selector:
+      // its context already guarantees it is a supporting PDF.
+      const isSupporting = !roleInput || roleInput.value === 'supporting';
       if (note) note.hidden = isSupporting;
       if (content) content.hidden = !isSupporting;
       root.classList.toggle('opb-builder-muted', !isSupporting);

@@ -1096,7 +1096,7 @@
       $('calibration-save').setAttribute('aria-busy', 'true'); $('calibration-publish').setAttribute('aria-busy', 'true');
       const snapshot = copy(configuration), snapshotHash = configurationHash(snapshot);
       if (snapshotHash !== savedBaselineHash) { status('Saving reviewed alignment…', false, true); await saveDraft(snapshot, snapshotHash); }
-      status('Validating and publishing product…', false, true);
+      status(app.dataset.publishLabel || 'Validating and publishing…', false, true);
       const clientRequestId = requestKey('calibration-publish', `${revision}:${savedBaselineHash}`);
       const data = await jsonRequest(app.dataset.publishUrl, {
         method: 'POST',
@@ -1105,7 +1105,12 @@
       });
       revision = data.revision; delete pendingWriteKeys['calibration-publish'];
       published = true; setOperationState('published'); refreshDirtyState();
-      status(`Published ${data.product_key || 'template'} version ${data.product_version || ''}`.trim(), false, true);
+      status(
+        data.assignment_name
+          ? `${data.assignment_name} was published and added to this product's document packet.`
+          : `Published ${data.product_key || 'template'} version ${data.product_version || ''}`.trim(),
+        false, true,
+      );
     } catch (error) {
       serverReadinessIssue = error.message;
       if (!published) setOperationState('idle');

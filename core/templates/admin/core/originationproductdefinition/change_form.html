@@ -93,8 +93,18 @@
             <h2>Document packet</h2>
             <p>Keep the main LAF first, then add required, conditional, or optional supporting PDFs with their own fields and signer slots.</p>
           </div>
-          <span><a class="button" href="{{ origination_shared_library_url }}">Shared template library</a>{% if origination_assignment_add_url %} <a class="button" href="{{ origination_assignment_add_url }}">Assign shared document</a>{% endif %} <a class="button" href="{{ origination_document_add_url }}">Add product-specific document</a></span>
+          <span>
+            {% if origination_supporting_document_setup_url %}<a class="button" href="{{ origination_supporting_document_setup_url }}">Add supporting document</a>{% endif %}
+            <a class="opb-secondary-link" href="{{ origination_shared_library_url }}">Manage reusable library</a>
+          </span>
         </header>
+        {% if origination_packet_readiness %}
+          <div class="opb-packet-readiness" aria-label="Document packet readiness">
+            {% for item in origination_packet_readiness %}
+              <span class="{% if item.ready %}is-ready{% else %}is-blocked{% endif %}"><b>{{ item.label }}</b><small>{{ item.detail }}</small></span>
+            {% endfor %}
+          </div>
+        {% endif %}
         {% if origination_document_packet %}
           <div class="opb-document-packet">
             {% for item in origination_document_packet %}
@@ -113,7 +123,7 @@
             {% for item in origination_shared_document_assignments %}
               <article>
                 <span><b>{{ item.assignment.name }}</b><small>{{ item.assignment.get_version_policy_display }}{% if item.resolved_template %} &middot; currently v{{ item.resolved_template.version }}{% else %} &middot; unavailable{% endif %} &middot; {{ item.assignment.get_inclusion_mode_display }}</small></span>
-                <span>{% if item.resolved_template %}<a href="{% url 'admin:core_originationdocumenttemplate_calibrate' item.resolved_template.pk %}">View resolved builder</a>{% endif %} <a href="{% url 'admin:core_originationproductdocumentassignment_change' item.assignment.pk %}">Assignment</a></span>
+                <span>{% if item.resolved_template %}<a href="{% url 'admin:core_originationdocumenttemplate_calibrate' item.resolved_template.pk %}">Preview PDF mapping</a>{% endif %} <a href="{% url 'admin:core_originationproductdocumentassignment_change' item.assignment.pk %}">Advanced settings</a></span>
               </article>
             {% endfor %}
           </div>

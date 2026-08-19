@@ -1,0 +1,86 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=6">
+{% endblock %}
+
+{% block content %}
+  <div class="opb-shell opb-supporting-setup" data-setup-root>
+    <header class="opb-header">
+      <div>
+        <a class="opb-secondary-link" href="{{ product_url }}">&larr; Back to {{ product.name }} document packet</a>
+        <h1>Add a supporting document</h1>
+        <p>Create one reusable PDF once, then it will automatically use its latest compatible published version for this product's new applications.</p>
+      </div>
+    </header>
+
+    <form method="post" enctype="multipart/form-data" novalidate>
+      {% csrf_token %}
+      {% if form.non_field_errors %}<div class="opb-errors">{{ form.non_field_errors }}</div>{% endif %}
+      <section class="opb-setup-card">
+        <h2>1. Choose the source</h2>
+        {{ form.mode.errors }}{{ form.mode }}
+        <div data-setup-existing>
+          <div class="opb-form-grid">{{ form.template.label_tag }} {{ form.template }} {{ form.template.errors }}<p class="help">{{ form.template.help_text }}</p></div>
+        </div>
+        <div data-setup-new hidden>
+          <div class="opb-form-grid">
+            <div>{{ form.name.label_tag }}{{ form.name }}{{ form.name.errors }}</div>
+            <div>{{ form.document_key.label_tag }}{{ form.document_key }}{{ form.document_key.errors }}<p class="help">{{ form.document_key.help_text }}</p></div>
+            <div class="opb-form-grid-full">{{ form.pdf_file.label_tag }}{{ form.pdf_file }}{{ form.pdf_file.errors }}</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="opb-setup-card" data-setup-new hidden>
+        <h2>2. Define this document's fields</h2>
+        <p class="help">Pick from the governed canonical field catalogue. The same field can be reused across different LAFs without retyping keys or JSON.</p>
+        {{ form.form_schema }}{{ form.signer_rules }}
+        {{ origination_signer_roles|json_script:"origination-signer-role-data" }}
+        {{ origination_data_fields|json_script:"origination-data-field-data" }}
+        <section id="origination-product-builder" class="opb-shell" data-builder-kind="supporting-document" data-require-fields="true" data-require-signers="false">
+          <header class="opb-header">
+            <div><h2>Document field builder</h2><p>These are the values officers will see and the fields available to place on this PDF.</p></div>
+            <div class="opb-actions"><a class="opb-secondary-link" href="{{ origination_data_field_add_url }}" target="_blank" rel="noopener">Create canonical field</a><button type="button" class="button" data-action="add-section">Add section</button><button type="button" class="button" data-action="add-signer">Add signer</button></div>
+          </header>
+          <div id="opb-errors" class="opb-errors" hidden></div>
+          <div class="opb-grid"><section><h3>Fields</h3><div id="opb-sections"></div></section><aside><h3>Signing roles</h3><p class="help">Optional. Add a role only when this supporting document needs a signature or stamp slot.</p><div id="opb-signers"></div></aside></div>
+        </section>
+        {{ form.form_schema.errors }}{{ form.signer_rules.errors }}
+      </section>
+
+      <section class="opb-setup-card">
+        <h2 data-setup-step>2. Set how it is used</h2>
+        <div class="opb-form-grid">
+          <div>{{ form.inclusion_mode.label_tag }}{{ form.inclusion_mode }}{{ form.inclusion_mode.errors }}</div>
+          <div>{{ form.display_order.label_tag }}{{ form.display_order }}{{ form.display_order.errors }}</div>
+          <div>{{ form.officer_selectable.label_tag }}{{ form.officer_selectable }}<p class="help">{{ form.officer_selectable.help_text }}</p>{{ form.officer_selectable.errors }}</div>
+          <div>{{ form.default_selected.label_tag }}{{ form.default_selected }}<p class="help">{{ form.default_selected.help_text }}</p>{{ form.default_selected.errors }}</div>
+          <div>{{ form.condition_field.label_tag }}{{ form.condition_field }}{{ form.condition_field.errors }}</div>
+          <div>{{ form.condition_operator.label_tag }}{{ form.condition_operator }}{{ form.condition_operator.errors }}</div>
+          <div class="opb-form-grid-full">{{ form.condition_value.label_tag }}{{ form.condition_value }}{{ form.condition_value.errors }}</div>
+        </div>
+      </section>
+      <footer class="submit-row"><a class="button cancel-link" href="{{ product_url }}">Cancel</a><button type="submit" class="default" data-setup-submit>Attach document</button></footer>
+    </form>
+  </div>
+  <script src="{% static 'admin/origination_product_builder.js' %}?v=3" defer></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const root = document.querySelector('[data-setup-root]'); if (!root) return;
+      const radios = root.querySelectorAll('input[name="mode"]');
+      const existing = root.querySelectorAll('[data-setup-existing]');
+      const created = root.querySelectorAll('[data-setup-new]');
+      const step = root.querySelector('[data-setup-step]'); const submit = root.querySelector('[data-setup-submit]');
+      function update() {
+        const create = root.querySelector('input[name="mode"]:checked')?.value === 'new';
+        existing.forEach(node => node.hidden = create); created.forEach(node => node.hidden = !create);
+        if (step) step.textContent = create ? '3. Set how it is used' : '2. Set how it is used';
+        if (submit) submit.textContent = create ? 'Upload and align fields' : 'Attach document';
+      }
+      radios.forEach(radio => radio.addEventListener('change', update)); update();
+    });
+  </script>
+{% endblock %}

@@ -82,9 +82,13 @@ def validate_template_pdf(pdf_data: bytes) -> tuple[str, int]:
     return hashlib.sha256(pdf_data).hexdigest(), page_count
 
 
-def initial_template_configuration(product: OriginationProductDefinition | None) -> dict[str, Any]:
+def initial_template_configuration(
+    product: OriginationProductDefinition | None,
+    *, form_schema: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     sample_context = {}
-    for field in ((product.form_schema if product else {}) or {}).get('fields', []) or []:
+    schema = form_schema if form_schema is not None else (product.form_schema if product else {})
+    for field in (schema or {}).get('fields', []) or []:
         key = str(field.get('key') or '').strip()
         if not key:
             continue
@@ -458,6 +462,164 @@ def create_template(
             metadata={'sha256': digest, 'byte_size': len(pdf_data), 'page_count': page_count},
         )
     return upload_template_record(template, pdf_data=pdf_data, actor=actor)
+
+
+def create_shared_supporting_template(
+    *, pdf_file, name: str, document_key: str, form_schema: dict[str, Any],
+    signer_rules: list[dict[str, Any]], actor,
+) -> OriginationDocumentTemplate:
+    """Create an unassigned reusable supporting PDF from the visual builder.
+
+    The document is deliberately global: attaching it to a draft product is a
+    separate, auditable action and uses ``latest_compatible`` by default.
+    """
+    document_key = str(document_key or '').strip().lower()
+    try:
+        validate_slug(document_key)
+    except ValidationError as exc:
+        raise OriginationTemplateError('Document key must be a lowercase slug.') from exc
+    if document_key == 'primary':
+        raise OriginationTemplateError('Supporting documents need their own document key.')
+    from core.services.loan_origination import OriginationError, validate_product_form_contract
+    try:
+        validate_product_form_contract(form_schema or {}, signer_rules or [], require_signers=False)
+    except OriginationError as exc:
+        raise OriginationTemplateError(str(exc)) from exc
+    pdf_data = pdf_file.read()
+    digest, page_count = validate_template_pdf(pdf_data)
+    filename = str(getattr(pdf_file, 'name', '') or f'{document_key}.pdf')[:255]
+    with transaction.atomic():
+        version = (
+            OriginationDocumentTemplate.objects.filter(document_type=document_key)
+            .aggregate(models.Max('version'))['version__max'] or 0
+        ) + 1
+        template = OriginationDocumentTemplate(
+            product_definition=None,
+            document_key=document_key,
+            document_role=OriginationDocumentTemplate.ROLE_SUPPORTING,
+            inclusion_mode=OriginationDocumentTemplate.INCLUDE_REQUIRED,
+            display_order=10,
+            officer_selectable=False,
+            default_selected=False,
+            applicability_rule={},
+            form_schema=form_schema or {},
+            signer_rules=signer_rules or [],
+            document_type=document_key,
+            name=str(name or filename).strip()[:180],
+            version=version,
+            status=OriginationDocumentTemplate.STATUS_READY,
+            source_filename=filename,
+            source_sha256=digest,
+            source_byte_size=len(pdf_data),
+            page_count=page_count,
+            placement_config=initial_template_configuration(None, form_schema=form_schema or {}),
+            created_by=actor,
+        )
+        template.placement_config['document_type'] = document_key
+        template.placement_config['version'] = version
+        template.full_clean()
+        template.save()
+        OriginationDocumentTemplateEvent.objects.create(
+            template=template, action='created', actor=actor,
+            metadata={
+                'sha256': digest, 'byte_size': len(pdf_data), 'page_count': page_count,
+                'origin': 'product_document_packet_wizard',
+            },
+        )
+    return upload_template_record(template, pdf_data=pdf_data, actor=actor)
+
+
+def attach_shared_supporting_template(
+    *, product_definition: OriginationProductDefinition,
+    template: OriginationDocumentTemplate, inclusion_mode: str, display_order: int,
+    officer_selectable: bool, default_selected: bool, applicability_rule: dict[str, Any], actor,
+) -> OriginationProductDocumentAssignment:
+    """Attach a published global supporting template to one draft product."""
+    with transaction.atomic():
+        product = OriginationProductDefinition.objects.select_for_update().get(pk=product_definition.pk)
+        template = OriginationDocumentTemplate.objects.select_for_update().get(pk=template.pk)
+        if product.lifecycle_status != product.STATUS_DRAFT:
+            raise OriginationTemplateError('Create an editable product version before changing its document packet.')
+        if (
+            template.product_definition_id is not None
+            or template.document_role != template.ROLE_SUPPORTING
+            or template.status != template.STATUS_ACTIVE
+            or not template.published_configuration_revision_id
+        ):
+            raise OriginationTemplateError('Choose a published reusable supporting document.')
+        from core.services.origination_documents import validate_applicability_rule
+        product_keys = {
+            str(item.get('key')) for item in (product.form_schema or {}).get('fields', [])
+            if isinstance(item, dict) and item.get('key')
+        }
+        document_keys = {
+            str(item.get('key')) for item in (template.form_schema or {}).get('fields', [])
+            if isinstance(item, dict) and item.get('key')
+        }
+        try:
+            validate_applicability_rule(applicability_rule or {}, allowed_fields=product_keys | document_keys)
+        except ValueError as exc:
+            raise OriginationTemplateError(str(exc)) from exc
+        existing = product.document_assignments.filter(template=template).first()
+        if existing:
+            # Admin/browser retries are common on slow connections.  The
+            # assignment is already the durable result of this exact family
+            # attachment, so make the retry harmless rather than creating a
+            # second route-specific failure.
+            return existing
+        if product.document_assignments.filter(document_key=template.document_key).exists():
+            raise OriginationTemplateError('This product already has a document with that key.')
+        assignment = OriginationProductDocumentAssignment(
+            product_definition=product,
+            template=template,
+            version_policy=OriginationProductDocumentAssignment.VERSION_LATEST_COMPATIBLE,
+            document_key=template.document_key,
+            name=template.name,
+            inclusion_mode=inclusion_mode,
+            display_order=max(0, int(display_order or 0)),
+            officer_selectable=bool(officer_selectable),
+            default_selected=bool(default_selected),
+            applicability_rule=applicability_rule or {},
+            created_by=actor,
+        )
+        assignment.full_clean()
+        assignment.save()
+        OriginationProductDefinitionEvent.objects.create(
+            product_definition=product, action='shared_document_assigned', actor=actor,
+            metadata={
+                'assignment_id': str(assignment.pk), 'template_id': str(template.pk),
+                'document_key': assignment.document_key,
+                'version_policy': assignment.version_policy,
+                'origin': 'product_document_packet_wizard',
+            },
+        )
+        return assignment
+
+
+def publish_and_attach_shared_supporting_template(
+    *, product_definition: OriginationProductDefinition,
+    template: OriginationDocumentTemplate, revision: int, actor,
+    client_request_id: str = '', assignment_options: dict[str, Any] | None = None,
+) -> tuple[OriginationDocumentTemplate, OriginationTemplateConfigurationRevision, OriginationProductDocumentAssignment]:
+    """Publish a new shared PDF and attach its latest-compatible family atomically."""
+    options = assignment_options or {}
+    with transaction.atomic():
+        product = OriginationProductDefinition.objects.select_for_update().get(pk=product_definition.pk)
+        if product.lifecycle_status != product.STATUS_DRAFT:
+            raise OriginationTemplateError('Create an editable product version before changing its document packet.')
+        _unused_product, activated, published = publish_product_template(
+            template=template, revision=revision, actor=actor,
+            client_request_id=client_request_id,
+        )
+        assignment = attach_shared_supporting_template(
+            product_definition=product, template=activated, actor=actor,
+            inclusion_mode=options.get('inclusion_mode', OriginationDocumentTemplate.INCLUDE_REQUIRED),
+            display_order=options.get('display_order', 10),
+            officer_selectable=bool(options.get('officer_selectable')),
+            default_selected=bool(options.get('default_selected')),
+            applicability_rule=options.get('applicability_rule') or {},
+        )
+        return activated, published, assignment
 
 
 def _source_template_for_product(
