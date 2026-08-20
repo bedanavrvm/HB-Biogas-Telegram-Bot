@@ -5654,6 +5654,11 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
         urls = super().get_urls()
         custom = [
             path(
+                'canonical-field/create/',
+                self.admin_site.admin_view(self.create_canonical_field_view),
+                name='core_originationproductdefinition_create_canonical_field',
+            ),
+            path(
                 'full-reset/',
                 self.admin_site.admin_view(self.full_reset_view),
                 name='core_origination_full_reset',
@@ -5685,6 +5690,44 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
             ),
         ]
         return custom + urls
+
+    def create_canonical_field_view(self, request):
+        """Create one governed input field without leaving an unsaved builder."""
+        if not request.user.is_active or not request.user.is_superuser:
+            raise PermissionDenied
+        if request.method != 'POST':
+            response = JsonResponse({'ok': False, 'error': 'POST required.'}, status=405)
+            response['Allow'] = 'POST'
+            return response
+        from core.services.origination_fields import (
+            OriginationFieldError,
+            create_data_field,
+            serialize_data_field,
+        )
+        try:
+            body = json.loads(request.body or b'{}')
+            if not isinstance(body, dict):
+                raise ValidationError('Request body must be an object.')
+            data_field, replayed = create_data_field(payload=body, actor=request.user)
+            if not data_field.active:
+                raise ValidationError(
+                    'That canonical key already exists but is inactive. Reactivate it in Origination data fields.',
+                )
+            if data_field.source_type != OriginationDataField.SOURCE_USER_INPUT:
+                raise ValidationError(
+                    'That canonical key belongs to a system-derived field and cannot be added as officer input.',
+                )
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return JsonResponse({'ok': False, 'error': 'Request body must be valid JSON.'}, status=400)
+        except OriginationFieldError as exc:
+            return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        except ValidationError as exc:
+            return JsonResponse({'ok': False, 'error': '; '.join(exc.messages)}, status=400)
+        return JsonResponse({
+            'ok': True,
+            'replayed': replayed,
+            'field': serialize_data_field(data_field),
+        })
 
     def full_reset_view(self, request):
         if (
@@ -5878,6 +5921,9 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
             'origination_data_fields': catalogue_for_product(product),
             'origination_data_field_add_url': reverse(
                 'admin:core_originationdatafield_add',
+            ),
+            'origination_data_field_create_url': reverse(
+                'admin:core_originationproductdefinition_create_canonical_field',
             ),
             'origination_document_template': template,
             'origination_document_packet': list(
@@ -6103,6 +6149,9 @@ class OriginationProductDefinitionAdmin(OriginationGodModeAdminMixin, CompactMod
             ],
             'origination_data_fields': catalogue_for_product(product),
             'origination_data_field_add_url': reverse('admin:core_originationdatafield_add'),
+            'origination_data_field_create_url': reverse(
+                'admin:core_originationproductdefinition_create_canonical_field',
+            ),
         })
 
     def get_form(self, request, obj=None, **kwargs):

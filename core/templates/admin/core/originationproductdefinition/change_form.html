@@ -3,7 +3,7 @@
 
 {% block extrahead %}
   {{ block.super }}
-  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=5">
+  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=7">
 {% endblock %}
 
 {% block object-tools-items %}
@@ -38,7 +38,7 @@
   {% if not original or original.lifecycle_status == 'draft' %}
     {{ origination_signer_roles|json_script:"origination-signer-role-data" }}
     {{ origination_data_fields|json_script:"origination-data-field-data" }}
-    <section id="origination-product-builder" class="opb-shell">
+    <section id="origination-product-builder" class="opb-shell" data-create-field-url="{{ origination_data_field_create_url }}">
       <header class="opb-header">
         <div>
           <h2>Loan form builder</h2>
@@ -63,7 +63,7 @@
         </aside>
       </div>
     </section>
-    <script src="{% static 'admin/origination_product_builder.js' %}?v=2" defer></script>
+    <script src="{% static 'admin/origination_product_builder.js' %}?v=4" defer></script>
   {% elif original %}
     <section class="opb-shell opb-published">
       <h2>Published product version</h2>

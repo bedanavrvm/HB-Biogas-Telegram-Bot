@@ -17,6 +17,7 @@ from unfold.widgets import UnfoldAdminFileFieldWidget, UnfoldAdminSelectWidget
 
 from core.models import (
     LoanOriginationApplication,
+    OriginationDataField,
     OriginationDocumentTemplate,
     OriginationDocumentTemplateEvent,
     OriginationProductDocumentAssignment,
@@ -609,6 +610,58 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertEqual(product.document_type, 'solar-upgrade')
         self.assertEqual(product.lifecycle_status, product.STATUS_DRAFT)
         self.assertEqual(product.document_template_sha256, '')
+
+    def test_unsaved_product_builder_can_create_an_audited_canonical_field_inline(self):
+        self.client.force_login(self.user)
+        url = reverse('admin:core_originationproductdefinition_create_canonical_field')
+        payload = {
+            'label': 'Applicant residence type',
+            'key': 'applicant_residence_type',
+            'type': 'choice',
+            'sensitivity': 'pii',
+            'category': 'Applicant',
+            'choice_options': [
+                {'code': 'owned', 'label': 'Owned'},
+                {'code': 'rented', 'label': 'Rented'},
+            ],
+        }
+
+        response = self.client.post(
+            url, data=json.dumps(payload), content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body['ok'])
+        self.assertFalse(body['replayed'])
+        self.assertEqual(body['field']['key'], 'applicant_residence_type')
+        field = OriginationDataField.objects.get(key='applicant_residence_type')
+        self.assertEqual(field.source_type, OriginationDataField.SOURCE_USER_INPUT)
+        self.assertEqual(field.choice_options[0]['code'], 'owned')
+        self.assertEqual(field.events.count(), 1)
+
+        replay = self.client.post(
+            url, data=json.dumps(payload), content_type='application/json',
+        )
+        self.assertEqual(replay.status_code, 200)
+        self.assertTrue(replay.json()['replayed'])
+        self.assertEqual(OriginationDataField.objects.filter(key=field.key).count(), 1)
+        self.assertEqual(field.events.count(), 1)
+
+    def test_product_builder_field_creation_rejects_non_superuser(self):
+        staff = get_user_model().objects.create_user(
+            'field-builder-staff', 'field-builder@example.test', 'x', is_staff=True,
+        )
+        self.client.force_login(staff)
+
+        response = self.client.post(
+            reverse('admin:core_originationproductdefinition_create_canonical_field'),
+            data=json.dumps({'label': 'Forbidden field', 'key': 'forbidden_field', 'type': 'text'}),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(OriginationDataField.objects.filter(key='forbidden_field').exists())
 
     @patch('core.services.order_approval.GoogleDriveMediaStorage')
     def test_admin_product_builder_uploads_laf_and_opens_alignment_workspace(self, storage_class):

@@ -25,10 +25,16 @@
   const optionMarkup = (items, selected) => items.map(([value, label]) => `<option value="${escapeHtml(value)}"${value === selected ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('');
   const canonicalOptions = field => {
     const selectedId = String(field.data_field_id || '');
+    const usedIds = new Set(schema.fields.filter(item => item !== field).map(item => String(item.data_field_id || '')));
+    const usedKeys = new Set(schema.fields.filter(item => item !== field).map(item => String(item.key || '')));
+    const available = inputCatalogue.filter(item => (
+      String(item.id) === selectedId
+      || (!usedIds.has(String(item.id)) && !usedKeys.has(String(item.key)))
+    ));
     const legacy = !catalogueById.has(selectedId) && field.key
       ? `<option value="" selected>Legacy: ${escapeHtml(field.label || field.key)} (${escapeHtml(field.key)})</option>`
       : '<option value="">Choose a canonical field</option>';
-    return legacy + inputCatalogue.map(item => {
+    return legacy + available.map(item => {
       const search = [item.category, item.label, item.key, ...(item.aliases || [])].filter(Boolean).join(' · ');
       return `<option value="${escapeHtml(item.id)}"${String(item.id) === selectedId ? ' selected' : ''}>${escapeHtml(search)}</option>`;
     }).join('');
@@ -159,6 +165,171 @@
   function move(list, index, delta) { const target = index + delta; if (target < 0 || target >= list.length) return; [list[index], list[target]] = [list[target], list[index]]; }
   function uniqueKey(base, values) { let key = slug(base), index = 2; while (values.includes(key)) key = `${slug(base)}_${index++}`; return key; }
 
+  let fieldPickerSectionIndex = 0;
+  const advancedCatalogueUrl = document.querySelector('.opb-actions a[href*="originationdatafield"]')?.href || '#';
+  const fieldPicker = document.createElement('dialog');
+  fieldPicker.className = 'opb-field-picker';
+  fieldPicker.setAttribute('aria-labelledby', 'opb-field-picker-title');
+  fieldPicker.innerHTML = `<form method="dialog" class="opb-field-picker-card">
+    <header><div><p>Add to form</p><h2 id="opb-field-picker-title">Choose or create a canonical field</h2></div><button type="button" class="opb-picker-close" aria-label="Close">&times;</button></header>
+    <div class="opb-field-picker-grid">
+      <section>
+        <h3>Use an existing field</h3>
+        <p>Search the global catalogue. Fields already attached to this form are excluded.</p>
+        <label>Search<input type="search" data-picker-search placeholder="Name, key, category, or alias"></label>
+        <label>Canonical field<select data-picker-existing size="7"></select></label>
+        <p class="opb-picker-empty" data-picker-empty hidden></p>
+        <button type="button" class="button" data-picker-add>Add selected field</button>
+      </section>
+      <section>
+        <h3>Create a new canonical field</h3>
+        <p>Use this only when the catalogue has no field with the same business meaning.</p>
+        <div class="opb-picker-form">
+          <label>Label<input data-picker-label required maxlength="160" placeholder="Applicant national ID"></label>
+          <label>Stable key<input data-picker-key required maxlength="120" pattern="[a-z0-9_]+" placeholder="applicant_national_id"></label>
+          <label>Type<select data-picker-type>
+            <option value="text">Short text</option><option value="textarea">Long text</option>
+            <option value="number">Number</option><option value="money">Money</option>
+            <option value="date">Date</option><option value="phone">Phone</option>
+            <option value="national_id">National ID</option><option value="choice">Choice</option>
+            <option value="boolean">Yes / No</option><option value="branch">Governed branch</option>
+            <option value="county">Governed county</option><option value="sub_county">Governed sub-county</option>
+          </select></label>
+          <label>Sensitivity<select data-picker-sensitivity>
+            <option value="pii">Personal data (PII)</option><option value="financial">Financial</option>
+            <option value="internal">Internal</option><option value="restricted">Restricted</option>
+            <option value="public">Public</option>
+          </select></label>
+          <label class="opb-picker-wide">Category<input data-picker-category maxlength="80" value="Application"></label>
+          <label class="opb-picker-wide" data-picker-options-wrap hidden>Choice options <small>One per line: stable_code | Display label</small><textarea data-picker-options placeholder="employed | Employed"></textarea></label>
+        </div>
+        <p class="opb-picker-error" data-picker-error hidden></p>
+        <button type="button" class="button" data-picker-create>Create and add field</button>
+        <a class="opb-secondary-link" href="${escapeHtml(advancedCatalogueUrl)}" target="_blank" rel="noopener">Open advanced field catalogue</a>
+      </section>
+    </div>
+  </form>`;
+  document.body.appendChild(fieldPicker);
+
+  const picker = selector => fieldPicker.querySelector(selector);
+  const usedFieldIds = () => new Set(schema.fields.map(item => String(item.data_field_id || '')));
+  const usedFieldKeys = () => new Set(schema.fields.map(item => String(item.key || '')));
+  const availableFields = (query = '') => {
+    const usedIds = usedFieldIds(), usedKeys = usedFieldKeys();
+    const normalized = String(query || '').trim().toLowerCase();
+    return inputCatalogue.filter(item => {
+      if (usedIds.has(String(item.id)) || usedKeys.has(String(item.key))) return false;
+      const haystack = [item.label, item.key, item.category, ...(item.aliases || [])].join(' ').toLowerCase();
+      return !normalized || haystack.includes(normalized);
+    });
+  };
+  const renderFieldPicker = () => {
+    const matches = availableFields(picker('[data-picker-search]').value);
+    picker('[data-picker-existing]').innerHTML = matches.map(item => (
+      `<option value="${escapeHtml(item.id)}">${escapeHtml(item.category || 'Application')} · ${escapeHtml(item.label)} · ${escapeHtml(item.key)}</option>`
+    )).join('');
+    picker('[data-picker-add]').disabled = !matches.length;
+    const empty = picker('[data-picker-empty]');
+    empty.hidden = Boolean(matches.length);
+    empty.textContent = inputCatalogue.length
+      ? 'Every active input field is already on this form, or no field matches the search. Create a genuinely new canonical field here when needed.'
+      : 'No active user-input fields exist yet. Create the first canonical field here.';
+  };
+  const appendCanonicalField = canonical => {
+    if (!canonical) throw new Error('Choose a canonical field.');
+    if (usedFieldIds().has(String(canonical.id)) || usedFieldKeys().has(String(canonical.key))) {
+      throw new Error(`${canonical.label} is already attached to this form.`);
+    }
+    schema.fields.push({
+      data_field_id: canonical.id, key: canonical.key, label: canonical.label,
+      type: canonical.type, section_key: schema.sections[fieldPickerSectionIndex].key,
+      required: false, width: canonical.type === 'textarea' ? 'full' : 'half', help_text: canonical.help_text || '',
+      validation: {}, sensitivity: canonical.sensitivity, masking_policy: canonical.masking_policy,
+      reporting_use: canonical.reporting_use, export_allowed: canonical.export_allowed,
+      source_type: canonical.source_type,
+      options: canonical.type === 'choice'
+        ? (canonical.choice_options || []).filter(item => item.active !== false).map(item => ({ code: item.code, label: item.label }))
+        : [],
+    });
+    render();
+    fieldPicker.close();
+  };
+  const openFieldPicker = sectionIndex => {
+    fieldPickerSectionIndex = sectionIndex;
+    picker('[data-picker-search]').value = '';
+    picker('[data-picker-label]').value = '';
+    picker('[data-picker-key]').value = '';
+    delete picker('[data-picker-key]').dataset.touched;
+    picker('[data-picker-type]').value = 'text';
+    picker('[data-picker-sensitivity]').value = 'pii';
+    picker('[data-picker-category]').value = 'Application';
+    picker('[data-picker-options]').value = '';
+    picker('[data-picker-options-wrap]').hidden = true;
+    picker('[data-picker-error]').hidden = true;
+    renderFieldPicker();
+    fieldPicker.showModal();
+    (availableFields().length ? picker('[data-picker-search]') : picker('[data-picker-label]')).focus();
+  };
+
+  picker('[data-picker-search]').addEventListener('input', renderFieldPicker);
+  picker('[data-picker-add]').addEventListener('click', () => {
+    const canonical = catalogueById.get(String(picker('[data-picker-existing]').value));
+    try { appendCanonicalField(canonical); } catch (error) {
+      const output = picker('[data-picker-error]'); output.textContent = error.message; output.hidden = false;
+    }
+  });
+  picker('[data-picker-label]').addEventListener('input', event => {
+    const keyInput = picker('[data-picker-key]');
+    if (!keyInput.dataset.touched) keyInput.value = slug(event.target.value);
+  });
+  picker('[data-picker-key]').addEventListener('input', event => { event.target.dataset.touched = '1'; });
+  picker('[data-picker-type]').addEventListener('change', event => {
+    picker('[data-picker-options-wrap]').hidden = event.target.value !== 'choice';
+  });
+  picker('[data-picker-create]').addEventListener('click', async event => {
+    const output = picker('[data-picker-error]'); output.hidden = true;
+    const label = picker('[data-picker-label]').value.trim();
+    const key = picker('[data-picker-key]').value.trim();
+    const type = picker('[data-picker-type]').value;
+    if (!label || !/^[a-z0-9_]+$/.test(key)) {
+      output.textContent = 'Enter a label and a lowercase stable key using letters, numbers, or underscores.';
+      output.hidden = false; return;
+    }
+    const body = {
+      label, key, type,
+      sensitivity: picker('[data-picker-sensitivity]').value,
+      category: picker('[data-picker-category]').value.trim() || 'Application',
+      choice_options: type === 'choice'
+        ? picker('[data-picker-options]').value.split(/\r?\n/).map(item => item.trim()).filter(Boolean).map(item => {
+          const [code, ...label] = item.split('|');
+          return { code: slug(code), label: label.join('|').trim() || code.trim() };
+        })
+        : [],
+    };
+    try {
+      event.currentTarget.disabled = true;
+      const response = await fetch(root.dataset.createFieldUrl, {
+        method: 'POST', credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': document.querySelector('input[name="csrfmiddlewaretoken"]')?.value || '',
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) throw new Error(data.error || 'The canonical field could not be created.');
+      if (!catalogueById.has(String(data.field.id))) {
+        catalogue.push(data.field); inputCatalogue.push(data.field); catalogueById.set(String(data.field.id), data.field);
+      }
+      appendCanonicalField(data.field);
+    } catch (error) {
+      output.textContent = error.message; output.hidden = false;
+    } finally { event.currentTarget.disabled = false; }
+  });
+  picker('.opb-picker-close').addEventListener('click', () => fieldPicker.close());
+  fieldPicker.querySelector('form').addEventListener('submit', event => event.preventDefault());
+  fieldPicker.addEventListener('click', event => { if (event.target === fieldPicker) fieldPicker.close(); });
+
   root.addEventListener('input', event => {
     const sectionNode = event.target.closest('[data-section-index]');
     const fieldNode = event.target.closest('[data-field-index]');
@@ -232,22 +403,7 @@
     } else if (action === 'section-up') move(schema.sections, sectionIndex, -1);
     else if (action === 'section-down') move(schema.sections, sectionIndex, 1);
     else if (action === 'add-field') {
-      const used = new Set(schema.fields.map(item => String(item.data_field_id || '')));
-      const usedKeys = new Set(schema.fields.map(item => String(item.key || '')));
-      const canonical = inputCatalogue.find(item => !used.has(String(item.id)) && !usedKeys.has(String(item.key)));
-      if (!canonical) return window.alert('Every active canonical input field is already attached. Create another field in the catalogue, then reload this page.');
-      schema.fields.push({
-        data_field_id: canonical.id, key: canonical.key, label: canonical.label,
-        type: canonical.type, section_key: schema.sections[sectionIndex].key,
-        required: false, width: 'half', help_text: canonical.help_text || '',
-        validation: {},
-        sensitivity: canonical.sensitivity, masking_policy: canonical.masking_policy,
-        reporting_use: canonical.reporting_use, export_allowed: canonical.export_allowed,
-        source_type: canonical.source_type,
-        options: canonical.type === 'choice'
-          ? (canonical.choice_options || []).filter(item => item.active !== false).map(item => ({ code: item.code, label: item.label }))
-          : [],
-      });
+      openFieldPicker(sectionIndex);
     } else if (action === 'remove-field') schema.fields.splice(fieldIndex, 1);
     else if (action === 'field-up' || action === 'field-down') {
       const sectionKey = schema.fields[fieldIndex].section_key;

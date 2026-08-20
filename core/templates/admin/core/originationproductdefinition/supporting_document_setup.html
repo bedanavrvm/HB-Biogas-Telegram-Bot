@@ -3,7 +3,7 @@
 
 {% block extrahead %}
   {{ block.super }}
-  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=6">
+  <link rel="stylesheet" href="{% static 'admin/origination_product_builder.css' %}?v=7">
 {% endblock %}
 
 {% block content %}
@@ -40,7 +40,7 @@
         {{ form.form_schema }}{{ form.signer_rules }}
         {{ origination_signer_roles|json_script:"origination-signer-role-data" }}
         {{ origination_data_fields|json_script:"origination-data-field-data" }}
-        <section id="origination-product-builder" class="opb-shell" data-builder-kind="supporting-document" data-require-fields="true" data-require-signers="false">
+        <section id="origination-product-builder" class="opb-shell" data-builder-kind="supporting-document" data-require-fields="true" data-require-signers="false" data-create-field-url="{{ origination_data_field_create_url }}">
           <header class="opb-header">
             <div><h2>Document field builder</h2><p>These are the values officers will see and the fields available to place on this PDF.</p></div>
             <div class="opb-actions"><a class="opb-secondary-link" href="{{ origination_data_field_add_url }}" target="_blank" rel="noopener">Create canonical field</a><button type="button" class="button" data-action="add-section">Add section</button><button type="button" class="button" data-action="add-signer">Add signer</button></div>
@@ -66,7 +66,7 @@
       <footer class="submit-row"><a class="button cancel-link" href="{{ product_url }}">Cancel</a><button type="submit" class="default" data-setup-submit>Attach document</button></footer>
     </form>
   </div>
-  <script src="{% static 'admin/origination_product_builder.js' %}?v=3" defer></script>
+  <script src="{% static 'admin/origination_product_builder.js' %}?v=4" defer></script>
   <script>
     document.addEventListener('DOMContentLoaded', function () {
       const root = document.querySelector('[data-setup-root]'); if (!root) return;

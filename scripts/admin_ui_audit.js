@@ -110,6 +110,23 @@ async function auditSharedPages(browser, viewport) {
       assert(await page.locator('#origination-product-builder').count(), `${viewport.name}: product builder missing`);
       const builderOverflow = await page.locator('#origination-product-builder').evaluate(node => node.scrollWidth - node.clientWidth);
       assert(builderOverflow <= 1, `${viewport.name}: product builder overflow ${builderOverflow}px`);
+      await page.locator('[data-action="add-field"]').first().click();
+      const picker = page.locator('.opb-field-picker');
+      await picker.waitFor({ state: 'visible' });
+      const pickerLayout = await picker.evaluate(node => {
+        const rect = node.getBoundingClientRect();
+        const background = getComputedStyle(node).backgroundColor;
+        return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, background };
+      });
+      assert(pickerLayout.left >= -1 && pickerLayout.right <= viewport.width + 1, `${viewport.name}: field picker overflows horizontally`);
+      assert(pickerLayout.top >= -1 && pickerLayout.bottom <= viewport.height + 1, `${viewport.name}: field picker exceeds the live viewport`);
+      assert(!['transparent', 'rgba(0, 0, 0, 0)'].includes(pickerLayout.background), `${viewport.name}: field picker background is transparent`);
+      assert(await picker.locator('[data-picker-create]').isVisible(), `${viewport.name}: inline canonical-field action missing`);
+      const availableOptions = await picker.locator('[data-picker-existing] option').count();
+      const emptyGuidance = await picker.locator('[data-picker-empty]').isVisible();
+      assert(availableOptions > 0 || emptyGuidance, `${viewport.name}: picker shows neither available fields nor empty-catalogue guidance`);
+      await page.screenshot({ path: path.join(output, `${viewport.name}-origination-field-picker.png`) });
+      await picker.locator('.opb-picker-close').click();
     }
     if (['dashboard', 'origination-builder', 'version-history'].includes(name)) {
       await page.screenshot({ path: path.join(output, `${viewport.name}-${name}.png`), fullPage: true });
