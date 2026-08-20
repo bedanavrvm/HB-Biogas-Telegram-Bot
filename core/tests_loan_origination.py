@@ -1,4 +1,5 @@
 from io import BytesIO
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from pypdf import PdfReader, PdfWriter
@@ -44,7 +45,13 @@ from core.services.origination_documents import (
     validate_applicability_rule,
 )
 from core.services.origination_templates import attach_shared_supporting_template
-from core.services.origination_signing import simulate_slot, test_signing_enabled
+from core.services.origination_signing import (
+    _validated_signature_capture,
+    _test_overlay,
+    serialize_test_signing,
+    simulate_slot,
+    test_signing_enabled,
+)
 
 
 class LoanOriginationServiceTests(TestCase):
@@ -387,6 +394,18 @@ class LoanOriginationServiceTests(TestCase):
             }],
             test_mode=True,
         )
+        capture = {'method': 'typed', 'name': 'Synthetic Test Signer'}
+
+        with self.assertRaisesRegex(OriginationError, 'Draw or type'):
+            simulate_slot(
+                package_id=package.pk,
+                actor=self.reviewer,
+                document_key='primary',
+                slot_key='applicant_signature',
+                signer_role='applicant',
+                expected_revision=application.revision,
+                request_id='missing-test-signature-capture',
+            )
 
         with CaptureQueriesContext(connection) as queries:
             package, replayed = simulate_slot(
@@ -397,6 +416,7 @@ class LoanOriginationServiceTests(TestCase):
                 signer_role='applicant',
                 expected_revision=application.revision,
                 request_id='simulate-applicant-signature',
+                signature_capture=capture,
             )
         package_queries = [
             item['sql'].lower() for item in queries.captured_queries
@@ -404,6 +424,17 @@ class LoanOriginationServiceTests(TestCase):
         ]
         self.assertTrue(package_queries)
         self.assertFalse(any('operationallocation' in sql for sql in package_queries))
+        with self.assertRaisesRegex(OriginationError, 'different test signing action'):
+            simulate_slot(
+                package_id=package.pk,
+                actor=self.reviewer,
+                document_key='primary',
+                slot_key='applicant_signature',
+                signer_role='applicant',
+                expected_revision=application.revision,
+                request_id='simulate-applicant-signature',
+                signature_capture={'method': 'typed', 'name': 'Different Test Signer'},
+            )
         repeated, replayed_again = simulate_slot(
             package_id=package.pk,
             actor=self.reviewer,
@@ -412,6 +443,7 @@ class LoanOriginationServiceTests(TestCase):
             signer_role='applicant',
             expected_revision=application.revision,
             request_id='simulate-applicant-signature',
+            signature_capture=capture,
         )
         another_retry, replayed_with_new_key = simulate_slot(
             package_id=package.pk,
@@ -421,6 +453,7 @@ class LoanOriginationServiceTests(TestCase):
             signer_role='applicant',
             expected_revision=application.revision,
             request_id='simulate-applicant-signature-retry',
+            signature_capture=capture,
         )
 
         application.refresh_from_db()
@@ -434,6 +467,49 @@ class LoanOriginationServiceTests(TestCase):
         self.assertEqual(package.status, OriginationSigningPackage.STATUS_IN_PROGRESS)
         self.assertEqual(application.status, LoanOriginationApplication.STATUS_SIGNING_PENDING)
         self.assertEqual(OriginationSigningAction.objects.filter(package=package).count(), 1)
+        action = OriginationSigningAction.objects.get(package=package)
+        self.assertEqual(action.metadata['signature_capture'], capture)
+        self.assertEqual(len(action.metadata['capture_sha256']), 64)
+        serialized = serialize_test_signing(package)
+        self.assertEqual(serialized['slots'][0]['capture_method'], 'typed')
+        self.assertNotIn('signature_capture', serialized['slots'][0])
+
+    def test_drawn_test_signature_capture_is_normalized_and_bounded(self):
+        normalized = _validated_signature_capture({
+            'method': 'drawn',
+            'strokes': [[[0, 0], [0.123456, 0.654321], [1, 1]]],
+        })
+        self.assertEqual(normalized, {
+            'method': 'drawn',
+            'strokes': [[[0.0, 0.0], [0.1235, 0.6543], [1.0, 1.0]]],
+        })
+        with self.assertRaisesRegex(OriginationError, 'stay inside'):
+            _validated_signature_capture({
+                'method': 'drawn', 'strokes': [[[0, 0], [1.01, .5]]],
+            })
+
+    def test_typed_and_drawn_test_signatures_render_inside_pdf_slots(self):
+        slot = {'box': {'x': 20, 'y': 20, 'width': 160, 'height': 45}}
+        typed = SimpleNamespace(
+            action_type=OriginationSigningAction.TYPE_SIGNATURE,
+            stamp_asset_id=None,
+            metadata={'signature_capture': {'method': 'typed', 'name': 'Synthetic Test Signer'}},
+        )
+        typed_pdf = PdfReader(BytesIO(_test_overlay(200, 100, [(slot, typed)])))
+        typed_text = typed_pdf.pages[0].extract_text()
+        self.assertIn('Synthetic Test Signer', typed_text)
+        self.assertIn('TEST ONLY - NOT LEGALLY SIGNED', typed_text)
+
+        drawn = SimpleNamespace(
+            action_type=OriginationSigningAction.TYPE_SIGNATURE,
+            stamp_asset_id=None,
+            metadata={'signature_capture': {
+                'method': 'drawn', 'strokes': [[[0, .5], [.5, 0], [1, .5]]],
+            }},
+        )
+        drawn_pdf = PdfReader(BytesIO(_test_overlay(200, 100, [(slot, drawn)])))
+        self.assertEqual(len(drawn_pdf.pages), 1)
+        self.assertIn('TEST ONLY - NOT LEGALLY SIGNED', drawn_pdf.pages[0].extract_text())
 
     def test_superuser_may_review_own_submission_as_break_glass_override(self):
         self.officer.is_superuser = True

@@ -292,8 +292,13 @@ before the provider confirms it.
 
 The optional no-OTP simulator is intentionally separate from production
 signing. It accepts only test-classified controlled stamps, records append-only
-slot actions, watermarks every page, and never transitions the application to
-`fully_signed`. It is denied unless `SENTRY_ENVIRONMENT` is explicitly one of
+slot actions, accepts a bounded normalized drawn-stroke payload or typed test
+name for signature slots, watermarks every page, and never transitions the
+application to `fully_signed`. Capture content and its SHA-256 digest remain on
+the append-only action metadata because the test PDF must be reproducible; the
+normal serializer exposes only the capture method, never raw strokes or the
+typed name. Reusing an idempotency key with different capture content is
+rejected. The simulator is denied unless `SENTRY_ENVIRONMENT` is explicitly one of
 `development`, `dev`, `local`, `test`, `testing`, or `staging`; missing and
 unknown values fail closed. Correction writes similarly enforce the open correction's
 target keys server-side; disabled controls are only presentation, not the

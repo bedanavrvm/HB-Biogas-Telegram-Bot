@@ -56,7 +56,7 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
-async function installApiMocks(page, delayMs = 0) {
+async function installApiMocks(page, delayMs = 0, options = {}) {
   let createCalls = 0;
   await page.route('https://telegram.org/**', route => route.abort());
   await page.route('**/api/origination/api/**', async route => {
@@ -79,12 +79,38 @@ async function installApiMocks(page, delayMs = 0) {
       createCalls += 1;
       return json({ ok: true, application: application(99) });
     }
+    const testSigningAction = apiPath.match(/^\/applications\/(\d+)\/test-signing\/action\/$/);
+    if (testSigningAction && request.method() === 'POST') {
+      const body = JSON.parse(request.postData() || '{}');
+      options.testSigningBodies?.push(body);
+      const item = options.testSigningActionFactory
+        ? options.testSigningActionFactory(Number(testSigningAction[1]), body)
+        : (options.detailFactory || application)(Number(testSigningAction[1]));
+      return json({ ok: true, replayed: false, application: item });
+    }
     const detail = apiPath.match(/^\/applications\/(\d+)\/$/);
-    if (detail && request.method() === 'GET') return json({ ok: true, application: application(Number(detail[1])) });
+    if (detail && request.method() === 'GET') return json({ ok: true, application: (options.detailFactory || application)(Number(detail[1])) });
     if (detail && request.method() === 'PATCH') return json({ ok: true, application: { ...application(Number(detail[1])), revision: 2 } });
     return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: `Unmocked ${request.method()} ${apiPath}` }) });
   });
   return () => createCalls;
+}
+
+function signingApplication(id, completedSlot = '') {
+  const item = application(id);
+  item.status = 'signing_pending';
+  item.signing_package = {
+    id: '00000000-0000-4000-8000-000000000777',
+    test_stamps: [],
+    test_signing: {
+      enabled: true, test_mode: true, completed: false,
+      slots: [
+        { key: 'applicant_signature', label: 'Applicant signature', document_key: 'primary', role: 'applicant', type: 'signature', required: true, completed: completedSlot === 'applicant_signature', actor_name: completedSlot === 'applicant_signature' ? 'Synthetic Tester' : '', capture_method: completedSlot === 'applicant_signature' ? 'drawn' : '' },
+        { key: 'officer_signature', label: 'Officer signature', document_key: 'primary', role: 'officer', type: 'signature', required: true, completed: completedSlot === 'officer_signature', actor_name: completedSlot === 'officer_signature' ? 'Synthetic Tester' : '', capture_method: completedSlot === 'officer_signature' ? 'typed' : '' },
+      ],
+    },
+  };
+  return item;
 }
 
 async function waitForList(page) {
@@ -282,6 +308,61 @@ async function auditTelegramAndSlowNetwork(browser) {
   await page.close();
 }
 
+async function auditTestSignatureCapture(browser) {
+  const page = await browser.newPage({ viewport: { width: 320, height: 568 } });
+  const pageErrors = [];
+  const actionBodies = [];
+  page.on('pageerror', error => pageErrors.push(error.message || String(error)));
+  await installApiMocks(page, 0, {
+    detailFactory: id => signingApplication(id),
+    testSigningBodies: actionBodies,
+    testSigningActionFactory: (id, body) => signingApplication(id, body.slot_key),
+  });
+  await waitForList(page);
+  await page.locator('.application-card').first().click();
+  await page.locator('#origination-section-picker').click();
+  await page.locator('[data-section-index]').last().click();
+
+  await page.locator('[data-test-sign-slot]').first().click();
+  const sheet = page.locator('#origination-sheet');
+  const canvas = page.locator('[data-test-signature-canvas]');
+  await canvas.waitFor();
+  const metrics = await sheet.evaluate(node => ({
+    bottom: node.getBoundingClientRect().bottom,
+    viewportHeight: innerHeight,
+    overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  }));
+  assert(metrics.bottom <= metrics.viewportHeight + 1, `TEST signature sheet exceeds the ${metrics.viewportHeight}px viewport (${metrics.bottom}px)`);
+  assert(metrics.overflow <= 1, `TEST signature sheet causes ${metrics.overflow}px horizontal overflow`);
+  const box = await canvas.boundingBox();
+  await page.mouse.move(box.x + 28, box.y + 112);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 82, box.y + 42, { steps: 5 });
+  await page.mouse.move(box.x + 142, box.y + 118, { steps: 5 });
+  await page.mouse.move(box.x + 244, box.y + 46, { steps: 6 });
+  await page.mouse.up();
+  await page.screenshot({ path: path.join(outputDir, 'phone-320-test-signature-drawn.png') });
+  await page.locator('[data-test-signature-confirm]').click();
+  await page.waitForFunction(() => document.getElementById('origination-sheet-overlay').hidden);
+  assert(actionBodies.length === 1, `Drawn TEST signature made ${actionBodies.length} requests`);
+  assert(actionBodies[0].signature_capture?.method === 'drawn', 'Drawn TEST signature request lost its capture method');
+  assert(actionBodies[0].signature_capture?.strokes?.[0]?.length >= 2, 'Drawn TEST signature request has no usable stroke');
+
+  await page.locator('.signing-test-slot:not(.is-complete) [data-test-sign-slot]').click();
+  assert(await page.locator('#origination-toast').isHidden(), 'A stale toast covers the TEST signature sheet controls');
+  await page.locator('[data-test-signature-mode="typed"]').click();
+  await page.locator('[data-test-signature-name]').fill('Synthetic Test Signer');
+  assert((await page.locator('[data-test-signature-typed-preview]').textContent()).trim() === 'Synthetic Test Signer', 'Typed signature preview did not update');
+  await page.screenshot({ path: path.join(outputDir, 'phone-320-test-signature-typed.png') });
+  await page.locator('[data-test-signature-confirm]').click();
+  await page.waitForFunction(() => document.getElementById('origination-sheet-overlay').hidden);
+  assert(actionBodies.length === 2, `Typed TEST signature made ${actionBodies.length - 1} requests`);
+  assert(actionBodies[1].signature_capture?.method === 'typed', 'Typed TEST signature request lost its capture method');
+  assert(actionBodies[1].signature_capture?.name === 'Synthetic Test Signer', 'Typed TEST signature request changed the entered test name');
+  assert(!pageErrors.length, `TEST signature interaction raised a browser error: ${pageErrors.join(' | ')}`);
+  await page.close();
+}
+
 async function auditRestrictedStorageStart(browser) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await context.newPage();
@@ -330,6 +411,7 @@ async function auditRestrictedStorageStart(browser) {
     if (process.env.ORIGINATION_AUDIT_START_ONLY !== 'true') {
       for (const viewport of viewports) results.push({ viewport: viewport.name, ...(await auditViewport(browser, viewport)) });
       await auditTelegramAndSlowNetwork(browser);
+      await auditTestSignatureCapture(browser);
     }
     await auditRestrictedStorageStart(browser);
     console.log(JSON.stringify({ ok: true, outputDir, results }, null, 2));

@@ -486,8 +486,9 @@ ORIGINATION_EVIDENCE_MAX_FILES_PER_REQUIREMENT = config(
 ORIGINATION_EVIDENCE_MAX_TOTAL_UPLOAD_MB = config(
     'ORIGINATION_EVIDENCE_MAX_TOTAL_UPLOAD_MB', default=30, cast=int,
 )
-# Explicitly isolated simulator for slot placement and packet testing. The
-# service also requires an explicit allowlisted non-production environment.
+# Explicitly isolated drawn/typed signature and stamp simulator for slot
+# placement and packet testing. The service also requires an explicit
+# allowlisted non-production environment.
 ORIGINATION_TEST_SIGNING_ENABLED = config(
     'ORIGINATION_TEST_SIGNING_ENABLED', default=False, cast=bool,
 )

@@ -652,6 +652,7 @@ def portal_origination_test_signing_action(request, application_id: str):
             slot_key=str(body.get('slot_key') or ''),
             signer_role=str(body.get('signer_role') or ''),
             stamp_asset_id=str(body.get('stamp_asset_id') or ''),
+            signature_capture=body.get('signature_capture'),
             expected_revision=int(body.get('revision')),
             request_id=_request_id(request, body),
         )

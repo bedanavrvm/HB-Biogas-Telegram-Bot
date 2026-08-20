@@ -48,6 +48,9 @@
   let reviewReturnFocus = null;
   let sheetMode = '';
   let sheetReturnFocus = null;
+  let testSignatureStrokes = [];
+  let testSignatureActiveStroke = null;
+  let testSignatureResizeObserver = null;
   let activeCustomSelect = null;
   let customSelectReturnFocus = null;
   let activeDateInput = null;
@@ -704,6 +707,9 @@
 
   function openSheet({ mode, eyebrow, title, hint = '', body = '', footer = '', trigger = null }) {
     const overlay = document.getElementById('origination-sheet-overlay');
+    const toast = document.getElementById('origination-toast');
+    window.clearTimeout(showToast.timer);
+    if (toast) toast.hidden = true;
     sheetMode = mode;
     sheetReturnFocus = trigger || document.activeElement;
     document.getElementById('origination-sheet-eyebrow').textContent = eyebrow || 'Origination';
@@ -729,11 +735,156 @@
     overlay.hidden = true;
     overlay.setAttribute('aria-hidden', 'true');
     const returnFocus = sheetReturnFocus;
+    testSignatureResizeObserver?.disconnect?.();
+    testSignatureResizeObserver = null;
+    testSignatureStrokes = [];
+    testSignatureActiveStroke = null;
     sheetMode = '';
     sheetReturnFocus = null;
     document.body.classList.remove('origination-modal-open');
     syncTelegramControls();
     if (restoreFocus) window.requestAnimationFrame(() => returnFocus?.focus?.());
+  }
+
+  function redrawTestSignature() {
+    const canvas = document.querySelector('[data-test-signature-canvas]');
+    if (!canvas) return;
+    const bounds = canvas.getBoundingClientRect();
+    const scale = Math.min(2, Math.max(1, Number(window.devicePixelRatio) || 1));
+    const width = Math.max(1, Math.round(bounds.width * scale));
+    const height = Math.max(1, Math.round(bounds.height * scale));
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    context.clearRect(0, 0, width, height);
+    context.strokeStyle = '#17231e';
+    context.lineWidth = Math.max(2, 2.2 * scale);
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    [...testSignatureStrokes, ...(testSignatureActiveStroke ? [testSignatureActiveStroke] : [])].forEach(stroke => {
+      if (stroke.length < 2) return;
+      context.beginPath();
+      context.moveTo(stroke[0][0] * width, stroke[0][1] * height);
+      stroke.slice(1).forEach(point => context.lineTo(point[0] * width, point[1] * height));
+      context.stroke();
+    });
+  }
+
+  function testSignaturePoint(canvas, event) {
+    const bounds = canvas.getBoundingClientRect();
+    return [
+      Math.max(0, Math.min(1, (event.clientX - bounds.left) / Math.max(1, bounds.width))),
+      Math.max(0, Math.min(1, (event.clientY - bounds.top) / Math.max(1, bounds.height))),
+    ];
+  }
+
+  function testSignaturePointCount() {
+    return testSignatureStrokes.reduce((total, stroke) => total + stroke.length, 0)
+      + (testSignatureActiveStroke?.length || 0);
+  }
+
+  function updateTestSignatureControls() {
+    const drawButton = document.querySelector('[data-test-signature-mode="drawn"]');
+    const typedButton = document.querySelector('[data-test-signature-mode="typed"]');
+    const drawPanel = document.querySelector('[data-test-signature-draw]');
+    const typedPanel = document.querySelector('[data-test-signature-type]');
+    if (!drawButton || !typedButton || !drawPanel || !typedPanel) return;
+    const drawn = drawButton.getAttribute('aria-selected') === 'true';
+    drawPanel.hidden = !drawn;
+    typedPanel.hidden = drawn;
+    drawButton.setAttribute('aria-selected', String(drawn));
+    typedButton.setAttribute('aria-selected', String(!drawn));
+    if (drawn) window.requestAnimationFrame(redrawTestSignature);
+    else document.querySelector('[data-test-signature-name]')?.focus();
+  }
+
+  function openTestSignatureSheet(button) {
+    testSignatureStrokes = [];
+    testSignatureActiveStroke = null;
+    const requestId = requestKey('test-signature');
+    openSheet({
+      mode: 'test-signature', eyebrow: 'Non-production simulator', title: 'Capture TEST signature',
+      hint: 'Use a synthetic mark only. Do not enter or draw a real signature.', trigger: button,
+      body: `<aside class="test-signature-warning" role="note"><strong>TEST ONLY</strong><span>No OTP or identity verification is performed. The output remains watermarked and is not legally signed.</span></aside>
+        <div class="test-signature-tabs" role="tablist" aria-label="Signature entry method"><button type="button" role="tab" aria-selected="true" data-test-signature-mode="drawn">Draw</button><button type="button" role="tab" aria-selected="false" data-test-signature-mode="typed">Type</button></div>
+        <section class="test-signature-panel" role="tabpanel" data-test-signature-draw><canvas data-test-signature-canvas aria-label="Draw a synthetic test signature" tabindex="0"></canvas><div class="test-signature-tools"><small>Draw inside the box using a finger, mouse or stylus.</small><button type="button" class="btn btn-secondary" data-test-signature-clear>Clear</button></div></section>
+        <section class="test-signature-panel" role="tabpanel" data-test-signature-type hidden><label class="test-signature-name"><span>Typed TEST signer name</span><input type="text" maxlength="120" autocomplete="off" data-test-signature-name placeholder="Synthetic Test Signer"></label><output class="test-signature-typed-preview" data-test-signature-typed-preview>Synthetic Test Signer</output></section>
+        <p class="test-signature-status" data-test-signature-status aria-live="polite"></p>`,
+      footer: '<button type="button" class="btn btn-secondary" data-sheet-cancel>Cancel</button><button type="button" class="btn btn-primary" data-primary-action="Place TEST signature" data-test-signature-confirm>Place TEST signature</button>',
+    });
+    const canvas = document.querySelector('[data-test-signature-canvas]');
+    const status = document.querySelector('[data-test-signature-status]');
+    const setStatus = message => { if (status) status.textContent = message || ''; };
+    const finishStroke = event => {
+      if (!testSignatureActiveStroke || (event.pointerId != null && canvas.dataset.pointerId !== String(event.pointerId))) return;
+      if (testSignatureActiveStroke.length >= 2) testSignatureStrokes.push(testSignatureActiveStroke);
+      testSignatureActiveStroke = null;
+      delete canvas.dataset.pointerId;
+      redrawTestSignature();
+    };
+    canvas.addEventListener('pointerdown', event => {
+      if (event.button !== undefined && event.button !== 0) return;
+      if (testSignatureStrokes.length >= 40 || testSignaturePointCount() >= 2000) {
+        setStatus('The test signature pad is full. Clear it to draw again.');
+        return;
+      }
+      event.preventDefault();
+      canvas.setPointerCapture?.(event.pointerId);
+      canvas.dataset.pointerId = String(event.pointerId);
+      testSignatureActiveStroke = [testSignaturePoint(canvas, event)];
+      setStatus('');
+    });
+    canvas.addEventListener('pointermove', event => {
+      if (!testSignatureActiveStroke || canvas.dataset.pointerId !== String(event.pointerId)) return;
+      event.preventDefault();
+      if (testSignaturePointCount() >= 2000 || testSignatureActiveStroke.length >= 500) return;
+      const point = testSignaturePoint(canvas, event);
+      const previous = testSignatureActiveStroke.at(-1);
+      if (Math.hypot(point[0] - previous[0], point[1] - previous[1]) < .0025) return;
+      testSignatureActiveStroke.push(point);
+      redrawTestSignature();
+    });
+    ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(name => canvas.addEventListener(name, finishStroke));
+    document.querySelectorAll('[data-test-signature-mode]').forEach(modeButton => modeButton.onclick = () => {
+      document.querySelectorAll('[data-test-signature-mode]').forEach(item => item.setAttribute('aria-selected', String(item === modeButton)));
+      setStatus('');
+      updateTestSignatureControls();
+    });
+    document.querySelector('[data-test-signature-clear]').onclick = () => {
+      testSignatureStrokes = [];
+      testSignatureActiveStroke = null;
+      setStatus('Signature pad cleared.');
+      redrawTestSignature();
+    };
+    const typedInput = document.querySelector('[data-test-signature-name]');
+    const typedPreview = document.querySelector('[data-test-signature-typed-preview]');
+    typedInput.addEventListener('input', () => { typedPreview.textContent = typedInput.value.trim() || 'Synthetic Test Signer'; });
+    document.querySelector('[data-sheet-cancel]').onclick = () => closeSheet();
+    document.querySelector('[data-test-signature-confirm]').onclick = () => runPrimaryAction('Placing TEST signature...', async () => {
+      const drawn = document.querySelector('[data-test-signature-mode="drawn"]').getAttribute('aria-selected') === 'true';
+      const capture = drawn
+        ? { method: 'drawn', strokes: testSignatureStrokes }
+        : { method: 'typed', name: typedInput.value.trim() };
+      if (drawn && !testSignatureStrokes.length) return setStatus('Draw the TEST signature before confirming.');
+      if (!drawn && (capture.name.length < 2 || capture.name.length > 120)) return setStatus('Enter a test signer name using 2 to 120 characters.');
+      const result = await postJson(`/applications/${current.id}/test-signing/action/`, {
+        revision: current.revision, package_id: button.dataset.packageId,
+        document_key: button.dataset.documentKey, slot_key: button.dataset.slotKey,
+        signer_role: button.dataset.signerRole, signature_capture: capture,
+        client_request_id: requestId,
+      });
+      if (!result.ok) return setStatus(result.data?.error || 'Could not place this TEST signature.');
+      current = result.data.application;
+      closeSheet({ restoreFocus: false });
+      renderEditor(current, wizardSections().length - 1);
+      showToast('TEST signature placed in its configured slot.');
+    });
+    testSignatureResizeObserver = window.ResizeObserver ? new ResizeObserver(redrawTestSignature) : null;
+    testSignatureResizeObserver?.observe(canvas);
+    window.requestAnimationFrame(redrawTestSignature);
   }
 
   function openCreationSheet(trigger) {
@@ -1332,11 +1483,14 @@
     const stamps = packageData.test_stamps || [];
     const rows = (test.slots || []).map(slot => {
       const label = slot.label || `${slot.role} ${slot.key}`.replaceAll('_', ' ');
-      if (slot.completed) return `<div class="signing-test-slot is-complete"><span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(slot.type)} · completed by ${escapeHtml(slot.actor_name || 'authorized tester')}</small></span><span class="status-chip">TEST complete</span></div>`;
+      if (slot.completed) {
+        const method = slot.type === 'signature' && slot.capture_method ? ` · ${slot.capture_method}` : '';
+        return `<div class="signing-test-slot is-complete"><span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(slot.type)}${escapeHtml(method)} · completed by ${escapeHtml(slot.actor_name || 'authorized tester')}</small></span><span class="status-chip">TEST complete</span></div>`;
+      }
       const stampSelect = slot.type === 'stamp'
         ? `<select data-test-stamp-select><option value="">Choose test stamp</option>${stamps.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)} v${escapeHtml(item.version)} · ${escapeHtml(item.scope)}</option>`).join('')}</select>`
         : '';
-      return `<div class="signing-test-slot"><span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(slot.role.replaceAll('_', ' '))} · ${escapeHtml(slot.document_key)}</small></span>${stampSelect}<button type="button" class="btn btn-secondary" data-test-sign-slot data-package-id="${escapeHtml(packageData.id)}" data-document-key="${escapeHtml(slot.document_key)}" data-slot-key="${escapeHtml(slot.key)}" data-signer-role="${escapeHtml(slot.role)}" data-slot-type="${escapeHtml(slot.type)}">${slot.type === 'stamp' ? 'Apply TEST stamp' : 'Simulate signature'}</button></div>`;
+      return `<div class="signing-test-slot"><span><strong>${escapeHtml(label)}</strong><small>${escapeHtml(slot.role.replaceAll('_', ' '))} · ${escapeHtml(slot.document_key)}</small></span>${stampSelect}<button type="button" class="btn btn-secondary" data-test-sign-slot data-package-id="${escapeHtml(packageData.id)}" data-document-key="${escapeHtml(slot.document_key)}" data-slot-key="${escapeHtml(slot.key)}" data-signer-role="${escapeHtml(slot.role)}" data-slot-type="${escapeHtml(slot.type)}">${slot.type === 'stamp' ? 'Apply TEST stamp' : 'Capture TEST signature'}</button></div>`;
     }).join('');
     return `<section class="signing-test-panel"><p class="eyebrow">Non-production simulator</p><h3>Test signer and stamp placement</h3><p>These actions do not use OTP and cannot create a legally signed application. Every page remains watermarked.</p>${rows || '<div class="empty-state">No signing slots were configured.</div>'}<button type="button" class="btn btn-primary" id="origination-test-signing-preview">Preview TEST signed packet</button></section>`;
   }
@@ -1829,6 +1983,7 @@
       await load();
     }));
     root().querySelectorAll('[data-test-sign-slot]').forEach(button => button.addEventListener('click', async () => {
+      if (button.dataset.slotType === 'signature') return openTestSignatureSheet(button);
       const stampAssetId = button.dataset.slotType === 'stamp'
         ? button.parentElement.querySelector('[data-test-stamp-select]')?.value || '' : '';
       if (button.dataset.slotType === 'stamp' && !stampAssetId) return showToast('Choose an approved test stamp.', true);

@@ -290,7 +290,15 @@ Use workflow `Jawabu Portal` and the narrowest required branch/product scope:
 OTP or e-sign dispatch. When `ORIGINATION_TEST_SIGNING_ENABLED=True` and
 `SENTRY_ENVIRONMENT` is explicitly `development`, `dev`, `local`, `test`,
 `testing`, or `staging`, the Signing queue exposes a simulator that places
-watermarked `TEST SIGNATURE` values into configured signature slots.
+either a drawn synthetic mark or a typed test signer name into each configured
+signature slot. Open the application review, choose **Capture TEST signature**,
+select **Draw** or **Type**, provide the synthetic test mark, and then use
+**Preview TEST signed packet** to verify its calibrated PDF position.
+
+Do not capture a person's real signature in this simulator. It performs no OTP,
+identity, consent, or legal-signature verification. The server validates and
+bounds the test input, stores it only as test-action evidence, and does not send
+the raw mark back in normal application API responses.
 
 Create test stamps from **Configuration → Origination stamp assets**. Upload a
 genuine PNG, choose `Test only`, optionally restrict it to a branch, and make

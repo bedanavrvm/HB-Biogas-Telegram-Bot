@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from io import BytesIO
 from typing import Any
 
@@ -52,6 +54,43 @@ def _slot_catalog(package: OriginationSigningPackage) -> list[dict[str, Any]]:
     return slots
 
 
+def _validated_signature_capture(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise OriginationError('Draw or type the TEST signature before confirming this slot.')
+    method = str(value.get('method') or '').strip().casefold()
+    if method == 'typed':
+        name = ' '.join(str(value.get('name') or '').split())
+        if len(name) < 2 or len(name) > 120:
+            raise OriginationError('Enter the signer name using 2 to 120 characters.')
+        return {'method': 'typed', 'name': name}
+    if method != 'drawn':
+        raise OriginationError('Choose Draw signature or Type signature.')
+    raw_strokes = value.get('strokes')
+    if not isinstance(raw_strokes, list) or not raw_strokes or len(raw_strokes) > 40:
+        raise OriginationError('Draw the TEST signature before confirming this slot.')
+    strokes = []
+    total_points = 0
+    for raw_stroke in raw_strokes:
+        if not isinstance(raw_stroke, list) or len(raw_stroke) < 2 or len(raw_stroke) > 500:
+            raise OriginationError('The drawn TEST signature contains an invalid stroke.')
+        stroke = []
+        for raw_point in raw_stroke:
+            if not isinstance(raw_point, (list, tuple)) or len(raw_point) != 2:
+                raise OriginationError('The drawn TEST signature contains an invalid point.')
+            try:
+                x, y = float(raw_point[0]), float(raw_point[1])
+            except (TypeError, ValueError) as exc:
+                raise OriginationError('The drawn TEST signature contains an invalid point.') from exc
+            if not 0 <= x <= 1 or not 0 <= y <= 1:
+                raise OriginationError('The drawn TEST signature must stay inside the signature pad.')
+            stroke.append([round(x, 4), round(y, 4)])
+        strokes.append(stroke)
+        total_points += len(stroke)
+    if total_points > 2000:
+        raise OriginationError('The drawn TEST signature is too detailed. Clear it and try again.')
+    return {'method': 'drawn', 'strokes': strokes}
+
+
 def serialize_test_signing(package: OriginationSigningPackage) -> dict[str, Any]:
     actions = {
         (item.document_key, item.slot_key): item
@@ -69,6 +108,7 @@ def serialize_test_signing(package: OriginationSigningPackage) -> dict[str, Any]
                 if action else ''
             ),
             'stamp_asset': str(action.stamp_asset_id or '') if action else '',
+            'capture_method': str((action.metadata or {}).get('signature_capture', {}).get('method') or '') if action else '',
         })
     return {
         'enabled': test_signing_enabled(),
@@ -83,6 +123,7 @@ def serialize_test_signing(package: OriginationSigningPackage) -> dict[str, Any]
 def simulate_slot(
     *, package_id, actor, document_key: str, slot_key: str, signer_role: str,
     expected_revision: int, request_id: str, stamp_asset_id: str = '',
+    signature_capture: Any = None,
 ) -> tuple[OriginationSigningPackage, bool]:
     request_id = _require_request_id(request_id)
     if not test_signing_enabled():
@@ -96,11 +137,16 @@ def simulate_slot(
     ).select_related('application').get(pk=package_id)
     replay = package.actions.filter(request_id=request_id).first()
     if replay:
+        replay_capture = (
+            _validated_signature_capture(signature_capture)
+            if replay.action_type == OriginationSigningAction.TYPE_SIGNATURE else None
+        )
         if (
             replay.document_key != document_key
             or replay.slot_key != slot_key
             or replay.signer_role != signer_role
             or str(replay.stamp_asset_id or '') != str(stamp_asset_id or '')
+            or (replay_capture or {}) != ((replay.metadata or {}).get('signature_capture') or {})
         ):
             raise OriginationError('This request key was already used for a different test signing action.')
         return package, True
@@ -137,12 +183,21 @@ def simulate_slot(
             raise OriginationError('This stamp is not approved for the application branch.')
     elif stamp_asset_id:
         raise OriginationError('A stamp asset can only be used in a stamp slot.')
+    capture = _validated_signature_capture(signature_capture) if action_type == 'signature' else None
+    capture_hash = (
+        hashlib.sha256(json.dumps(capture, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+        if capture else ''
+    )
     OriginationSigningAction.objects.create(
         package=package, document_key=document_key, slot_key=slot_key,
         signer_role=signer_role, action_type=action_type,
         mode=OriginationSigningAction.MODE_TEST, stamp_asset=stamp, actor=actor,
         request_id=request_id,
-        metadata={'warning': 'TEST ONLY - no OTP or legal signature verification'},
+        metadata={
+            'warning': 'TEST ONLY - no OTP or legal signature verification',
+            'signature_capture': capture or {},
+            'capture_sha256': capture_hash,
+        },
     )
     package.status = package.STATUS_IN_PROGRESS
     completed = {
@@ -210,8 +265,40 @@ def _test_overlay(width: float, height: float, items: list[tuple[dict, Originati
             pdf.setStrokeColorRGB(.48, .23, .93)
             pdf.setFillColorRGB(.34, .12, .65)
             pdf.rect(x, y, box_width, box_height, stroke=1, fill=0)
-            pdf.setFont('Helvetica-BoldOblique', min(13, max(7, box_height * .38)))
-            pdf.drawCentredString(x + box_width / 2, y + max(3, box_height * .35), 'TEST SIGNATURE')
+            capture = (action.metadata or {}).get('signature_capture') or {}
+            if capture.get('method') == 'drawn':
+                pdf.saveState()
+                pdf.setLineCap(1)
+                pdf.setLineJoin(1)
+                pdf.setLineWidth(max(1, min(box_width, box_height) * .025))
+                inset = max(2, min(box_width, box_height) * .08)
+                draw_width = max(1, box_width - inset * 2)
+                draw_height = max(1, box_height - inset * 2)
+                for stroke in capture.get('strokes') or []:
+                    if len(stroke) < 2:
+                        continue
+                    path = pdf.beginPath()
+                    path.moveTo(x + inset + stroke[0][0] * draw_width, y + inset + (1 - stroke[0][1]) * draw_height)
+                    for point in stroke[1:]:
+                        path.lineTo(x + inset + point[0] * draw_width, y + inset + (1 - point[1]) * draw_height)
+                    pdf.drawPath(path, stroke=1, fill=0)
+                pdf.restoreState()
+            else:
+                name = str(capture.get('name') or 'TEST SIGNATURE')
+                font_name = 'Helvetica-BoldOblique'
+                font_size = min(15, max(7, box_height * .38))
+                name = name[:120]
+                text_width = max(1, pdf.stringWidth(name, font_name, font_size))
+                horizontal_scale = min(1, max(0.1, (box_width - 6) / text_width))
+                pdf.saveState()
+                pdf.translate(x + box_width / 2, y + max(5, box_height * .38))
+                pdf.scale(horizontal_scale, 1)
+                pdf.setFont(font_name, font_size)
+                pdf.drawCentredString(0, 0, name)
+                pdf.restoreState()
+            pdf.setFillColorRGB(.78, .08, .08)
+            pdf.setFont('Helvetica-Bold', min(6, max(4, box_height * .16)))
+            pdf.drawRightString(x + box_width - 2, y + 2, 'TEST')
     pdf.save()
     return output.getvalue()
 
