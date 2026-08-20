@@ -74,8 +74,7 @@ def _body(request) -> dict:
 
 def _capability_error(request, capability: str, application=None):
     from core.api.portal_views import _portal_capability_error
-    farmer = None
-    error = _portal_capability_error(request, capability, farmer)
+    error = _portal_capability_error(request, capability, None)
     if error or application is None:
         return error
     access = getattr(request, 'portal_access', None)

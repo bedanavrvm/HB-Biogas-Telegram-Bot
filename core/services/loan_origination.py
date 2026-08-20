@@ -40,7 +40,7 @@ SUPPORTED_FIELD_TYPES = {
 
 SIGNER_ROLE_CATALOG = (
     ('borrower', 'Borrower'),
-    ('customer', 'Customer (legacy borrower role)'),
+    ('customer', 'Borrower (legacy compatibility role)'),
     ('guarantor_1', 'Guarantor 1'),
     ('guarantor_2', 'Guarantor 2'),
     ('bro_1', 'Business Relationship Officer 1'),

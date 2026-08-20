@@ -1,0 +1,23 @@
+{% extends "admin/change_list.html" %}
+
+{% block object-tools-items %}
+  {% if request.user.is_superuser %}
+    <li>
+      <a href="{% url 'admin:core_originationdatafield_terminology_audit' %}" class="button">
+        Review terminology
+      </a>
+    </li>
+  {% endif %}
+  {{ block.super }}
+{% endblock %}
+
+{% block content %}
+  <section style="margin-bottom:12px;padding:11px 13px;border:1px solid #cbd5e1;border-radius:8px;background:var(--body-bg,#fff);color:var(--body-fg,#172033)">
+    <strong style="display:block;font-size:14px">Applicant is the standard Origination term</strong>
+    <p style="margin:3px 0 0;color:var(--body-quiet-color,#64748b);font-size:12px">
+      Customer identifies a matched global customer record. Borrower is reserved for legal and signing roles.
+      Historical keys remain available to existing applications and PDFs.
+    </p>
+  </section>
+  {{ block.super }}
+{% endblock %}

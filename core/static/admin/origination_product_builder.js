@@ -129,7 +129,7 @@
       return `<article class="opb-section" data-section-index="${sectionIndex}">
         <div class="opb-row">
           <label>Section key<input data-section-prop="key" value="${escapeHtml(section.key)}" pattern="[a-z0-9_]+" required></label>
-          <label>Section title<input data-section-prop="label" value="${escapeHtml(section.label || '')}" required></label>
+          <label>Section title<input data-section-prop="label" value="${escapeHtml(section.label || '')}" placeholder="Applicant" required><small>Use Applicant for the person applying; Borrower is reserved for legal signing.</small></label>
           <label class="opb-wide">Guidance<input data-section-prop="help_text" value="${escapeHtml(section.help_text || '')}"></label>
           <div class="opb-tools"><button type="button" data-action="section-up">Move up</button><button type="button" data-action="section-down">Move down</button><button type="button" data-action="add-field">Add field</button><button type="button" data-action="remove-section">Remove section</button></div>
         </div>

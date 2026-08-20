@@ -100,6 +100,10 @@ request can be approved.
 | Unified timeline | A read-only case-history projection joining immutable events, field provenance, decisions, documents, and append-only annotations in chronological order. |
 | Timeline annotation | An append-only authorised correction, artifact link, or redaction record. It never edits or deletes the source event. |
 | Customer identity resolution | Matching a Jawabu case to a canonical customer using one exact national ID, customer number, or current/historical phone. Name similarity only produces a review candidate. |
+| Origination Applicant | Person or entity applying for a loan. Applicant is the standard operational label before execution. |
+| Origination Customer | The canonical global customer identity optionally matched to an Origination Applicant; it is not a generic form-role synonym. |
+| Origination Borrower | Contractual obligor or signer named in legal documents. The role may refer to the same person as the Applicant but has a distinct legal meaning. |
+| Origination Party | Collective term for the Applicant, guarantors, spouse, and other document participants. |
 | Data-quality issue | An active warning about a canonical Jawabu value or controlled reference value. It is resolved through an append-only staff resolution record. |
 | Field provenance | The append-only source, timestamp, actor, and before/after values for a cross-system customer field update. |
 | Sheet register contract | An Admin-managed, publication-only description of a configured Sheet tab: expected headers, row key, and backend/formula/derived/immutable ownership. It is never an inbound import permission. |

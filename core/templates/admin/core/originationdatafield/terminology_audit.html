@@ -1,0 +1,53 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<style>
+  .terminology-shell{max-width:1180px}.terminology-policy,.terminology-card{border:1px solid #cbd5e1;border-radius:10px;background:var(--body-bg,#fff);color:var(--body-fg,#172033)}
+  .terminology-policy{padding:14px;margin-bottom:14px}.terminology-policy dl{display:grid;grid-template-columns:minmax(100px,160px) 1fr;gap:7px 12px;margin:10px 0 0}.terminology-policy dt{font-weight:700;text-transform:capitalize}.terminology-policy dd{margin:0;color:var(--body-quiet-color,#64748b)}
+  .terminology-card{padding:14px;margin-bottom:10px}.terminology-pair{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:12px;align-items:center}.terminology-field{min-width:0}.terminology-key{font-family:monospace;color:var(--body-quiet-color,#64748b);overflow-wrap:anywhere}.terminology-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.terminology-actions form{margin:0}.terminology-actions button,.terminology-actions a{min-height:36px;padding:7px 12px;border:1px solid #94a3b8;border-radius:7px;background:var(--body-bg,#fff);color:var(--body-fg,#172033);text-decoration:none;cursor:pointer}.terminology-actions .primary{background:#0f766e;color:#fff;border-color:#0f766e}.terminology-warning{color:#b45309;font-weight:600}
+  @media(max-width:700px){.terminology-shell{max-width:none}.terminology-policy dl{grid-template-columns:1fr}.terminology-policy dd{margin-bottom:6px}.terminology-pair{grid-template-columns:1fr}.terminology-arrow{display:none}.terminology-actions{display:grid}.terminology-actions form,.terminology-actions button,.terminology-actions a{text-align:center;width:100%;box-sizing:border-box}}
+</style>
+<div class="terminology-shell">
+  <div class="terminology-policy">
+    <h2 style="margin:0">Applicant is the standard Origination term</h2>
+    <p style="margin:5px 0 0">Approved vocabulary preserves Customer for identity matching and Borrower for contractual or signing contexts.</p>
+    <dl>
+      {% for term, meaning in terminology.items %}<dt>{{ term }}</dt><dd>{{ meaning }}</dd>{% endfor %}
+    </dl>
+  </div>
+
+  {% for row in candidates %}
+    <article class="terminology-card">
+      <div class="terminology-pair">
+        <div class="terminology-field">
+          <strong>Preferred: {{ row.preferred.label }}</strong>
+          <div class="terminology-key">{{ row.preferred.key }} · {{ row.preferred.get_data_type_display }}</div>
+        </div>
+        <div class="terminology-arrow" aria-hidden="true">←</div>
+        <div class="terminology-field">
+          <strong>Possible duplicate: {{ row.duplicate.label }}</strong>
+          <div class="terminology-key">{{ row.duplicate.key }} · {{ row.duplicate.get_data_type_display }}</div>
+        </div>
+      </div>
+      <p style="margin:10px 0 0">Matched terminology: {{ row.matched_names|join:", " }}</p>
+      {% if not row.same_type %}<p class="terminology-warning">The data types conflict. These fields cannot be consolidated.</p>{% endif %}
+      <div class="terminology-actions">
+        {% if row.same_type %}
+          <form method="post">
+            {% csrf_token %}<input type="hidden" name="action" value="consolidate"><input type="hidden" name="preferred_id" value="{{ row.preferred.pk }}"><input type="hidden" name="duplicate_id" value="{{ row.duplicate.pk }}">
+            <button type="submit" class="primary">Use {{ row.preferred.label }}</button>
+          </form>
+        {% endif %}
+        <form method="post">
+          {% csrf_token %}<input type="hidden" name="action" value="distinct"><input type="hidden" name="field_id" value="{{ row.duplicate.pk }}">
+          <button type="submit">Keep as distinct</button>
+        </form>
+        <a href="{% url 'admin:core_originationdatafield_change' row.preferred.pk %}">Open preferred field</a>
+        <a href="{% url 'admin:core_originationdatafield_change' row.duplicate.pk %}">Open possible duplicate</a>
+      </div>
+    </article>
+  {% empty %}
+    <div class="terminology-card"><strong>No unresolved terminology collisions.</strong><p style="margin:5px 0 0">New canonical-field creation will continue checking keys, labels, and aliases.</p></div>
+  {% endfor %}
+</div>
+{% endblock %}

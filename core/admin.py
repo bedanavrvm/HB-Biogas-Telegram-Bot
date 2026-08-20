@@ -5428,25 +5428,96 @@ class UnfoldGroupAdmin(ModelAdmin, DjangoGroupAdmin):
 
 @admin.register(OriginationDataField)
 class OriginationDataFieldAdmin(OriginationGodModeAdminMixin, CompactModelAdmin):
+    change_list_template = 'admin/core/originationdatafield/change_list.html'
+    list_select_related = ('preferred_field',)
     list_display = (
         'key', 'label', 'data_type', 'category', 'source_type', 'sensitivity',
-        'reporting_use', 'active', 'updated_at',
+        'reporting_use', 'terminology_status', 'active', 'updated_at',
     )
     list_filter = (
         'active', 'data_type', 'source_type', 'sensitivity', 'reporting_use',
-        'export_allowed', 'category',
+        'export_allowed', 'terminology_reviewed_distinct', 'category',
     )
     search_fields = ('key', 'label', 'category')
-    readonly_fields = ('created_by', 'created_at', 'updated_at')
+    readonly_fields = (
+        'preferred_field', 'terminology_reviewed_distinct',
+        'created_by', 'created_at', 'updated_at',
+    )
     fieldsets = (
         ('Canonical identity', {'fields': (('key', 'label'), 'aliases', ('category', 'data_type'))}),
         ('Governance', {'fields': (
             ('source_type', 'sensitivity'), ('masking_policy', 'reporting_use'),
             ('export_allowed', 'active'),
+            ('preferred_field', 'terminology_reviewed_distinct'),
         )}),
         ('Input contract', {'fields': ('help_text', 'choice_options')}),
         ('Audit', {'fields': (('created_by', 'created_at'), 'updated_at'), 'classes': ('collapse',)}),
     )
+
+    @admin.display(description='Terminology')
+    def terminology_status(self, obj):
+        if obj.preferred_field_id:
+            return f'Legacy → {obj.preferred_field.key}'
+        if obj.terminology_reviewed_distinct:
+            return 'Confirmed distinct'
+        return 'Preferred'
+
+    def get_urls(self):
+        return [
+            path(
+                'terminology-audit/',
+                self.admin_site.admin_view(self.terminology_audit_view),
+                name='core_originationdatafield_terminology_audit',
+            ),
+        ] + super().get_urls()
+
+    def terminology_audit_view(self, request):
+        if not request.user.is_active or not request.user.is_superuser:
+            raise PermissionDenied
+        from core.services.origination_fields import (
+            OriginationFieldError,
+            consolidate_data_field,
+            mark_data_field_terminology_distinct,
+            terminology_audit_candidates,
+        )
+        if request.method == 'POST':
+            try:
+                action = str(request.POST.get('action') or '')
+                if action == 'consolidate':
+                    duplicate = OriginationDataField.objects.get(pk=request.POST.get('duplicate_id'))
+                    preferred = OriginationDataField.objects.get(pk=request.POST.get('preferred_id'))
+                    consolidate_data_field(
+                        duplicate=duplicate, preferred=preferred, actor=request.user,
+                    )
+                    messages.success(
+                        request,
+                        f'{duplicate.label} is now a historical alias of {preferred.label}. '
+                        'Existing applications and PDF mappings were left unchanged.',
+                    )
+                elif action == 'distinct':
+                    data_field = OriginationDataField.objects.get(pk=request.POST.get('field_id'))
+                    mark_data_field_terminology_distinct(
+                        data_field=data_field, actor=request.user,
+                    )
+                    messages.success(request, f'{data_field.label} was confirmed as a distinct concept.')
+                else:
+                    raise OriginationFieldError('Choose a terminology review action.')
+            except (OriginationDataField.DoesNotExist, OriginationFieldError, ValidationError) as exc:
+                messages.error(request, str(exc))
+            return HttpResponseRedirect(
+                reverse('admin:core_originationdatafield_terminology_audit'),
+            )
+        from core.services.origination_terminology import ORIGINATION_TERMINOLOGY
+        context = {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': 'Origination terminology audit',
+            'candidates': terminology_audit_candidates(),
+            'terminology': ORIGINATION_TERMINOLOGY,
+        }
+        return TemplateResponse(
+            request, 'admin/core/originationdatafield/terminology_audit.html', context,
+        )
 
     def save_model(self, request, obj, form, change):
         before = None
@@ -5454,6 +5525,7 @@ class OriginationDataFieldAdmin(OriginationGodModeAdminMixin, CompactModelAdmin)
             before = OriginationDataField.objects.filter(pk=obj.pk).values(
                 'label', 'aliases', 'category', 'sensitivity', 'masking_policy',
                 'reporting_use', 'export_allowed', 'help_text', 'choice_options', 'active',
+                'preferred_field_id', 'terminology_reviewed_distinct',
             ).first()
         if not obj.created_by_id:
             obj.created_by = request.user
@@ -5464,6 +5536,8 @@ class OriginationDataFieldAdmin(OriginationGodModeAdminMixin, CompactModelAdmin)
             'reporting_use': obj.reporting_use, 'export_allowed': obj.export_allowed,
             'help_text': obj.help_text, 'choice_options': obj.choice_options,
             'active': obj.active,
+            'preferred_field_id': obj.preferred_field_id,
+            'terminology_reviewed_distinct': obj.terminology_reviewed_distinct,
         }
         action = 'created' if not change else ('deactivated' if before and before['active'] and not obj.active else 'updated')
         OriginationDataFieldEvent.objects.create(

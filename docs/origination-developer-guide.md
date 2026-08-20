@@ -120,6 +120,23 @@ The Origination definition may reference a Product Version. When linked, its
 - application: typed value stored under the canonical key in a frozen schema
   snapshot.
 
+### Origination terminology contract
+
+Use **Applicant** for the pre-execution operational role. **Customer** refers
+only to the optional `JawabuCustomer` identity linked to an application, and
+**Borrower** refers to the contractual obligor or signer. Use **Party** when a
+rule applies collectively to applicants, guarantors, spouses, or other document
+participants. Do not introduce Client or Farmer as generic Origination person
+labels.
+
+`core.services.origination_terminology` owns conservative synonym matching for
+canonical-field governance. It must not be used as a blanket code renamer:
+`client_request_id`, the application `customer` foreign key, borrower signer
+roles, legal PDF text, and historical canonical keys have distinct contracts.
+`preferred_field` records an explicitly reviewed duplicate; consolidation
+deactivates it while immutable application and template snapshots keep their
+original keys.
+
 Supported types are `text`, `textarea`, `number`, `money`, `date`, `phone`,
 `national_id`, `choice`, `boolean`, `branch`, `county`, `sub_county`, and
 `repeating_group`. Use `Decimal`, ISO date values, shared phone/ID normalization,

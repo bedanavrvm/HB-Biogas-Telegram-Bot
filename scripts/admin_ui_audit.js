@@ -25,6 +25,8 @@ const routes = [
   ['product-add', '/admin/core/product/add/'],
   ['user-inlines', '/admin/auth/user/1/change/'],
   ['origination-list', '/admin/core/originationproductdefinition/'],
+  ['field-list', '/admin/core/originationdatafield/'],
+  ['terminology-audit', '/admin/core/originationdatafield/terminology-audit/'],
   ['origination-builder', `/admin/core/originationproductdefinition/${productId}/change/`],
   ['version-history', `/admin/core/originationproductdefinition/${productId}/version-history/`],
   ['template-list', '/admin/core/originationdocumenttemplate/'],
@@ -102,6 +104,10 @@ async function auditSharedPages(browser, viewport) {
     await assertContained(page, `${viewport.name}/${name}`);
     assert(await page.locator('#nav-sidebar').count(), `${viewport.name}/${name}: Unfold sidebar selector no longer matches`);
     if (name.endsWith('list')) assert(await page.locator('#changelist-form').count(), `${viewport.name}/${name}: changelist selector no longer matches`);
+    if (name === 'terminology-audit') {
+      assert(await page.getByText('Applicant is the standard Origination term').count(), `${viewport.name}: terminology policy missing`);
+      assert(await page.locator('.terminology-shell').count(), `${viewport.name}: terminology workspace missing`);
+    }
     if (['product-add', 'user-inlines', 'origination-builder', 'template-change'].includes(name)) {
       assert(await page.locator('body.change-form').count(), `${viewport.name}/${name}: change-form selector no longer matches`);
     }

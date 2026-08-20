@@ -3469,6 +3469,18 @@ class OriginationDataField(models.Model):
         help_text='Immutable child-column contract for repeatable-group fields.',
     )
     active = models.BooleanField(default=True, db_index=True)
+    preferred_field = models.ForeignKey(
+        'self', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='legacy_equivalent_fields',
+        help_text=(
+            'Preferred canonical field for this historical duplicate. Existing '
+            'applications and PDF mappings continue using this field.'
+        ),
+    )
+    terminology_reviewed_distinct = models.BooleanField(
+        default=False,
+        help_text='Confirm that this similarly named field has a genuinely distinct meaning.',
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
         related_name='created_origination_data_fields',
@@ -3479,12 +3491,40 @@ class OriginationDataField(models.Model):
     class Meta:
         ordering = ['category', 'label', 'key']
         indexes = [models.Index(fields=['active', 'category', 'label'])]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(preferred_field__isnull=True) | models.Q(active=False),
+                name='orig_field_preferred_requires_inactive',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(preferred_field__isnull=True)
+                    | models.Q(terminology_reviewed_distinct=False)
+                ),
+                name='orig_field_preferred_not_distinct',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.label} ({self.key})'
 
     def clean(self):
         super().clean()
+        if self.preferred_field_id:
+            if self.preferred_field_id == self.pk:
+                raise ValidationError({'preferred_field': 'A field cannot replace itself.'})
+            if self.preferred_field.data_type != self.data_type:
+                raise ValidationError({'preferred_field': 'The preferred field must use the same data type.'})
+            if not self.preferred_field.active:
+                raise ValidationError({'preferred_field': 'Choose an active preferred field.'})
+            if self.active:
+                raise ValidationError({'active': 'A historical duplicate with a preferred field must be inactive.'})
+            if self.terminology_reviewed_distinct:
+                raise ValidationError({
+                    'terminology_reviewed_distinct': (
+                        'A field cannot be both a historical duplicate and confirmed distinct.'
+                    ),
+                })
         aliases = self.aliases or []
         if not isinstance(aliases, list) or any(not isinstance(item, str) for item in aliases):
             raise ValidationError({'aliases': 'Aliases must be a list of text values.'})

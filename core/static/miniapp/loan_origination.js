@@ -70,6 +70,26 @@
   const previewPointers = new Map();
   const previewPageUrls = new Map();
   const previewPageLoads = new Map();
+  const volatileStorage = new Map();
+
+  function storageGet(key) {
+    try {
+      const value = window.localStorage?.getItem(key);
+      return value === null || value === undefined ? (volatileStorage.get(key) ?? null) : value;
+    } catch (_) {
+      return volatileStorage.get(key) ?? null;
+    }
+  }
+
+  function storageSet(key, value) {
+    volatileStorage.set(key, String(value));
+    try { window.localStorage?.setItem(key, String(value)); } catch (_) { /* Memory fallback keeps this session idempotent. */ }
+  }
+
+  function storageRemove(key) {
+    volatileStorage.delete(key);
+    try { window.localStorage?.removeItem(key); } catch (_) { /* Restricted WebViews may deny storage. */ }
+  }
 
   function pointDistance(points) {
     const x = points[0].x - points[1].x;
@@ -259,29 +279,41 @@
       item.setAttribute('aria-hidden', 'true');
     });
     if (!action) return hideMainButton();
-    document.body.classList.add('telegram-main-button-active');
-    tg.MainButton.setText(action.dataset.primaryAction || action.textContent.trim() || 'Continue');
-    if (primaryBusy || action.disabled) tg.MainButton.disable?.();
-    else tg.MainButton.enable?.();
-    mainButtonHandler = () => {
-      if (!primaryBusy && !action.disabled) action.click();
-    };
-    tg.MainButton.onClick?.(mainButtonHandler);
-    tg.MainButton.show?.();
-    nativeMainButtonVisible = true;
+    try {
+      document.body.classList.add('telegram-main-button-active');
+      tg.MainButton.setText?.(action.dataset.primaryAction || action.textContent.trim() || 'Continue');
+      if (primaryBusy || action.disabled) tg.MainButton.disable?.();
+      else tg.MainButton.enable?.();
+      mainButtonHandler = () => {
+        if (!primaryBusy && !action.disabled) action.click();
+      };
+      tg.MainButton.onClick?.(mainButtonHandler);
+      tg.MainButton.show?.();
+      nativeMainButtonVisible = true;
+    } catch (_) {
+      clearMainButtonHandler();
+      document.body.classList.remove('telegram-main-button-active');
+      actions.forEach(item => {
+        item.hidden = false;
+        item.removeAttribute('aria-hidden');
+      });
+      nativeMainButtonVisible = false;
+    }
   }
 
   function setPrimaryBusy(busy, label = '') {
     primaryBusy = Boolean(busy);
     document.querySelectorAll('[data-primary-action]').forEach(action => { action.disabled = primaryBusy; });
     if (tg?.MainButton) {
-      if (label) tg.MainButton.setText?.(label);
-      if (primaryBusy) {
-        tg.MainButton.disable?.();
-        tg.MainButton.showProgress?.(false);
-      } else {
-        tg.MainButton.hideProgress?.();
-      }
+      try {
+        if (label) tg.MainButton.setText?.(label);
+        if (primaryBusy) {
+          tg.MainButton.disable?.();
+          tg.MainButton.showProgress?.(false);
+        } else {
+          tg.MainButton.hideProgress?.();
+        }
+      } catch (_) { /* Fall back to the in-DOM primary action. */ }
     }
     if (!busy) syncPrimaryAction();
   }
@@ -299,8 +331,10 @@
   function syncTelegramControls() {
     if (tg?.BackButton) {
       const previewOpen = !document.getElementById('document-preview-overlay')?.hidden;
-      if (activeDateInput || activeCustomSelect || sheetMode || reviewDialogMode || previewOpen || current) tg.BackButton.show();
-      else tg.BackButton.hide();
+      try {
+        if (activeDateInput || activeCustomSelect || sheetMode || reviewDialogMode || previewOpen || current) tg.BackButton.show?.();
+        else tg.BackButton.hide?.();
+      } catch (_) { /* The in-DOM navigation remains usable if Telegram's bridge fails. */ }
     }
     syncPrimaryAction();
   }
@@ -627,7 +661,7 @@
       const transaction = db.transaction('drafts', 'readwrite');
       await idbRequest(transaction.objectStore('drafts').delete(draftKey(applicationId)));
     } catch (_) { /* Recovery deletion is best effort. */ }
-    localStorage.removeItem(draftKey(applicationId));
+    storageRemove(draftKey(applicationId));
   }
 
   async function recoverDraft(application) {
@@ -636,9 +670,9 @@
     let local = await readRecoveryDraft(application.id);
     // One-time migration from the previous plaintext recovery format.
     if (!local) {
-      try { local = JSON.parse(localStorage.getItem(draftKey(application.id)) || 'null'); } catch (_) { local = null; }
+      try { local = JSON.parse(storageGet(draftKey(application.id)) || 'null'); } catch (_) { local = null; }
       if (local) await persistRecoveryDraft(application.id, local);
-      localStorage.removeItem(draftKey(application.id));
+      storageRemove(draftKey(application.id));
     }
     if (!local) return;
     if (Number(local.revision) !== Number(application.revision)) {
@@ -758,18 +792,31 @@
     const values = new FormData(event.currentTarget);
     const identity = `${values.get('branch')}:${values.get('product_key')}`;
     const storageKey = `origination-create-request:${identity}`;
-    const createKey = localStorage.getItem(storageKey) || requestKey('create');
-    localStorage.setItem(storageKey, createKey);
+    const createKey = storageGet(storageKey) || requestKey('create');
+    storageSet(storageKey, createKey);
     createInFlight = true;
     setPrimaryBusy(true, 'Starting...');
+    let createdApplication = null;
     try {
       const result = await postJson('/applications/', {
         product_key: values.get('product_key'), branch: values.get('branch'), client_request_id: createKey,
       });
       if (!result.ok) return showToast(result.data?.error || 'Could not start the application.', true);
-      localStorage.removeItem(storageKey);
+      createdApplication = result.data?.application;
+      if (!createdApplication?.id) throw new Error('The application response was incomplete.');
+      await openEditor(createdApplication, 0);
+      storageRemove(storageKey);
       closeSheet({ restoreFocus: false });
-      await openEditor(result.data.application, 0);
+    } catch (_) {
+      showToast(
+        createdApplication
+          ? 'The application was created, but its editor could not open. Refresh and open it from My applications.'
+          : 'Could not start the application. Try again.',
+        true,
+      );
+      if (createdApplication) {
+        try { await loadApplications(); } catch (_) { /* Keep the safe recovery message visible. */ }
+      }
     } finally {
       createInFlight = false;
       setPrimaryBusy(false);
@@ -2100,19 +2147,23 @@
     else if (reviewDialogMode) closeReviewDialog();
     else if (!document.getElementById('document-preview-overlay').hidden) closePreview();
   });
-  tg?.ready(); tg?.expand();
-  tg?.onEvent?.('themeChanged', syncTelegramTheme);
-  tg?.onEvent?.('viewportChanged', () => { syncViewport(); scheduleFocusedInputVisibility(); });
+  try { tg?.ready?.(); tg?.expand?.(); } catch (_) { /* The web UI also runs outside Telegram. */ }
+  try {
+    tg?.onEvent?.('themeChanged', syncTelegramTheme);
+    tg?.onEvent?.('viewportChanged', () => { syncViewport(); scheduleFocusedInputVisibility(); });
+  } catch (_) { /* Ignore an unavailable or partially initialized Telegram bridge. */ }
   syncTelegramTheme();
   syncViewport();
-  tg?.BackButton?.onClick(async () => {
-    if (activeDateInput) return closeDatePicker();
-    if (activeCustomSelect) return closeCustomSelect();
-    if (sheetMode) return closeSheet();
-    if (reviewDialogMode) return closeReviewDialog();
-    if (!document.getElementById('document-preview-overlay').hidden) return closePreview();
-    if (current) await exitEditor();
-  });
+  try {
+    tg?.BackButton?.onClick?.(async () => {
+      if (activeDateInput) return closeDatePicker();
+      if (activeCustomSelect) return closeCustomSelect();
+      if (sheetMode) return closeSheet();
+      if (reviewDialogMode) return closeReviewDialog();
+      if (!document.getElementById('document-preview-overlay').hidden) return closePreview();
+      if (current) await exitEditor();
+    });
+  } catch (_) { /* In-DOM controls remain available. */ }
   new MutationObserver(mutations => {
     mutations.forEach(mutation => {
       mutation.addedNodes.forEach(node => {

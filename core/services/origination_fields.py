@@ -23,6 +23,10 @@ from core.models import (
     OriginationProductDefinitionEvent,
     OriginationReportingValue,
 )
+from core.services.origination_terminology import (
+    aliases_with_legacy_terms,
+    field_terminology_signatures,
+)
 
 
 class OriginationFieldError(ValueError):
@@ -82,8 +86,130 @@ def serialize_data_field(data_field: OriginationDataField, *, attached: bool = F
         'choice_options': list(data_field.choice_options or []),
         'structure_schema': dict(data_field.structure_schema or {}),
         'active': data_field.active,
+        'preferred_field_id': str(data_field.preferred_field_id or ''),
         'attached': attached,
     }
+
+
+def _semantic_signatures_for_field(data_field: OriginationDataField) -> set[str]:
+    return field_terminology_signatures(
+        data_field.key, data_field.label, *(data_field.aliases or []),
+    )
+
+
+def semantic_field_conflict(
+    *, key: str, label: str, aliases: list[str] | None = None,
+    exclude_id=None,
+) -> OriginationDataField | None:
+    """Find an active field represented by the same approved terminology."""
+
+    requested = field_terminology_signatures(key, label, *(aliases or []))
+    if not requested:
+        return None
+    candidates = OriginationDataField.objects.select_for_update().filter(
+        active=True,
+    ).order_by('created_at', 'key')
+    if exclude_id:
+        candidates = candidates.exclude(pk=exclude_id)
+    for candidate in candidates:
+        if requested & _semantic_signatures_for_field(candidate):
+            return candidate
+    return None
+
+
+def terminology_audit_candidates() -> list[dict[str, Any]]:
+    """Return unresolved active-field pairs that appear semantically equivalent."""
+
+    fields = list(OriginationDataField.objects.filter(
+        active=True, preferred_field__isnull=True,
+    ).order_by('category', 'label', 'key'))
+    rows: list[dict[str, Any]] = []
+    for index, left in enumerate(fields):
+        if left.terminology_reviewed_distinct:
+            continue
+        left_signatures = _semantic_signatures_for_field(left)
+        for right in fields[index + 1:]:
+            if right.terminology_reviewed_distinct:
+                continue
+            signatures = left_signatures & _semantic_signatures_for_field(right)
+            if not signatures:
+                continue
+            preferred, duplicate = sorted(
+                (left, right),
+                key=lambda item: (
+                    not item.key.startswith('applicant_'),
+                    item.key != 'applicant',
+                    item.created_at,
+                    item.key,
+                ),
+            )
+            rows.append({
+                'preferred': preferred,
+                'duplicate': duplicate,
+                'same_type': preferred.data_type == duplicate.data_type,
+                'matched_names': sorted(signatures),
+            })
+    return rows
+
+
+@transaction.atomic
+def consolidate_data_field(
+    *, duplicate: OriginationDataField, preferred: OriginationDataField, actor,
+) -> OriginationDataField:
+    """Retire an explicit duplicate without touching historical contracts."""
+
+    if not getattr(actor, 'is_superuser', False):
+        raise OriginationFieldError('Only a Django Superuser may consolidate canonical fields.')
+    duplicate = OriginationDataField.objects.select_for_update().get(pk=duplicate.pk)
+    preferred = OriginationDataField.objects.select_for_update().get(pk=preferred.pk)
+    if duplicate.pk == preferred.pk:
+        raise OriginationFieldError('Choose two different canonical fields.')
+    if not duplicate.active and duplicate.preferred_field_id == preferred.pk:
+        return duplicate
+    if not duplicate.active or duplicate.preferred_field_id:
+        raise OriginationFieldError('Choose an active duplicate field that has not been consolidated.')
+    if not preferred.active or preferred.preferred_field_id:
+        raise OriginationFieldError('Choose an active preferred canonical field.')
+    if duplicate.data_type != preferred.data_type:
+        raise OriginationFieldConflict('Only fields with the same data type can be consolidated.')
+    preferred.aliases = aliases_with_legacy_terms(
+        duplicate.label,
+        duplicate.key,
+        [*(preferred.aliases or []), *(duplicate.aliases or [])],
+    )
+    preferred.save(update_fields=['aliases', 'updated_at'])
+    duplicate.active = False
+    duplicate.preferred_field = preferred
+    duplicate.terminology_reviewed_distinct = False
+    duplicate.save(update_fields=[
+        'active', 'preferred_field', 'terminology_reviewed_distinct', 'updated_at',
+    ])
+    OriginationDataFieldEvent.objects.create(
+        data_field=preferred, action='terminology_aliases_merged', actor=actor,
+        metadata={'legacy_field_id': str(duplicate.pk), 'legacy_key': duplicate.key},
+    )
+    OriginationDataFieldEvent.objects.create(
+        data_field=duplicate, action='terminology_consolidated', actor=actor,
+        metadata={'preferred_field_id': str(preferred.pk), 'preferred_key': preferred.key},
+    )
+    return duplicate
+
+
+@transaction.atomic
+def mark_data_field_terminology_distinct(*, data_field: OriginationDataField, actor) -> OriginationDataField:
+    if not getattr(actor, 'is_superuser', False):
+        raise OriginationFieldError('Only a Django Superuser may review canonical fields.')
+    data_field = OriginationDataField.objects.select_for_update().get(pk=data_field.pk)
+    if not data_field.active or data_field.preferred_field_id:
+        raise OriginationFieldError('Only active canonical fields can be confirmed as distinct.')
+    if not data_field.terminology_reviewed_distinct:
+        data_field.terminology_reviewed_distinct = True
+        data_field.save(update_fields=['terminology_reviewed_distinct', 'updated_at'])
+        OriginationDataFieldEvent.objects.create(
+            data_field=data_field, action='terminology_confirmed_distinct', actor=actor,
+            metadata={'key': data_field.key},
+        )
+    return data_field
 
 
 def product_schema_revision(product: OriginationProductDefinition) -> int:
@@ -155,6 +281,19 @@ def create_data_field(*, payload: dict[str, Any], actor) -> tuple[OriginationDat
                 f'{key} already exists with type {existing.get_data_type_display()}.',
             )
         return existing, True
+    aliases = [str(item).strip() for item in (payload.get('aliases') or []) if str(item).strip()]
+    equivalent = semantic_field_conflict(key=key, label=label, aliases=aliases)
+    if equivalent:
+        if equivalent.data_type != data_type:
+            raise OriginationFieldConflict(
+                f'“{label}” appears to mean the same thing as {equivalent.label} '
+                f'({equivalent.key}), but that field uses '
+                f'{equivalent.get_data_type_display()}. Review the existing field instead of creating another.',
+            )
+        raise OriginationFieldConflict(
+            f'“{label}” appears to mean the same thing as {equivalent.label} '
+            f'({equivalent.key}). Reuse that canonical field and add this wording as an alias if needed.',
+        )
     options = payload.get('choice_options') or []
     if data_type == OriginationDataField.TYPE_CHOICE:
         options = normalize_choice_options(options)
@@ -180,7 +319,7 @@ def create_data_field(*, payload: dict[str, Any], actor) -> tuple[OriginationDat
         )
     data_field = OriginationDataField.objects.create(
         key=key, label=label[:160],
-        aliases=[str(item).strip() for item in (payload.get('aliases') or []) if str(item).strip()],
+        aliases=aliases,
         category=str(payload.get('category') or 'Application').strip()[:80],
         data_type=data_type,
         source_type=OriginationDataField.SOURCE_USER_INPUT,

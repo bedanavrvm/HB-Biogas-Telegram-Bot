@@ -40,6 +40,14 @@ from core.services.origination_templates import (
     validate_template_files,
     validate_template_pdf,
 )
+from core.services.origination_fields import (
+    OriginationFieldConflict,
+    consolidate_data_field,
+    create_data_field,
+    mark_data_field_terminology_distinct,
+    terminology_audit_candidates,
+)
+from core.services.origination_terminology import terminology_signature
 from core.services.partnership_laf_preview import (
     PartnershipLafPreviewError,
     render_pdf_page,
@@ -647,6 +655,140 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertTrue(replay.json()['replayed'])
         self.assertEqual(OriginationDataField.objects.filter(key=field.key).count(), 1)
         self.assertEqual(field.events.count(), 1)
+
+    def test_canonical_field_creation_rejects_person_term_synonym_duplicate(self):
+        preferred, _ = create_data_field(
+            payload={
+                'label': 'Applicant preferred phone',
+                'key': 'applicant_preferred_phone',
+                'type': 'phone',
+                'category': 'Applicant',
+            },
+            actor=self.user,
+        )
+
+        with self.assertRaisesMessage(
+            OriginationFieldConflict,
+            'Reuse that canonical field',
+        ):
+            create_data_field(
+                payload={
+                    'label': 'Customer preferred phone',
+                    'key': 'customer_preferred_phone',
+                    'type': 'phone',
+                    'category': 'Applicant',
+                },
+                actor=self.user,
+            )
+
+        self.assertTrue(preferred.active)
+        self.assertFalse(
+            OriginationDataField.objects.filter(key='customer_preferred_phone').exists(),
+        )
+
+    def test_terminology_consolidation_preserves_historical_product_schema(self):
+        preferred = OriginationDataField.objects.create(
+            key='applicant_preferred_mobile', label='Applicant preferred mobile',
+            data_type=OriginationDataField.TYPE_PHONE, category='Applicant',
+            created_by=self.user,
+        )
+        duplicate = OriginationDataField.objects.create(
+            key='farmer_preferred_mobile', label='Farmer preferred mobile',
+            data_type=OriginationDataField.TYPE_PHONE, category='Applicant',
+            created_by=self.user,
+        )
+        original_schema = json.loads(json.dumps(self.product.form_schema))
+
+        consolidate_data_field(
+            duplicate=duplicate, preferred=preferred, actor=self.user,
+        )
+
+        duplicate.refresh_from_db()
+        preferred.refresh_from_db()
+        self.product.refresh_from_db()
+        self.assertFalse(duplicate.active)
+        self.assertEqual(duplicate.preferred_field, preferred)
+        self.assertIn('Farmer preferred mobile', preferred.aliases)
+        self.assertIn('farmer_preferred_mobile', preferred.aliases)
+        self.assertEqual(self.product.form_schema, original_schema)
+        self.assertTrue(duplicate.events.filter(action='terminology_consolidated').exists())
+
+    def test_terminology_audit_can_confirm_a_similar_field_is_distinct(self):
+        OriginationDataField.objects.create(
+            key='applicant_contact_email', label='Applicant contact email',
+            data_type=OriginationDataField.TYPE_TEXT, category='Applicant',
+            created_by=self.user,
+        )
+        duplicate = OriginationDataField.objects.create(
+            key='client_contact_email', label='Client contact email',
+            data_type=OriginationDataField.TYPE_TEXT, category='Applicant',
+            created_by=self.user,
+        )
+        self.assertTrue(any(
+            row['duplicate'].pk == duplicate.pk for row in terminology_audit_candidates()
+        ))
+
+        mark_data_field_terminology_distinct(data_field=duplicate, actor=self.user)
+
+        self.assertFalse(any(
+            row['duplicate'].pk == duplicate.pk for row in terminology_audit_candidates()
+        ))
+        duplicate.refresh_from_db()
+        self.assertTrue(duplicate.terminology_reviewed_distinct)
+
+    def test_terminology_audit_admin_is_superuser_only(self):
+        self.client.force_login(self.user)
+        response = self.client.get(
+            reverse('admin:core_originationdatafield_terminology_audit'),
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Applicant is the standard Origination term')
+        self.assertContains(response, 'Approved vocabulary')
+
+        staff = get_user_model().objects.create_user(
+            'terminology-staff', 'terminology-staff@example.test', 'x', is_staff=True,
+        )
+        self.client.force_login(staff)
+        forbidden = self.client.get(
+            reverse('admin:core_originationdatafield_terminology_audit'),
+        )
+        self.assertEqual(forbidden.status_code, 403)
+
+    def test_terminology_audit_admin_consolidates_duplicate_idempotently(self):
+        preferred = OriginationDataField.objects.create(
+            key='applicant_contact_phone', label='Applicant contact phone',
+            data_type=OriginationDataField.TYPE_PHONE, category='Applicant',
+            created_by=self.user,
+        )
+        duplicate = OriginationDataField.objects.create(
+            key='customer_contact_phone', label='Customer contact phone',
+            data_type=OriginationDataField.TYPE_PHONE, category='Applicant',
+            created_by=self.user,
+        )
+        self.client.force_login(self.user)
+        url = reverse('admin:core_originationdatafield_terminology_audit')
+        payload = {
+            'action': 'consolidate',
+            'preferred_id': str(preferred.pk),
+            'duplicate_id': str(duplicate.pk),
+        }
+
+        first = self.client.post(url, payload)
+        replay = self.client.post(url, payload)
+
+        self.assertRedirects(first, url)
+        self.assertRedirects(replay, url)
+        duplicate.refresh_from_db()
+        self.assertFalse(duplicate.active)
+        self.assertEqual(duplicate.preferred_field, preferred)
+        self.assertEqual(
+            duplicate.events.filter(action='terminology_consolidated').count(), 1,
+        )
+
+    def test_technical_client_request_name_is_not_reclassified_as_applicant(self):
+        self.assertEqual(terminology_signature('client_request_id'), 'client_request_id')
+        self.assertEqual(terminology_signature('borrower_signature'), 'borrower_signature')
+        self.assertEqual(terminology_signature('customer_phone'), 'applicant_phone')
 
     def test_product_builder_field_creation_rejects_non_superuser(self):
         staff = get_user_model().objects.create_user(

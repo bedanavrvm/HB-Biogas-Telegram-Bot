@@ -143,6 +143,21 @@ cannot be officer-selectable.
 Use **Configuration → Origination data fields**, the builder's **Create
 canonical field** link, or **+ Field** in the alignment builder.
 
+Origination uses the following controlled terminology:
+
+- **Applicant** is the person or entity applying for the loan and is the
+  standard term in form sections, field labels, queues, and review screens.
+- **Customer** means the canonical global customer identity that may be matched
+  to an applicant. It is not a synonym for Applicant in form configuration.
+- **Borrower** is reserved for the contractual obligor, signer roles, and legal
+  PDF wording.
+- **Party** collectively describes the applicant, guarantors, spouse, and other
+  document participants.
+- **Client** is not a person label in Origination. Technical names such as
+  `client_request_id` retain their established API meaning.
+- **Farmer** is used only when a product specifically needs an occupation field;
+  it remains valid terminology in the separate legacy Jawabu workflows.
+
 Before creating a field, search for the same business meaning. Reuse one
 canonical key for labels such as “Applicant ID”, “National ID”, or “ID Number”
 when they mean the same value. Product forms may relabel that field without
@@ -163,6 +178,14 @@ The key and data type are immutable. Repeatable-group structure is immutable,
 and existing canonical choice codes cannot be removed. Deactivate obsolete
 fields/options rather than reinterpreting historical data. Conflicts appear in
 **Configuration → Legacy fields needing review** and can block publication.
+
+The catalogue also checks new keys, labels, and aliases for terminology
+collisions. Open **Review terminology** from Origination data fields to compare
+possible duplicates. A Superuser can consolidate a same-type duplicate into a
+preferred field or confirm that it has a genuinely different meaning.
+Consolidation deactivates the duplicate for new configuration and records the
+preferred field, but never rewrites published schemas, application payloads, or
+PDF mappings.
 
 ### 6. Align and save the main LAF
 

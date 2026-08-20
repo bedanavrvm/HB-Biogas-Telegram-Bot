@@ -279,13 +279,56 @@ async function auditTelegramAndSlowNetwork(browser) {
   await page.close();
 }
 
+async function auditRestrictedStorageStart(browser) {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() { throw new DOMException('Storage denied by WebView policy', 'SecurityError'); },
+    });
+    const unavailable = () => { throw new Error('Telegram bridge unavailable'); };
+    window.Telegram = { WebApp: {
+      initData: '', initDataUnsafe: { user: { id: 999 } }, themeParams: {},
+      ready: unavailable, expand: unavailable, onEvent: unavailable,
+      BackButton: { show: unavailable, hide: unavailable, onClick: unavailable },
+      MainButton: {
+        show: unavailable, hide: unavailable, setText: unavailable,
+        enable: unavailable, disable: unavailable, showProgress: unavailable,
+        hideProgress: unavailable, onClick: unavailable, offClick: unavailable,
+      },
+    } };
+  });
+  const getCreateCalls = await installApiMocks(page);
+  await waitForList(page);
+  await page.locator('#origination-start').click();
+  await page.locator('#origination-create-branch + .origination-select-trigger').click();
+  await page.locator('#origination-select-options .origination-select-option', { hasText: 'Embu' }).click();
+  await page.locator('#origination-create-product + .origination-select-trigger:not([disabled])').waitFor();
+  await page.locator('#origination-create-product + .origination-select-trigger').click();
+  await page.locator('#origination-select-options .origination-select-option', { hasText: 'Jawabu Express' }).click();
+  const submit = page.locator('#origination-create-submit');
+  assert(await submit.isVisible(), 'DOM Start application fallback is hidden after Telegram bridge failure');
+  await submit.click();
+  await page.locator('.wizard-progress-compact').waitFor({ timeout: 5000 });
+  assert(getCreateCalls() === 1, `Restricted-storage start made ${getCreateCalls()} create requests`);
+  assert(!pageErrors.length, `Restricted-storage start raised a browser error: ${pageErrors.join(' | ')}`);
+  await page.screenshot({ path: path.join(outputDir, 'restricted-storage-start.png'), fullPage: true });
+  await context.close();
+}
+
 (async () => {
   fs.mkdirSync(outputDir, { recursive: true });
   const browser = await chromium.launch({ headless: true });
   try {
     const results = [];
-    for (const viewport of viewports) results.push({ viewport: viewport.name, ...(await auditViewport(browser, viewport)) });
-    await auditTelegramAndSlowNetwork(browser);
+    if (process.env.ORIGINATION_AUDIT_START_ONLY !== 'true') {
+      for (const viewport of viewports) results.push({ viewport: viewport.name, ...(await auditViewport(browser, viewport)) });
+      await auditTelegramAndSlowNetwork(browser);
+    }
+    await auditRestrictedStorageStart(browser);
     console.log(JSON.stringify({ ok: true, outputDir, results }, null, 2));
   } finally {
     await browser.close();
