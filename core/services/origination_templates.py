@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from io import BytesIO
 from typing import Any
 
@@ -282,6 +283,8 @@ def validate_template_configuration(
             width, height = float(box['width']) * scale, float(box['height']) * scale
         except (KeyError, TypeError, ValueError) as exc:
             raise OriginationTemplateError(f'{item_label} {key} has invalid placement coordinates.') from exc
+        if not all(math.isfinite(value) for value in (x, y, width, height)):
+            raise OriginationTemplateError(f'{item_label} {key} has invalid placement dimensions.')
         if min(x, y) < 0 or width <= 0 or height <= 0:
             raise OriginationTemplateError(f'{item_label} {key} has invalid placement dimensions.')
         page_width, page_height = page_sizes[page_number]
@@ -335,6 +338,59 @@ def validate_template_configuration(
         slot_type = str(spec.get('slot_type') or expected_slots.get(key, {}).get('slot_type') or 'signature')
         if slot_type not in {'signature', 'stamp', 'date_signed'}:
             raise OriginationTemplateError(f'Signature slot {key} has an unsupported type.')
+        expected_type = str(expected_slots.get(key, {}).get('slot_type') or '')
+        if expected_type and slot_type != expected_type:
+            raise OriginationTemplateError(
+                f'Signature slot {key} must remain a {expected_type.replace("_", " ")} slot.'
+            )
+        label = str(spec.get('label') or expected_slots.get(key, {}).get('label') or '').strip()
+        if not label or len(label) > 120:
+            raise OriginationTemplateError(f'Signature slot {key} requires a label of at most 120 characters.')
+        if str(spec.get('align') or 'center') not in {'left', 'center', 'right'}:
+            raise OriginationTemplateError(f'Signature slot {key} has an invalid horizontal alignment.')
+        if str(spec.get('vertical_align') or 'center') not in {'bottom', 'center', 'top'}:
+            raise OriginationTemplateError(f'Signature slot {key} has an invalid vertical alignment.')
+        padding = spec.get('padding') or {'x': 0, 'y': 0}
+        if not isinstance(padding, dict):
+            raise OriginationTemplateError(f'Signature slot {key} has invalid padding.')
+        try:
+            padding_x = float(padding.get('x', 0))
+            padding_y = float(padding.get('y', 0))
+            rotation = float(spec.get('rotation', 0))
+        except (TypeError, ValueError) as exc:
+            raise OriginationTemplateError(f'Signature slot {key} has invalid appearance values.') from exc
+        if not all(math.isfinite(value) for value in (padding_x, padding_y, rotation)):
+            raise OriginationTemplateError(f'Signature slot {key} has invalid appearance values.')
+        if padding_x < 0 or padding_y < 0:
+            raise OriginationTemplateError(f'Signature slot {key} padding cannot be negative.')
+        if rotation < -180 or rotation > 180:
+            raise OriginationTemplateError(f'Signature slot {key} rotation must be between -180 and 180 degrees.')
+        box = spec.get('allowed_area') or spec.get('box') or {}
+        try:
+            box_width = float(box.get('width'))
+            box_height = float(box.get('height'))
+        except (TypeError, ValueError) as exc:
+            raise OriginationTemplateError(f'Signature slot {key} has invalid placement dimensions.') from exc
+        if padding_x * 2 >= box_width or padding_y * 2 >= box_height:
+            raise OriginationTemplateError(f'Signature slot {key} padding leaves no usable signing area.')
+        if slot_type == 'signature':
+            if str(spec.get('ink_color') or 'black') not in {'black', 'blue', 'purple'}:
+                raise OriginationTemplateError(f'Signature slot {key} has an unsupported ink colour.')
+            if str(spec.get('typed_font') or 'Helvetica-BoldOblique') not in {
+                'Helvetica-BoldOblique', 'Times-Italic', 'Courier-Oblique',
+            }:
+                raise OriginationTemplateError(f'Signature slot {key} has an unsupported typed-signature font.')
+            try:
+                font_size = float(spec.get('font_size', 15))
+                stroke_width = float(spec.get('stroke_width', 2))
+            except (TypeError, ValueError) as exc:
+                raise OriginationTemplateError(f'Signature slot {key} has invalid signature sizing.') from exc
+            if not math.isfinite(font_size) or font_size < 6 or font_size > 30:
+                raise OriginationTemplateError(f'Signature slot {key} font size must be between 6 and 30.')
+            if not math.isfinite(stroke_width) or stroke_width < .5 or stroke_width > 8:
+                raise OriginationTemplateError(f'Signature slot {key} stroke width must be between 0.5 and 8.')
+        if slot_type == 'stamp' and str(spec.get('stamp_fit') or 'contain') not in {'contain', 'stretch'}:
+            raise OriginationTemplateError(f'Signature slot {key} has an unsupported stamp fit.')
         validate_box(key, spec, item_label='Signature slot')
     return normalized
 

@@ -120,6 +120,35 @@ class OriginationTemplateValidationTests(SimpleTestCase):
 
         self.assertIn('MIXED CASE', text)
 
+    def test_filled_preview_renders_custom_signature_and_stamp_appearance(self):
+        config = {
+            'field_overlay_manifest': {'fields': {}},
+            'signature_overlay_manifest': {'slots': {
+                'borrower.signature': {
+                    'slot_type': 'signature', 'label': 'Borrower signature',
+                    'page_number': 1, 'units': 'pt',
+                    'box': {'x': 40, 'y': 80, 'width': 180, 'height': 40},
+                    'padding': {'x': 4, 'y': 3}, 'rotation': -4,
+                    'align': 'right', 'vertical_align': 'top',
+                    'ink_color': 'blue', 'typed_font': 'Times-Italic', 'font_size': 18,
+                },
+                'officer.stamp': {
+                    'slot_type': 'stamp', 'label': 'Branch stamp',
+                    'page_number': 1, 'units': 'pt',
+                    'box': {'x': 280, 'y': 70, 'width': 120, 'height': 55},
+                    'padding': {'x': 3, 'y': 3}, 'rotation': 5,
+                    'align': 'left', 'vertical_align': 'bottom', 'stamp_fit': 'contain',
+                },
+            }},
+        }
+
+        rendered = render_template(
+            synthetic_pdf(), config, {'_show_signature_slots': True},
+        )
+        text = PdfReader(BytesIO(rendered)).pages[0].extract_text()
+        self.assertIn('Sample signature', text)
+        self.assertIn('STAMP PREVIEW', text)
+
     def test_renderer_populates_repeatable_asset_table_and_decimal_values(self):
         config = json.loads(synthetic_config())
         config['field_overlay_manifest']['fields'] = {
@@ -486,6 +515,70 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertIn('y: rounded((pageHeight - boxHeight) / 2)', source)
         self.assertNotIn('box: { x: 40, y: 40', source)
 
+    @patch('core.services.origination_templates.load_template_source')
+    def test_signer_slot_appearance_is_validated_without_raw_json(self, load_source):
+        load_source.return_value = self.pdf
+        self.product.signer_rules[0]['slots'].append({
+            'key': 'branch_stamp', 'label': 'Branch stamp',
+            'type': 'stamp', 'required': False,
+        })
+        self.product.save(update_fields=['signer_rules'])
+        template = OriginationDocumentTemplate.objects.create(
+            product_definition=self.product, document_key='primary',
+            document_role=OriginationDocumentTemplate.ROLE_PRIMARY,
+            inclusion_mode=OriginationDocumentTemplate.INCLUDE_REQUIRED,
+            document_type=self.product.document_type, name='Dairy Capital LAF', version=1,
+            status=OriginationDocumentTemplate.STATUS_READY,
+            source_filename='dairy.pdf', source_sha256='f' * 64,
+            source_byte_size=len(self.pdf), page_count=1,
+            placement_config={}, drive_file_id='synthetic-dairy-template', created_by=self.user,
+        )
+        config = self.calibrated_configuration()
+        slot = config['signature_overlay_manifest']['slots']['borrower.acceptance']
+        slot.update({
+            'align': 'right', 'vertical_align': 'top',
+            'padding': {'x': 4, 'y': 3}, 'rotation': -5,
+            'ink_color': 'blue', 'typed_font': 'Times-Italic',
+            'font_size': 18, 'stroke_width': 2.5, 'stamp_fit': 'contain',
+        })
+        config['signature_overlay_manifest']['slots']['borrower.branch_stamp'] = {
+            'role': 'borrower', 'slot_key': 'branch_stamp', 'slot_type': 'stamp',
+            'label': 'Branch stamp', 'page_number': 1, 'units': 'pt',
+            'box': {'x': 250, 'y': 70, 'width': 120, 'height': 55},
+            'align': 'center', 'vertical_align': 'center',
+            'padding': {'x': 2, 'y': 2}, 'rotation': 3, 'stamp_fit': 'stretch',
+        }
+
+        normalized = validate_template_configuration(
+            config, template=template, require_complete=True,
+        )
+        self.assertEqual(
+            normalized['signature_overlay_manifest']['slots']['borrower.acceptance']['ink_color'],
+            'blue',
+        )
+        self.assertEqual(
+            normalized['signature_overlay_manifest']['slots']['borrower.branch_stamp']['stamp_fit'],
+            'stretch',
+        )
+
+        invalid = json.loads(json.dumps(config))
+        invalid['signature_overlay_manifest']['slots']['borrower.acceptance']['rotation'] = 181
+        with self.assertRaisesRegex(OriginationTemplateError, 'between -180 and 180'):
+            validate_template_configuration(invalid, template=template, require_complete=True)
+
+        source = (
+            Path(settings.BASE_DIR) / 'core/static/admin/origination_calibration.js'
+        ).read_text(encoding='utf-8')
+        builder = (
+            Path(settings.BASE_DIR)
+            / 'core/templates/admin/core/originationdocumenttemplate/calibrate.html'
+        ).read_text(encoding='utf-8')
+        self.assertIn('function updateSelectedSignature()', source)
+        self.assertIn('cal-signature-ink', builder)
+        self.assertIn('cal-signature-font', builder)
+        self.assertIn('cal-signature-stroke-width', builder)
+        self.assertIn('cal-stamp-fit', builder)
+
     def test_shared_assignment_admin_derives_document_identity_from_template(self):
         from core.admin import OriginationProductDocumentAssignmentForm
 
@@ -567,7 +660,7 @@ class MultiProductOriginationTemplateTests(TestCase):
         self.assertIn("mode = 'filled'", source)
         self.assertIn('await renderPage()', source)
         self.assertIn('default for fields added later', template)
-        self.assertIn('origination_calibration.js\' %}?v=12', template)
+        self.assertIn('origination_calibration.js\' %}?v=13', template)
 
     def test_pdf_only_onboarding_derives_product_contract(self):
         digest, pages = validate_template_pdf(self.pdf)

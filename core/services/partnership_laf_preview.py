@@ -191,6 +191,64 @@ def _signature_preview_page(width: float, height: float, slots: list[dict]) -> b
         pdf.setFont('Helvetica-Bold', 6)
         label = str(spec.get('label') or spec.get('slot_key') or 'Signature slot')
         pdf.drawString(x + 3, y + max(3, box_height - 8), label[:72])
+        padding = spec.get('padding') if isinstance(spec.get('padding'), dict) else {}
+        try:
+            padding_x = max(0, float(padding.get('x', 0)) * unit_scale)
+            padding_y = max(0, float(padding.get('y', 0)) * unit_scale)
+            rotation = float(spec.get('rotation', 0))
+        except (TypeError, ValueError):
+            padding_x = padding_y = rotation = 0
+        content_x = -box_width / 2 + padding_x
+        content_y = -box_height / 2 + padding_y
+        content_width = max(1, box_width - padding_x * 2)
+        content_height = max(1, box_height - padding_y * 2)
+        slot_type = str(spec.get('slot_type') or 'signature')
+        pdf.saveState()
+        pdf.translate(x + box_width / 2, y + box_height / 2)
+        pdf.rotate(rotation)
+        if slot_type == 'stamp':
+            stretch = str(spec.get('stamp_fit') or 'contain') == 'stretch'
+            stamp_width = content_width if stretch else content_width * .72
+            stamp_height = content_height if stretch else content_height * .72
+            align = str(spec.get('align') or 'center')
+            vertical = str(spec.get('vertical_align') or 'center')
+            stamp_x = content_x if align == 'left' else content_x + content_width - stamp_width if align == 'right' else content_x + (content_width - stamp_width) / 2
+            stamp_y = content_y if vertical == 'bottom' else content_y + content_height - stamp_height if vertical == 'top' else content_y + (content_height - stamp_height) / 2
+            pdf.setStrokeColorRGB(.72, .12, .12)
+            pdf.rect(stamp_x, stamp_y, stamp_width, stamp_height, stroke=1, fill=0)
+            pdf.setFillColorRGB(.72, .12, .12)
+            pdf.setFont('Helvetica-Bold', min(10, max(5, stamp_height * .3)))
+            pdf.drawCentredString(stamp_x + stamp_width / 2, stamp_y + stamp_height * .4, 'STAMP PREVIEW')
+        else:
+            ink = {
+                'black': (0.09, 0.14, 0.12),
+                'blue': (0.04, 0.24, 0.58),
+                'purple': (0.34, 0.12, 0.65),
+            }.get(str(spec.get('ink_color') or 'black'), (0.09, 0.14, 0.12))
+            pdf.setFillColorRGB(*ink)
+            font_name = str(spec.get('typed_font') or 'Helvetica-BoldOblique')
+            value = 'Signed date' if slot_type == 'date_signed' else 'Sample signature'
+            try:
+                font_size = float(spec.get('font_size') or 15)
+                text_width = max(1, pdf.stringWidth(value, font_name, font_size))
+            except (TypeError, ValueError, KeyError):
+                font_name, font_size = 'Helvetica-BoldOblique', 15
+                text_width = max(1, pdf.stringWidth(value, font_name, font_size))
+            horizontal_scale = min(1, max(.1, content_width / text_width))
+            vertical = str(spec.get('vertical_align') or 'center')
+            text_y = content_y if vertical == 'bottom' else content_y + max(0, content_height - font_size) if vertical == 'top' else content_y + max(0, (content_height - font_size) / 2)
+            align = str(spec.get('align') or 'center')
+            anchor_x = content_x if align == 'left' else content_x + content_width if align == 'right' else content_x + content_width / 2
+            pdf.translate(anchor_x, text_y)
+            pdf.scale(horizontal_scale, 1)
+            pdf.setFont(font_name, font_size)
+            if align == 'left':
+                pdf.drawString(0, 0, value)
+            elif align == 'right':
+                pdf.drawRightString(0, 0, value)
+            else:
+                pdf.drawCentredString(0, 0, value)
+        pdf.restoreState()
     pdf.save()
     return output.getvalue()
 

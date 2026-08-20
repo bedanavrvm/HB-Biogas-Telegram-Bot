@@ -166,7 +166,12 @@ async function installCalibrationMocks(page) {
       { id: 'field-1', key: 'applicant_name', label: 'Applicant name', category: 'Applicant', type: 'text', attached: true, required: true, section_key: 'applicant', aliases: [] },
       { id: 'field-2', key: 'loan_amount', label: 'Loan amount', category: 'Loan', type: 'money', attached: true, required: true, section_key: 'applicant', aliases: ['Requested amount'] },
     ],
-    form_sections: [{ key: 'applicant', label: 'Applicant' }], signature_slots: [], published: false, product_published: false,
+    form_sections: [{ key: 'applicant', label: 'Applicant' }],
+    signature_slots: [
+      { role: 'borrower', slot_key: 'signature', label: 'Borrower signature', slot_type: 'signature', required: false },
+      { role: 'officer', slot_key: 'branch_stamp', label: 'Branch stamp', slot_type: 'stamp', required: false },
+    ],
+    published: false, product_published: false,
   };
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800"><rect width="600" height="800" fill="white"/><text x="50" y="70" font-family="Arial" font-size="22" fill="#172033">Synthetic Loan Application</text><path d="M50 160h500M50 230h500M50 300h500M50 370h500M50 440h500M50 510h500M50 580h500M50 650h500" stroke="#94a3b8"/></svg>';
   await page.route(`**/${templateId}/calibration-state/`, route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(state) }));
@@ -208,6 +213,47 @@ async function auditCalibration(browser, viewport) {
   await page.locator('#cal-field-confirm').click();
   await page.waitForFunction(() => document.querySelectorAll('.calibration-box').length === 2);
   assert(!(await page.locator('#calibration-publish').isDisabled()), `${viewport.name}: placing required field did not unlock publish`);
+  await page.locator('[data-nav-action="place"][data-kind="signature"][data-key="borrower.signature"]').click();
+  await page.waitForFunction(() => document.querySelectorAll('.calibration-box').length === 3);
+  if (viewport.width <= 850) {
+    await page.locator('#calibration-sheet-close').click();
+    await page.locator('#cal-mobile-inspector').click();
+  }
+  await page.locator('#cal-signature-ink').waitFor({ state: 'visible' });
+  if (viewport.width <= 850) {
+    assert((await page.locator('#calibration-sheet-title').textContent()).trim() === 'Selected signer slot', `${viewport.name}: signer inspector has the wrong mobile heading`);
+  }
+  await page.locator('#cal-signature-align').selectOption('right');
+  await page.locator('#cal-signature-ink').selectOption('blue');
+  await page.locator('#cal-signature-font').selectOption('Times-Italic');
+  await page.locator('#cal-signature-font-size').fill('18');
+  await page.locator('#cal-signature-font-size').press('Tab');
+  await page.locator('#cal-signature-stroke-width').fill('2.5');
+  await page.locator('#cal-signature-stroke-width').press('Tab');
+  assert(await page.locator('#cal-stamp-appearance').isHidden(), `${viewport.name}: stamp-only settings are visible for a signature slot`);
+  await assertContained(page, `${viewport.name}/signature-properties`);
+  await page.screenshot({ path: path.join(output, `${viewport.name}-calibration-signature-properties.png`) });
+  if (viewport.width <= 850) {
+    await page.locator('#calibration-sheet-close').click();
+    await page.locator('#cal-mobile-fields').click();
+  }
+  await page.locator('[data-nav-action="place"][data-kind="signature"][data-key="officer.branch_stamp"]').click();
+  await page.waitForFunction(() => document.querySelectorAll('.calibration-box').length === 4);
+  if (viewport.width <= 850) {
+    await page.locator('#calibration-sheet-close').click();
+    await page.locator('#cal-mobile-inspector').click();
+  }
+  await page.locator('#cal-stamp-fit').waitFor({ state: 'visible' });
+  await page.locator('#cal-stamp-fit').selectOption('stretch');
+  await page.locator('#cal-signature-rotation').fill('6');
+  await page.locator('#cal-signature-rotation').press('Tab');
+  assert(await page.locator('#cal-signature-appearance').isHidden(), `${viewport.name}: signature-only settings are visible for a stamp slot`);
+  await assertContained(page, `${viewport.name}/stamp-properties`);
+  await page.screenshot({ path: path.join(output, `${viewport.name}-calibration-stamp-properties.png`) });
+  if (viewport.width <= 850) {
+    await page.locator('#calibration-sheet-close').click();
+    await page.locator('#cal-mobile-fields').click();
+  }
   await page.locator('[data-nav-action="select"][data-key="applicant_name"]').click();
   await page.locator('.calibration-box[data-key="applicant_name"]').waitFor();
 

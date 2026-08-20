@@ -290,6 +290,15 @@ local snapshot of the reviewed revision. A future e-sign adapter must be a
 separate idempotent external operation and may not mark local signing complete
 before the provider confirms it.
 
+Signature and stamp appearance is part of each published template configuration
+snapshot, not a mutable signing-time preference. The visual calibration builder
+stores validated alignment, padding, rotation, and type-specific appearance
+settings in `signature_overlay_manifest.slots`. Signature slots additionally
+govern ink colour, typed font/size, and drawn stroke width; stamp slots govern
+contain-versus-stretch image fitting. The signing renderer must apply those
+snapshotted properties and must never allow appearance controls to remove the
+non-production watermark.
+
 The optional no-OTP simulator is intentionally separate from production
 signing. It accepts only test-classified controlled stamps, records append-only
 slot actions, accepts a bounded normalized drawn-stroke payload or typed test

@@ -1,6 +1,6 @@
 {% extends "admin/base_site.html" %}
 {% load static %}
-{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_calibration.css' %}?v=12">{% endblock %}
+{% block extrahead %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/origination_calibration.css' %}?v=13">{% endblock %}
 {% block breadcrumbs %}{% endblock %}
 {% block content_title %}{% endblock %}
 {% block content_subtitle %}{% endblock %}
@@ -48,6 +48,20 @@
         <div id="calibration-signature-controls" hidden>
           <label>Signer slot<select id="cal-signature-slot"></select></label>
           <label>Slot type<input id="cal-signature-type" type="text" readonly></label>
+          <label>Slot label<input id="cal-signature-label" type="text" maxlength="120"></label>
+          <div class="coordinate-grid"><label>Horizontal alignment<select id="cal-signature-align"><option value="left">Left</option><option value="center">Centre</option><option value="right">Right</option></select></label><label>Vertical alignment<select id="cal-signature-vertical"><option value="bottom">Bottom</option><option value="center">Middle</option><option value="top">Top</option></select></label></div>
+          <div class="coordinate-grid"><label>Padding X<input id="cal-signature-padding-x" type="number" min="0" step="0.5"></label><label>Padding Y<input id="cal-signature-padding-y" type="number" min="0" step="0.5"></label></div>
+          <label>Rotation (degrees)<input id="cal-signature-rotation" type="number" min="-180" max="180" step="1"></label>
+          <section id="cal-signature-appearance" class="calibration-slot-appearance">
+            <h3>Signature appearance</h3>
+            <div class="coordinate-grid"><label>Ink colour<select id="cal-signature-ink"><option value="black">Black</option><option value="blue">Blue</option><option value="purple">Purple</option></select></label><label>Typed font<select id="cal-signature-font"><option value="Helvetica-BoldOblique">Helvetica italic</option><option value="Times-Italic">Times italic</option><option value="Courier-Oblique">Courier italic</option></select></label></div>
+            <div class="coordinate-grid"><label>Typed font size<input id="cal-signature-font-size" type="number" min="6" max="30" step="0.5"></label><label>Drawn stroke width<input id="cal-signature-stroke-width" type="number" min="0.5" max="8" step="0.25"></label></div>
+          </section>
+          <section id="cal-stamp-appearance" class="calibration-slot-appearance" hidden>
+            <h3>Stamp appearance</h3>
+            <label>Image fit<select id="cal-stamp-fit"><option value="contain">Keep proportions</option><option value="stretch">Fill the entire box</option></select></label>
+            <p class="help">The officer still chooses an approved stamp asset during signing. These settings control how that asset is placed.</p>
+          </section>
         </div>
         <div class="coordinate-grid">
           <label>X<input id="cal-x" type="number" step="0.5"></label><label>Y<input id="cal-y" type="number" step="0.5"></label>
@@ -106,5 +120,5 @@
     </form>
   </dialog>
 </div>
-<script src="{% static 'admin/origination_calibration.js' %}?v=12"></script>
+<script src="{% static 'admin/origination_calibration.js' %}?v=13"></script>
 {% endblock %}

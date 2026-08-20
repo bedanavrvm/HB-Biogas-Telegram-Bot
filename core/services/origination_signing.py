@@ -255,47 +255,99 @@ def _test_overlay(width: float, height: float, items: list[tuple[dict, Originati
             box_width, box_height = float(box['width']) * scale, float(box['height']) * scale
         except (KeyError, TypeError, ValueError):
             continue
+        padding = spec.get('padding') if isinstance(spec.get('padding'), dict) else {}
+        try:
+            padding_x = max(0, float(padding.get('x', 0)) * scale)
+            padding_y = max(0, float(padding.get('y', 0)) * scale)
+            rotation = float(spec.get('rotation', 0))
+        except (TypeError, ValueError):
+            padding_x = padding_y = rotation = 0
+        content_x = -box_width / 2 + padding_x
+        content_y = -box_height / 2 + padding_y
+        content_width = max(1, box_width - padding_x * 2)
+        content_height = max(1, box_height - padding_y * 2)
+        pdf.saveState()
+        pdf.translate(x + box_width / 2, y + box_height / 2)
+        pdf.rotate(rotation)
         if action.action_type == OriginationSigningAction.TYPE_STAMP and action.stamp_asset_id:
+            stamp_image = ImageReader(BytesIO(bytes(action.stamp_asset.image_png)))
+            stamp_x, stamp_y = content_x, content_y
+            stamp_width, stamp_height = content_width, content_height
+            if str(spec.get('stamp_fit') or 'contain') != 'stretch':
+                image_width, image_height = stamp_image.getSize()
+                fit_scale = min(content_width / max(1, image_width), content_height / max(1, image_height))
+                stamp_width, stamp_height = image_width * fit_scale, image_height * fit_scale
+                align = str(spec.get('align') or 'center')
+                vertical = str(spec.get('vertical_align') or 'center')
+                stamp_x = content_x if align == 'left' else content_x + content_width - stamp_width if align == 'right' else content_x + (content_width - stamp_width) / 2
+                stamp_y = content_y if vertical == 'bottom' else content_y + content_height - stamp_height if vertical == 'top' else content_y + (content_height - stamp_height) / 2
             pdf.drawImage(
-                ImageReader(BytesIO(bytes(action.stamp_asset.image_png))), x, y,
-                width=box_width, height=box_height, preserveAspectRatio=True,
-                anchor='c', mask='auto',
+                stamp_image, stamp_x, stamp_y, width=stamp_width, height=stamp_height,
+                preserveAspectRatio=False, mask='auto',
             )
         else:
             pdf.setStrokeColorRGB(.48, .23, .93)
-            pdf.setFillColorRGB(.34, .12, .65)
-            pdf.rect(x, y, box_width, box_height, stroke=1, fill=0)
+            pdf.rect(-box_width / 2, -box_height / 2, box_width, box_height, stroke=1, fill=0)
+            ink = {
+                'black': (0.09, 0.14, 0.12),
+                'blue': (0.04, 0.24, 0.58),
+                'purple': (0.34, 0.12, 0.65),
+            }.get(str(spec.get('ink_color') or 'black'), (0.09, 0.14, 0.12))
+            pdf.setStrokeColorRGB(*ink)
+            pdf.setFillColorRGB(*ink)
             capture = (action.metadata or {}).get('signature_capture') or {}
             if capture.get('method') == 'drawn':
-                pdf.saveState()
                 pdf.setLineCap(1)
                 pdf.setLineJoin(1)
-                pdf.setLineWidth(max(1, min(box_width, box_height) * .025))
-                inset = max(2, min(box_width, box_height) * .08)
-                draw_width = max(1, box_width - inset * 2)
-                draw_height = max(1, box_height - inset * 2)
+                try:
+                    stroke_width = float(spec.get('stroke_width') or 2)
+                except (TypeError, ValueError):
+                    stroke_width = 2
+                pdf.setLineWidth(max(.5, min(8, stroke_width)))
                 for stroke in capture.get('strokes') or []:
                     if len(stroke) < 2:
                         continue
                     path = pdf.beginPath()
-                    path.moveTo(x + inset + stroke[0][0] * draw_width, y + inset + (1 - stroke[0][1]) * draw_height)
+                    path.moveTo(content_x + stroke[0][0] * content_width, content_y + (1 - stroke[0][1]) * content_height)
                     for point in stroke[1:]:
-                        path.lineTo(x + inset + point[0] * draw_width, y + inset + (1 - point[1]) * draw_height)
+                        path.lineTo(content_x + point[0] * content_width, content_y + (1 - point[1]) * content_height)
                     pdf.drawPath(path, stroke=1, fill=0)
-                pdf.restoreState()
             else:
                 name = str(capture.get('name') or 'TEST SIGNATURE')
-                font_name = 'Helvetica-BoldOblique'
-                font_size = min(15, max(7, box_height * .38))
+                font_name = str(spec.get('typed_font') or 'Helvetica-BoldOblique')
+                try:
+                    font_size = float(spec.get('font_size') or 15)
+                    text_width = max(1, pdf.stringWidth(name[:120], font_name, font_size))
+                except (TypeError, ValueError, KeyError):
+                    font_name, font_size = 'Helvetica-BoldOblique', 15
+                    text_width = max(1, pdf.stringWidth(name[:120], font_name, font_size))
                 name = name[:120]
-                text_width = max(1, pdf.stringWidth(name, font_name, font_size))
-                horizontal_scale = min(1, max(0.1, (box_width - 6) / text_width))
+                horizontal_scale = min(1, max(0.1, content_width / text_width))
+                vertical = str(spec.get('vertical_align') or 'center')
+                text_y = (
+                    content_y if vertical == 'bottom'
+                    else content_y + max(0, content_height - font_size) if vertical == 'top'
+                    else content_y + max(0, (content_height - font_size) / 2)
+                )
+                align = str(spec.get('align') or 'center')
                 pdf.saveState()
-                pdf.translate(x + box_width / 2, y + max(5, box_height * .38))
+                anchor_x = (
+                    content_x if align == 'left'
+                    else content_x + content_width if align == 'right'
+                    else content_x + content_width / 2
+                )
+                pdf.translate(anchor_x, text_y)
                 pdf.scale(horizontal_scale, 1)
                 pdf.setFont(font_name, font_size)
-                pdf.drawCentredString(0, 0, name)
+                if align == 'left':
+                    pdf.drawString(0, 0, name)
+                elif align == 'right':
+                    pdf.drawRightString(0, 0, name)
+                else:
+                    pdf.drawCentredString(0, 0, name)
                 pdf.restoreState()
+        pdf.restoreState()
+        if action.action_type != OriginationSigningAction.TYPE_STAMP:
             pdf.setFillColorRGB(.78, .08, .08)
             pdf.setFont('Helvetica-Bold', min(6, max(4, box_height * .16)))
             pdf.drawRightString(x + box_width - 2, y + 2, 'TEST')

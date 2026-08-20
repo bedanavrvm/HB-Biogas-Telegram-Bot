@@ -1,3 +1,4 @@
+from base64 import b64decode
 from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -489,7 +490,12 @@ class LoanOriginationServiceTests(TestCase):
             })
 
     def test_typed_and_drawn_test_signatures_render_inside_pdf_slots(self):
-        slot = {'box': {'x': 20, 'y': 20, 'width': 160, 'height': 45}}
+        slot = {
+            'box': {'x': 20, 'y': 20, 'width': 160, 'height': 45},
+            'padding': {'x': 5, 'y': 4}, 'rotation': -4,
+            'align': 'right', 'vertical_align': 'top', 'ink_color': 'blue',
+            'typed_font': 'Times-Italic', 'font_size': 18, 'stroke_width': 3,
+        }
         typed = SimpleNamespace(
             action_type=OriginationSigningAction.TYPE_SIGNATURE,
             stamp_asset_id=None,
@@ -510,6 +516,22 @@ class LoanOriginationServiceTests(TestCase):
         drawn_pdf = PdfReader(BytesIO(_test_overlay(200, 100, [(slot, drawn)])))
         self.assertEqual(len(drawn_pdf.pages), 1)
         self.assertIn('TEST ONLY - NOT LEGALLY SIGNED', drawn_pdf.pages[0].extract_text())
+
+        stamp = SimpleNamespace(
+            action_type=OriginationSigningAction.TYPE_STAMP,
+            stamp_asset_id='synthetic-stamp', metadata={},
+            stamp_asset=SimpleNamespace(image_png=b64decode(
+                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+            )),
+        )
+        stamp_slot = {
+            'box': {'x': 20, 'y': 20, 'width': 160, 'height': 45},
+            'padding': {'x': 4, 'y': 3}, 'rotation': 6,
+            'align': 'right', 'vertical_align': 'top', 'stamp_fit': 'contain',
+        }
+        stamp_pdf = PdfReader(BytesIO(_test_overlay(200, 100, [(stamp_slot, stamp)])))
+        self.assertEqual(len(stamp_pdf.pages), 1)
+        self.assertIn('TEST ONLY - NOT LEGALLY SIGNED', stamp_pdf.pages[0].extract_text())
 
     def test_superuser_may_review_own_submission_as_break_glass_override(self):
         self.officer.is_superuser = True

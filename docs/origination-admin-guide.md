@@ -192,16 +192,22 @@ PDF mappings.
 In the alignment builder:
 
 1. Select **+ Field**, choose a field, then draw or place its box on the PDF.
-2. Add and place every required signer slot.
-3. Use **Selected** controls to set box dimensions, text alignment, font,
-   minimum font size, padding, capitalization, checkbox/text rendering, and
-   overflow behavior.
-4. Use **Global formatting** for shared text defaults. Individual field settings
+2. Add and place every required signer or stamp slot.
+3. For a normal data field, use **Selected** controls to set box dimensions,
+   text alignment, font, minimum font size, padding, capitalization,
+   checkbox/text rendering, and overflow behavior.
+4. For a signature slot, use **Selected** to customize its slot label,
+   horizontal/vertical alignment, padding, rotation, ink colour, typed-signature
+   font and size, and drawn-signature stroke width.
+5. For a stamp slot, configure its slot label, alignment, padding, rotation, and
+   whether the approved PNG keeps its proportions or fills the whole box. The
+   stamp image itself is selected from governed stamp assets during signing.
+6. Use **Global formatting** for shared text defaults. Individual field settings
    may override them.
-5. Check every page with **Fit width**, **Fit page**, zoom, and page navigation.
-6. Switch from **Template** to **Filled sample** and inspect a generated sample.
-7. Select **Save draft**.
-8. Open **Publish readiness** and correct every mapping-related item.
+7. Check every page with **Fit width**, **Fit page**, zoom, and page navigation.
+8. Switch from **Template** to **Filled sample** and inspect a generated sample.
+9. Select **Save draft**.
+10. Open **Publish readiness** and correct every mapping-related item.
 
 If the product needs supporting documents, return to the product definition now
 and add them before selecting **Publish product**. Publication validates the

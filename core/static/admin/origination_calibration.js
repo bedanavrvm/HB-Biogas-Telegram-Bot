@@ -55,6 +55,15 @@
     text_case: 'none', align: 'left', vertical_align: 'bottom',
     fit: 'shrink', padding: { x: 0, y: 0 },
   };
+  const baseSignatureFormatting = {
+    align: 'center', vertical_align: 'center', padding: { x: 3, y: 3 },
+    rotation: 0, ink_color: 'black', typed_font: 'Helvetica-BoldOblique',
+    font_size: 15, stroke_width: 2, stamp_fit: 'contain',
+  };
+  const signatureFormatting = slotType => ({
+    ...copy(baseSignatureFormatting),
+    ...(slotType === 'stamp' ? { padding: { x: 2, y: 2 } } : {}),
+  });
   const globalFieldFormatting = () => {
     const stored = configuration?.field_overlay_manifest?.defaults || {};
     const storedPadding = typeof stored.padding === 'object'
@@ -613,12 +622,16 @@
     }
     if (mode !== 'view') {
       sidebar.classList.add('mobile-open', `mobile-mode-${mode}`);
-      $('calibration-sheet-title').textContent = mode === 'fields' ? 'Fields and signer slots' : mode === 'global' ? 'Global formatting' : 'Selected field';
+      $('calibration-sheet-title').textContent = mode === 'fields'
+        ? 'Fields and signer slots'
+        : mode === 'global'
+          ? 'Global formatting'
+          : selectedKind === 'signature' ? 'Selected signer slot' : 'Selected field';
       if (mode === 'global') document.querySelector('.global-formatting').open = true;
     } else toolbar.classList.add('mobile-open');
     target.setAttribute('role', 'dialog'); target.setAttribute('aria-modal', 'true'); target.setAttribute('aria-hidden', 'false');
     $('calibration-mobile-backdrop').hidden = false;
-    window.requestAnimationFrame(() => focusable(target)[0]?.focus());
+    window.requestAnimationFrame(() => { target.scrollTop = 0; focusable(target)[0]?.focus(); });
   }
   function trapSheetFocus(event) {
     if (event.key !== 'Tab' || !mobileSheet) return;
@@ -654,7 +667,23 @@
     $('cal-x').value = box.x; $('cal-y').value = box.y; $('cal-width').value = box.width; $('cal-height').value = box.height;
     if (isSignature) {
       $('cal-signature-slot').value = selectedKey;
-      $('cal-signature-type').value = spec.slot_type || 'signature';
+      const slotType = spec.slot_type || 'signature';
+      const defaults = signatureFormatting(slotType);
+      const padding = typeof spec.padding === 'object' ? spec.padding : defaults.padding;
+      $('cal-signature-type').value = slotType.replaceAll('_', ' ');
+      $('cal-signature-label').value = spec.label || '';
+      $('cal-signature-align').value = spec.align || defaults.align;
+      $('cal-signature-vertical').value = spec.vertical_align || defaults.vertical_align;
+      $('cal-signature-padding-x').value = padding.x ?? defaults.padding.x;
+      $('cal-signature-padding-y').value = padding.y ?? defaults.padding.y;
+      $('cal-signature-rotation').value = spec.rotation ?? defaults.rotation;
+      $('cal-signature-ink').value = spec.ink_color || defaults.ink_color;
+      $('cal-signature-font').value = spec.typed_font || defaults.typed_font;
+      $('cal-signature-font-size').value = spec.font_size || defaults.font_size;
+      $('cal-signature-stroke-width').value = spec.stroke_width || defaults.stroke_width;
+      $('cal-stamp-fit').value = spec.stamp_fit || defaults.stamp_fit;
+      $('cal-signature-appearance').hidden = slotType !== 'signature';
+      $('cal-stamp-appearance').hidden = slotType !== 'stamp';
       return;
     }
     $('cal-context').value = spec.context_key || '';
@@ -714,6 +743,27 @@
     spec.vertical_align = $('cal-vertical').value;
     spec.fit = $('cal-fit').value;
     markDirty(); renderItemList(); inspect(); recordHistory('Edit field formatting', before);
+  }
+
+  function updateSelectedSignature() {
+    if (operationState === 'publishing' || published) return;
+    const spec = currentSpec();
+    if (!spec || selectedKind !== 'signature') return;
+    const before = configurationHash(configuration);
+    spec.label = $('cal-signature-label').value.trim();
+    spec.align = $('cal-signature-align').value;
+    spec.vertical_align = $('cal-signature-vertical').value;
+    spec.padding = {
+      x: Number($('cal-signature-padding-x').value),
+      y: Number($('cal-signature-padding-y').value),
+    };
+    spec.rotation = Number($('cal-signature-rotation').value);
+    spec.ink_color = $('cal-signature-ink').value;
+    spec.typed_font = $('cal-signature-font').value;
+    spec.font_size = Number($('cal-signature-font-size').value);
+    spec.stroke_width = Number($('cal-signature-stroke-width').value);
+    spec.stamp_fit = $('cal-stamp-fit').value;
+    markDirty(); renderItemList(); inspect(); recordHistory('Edit signer slot appearance', before);
   }
 
   function selectedCatalogueField(id) {
@@ -867,6 +917,7 @@
 
   ['cal-x', 'cal-y', 'cal-width', 'cal-height'].forEach(id => $(id).addEventListener('change', updateGeometry));
   ['cal-font', 'cal-font-size', 'cal-min-font-size', 'cal-padding-x', 'cal-padding-y', 'cal-text-case', 'cal-render-as', 'cal-checked-when', 'cal-align', 'cal-vertical', 'cal-fit'].forEach(id => $(id).addEventListener('change', updateSelectedField));
+  ['cal-signature-label', 'cal-signature-align', 'cal-signature-vertical', 'cal-signature-padding-x', 'cal-signature-padding-y', 'cal-signature-rotation', 'cal-signature-ink', 'cal-signature-font', 'cal-signature-font-size', 'cal-signature-stroke-width', 'cal-stamp-fit'].forEach(id => $(id).addEventListener('change', updateSelectedSignature));
   $('cal-context').addEventListener('change', event => {
     const item = contextKeys.find(candidate => candidate.key === event.target.value);
     if (item && !item.attached && item.source_type === 'user_input') {
@@ -934,6 +985,7 @@
       role: slot.role, slot_key: slot.slot_key, label: slot.label, slot_type: slot.slot_type,
       units: 'pt', page_number: page,
       box: copy(box), allowed_area: copy(box),
+      ...signatureFormatting(slot.slot_type),
     };
     select('signature', key); markDirty(); recordHistory('Place signer slot', before);
   }
